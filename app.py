@@ -9,6 +9,7 @@ from stocks import get_sp500_tickers, get_norwegian_tickers
 from analysis import rank_stocks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
+from news import get_news, simple_finance_sentiment
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
@@ -196,13 +197,29 @@ def render_analysis(results, label):
             st.caption(f"{k}: {v}")
 
     st.markdown("#### 📰 Nyheter")
-    if item["news_error"]:
-        st.info(item["news_error"])
-    elif not item["articles"]:
-        st.info("Ingen relevante nyheter funnet.")
+    st.caption("For å spare NewsAPI-kall hentes nyheter bare for valgt aksje når du trykker knappen.")
+
+    if not use_news:
+        st.info("Nyheter/sentiment er slått av i sidepanelet.")
+    elif st.button(f"Hent nyheter for {selected}", key=f"news_btn_{label}_{selected}"):
+        articles, error = get_news(selected.replace(".OL", ""), limit=6)
+
+        if error:
+            st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
+        elif not articles:
+            st.info("Ingen relevante nyheter funnet.")
+        else:
+            live_sentiment = simple_finance_sentiment(articles)
+            st.metric("Live nyhets-sentiment", live_sentiment)
+
+            for a in articles:
+                st.markdown(
+                    f"- **{a.get('title','Uten tittel')}**  \n"
+                    f"  <span class='small'>{a.get('source','')} · {a.get('published','')}</span>",
+                    unsafe_allow_html=True,
+                )
     else:
-        for a in item["articles"]:
-            st.markdown(f"- **{a.get('title','Uten tittel')}**  \n  <span class='small'>{a.get('source','')} · {a.get('published','')}</span>", unsafe_allow_html=True)
+        st.info("Trykk på knappen over for å hente nyheter for valgt aksje.")
 
 def render_ipo():
     st.subheader("🚀 Nye og kommende børsnoteringer")
@@ -273,7 +290,9 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.title("⚙️ Innstillinger")
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
-use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
+st.sidebar.caption("Ranking bruker ikke NewsAPI automatisk. Dette sparer gratis-kvoten.")
+use_news = st.sidebar.checkbox("Bruk nyheter/sentiment i valgt analyse", value=True)
+st.sidebar.caption("Nyheter hentes bare når du trykker knapp, for å spare API-kall.")
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
 st.title("📈 AI Aksje Analyzer Pro")
@@ -290,7 +309,7 @@ tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norske aksjer", "🚀 IPO", "🧪 Back
 
 with tabs[0]:
     if mode in ["USA / S&P 500", "Begge"] or search.strip():
-        us_results = rank_stocks(tickers_us, max_count=max_count, use_news=use_news)
+        us_results = rank_stocks(tickers_us, max_count=max_count, use_news=False)
         render_ranking(us_results, "🏆 Topp rangerte USA/S&P 500")
         render_analysis(us_results, "USA")
     else:
@@ -298,7 +317,7 @@ with tabs[0]:
 
 with tabs[1]:
     if mode in ["Norge / Oslo Børs", "Begge"] and not search.strip():
-        no_results = rank_stocks(tickers_no, max_count=max_count, use_news=use_news)
+        no_results = rank_stocks(tickers_no, max_count=max_count, use_news=False)
         render_ranking(no_results, "🇳🇴 Topp 10 norske aksjer")
         render_analysis(no_results, "Norge")
     else:
