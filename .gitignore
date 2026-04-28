@@ -5,3 +5,4 @@ venv/
 .venv/
 results.csv
 backtest_results.csv
+.env
