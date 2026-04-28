@@ -1,132 +1,90 @@
 import pandas as pd
 
-def _safe_float(value, default=0.0):
-    try:
-        if pd.isna(value):
-            return default
-        return float(value)
-    except Exception:
-        return default
-
-def run_strategy(
-    df,
-    start_capital=100000,
-    rsi_buy_max=60,
-    rsi_sell_min=75,
-):
+def run_strategy(df, start_capital=100000):
     """
-    Enkel historisk strategi for valgt aksje.
+    Enkel historisk strategi-simulering for én aksje.
+    Bruker RSI + MACD:
+    - BUY når RSI < 60 og MACD > signal
+    - SELL når RSI > 75 eller MACD < signal
 
-    BUY:
-    - RSI under rsi_buy_max
-    - MACD over signal
-
-    SELL:
-    - RSI over rsi_sell_min
-    - eller MACD under signal
-
-    Returnerer dict med:
+    Returnerer:
     - final_value
-    - trades DataFrame
-    - equity_curve DataFrame
-    - stats dict
-
-    Dette er analyse og simulering, ikke investeringsråd.
+    - trades
+    - equity_curve
     """
-    data = df.copy().dropna(subset=["Close"])
-
     capital = float(start_capital)
     position = 0.0
-    entry_price = None
-
+    equity_curve = []
     trades = []
-    equity_rows = []
 
-    for i in range(50, len(data)):
-        date = data.index[i]
-        price = _safe_float(data["Close"].iloc[i])
-        rsi = _safe_float(data["rsi"].iloc[i], 50)
-        macd = _safe_float(data["macd"].iloc[i], 0)
-        macd_signal = _safe_float(data["macd_signal"].iloc[i], 0)
+    if df is None or df.empty or len(df) < 60:
+        return capital, trades, equity_curve
 
-        buy_signal = (
-            position == 0
-            and rsi < rsi_buy_max
-            and macd > macd_signal
-        )
+    for i in range(50, len(df)):
+        row = df.iloc[i]
+        price = float(row["Close"])
 
-        sell_signal = (
-            position > 0
-            and (
-                rsi > rsi_sell_min
-                or macd < macd_signal
-            )
-        )
+        rsi = row.get("rsi", 50)
+        macd = row.get("macd", 0)
+        signal = row.get("macd_signal", 0)
 
-        if buy_signal and price > 0:
+        # Hopp over rader med manglende indikatorer
+        if pd.isna(rsi) or pd.isna(macd) or pd.isna(signal) or price <= 0:
+            value = capital if position == 0 else position * price
+            equity_curve.append((df.index[i], value))
+            continue
+
+        buy = (rsi < 60 and macd > signal)
+        sell = (rsi > 75 or macd < signal)
+
+        if position == 0 and buy:
             position = capital / price
-            entry_price = price
-            trades.append({
-                "date": date,
-                "type": "BUY",
-                "price": round(price, 2),
-                "value": round(capital, 2),
-                "return_pct": None,
-            })
             capital = 0.0
-
-        elif sell_signal and price > 0:
-            capital = position * price
-            ret_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0
             trades.append({
-                "date": date,
+                "type": "BUY",
+                "date": df.index[i],
+                "price": round(price, 2),
+                "value": round(position * price, 2),
+            })
+
+        elif position > 0 and sell:
+            capital = position * price
+            position = 0.0
+            trades.append({
                 "type": "SELL",
+                "date": df.index[i],
                 "price": round(price, 2),
                 "value": round(capital, 2),
-                "return_pct": round(ret_pct, 2),
             })
-            position = 0.0
-            entry_price = None
 
-        current_value = capital if position == 0 else position * price
-        equity_rows.append({
-            "date": date,
-            "value": current_value,
-        })
+        value = capital if position == 0 else position * price
+        equity_curve.append((df.index[i], value))
 
-    # Sluttverdi hvis posisjon fortsatt er åpen
-    if equity_rows:
-        final_value = equity_rows[-1]["value"]
-    else:
-        final_value = start_capital
+    final_value = equity_curve[-1][1] if equity_curve else capital
+    return final_value, trades, equity_curve
 
-    trades_df = pd.DataFrame(trades)
-    equity_df = pd.DataFrame(equity_rows)
 
-    if not equity_df.empty:
-        equity_df["peak"] = equity_df["value"].cummax()
-        equity_df["drawdown"] = (equity_df["value"] - equity_df["peak"]) / equity_df["peak"] * 100
-        max_drawdown_pct = float(equity_df["drawdown"].min())
-    else:
-        equity_df = pd.DataFrame(columns=["date", "value", "peak", "drawdown"])
-        max_drawdown_pct = 0.0
+def strategy_stats(equity_curve, trades, start_capital=100000):
+    """
+    Lager enkel statistikk for strategien.
+    """
+    if not equity_curve:
+        return {
+            "total_return": 0,
+            "max_drawdown": 0,
+            "num_trades": 0,
+        }
 
-    sell_trades = trades_df[trades_df["type"] == "SELL"] if not trades_df.empty else pd.DataFrame()
-    if not sell_trades.empty and "return_pct" in sell_trades:
-        win_rate = float((sell_trades["return_pct"] > 0).mean() * 100)
-    else:
-        win_rate = 0.0
+    eq = pd.DataFrame(equity_curve, columns=["date", "value"])
+    eq["peak"] = eq["value"].cummax()
+    eq["drawdown"] = (eq["value"] - eq["peak"]) / eq["peak"]
 
-    stats = {
-        "total_return_pct": round((final_value - start_capital) / start_capital * 100, 2),
-        "max_drawdown_pct": round(max_drawdown_pct, 2),
-        "trade_count": int(len(trades_df)),
-        "win_rate_pct": round(win_rate, 1),
-    }
+    final_value = eq["value"].iloc[-1]
+    total_return = (final_value - start_capital) / start_capital
+    max_drawdown = eq["drawdown"].min()
 
     return {
-        "final_value": final_value,
-        "trades": trades_df,
-        "equity_curve": equity_df,
-        "stats": stats,
+        "total_return": round(total_return * 100, 1),
+        "max_drawdown": round(max_drawdown * 100, 1),
+        "num_trades": len(trades),
     }

@@ -1,4 +1,4 @@
-from strategy_engine import run_strategy
+from strategy_engine import run_strategy, strategy_stats
 import streamlit as st
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
@@ -257,15 +257,6 @@ def render_analysis(results, label):
 
     st.markdown("#### 🧪 Strategi-test (historisk simulering)")
 
-    start_capital = st.number_input(
-        "Startkapital",
-        min_value=10000,
-        max_value=10000000,
-        value=100000,
-        step=10000,
-        key=f"start_capital_{label}_{selected}",
-    )
-
     if st.button(f"Kjør strategi-test for {selected}", key=f"strategy_{label}_{selected}"):
 
         df_strategy = item["hist"].copy()
@@ -276,54 +267,63 @@ def render_analysis(results, label):
         df_strategy["macd"] = macd_strategy
         df_strategy["macd_signal"] = signal_strategy
 
-        result = run_strategy(df_strategy, start_capital=start_capital)
-        value = result["final_value"]
-        trades = result["trades"]
-        equity = result["equity_curve"]
-        stats = result["stats"]
+        value, trades, equity = run_strategy(df_strategy)
+        stats = strategy_stats(equity, trades)
 
-        s1, s2, s3, s4 = st.columns(4)
+        s1, s2, s3 = st.columns(3)
         s1.metric("Sluttverdi", f"{value:,.0f} kr")
-        s2.metric("Total avkastning", f"{stats['total_return_pct']:.1f}%")
-        s3.metric("Maks drawdown", f"{stats['max_drawdown_pct']:.1f}%")
-        s4.metric("Antall trades", stats["trade_count"])
+        s2.metric("Total avkastning", f"{stats['total_return']}%")
+        s3.metric("Max drawdown", f"{stats['max_drawdown']}%")
 
-        fig_strategy = go.Figure()
-        fig_strategy.add_trace(go.Scatter(
-            x=equity["date"],
-            y=equity["value"],
-            mode="lines",
-            name="Strategi",
-        ))
-        fig_strategy.update_layout(
-            title="📈 Strategiutvikling / Equity curve",
-            template="plotly_dark",
-            height=400,
-            paper_bgcolor="#0b111c",
-            plot_bgcolor="#0b111c",
-        )
-        st.plotly_chart(fig_strategy, use_container_width=True)
+        if equity:
+            eq_df = pd.DataFrame(equity, columns=["date", "value"])
 
-        fig_dd = go.Figure()
-        fig_dd.add_trace(go.Scatter(
-            x=equity["date"],
-            y=equity["drawdown"],
-            mode="lines",
-            fill="tozeroy",
-            name="Drawdown",
-        ))
-        fig_dd.update_layout(
-            title="📉 Drawdown",
-            template="plotly_dark",
-            height=280,
-            paper_bgcolor="#0b111c",
-            plot_bgcolor="#0b111c",
-        )
-        st.plotly_chart(fig_dd, use_container_width=True)
+            fig_eq = go.Figure()
+            fig_eq.add_trace(go.Scatter(
+                x=eq_df["date"],
+                y=eq_df["value"],
+                mode="lines",
+                name="Portefølje"
+            ))
+
+            # Marker BUY/SELL punkter på grafen
+            if trades:
+                buy_x = [t["date"] for t in trades if t["type"] == "BUY"]
+                buy_y = [t["value"] for t in trades if t["type"] == "BUY"]
+                sell_x = [t["date"] for t in trades if t["type"] == "SELL"]
+                sell_y = [t["value"] for t in trades if t["type"] == "SELL"]
+
+                if buy_x:
+                    fig_eq.add_trace(go.Scatter(
+                        x=buy_x,
+                        y=buy_y,
+                        mode="markers",
+                        name="BUY",
+                        marker=dict(size=10, symbol="triangle-up")
+                    ))
+
+                if sell_x:
+                    fig_eq.add_trace(go.Scatter(
+                        x=sell_x,
+                        y=sell_y,
+                        mode="markers",
+                        name="SELL",
+                        marker=dict(size=10, symbol="triangle-down")
+                    ))
+
+            fig_eq.update_layout(
+                title="📈 Strategi utvikling (equity curve)",
+                template="plotly_dark",
+                height=420,
+                paper_bgcolor="#0b111c",
+                plot_bgcolor="#0b111c",
+            )
+
+            st.plotly_chart(fig_eq, use_container_width=True)
 
         st.markdown("#### Siste trades")
         if trades:
-            st.dataframe(trades.tail(10), use_container_width=True)
+            st.dataframe(pd.DataFrame(trades[-20:]), use_container_width=True)
         else:
             st.info("Ingen trades ble trigget med disse reglene.")
 
