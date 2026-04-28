@@ -1,4 +1,4 @@
-from strategy_engine import run_strategy, strategy_stats
+from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 import streamlit as st
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
@@ -270,10 +270,16 @@ def render_analysis(results, label):
         value, trades, equity = run_strategy(df_strategy)
         stats = strategy_stats(equity, trades)
 
-        s1, s2, s3 = st.columns(3)
+        s1, s2, s3, s4 = st.columns(4)
         s1.metric("Sluttverdi", f"{value:,.0f} kr")
         s2.metric("Total avkastning", f"{stats['total_return']}%")
         s3.metric("Max drawdown", f"{stats['max_drawdown']}%")
+        s4.metric("Win rate", f"{stats['win_rate']}%")
+
+        s5, s6, s7 = st.columns(3)
+        s5.metric("Antall trades", stats["num_trades"])
+        s6.metric("Avg win/loss", f"{stats['avg_win']}% / {stats['avg_loss']}%")
+        s7.metric("Profit factor", stats["profit_factor"])
 
         if equity:
             eq_df = pd.DataFrame(equity, columns=["date", "value"])
@@ -326,6 +332,25 @@ def render_analysis(results, label):
             st.dataframe(pd.DataFrame(trades[-20:]), use_container_width=True)
         else:
             st.info("Ingen trades ble trigget med disse reglene.")
+
+        st.markdown("#### ⚙️ Strategi-optimalisering")
+        st.caption("Tester flere RSI/MACD-varianter og rangerer dem etter avkastning, risiko og win-rate.")
+
+        opt_df = optimize_strategy(df_strategy)
+
+        if opt_df.empty:
+            st.warning("Klarte ikke å optimalisere strategien.")
+        else:
+            st.dataframe(opt_df.head(10), use_container_width=True)
+
+            best = opt_df.iloc[0]
+            st.success(
+                f"Beste variant: BUY RSI < {best['buy_rsi']}, "
+                f"SELL RSI > {best['sell_rsi']}, "
+                f"MACD: {best['use_macd']} | "
+                f"Return: {best['total_return']}% | "
+                f"Max DD: {best['max_drawdown']}%"
+            )
 
     st.markdown("#### 🧠 Score-forklaring")
     parts = item.get("score_parts", {})
