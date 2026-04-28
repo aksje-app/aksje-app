@@ -9,7 +9,7 @@ from stocks import get_sp500_tickers, get_norwegian_tickers
 from analysis import rank_stocks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
-from smart_news import get_smart_news, analyze_news_sentiment
+from trading_engine import build_trading_decision, adjusted_score
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
@@ -36,6 +36,36 @@ def plot_price(hist, title):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Close"))
     fig.update_layout(title=title, template="plotly_dark", height=420, paper_bgcolor="#0b111c", plot_bgcolor="#0b111c")
+    return fig
+
+
+def add_pattern_markers(fig, pattern, name):
+    points = pattern.get("points", {}) if pattern else {}
+    if not points:
+        return fig
+
+    ordered_keys = ["left_shoulder", "head", "right_shoulder"]
+    xs = []
+    ys = []
+
+    for key in ordered_keys:
+        point = points.get(key)
+        if point and len(point) == 2:
+            xs.append(point[0])
+            ys.append(point[1])
+
+    if xs and ys:
+        fig.add_trace(go.Scatter(
+            x=xs,
+            y=ys,
+            mode="markers+lines+text",
+            name=name,
+            text=["Venstre", "Hode", "Høyre"],
+            textposition="top center",
+            marker=dict(size=10),
+            line=dict(width=3, dash="dash"),
+        ))
+
     return fig
 
 def render_ranking(results, title):
@@ -107,6 +137,38 @@ def render_analysis(results, label):
     breakout = breakout_scanner(df)
     alerts = build_signal_alerts(latest_rsi, latest_macd, latest_macd_signal, breakout, hs, inv_hs)
 
+    technical_context = {
+        "rsi": latest_rsi,
+        "macd_bullish": latest_macd > latest_macd_signal,
+        "breakout_type": breakout.get("type", "neutral"),
+        "head_shoulders_found": hs.get("found", False),
+        "inverse_head_shoulders_found": inv_hs.get("found", False),
+    }
+
+    decision = build_trading_decision(item, technical_context)
+    adj_score = adjusted_score(item, decision)
+
+    st.markdown("#### 🤖 Trading engine")
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Beslutning", f"{decision['emoji']} {decision['decision']}")
+    d2.metric("Signal-score", decision["decision_score"])
+    d3.metric("Confidence", f"{decision['confidence']}%")
+
+    st.markdown(
+        f"""
+        <div class="card">
+            <h3 style="color:{decision['color']}">{decision['emoji']} {decision['decision']}</h3>
+            <p>Original score: <b>{item['score']}/10</b> · Pattern-justert score: <b>{adj_score}/10</b></p>
+            <p class="small">Dette er analysehjelp, ikke investeringsråd.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Hvorfor dette signalet?"):
+        for reason in decision["reasons"]:
+            st.write("•", reason)
+
     t1, t2, t3, t4 = st.columns(4)
     t1.metric("RSI", f"{latest_rsi:.1f}")
     t2.metric("Trend", trend)
@@ -132,13 +194,11 @@ def render_analysis(results, label):
     with p1:
         if hs.get("found"):
             st.warning(f"{hs['label']} | confidence: {hs['confidence']}")
-            st.json(hs.get("points", {}))
         else:
             st.info(hs.get("label", "Ingen pattern"))
     with p2:
         if inv_hs.get("found"):
             st.success(f"{inv_hs['label']} | confidence: {inv_hs['confidence']}")
-            st.json(inv_hs.get("points", {}))
         else:
             st.info(inv_hs.get("label", "Ingen pattern"))
 
@@ -153,10 +213,15 @@ def render_analysis(results, label):
     if breakout.get("resistance") != "N/A":
         fig_ta.add_hline(y=breakout.get("resistance"), line_dash="dash", annotation_text="Motstand")
 
+    if hs.get("found"):
+        fig_ta = add_pattern_markers(fig_ta, hs, "Hode/skulder")
+    if inv_hs.get("found"):
+        fig_ta = add_pattern_markers(fig_ta, inv_hs, "Invertert hode/skulder")
+
     fig_ta.update_layout(
-        title=f"{selected} - Bollinger, støtte/motstand og breakout",
+        title=f"{selected} - Bollinger, støtte/motstand, patterns og breakout",
         template="plotly_dark",
-        height=440,
+        height=480,
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
@@ -197,41 +262,29 @@ def render_analysis(results, label):
             st.caption(f"{k}: {v}")
 
     st.markdown("#### 📰 Nyheter")
-    st.caption("Nyheter lagres lokalt i mini-database. NewsAPI brukes først, Finnhub brukes som backup.")
+    st.caption("For å spare NewsAPI-kall hentes nyheter bare for valgt aksje når du trykker knappen.")
 
     if not use_news:
         st.info("Nyheter/sentiment er slått av i sidepanelet.")
-    elif st.button(f"Hent / oppdater nyheter for {selected}", key=f"smart_news_btn_{label}_{selected}"):
-        articles, error, source = get_smart_news(selected.replace(".OL", ""), limit=8)
+    elif st.button(f"Hent nyheter for {selected}", key=f"news_btn_{label}_{selected}"):
+        articles, error = get_news(selected.replace(".OL", ""), limit=6)
 
         if error:
             st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
         elif not articles:
             st.info("Ingen relevante nyheter funnet.")
         else:
-            summary = analyze_news_sentiment(articles)
-
-            n1, n2, n3, n4 = st.columns(4)
-            n1.metric("Nyhetskilde", source)
-            n2.metric("Bullish", summary["bullish"])
-            n3.metric("Bearish", summary["bearish"])
-            n4.metric("News score", summary["score"])
+            live_sentiment = simple_finance_sentiment(articles)
+            st.metric("Live nyhets-sentiment", live_sentiment)
 
             for a in articles:
-                tag = a.get("sentiment_label", "neutral")
-                title = a.get("title", "Uten tittel")
-                source_name = a.get("source", "")
-                published = a.get("published", "")
-                reason = a.get("sentiment_reason", "")
-
-                if tag == "bullish":
-                    st.success(f"🟢 **{title}**  \n{source_name} · {published}  \n{reason}")
-                elif tag == "bearish":
-                    st.error(f"🔴 **{title}**  \n{source_name} · {published}  \n{reason}")
-                else:
-                    st.info(f"⚪ **{title}**  \n{source_name} · {published}  \n{reason}")
+                st.markdown(
+                    f"- **{a.get('title','Uten tittel')}**  \n"
+                    f"  <span class='small'>{a.get('source','')} · {a.get('published','')}</span>",
+                    unsafe_allow_html=True,
+                )
     else:
-        st.info("Trykk på knappen over for å hente nyheter. Lagrede nyheter brukes automatisk når mulig.")
+        st.info("Trykk på knappen over for å hente nyheter for valgt aksje.")
 
 def render_ipo():
     st.subheader("🚀 Nye og kommende børsnoteringer")
@@ -302,9 +355,7 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.title("⚙️ Innstillinger")
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
-st.sidebar.caption("Ranking bruker ikke NewsAPI automatisk. Dette sparer gratis-kvoten.")
-use_news = st.sidebar.checkbox("Bruk nyheter/sentiment i valgt analyse", value=True)
-st.sidebar.caption("Nyheter hentes kun for valgt aksje og lagres lokalt for å spare API-kall.")
+use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
 st.title("📈 AI Aksje Analyzer Pro")
@@ -321,7 +372,7 @@ tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norske aksjer", "🚀 IPO", "🧪 Back
 
 with tabs[0]:
     if mode in ["USA / S&P 500", "Begge"] or search.strip():
-        us_results = rank_stocks(tickers_us, max_count=max_count, use_news=False)
+        us_results = rank_stocks(tickers_us, max_count=max_count, use_news=use_news)
         render_ranking(us_results, "🏆 Topp rangerte USA/S&P 500")
         render_analysis(us_results, "USA")
     else:
@@ -329,7 +380,7 @@ with tabs[0]:
 
 with tabs[1]:
     if mode in ["Norge / Oslo Børs", "Begge"] and not search.strip():
-        no_results = rank_stocks(tickers_no, max_count=max_count, use_news=False)
+        no_results = rank_stocks(tickers_no, max_count=max_count, use_news=use_news)
         render_ranking(no_results, "🇳🇴 Topp 10 norske aksjer")
         render_analysis(no_results, "Norge")
     else:
