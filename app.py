@@ -1,3 +1,4 @@
+from strategy_engine import run_strategy
 import streamlit as st
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
@@ -253,6 +254,78 @@ def render_analysis(results, label):
         yaxis=dict(range=[0, 100]),
     )
     st.plotly_chart(fig_rsi, use_container_width=True)
+
+    st.markdown("#### 🧪 Strategi-test (historisk simulering)")
+
+    start_capital = st.number_input(
+        "Startkapital",
+        min_value=10000,
+        max_value=10000000,
+        value=100000,
+        step=10000,
+        key=f"start_capital_{label}_{selected}",
+    )
+
+    if st.button(f"Kjør strategi-test for {selected}", key=f"strategy_{label}_{selected}"):
+
+        df_strategy = item["hist"].copy()
+
+        # Legg til indikatorer
+        df_strategy["rsi"] = calculate_rsi(df_strategy)
+        macd_strategy, signal_strategy, _ = calculate_macd(df_strategy)
+        df_strategy["macd"] = macd_strategy
+        df_strategy["macd_signal"] = signal_strategy
+
+        result = run_strategy(df_strategy, start_capital=start_capital)
+        value = result["final_value"]
+        trades = result["trades"]
+        equity = result["equity_curve"]
+        stats = result["stats"]
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Sluttverdi", f"{value:,.0f} kr")
+        s2.metric("Total avkastning", f"{stats['total_return_pct']:.1f}%")
+        s3.metric("Maks drawdown", f"{stats['max_drawdown_pct']:.1f}%")
+        s4.metric("Antall trades", stats["trade_count"])
+
+        fig_strategy = go.Figure()
+        fig_strategy.add_trace(go.Scatter(
+            x=equity["date"],
+            y=equity["value"],
+            mode="lines",
+            name="Strategi",
+        ))
+        fig_strategy.update_layout(
+            title="📈 Strategiutvikling / Equity curve",
+            template="plotly_dark",
+            height=400,
+            paper_bgcolor="#0b111c",
+            plot_bgcolor="#0b111c",
+        )
+        st.plotly_chart(fig_strategy, use_container_width=True)
+
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=equity["date"],
+            y=equity["drawdown"],
+            mode="lines",
+            fill="tozeroy",
+            name="Drawdown",
+        ))
+        fig_dd.update_layout(
+            title="📉 Drawdown",
+            template="plotly_dark",
+            height=280,
+            paper_bgcolor="#0b111c",
+            plot_bgcolor="#0b111c",
+        )
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+        st.markdown("#### Siste trades")
+        if trades:
+            st.dataframe(trades.tail(10), use_container_width=True)
+        else:
+            st.info("Ingen trades ble trigget med disse reglene.")
 
     st.markdown("#### 🧠 Score-forklaring")
     parts = item.get("score_parts", {})
