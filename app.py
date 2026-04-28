@@ -1,7 +1,9 @@
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
+import os
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 from streamlit_autorefresh import st_autorefresh
 
 from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal
@@ -18,16 +20,259 @@ st_autorefresh(interval=300000, key="refresh")
 
 st.markdown("""
 <style>
-.stApp { background: #0b111c; color: #e8eefc; }
-[data-testid="stSidebar"] { background: #111827; }
-div[data-testid="stMetric"] { background: #121a2a; border: 1px solid #24324a; padding: 14px; border-radius: 14px; }
-.card { background: #111827; border: 1px solid #24324a; border-radius: 16px; padding: 14px; margin-bottom: 10px; }
-.small { color: #9aa8c7; font-size: 0.9rem; }
-.good { color: #00e396; font-weight: 700; }
-.mid { color: #f5b041; font-weight: 700; }
-.bad { color: #ff4d6d; font-weight: 700; }
+:root {
+    --bg-main: #0f172a;
+    --bg-sidebar: #020617;
+    --bg-card: #111827;
+    --bg-card-2: #1e293b;
+    --border: #334155;
+    --text-main: #f8fafc;
+    --text-soft: #cbd5e1;
+    --text-muted: #94a3b8;
+    --green: #22c55e;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --blue: #38bdf8;
+}
+
+.stApp {
+    background: var(--bg-main);
+    color: var(--text-main);
+}
+
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2.5rem;
+    max-width: 1500px;
+}
+
+[data-testid="stSidebar"] {
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+}
+
+html, body, [class*="css"], p, span, div {
+    color: var(--text-main);
+}
+
+h1, h2, h3, h4 {
+    color: var(--text-main) !important;
+    font-weight: 800 !important;
+}
+
+label, [data-testid="stWidgetLabel"] {
+    color: var(--text-soft) !important;
+    font-weight: 700 !important;
+}
+
+.card {
+    background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.22);
+}
+
+.small {
+    color: var(--text-soft);
+    font-size: 0.95rem;
+}
+
+.good {
+    color: var(--green);
+    font-weight: 900;
+}
+
+.mid {
+    color: var(--yellow);
+    font-weight: 900;
+}
+
+.bad {
+    color: var(--red);
+    font-weight: 900;
+}
+
+[data-testid="stMetric"] {
+    background: #111827;
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 16px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--text-soft) !important;
+    font-size: 0.95rem !important;
+    font-weight: 800 !important;
+}
+
+[data-testid="stMetricValue"] {
+    color: #ffffff !important;
+    font-size: 1.75rem !important;
+    font-weight: 900 !important;
+}
+
+.stAlert {
+    border-radius: 14px;
+    font-size: 1rem;
+}
+
+.stButton > button {
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: #0ea5e9;
+    color: white;
+    font-weight: 800;
+    padding: 0.55rem 1rem;
+}
+
+.stButton > button:hover {
+    background: #0284c7;
+    color: white;
+    border-color: #7dd3fc;
+}
+
+div[data-baseweb="select"] > div {
+    background-color: #1e293b !important;
+    color: white !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+
+input, textarea {
+    background-color: #1e293b !important;
+    color: white !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+hr {
+    border-color: var(--border);
+}
+
+/* Make Plotly containers easier to read */
+.js-plotly-plot .plotly {
+    border-radius: 16px;
+}
+
+/* Mobile-first improvements */
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+        padding-top: 0.75rem;
+    }
+
+    h1 {
+        font-size: 1.65rem !important;
+        line-height: 1.15 !important;
+    }
+
+    h2 {
+        font-size: 1.35rem !important;
+    }
+
+    h3 {
+        font-size: 1.15rem !important;
+    }
+
+    .card {
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    [data-testid="stMetric"] {
+        padding: 12px;
+        border-radius: 13px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.25rem !important;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 0.82rem !important;
+    }
+
+    .small {
+        font-size: 0.85rem;
+    }
+
+    .stButton > button {
+        width: 100%;
+        padding: 0.7rem 1rem;
+        font-size: 1rem;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
+
+
+PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN", "")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY", "")
+
+def send_pushover_alert(message, title="AI Aksje Analyzer"):
+    """
+    Sender Pushover-varsel.
+    Krever Environment Variables:
+    - PUSHOVER_APP_TOKEN
+    - PUSHOVER_USER_KEY
+    """
+    if not PUSHOVER_APP_TOKEN or not PUSHOVER_USER_KEY:
+        return False, "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY"
+
+    try:
+        response = requests.post(
+            "https://api.pushover.net/1/messages.json",
+            data={
+                "token": PUSHOVER_APP_TOKEN,
+                "user": PUSHOVER_USER_KEY,
+                "title": title,
+                "message": message,
+            },
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            return True, None
+
+        return False, response.text
+
+    except Exception as e:
+        return False, str(e)
+
+
+def maybe_send_signal_alert(ticker, decision):
+    """
+    Sender kun varsel hvis signalet har endret seg.
+    Hindrer spam.
+    """
+    if "last_signal" not in st.session_state:
+        st.session_state.last_signal = {}
+
+    current_signal = decision.get("decision", "UNKNOWN")
+    previous_signal = st.session_state.last_signal.get(ticker)
+
+    if previous_signal == current_signal:
+        return
+
+    st.session_state.last_signal[ticker] = current_signal
+
+    if current_signal in ["BUY", "SELL / AVOID"]:
+        msg = (
+            f"{decision.get('emoji', '')} {current_signal}: {ticker}\n"
+            f"Confidence: {decision.get('confidence', 'N/A')}%\n"
+            f"Signal-score: {decision.get('decision_score', 'N/A')}"
+        )
+        send_pushover_alert(msg)
+
 
 def score_color(score):
     if score >= 7: return "good", "🟢"
@@ -70,6 +315,32 @@ def add_pattern_markers(fig, pattern, name):
 
     return fig
 
+
+def render_decision_banner(decision, item, adj_score):
+    decision_text = decision.get("decision", "HOLD / WAIT")
+    emoji = decision.get("emoji", "🟡")
+    color = decision.get("color", "orange")
+
+    if decision_text == "BUY":
+        st.success(f"{emoji} BUY-signal | Confidence: {decision.get('confidence', 'N/A')}%")
+    elif decision_text == "SELL / AVOID":
+        st.error(f"{emoji} SELL / AVOID | Confidence: {decision.get('confidence', 'N/A')}%")
+    else:
+        st.warning(f"{emoji} HOLD / WAIT | Confidence: {decision.get('confidence', 'N/A')}%")
+
+    st.markdown(
+        f"""
+        <div class="card">
+            <h3 style="color:{color}; margin-bottom: 0.4rem;">{emoji} {decision_text}</h3>
+            <p style="font-size:1.05rem; margin-bottom:0.2rem;">
+                Original score: <b>{item['score']}/10</b> · Pattern-justert score: <b>{adj_score}/10</b>
+            </p>
+            <p class="small">Dette er analysehjelp, ikke investeringsråd.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def render_ranking(results, title):
     st.subheader(title)
     if not results:
@@ -89,7 +360,7 @@ def render_ranking(results, title):
             st.markdown(f"""
             <div class="card">
                 <h3>{emoji} {item['ticker']}</h3>
-                <div class="{css}">{item['score']}/10</div>
+                <div class="{css}" style="font-size:1.25rem;">{item['score']}/10</div>
                 <div class="small">{item['name']}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -150,22 +421,16 @@ def render_analysis(results, label):
     decision = build_trading_decision(item, technical_context)
     adj_score = adjusted_score(item, decision)
 
+    # 📱 Send Pushover-varsel hvis BUY/SELL-signalet endrer seg
+    maybe_send_signal_alert(selected, decision)
+
     st.markdown("#### 🤖 Trading engine")
     d1, d2, d3 = st.columns(3)
     d1.metric("Beslutning", f"{decision['emoji']} {decision['decision']}")
     d2.metric("Signal-score", decision["decision_score"])
     d3.metric("Confidence", f"{decision['confidence']}%")
 
-    st.markdown(
-        f"""
-        <div class="card">
-            <h3 style="color:{decision['color']}">{decision['emoji']} {decision['decision']}</h3>
-            <p>Original score: <b>{item['score']}/10</b> · Pattern-justert score: <b>{adj_score}/10</b></p>
-            <p class="small">Dette er analysehjelp, ikke investeringsråd.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    render_decision_banner(decision, item, adj_score)
 
     with st.expander("Hvorfor dette signalet?"):
         for reason in decision["reasons"]:
@@ -452,6 +717,13 @@ def render_strategy_backtest(tickers, label):
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
 st.sidebar.title("⚙️ Innstillinger")
+st.sidebar.markdown("### 🎨 Visning")
+st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
+st.sidebar.markdown("### 📱 Varsler")
+pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+st.sidebar.write("Pushover:", "✅ Aktiv" if pushover_enabled else "❌ Ikke konfigurert")
+st.sidebar.caption("Legg PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY i Render Environment Variables.")
+
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
