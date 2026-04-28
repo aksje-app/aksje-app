@@ -9,7 +9,7 @@ from stocks import get_sp500_tickers, get_norwegian_tickers
 from analysis import rank_stocks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
-from news import get_news, simple_finance_sentiment
+from smart_news import get_smart_news, analyze_news_sentiment
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
@@ -197,29 +197,41 @@ def render_analysis(results, label):
             st.caption(f"{k}: {v}")
 
     st.markdown("#### 📰 Nyheter")
-    st.caption("For å spare NewsAPI-kall hentes nyheter bare for valgt aksje når du trykker knappen.")
+    st.caption("Nyheter lagres lokalt i mini-database. NewsAPI brukes først, Finnhub brukes som backup.")
 
     if not use_news:
         st.info("Nyheter/sentiment er slått av i sidepanelet.")
-    elif st.button(f"Hent nyheter for {selected}", key=f"news_btn_{label}_{selected}"):
-        articles, error = get_news(selected.replace(".OL", ""), limit=6)
+    elif st.button(f"Hent / oppdater nyheter for {selected}", key=f"smart_news_btn_{label}_{selected}"):
+        articles, error, source = get_smart_news(selected.replace(".OL", ""), limit=8)
 
         if error:
             st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
         elif not articles:
             st.info("Ingen relevante nyheter funnet.")
         else:
-            live_sentiment = simple_finance_sentiment(articles)
-            st.metric("Live nyhets-sentiment", live_sentiment)
+            summary = analyze_news_sentiment(articles)
+
+            n1, n2, n3, n4 = st.columns(4)
+            n1.metric("Nyhetskilde", source)
+            n2.metric("Bullish", summary["bullish"])
+            n3.metric("Bearish", summary["bearish"])
+            n4.metric("News score", summary["score"])
 
             for a in articles:
-                st.markdown(
-                    f"- **{a.get('title','Uten tittel')}**  \n"
-                    f"  <span class='small'>{a.get('source','')} · {a.get('published','')}</span>",
-                    unsafe_allow_html=True,
-                )
+                tag = a.get("sentiment_label", "neutral")
+                title = a.get("title", "Uten tittel")
+                source_name = a.get("source", "")
+                published = a.get("published", "")
+                reason = a.get("sentiment_reason", "")
+
+                if tag == "bullish":
+                    st.success(f"🟢 **{title}**  \n{source_name} · {published}  \n{reason}")
+                elif tag == "bearish":
+                    st.error(f"🔴 **{title}**  \n{source_name} · {published}  \n{reason}")
+                else:
+                    st.info(f"⚪ **{title}**  \n{source_name} · {published}  \n{reason}")
     else:
-        st.info("Trykk på knappen over for å hente nyheter for valgt aksje.")
+        st.info("Trykk på knappen over for å hente nyheter. Lagrede nyheter brukes automatisk når mulig.")
 
 def render_ipo():
     st.subheader("🚀 Nye og kommende børsnoteringer")
@@ -292,7 +304,7 @@ mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
 st.sidebar.caption("Ranking bruker ikke NewsAPI automatisk. Dette sparer gratis-kvoten.")
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment i valgt analyse", value=True)
-st.sidebar.caption("Nyheter hentes bare når du trykker knapp, for å spare API-kall.")
+st.sidebar.caption("Nyheter hentes kun for valgt aksje og lagres lokalt for å spare API-kall.")
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
 st.title("📈 AI Aksje Analyzer Pro")
