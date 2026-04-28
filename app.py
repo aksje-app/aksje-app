@@ -2,7 +2,8 @@ import streamlit as st
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
-from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal, generate_trade_signal, signal_score_label
+from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal
+from patterns import detect_head_shoulders, detect_inverse_head_shoulders, breakout_scanner, build_signal_alerts
 
 from stocks import get_sp500_tickers, get_norwegian_tickers
 from analysis import rank_stocks
@@ -100,41 +101,61 @@ def render_analysis(results, label):
     latest_upper = bb_upper.dropna().iloc[-1] if not bb_upper.dropna().empty else latest_close
     latest_lower = bb_lower.dropna().iloc[-1] if not bb_lower.dropna().empty else latest_close
 
+    hs = detect_head_shoulders(df)
+    inv_hs = detect_inverse_head_shoulders(df)
+    breakout = breakout_scanner(df)
+    alerts = build_signal_alerts(latest_rsi, latest_macd, latest_macd_signal, breakout, hs, inv_hs)
+
     t1, t2, t3, t4 = st.columns(4)
     t1.metric("RSI", f"{latest_rsi:.1f}")
     t2.metric("Trend", trend)
     t3.metric("MACD", "Bullish 🟢" if latest_macd > latest_macd_signal else "Bearish 🔴")
-    t4.metric("Bollinger", "Høy" if latest_close > latest_upper else "Lav" if latest_close < latest_lower else "Normal")
+    t4.metric("Breakout", breakout.get("signal", "N/A"))
 
-    signaler = technical_signal(latest_rsi, latest_macd, latest_macd_signal, latest_close, latest_upper, latest_lower)
-    st.info(" | ".join(signaler))
+    st.markdown("#### 🔔 Signal alerts")
+    for title, desc, kind in alerts:
+        if kind == "bullish":
+            st.success(f"🟢 {title}: {desc}")
+        elif kind == "bearish":
+            st.error(f"🔴 {title}: {desc}")
+        else:
+            st.info(f"⚪ {title}: {desc}")
 
-    trade_signal, buy_points, sell_points, trade_reasons = generate_trade_signal(
-        item["score"],
-        latest_rsi,
-        latest_macd,
-        latest_macd_signal,
-        trend,
-    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Motstand", breakout.get("resistance", "N/A"))
+    c2.metric("Støtte", breakout.get("support", "N/A"))
+    c3.metric("Volum boost", breakout.get("volume_boost", "N/A"))
 
-    if "KJØP" in trade_signal:
-        st.success(f"🚦 Signal: {trade_signal} — {signal_score_label(trade_signal)}")
-    elif "SELG" in trade_signal:
-        st.error(f"🚦 Signal: {trade_signal} — {signal_score_label(trade_signal)}")
-    else:
-        st.warning(f"🚦 Signal: {trade_signal} — {signal_score_label(trade_signal)}")
-
-    st.caption(f"Kjøpspoeng: {buy_points} · Salgspoeng: {sell_points} · Grunnlag: {', '.join(trade_reasons)}")
+    st.markdown("#### 🧩 Pattern detection")
+    p1, p2 = st.columns(2)
+    with p1:
+        if hs.get("found"):
+            st.warning(f"{hs['label']} | confidence: {hs['confidence']}")
+            st.json(hs.get("points", {}))
+        else:
+            st.info(hs.get("label", "Ingen pattern"))
+    with p2:
+        if inv_hs.get("found"):
+            st.success(f"{inv_hs['label']} | confidence: {inv_hs['confidence']}")
+            st.json(inv_hs.get("points", {}))
+        else:
+            st.info(inv_hs.get("label", "Ingen pattern"))
 
     fig_ta = go.Figure()
     fig_ta.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Pris", mode="lines"))
     fig_ta.add_trace(go.Scatter(x=df.index, y=bb_ma, name="BB midt", mode="lines", line=dict(dash="dot")))
     fig_ta.add_trace(go.Scatter(x=df.index, y=bb_upper, name="BB øvre", mode="lines", line=dict(dash="dot")))
     fig_ta.add_trace(go.Scatter(x=df.index, y=bb_lower, name="BB nedre", mode="lines", line=dict(dash="dot")))
+
+    if breakout.get("support") != "N/A":
+        fig_ta.add_hline(y=breakout.get("support"), line_dash="dash", annotation_text="Støtte")
+    if breakout.get("resistance") != "N/A":
+        fig_ta.add_hline(y=breakout.get("resistance"), line_dash="dash", annotation_text="Motstand")
+
     fig_ta.update_layout(
-        title=f"{selected} - Bollinger Bands",
+        title=f"{selected} - Bollinger, støtte/motstand og breakout",
         template="plotly_dark",
-        height=420,
+        height=440,
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
@@ -249,49 +270,6 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-
-def render_best_trade(results, title="🔥 Beste trade akkurat nå"):
-    if not results:
-        return
-
-    candidates = []
-    for item in results:
-        df = item["hist"].copy()
-        rsi = calculate_rsi(df)
-        macd, macd_signal, _ = calculate_macd(df)
-        _, bb_upper, bb_lower = calculate_bollinger(df)
-        trend = detect_trend(df)
-
-        latest_rsi = rsi.dropna().iloc[-1] if not rsi.dropna().empty else 50
-        latest_macd = macd.dropna().iloc[-1] if not macd.dropna().empty else 0
-        latest_macd_signal = macd_signal.dropna().iloc[-1] if not macd_signal.dropna().empty else 0
-
-        signal, buy_points, sell_points, reasons = generate_trade_signal(
-            item["score"], latest_rsi, latest_macd, latest_macd_signal, trend
-        )
-
-        candidates.append({
-            "ticker": item["ticker"],
-            "score": item["score"],
-            "signal": signal,
-            "buy_points": buy_points,
-            "sell_points": sell_points,
-            "reasons": reasons,
-        })
-
-    candidates.sort(key=lambda x: (x["buy_points"], x["score"]), reverse=True)
-    best = candidates[0]
-
-    st.markdown(f"## {title}")
-    if "KJØP" in best["signal"]:
-        st.success(f"{best['ticker']} → {best['signal']} · Score {best['score']}/10")
-    elif "HOLD" in best["signal"]:
-        st.warning(f"{best['ticker']} → {best['signal']} · Score {best['score']}/10")
-    else:
-        st.error(f"{best['ticker']} → {best['signal']} · Score {best['score']}/10")
-
-    st.caption(f"Kjøpspoeng: {best['buy_points']} · Salgspoeng: {best['sell_points']} · Grunnlag: {', '.join(best['reasons'])}")
-
 st.sidebar.title("⚙️ Innstillinger")
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
@@ -313,7 +291,6 @@ tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norske aksjer", "🚀 IPO", "🧪 Back
 with tabs[0]:
     if mode in ["USA / S&P 500", "Begge"] or search.strip():
         us_results = rank_stocks(tickers_us, max_count=max_count, use_news=use_news)
-        render_best_trade(us_results, "🔥 Beste USA-trade akkurat nå")
         render_ranking(us_results, "🏆 Topp rangerte USA/S&P 500")
         render_analysis(us_results, "USA")
     else:
@@ -322,7 +299,6 @@ with tabs[0]:
 with tabs[1]:
     if mode in ["Norge / Oslo Børs", "Begge"] and not search.strip():
         no_results = rank_stocks(tickers_no, max_count=max_count, use_news=use_news)
-        render_best_trade(no_results, "🔥 Beste norske trade akkurat nå")
         render_ranking(no_results, "🇳🇴 Topp 10 norske aksjer")
         render_analysis(no_results, "Norge")
     else:
