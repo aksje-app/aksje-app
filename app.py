@@ -1,14 +1,13 @@
 import streamlit as st
-import pandas as pd
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
 from stocks import get_sp500_tickers, get_norwegian_tickers
-from analysis import rank_stocks, simple_backtest
-from backtest_strategy import run_monthly_score_strategy, add_drawdown
+from analysis import rank_stocks
+from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
 
-st.set_page_config(page_title="AI Aksje Analyzer", page_icon="📈", layout="wide")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
 
 st.markdown("""
@@ -44,7 +43,7 @@ def render_ranking(results, title):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Beste aksje", f"{best['ticker']} {best['score']}/10")
     c2.metric("Analyserte", len(results))
-    c3.metric("Beste momentum", f"{best['momentum_30d']*100:.1f}%")
+    c3.metric("Beste 6m", f"{best['ret_6m']*100:.1f}%")
     c4.metric("Auto-refresh", "5 min")
 
     for item in results[:10]:
@@ -60,7 +59,13 @@ def render_ranking(results, title):
             """, unsafe_allow_html=True)
         with right:
             st.progress(min(item["score"] / 10, 1.0))
-            st.caption(f"Vekst 1 år: {item['growth_1y']*100:.1f}% · Momentum 30d: {item['momentum_30d']*100:.1f}% · Volatilitet: {item['volatility']:.4f} · Sentiment: {item['sentiment']:.2f}")
+            st.caption(
+                f"1y: {item['ret_1y']*100:.1f}% · "
+                f"6m: {item['ret_6m']*100:.1f}% · "
+                f"3m: {item['ret_3m']*100:.1f}% · "
+                f"Vol: {item['volatility']:.4f} · "
+                f"DD: {item['max_drawdown']*100:.1f}%"
+            )
 
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
@@ -69,11 +74,19 @@ def render_analysis(results, label):
     selected = st.selectbox(f"Velg aksje ({label})", [r["ticker"] for r in results], key=f"select_{label}")
     item = next(r for r in results if r["ticker"] == selected)
     st.plotly_chart(plot_price(item["hist"], f"{selected} - prisutvikling"), use_container_width=True)
+
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Score", f"{item['score']}/10")
-    m2.metric("Sentiment", item["sentiment"])
-    m3.metric("Momentum 30d", f"{item['momentum_30d']*100:.1f}%")
-    m4.metric("Volatilitet", item["volatility"])
+    m2.metric("P/E", item.get("forward_pe") or item.get("trailing_pe") or "N/A")
+    m3.metric("Revenue growth", f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A")
+    m4.metric("Max drawdown", f"{item['max_drawdown']*100:.1f}%")
+
+    st.markdown("#### 🧠 Score-forklaring")
+    parts = item.get("score_parts", {})
+    if parts:
+        for k, v in parts.items():
+            st.progress(float(v))
+            st.caption(f"{k}: {v}")
 
     st.markdown("#### 📰 Nyheter")
     if item["news_error"]:
@@ -99,30 +112,41 @@ def render_ipo():
         st.divider()
 
 def render_strategy_backtest(tickers, label):
-    st.subheader("📈 Strategi-backtest: score-modellen")
-    st.caption("Tester: hver måned rangeres aksjene, topp N kjøpes og holdes i ca. én måned.")
-    col_a, col_b = st.columns(2)
-    months = col_a.slider("Antall måneder", 6, 24, 12, key=f"months_{label}")
+    st.subheader("🧪 Smartere strategi-backtest")
+    st.caption("Månedlig rebalansering, transaksjonskostnader, drawdown og benchmark.")
+
+    col_a, col_b, col_c = st.columns(3)
+    months = col_a.slider("Antall måneder", 6, 36, 24, key=f"months_{label}")
     top_n = col_b.slider("Topp N aksjer", 2, 10, 5, key=f"topn_{label}")
+    cost = col_c.slider("Transaksjonskostnad", 0.0, 1.0, 0.2, step=0.1, key=f"cost_{label}") / 100
+
+    use_stop = st.checkbox("Bruk enkel stop-loss", value=False, key=f"stop_{label}")
+    stop_loss = st.slider("Stop-loss %", 3, 25, 10, key=f"sl_{label}") / 100 if use_stop else None
 
     benchmark = "^GSPC" if label == "USA" else "OSEBX.OL"
 
-    if st.button(f"Kjør strategi-backtest ({label})"):
-        with st.spinner("Kjører strategi-backtest..."):
-            strategy, bench, error = run_monthly_score_strategy(tickers, months=months, top_n=top_n, benchmark=benchmark)
+    if st.button(f"Kjør smartere backtest ({label})"):
+        with st.spinner("Kjører backtest..."):
+            strategy, bench, error = run_monthly_score_strategy(
+                tickers,
+                months=months,
+                top_n=top_n,
+                benchmark=benchmark,
+                transaction_cost=cost,
+                stop_loss=stop_loss,
+            )
 
         if error:
             st.error(error)
             return
 
-        strategy = add_drawdown(strategy)
-        total_return = (strategy["value"].iloc[-1] - 1) * 100
-        max_dd = strategy["drawdown"].min() * 100
+        strategy, stats = add_stats(strategy)
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Strategi totalavkastning", f"{total_return:.1f}%")
-        c2.metric("Maks drawdown", f"{max_dd:.1f}%")
-        c3.metric("Siste måned", f"{strategy['monthly_return'].iloc[-1]*100:.1f}%")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total avkastning", f"{stats['total_return']*100:.1f}%")
+        c2.metric("Maks drawdown", f"{stats['max_drawdown']*100:.1f}%")
+        c3.metric("Win-rate", f"{stats['win_rate']*100:.0f}%")
+        c4.metric("Sharpe-ish", f"{stats['sharpe_like']:.2f}")
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=strategy["date"], y=strategy["value"], name="Score-strategi", mode="lines+markers"))
@@ -137,17 +161,7 @@ def render_strategy_backtest(tickers, label):
         st.plotly_chart(fig_dd, use_container_width=True)
 
         st.markdown("#### Valgte aksjer per måned")
-        st.dataframe(strategy[["date", "monthly_return", "selected"]], use_container_width=True)
-
-def render_simple_backtest(tickers, label):
-    st.subheader("🧪 Enkel kjøp-og-hold backtest")
-    sample = st.multiselect(f"Velg aksjer ({label})", tickers, default=tickers[:5], key=f"bt_{label}")
-    if st.button(f"Kjør enkel backtest ({label})"):
-        df = simple_backtest(sample)
-        if df.empty:
-            st.warning("Fant ikke nok historiske data.")
-        else:
-            st.dataframe(df, use_container_width=True)
+        st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
 st.sidebar.title("⚙️ Innstillinger")
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
@@ -155,8 +169,8 @@ max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
-st.title("📈 AI Aksje Analyzer")
-st.caption("Dashboard med USA/S&P 500, norske aksjer, nyheter, IPO, mobilbruk og strategi-backtesting.")
+st.title("📈 AI Aksje Analyzer Pro")
+st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 
 if search.strip():
     tickers_us = [search.strip().upper()]
@@ -165,7 +179,7 @@ else:
     tickers_us = get_sp500_tickers(limit=max_count)
     tickers_no = get_norwegian_tickers()[:max_count]
 
-tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norske aksjer", "🚀 IPO", "🧪 Backtesting", "📱 Mobil"])
+tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norske aksjer", "🚀 IPO", "🧪 Backtesting"])
 
 with tabs[0]:
     if mode in ["USA / S&P 500", "Begge"] or search.strip():
@@ -190,29 +204,3 @@ with tabs[3]:
     bt_market = st.radio("Backtest-marked", ["USA", "Norge"], horizontal=True)
     bt_tickers = tickers_us if bt_market == "USA" else get_norwegian_tickers()[:max_count]
     render_strategy_backtest(bt_tickers, bt_market)
-    st.divider()
-    render_simple_backtest(bt_tickers, bt_market)
-
-with tabs[4]:
-    st.subheader("📱 Slik bruker du appen på mobil")
-    st.markdown("""
-### Enkleste måte hjemme
-1. Sørg for at **PC og mobil er på samme Wi‑Fi**.
-2. På PC: dobbeltklikk `start_app_mobil.bat`.
-3. I terminalen står det ofte en adresse som ligner `Network URL`.
-4. Åpne den adressen på mobilen.
-
-### Hvis du ikke ser Network URL
-1. På PC: åpne terminal og skriv:
-```bash
-ipconfig
-```
-2. Finn `IPv4 Address`, for eksempel `192.168.1.45`.
-3. På mobilen åpner du:
-```text
-http://192.168.1.45:8501
-```
-
-### Viktig
-Terminalvinduet på PC må være åpent. Lukker du det, stopper appen.
-""")

@@ -8,12 +8,12 @@ NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 POSITIVE_WORDS = [
     "beat", "beats", "growth", "profit", "surge", "upgrade", "strong", "record",
     "bullish", "launch", "partnership", "approval", "raises", "outperform", "buy",
-    "contract", "order", "expansion", "dividend", "positive"
+    "contract", "order", "expansion", "dividend", "positive", "guidance", "demand"
 ]
 NEGATIVE_WORDS = [
     "miss", "falls", "drop", "lawsuit", "cut", "downgrade", "weak", "loss",
     "bearish", "investigation", "recall", "warning", "underperform", "sell",
-    "decline", "debt", "fine", "negative"
+    "decline", "debt", "fine", "negative", "layoffs", "slump"
 ]
 
 def get_news(query, limit=8):
@@ -55,7 +55,7 @@ def simple_finance_sentiment(articles):
     scores = []
     for a in articles:
         text = f"{a.get('title','')} {a.get('description','')}".lower()
-        pos = sum(1 for w in POSITIVE_WORDS if w in text)
-        neg = sum(1 for w in NEGATIVE_WORDS if w in text)
-        scores.append(max(0.0, min(1.0, 0.5 + (pos - neg) * 0.12)))
+        pos = sum(1 for word in POSITIVE_WORDS if word in text)
+        neg = sum(1 for word in NEGATIVE_WORDS if word in text)
+        scores.append(max(0.0, min(1.0, 0.5 + (pos - neg) * 0.10)))
     return round(sum(scores) / len(scores), 3)
