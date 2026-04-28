@@ -1,11 +1,3 @@
-from strategy_engine import run_strategy, strategy_stats, optimize_strategy
-
-import os
-import streamlit as st
-
-st.write("APP TOKEN:", os.getenv("PUSHOVER_APP_TOKEN"))
-st.write("USER KEY:", os.getenv("PUSHOVER_USER_KEY"))
-
 import os
 import streamlit as st
 import pandas as pd
@@ -20,7 +12,9 @@ from stocks import get_sp500_tickers, get_norwegian_tickers
 from analysis import rank_stocks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
+from news import get_news, simple_finance_sentiment
 from trading_engine import build_trading_decision, adjusted_score
+from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
@@ -231,8 +225,6 @@ if not PUSHOVER_APP_TOKEN:
 
 if not PUSHOVER_USER_KEY:
     PUSHOVER_USER_KEY = None
-st.write("DEBUG TOKEN:", PUSHOVER_APP_TOKEN)
-st.write("DEBUG USER:", PUSHOVER_USER_KEY)
 
 def send_pushover_alert(message, title="AI Aksje Analyzer"):
     """
@@ -738,6 +730,12 @@ st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
 st.sidebar.markdown("### 📱 Varsler")
 pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
 st.sidebar.write("Pushover:", "✅ Aktiv" if pushover_enabled else "❌ Ikke konfigurert")
+if pushover_enabled and st.sidebar.button("Send test-varsel"):
+    ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer")
+    if ok:
+        st.sidebar.success("Testvarsel sendt")
+    else:
+        st.sidebar.error(f"Feil: {err}")
 st.sidebar.caption("Legg PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY i Render Environment Variables.")
 
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
