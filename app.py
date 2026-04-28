@@ -222,8 +222,17 @@ hr {
 """, unsafe_allow_html=True)
 
 
-PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN", "")
-PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY", "")
+PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+
+# fallback hvis Render gir tom string
+if not PUSHOVER_APP_TOKEN:
+    PUSHOVER_APP_TOKEN = None
+
+if not PUSHOVER_USER_KEY:
+    PUSHOVER_USER_KEY = None
+st.write("DEBUG TOKEN:", PUSHOVER_APP_TOKEN)
+st.write("DEBUG USER:", PUSHOVER_USER_KEY)
 
 def send_pushover_alert(message, title="AI Aksje Analyzer"):
     """
