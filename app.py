@@ -1,4 +1,11 @@
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
+
+import os
+import streamlit as st
+
+st.write("APP TOKEN:", os.getenv("PUSHOVER_APP_TOKEN"))
+st.write("USER KEY:", os.getenv("PUSHOVER_USER_KEY"))
+
 import os
 import streamlit as st
 import pandas as pd
