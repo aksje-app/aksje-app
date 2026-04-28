@@ -1,5 +1,6 @@
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
