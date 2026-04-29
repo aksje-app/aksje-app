@@ -284,6 +284,20 @@ def maybe_send_signal_alert(ticker, decision):
 
 
 
+
+def get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all):
+    """
+    Lager automatisk watchlist fra aktivt marked.
+    Denne følger universet og antall aksjer du har valgt i sidepanelet.
+    """
+    if mode == "USA / S&P 500":
+        return tickers_us[:max_count]
+    if mode == "Norge / Oslo Børs":
+        return tickers_no[:max_count]
+    if mode == "Sverige / Stockholm":
+        return tickers_se[:max_count]
+    return tickers_all[:max_count]
+
 def parse_watchlist(text):
     if not text:
         return []
@@ -832,18 +846,7 @@ if pushover_enabled and st.sidebar.button("Send test-varsel"):
         st.sidebar.error(f"Feil: {err}")
 st.sidebar.caption("Legg PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY i Render Environment Variables.")
 
-st.sidebar.markdown("### 👀 Watchlist alerts")
-watchlist_text = st.sidebar.text_area(
-    "Aksjer å overvåke",
-    value="AAPL, MSFT, NVDA, GOOGL, EQNR.OL",
-    help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL",
-)
-auto_watchlist_alerts = st.sidebar.checkbox(
-    "Auto-scan watchlist ved refresh",
-    value=False,
-    help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
-)
-manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
+# Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Sverige / Stockholm", "Alle"])
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 200, 30)
@@ -855,8 +858,6 @@ search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, 
 st.title("📈 AI Aksje Analyzer Pro")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 
-watchlist_tickers = parse_watchlist(watchlist_text)
-
 if auto_watchlist_alerts or manual_watchlist_scan:
     st.markdown("### 🔔 Watchlist signaler")
     if not pushover_enabled:
@@ -865,7 +866,7 @@ if auto_watchlist_alerts or manual_watchlist_scan:
         st.info("Legg inn minst én ticker i watchlist.")
     else:
         with st.spinner("Scanner watchlist..."):
-            watch_results = scan_watchlist_and_alert(watchlist_tickers)
+            watch_results = scan_watchlist_and_alert(watchlist_tickers[:watchlist_scan_limit])
 
         if watch_results:
             st.dataframe(pd.DataFrame(watch_results), use_container_width=True)
@@ -881,6 +882,39 @@ else:
     tickers_no = get_norwegian_tickers(limit=max_count)
     tickers_se = get_swedish_tickers(limit=max_count)
     tickers_all = get_all_tickers(limit_per_market=max(5, max_count // 3))
+
+dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
+
+st.sidebar.markdown("### 👀 Watchlist alerts")
+use_dynamic_watchlist = st.sidebar.checkbox(
+    "Bruk dynamisk watchlist fra markedet",
+    value=True,
+    help="Når aktiv: watchlisten følger valgt marked og antall aksjer automatisk.",
+)
+
+if use_dynamic_watchlist:
+    watchlist_tickers = dynamic_watchlist
+    st.sidebar.info(f"Dynamisk watchlist aktiv: {len(watchlist_tickers)} aksjer")
+    with st.sidebar.expander("Vis dynamisk watchlist"):
+        st.write(", ".join(watchlist_tickers))
+else:
+    watchlist_text = st.sidebar.text_area(
+        "Aksjer å overvåke",
+        value=", ".join(dynamic_watchlist[:30]),
+        help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL og svenske .ST",
+    )
+    watchlist_tickers = parse_watchlist(watchlist_text)
+
+auto_watchlist_alerts = st.sidebar.checkbox(
+    "Auto-scan watchlist ved refresh",
+    value=False,
+    help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
+)
+watchlist_scan_limit = st.sidebar.slider(
+    "Maks aksjer å scanne for varsler",
+    5, 100, min(30, len(watchlist_tickers))
+)
+manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
 
 tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting"])
 
