@@ -7,3 +7,5 @@ requests
 psycopg2-binary
 
 streamlit-autorefresh
+
+python-dotenv
