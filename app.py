@@ -1,5 +1,8 @@
 import os
-import streamlit as st
+PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+st.write("DEBUG TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
+st.write("DEBUG USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
 import pandas as pd
 import plotly.graph_objects as go
 import requests
