@@ -20,7 +20,7 @@ from signal_engine import calculate_signal_intelligence
 from insider import get_insider_data
 from analyst import get_analyst_trend
 from earnings import get_earnings
-from paper_trading import load_portfolio, portfolio_value, reset_portfolio
+from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
@@ -851,11 +851,19 @@ def render_paper_trading_dashboard():
         latest_prices[ticker] = pos.get("last_price", pos.get("avg_price", 0))
 
     total_value = portfolio_value(portfolio, latest_prices)
+    stats = performance_stats(portfolio, latest_prices)
 
-    p1, p2, p3 = st.columns(3)
+    p1, p2, p3, p4 = st.columns(4)
     p1.metric("Cash", f"{portfolio.get('cash', 0):,.0f} kr")
     p2.metric("Porteføljeverdi", f"{total_value:,.0f} kr")
-    p3.metric("Antall posisjoner", len(portfolio.get("positions", {})))
+    p3.metric("Total avkastning", f"{stats['total_return_pct']}%")
+    p4.metric("Trades i dag", f"{stats['trades_today']}/{stats['max_trades_per_day']}")
+
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Stop-loss", f"{STOP_LOSS_PCT*100:.1f}%")
+    r2.metric("Trailing stop", f"{TRAILING_STOP_PCT*100:.1f}%")
+    r3.metric("Win rate", f"{stats['win_rate']}%")
+    r4.metric("Lukkede trades", stats["closed_trades"])
 
     if st.button("Reset paper portfolio"):
         reset_portfolio()
@@ -882,6 +890,13 @@ def render_paper_trading_dashboard():
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
     else:
         st.info("Ingen åpne paper trading-posisjoner.")
+
+    st.markdown("#### 💰 Klar for ekte trading senere")
+    st.info(
+        "Systemet er nå strukturert for paper trading med risikoregler. "
+        "Ekte handel er IKKE aktivert. Neste steg senere er broker_adapter.py "
+        "med sikker ordrelegging, maksbeløp, nødknapp og manuell godkjenning."
+    )
 
     st.markdown("#### Handelslogg")
     trades = portfolio.get("trades", [])

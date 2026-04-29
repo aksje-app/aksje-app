@@ -1,3 +1,57 @@
+
+from datetime import datetime
+import pytz
+
+def get_open_markets():
+    now = datetime.now(pytz.timezone("Europe/Oslo"))
+
+    if now.weekday() >= 5:
+        return []
+
+    hour = now.hour
+    minute = now.minute
+
+    open_markets = []
+
+    # USA
+    if (hour > 15 or (hour == 15 and minute >= 30)) and hour < 22:
+        open_markets.append("USA")
+
+    # Norway
+    if hour >= 9 and (hour < 16 or (hour == 16 and minute <= 25)):
+        open_markets.append("NORGE")
+
+    # Sweden
+    if hour >= 9 and (hour < 17 or (hour == 17 and minute <= 30)):
+        open_markets.append("SVERIGE")
+
+    return open_markets
+
+
+from datetime import datetime
+import pytz
+
+def market_is_open():
+    now = datetime.now(pytz.timezone("Europe/Oslo"))
+
+    if now.weekday() >= 5:
+        return False
+
+    hour = now.hour
+    minute = now.minute
+
+    if (hour > 15 or (hour == 15 and minute >= 30)) and hour < 22:
+        return True
+
+    if hour >= 9 and hour < 17:
+        return True
+
+    return False
+
+if not market_is_open():
+    print("⏸ Market closed - skipping run")
+    exit()
+
 import os
 import time
 import pandas as pd
@@ -12,7 +66,7 @@ from insider import get_insider_data
 from analyst import get_analyst_trend
 from earnings import get_earnings
 from app import send_pushover_alert
-from paper_trading import paper_buy, paper_sell, update_last_price, load_portfolio, portfolio_value
+from paper_trading import paper_buy, paper_sell, update_last_price, load_portfolio, portfolio_value, apply_risk_exits, performance_stats
 
 MARKET = os.getenv("SCANNER_MARKET", "ALL").upper()  # USA, NORGE, SVERIGE, ALL
 MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
@@ -93,7 +147,26 @@ def analyze_ticker(ticker):
 
 
 def run_once():
-    tickers = get_watchlist()
+    
+markets = get_open_markets()
+
+if not markets:
+    print("⏸ Alle markeder stengt")
+    exit()
+
+print(f"Åpne markeder: {markets}")
+
+tickers = []
+
+if "USA" in markets:
+    tickers += get_sp500_tickers(20)
+
+if "NORGE" in markets:
+    tickers += get_norwegian_tickers(5)
+
+if "SVERIGE" in markets:
+    tickers += get_swedish_tickers(5)
+
     print(f"Scanner {len(tickers)} tickers: {tickers}")
 
     latest_prices = {}
