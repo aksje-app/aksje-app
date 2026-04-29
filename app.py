@@ -424,6 +424,36 @@ def plot_price(hist, title):
     return fig
 
 
+
+def get_item_price_change(item):
+    """
+    Henter siste kurs og prosentendring direkte fra item["hist"].
+    Fungerer selv om item ikke har egne price/change_pct-felter.
+    """
+    try:
+        hist = item.get("hist")
+        if hist is None or hist.empty or "Close" not in hist:
+            return None, None
+
+        close = hist["Close"].dropna()
+        if len(close) < 2:
+            return None, None
+
+        latest = float(close.iloc[-1])
+        prev = float(close.iloc[-2])
+        change_pct = ((latest - prev) / prev * 100) if prev else 0
+        return latest, change_pct
+    except Exception:
+        return None, None
+
+
+def currency_suffix(ticker):
+    if ticker.endswith(".OL"):
+        return "kr"
+    if ticker.endswith(".ST"):
+        return "SEK"
+    return "$"
+
 def add_pattern_markers(fig, pattern, name):
     points = pattern.get("points", {}) if pattern else {}
     if not points:
@@ -484,33 +514,72 @@ def render_ranking(results, title):
     if not results:
         st.warning("Fant ingen data.")
         return
+
     best = results[0]
+    best_price, best_change = get_item_price_change(best)
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Beste aksje", f"{best['ticker']} {best['score']}/10")
     c2.metric("Analyserte", len(results))
-    c3.metric("Beste 6m", f"{best['ret_6m']*100:.1f}%")
-    c4.metric("Auto-refresh", "5 min")
+    c3.metric("Siste kurs", f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A")
+    c4.metric("Auto-refresh", "1 min")
 
-    for item in results[:10]:
-        css, emoji = score_color(item["score"])
-        left, right = st.columns([1.2, 2.2])
+    st.markdown("#### ⚡ Hurtigliste med kurs")
+    st.caption("Kurs og prosentendring vises direkte her, så du slipper å åpne hver aksje.")
+
+    for idx, item in enumerate(results[:15]):
+        ticker = item["ticker"]
+        score = item.get("score", 0)
+        latest_price, change_pct = get_item_price_change(item)
+
+        if latest_price is None:
+            price_text = "Kurs: N/A"
+            change_text = ""
+            dot = "⚪"
+            color = "#94a3b8"
+        else:
+            suffix = currency_suffix(ticker)
+            price_text = f"{latest_price:.2f} {suffix}"
+            change_text = f"{change_pct:+.2f}%"
+            dot = "🟢" if change_pct >= 0 else "🔴"
+            color = "#22c55e" if change_pct >= 0 else "#ef4444"
+
+        css, emoji_score = score_color(score)
+
+        left, right = st.columns([1.35, 2.0])
         with left:
             st.markdown(f"""
-            <div class="card">
-                <h3>{emoji} {item['ticker']}</h3>
-                <div class="{css}" style="font-size:1.25rem;">{item['score']}/10</div>
-                <div class="small">{item['name']}</div>
+            <div class="card" style="padding:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0;">{dot} {ticker}</h3>
+                    <span style="font-size:0.85rem; opacity:0.75;">#{idx+1}</span>
+                </div>
+
+                <div class="{css}" style="font-size:1.25rem; margin-top:8px;">
+                    {score}/10
+                </div>
+
+                <div style="font-size:1.35rem; font-weight:900; margin-top:8px;">
+                    {price_text}
+                    <span style="color:{color}; font-size:1rem; margin-left:8px;">
+                        {change_text}
+                    </span>
+                </div>
+
+                <div class="small" style="margin-top:6px;">{item.get('name', '')}</div>
             </div>
             """, unsafe_allow_html=True)
+
         with right:
-            st.progress(min(item["score"] / 10, 1.0))
+            st.progress(min(score / 10, 1.0))
             st.caption(
-                f"1y: {item['ret_1y']*100:.1f}% · "
-                f"6m: {item['ret_6m']*100:.1f}% · "
-                f"3m: {item['ret_3m']*100:.1f}% · "
-                f"Vol: {item['volatility']:.4f} · "
-                f"DD: {item['max_drawdown']*100:.1f}%"
+                f"1y: {item.get('ret_1y', 0)*100:.1f}% · "
+                f"6m: {item.get('ret_6m', 0)*100:.1f}% · "
+                f"3m: {item.get('ret_3m', 0)*100:.1f}% · "
+                f"Vol: {item.get('volatility', 0):.4f} · "
+                f"DD: {item.get('max_drawdown', 0)*100:.1f}%"
             )
+
 
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
@@ -521,7 +590,7 @@ def render_analysis(results, label):
     item = next(r for r in results if r["ticker"] == selected)
     df = item["hist"].copy()
 
-    st.plotly_chart(plot_price(df, f"{selected} - prisutvikling"), use_container_width=True)
+    st.plotly_chart(plot_price(df, f"{selected} - prisutvikling"), use_container_width=True, key=f"price_chart_{label}_{selected}")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Score", f"{item['score']}/10")
@@ -682,7 +751,7 @@ def render_analysis(results, label):
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
-    st.plotly_chart(fig_ta, use_container_width=True)
+    st.plotly_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
 
     fig_macd = go.Figure()
     fig_macd.add_trace(go.Scatter(x=df.index, y=macd, name="MACD", mode="lines"))
@@ -695,7 +764,7 @@ def render_analysis(results, label):
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
-    st.plotly_chart(fig_macd, use_container_width=True)
+    st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
 
     fig_rsi = go.Figure()
     fig_rsi.add_trace(go.Scatter(x=df.index, y=rsi, name="RSI", mode="lines"))
@@ -709,7 +778,7 @@ def render_analysis(results, label):
         plot_bgcolor="#0b111c",
         yaxis=dict(range=[0, 100]),
     )
-    st.plotly_chart(fig_rsi, use_container_width=True)
+    st.plotly_chart(fig_rsi, use_container_width=True, key=f"rsi_chart_{label}_{selected}")
 
     st.markdown("#### 🧪 Strategi-test (historisk simulering)")
 
@@ -781,7 +850,7 @@ def render_analysis(results, label):
                 plot_bgcolor="#0b111c",
             )
 
-            st.plotly_chart(fig_eq, use_container_width=True)
+            st.plotly_chart(fig_eq, use_container_width=True, key=f"equity_chart_{label}_{selected}")
 
         st.markdown("#### Siste trades")
         if trades:
@@ -962,12 +1031,12 @@ def render_strategy_backtest(tickers, label):
         if not bench.empty:
             fig.add_trace(go.Scatter(x=bench["date"], y=bench["benchmark_value"], name="Benchmark", mode="lines"))
         fig.update_layout(title="Strategi vs benchmark", template="plotly_dark", height=430)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"backtest_main_{label}")
 
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=strategy["date"], y=strategy["drawdown"], fill="tozeroy", name="Drawdown"))
         fig_dd.update_layout(title="Drawdown", template="plotly_dark", height=300)
-        st.plotly_chart(fig_dd, use_container_width=True)
+        st.plotly_chart(fig_dd, use_container_width=True, key=f"backtest_drawdown_{label}")
 
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
