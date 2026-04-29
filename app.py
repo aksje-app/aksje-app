@@ -417,6 +417,26 @@ def score_color(score):
     if score >= 4: return "mid", "🟡"
     return "bad", "🔴"
 
+
+def add_right_side_price_label(fig, x, y, text, color=None, yshift=0):
+    """
+    Legger kurs-label på høyre side uten å krasje med selve grafen.
+    """
+    fig.add_annotation(
+        x=x,
+        y=y,
+        text=text,
+        showarrow=False,
+        xanchor="left",
+        yanchor="middle",
+        xshift=12,
+        yshift=yshift,
+        font=dict(size=12, color=color or "white"),
+        bgcolor="rgba(11,17,28,0.85)",
+        bordercolor="rgba(255,255,255,0.25)",
+        borderwidth=1,
+    )
+
 def plot_price(hist, title):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Pris"))
@@ -425,25 +445,38 @@ def plot_price(hist, title):
         last_x = hist.index[-1]
         last_price = float(hist["Close"].dropna().iloc[-1])
 
-        fig.add_trace(go.Scatter(
-            x=[last_x],
-            y=[last_price],
-            mode="markers+text",
-            text=[f"{last_price:.2f}"],
-            textposition="middle right",
-            name="Gjeldende kurs",
-            marker=dict(size=9),
-            showlegend=True,
-        ))
-
         fig.add_hline(
             y=last_price,
             line_dash="dot",
-            annotation_text=f"Gjeldende kurs {last_price:.2f}",
-            annotation_position="right",
+            line_color="rgba(255,255,255,0.45)",
         )
 
-        fig.update_xaxes(range=[hist.index[0], hist.index[-1]])
+        add_right_side_price_label(
+            fig,
+            last_x,
+            last_price,
+            f"Pris / gjeldende: {last_price:.2f}",
+            color="white",
+        )
+
+        fig.update_layout(
+            annotations=[
+                *fig.layout.annotations,
+                dict(
+                    text=f"💹 Gjeldende kurs: <b>{last_price:.2f}</b>",
+                    xref="paper",
+                    yref="paper",
+                    x=0.01,
+                    y=1.12,
+                    showarrow=False,
+                    align="left",
+                    font=dict(size=15, color="white"),
+                    bgcolor="rgba(30,41,59,0.9)",
+                    bordercolor="rgba(255,255,255,0.25)",
+                    borderwidth=1,
+                )
+            ]
+        )
     except Exception:
         pass
 
@@ -453,7 +486,8 @@ def plot_price(hist, title):
         height=420,
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
-        margin=dict(l=20, r=90, t=50, b=30),
+        margin=dict(l=20, r=150, t=80, b=30),
+        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
     )
     return fig
 
@@ -797,24 +831,56 @@ def render_analysis(results, label):
         plot_bgcolor="#0b111c",
     )
     try:
-        last_price_ta = float(df["Close"].dropna().iloc[-1])
         last_x_ta = df.index[-1]
-        fig_ta.add_trace(go.Scatter(
-            x=[last_x_ta],
-            y=[last_price_ta],
-            mode="markers+text",
-            text=[f"{last_price_ta:.2f}"],
-            textposition="middle right",
-            name="Gjeldende kurs",
-            marker=dict(size=9),
-        ))
+        last_price_ta = float(df["Close"].dropna().iloc[-1])
+
         fig_ta.add_hline(
             y=last_price_ta,
             line_dash="dot",
-            annotation_text=f"Kurs {last_price_ta:.2f}",
-            annotation_position="right"
+            line_color="rgba(255,255,255,0.45)",
         )
-        fig_ta.update_layout(margin=dict(l=20, r=90, t=50, b=30))
+
+        add_right_side_price_label(
+            fig_ta,
+            last_x_ta,
+            last_price_ta,
+            f"Pris: {last_price_ta:.2f}",
+            color="white",
+            yshift=0,
+        )
+
+        # Bollinger labels on right side if available
+        try:
+            bb_mid_val = float(bb_ma.dropna().iloc[-1])
+            bb_upper_val = float(bb_upper.dropna().iloc[-1])
+            bb_lower_val = float(bb_lower.dropna().iloc[-1])
+
+            add_right_side_price_label(fig_ta, last_x_ta, bb_mid_val, f"BB midt: {bb_mid_val:.2f}", color="#ff6b4a")
+            add_right_side_price_label(fig_ta, last_x_ta, bb_upper_val, f"BB øvre: {bb_upper_val:.2f}", color="#00e6a8")
+            add_right_side_price_label(fig_ta, last_x_ta, bb_lower_val, f"BB nedre: {bb_lower_val:.2f}", color="#b56cff")
+        except Exception:
+            pass
+
+        fig_ta.update_layout(
+            margin=dict(l=20, r=170, t=90, b=30),
+            legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
+            annotations=[
+                *fig_ta.layout.annotations,
+                dict(
+                    text=f"💹 Gjeldende kurs: <b>{last_price_ta:.2f}</b>",
+                    xref="paper",
+                    yref="paper",
+                    x=0.01,
+                    y=1.14,
+                    showarrow=False,
+                    align="left",
+                    font=dict(size=15, color="white"),
+                    bgcolor="rgba(30,41,59,0.9)",
+                    bordercolor="rgba(255,255,255,0.25)",
+                    borderwidth=1,
+                )
+            ],
+        )
     except Exception:
         pass
     st.plotly_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
