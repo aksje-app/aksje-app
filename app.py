@@ -1,8 +1,5 @@
 import os
-PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
-PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
-st.write("DEBUG TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
-st.write("DEBUG USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
+import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -733,6 +730,9 @@ st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
 st.sidebar.markdown("### 📱 Varsler")
 pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
 st.sidebar.write("Pushover:", "✅ Aktiv" if pushover_enabled else "❌ Ikke konfigurert")
+with st.sidebar.expander("Debug varsler"):
+    st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
+    st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
 if pushover_enabled and st.sidebar.button("Send test-varsel"):
     ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer")
     if ok:
