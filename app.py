@@ -8,8 +8,9 @@ from streamlit_autorefresh import st_autorefresh
 from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal
 from patterns import detect_head_shoulders, detect_inverse_head_shoulders, breakout_scanner, build_signal_alerts
 
-from stocks import get_sp500_tickers, get_norwegian_tickers
+from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_all_tickers
 from analysis import rank_stocks, score_stock
+from market_selector import auto_rank_market, build_top_picks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
@@ -844,8 +845,10 @@ auto_watchlist_alerts = st.sidebar.checkbox(
 )
 manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
 
-mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
-max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
+mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Sverige / Stockholm", "Alle"])
+max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 200, 30)
+st.sidebar.caption("Flere aksjer gir bedre dekning, men appen kan bli tregere.")
+min_top_pick_score = st.sidebar.slider("Minimum score for Top Picks", 4.0, 9.0, 6.5, 0.1)
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
@@ -871,32 +874,72 @@ if auto_watchlist_alerts or manual_watchlist_scan:
 if search.strip():
     tickers_us = [search.strip().upper()]
     tickers_no = []
+    tickers_se = []
+    tickers_all = tickers_us
 else:
     tickers_us = get_sp500_tickers(limit=max_count)
-    tickers_no = get_norwegian_tickers()[:max_count]
+    tickers_no = get_norwegian_tickers(limit=max_count)
+    tickers_se = get_swedish_tickers(limit=max_count)
+    tickers_all = get_all_tickers(limit_per_market=max(5, max_count // 3))
 
-tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norske aksjer", "🚀 IPO", "🧪 Backtesting"])
+tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting"])
 
 with tabs[0]:
-    if mode in ["USA / S&P 500", "Begge"] or search.strip():
-        us_results = rank_stocks(tickers_us, max_count=max_count, use_news=use_news)
-        render_ranking(us_results, "🏆 Topp rangerte USA/S&P 500")
+    if mode in ["USA / S&P 500", "Alle"] or search.strip():
+        us_results = auto_rank_market(tickers_us, max_count=max_count, use_news=False)
+        render_ranking(us_results, "🏆 Dynamisk rangering USA/S&P 500")
         render_analysis(us_results, "USA")
     else:
         st.info("USA er slått av i sidepanelet.")
 
 with tabs[1]:
-    if mode in ["Norge / Oslo Børs", "Begge"] and not search.strip():
-        no_results = rank_stocks(tickers_no, max_count=max_count, use_news=use_news)
-        render_ranking(no_results, "🇳🇴 Topp 10 norske aksjer")
+    if mode in ["Norge / Oslo Børs", "Alle"] and not search.strip():
+        no_results = auto_rank_market(tickers_no, max_count=max_count, use_news=False)
+        render_ranking(no_results, "🇳🇴 Dynamisk rangering Norge")
         render_analysis(no_results, "Norge")
     else:
-        st.info("Velg Norge eller Begge i sidepanelet.")
+        st.info("Velg Norge eller Alle i sidepanelet.")
 
 with tabs[2]:
-    render_ipo()
+    if mode in ["Sverige / Stockholm", "Alle"] and not search.strip():
+        se_results = auto_rank_market(tickers_se, max_count=max_count, use_news=False)
+        render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
+        render_analysis(se_results, "Sverige")
+    else:
+        st.info("Velg Sverige eller Alle i sidepanelet.")
 
 with tabs[3]:
-    bt_market = st.radio("Backtest-marked", ["USA", "Norge"], horizontal=True)
-    bt_tickers = tickers_us if bt_market == "USA" else get_norwegian_tickers()[:max_count]
+    st.subheader("⭐ Automatiske Top Picks")
+    st.caption("Top Picks velges automatisk basert på score. Listen og rekkefølgen kan endre seg når markedet endrer seg.")
+
+    scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Alle"], horizontal=True)
+
+    if scan_market == "USA":
+        source_tickers = tickers_us
+    elif scan_market == "Norge":
+        source_tickers = tickers_no
+    elif scan_market == "Sverige":
+        source_tickers = tickers_se
+    else:
+        source_tickers = tickers_all
+
+    with st.spinner("Finner beste kandidater..."):
+        ranked = auto_rank_market(source_tickers, max_count=max_count, use_news=False)
+        top_picks = build_top_picks(ranked, min_score=min_top_pick_score, max_items=15)
+
+    render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
+    render_analysis(top_picks, f"TopPicks_{scan_market}")
+
+with tabs[4]:
+    render_ipo()
+
+with tabs[5]:
+    bt_market = st.radio("Backtest-marked", ["USA", "Norge", "Sverige"], horizontal=True)
+    if bt_market == "USA":
+        bt_tickers = tickers_us
+    elif bt_market == "Norge":
+        bt_tickers = get_norwegian_tickers(limit=max_count)
+    else:
+        bt_tickers = get_swedish_tickers(limit=max_count)
+
     render_strategy_backtest(bt_tickers, bt_market)
