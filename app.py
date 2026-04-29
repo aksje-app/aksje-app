@@ -855,6 +855,12 @@ min_top_pick_score = st.sidebar.slider("Minimum score for Top Picks", 4.0, 9.0, 
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
+# Trygge standardverdier for watchlist-knapper
+auto_watchlist_alerts = globals().get("auto_watchlist_alerts", False)
+manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
+watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
+watchlist_tickers = globals().get("watchlist_tickers", [])
+
 st.title("📈 AI Aksje Analyzer Pro")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 
