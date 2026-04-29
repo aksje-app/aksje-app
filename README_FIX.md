@@ -1,0 +1,1 @@
+Fikset IndentationError i scanner_worker.py. Last opp alle filene og deploy på nytt.

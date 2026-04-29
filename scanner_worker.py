@@ -147,29 +147,39 @@ def analyze_ticker(ticker):
 
 
 def run_once():
-    
-markets = get_open_markets()
+    markets = get_open_markets()
 
-if not markets:
-    print("⏸ Alle markeder stengt")
-    exit()
+    if not markets:
+        print("⏸ Alle markeder stengt")
+        return 0
 
-print(f"Åpne markeder: {markets}")
+    print(f"Åpne markeder: {markets}")
 
-tickers = []
+    tickers = []
 
-if "USA" in markets:
-    tickers += get_sp500_tickers(20)
+    custom = os.getenv("SCANNER_WATCHLIST", "").strip()
+    if custom:
+        tickers = [x.strip().upper() for x in custom.replace(";", ",").split(",") if x.strip()]
+    else:
+        if "USA" in markets:
+            tickers += get_sp500_tickers(20)
 
-if "NORGE" in markets:
-    tickers += get_norwegian_tickers(5)
+        if "NORGE" in markets:
+            tickers += get_norwegian_tickers(5)
 
-if "SVERIGE" in markets:
-    tickers += get_swedish_tickers(5)
+        if "SVERIGE" in markets:
+            tickers += get_swedish_tickers(5)
+
+    tickers = tickers[:MAX_TICKERS]
+
+    if not tickers:
+        print("Ingen tickere å scanne.")
+        return 0
 
     print(f"Scanner {len(tickers)} tickers: {tickers}")
 
     latest_prices = {}
+    candidates = []
 
     for ticker in tickers:
         try:
@@ -187,27 +197,50 @@ if "SVERIGE" in markets:
 
             print(f"{ticker}: {signal} conf={confidence} price={price}")
 
-            if confidence < MIN_CONFIDENCE:
-                continue
-
             if PAPER_TRADING_ENABLED:
-                if signal == "BUY":
-                    ok, msg = paper_buy(ticker, price, decision)
-                    if ok:
-                        send_pushover_alert(f"🧪 {msg}\\nPris: {price}\\nConfidence: {confidence}%", title="Paper Trading")
-                elif signal == "SELL / AVOID":
-                    ok, msg = paper_sell(ticker, price, decision)
-                    if ok:
-                        send_pushover_alert(f"🧪 {msg}\\nPris: {price}\\nConfidence: {confidence}%", title="Paper Trading")
+                risk_ok, risk_msg = apply_risk_exits(ticker, price)
+                if risk_ok:
+                    send_pushover_alert(f"🛑 {risk_msg}\nPris: {price}", title="Risk Exit")
+
+            if confidence >= MIN_CONFIDENCE and signal in ["BUY", "SELL / AVOID"]:
+                candidates.append({
+                    "ticker": ticker,
+                    "price": price,
+                    "decision": decision,
+                    "signal": signal,
+                    "confidence": confidence,
+                    "score": float(decision.get("decision_score", 0) or 0),
+                })
 
             time.sleep(SCAN_SLEEP_SECONDS)
 
         except Exception as e:
             print(f"Feil på {ticker}: {e}")
 
+    candidates = sorted(candidates, key=lambda x: (x["confidence"], x["score"]), reverse=True)[:3]
+
+    if PAPER_TRADING_ENABLED:
+        for c in candidates:
+            if c["signal"] == "BUY":
+                ok, msg = paper_buy(c["ticker"], c["price"], c["decision"])
+                if ok:
+                    send_pushover_alert(
+                        f"🧪 {msg}\nPris: {c['price']}\nConfidence: {c['confidence']}%",
+                        title="Top 3 Paper Trading"
+                    )
+            elif c["signal"] == "SELL / AVOID":
+                ok, msg = paper_sell(c["ticker"], c["price"], c["decision"])
+                if ok:
+                    send_pushover_alert(
+                        f"🧪 {msg}\nPris: {c['price']}\nConfidence: {c['confidence']}%",
+                        title="Top 3 Paper Trading"
+                    )
+
     portfolio = load_portfolio()
     value = portfolio_value(portfolio, latest_prices)
+    stats = performance_stats(portfolio, latest_prices)
     print(f"Portfolio value: {value}")
+    print(f"Performance: {stats}")
     return value
 
 
