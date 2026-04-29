@@ -9,7 +9,7 @@ from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect
 from patterns import detect_head_shoulders, detect_inverse_head_shoulders, breakout_scanner, build_signal_alerts
 
 from stocks import get_sp500_tickers, get_norwegian_tickers
-from analysis import rank_stocks
+from analysis import rank_stocks, score_stock
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
@@ -280,6 +280,96 @@ def maybe_send_signal_alert(ticker, decision):
             f"Signal-score: {decision.get('decision_score', 'N/A')}"
         )
         send_pushover_alert(msg)
+
+
+
+def parse_watchlist(text):
+    if not text:
+        return []
+    raw = text.replace(";", ",").replace("\n", ",").split(",")
+    tickers = []
+    for item in raw:
+        ticker = item.strip().upper()
+        if ticker and ticker not in tickers:
+            tickers.append(ticker)
+    return tickers
+
+
+def scan_watchlist_and_alert(tickers):
+    """
+    Scanner watchlist og sender Pushover-varsel når BUY/SELL signal endrer seg.
+    Kjører når appen refresher, men unngår spam ved å lagre siste signal i session_state.
+    """
+    if not tickers:
+        return []
+
+    if "watchlist_last_signal" not in st.session_state:
+        st.session_state.watchlist_last_signal = {}
+
+    results = []
+
+    for ticker in tickers:
+        try:
+            item = score_stock(ticker, use_news=False)
+            if not item:
+                results.append({"ticker": ticker, "status": "Ingen data"})
+                continue
+
+            df = item["hist"].copy()
+
+            rsi = calculate_rsi(df)
+            macd, macd_signal, _ = calculate_macd(df)
+            bb_ma, bb_upper, bb_lower = calculate_bollinger(df)
+
+            latest_rsi = rsi.dropna().iloc[-1] if not rsi.dropna().empty else 50
+            latest_macd = macd.dropna().iloc[-1] if not macd.dropna().empty else 0
+            latest_macd_signal = macd_signal.dropna().iloc[-1] if not macd_signal.dropna().empty else 0
+
+            hs = detect_head_shoulders(df)
+            inv_hs = detect_inverse_head_shoulders(df)
+            breakout = breakout_scanner(df)
+
+            technical_context = {
+                "rsi": latest_rsi,
+                "macd_bullish": latest_macd > latest_macd_signal,
+                "breakout_type": breakout.get("type", "neutral"),
+                "head_shoulders_found": hs.get("found", False),
+                "inverse_head_shoulders_found": inv_hs.get("found", False),
+            }
+
+            decision = build_trading_decision(item, technical_context)
+            current_signal = decision.get("decision", "UNKNOWN")
+            previous_signal = st.session_state.watchlist_last_signal.get(ticker)
+
+            changed = previous_signal is not None and previous_signal != current_signal
+            first_seen = previous_signal is None
+
+            st.session_state.watchlist_last_signal[ticker] = current_signal
+
+            if changed and current_signal in ["BUY", "SELL / AVOID"]:
+                msg = (
+                    f"{decision.get('emoji', '')} {current_signal}: {ticker}\n"
+                    f"Score: {item.get('score', 'N/A')}/10\n"
+                    f"Confidence: {decision.get('confidence', 'N/A')}%\n"
+                    f"RSI: {latest_rsi:.1f}"
+                )
+                send_pushover_alert(msg, title="Aksje signal endret")
+
+            results.append({
+                "ticker": ticker,
+                "score": item.get("score"),
+                "signal": current_signal,
+                "confidence": decision.get("confidence"),
+                "rsi": round(float(latest_rsi), 1),
+                "macd": "Bullish" if latest_macd > latest_macd_signal else "Bearish",
+                "changed": changed,
+                "first_seen": first_seen,
+            })
+
+        except Exception as e:
+            results.append({"ticker": ticker, "status": f"Feil: {e}"})
+
+    return results
 
 
 def score_color(score):
@@ -741,6 +831,19 @@ if pushover_enabled and st.sidebar.button("Send test-varsel"):
         st.sidebar.error(f"Feil: {err}")
 st.sidebar.caption("Legg PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY i Render Environment Variables.")
 
+st.sidebar.markdown("### 👀 Watchlist alerts")
+watchlist_text = st.sidebar.text_area(
+    "Aksjer å overvåke",
+    value="AAPL, MSFT, NVDA, GOOGL, EQNR.OL",
+    help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL",
+)
+auto_watchlist_alerts = st.sidebar.checkbox(
+    "Auto-scan watchlist ved refresh",
+    value=False,
+    help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
+)
+manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
+
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Begge"])
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 60, 15)
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
@@ -748,6 +851,22 @@ search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, 
 
 st.title("📈 AI Aksje Analyzer Pro")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
+
+watchlist_tickers = parse_watchlist(watchlist_text)
+
+if auto_watchlist_alerts or manual_watchlist_scan:
+    st.markdown("### 🔔 Watchlist signaler")
+    if not pushover_enabled:
+        st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
+    elif not watchlist_tickers:
+        st.info("Legg inn minst én ticker i watchlist.")
+    else:
+        with st.spinner("Scanner watchlist..."):
+            watch_results = scan_watchlist_and_alert(watchlist_tickers)
+
+        if watch_results:
+            st.dataframe(pd.DataFrame(watch_results), use_container_width=True)
+            st.caption("Varsel sendes bare når et tidligere registrert signal endrer seg til BUY eller SELL / AVOID.")
 
 if search.strip():
     tickers_us = [search.strip().upper()]
