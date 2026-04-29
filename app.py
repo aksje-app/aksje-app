@@ -661,6 +661,49 @@ def current_price_from_df(df):
     except Exception:
         return None
 
+
+def add_rsi_level_labels(fig):
+    """
+    Legger tydelige RSI-nivåer direkte på høyre side av RSI-grafen.
+    Standard:
+    - 30 = oversolgt
+    - 70 = overkjøpt
+    - 80 = ekstremt overkjøpt
+    """
+    try:
+        fig.add_hline(y=30, line_dash="dash", line_color="rgba(255,255,255,0.65)")
+        fig.add_hline(y=70, line_dash="dash", line_color="rgba(255,255,255,0.65)")
+        fig.add_hline(y=80, line_dash="dot", line_color="rgba(255,193,7,0.85)")
+
+        fig.add_annotation(
+            xref="paper", yref="y", x=1.01, y=30,
+            text="30 oversolgt",
+            showarrow=False, xanchor="left",
+            font=dict(size=12, color="white"),
+            bgcolor="rgba(11,17,28,0.85)",
+        )
+        fig.add_annotation(
+            xref="paper", yref="y", x=1.01, y=70,
+            text="70 overkjøpt",
+            showarrow=False, xanchor="left",
+            font=dict(size=12, color="white"),
+            bgcolor="rgba(11,17,28,0.85)",
+        )
+        fig.add_annotation(
+            xref="paper", yref="y", x=1.01, y=80,
+            text="80 ekstrem",
+            showarrow=False, xanchor="left",
+            font=dict(size=12, color="#ffc107"),
+            bgcolor="rgba(11,17,28,0.85)",
+        )
+
+        fig.update_yaxes(range=[0, 100])
+        fig.update_layout(margin=dict(l=20, r=130, t=50, b=30))
+    except Exception:
+        pass
+
+    return fig
+
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
     if not results:
@@ -901,6 +944,7 @@ def render_analysis(results, label):
 
     fig_rsi = go.Figure()
     fig_rsi.add_trace(go.Scatter(x=df.index, y=rsi, name="RSI", mode="lines"))
+    fig_rsi.add_hline(y=80, line_dash="dot", annotation_text="80 ekstremt overkjøpt", annotation_position="right")
     fig_rsi.add_hline(y=70, line_dash="dash", annotation_text="Overkjøpt")
     fig_rsi.add_hline(y=30, line_dash="dash", annotation_text="Oversolgt")
     fig_rsi.update_layout(
@@ -911,7 +955,7 @@ def render_analysis(results, label):
         plot_bgcolor="#0b111c",
         yaxis=dict(range=[0, 100]),
     )
-    st.plotly_chart(fig_rsi, use_container_width=True, key=f"rsi_chart_{label}_{selected}")
+    st.plotly_chart(add_rsi_level_labels(fig_rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
 
     st.markdown("#### 🧪 Strategi-test (historisk simulering)")
 
