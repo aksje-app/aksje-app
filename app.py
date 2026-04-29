@@ -1,3 +1,4 @@
+from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
 import pandas as pd
@@ -1005,6 +1006,12 @@ auto_watchlist_alerts = globals().get("auto_watchlist_alerts", False)
 manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
 watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
 watchlist_tickers = globals().get("watchlist_tickers", [])
+
+
+st.markdown("## 📊 Market Overview")
+if 'top_picks' in locals():
+    market_pulse(top_picks)
+    top_movers(top_picks)
 
 st.title("📈 AI Aksje Analyzer Pro")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
