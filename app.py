@@ -16,6 +16,11 @@ from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
 from trading_engine import build_trading_decision, adjusted_score
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
+from signal_engine import calculate_signal_intelligence
+from insider import get_insider_data
+from analyst import get_analyst_trend
+from earnings import get_earnings
+from paper_trading import load_portfolio, portfolio_value, reset_portfolio
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 st_autorefresh(interval=300000, key="refresh")
@@ -353,6 +358,23 @@ def scan_watchlist_and_alert(tickers):
             }
 
             decision = build_trading_decision(item, technical_context)
+
+            if use_signal_intelligence:
+                insider = get_insider_data(ticker)
+                analyst = get_analyst_trend(ticker)
+                earnings = get_earnings(ticker)
+                si = calculate_signal_intelligence(
+                    item,
+                    technical_context=technical_context,
+                    insider=insider,
+                    analyst=analyst,
+                    earnings=earnings,
+                )
+                decision["decision"] = si["decision"]
+                decision["emoji"] = si["emoji"]
+                decision["confidence"] = si["confidence"]
+                decision["decision_score"] = si["final_score"]
+
             current_signal = decision.get("decision", "UNKNOWN")
             previous_signal = st.session_state.watchlist_last_signal.get(ticker)
 
@@ -361,7 +383,9 @@ def scan_watchlist_and_alert(tickers):
 
             st.session_state.watchlist_last_signal[ticker] = current_signal
 
-            if changed and current_signal in ["BUY", "SELL / AVOID"]:
+            confidence_ok = (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence
+
+            if changed and confidence_ok and current_signal in ["BUY", "SELL / AVOID"]:
                 msg = (
                     f"{decision.get('emoji', '')} {current_signal}: {ticker}\n"
                     f"Score: {item.get('score', 'N/A')}/10\n"
@@ -534,8 +558,27 @@ def render_analysis(results, label):
     decision = build_trading_decision(item, technical_context)
     adj_score = adjusted_score(item, decision)
 
-    # 📱 Send Pushover-varsel hvis BUY/SELL-signalet endrer seg
-    maybe_send_signal_alert(selected, decision)
+    insider = get_insider_data(selected)
+    analyst = get_analyst_trend(selected)
+    earnings = get_earnings(selected)
+
+    signal_intelligence = calculate_signal_intelligence(
+        item,
+        technical_context=technical_context,
+        insider=insider,
+        analyst=analyst,
+        earnings=earnings,
+    ) if use_signal_intelligence else None
+
+    if signal_intelligence:
+        decision["decision"] = signal_intelligence["decision"]
+        decision["emoji"] = signal_intelligence["emoji"]
+        decision["confidence"] = signal_intelligence["confidence"]
+        decision["decision_score"] = signal_intelligence["final_score"]
+        decision["reasons"] = decision.get("reasons", []) + signal_intelligence.get("reasons", [])
+
+    if (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence:
+        maybe_send_signal_alert(selected, decision)
 
     st.markdown("#### 🤖 Trading engine")
     d1, d2, d3 = st.columns(3)
@@ -544,6 +587,39 @@ def render_analysis(results, label):
     d3.metric("Confidence", f"{decision['confidence']}%")
 
     render_decision_banner(decision, item, adj_score)
+
+    if signal_intelligence:
+        st.markdown("#### 🧠 Signal Intelligence")
+        si1, si2, si3, si4 = st.columns(4)
+        si1.metric("Smart score", f"{signal_intelligence['final_score']}/10")
+        si2.metric("Bonus", signal_intelligence["bonus"])
+        si3.metric("Risk", signal_intelligence["risk"])
+        si4.metric("Confidence", f"{signal_intelligence['confidence']}%")
+
+        i1, i2, i3 = st.columns(3)
+        with i1:
+            st.markdown("**🕵️ Insider**")
+            if insider.get("error"):
+                st.caption(insider["error"])
+            st.write(f"Score: {insider.get('score', 'N/A')}")
+            st.caption(f"Kjøp: {insider.get('buy_shares', 0)} · Salg: {insider.get('sell_shares', 0)}")
+
+        with i2:
+            st.markdown("**📈 Analyst**")
+            if analyst.get("error"):
+                st.caption(analyst["error"])
+            st.write(f"Trend: {analyst.get('trend', 'N/A')}")
+            st.caption(f"Buy: {analyst.get('buy', 0)} · Hold: {analyst.get('hold', 0)} · Sell: {analyst.get('sell', 0)}")
+
+        with i3:
+            st.markdown("**⏰ Earnings**")
+            if earnings.get("error"):
+                st.caption(earnings["error"])
+            if earnings.get("date"):
+                st.write(f"Dato: {earnings.get('date')}")
+                st.caption(f"Dager igjen: {earnings.get('days_until')}")
+            else:
+                st.write("Ingen nær dato funnet")
 
     with st.expander("Hvorfor dette signalet?"):
         for reason in decision["reasons"]:
@@ -763,6 +839,57 @@ def render_analysis(results, label):
     else:
         st.info("Trykk på knappen over for å hente nyheter for valgt aksje.")
 
+
+def render_paper_trading_dashboard():
+    st.subheader("🧪 Paper Trading")
+    st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
+
+    portfolio = load_portfolio()
+
+    latest_prices = {}
+    for ticker, pos in portfolio.get("positions", {}).items():
+        latest_prices[ticker] = pos.get("last_price", pos.get("avg_price", 0))
+
+    total_value = portfolio_value(portfolio, latest_prices)
+
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Cash", f"{portfolio.get('cash', 0):,.0f} kr")
+    p2.metric("Porteføljeverdi", f"{total_value:,.0f} kr")
+    p3.metric("Antall posisjoner", len(portfolio.get("positions", {})))
+
+    if st.button("Reset paper portfolio"):
+        reset_portfolio()
+        st.success("Paper portfolio nullstilt. Refresh siden.")
+
+    st.markdown("#### Posisjoner")
+    positions = portfolio.get("positions", {})
+    if positions:
+        rows = []
+        for ticker, pos in positions.items():
+            last_price = pos.get("last_price", pos.get("avg_price", 0))
+            avg_price = pos.get("avg_price", 0)
+            shares = pos.get("shares", 0)
+            value = shares * last_price
+            pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
+            rows.append({
+                "ticker": ticker,
+                "shares": round(shares, 4),
+                "avg_price": round(avg_price, 2),
+                "last_price": round(last_price, 2),
+                "value": round(value, 2),
+                "pnl_pct": round(pnl_pct, 2),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    else:
+        st.info("Ingen åpne paper trading-posisjoner.")
+
+    st.markdown("#### Handelslogg")
+    trades = portfolio.get("trades", [])
+    if trades:
+        st.dataframe(pd.DataFrame(trades[-50:]), use_container_width=True)
+    else:
+        st.info("Ingen handler ennå.")
+
 def render_ipo():
     st.subheader("🚀 Nye og kommende børsnoteringer")
     ipo_list, error = get_ipo_calendar()
@@ -853,6 +980,9 @@ max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 200, 30)
 st.sidebar.caption("Flere aksjer gir bedre dekning, men appen kan bli tregere.")
 min_top_pick_score = st.sidebar.slider("Minimum score for Top Picks", 4.0, 9.0, 6.5, 0.1)
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
+use_signal_intelligence = st.sidebar.checkbox("Bruk Signal Intelligence", value=True)
+use_high_conf_alerts_only = st.sidebar.checkbox("Varsle kun høy confidence", value=True)
+min_alert_confidence = st.sidebar.slider("Min alert confidence", 50, 95, 70)
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
 # Trygge standardverdier for watchlist-knapper
@@ -922,7 +1052,7 @@ watchlist_scan_limit = st.sidebar.slider(
 )
 manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
 
-tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting"])
+tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"])
 
 with tabs[0]:
     if mode in ["USA / S&P 500", "Alle"] or search.strip():
@@ -983,3 +1113,6 @@ with tabs[5]:
         bt_tickers = get_swedish_tickers(limit=max_count)
 
     render_strategy_backtest(bt_tickers, bt_market)
+
+with tabs[6]:
+    render_paper_trading_dashboard()
