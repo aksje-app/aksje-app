@@ -1,3 +1,4 @@
+from trading_settings import load_rules
 
 import os
 from datetime import datetime

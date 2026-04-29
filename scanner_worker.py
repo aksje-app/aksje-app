@@ -53,6 +53,7 @@ if not market_is_open():
     exit()
 
 import os
+from trading_settings import load_rules, should_buy, should_sell
 import time
 import pandas as pd
 
@@ -147,6 +148,7 @@ def analyze_ticker(ticker):
 
 
 def run_once():
+    rules = load_rules()
     markets = get_open_markets()
 
     if not markets:
@@ -221,7 +223,7 @@ def run_once():
 
     if PAPER_TRADING_ENABLED:
         for c in candidates:
-            if c["signal"] == "BUY":
+            if c["signal"] == "BUY" and should_buy(c["decision"], 50, rules):
                 ok, msg = paper_buy(c["ticker"], c["price"], c["decision"])
                 if ok:
                     send_pushover_alert(

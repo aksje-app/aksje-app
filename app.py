@@ -1,6 +1,7 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from trading_settings import load_rules, save_rules
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -1220,6 +1221,34 @@ def render_strategy_backtest(tickers, label):
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
 st.sidebar.title("⚙️ Innstillinger")
+
+st.sidebar.markdown("### ⚙️ Trading-regler")
+_rules = load_rules()
+
+with st.sidebar.expander("📈 Kjøp", expanded=False):
+    _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules["min_buy_score"]), 0.1)
+    _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules["min_buy_confidence"]))
+    _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules["max_buy_rsi"]))
+    _rules["max_trades_per_day"] = st.slider("Maks trades per dag", 1, 10, int(_rules["max_trades_per_day"]))
+
+with st.sidebar.expander("🟡 Hold", expanded=False):
+    _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules["min_hold_days"]))
+    _rules["ignore_small_moves_pct"] = st.slider("Ignorer små svingninger %", 0.0, 10.0, float(_rules["ignore_small_moves_pct"]), 0.5)
+
+with st.sidebar.expander("🔴 Salg", expanded=False):
+    _rules["enable_sell_signal_exit"] = st.checkbox("Selg ved SELL/AVOID signal", bool(_rules["enable_sell_signal_exit"]))
+    _rules["stop_loss_pct"] = st.slider("Stop-loss %", 1.0, 25.0, float(_rules["stop_loss_pct"]), 0.5)
+    _rules["take_profit_pct"] = st.slider("Take-profit %", 1.0, 50.0, float(_rules["take_profit_pct"]), 0.5)
+    _rules["rsi_exit_level"] = st.slider("RSI exit nivå", 60, 90, int(_rules["rsi_exit_level"]))
+    _rules["rsi_must_fall"] = st.checkbox("RSI må falle etter topp", bool(_rules["rsi_must_fall"]))
+
+if st.sidebar.button("💾 Lagre trading-regler"):
+    saved_db = save_rules(_rules)
+    if saved_db:
+        st.sidebar.success("Lagret i database ✅")
+    else:
+        st.sidebar.warning("Lagret lokalt. DATABASE_URL mangler eller DB feilet.")
+
 st.sidebar.markdown("### 🎨 Visning")
 st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
 st.sidebar.markdown("### 📱 Varsler")
