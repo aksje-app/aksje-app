@@ -419,11 +419,43 @@ def score_color(score):
 
 def plot_price(hist, title):
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Close"))
-    fig.update_layout(title=title, template="plotly_dark", height=420, paper_bgcolor="#0b111c", plot_bgcolor="#0b111c")
+    fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Pris"))
+
+    try:
+        last_x = hist.index[-1]
+        last_price = float(hist["Close"].dropna().iloc[-1])
+
+        fig.add_trace(go.Scatter(
+            x=[last_x],
+            y=[last_price],
+            mode="markers+text",
+            text=[f"{last_price:.2f}"],
+            textposition="middle right",
+            name="Gjeldende kurs",
+            marker=dict(size=9),
+            showlegend=True,
+        ))
+
+        fig.add_hline(
+            y=last_price,
+            line_dash="dot",
+            annotation_text=f"Gjeldende kurs {last_price:.2f}",
+            annotation_position="right",
+        )
+
+        fig.update_xaxes(range=[hist.index[0], hist.index[-1]])
+    except Exception:
+        pass
+
+    fig.update_layout(
+        title=title,
+        template="plotly_dark",
+        height=420,
+        paper_bgcolor="#0b111c",
+        plot_bgcolor="#0b111c",
+        margin=dict(l=20, r=90, t=50, b=30),
+    )
     return fig
-
-
 
 def get_item_price_change(item):
     """
@@ -567,6 +599,32 @@ def render_ranking(results, title):
                     f"DD: {item.get('max_drawdown', 0)*100:.1f}%"
                 )
 
+
+
+def pct_distance(current, level):
+    try:
+        current = float(current)
+        level = float(level)
+        if current == 0:
+            return None
+        return ((level - current) / current) * 100
+    except Exception:
+        return None
+
+
+def fmt_distance(current, level):
+    d = pct_distance(current, level)
+    if d is None:
+        return "N/A"
+    sign = "+" if d >= 0 else ""
+    return f"{sign}{d:.2f}%"
+
+
+def current_price_from_df(df):
+    try:
+        return float(df["Close"].dropna().iloc[-1])
+    except Exception:
+        return None
 
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
@@ -738,6 +796,27 @@ def render_analysis(results, label):
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
+    try:
+        last_price_ta = float(df["Close"].dropna().iloc[-1])
+        last_x_ta = df.index[-1]
+        fig_ta.add_trace(go.Scatter(
+            x=[last_x_ta],
+            y=[last_price_ta],
+            mode="markers+text",
+            text=[f"{last_price_ta:.2f}"],
+            textposition="middle right",
+            name="Gjeldende kurs",
+            marker=dict(size=9),
+        ))
+        fig_ta.add_hline(
+            y=last_price_ta,
+            line_dash="dot",
+            annotation_text=f"Kurs {last_price_ta:.2f}",
+            annotation_position="right"
+        )
+        fig_ta.update_layout(margin=dict(l=20, r=90, t=50, b=30))
+    except Exception:
+        pass
     st.plotly_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
 
     fig_macd = go.Figure()
