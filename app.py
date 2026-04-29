@@ -511,6 +511,7 @@ def render_decision_banner(decision, item, adj_score):
 
 def render_ranking(results, title):
     st.subheader(title)
+
     if not results:
         st.warning("Fant ingen data.")
         return
@@ -519,66 +520,52 @@ def render_ranking(results, title):
     best_price, best_change = get_item_price_change(best)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Beste aksje", f"{best['ticker']} {best['score']}/10")
+    c1.metric("Beste aksje", f"{best['ticker']} {best.get('score', 0)}/10")
     c2.metric("Analyserte", len(results))
-    c3.metric("Siste kurs", f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A")
+    c3.metric(
+        "Siste kurs",
+        f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A",
+        delta=f"{best_change:+.2f}%" if best_change is not None else None,
+    )
     c4.metric("Auto-refresh", "1 min")
 
-    st.markdown("#### ⚡ Hurtigliste med kurs")
-    st.caption("Kurs og prosentendring vises direkte her, så du slipper å åpne hver aksje.")
+    st.markdown("### ⚡ Hurtigliste med kurs")
+    st.caption("Kurs og prosentendring vises direkte i listen.")
 
-    for idx, item in enumerate(results[:15]):
-        ticker = item["ticker"]
+    for idx, item in enumerate(results[:15], start=1):
+        ticker = item.get("ticker", "N/A")
         score = item.get("score", 0)
         latest_price, change_pct = get_item_price_change(item)
 
-        if latest_price is None:
-            price_text = "Kurs: N/A"
-            change_text = ""
-            dot = "⚪"
-            color = "#94a3b8"
-        else:
-            suffix = currency_suffix(ticker)
-            price_text = f"{latest_price:.2f} {suffix}"
-            change_text = f"{change_pct:+.2f}%"
-            dot = "🟢" if change_pct >= 0 else "🔴"
-            color = "#22c55e" if change_pct >= 0 else "#ef4444"
+        price_text = "N/A"
+        delta_text = None
+        direction_icon = "⚪"
 
-        css, emoji_score = score_color(score)
+        if latest_price is not None:
+            price_text = f"{latest_price:.2f} {currency_suffix(ticker)}"
+            delta_text = f"{change_pct:+.2f}%"
+            direction_icon = "🟢" if change_pct >= 0 else "🔴"
 
-        left, right = st.columns([1.35, 2.0])
-        with left:
-            st.markdown(f"""
-            <div class="card" style="padding:16px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <h3 style="margin:0;">{dot} {ticker}</h3>
-                    <span style="font-size:0.85rem; opacity:0.75;">#{idx+1}</span>
-                </div>
+        with st.container(border=True):
+            left, mid, right = st.columns([1.25, 1.0, 2.1])
 
-                <div class="{css}" style="font-size:1.25rem; margin-top:8px;">
-                    {score}/10
-                </div>
+            with left:
+                st.markdown(f"### {direction_icon} {ticker}")
+                st.caption(f"#{idx} · {item.get('name', '')}")
 
-                <div style="font-size:1.35rem; font-weight:900; margin-top:8px;">
-                    {price_text}
-                    <span style="color:{color}; font-size:1rem; margin-left:8px;">
-                        {change_text}
-                    </span>
-                </div>
+            with mid:
+                st.metric("Score", f"{score}/10")
+                st.metric("Kurs", price_text, delta=delta_text)
 
-                <div class="small" style="margin-top:6px;">{item.get('name', '')}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with right:
-            st.progress(min(score / 10, 1.0))
-            st.caption(
-                f"1y: {item.get('ret_1y', 0)*100:.1f}% · "
-                f"6m: {item.get('ret_6m', 0)*100:.1f}% · "
-                f"3m: {item.get('ret_3m', 0)*100:.1f}% · "
-                f"Vol: {item.get('volatility', 0):.4f} · "
-                f"DD: {item.get('max_drawdown', 0)*100:.1f}%"
-            )
+            with right:
+                st.progress(min(float(score) / 10, 1.0))
+                st.caption(
+                    f"1y: {item.get('ret_1y', 0)*100:.1f}% · "
+                    f"6m: {item.get('ret_6m', 0)*100:.1f}% · "
+                    f"3m: {item.get('ret_3m', 0)*100:.1f}% · "
+                    f"Vol: {item.get('volatility', 0):.4f} · "
+                    f"DD: {item.get('max_drawdown', 0)*100:.1f}%"
+                )
 
 
 def render_analysis(results, label):
