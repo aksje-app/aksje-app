@@ -5,3 +5,5 @@ plotly
 yfinance
 requests
 psycopg2-binary
+
+streamlit-autorefresh
