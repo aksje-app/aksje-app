@@ -200,7 +200,7 @@ def run_once():
             if PAPER_TRADING_ENABLED:
                 risk_ok, risk_msg = apply_risk_exits(ticker, price)
                 if risk_ok:
-                    send_pushover_alert(f"🛑 {risk_msg}\nPris: {price}", title="Risk Exit")
+                    send_pushover_alert(f"🛑 {risk_msg}\nPris: {price:.2f}", title="Risk Exit")
 
             if confidence >= MIN_CONFIDENCE and signal in ["BUY", "SELL / AVOID"]:
                 candidates.append({
@@ -225,14 +225,14 @@ def run_once():
                 ok, msg = paper_buy(c["ticker"], c["price"], c["decision"])
                 if ok:
                     send_pushover_alert(
-                        f"🧪 {msg}\nPris: {c['price']}\nConfidence: {c['confidence']}%",
+                        f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
                         title="Top 3 Paper Trading"
                     )
             elif c["signal"] == "SELL / AVOID":
                 ok, msg = paper_sell(c["ticker"], c["price"], c["decision"])
                 if ok:
                     send_pushover_alert(
-                        f"🧪 {msg}\nPris: {c['price']}\nConfidence: {c['confidence']}%",
+                        f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
                         title="Top 3 Paper Trading"
                     )
 

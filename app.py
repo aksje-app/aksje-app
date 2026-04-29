@@ -21,6 +21,7 @@ from signal_engine import calculate_signal_intelligence
 from insider import get_insider_data
 from analyst import get_analyst_trend
 from earnings import get_earnings
+from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
@@ -1044,6 +1045,7 @@ def render_analysis(results, label):
 
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
+    st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
     st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
 
     portfolio = load_portfolio()

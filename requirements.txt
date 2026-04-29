@@ -1,9 +1,7 @@
 streamlit
-yfinance
 pandas
 numpy
-requests
-python-dotenv
 plotly
-streamlit-autorefresh
-lxml
+yfinance
+requests
+psycopg2-binary
