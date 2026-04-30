@@ -12,6 +12,7 @@ except Exception:
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 SQLITE_FILE = Path(os.getenv("PAPER_SQLITE_FILE", "paper_trading.db"))
+_SCHEMA_READY = False
 
 
 def using_postgres():
@@ -26,9 +27,26 @@ def get_conn():
     return conn
 
 
+def _p():
+    return "%s" if using_postgres() else "?"
+
+
+def _rows(cur, rows):
+    if using_postgres():
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
+    return [dict(r) for r in rows]
+
+
 def init_store():
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+
     conn = get_conn()
     cur = conn.cursor()
+
+    # Base tables
     cur.execute("""
     CREATE TABLE IF NOT EXISTS paper_state (
         id INTEGER PRIMARY KEY,
@@ -36,19 +54,21 @@ def init_store():
         updated_at TEXT NOT NULL
     );
     """)
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS paper_positions (
         ticker TEXT PRIMARY KEY,
         shares REAL NOT NULL,
         avg_price REAL NOT NULL,
         last_price REAL NOT NULL,
-        highest_price REAL NOT NULL,
+        highest_price REAL,
         stop_loss REAL,
         take_profit REAL,
         entry_time TEXT,
         entry_signal TEXT
     );
     """)
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS paper_trades (
         id INTEGER PRIMARY KEY,
@@ -63,12 +83,48 @@ def init_store():
         decision TEXT
     );
     """)
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS paper_daily_count (
         day TEXT PRIMARY KEY,
         count INTEGER NOT NULL
     );
     """)
+
+    # Migrations for old DB schema
+    if using_postgres():
+        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price REAL;")
+        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss REAL;")
+        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit REAL;")
+        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_time TEXT;")
+        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_signal TEXT;")
+
+        cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;")
+        cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;")
+        cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS decision TEXT;")
+    else:
+        cur.execute("PRAGMA table_info(paper_positions)")
+        cols = [r[1] for r in cur.fetchall()]
+        for col, typ in [
+            ("highest_price", "REAL"),
+            ("stop_loss", "REAL"),
+            ("take_profit", "REAL"),
+            ("entry_time", "TEXT"),
+            ("entry_signal", "TEXT"),
+        ]:
+            if col not in cols:
+                cur.execute(f"ALTER TABLE paper_positions ADD COLUMN {col} {typ}")
+
+        cur.execute("PRAGMA table_info(paper_trades)")
+        tcols = [r[1] for r in cur.fetchall()]
+        for col, typ in [
+            ("pnl_pct", "REAL"),
+            ("reason", "TEXT"),
+            ("decision", "TEXT"),
+        ]:
+            if col not in tcols:
+                cur.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {typ}")
+
     cur.execute("SELECT cash FROM paper_state WHERE id=1")
     if cur.fetchone() is None:
         cur.execute(
@@ -76,19 +132,10 @@ def init_store():
             "INSERT INTO paper_state (id, cash, updated_at) VALUES (1, ?, ?)",
             (float(os.getenv("PAPER_START_CASH", "100000")), datetime.utcnow().isoformat())
         )
+
     conn.commit()
     conn.close()
-
-
-def _p():
-    return "%s" if using_postgres() else "?"
-
-
-def _rows(cur, rows):
-    if using_postgres():
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r)) for r in rows]
-    return [dict(r) for r in rows]
+    _SCHEMA_READY = True
 
 
 def fetchall(query, params=()):
@@ -110,44 +157,6 @@ def execute(query, params=()):
     conn.commit()
     conn.close()
 
-
-
-def ensure_schema_migrations():
-    """
-    Legger til nye kolonner i eksisterende database uten å slette data.
-    Fikser bl.a. gamle paper_positions-tabeller som mangler take_profit.
-    """
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-
-        if using_postgres():
-            cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit REAL;")
-            cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss REAL;")
-            cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price REAL;")
-            cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;")
-            cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS decision TEXT;")
-        else:
-            cur.execute("PRAGMA table_info(paper_positions)")
-            cols = [r[1] for r in cur.fetchall()]
-            if "take_profit" not in cols:
-                cur.execute("ALTER TABLE paper_positions ADD COLUMN take_profit REAL")
-            if "stop_loss" not in cols:
-                cur.execute("ALTER TABLE paper_positions ADD COLUMN stop_loss REAL")
-            if "highest_price" not in cols:
-                cur.execute("ALTER TABLE paper_positions ADD COLUMN highest_price REAL")
-
-            cur.execute("PRAGMA table_info(paper_trades)")
-            tcols = [r[1] for r in cur.fetchall()]
-            if "reason" not in tcols:
-                cur.execute("ALTER TABLE paper_trades ADD COLUMN reason TEXT")
-            if "decision" not in tcols:
-                cur.execute("ALTER TABLE paper_trades ADD COLUMN decision TEXT")
-
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Schema migration warning: {e}")
 
 def get_cash():
     rows = fetchall("SELECT cash FROM paper_state WHERE id=1")
@@ -171,22 +180,24 @@ def get_position(ticker):
 
 
 def upsert_position(ticker, pos):
+    init_store()
     conn = get_conn()
     cur = conn.cursor()
+
     if using_postgres():
         q = """
         INSERT INTO paper_positions
         (ticker, shares, avg_price, last_price, highest_price, stop_loss, take_profit, entry_time, entry_signal)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (ticker) DO UPDATE SET
-        shares=EXCLUDED.shares,
-        avg_price=EXCLUDED.avg_price,
-        last_price=EXCLUDED.last_price,
-        highest_price=EXCLUDED.highest_price,
-        stop_loss=EXCLUDED.stop_loss,
-        take_profit=EXCLUDED.take_profit,
-        entry_time=EXCLUDED.entry_time,
-        entry_signal=EXCLUDED.entry_signal
+            shares=EXCLUDED.shares,
+            avg_price=EXCLUDED.avg_price,
+            last_price=EXCLUDED.last_price,
+            highest_price=EXCLUDED.highest_price,
+            stop_loss=EXCLUDED.stop_loss,
+            take_profit=EXCLUDED.take_profit,
+            entry_time=EXCLUDED.entry_time,
+            entry_signal=EXCLUDED.entry_signal
         """
     else:
         q = """
@@ -194,17 +205,19 @@ def upsert_position(ticker, pos):
         (ticker, shares, avg_price, last_price, highest_price, stop_loss, take_profit, entry_time, entry_signal)
         VALUES (?,?,?,?,?,?,?,?,?)
         """
+
     cur.execute(q, (
         ticker,
-        float(pos["shares"]),
-        float(pos["avg_price"]),
-        float(pos["last_price"]),
-        float(pos["highest_price"]),
-        float(pos.get("stop_loss", 0)),
-        float(pos.get("take_profit", 0)),
+        float(pos.get("shares", 0)),
+        float(pos.get("avg_price", 0)),
+        float(pos.get("last_price", 0)),
+        float(pos.get("highest_price", pos.get("last_price", 0))),
+        float(pos.get("stop_loss", 0) or 0),
+        float(pos.get("take_profit", 0) or 0),
         pos.get("entry_time"),
         json.dumps(pos.get("entry_signal", {}), ensure_ascii=False),
     ))
+
     conn.commit()
     conn.close()
 
@@ -215,9 +228,11 @@ def delete_position(ticker):
 
 
 def add_trade(trade):
+    init_store()
     conn = get_conn()
     cur = conn.cursor()
     p = _p()
+
     cur.execute(
         f"""
         INSERT INTO paper_trades
@@ -236,6 +251,7 @@ def add_trade(trade):
             json.dumps(trade.get("decision", {}), ensure_ascii=False),
         )
     )
+
     conn.commit()
     conn.close()
 
@@ -270,6 +286,7 @@ def inc_trade_count():
 
 
 def reset_all(start_cash=None):
+    init_store()
     start_cash = float(start_cash or os.getenv("PAPER_START_CASH", "100000"))
     conn = get_conn()
     cur = conn.cursor()
@@ -283,3 +300,10 @@ def reset_all(start_cash=None):
     )
     conn.commit()
     conn.close()
+
+
+def force_schema_migration():
+    global _SCHEMA_READY
+    _SCHEMA_READY = False
+    init_store()
+    return True

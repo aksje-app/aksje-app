@@ -1351,6 +1351,13 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
+
+st.sidebar.markdown("### 🛠 Database")
+if st.sidebar.button("Kjør DB schema fix"):
+    from paper_store import force_schema_migration
+    force_schema_migration()
+    st.sidebar.success("Database schema oppdatert ✅")
+
 st.sidebar.title("⚙️ Innstillinger")
 
 

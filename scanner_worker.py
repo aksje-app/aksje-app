@@ -1,3 +1,5 @@
+from paper_store import force_schema_migration
+force_schema_migration()
 
 from datetime import datetime
 import pytz
