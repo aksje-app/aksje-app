@@ -1261,7 +1261,7 @@ def render_paper_trading_dashboard():
     r3.metric("Win rate", f"{stats['win_rate']}%")
     r4.metric("Lukkede trades", stats["closed_trades"])
 
-    if st.button("Reset paper portfolio"):
+    if st.button("Reset paper portfolio", key="reset_paper_portfolio_main_btn"):
         reset_portfolio()
         st.success("Paper portfolio nullstilt. Refresh siden.")
 
@@ -1370,18 +1370,18 @@ def render_strategy_backtest(tickers, label):
 
 
 st.sidebar.markdown("### 🧹 Clean final")
-if st.sidebar.button("Nullstill anti-spam signalhistorikk"):
+if st.sidebar.button("Nullstill anti-spam signalhistorikk", key="reset_alert_state_btn_1"):
     from alert_state import reset_alert_state
     reset_alert_state()
     st.sidebar.success("Anti-spam nullstilt ✅")
 
-if st.sidebar.button("Kjør DB schema fix"):
+if st.sidebar.button("Kjør DB schema fix", key="db_schema_fix_btn_1"):
     from paper_store import force_schema_migration
     force_schema_migration()
     st.sidebar.success("Database schema oppdatert ✅")
 
 st.sidebar.markdown("### 🛠 Database")
-if st.sidebar.button("Kjør DB schema fix"):
+if st.sidebar.button("Kjør DB schema fix", key="db_schema_fix_btn_2"):
     from paper_store import force_schema_migration
     force_schema_migration()
     st.sidebar.success("Database schema oppdatert ✅")
@@ -1391,7 +1391,7 @@ st.sidebar.title("⚙️ Innstillinger")
 
 st.sidebar.markdown("### 🔕 Varselkontroll")
 st.sidebar.caption(f"Åpne markeder nå: {open_markets()}")
-if st.sidebar.button("Nullstill anti-spam signalhistorikk"):
+if st.sidebar.button("Nullstill anti-spam signalhistorikk", key="reset_alert_state_btn_2"):
     db_reset = reset_alert_state()
     st.sidebar.success("Signalhistorikk nullstilt ✅")
 
@@ -1687,7 +1687,7 @@ def render_auto_portfolio_dashboard():
     else:
         st.info("Ingen trades enda.")
 
-    if st.button("Reset paper portfolio"):
+    if st.button("Reset paper portfolio", key="reset_paper_portfolio_main_btn"):
         reset_portfolio()
         st.success("Porteføljen er nullstilt. Refresh siden.")
 

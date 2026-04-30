@@ -1,0 +1,1 @@
+Fikset ImportError: STOP_LOSS_PCT ved å legge bakoverkompatible konstanter i paper_trading.py.
