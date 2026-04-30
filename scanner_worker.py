@@ -4,7 +4,7 @@ from paper_store import load_portfolio, storage_status
 from top10_engine import get_all_signals
 
 def run():
-    print("=== AUTO TRADING V4 PRO ===")
+    print("=== AUTO TRADING V5 PRO ===")
     print(f"Storage: {storage_status()}")
 
     trades = 0
@@ -23,7 +23,7 @@ def run():
         print(
             f"{item['ticker']}: {item['signal']} "
             f"score={item['score']} conf={item['confidence']} "
-            f"price={item['price']} → {msg}"
+            f"rsi={item.get('rsi')} price={item['price']} → {msg}"
         )
 
         if ok:
