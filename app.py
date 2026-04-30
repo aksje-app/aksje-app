@@ -1423,3 +1423,33 @@ with tabs[5]:
 
 with tabs[6]:
     render_paper_trading_dashboard()
+
+
+def add_rsi_current_box(fig, rsi):
+    try:
+        current_rsi = float(rsi.dropna().iloc[-1])
+
+        if current_rsi >= 80:
+            status, icon = "ekstremt overkjøpt", "🔥"
+        elif current_rsi >= 70:
+            status, icon = "overkjøpt", "⚠️"
+        elif current_rsi <= 30:
+            status, icon = "oversolgt", "🧊"
+        else:
+            status, icon = "nøytral", "📊"
+
+        fig.add_annotation(
+            text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> · {status}",
+            xref="paper",
+            yref="paper",
+            x=0.01,
+            y=1.15,
+            showarrow=False,
+            font=dict(size=15, color="white"),
+            bgcolor="rgba(30,41,59,0.95)",
+            bordercolor="rgba(255,255,255,0.3)",
+            borderwidth=1,
+        )
+    except:
+        pass
+    return fig
