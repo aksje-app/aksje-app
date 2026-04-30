@@ -13,8 +13,8 @@ MIN_BUY_CONFIDENCE = 60
 
 def build_trading_decision(item, technical_context=None):
     """
-    Bruker signal_engine.score_signal som felles hjerne for UI og trading.
-    Beholder samme output-format som app13 forventer.
+    Smart Core v2 wrapper.
+    Beholder app13-kompatibelt output.
     """
     return score_signal(item, technical_context or {})
 
