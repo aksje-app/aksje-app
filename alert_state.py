@@ -11,18 +11,21 @@ def _now_oslo():
     return datetime.now(pytz.timezone("Europe/Oslo"))
 
 
-def _db_available():
+def normalize_signal(signal):
+    s = str(signal or "").upper().strip()
+    if "BUY" in s:
+        return "BUY"
+    if "SELL" in s or "AVOID" in s:
+        return "SELL"
+    if "HOLD" in s or "WAIT" in s:
+        return "HOLD"
+    return s or "UNKNOWN"
+
+
+def _db_ready():
     try:
         from paper_store import init_store, get_conn
         init_store()
-        return True
-    except Exception:
-        return False
-
-
-def _init_alert_table():
-    try:
-        from paper_store import get_conn
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
@@ -37,16 +40,8 @@ def _init_alert_table():
         conn.close()
         return True
     except Exception as e:
-        print(f"alert_state init warning: {e}")
+        print(f"alert_state DB fallback: {e}")
         return False
-
-
-def _param():
-    try:
-        from paper_store import using_postgres
-        return "%s" if using_postgres() else "?"
-    except Exception:
-        return "?"
 
 
 def _load_local():
@@ -67,21 +62,10 @@ def _save_local(data):
         pass
 
 
-def normalize_signal(signal):
-    s = str(signal or "").upper().strip()
-    if "BUY" in s:
-        return "BUY"
-    if "SELL" in s or "AVOID" in s:
-        return "SELL"
-    if "HOLD" in s or "WAIT" in s:
-        return "HOLD"
-    return s or "UNKNOWN"
-
-
 def get_last_signal(ticker):
     ticker = str(ticker).upper().strip()
 
-    if _db_available() and _init_alert_table():
+    if _db_ready():
         try:
             from paper_store import get_conn, using_postgres
             conn = get_conn()
@@ -96,18 +80,18 @@ def get_last_signal(ticker):
                 return {"signal": row[0], "sent_at": row[1], "meta": row[2]}
             return {"signal": row["signal"], "sent_at": row["sent_at"], "meta": row["meta"]}
         except Exception as e:
-            print(f"get_last_signal db warning: {e}")
+            print(f"get_last_signal DB fallback: {e}")
 
     return _load_local().get(ticker)
 
 
-def save_signal(ticker, signal, meta=None):
+def record_alert(ticker, signal, meta=None):
     ticker = str(ticker).upper().strip()
     signal = normalize_signal(signal)
     sent_at = _now_oslo().isoformat()
     meta_raw = json.dumps(meta or {}, ensure_ascii=False)
 
-    if _db_available() and _init_alert_table():
+    if _db_ready():
         try:
             from paper_store import get_conn, using_postgres
             conn = get_conn()
@@ -130,7 +114,7 @@ def save_signal(ticker, signal, meta=None):
             conn.close()
             return True
         except Exception as e:
-            print(f"save_signal db warning: {e}")
+            print(f"record_alert DB fallback: {e}")
 
     data = _load_local()
     data[ticker] = {"signal": signal, "sent_at": sent_at, "meta": meta_raw}
@@ -138,12 +122,12 @@ def save_signal(ticker, signal, meta=None):
     return False
 
 
-def should_send_alert(ticker, signal, cooldown_minutes=None, allow_repeat=False):
+def should_send_alert(ticker, signal, **kwargs):
     """
-    STRAM ANTI-SPAM:
-    - Sender første gang.
-    - Sender når signal endrer seg, f.eks HOLD -> BUY eller BUY -> SELL.
-    - Sender IKKE samme BUY på nytt, uansett cooldown.
+    Clean final anti-spam:
+    - Første trade-varsel sendes
+    - Nytt varsel sendes bare hvis signal endres
+    - Samme BUY -> BUY sendes aldri på nytt
     """
     ticker = str(ticker).upper().strip()
     signal = normalize_signal(signal)
@@ -153,19 +137,14 @@ def should_send_alert(ticker, signal, cooldown_minutes=None, allow_repeat=False)
         return True, "first signal"
 
     last_signal = normalize_signal(last.get("signal"))
-
     if last_signal != signal:
         return True, f"signal changed {last_signal} -> {signal}"
 
-    return False, f"duplicate {ticker} {signal}"
-
-
-def record_alert(ticker, signal, meta=None):
-    return save_signal(ticker, signal, meta)
+    return False, f"duplicate blocked {ticker} {signal}"
 
 
 def reset_alert_state():
-    if _db_available() and _init_alert_table():
+    if _db_ready():
         try:
             from paper_store import get_conn
             conn = get_conn()
@@ -175,17 +154,14 @@ def reset_alert_state():
             conn.close()
             return True
         except Exception as e:
-            print(f"reset alert db warning: {e}")
+            print(f"reset_alert_state DB fallback: {e}")
 
     _save_local({})
     return False
 
 
+# Compatibility wrappers for old code
 def should_send_signal_alert(ticker, decision, meta=None):
-    """
-    Wrapper for eldre kode som sender direkte signalvarsler.
-    Returnerer True bare hvis signalet er nytt/endret.
-    """
     signal = decision.get("decision", decision) if isinstance(decision, dict) else decision
     return should_send_alert(ticker, signal)
 

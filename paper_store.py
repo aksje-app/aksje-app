@@ -46,7 +46,6 @@ def init_store():
     conn = get_conn()
     cur = conn.cursor()
 
-    # Base tables
     cur.execute("""
     CREATE TABLE IF NOT EXISTS paper_state (
         id INTEGER PRIMARY KEY,
@@ -91,17 +90,18 @@ def init_store():
     );
     """)
 
-    # Migrations for old DB schema
     if using_postgres():
-        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price REAL;")
-        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss REAL;")
-        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit REAL;")
-        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_time TEXT;")
-        cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_signal TEXT;")
-
-        cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;")
-        cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;")
-        cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS decision TEXT;")
+        for q in [
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price REAL;",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss REAL;",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit REAL;",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_time TEXT;",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_signal TEXT;",
+            "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;",
+            "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;",
+            "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS decision TEXT;",
+        ]:
+            cur.execute(q)
     else:
         cur.execute("PRAGMA table_info(paper_positions)")
         cols = [r[1] for r in cur.fetchall()]
@@ -116,13 +116,9 @@ def init_store():
                 cur.execute(f"ALTER TABLE paper_positions ADD COLUMN {col} {typ}")
 
         cur.execute("PRAGMA table_info(paper_trades)")
-        tcols = [r[1] for r in cur.fetchall()]
-        for col, typ in [
-            ("pnl_pct", "REAL"),
-            ("reason", "TEXT"),
-            ("decision", "TEXT"),
-        ]:
-            if col not in tcols:
+        cols = [r[1] for r in cur.fetchall()]
+        for col, typ in [("pnl_pct", "REAL"), ("reason", "TEXT"), ("decision", "TEXT")]:
+            if col not in cols:
                 cur.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {typ}")
 
     cur.execute("SELECT cash FROM paper_state WHERE id=1")
@@ -136,6 +132,13 @@ def init_store():
     conn.commit()
     conn.close()
     _SCHEMA_READY = True
+
+
+def force_schema_migration():
+    global _SCHEMA_READY
+    _SCHEMA_READY = False
+    init_store()
+    return True
 
 
 def fetchall(query, params=()):
@@ -300,10 +303,3 @@ def reset_all(start_cash=None):
     )
     conn.commit()
     conn.close()
-
-
-def force_schema_migration():
-    global _SCHEMA_READY
-    _SCHEMA_READY = False
-    init_store()
-    return True

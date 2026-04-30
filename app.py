@@ -1,5 +1,21 @@
 from ui_components import market_pulse, top_movers
 import os
+
+
+# CLEAN FINAL: gamle direkte signalvarsler er deaktivert.
+# Varsler skal kun sendes fra scanner_worker.py etter faktisk paper trade.
+def maybe_send_signal_alert(*args, **kwargs):
+    print("🔕 maybe_send_signal_alert deaktivert i clean final")
+    return False
+
+def send_signal_alert(*args, **kwargs):
+    print("🔕 send_signal_alert deaktivert i clean final")
+    return False
+
+def send_ai_signal_alert_once(*args, **kwargs):
+    print("🔕 send_ai_signal_alert_once deaktivert i clean final")
+    return False
+
 import streamlit as st
 from alert_state import should_send_alert, record_alert
 from trend_channel import add_trend_channel_to_fig, calc_trend_channel
@@ -1351,6 +1367,18 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
+
+
+st.sidebar.markdown("### 🧹 Clean final")
+if st.sidebar.button("Nullstill anti-spam signalhistorikk"):
+    from alert_state import reset_alert_state
+    reset_alert_state()
+    st.sidebar.success("Anti-spam nullstilt ✅")
+
+if st.sidebar.button("Kjør DB schema fix"):
+    from paper_store import force_schema_migration
+    force_schema_migration()
+    st.sidebar.success("Database schema oppdatert ✅")
 
 st.sidebar.markdown("### 🛠 Database")
 if st.sidebar.button("Kjør DB schema fix"):
