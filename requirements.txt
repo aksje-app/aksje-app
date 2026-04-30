@@ -1,13 +1,1 @@
 streamlit
-pandas
-numpy
-plotly
-yfinance
-requests
-psycopg2-binary
-
-streamlit-autorefresh
-
-python-dotenv
-
-pytz
