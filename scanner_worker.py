@@ -7,7 +7,8 @@ TICKERS = [
 ]
 
 def get_signal():
-    signals = ["BUY", "HOLD", "SELL"]
+    signal = "BUY"
+confidence = 75
     return random.choice(signals), random.randint(55, 85)
 
 def run():
