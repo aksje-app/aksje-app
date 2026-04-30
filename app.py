@@ -1538,4 +1538,3 @@ watchlist_scan_limit = st.sidebar.slider(
 manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
 
 tabs = st.caption("Fanene henter nå sitt eget marked direkte — sidepanelets markedvalg trengs ikke for fanene.")
-s
