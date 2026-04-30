@@ -133,6 +133,7 @@ def score_signal(item, technical_context=None, insider=None, analyst=None, earni
         "rsi": round(rsi, 1),
         "macd_bullish": macd_bullish,
         "breakout_type": breakout_type,
+        "bonus": round(score - base_score, 2),
     }
 
 
