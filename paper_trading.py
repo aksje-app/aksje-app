@@ -1,37 +1,23 @@
 
 from datetime import datetime
-
 from paper_store import (
     init_store, get_cash, set_cash, get_positions, get_position, upsert_position,
     delete_position, add_trade, get_trades, trades_today, inc_trade_count, reset_all
 )
-from trading_settings import load_rules, calc_stop_take, should_sell
+from trading_settings import load_rules, calc_stop_take, should_buy, should_sell
 
-
-
-# Backward-compatible constants for older app.py imports
 try:
-    _rules_for_constants = load_rules()
+    _r = load_rules()
 except Exception:
-    _rules_for_constants = {}
+    _r = {}
 
-STOP_LOSS_PCT = float(_rules_for_constants.get("stop_loss_pct", 7.0)) / 100
-TRAILING_STOP_PCT = float(_rules_for_constants.get("trailing_stop_pct", 8.0)) / 100
-MAX_TRADES_PER_DAY = int(_rules_for_constants.get("max_trades_per_day", 3))
+STOP_LOSS_PCT = float(_r.get("stop_loss_pct", 7.0)) / 100
+TRAILING_STOP_PCT = float(_r.get("trailing_stop_pct", 8.0)) / 100
+MAX_TRADES_PER_DAY = int(_r.get("max_trades_per_day", 3))
 
 def load_portfolio():
     init_store()
-    return {
-        "cash": get_cash(),
-        "positions": get_positions(),
-        "trades": get_trades(200),
-        "daily_trade_count": {"today": trades_today()},
-    }
-
-
-def save_portfolio(portfolio):
-    return None
-
+    return {"cash": get_cash(), "positions": get_positions(), "trades": get_trades(300), "daily_trade_count": {"today": trades_today()}}
 
 def portfolio_value(portfolio=None, latest_prices=None):
     latest_prices = latest_prices or {}
@@ -43,26 +29,21 @@ def portfolio_value(portfolio=None, latest_prices=None):
         value += shares * float(price or 0)
     return round(value, 2)
 
-
 def can_trade_today(rules=None):
     rules = rules or load_rules()
-    return trades_today() < int(rules["max_trades_per_day"])
-
+    return trades_today() < int(rules.get("max_trades_per_day", 3))
 
 def has_room_for_position(rules=None):
     rules = rules or load_rules()
-    return len(get_positions()) < int(rules["max_open_positions"])
-
+    return len(get_positions()) < int(rules.get("max_open_positions", 5))
 
 def position_amount(rules=None):
     rules = rules or load_rules()
-    portfolio = load_portfolio()
-    value = portfolio_value(portfolio)
-    pct = float(rules["position_size_pct"]) / 100
-    amount = value * pct
-    cash = float(portfolio.get("cash", 0))
+    p = load_portfolio()
+    value = portfolio_value(p)
+    cash = float(p.get("cash", 0))
+    amount = value * float(rules.get("position_size_pct", 10.0)) / 100
     return round(min(amount, cash), 2)
-
 
 def update_last_price(ticker, price):
     pos = get_position(ticker)
@@ -70,172 +51,113 @@ def update_last_price(ticker, price):
         return
     price = float(price)
     rules = load_rules()
-    sl, tp = calc_stop_take(pos.get("avg_price", price), rules)
+    sl, tp = calc_stop_take(float(pos.get("avg_price", price)), rules)
     pos["last_price"] = price
     pos["highest_price"] = max(float(pos.get("highest_price", price)), price)
     pos["stop_loss"] = sl
     pos["take_profit"] = tp
     upsert_position(ticker, pos)
 
-
 def paper_buy(ticker, price, decision, amount=None):
     rules = load_rules()
     price = float(price)
-
     if price <= 0:
         return False, "Ugyldig pris"
-    if not can_trade_today(rules):
-        return False, f"Maks {rules['max_trades_per_day']} trades per dag nådd"
     if get_position(ticker):
         return False, "Har allerede posisjon"
+    if not can_trade_today(rules):
+        return False, f"Maks {rules.get('max_trades_per_day', 3)} trades per dag nådd"
     if not has_room_for_position(rules):
-        return False, f"Maks {rules['max_open_positions']} åpne posisjoner nådd"
+        return False, f"Maks {rules.get('max_open_positions', 5)} åpne posisjoner nådd"
 
     amount = float(amount or position_amount(rules))
     cash = get_cash()
     amount = min(amount, cash)
-
     if amount <= 0:
         return False, "Ingen cash tilgjengelig"
 
     shares = amount / price
     sl, tp = calc_stop_take(price, rules)
-
     pos = {
-        "shares": shares,
-        "avg_price": price,
-        "last_price": price,
-        "highest_price": price,
-        "stop_loss": sl,
-        "take_profit": tp,
+        "shares": shares, "avg_price": price, "last_price": price, "highest_price": price,
+        "stop_loss": sl, "take_profit": tp,
         "entry_time": datetime.utcnow().isoformat(),
         "entry_signal": decision,
     }
-
     set_cash(round(cash - amount, 2))
     upsert_position(ticker, pos)
-
     add_trade({
-        "time": datetime.utcnow().isoformat(),
-        "type": "BUY",
-        "ticker": ticker,
-        "price": round(price, 4),
-        "shares": round(shares, 6),
-        "amount": round(amount, 2),
-        "decision": decision,
-        "reason": "Auto BUY",
+        "time": datetime.utcnow().isoformat(), "type": "BUY", "ticker": ticker,
+        "price": round(price, 4), "shares": round(shares, 6), "amount": round(amount, 2),
+        "pnl_pct": None, "reason": "Auto BUY", "decision": decision,
     })
     inc_trade_count()
     return True, f"Paper BUY {ticker}"
-
 
 def paper_sell(ticker, price, decision, reason="SELL"):
     rules = load_rules()
     price = float(price)
     pos = get_position(ticker)
-
     if not pos:
         return False, "Ingen posisjon å selge"
     if not can_trade_today(rules):
-        return False, f"Maks {rules['max_trades_per_day']} trades per dag nådd"
-
+        return False, f"Maks {rules.get('max_trades_per_day', 3)} trades per dag nådd"
     shares = float(pos.get("shares", 0))
     amount = shares * price
-    entry_price = float(pos.get("avg_price", price))
-    pnl_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0
-
+    entry = float(pos.get("avg_price", price))
+    pnl_pct = ((price - entry) / entry * 100) if entry else 0
     set_cash(round(get_cash() + amount, 2))
-
     add_trade({
-        "time": datetime.utcnow().isoformat(),
-        "type": "SELL",
-        "ticker": ticker,
-        "price": round(price, 4),
-        "shares": round(shares, 6),
-        "amount": round(amount, 2),
-        "pnl_pct": round(pnl_pct, 2),
-        "reason": reason,
-        "decision": decision,
+        "time": datetime.utcnow().isoformat(), "type": "SELL", "ticker": ticker,
+        "price": round(price, 4), "shares": round(shares, 6), "amount": round(amount, 2),
+        "pnl_pct": round(pnl_pct, 2), "reason": reason, "decision": decision,
     })
-
     delete_position(ticker)
     inc_trade_count()
     return True, f"Paper SELL {ticker}, PnL {pnl_pct:.2f}%"
 
-
 def auto_trade(ticker, price, decision, rsi=None, prev_rsi=None):
-    """
-    Full auto paper trading:
-    - Kjøper når BUY-regler er oppfylt
-    - Selger når SELL/stop-loss/take-profit/RSI-exit trigger
-    """
-    from trading_settings import should_buy, should_sell
-
-    rules = load_rules()
     pos = get_position(ticker)
-
     if pos:
         update_last_price(ticker, price)
         pos = get_position(ticker)
-        sell_ok, reason = should_sell(decision, pos, price, rsi, prev_rsi, rules)
+        sell_ok, reason = should_sell(decision, pos, price, rsi, prev_rsi, load_rules())
         if sell_ok:
             return paper_sell(ticker, price, decision, reason=reason)
         return False, "HOLD posisjon"
 
-    if should_buy(decision, rsi, rules):
+    if should_buy(decision, rsi, load_rules()):
         return paper_buy(ticker, price, decision)
-
     return False, "Ingen trade"
 
+def apply_risk_exits(ticker, price):
+    return auto_trade(ticker, price, {"decision": "HOLD"}, rsi=None)
 
 def reset_portfolio():
-    rules = load_rules()
-    reset_all(float(rules["start_cash"]))
+    reset_all(float(load_rules().get("start_cash", 100000)))
     return load_portfolio()
-
 
 def performance_stats(portfolio=None, latest_prices=None):
     rules = load_rules()
     portfolio = portfolio or load_portfolio()
-    latest_prices = latest_prices or {}
-    start_cash = float(rules["start_cash"])
-    total_value = portfolio_value(portfolio, latest_prices)
+    start_cash = float(rules.get("start_cash", 100000))
+    total_value = portfolio_value(portfolio, latest_prices or {})
     total_return = ((total_value - start_cash) / start_cash * 100) if start_cash else 0
     sells = [t for t in portfolio.get("trades", []) if t.get("type") == "SELL" and t.get("pnl_pct") is not None]
     wins = [t for t in sells if float(t.get("pnl_pct", 0)) > 0]
     losses = [t for t in sells if float(t.get("pnl_pct", 0)) <= 0]
-    win_rate = (len(wins) / len(sells) * 100) if sells else 0
-    avg_win = sum(float(t["pnl_pct"]) for t in wins) / len(wins) if wins else 0
-    avg_loss = sum(float(t["pnl_pct"]) for t in losses) / len(losses) if losses else 0
     return {
         "start_cash": round(start_cash, 2),
         "total_value": round(total_value, 2),
         "total_return_pct": round(total_return, 2),
         "closed_trades": len(sells),
         "open_positions": len(portfolio.get("positions", {})),
-        "win_rate": round(win_rate, 1),
-        "avg_win": round(avg_win, 2),
-        "avg_loss": round(avg_loss, 2),
+        "win_rate": round(len(wins) / len(sells) * 100, 1) if sells else 0,
+        "avg_win": round(sum(float(t["pnl_pct"]) for t in wins) / len(wins), 2) if wins else 0,
+        "avg_loss": round(sum(float(t["pnl_pct"]) for t in losses) / len(losses), 2) if losses else 0,
         "trades_today": trades_today(),
-        "max_trades_per_day": int(rules["max_trades_per_day"]),
+        "max_trades_per_day": int(rules.get("max_trades_per_day", 3)),
     }
 
-
-def apply_risk_exits(ticker, price):
-    """
-    Bakoverkompatibel wrapper.
-    Sjekker om eksisterende posisjon skal selges basert på gjeldende regler.
-    """
-    pos = get_position(ticker)
-    if not pos:
-        return False, "Ingen posisjon"
-
-    decision = {"decision": "HOLD"}
-    from trading_settings import should_sell
-    rules = load_rules()
-
-    sell_ok, reason = should_sell(decision, pos, price, rules=rules)
-    if sell_ok:
-        return paper_sell(ticker, price, decision, reason=reason)
-    update_last_price(ticker, price)
-    return False, "Ingen risk-exit"
+def save_portfolio(portfolio):
+    return None
