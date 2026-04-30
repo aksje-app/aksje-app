@@ -5,13 +5,13 @@ import random
 TICKERS = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"
 ]
+TEST_SIGNALS = [
+    {"ticker": "AAPL", "price": 190.10, "signal": "BUY", "confidence": 75},
+    {"ticker": "MSFT", "price": 412.20, "signal": "HOLD", "confidence": 64},
+    {"ticker": "GOOGL", "price": 349.94, "signal": "HOLD", "confidence": 76},
+]
 
-def get_signal():
-    signal = "BUY"
-confidence = 75
-    return random.choice(signals), random.randint(55, 85)
-
-def run():
+ def run():
     print("=== AUTO TRADING RUN ===")
 
     for ticker in TICKERS:
