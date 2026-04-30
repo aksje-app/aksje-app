@@ -1,111 +1,138 @@
-def _num(value, default=0):
-    try:
-        return float(value)
-    except Exception:
-        return default
 
-def build_trading_decision(item, technical_context):
-    """
-    Lager enkel BUY / HOLD / SELL beslutning.
-    Dette er analysehjelp, ikke investeringsråd.
-    """
-    score = _num(item.get("score"), 5)
-    rsi = _num(technical_context.get("rsi"), 50)
-    macd_bullish = bool(technical_context.get("macd_bullish"))
-    breakout_type = technical_context.get("breakout_type", "neutral")
-    hs_found = bool(technical_context.get("head_shoulders_found"))
-    inv_hs_found = bool(technical_context.get("inverse_head_shoulders_found"))
-    volatility = _num(item.get("volatility"), 0.03)
-    max_drawdown = _num(item.get("max_drawdown"), -0.20)
+from paper_store import load_portfolio, save_portfolio, add_trade
 
-    decision_score = 0
-    reasons = []
+START_CASH = 100000.0
+POSITION_SIZE_PCT = 10.0
+MAX_OPEN_POSITIONS = 5
 
-    # Grunnscore
-    if score >= 7:
-        decision_score += 2
-        reasons.append("Sterk total score")
-    elif score >= 5.5:
-        decision_score += 1
-        reasons.append("OK total score")
-    elif score < 4:
-        decision_score -= 2
-        reasons.append("Svak total score")
+STOP_LOSS_PCT = 7.0
+TAKE_PROFIT_PCT = 12.0
+MIN_BUY_CONFIDENCE = 60
 
-    # MACD
-    if macd_bullish:
-        decision_score += 1
-        reasons.append("MACD bullish")
-    else:
-        decision_score -= 1
-        reasons.append("MACD bearish")
 
-    # RSI
-    if rsi < 30:
-        decision_score += 1
-        reasons.append("RSI oversolgt")
-    elif rsi > 75:
-        decision_score -= 2
-        reasons.append("RSI svært overkjøpt")
-    elif rsi > 70:
-        decision_score -= 1
-        reasons.append("RSI overkjøpt")
+def portfolio_value(portfolio=None, latest_prices=None):
+    portfolio = portfolio or load_portfolio()
+    latest_prices = latest_prices or {}
 
-    # Breakout
-    if breakout_type == "bullish":
-        decision_score += 2
-        reasons.append("Bullish breakout")
-    elif breakout_type == "bearish":
-        decision_score -= 2
-        reasons.append("Bearish breakdown")
+    total = float(portfolio.get("cash", 0))
+    for ticker, pos in portfolio.get("positions", {}).items():
+        price = latest_prices.get(ticker, pos.get("last_price", pos.get("entry_price", 0)))
+        total += float(pos.get("shares", 0)) * float(price or 0)
 
-    # Patterns
-    if hs_found:
-        decision_score -= 3
-        reasons.append("Mulig hode/skulder bearish pattern")
-    if inv_hs_found:
-        decision_score += 3
-        reasons.append("Mulig invertert hode/skulder bullish pattern")
+    return round(total, 2)
 
-    # Risiko
-    if volatility > 0.04:
-        decision_score -= 1
-        reasons.append("Høy volatilitet")
-    if max_drawdown < -0.35:
-        decision_score -= 1
-        reasons.append("Stor historisk drawdown")
 
-    # Beslutning
-    if decision_score >= 4:
-        decision = "BUY"
-        color = "green"
-        emoji = "🟢"
-    elif decision_score <= -3:
-        decision = "SELL / AVOID"
-        color = "red"
-        emoji = "🔴"
-    else:
-        decision = "HOLD / WAIT"
-        color = "orange"
-        emoji = "🟡"
+def calc_levels(entry_price):
+    entry_price = float(entry_price)
+    stop_loss = entry_price * (1 - STOP_LOSS_PCT / 100)
+    take_profit = entry_price * (1 + TAKE_PROFIT_PCT / 100)
+    return round(stop_loss, 2), round(take_profit, 2)
 
-    confidence = min(100, max(0, 50 + decision_score * 10))
 
-    return {
-        "decision": decision,
-        "decision_score": decision_score,
+def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
+    portfolio = load_portfolio()
+    ticker = ticker.upper()
+    price = float(price)
+
+    if ticker in portfolio["positions"]:
+        return False, f"{ticker} eies allerede"
+
+    if len(portfolio["positions"]) >= MAX_OPEN_POSITIONS:
+        return False, "Maks åpne posisjoner nådd"
+
+    if confidence < MIN_BUY_CONFIDENCE:
+        return False, "Confidence for lav"
+
+    total_value = portfolio_value(portfolio)
+    amount = min(portfolio["cash"], total_value * POSITION_SIZE_PCT / 100)
+
+    if amount <= 0:
+        return False, "Ikke nok cash"
+
+    shares = amount / price
+    stop_loss, take_profit = calc_levels(price)
+
+    portfolio["cash"] = round(portfolio["cash"] - amount, 2)
+    portfolio["positions"][ticker] = {
+        "ticker": ticker,
+        "shares": shares,
+        "entry_price": price,
+        "last_price": price,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
         "confidence": confidence,
-        "color": color,
-        "emoji": emoji,
-        "reasons": reasons,
+        "reason": reason
     }
 
-def adjusted_score(item, decision):
-    """
-    Justerer visuell score litt basert på trading signal.
-    Endrer ikke original score i datasettet.
-    """
-    base = _num(item.get("score"), 5)
-    ds = _num(decision.get("decision_score"), 0)
-    adj = base + ds * 0.25
-    return round(max(1, min(10, adj)), 2)
+    add_trade(portfolio, {
+        "type": "BUY",
+        "ticker": ticker,
+        "price": round(price, 2),
+        "shares": round(shares, 6),
+        "amount": round(amount, 2),
+        "confidence": confidence,
+        "reason": reason
+    })
+
+    return True, f"BUY {ticker} @ {price:.2f}"
+
+
+def paper_sell(ticker, price, reason="SELL signal"):
+    portfolio = load_portfolio()
+    ticker = ticker.upper()
+    price = float(price)
+
+    pos = portfolio["positions"].get(ticker)
+    if not pos:
+        return False, f"Ingen posisjon i {ticker}"
+
+    shares = float(pos["shares"])
+    amount = shares * price
+    entry = float(pos["entry_price"])
+    pnl_pct = ((price - entry) / entry * 100) if entry else 0
+
+    portfolio["cash"] = round(portfolio["cash"] + amount, 2)
+    del portfolio["positions"][ticker]
+
+    add_trade(portfolio, {
+        "type": "SELL",
+        "ticker": ticker,
+        "price": round(price, 2),
+        "shares": round(shares, 6),
+        "amount": round(amount, 2),
+        "pnl_pct": round(pnl_pct, 2),
+        "reason": reason
+    })
+
+    return True, f"SELL {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
+
+
+def auto_trade(ticker, price, signal, confidence=0):
+    portfolio = load_portfolio()
+    ticker = ticker.upper()
+    price = float(price)
+
+    pos = portfolio["positions"].get(ticker)
+
+    if pos:
+        pos["last_price"] = price
+        save_portfolio(portfolio)
+
+        entry = float(pos["entry_price"])
+        pnl_pct = ((price - entry) / entry * 100) if entry else 0
+
+        if signal in ["SELL", "SELL / AVOID", "AVOID"]:
+            return paper_sell(ticker, price, "SELL signal")
+
+        if pnl_pct <= -STOP_LOSS_PCT:
+            return paper_sell(ticker, price, f"Stop loss {pnl_pct:.2f}%")
+
+        if pnl_pct >= TAKE_PROFIT_PCT:
+            return paper_sell(ticker, price, f"Take profit {pnl_pct:.2f}%")
+
+        return False, f"HOLD {ticker}"
+
+    if signal == "BUY":
+        return paper_buy(ticker, price, confidence, "BUY signal")
+
+    return False, "Ingen trade"
