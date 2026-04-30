@@ -13,8 +13,10 @@ except Exception:
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 SQLITE_FILE = Path(os.getenv("PAPER_SQLITE_FILE", "paper_trading.db"))
 
+
 def using_postgres():
     return bool(DATABASE_URL) and psycopg2 is not None
+
 
 def get_conn():
     if using_postgres():
@@ -22,6 +24,7 @@ def get_conn():
     conn = sqlite3.connect(SQLITE_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_store():
     conn = get_conn()
@@ -41,6 +44,7 @@ def init_store():
         last_price REAL NOT NULL,
         highest_price REAL NOT NULL,
         stop_loss REAL,
+        take_profit REAL,
         entry_time TEXT,
         entry_signal TEXT
     );
@@ -75,12 +79,17 @@ def init_store():
     conn.commit()
     conn.close()
 
+
 def _p():
     return "%s" if using_postgres() else "?"
 
-def _rows_to_dicts(cur, rows):
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, r)) for r in rows]
+
+def _rows(cur, rows):
+    if using_postgres():
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
+    return [dict(r) for r in rows]
+
 
 def fetchall(query, params=()):
     init_store()
@@ -88,12 +97,10 @@ def fetchall(query, params=()):
     cur = conn.cursor()
     cur.execute(query, params)
     rows = cur.fetchall()
-    if using_postgres():
-        out = _rows_to_dicts(cur, rows)
-    else:
-        out = [dict(r) for r in rows]
+    out = _rows(cur, rows)
     conn.close()
     return out
+
 
 def execute(query, params=()):
     init_store()
@@ -103,22 +110,27 @@ def execute(query, params=()):
     conn.commit()
     conn.close()
 
+
 def get_cash():
     rows = fetchall("SELECT cash FROM paper_state WHERE id=1")
     return float(rows[0]["cash"]) if rows else 0.0
+
 
 def set_cash(cash):
     p = _p()
     execute(f"UPDATE paper_state SET cash={p}, updated_at={p} WHERE id=1", (float(cash), datetime.utcnow().isoformat()))
 
+
 def get_positions():
     rows = fetchall("SELECT * FROM paper_positions ORDER BY ticker")
     return {r["ticker"]: r for r in rows}
+
 
 def get_position(ticker):
     p = _p()
     rows = fetchall(f"SELECT * FROM paper_positions WHERE ticker={p}", (ticker,))
     return rows[0] if rows else None
+
 
 def upsert_position(ticker, pos):
     conn = get_conn()
@@ -126,22 +138,23 @@ def upsert_position(ticker, pos):
     if using_postgres():
         q = """
         INSERT INTO paper_positions
-        (ticker, shares, avg_price, last_price, highest_price, stop_loss, entry_time, entry_signal)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        (ticker, shares, avg_price, last_price, highest_price, stop_loss, take_profit, entry_time, entry_signal)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (ticker) DO UPDATE SET
         shares=EXCLUDED.shares,
         avg_price=EXCLUDED.avg_price,
         last_price=EXCLUDED.last_price,
         highest_price=EXCLUDED.highest_price,
         stop_loss=EXCLUDED.stop_loss,
+        take_profit=EXCLUDED.take_profit,
         entry_time=EXCLUDED.entry_time,
         entry_signal=EXCLUDED.entry_signal
         """
     else:
         q = """
         INSERT OR REPLACE INTO paper_positions
-        (ticker, shares, avg_price, last_price, highest_price, stop_loss, entry_time, entry_signal)
-        VALUES (?,?,?,?,?,?,?,?)
+        (ticker, shares, avg_price, last_price, highest_price, stop_loss, take_profit, entry_time, entry_signal)
+        VALUES (?,?,?,?,?,?,?,?,?)
         """
     cur.execute(q, (
         ticker,
@@ -150,15 +163,18 @@ def upsert_position(ticker, pos):
         float(pos["last_price"]),
         float(pos["highest_price"]),
         float(pos.get("stop_loss", 0)),
+        float(pos.get("take_profit", 0)),
         pos.get("entry_time"),
         json.dumps(pos.get("entry_signal", {}), ensure_ascii=False),
     ))
     conn.commit()
     conn.close()
 
+
 def delete_position(ticker):
     p = _p()
     execute(f"DELETE FROM paper_positions WHERE ticker={p}", (ticker,))
+
 
 def add_trade(trade):
     conn = get_conn()
@@ -185,16 +201,20 @@ def add_trade(trade):
     conn.commit()
     conn.close()
 
+
 def get_trades(limit=100):
     return fetchall(f"SELECT * FROM paper_trades ORDER BY id DESC LIMIT {int(limit)}")
 
+
 def today_key():
     return date.today().isoformat()
+
 
 def trades_today():
     p = _p()
     rows = fetchall(f"SELECT count FROM paper_daily_count WHERE day={p}", (today_key(),))
     return int(rows[0]["count"]) if rows else 0
+
 
 def inc_trade_count():
     day = today_key()
@@ -209,6 +229,7 @@ def inc_trade_count():
             execute("UPDATE paper_daily_count SET count=count+1 WHERE day=?", (day,))
         else:
             execute("INSERT INTO paper_daily_count (day, count) VALUES (?, 1)", (day,))
+
 
 def reset_all(start_cash=None):
     start_cash = float(start_cash or os.getenv("PAPER_START_CASH", "100000"))

@@ -1,9 +1,10 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from rsi_macd_engine import combo_signal
 from alert_state import reset_alert_state
 from market_hours import open_markets
-from trading_settings import load_rules, save_rules
+from trading_settings import load_rules, save_rules, calc_stop_take
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -707,6 +708,92 @@ def add_rsi_level_labels(fig):
 
     return fig
 
+
+def add_rsi_level_labels(fig):
+    try:
+        fig.add_hrect(y0=0, y1=30, fillcolor="green", opacity=0.06, line_width=0)
+        fig.add_hrect(y0=70, y1=100, fillcolor="red", opacity=0.06, line_width=0)
+
+        fig.add_hline(y=30, line_dash="dash", line_color="rgba(255,255,255,0.65)")
+        fig.add_hline(y=70, line_dash="dash", line_color="rgba(255,255,255,0.65)")
+        fig.add_hline(y=80, line_dash="dot", line_color="rgba(255,193,7,0.85)")
+
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=30, text="30 oversolgt",
+                           showarrow=False, xanchor="left",
+                           font=dict(size=12, color="white"),
+                           bgcolor="rgba(11,17,28,0.85)")
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=70, text="70 overkjøpt",
+                           showarrow=False, xanchor="left",
+                           font=dict(size=12, color="white"),
+                           bgcolor="rgba(11,17,28,0.85)")
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=80, text="80 ekstrem",
+                           showarrow=False, xanchor="left",
+                           font=dict(size=12, color="#ffc107"),
+                           bgcolor="rgba(11,17,28,0.85)")
+        fig.update_yaxes(range=[0, 100])
+        fig.update_layout(margin=dict(l=20, r=155, t=85, b=30))
+    except Exception:
+        pass
+    return fig
+
+
+def add_rsi_combo_box(fig, rsi, macd, macd_signal):
+    try:
+        combo = combo_signal(rsi, macd, macd_signal)
+        rsi_now = combo["rsi_now"]
+        color = combo["rsi_color"]
+
+        fig.add_hline(y=rsi_now, line_dash="dot", line_color=color, opacity=0.75)
+
+        fig.add_annotation(
+            text=(
+                f"📊 <b>RSI {combo['rsi_now']} {combo['rsi_arrow']}</b> · {combo['rsi_status']}<br>"
+                f"⚡ {combo['rsi_momentum']} · {combo['combo']} ({combo['confidence']}%)<br>"
+                f"{combo['reason']}"
+            ),
+            xref="paper", yref="paper",
+            x=0.01, y=1.18,
+            showarrow=False,
+            align="left",
+            font=dict(size=13, color="white"),
+            bgcolor="rgba(30,41,59,0.94)",
+            bordercolor="rgba(255,255,255,0.3)",
+            borderwidth=1,
+        )
+
+        fig.add_annotation(
+            xref="paper", yref="y",
+            x=1.01, y=rsi_now,
+            text=f"RSI nå: {combo['rsi_now']}",
+            showarrow=False,
+            xanchor="left",
+            font=dict(size=12, color="#93c5fd"),
+            bgcolor="rgba(11,17,28,0.9)",
+            bordercolor="rgba(147,197,253,0.45)",
+            borderwidth=1,
+        )
+
+        fig.update_layout(margin=dict(l=20, r=155, t=110, b=30))
+    except Exception:
+        pass
+    return fig
+
+
+def render_rsi_macd_combo_panel(rsi, macd, macd_signal):
+    try:
+        combo = combo_signal(rsi, macd, macd_signal)
+
+        st.markdown("#### 🧠 RSI + MACD Combo")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Combo signal", combo["combo"])
+        c2.metric("Confidence", f"{combo['confidence']}%")
+        c3.metric("RSI nå", f"{combo['rsi_now']} {combo['rsi_arrow']}", delta=f"{combo['rsi_delta']:+.2f}")
+        c4.metric("MACD", combo["macd_status"])
+
+        st.caption(combo["reason"])
+    except Exception as e:
+        st.caption(f"Combo ikke tilgjengelig: {e}")
+
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
     if not results:
@@ -958,7 +1045,7 @@ def render_analysis(results, label):
         plot_bgcolor="#0b111c",
         yaxis=dict(range=[0, 100]),
     )
-    st.plotly_chart(add_rsi_level_labels(fig_rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
+    st.plotly_chart(add_rsi_combo_box(add_rsi_level_labels(fig_rsi), rsi, macd, macd_signal), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
 
     st.markdown("#### 🧪 Strategi-test (historisk simulering)")
 
@@ -1453,3 +1540,76 @@ def add_rsi_current_box(fig, rsi):
     except:
         pass
     return fig
+
+
+# Example dynamic SL/TP display
+def show_position_levels(ticker, entry_price, stop_loss_pct, take_profit_pct):
+    sl, tp = calc_levels(entry_price, stop_loss_pct, take_profit_pct)
+    st.markdown(f'''
+    **{ticker}**
+    Kjøpt: {entry_price}
+    Stop loss: {sl}
+    Take profit: {tp}
+    ''')
+
+
+def render_auto_portfolio_dashboard():
+    from paper_trading import load_portfolio, portfolio_value, performance_stats, reset_portfolio
+    from trading_settings import load_rules, calc_stop_take
+    import pandas as pd
+
+    st.subheader("💼 Auto Paper Trading Portefølje")
+    st.caption("Dette er simulert handel, ikke ekte penger.")
+
+    rules = load_rules()
+    portfolio = load_portfolio()
+    positions = portfolio.get("positions", {})
+    stats = performance_stats(portfolio)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Cash", f"{portfolio.get('cash', 0):,.0f} kr")
+    c2.metric("Porteføljeverdi", f"{stats['total_value']:,.0f} kr")
+    c3.metric("Avkastning", f"{stats['total_return_pct']}%")
+    c4.metric("Åpne posisjoner", f"{len(positions)}/{int(rules['max_open_positions'])}")
+
+    st.markdown("#### 📌 Regler nå")
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Posisjon/trade", f"{rules['position_size_pct']}%")
+    r2.metric("Stop-loss", f"{rules['stop_loss_pct']}%")
+    r3.metric("Take-profit", f"{rules['take_profit_pct']}%")
+    r4.metric("Trades i dag", f"{stats['trades_today']}/{stats['max_trades_per_day']}")
+
+    st.markdown("#### Åpne posisjoner")
+    if positions:
+        rows = []
+        for ticker, pos in positions.items():
+            entry = float(pos.get("avg_price", 0))
+            last = float(pos.get("last_price", entry))
+            shares = float(pos.get("shares", 0))
+            value = shares * last
+            pnl_pct = ((last - entry) / entry * 100) if entry else 0
+            sl, tp = calc_stop_take(entry, rules)
+            rows.append({
+                "Ticker": ticker,
+                "Kjøpt": round(entry, 2),
+                "Siste": round(last, 2),
+                "Stop loss": sl,
+                "Take profit": tp,
+                "Antall": round(shares, 4),
+                "Verdi": round(value, 2),
+                "PnL %": round(pnl_pct, 2),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    else:
+        st.info("Ingen åpne posisjoner enda.")
+
+    st.markdown("#### Trade-logg")
+    trades = portfolio.get("trades", [])
+    if trades:
+        st.dataframe(pd.DataFrame(trades), use_container_width=True)
+    else:
+        st.info("Ingen trades enda.")
+
+    if st.button("Reset paper portfolio"):
+        reset_portfolio()
+        st.success("Porteføljen er nullstilt. Refresh siden.")

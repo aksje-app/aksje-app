@@ -3,11 +3,16 @@ import json
 import os
 
 DEFAULT_RULES = {
+    # Portfolio / execution
+    "start_cash": 100000.0,
+    "position_size_pct": 10.0,
+    "max_open_positions": 5,
+    "max_trades_per_day": 3,
+
     # BUY
     "min_buy_score": 7.5,
     "min_buy_confidence": 70,
     "max_buy_rsi": 72,
-    "max_trades_per_day": 3,
 
     # HOLD
     "min_hold_days": 1,
@@ -30,21 +35,17 @@ def _load_from_db():
         init_store()
         conn = get_conn()
         cur = conn.cursor()
-
         cur.execute("""
         CREATE TABLE IF NOT EXISTS trading_rules (
             id INTEGER PRIMARY KEY,
             rules TEXT NOT NULL
         );
         """)
-
         cur.execute("SELECT rules FROM trading_rules WHERE id=1")
         row = cur.fetchone()
         conn.close()
-
         if not row:
             return None
-
         raw = row[0] if using_postgres() else row["rules"]
         return json.loads(raw)
     except Exception:
@@ -57,16 +58,13 @@ def _save_to_db(rules):
         init_store()
         conn = get_conn()
         cur = conn.cursor()
-
         cur.execute("""
         CREATE TABLE IF NOT EXISTS trading_rules (
             id INTEGER PRIMARY KEY,
             rules TEXT NOT NULL
         );
         """)
-
         raw = json.dumps(rules, ensure_ascii=False)
-
         if using_postgres():
             cur.execute("""
             INSERT INTO trading_rules (id, rules) VALUES (1, %s)
@@ -74,7 +72,6 @@ def _save_to_db(rules):
             """, (raw,))
         else:
             cur.execute("INSERT OR REPLACE INTO trading_rules (id, rules) VALUES (1, ?)", (raw,))
-
         conn.commit()
         conn.close()
         return True
@@ -84,36 +81,37 @@ def _save_to_db(rules):
 
 def load_rules():
     rules = DEFAULT_RULES.copy()
-
     db_rules = _load_from_db()
     if db_rules:
         rules.update(db_rules)
         return rules
-
     if os.path.exists(LOCAL_RULES_FILE):
         try:
             with open(LOCAL_RULES_FILE, "r", encoding="utf-8") as f:
                 rules.update(json.load(f))
         except Exception:
             pass
-
     return rules
 
 
 def save_rules(rules):
     clean = DEFAULT_RULES.copy()
     clean.update(rules)
-
     saved_db = _save_to_db(clean)
-
-    # Lokal fallback for kjøring uten DATABASE_URL
     try:
         with open(LOCAL_RULES_FILE, "w", encoding="utf-8") as f:
             json.dump(clean, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
-
     return saved_db
+
+
+def calc_stop_take(entry_price, rules=None):
+    rules = rules or load_rules()
+    entry_price = float(entry_price)
+    stop_loss = entry_price * (1 - float(rules["stop_loss_pct"]) / 100)
+    take_profit = entry_price * (1 + float(rules["take_profit_pct"]) / 100)
+    return round(stop_loss, 2), round(take_profit, 2)
 
 
 def should_buy(decision, rsi, rules=None):
@@ -132,14 +130,13 @@ def should_buy(decision, rsi, rules=None):
 
 def should_sell(decision, position, current_price, rsi=None, prev_rsi=None, rules=None):
     rules = rules or load_rules()
-
     signal = decision.get("decision", "")
     entry = float(position.get("avg_price", position.get("entry_price", current_price)) or current_price)
     current_price = float(current_price)
     pnl_pct = ((current_price - entry) / entry * 100) if entry else 0
 
     if rules.get("enable_sell_signal_exit", True) and ("SELL" in signal or "AVOID" in signal):
-        return True, "SELL signal"
+        return True, "SELL/AVOID signal"
 
     if pnl_pct <= -float(rules["stop_loss_pct"]):
         return True, f"Stop-loss {pnl_pct:.2f}%"
@@ -151,7 +148,6 @@ def should_sell(decision, position, current_price, rsi=None, prev_rsi=None, rule
     if rsi >= float(rules["rsi_exit_level"]):
         if not rules.get("rsi_must_fall", True):
             return True, f"RSI exit {rsi:.1f}"
-
         if prev_rsi is not None and rsi < float(prev_rsi):
             return True, f"RSI > {rules['rsi_exit_level']} og faller"
 

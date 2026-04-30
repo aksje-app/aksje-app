@@ -53,6 +53,7 @@ if not market_is_open():
     exit()
 
 import os
+from rsi_macd_engine import combo_signal
 from alert_state import should_send_alert, record_alert
 from market_hours import open_markets, should_process_ticker
 from trading_settings import load_rules, should_buy, should_sell
@@ -69,7 +70,7 @@ from insider import get_insider_data
 from analyst import get_analyst_trend
 from earnings import get_earnings
 from app import send_pushover_alert
-from paper_trading import paper_buy, paper_sell, update_last_price, load_portfolio, portfolio_value, apply_risk_exits, performance_stats
+from paper_trading import auto_trade, paper_buy, paper_sell, update_last_price, load_portfolio, portfolio_value, apply_risk_exits, performance_stats
 
 MARKET = os.getenv("SCANNER_MARKET", "ALL").upper()  # USA, NORGE, SVERIGE, ALL
 MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
@@ -138,6 +139,7 @@ def analyze_ticker(ticker):
     decision["emoji"] = si["emoji"]
     decision["confidence"] = si["confidence"]
     decision["decision_score"] = si["final_score"]
+    decision["rsi_macd_combo"] = combo_signal(rsi, macd, macd_signal)
 
     return {
         "ticker": ticker,
@@ -217,6 +219,7 @@ def run_once():
                     "signal": signal,
                     "confidence": confidence,
                     "score": float(decision.get("decision_score", 0) or 0),
+                    "rsi": result.get("rsi"),
                 })
 
             time.sleep(SCAN_SLEEP_SECONDS)
@@ -252,6 +255,13 @@ def run_once():
                         record_alert(c["ticker"], c["signal"], {"confidence": c["confidence"], "price": c["price"], "reason": alert_reason})
                     else:
                         print(f"🔕 {c['ticker']}: alert blokkert ({alert_reason})")
+
+    if PAPER_TRADING_ENABLED:
+        for c in candidates:
+            ok, msg = auto_trade(c["ticker"], c["price"], c["decision"], rsi=c.get("rsi"))
+            print(f"Auto trade {c['ticker']}: {msg}")
+            if ok:
+                send_pushover_alert(f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%", title="Auto Paper Trading")
 
     portfolio = load_portfolio()
     value = portfolio_value(portfolio, latest_prices)
