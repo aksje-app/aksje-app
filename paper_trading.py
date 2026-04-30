@@ -8,6 +8,17 @@ from paper_store import (
 from trading_settings import load_rules, calc_stop_take, should_sell
 
 
+
+# Backward-compatible constants for older app.py imports
+try:
+    _rules_for_constants = load_rules()
+except Exception:
+    _rules_for_constants = {}
+
+STOP_LOSS_PCT = float(_rules_for_constants.get("stop_loss_pct", 7.0)) / 100
+TRAILING_STOP_PCT = float(_rules_for_constants.get("trailing_stop_pct", 8.0)) / 100
+MAX_TRADES_PER_DAY = int(_rules_for_constants.get("max_trades_per_day", 3))
+
 def load_portfolio():
     init_store()
     return {
@@ -208,3 +219,23 @@ def performance_stats(portfolio=None, latest_prices=None):
         "trades_today": trades_today(),
         "max_trades_per_day": int(rules["max_trades_per_day"]),
     }
+
+
+def apply_risk_exits(ticker, price):
+    """
+    Bakoverkompatibel wrapper.
+    Sjekker om eksisterende posisjon skal selges basert på gjeldende regler.
+    """
+    pos = get_position(ticker)
+    if not pos:
+        return False, "Ingen posisjon"
+
+    decision = {"decision": "HOLD"}
+    from trading_settings import should_sell
+    rules = load_rules()
+
+    sell_ok, reason = should_sell(decision, pos, price, rules=rules)
+    if sell_ok:
+        return paper_sell(ticker, price, decision, reason=reason)
+    update_last_price(ticker, price)
+    return False, "Ingen risk-exit"
