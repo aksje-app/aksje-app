@@ -232,11 +232,16 @@ def add_trade(portfolio, trade):
         init_db()
         conn = get_conn()
         cur = conn.cursor()
+        # Compatibility with old Render Postgres table where id is NOT NULL without SERIAL default.
+        cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM paper_trades")
+        next_id = cur.fetchone()[0]
+
         cur.execute("""
             INSERT INTO paper_trades
-            (time, type, ticker, price, shares, amount, confidence, pnl_pct, reason)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
+            next_id,
             trade["time"],
             trade["type"],
             trade["ticker"],
