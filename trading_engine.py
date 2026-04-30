@@ -1,3 +1,4 @@
+from notifier import notify_trade
 
 from paper_store import load_portfolio, save_portfolio, add_trade
 

@@ -270,37 +270,11 @@ def send_pushover_alert(message, title="AI Aksje Analyzer"):
 
 def maybe_send_signal_alert(ticker, decision):
     """
-    UI-varsler er deaktivert som standard for å hindre mobil-spam.
-    Test-varsel-knappen i sidepanelet fungerer fortsatt.
-    Cron/trading-varsler kan aktiveres separat senere.
+    Deaktivert i Pushover trade-fix:
+    Varsler skal kun sendes fra trading_engine.py når faktisk BUY/SELL skjer.
+    Dette hindrer mobil-spam ved vanlig signalendring/refresh.
     """
-    if not st.session_state.get("enable_ui_signal_alerts", False):
-        return
-
-    if "last_signal" not in st.session_state:
-        st.session_state.last_signal = {}
-
-    current_signal = decision.get("decision", "UNKNOWN")
-    previous_signal = st.session_state.last_signal.get(ticker)
-
-    # Ikke send på første observasjon, kun ved faktisk endring
-    if previous_signal is None:
-        st.session_state.last_signal[ticker] = current_signal
-        return
-
-    if previous_signal == current_signal:
-        return
-
-    st.session_state.last_signal[ticker] = current_signal
-
-    if current_signal in ["BUY", "SELL / AVOID", "SELL"]:
-        msg = (
-            f"{decision.get('emoji', '')} {current_signal}: {ticker}\n"
-            f"Confidence: {decision.get('confidence', 'N/A')}%\n"
-            f"Signal-score: {decision.get('decision_score', 'N/A')}"
-        )
-        send_pushover_alert(msg)
-
+    return None
 
 
 
