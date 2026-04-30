@@ -122,6 +122,27 @@ def score_signal(item, technical_context=None, insider=None, analyst=None, earni
     if decision != "BUY" and not warnings:
         warnings.append("Mangler nok teknisk bekreftelse for BUY")
 
+
+    # Risk label for old app13 UI compatibility
+    risk_points = 0
+    if rsi >= 70:
+        risk_points += 2
+    if rsi >= 78:
+        risk_points += 2
+    if breakout_type in ["bearish", "breakdown", "down"]:
+        risk_points += 2
+    if head_shoulders:
+        risk_points += 2
+    if not macd_bullish:
+        risk_points += 1
+
+    if risk_points >= 4:
+        risk_label = "Høy"
+    elif risk_points >= 2:
+        risk_label = "Middels"
+    else:
+        risk_label = "Lav"
+
     return {
         "final_score": round(score, 2),
         "decision_score": round(score, 2),
@@ -134,6 +155,8 @@ def score_signal(item, technical_context=None, insider=None, analyst=None, earni
         "macd_bullish": macd_bullish,
         "breakout_type": breakout_type,
         "bonus": round(score - base_score, 2),
+        "risk": risk_label,
+        "risk_score": risk_points,
     }
 
 

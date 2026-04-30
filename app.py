@@ -894,8 +894,8 @@ def render_analysis(results, label):
     if signal_intelligence:
         decision["decision"] = signal_intelligence["decision"]
         decision["emoji"] = signal_intelligence["emoji"]
-        decision["confidence"] = signal_intelligence["confidence"]
-        decision["decision_score"] = signal_intelligence["final_score"]
+        decision["confidence"] = signal_intelligence.get("confidence", 0)
+        decision["decision_score"] = signal_intelligence.get("final_score", signal_intelligence.get("decision_score", 0))
         decision["reasons"] = decision.get("reasons", []) + signal_intelligence.get("reasons", [])
 
     if (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence:
@@ -912,10 +912,10 @@ def render_analysis(results, label):
     if signal_intelligence:
         st.markdown("#### 🧠 Signal Intelligence")
         si1, si2, si3, si4 = st.columns(4)
-        si1.metric("Smart score", f"{signal_intelligence['final_score']}/10")
+        si1.metric("Smart score", f"{signal_intelligence.get('final_score', signal_intelligence.get('decision_score', 0))}/10")
         si2.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
-        si3.metric("Risk", signal_intelligence["risk"])
-        si4.metric("Confidence", f"{signal_intelligence['confidence']}%")
+        si3.metric("Risk", signal_intelligence.get("risk", "Middels"))
+        si4.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
 
         i1, i2, i3 = st.columns(3)
         with i1:
