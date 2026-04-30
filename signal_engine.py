@@ -1,120 +1,149 @@
 
-def _num(value, default=0):
+def _safe_float(value, default=0.0):
     try:
-        return float(value) if value is not None else default
+        if value is None:
+            return default
+        return float(value)
     except Exception:
         return default
 
-def calculate_signal_intelligence(item, technical_context=None, insider=None, analyst=None, earnings=None):
+
+def classify_rsi(rsi):
+    rsi = _safe_float(rsi, 50)
+    if rsi >= 78:
+        return "bearish", "RSI er ekstremt høy / overkjøpt"
+    if rsi >= 70:
+        return "warning", "RSI er overkjøpt"
+    if rsi <= 30:
+        return "bullish", "RSI er lav / oversolgt"
+    if 45 <= rsi <= 65:
+        return "bullish", "RSI er i sunn sone"
+    return "neutral", "RSI er nøytral"
+
+
+def score_signal(item, technical_context=None, insider=None, analyst=None, earnings=None):
+    """
+    Pro signalmotor v1.
+    Returnerer:
+    - final_score 0-10
+    - decision
+    - confidence
+    - reasons
+    - warnings
+    """
     technical_context = technical_context or {}
-    base_score = _num(item.get("score"), 5)
-    bonus = 0.0
-    risk = 0.0
     reasons = []
+    warnings = []
 
-    if technical_context.get("macd_bullish"):
-        bonus += 0.4
-        reasons.append("MACD bullish")
+    base_score = _safe_float(item.get("score", 0) if isinstance(item, dict) else 0)
+    score = base_score
+
+    rsi = _safe_float(technical_context.get("rsi", 50), 50)
+    rsi_class, rsi_reason = classify_rsi(rsi)
+
+    macd_bullish = bool(technical_context.get("macd_bullish", False))
+    breakout_type = str(technical_context.get("breakout_type", "neutral")).lower()
+    head_shoulders = bool(technical_context.get("head_shoulders_found", False))
+    inverse_hs = bool(technical_context.get("inverse_head_shoulders_found", False))
+
+    # RSI logic
+    if rsi_class == "bullish":
+        score += 0.5
+        reasons.append(rsi_reason)
+    elif rsi_class == "warning":
+        score -= 0.8
+        warnings.append(rsi_reason)
+    elif rsi_class == "bearish":
+        score -= 1.4
+        warnings.append(rsi_reason)
     else:
-        risk += 0.3
-        reasons.append("MACD bearish")
+        reasons.append(rsi_reason)
 
-    rsi = _num(technical_context.get("rsi"), 50)
-    if rsi < 30:
-        bonus += 0.4
-        reasons.append("RSI oversolgt")
-    elif rsi > 75:
-        risk += 0.9
-        reasons.append("RSI svært overkjøpt")
-    elif rsi > 70:
-        risk += 0.5
-        reasons.append("RSI overkjøpt")
+    # MACD
+    if macd_bullish:
+        score += 0.55
+        reasons.append("MACD er bullish")
+    else:
+        score -= 0.25
+        warnings.append("MACD er ikke bullish")
 
-    breakout_type = technical_context.get("breakout_type", "neutral")
-    if breakout_type == "bullish":
-        bonus += 0.8
-        reasons.append("Bullish breakout")
-    elif breakout_type == "bearish":
-        risk += 0.8
-        reasons.append("Bearish breakdown")
+    # Breakout
+    if breakout_type in ["bullish", "breakout", "up"]:
+        score += 0.75
+        reasons.append("Bullish breakout / brudd opp")
+    elif breakout_type in ["bearish", "breakdown", "down"]:
+        score -= 1.0
+        warnings.append("Bearish breakout / brudd ned")
 
-    if technical_context.get("head_shoulders_found"):
-        risk += 1.2
-        reasons.append("Bearish hode/skulder")
-    if technical_context.get("inverse_head_shoulders_found"):
-        bonus += 1.0
-        reasons.append("Bullish invertert hode/skulder")
+    # Patterns
+    if inverse_hs:
+        score += 0.45
+        reasons.append("Inverse head & shoulders støtter oppside")
+    if head_shoulders:
+        score -= 0.8
+        warnings.append("Head & shoulders advarer om nedside")
 
-    if insider:
-        insider_score = _num(insider.get("score"), 0.5)
-        if insider_score >= 0.7:
-            bonus += 0.8
-            reasons.append("Positiv innsidehandel")
-        elif insider_score <= 0.3:
-            risk += 0.8
-            reasons.append("Negativ innsidehandel")
-        elif insider_score < 0.45:
-            risk += 0.3
-            reasons.append("Litt negativ innsidehandel")
-
+    # Optional public data signals
     if analyst:
-        analyst_score = _num(analyst.get("score"), 0.5)
-        if analyst_score >= 0.65:
-            bonus += 0.5
-            reasons.append("Positiv analytikertrend")
-        elif analyst_score <= 0.35:
-            risk += 0.5
-            reasons.append("Negativ analytikertrend")
+        trend = str(analyst.get("trend", "")).lower() if isinstance(analyst, dict) else ""
+        if "positive" in trend or "up" in trend:
+            score += 0.25
+            reasons.append("Analytikertrend støtter signalet")
+        elif "negative" in trend or "down" in trend:
+            score -= 0.25
+            warnings.append("Analytikertrend er svak")
 
     if earnings:
-        days = earnings.get("days_until")
-        if days is not None:
-            days = int(days)
-            if 0 <= days <= 3:
-                risk += 1.2
-                reasons.append("Resultatdato svært nær")
-            elif 4 <= days <= 10:
-                risk += 0.7
-                reasons.append("Resultatdato nær")
-            elif 11 <= days <= 20:
-                risk += 0.2
-                reasons.append("Resultatdato om kort tid")
+        surprise = _safe_float(earnings.get("surprise", 0), 0) if isinstance(earnings, dict) else 0
+        if surprise > 0:
+            score += 0.2
+            reasons.append("Earnings overrasket positivt")
+        elif surprise < 0:
+            score -= 0.2
+            warnings.append("Earnings overrasket negativt")
 
-    volatility = _num(item.get("volatility"), 0.03)
-    max_drawdown = _num(item.get("max_drawdown"), 0)
+    score = max(0.0, min(10.0, score))
+    confidence = int(max(35, min(95, round(score * 10))))
 
-    if volatility > 0.055:
-        risk += 0.9
-        reasons.append("Svært høy volatilitet")
-    elif volatility > 0.04:
-        risk += 0.4
-        reasons.append("Høy volatilitet")
-
-    if max_drawdown < -0.45:
-        risk += 1.0
-        reasons.append("Svært stor drawdown")
-    elif max_drawdown < -0.30:
-        risk += 0.5
-        reasons.append("Stor drawdown")
-
-    final_score = max(1, min(10, base_score + bonus - risk))
-
-    if final_score >= 7.5 and risk < 1.8:
-        decision, emoji = "BUY", "🟢"
-    elif final_score <= 4.5 or risk >= 2.5:
-        decision, emoji = "SELL / AVOID", "🔴"
+    # Conservative decisions
+    if score >= 7.2 and rsi < 70 and (macd_bullish or breakout_type in ["bullish", "breakout", "up"]):
+        decision = "BUY"
+        emoji = "🟢"
+    elif score <= 4.2 or rsi >= 78 or breakout_type in ["bearish", "breakdown", "down"] or head_shoulders:
+        decision = "SELL / AVOID"
+        emoji = "🔴"
     else:
-        decision, emoji = "HOLD / WAIT", "🟡"
+        decision = "HOLD / WAIT"
+        emoji = "🟡"
 
-    confidence = int(max(0, min(100, 50 + (final_score - 5) * 10 + bonus * 5 - risk * 5)))
+    if decision == "BUY" and not reasons:
+        reasons.append("Samlet score er sterk nok for BUY")
+
+    if decision != "BUY" and not warnings:
+        warnings.append("Mangler nok teknisk bekreftelse for BUY")
 
     return {
-        "final_score": round(final_score, 2),
-        "base_score": round(base_score, 2),
-        "bonus": round(bonus, 2),
-        "risk": round(risk, 2),
+        "final_score": round(score, 2),
+        "decision_score": round(score, 2),
         "decision": decision,
         "emoji": emoji,
         "confidence": confidence,
-        "reasons": reasons,
+        "reasons": reasons[:6],
+        "warnings": warnings[:6],
+        "rsi": round(rsi, 1),
+        "macd_bullish": macd_bullish,
+        "breakout_type": breakout_type,
     }
+
+
+def calculate_signal_intelligence(item, technical_context=None, insider=None, analyst=None, earnings=None):
+    """
+    Backwards-compatible function used by app13.
+    """
+    return score_signal(item, technical_context, insider, analyst, earnings)
+
+
+def explain_decision(decision):
+    reasons = decision.get("reasons", []) if isinstance(decision, dict) else []
+    warnings = decision.get("warnings", []) if isinstance(decision, dict) else []
+    return reasons, warnings

@@ -262,8 +262,88 @@ hr {
     }
 }
 
+
+/* --- RSI BOX PATCH --- */
+.rsi-box {
+    background: linear-gradient(180deg, #111827 0%, #020617 100%) !important;
+    border: 1px solid #475569 !important;
+    border-radius: 18px !important;
+    padding: 18px !important;
+    margin: 14px 0 18px 0 !important;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.24) !important;
+}
+.rsi-title {
+    font-size: 1.15rem !important;
+    font-weight: 900 !important;
+    color: #f8fafc !important;
+    margin-bottom: 6px !important;
+}
+.rsi-value {
+    font-size: 2rem !important;
+    font-weight: 900 !important;
+    color: #ffffff !important;
+}
+.rsi-status-good { color: #22c55e !important; font-weight: 900 !important; }
+.rsi-status-mid { color: #f59e0b !important; font-weight: 900 !important; }
+.rsi-status-bad { color: #ef4444 !important; font-weight: 900 !important; }
+
+
+/* --- Signal Engine v1 explanation polish --- */
+div[data-testid="stAlert"] {
+    border-radius: 14px !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_decision_explanation(decision):
+    try:
+        reasons = decision.get("reasons", [])
+        warnings = decision.get("warnings", [])
+        st.markdown("#### 🧠 Hvorfor dette signalet?")
+        if reasons:
+            for r in reasons:
+                st.success(f"✅ {r}")
+        if warnings:
+            for w in warnings:
+                st.warning(f"⚠️ {w}")
+    except Exception:
+        pass
+
+
+
+def render_rsi_box(rsi_value):
+    try:
+        rsi_float = float(rsi_value)
+    except Exception:
+        rsi_float = 50.0
+
+    if rsi_float >= 80:
+        status = "Ekstremt overkjøpt"
+        cls = "rsi-status-bad"
+    elif rsi_float >= 70:
+        status = "Overkjøpt"
+        cls = "rsi-status-bad"
+    elif rsi_float <= 30:
+        status = "Oversolgt"
+        cls = "rsi-status-good"
+    else:
+        status = "Nøytral"
+        cls = "rsi-status-mid"
+
+    st.markdown(
+        f"""
+        <div class="rsi-box">
+            <div class="rsi-title">📊 RSI-boks</div>
+            <div class="rsi-value">{rsi_float:.1f}</div>
+            <div class="{cls}">{status}</div>
+            <div class="small">30 = oversolgt · 70 = overkjøpt · 80 = ekstremt overkjøpt</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 
 def render_signal_badge(signal):
@@ -871,6 +951,8 @@ def render_analysis(results, label):
     t2.metric("Trend", trend)
     t3.metric("MACD", "Bullish 🟢" if latest_macd > latest_macd_signal else "Bearish 🔴")
     t4.metric("Breakout", breakout.get("signal", "N/A"))
+
+    render_rsi_box(latest_rsi)
 
     st.markdown("#### 🔔 Signal alerts")
     for title, desc, kind in alerts:

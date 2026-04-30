@@ -1,0 +1,1 @@
+Fixer app13 restore: legger til pytz i requirements og kompatible build_trading_decision/adjusted_score i trading_engine.py.

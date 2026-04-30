@@ -1,3 +1,4 @@
+from signal_engine import score_signal
 from notifier import notify_trade
 
 from paper_store import load_portfolio, save_portfolio, add_trade
@@ -12,38 +13,10 @@ MIN_BUY_CONFIDENCE = 60
 
 def build_trading_decision(item, technical_context=None):
     """
-    Kompatibel beslutningsmotor for app13 UI.
-    Pro-tunet, men konservativ:
-    - BUY kun ved høy score + RSI ikke overkjøpt + teknisk støtte
-    - SELL/AVOID ved svak score, høy RSI eller bearish breakout
+    Bruker signal_engine.score_signal som felles hjerne for UI og trading.
+    Beholder samme output-format som app13 forventer.
     """
-    technical_context = technical_context or {}
-    base_score = item.get("score", 0) if isinstance(item, dict) else 0
-    score = adjusted_score(base_score, technical_context)
-
-    buy_ok, sell_avoid, rsi, macd_bullish, breakout_type = pro_signal_from_context(score, technical_context)
-    confidence = int(max(35, min(95, round(score * 10))))
-
-    if buy_ok:
-        decision = "BUY"
-        emoji = "🟢"
-    elif sell_avoid:
-        decision = "SELL / AVOID"
-        emoji = "🔴"
-    else:
-        decision = "HOLD / WAIT"
-        emoji = "🟡"
-
-    return {
-        "decision": decision,
-        "emoji": emoji,
-        "confidence": confidence,
-        "decision_score": score,
-        "score": score,
-        "rsi": rsi,
-        "macd_bullish": macd_bullish,
-        "breakout_type": breakout_type,
-    }
+    return score_signal(item, technical_context or {})
 
 
 
