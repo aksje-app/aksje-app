@@ -1,6 +1,5 @@
 
 from paper_store import load_portfolio, save_portfolio, add_trade
-from alerts import send_pushover
 
 POSITION_SIZE_PCT = 10.0
 MAX_OPEN_POSITIONS = 5
@@ -162,7 +161,6 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
         "reason": reason,
     })
 
-    send_pushover(f"🚀 BUY {ticker} @ {price:.2f}\nConfidence: {confidence}%\nStop loss: {stop_loss}\nTake profit: {take_profit}", title="AI Aksje Analyzer")
     return True, f"BUY {ticker} @ {price:.2f}"
 
 
@@ -194,7 +192,6 @@ def paper_sell(ticker, price, reason="SELL signal"):
         "reason": reason,
     })
 
-    send_pushover(f"🔴 SELL {ticker} @ {price:.2f}\nPnL: {pnl_pct:.2f}%\nReason: {reason}", title="AI Aksje Analyzer")
     return True, f"SELL {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
 
 
