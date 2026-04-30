@@ -111,6 +111,44 @@ def execute(query, params=()):
     conn.close()
 
 
+
+def ensure_schema_migrations():
+    """
+    Legger til nye kolonner i eksisterende database uten å slette data.
+    Fikser bl.a. gamle paper_positions-tabeller som mangler take_profit.
+    """
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        if using_postgres():
+            cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit REAL;")
+            cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss REAL;")
+            cur.execute("ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price REAL;")
+            cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;")
+            cur.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS decision TEXT;")
+        else:
+            cur.execute("PRAGMA table_info(paper_positions)")
+            cols = [r[1] for r in cur.fetchall()]
+            if "take_profit" not in cols:
+                cur.execute("ALTER TABLE paper_positions ADD COLUMN take_profit REAL")
+            if "stop_loss" not in cols:
+                cur.execute("ALTER TABLE paper_positions ADD COLUMN stop_loss REAL")
+            if "highest_price" not in cols:
+                cur.execute("ALTER TABLE paper_positions ADD COLUMN highest_price REAL")
+
+            cur.execute("PRAGMA table_info(paper_trades)")
+            tcols = [r[1] for r in cur.fetchall()]
+            if "reason" not in tcols:
+                cur.execute("ALTER TABLE paper_trades ADD COLUMN reason TEXT")
+            if "decision" not in tcols:
+                cur.execute("ALTER TABLE paper_trades ADD COLUMN decision TEXT")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Schema migration warning: {e}")
+
 def get_cash():
     rows = fetchall("SELECT cash FROM paper_state WHERE id=1")
     return float(rows[0]["cash"]) if rows else 0.0
