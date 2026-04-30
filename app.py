@@ -10,6 +10,11 @@ st.set_page_config(page_title="AI Aksje Analyzer", layout="wide")
 st.sidebar.title("⚙️ Kontrollpanel")
 st.sidebar.caption(f"Lagring: {storage_status()}")
 
+if st.sidebar.button("Kjør DB schema fix", key="db_schema_fix_btn"):
+    from paper_store import force_schema_fix
+    force_schema_fix()
+    st.sidebar.success("DB schema oppdatert ✅")
+
 if st.sidebar.button("Nullstill paper portfolio", key="reset_portfolio_sidebar"):
     reset_portfolio(100000)
     st.sidebar.success("Paper portfolio nullstilt")
