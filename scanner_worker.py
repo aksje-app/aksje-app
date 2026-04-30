@@ -209,7 +209,9 @@ def run_once():
             if PAPER_TRADING_ENABLED:
                 risk_ok, risk_msg = apply_risk_exits(ticker, price)
                 if risk_ok:
-                    send_pushover_alert(f"🛑 {risk_msg}\nPris: {price:.2f}", title="Risk Exit")
+                    # DUPLICATE_ALERT_GUARD
+                    # direct pushover disabled unless trade executed
+                    # send_pushover_alert(f"🛑 {risk_msg}\nPris: {price:.2f}", title="Risk Exit")
 
             if confidence >= MIN_CONFIDENCE and signal in ["BUY", "SELL / AVOID"]:
                 candidates.append({
@@ -236,7 +238,9 @@ def run_once():
                 if ok:
                     alert_ok, alert_reason = should_send_alert(c["ticker"], c["signal"])
                     if alert_ok:
-                        send_pushover_alert(
+                        # DUPLICATE_ALERT_GUARD
+                    # direct pushover disabled unless trade executed
+                    # send_pushover_alert(
                             f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
                             title="Top 3 Paper Trading"
                         )
@@ -248,7 +252,9 @@ def run_once():
                 if ok:
                     alert_ok, alert_reason = should_send_alert(c["ticker"], c["signal"])
                     if alert_ok:
-                        send_pushover_alert(
+                        # DUPLICATE_ALERT_GUARD
+                    # direct pushover disabled unless trade executed
+                    # send_pushover_alert(
                             f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
                             title="Top 3 Paper Trading"
                         )
@@ -261,7 +267,9 @@ def run_once():
             ok, msg = auto_trade(c["ticker"], c["price"], c["decision"], rsi=c.get("rsi"))
             print(f"Auto trade {c['ticker']}: {msg}")
             if ok:
-                send_pushover_alert(f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%", title="Auto Paper Trading")
+                # DUPLICATE_ALERT_GUARD
+                    # direct pushover disabled unless trade executed
+                    # send_pushover_alert(f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%", title="Auto Paper Trading")
 
     portfolio = load_portfolio()
     value = portfolio_value(portfolio, latest_prices)

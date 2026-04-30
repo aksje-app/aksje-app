@@ -1,6 +1,9 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from alert_state import should_send_alert, record_alert
+from trend_channel import add_trend_channel_to_fig, calc_trend_channel
+from top10_ui import render_market_top10_block
 from rsi_macd_engine import combo_signal
 from alert_state import reset_alert_state
 from market_hours import open_markets
@@ -494,6 +497,7 @@ def plot_price(hist, title):
         margin=dict(l=20, r=150, t=80, b=30),
         legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
     )
+    fig, _trend_channel = add_trend_channel_to_fig(fig, hist, lookback=120)
     return fig
 
 def get_item_price_change(item):
@@ -794,6 +798,35 @@ def render_rsi_macd_combo_panel(rsi, macd, macd_signal):
     except Exception as e:
         st.caption(f"Combo ikke tilgjengelig: {e}")
 
+
+def send_ai_signal_alert_once(ticker, decision, price=None, confidence=None, score=None):
+    """
+    Brukes for å stoppe gamle duplikatvarsler i UI/app.
+    Sender kun når signal endrer seg for ticker.
+    """
+    try:
+        signal = decision.get("decision", decision) if isinstance(decision, dict) else decision
+        ok, reason = should_send_alert(ticker, signal)
+        if not ok:
+            print(f"🔕 {ticker}: signalvarsel blokkert ({reason})")
+            return False
+
+        try:
+            from pushover import send_pushover_alert
+        except Exception:
+            return False
+
+        confidence = confidence if confidence is not None else (decision.get("confidence", "") if isinstance(decision, dict) else "")
+        score = score if score is not None else (decision.get("decision_score", "") if isinstance(decision, dict) else "")
+
+        msg = f"🟢 {signal}: {ticker}\\nConfidence: {confidence}%\\nSignal-score: {score}"
+        send_pushover_alert(msg, title="AI Aksje Analyzer")
+        record_alert(ticker, signal, {"price": price, "confidence": confidence, "score": score})
+        return True
+    except Exception as e:
+        print(f"send_ai_signal_alert_once error: {e}")
+        return False
+
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
     if not results:
@@ -804,6 +837,16 @@ def render_analysis(results, label):
     df = item["hist"].copy()
 
     st.plotly_chart(plot_price(df, f"{selected} - prisutvikling"), use_container_width=True, key=f"price_chart_{label}_{selected}")
+    try:
+        ch = calc_trend_channel(df, lookback=120)
+        if ch:
+            tc1, tc2, tc3, tc4 = st.columns(4)
+            tc1.metric("Trendkanal-status", f"{ch['emoji']} {ch['status']}")
+            tc2.metric("Kurs i kanal", f"{ch['position_pct']}%")
+            tc3.metric("Nedre kanal", f"{ch['current_lower']:.2f}")
+            tc4.metric("Øvre kanal", f"{ch['current_upper']:.2f}")
+    except Exception:
+        pass
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Score", f"{item['score']}/10")
@@ -861,8 +904,7 @@ def render_analysis(results, label):
         decision["reasons"] = decision.get("reasons", []) + signal_intelligence.get("reasons", [])
 
     if (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence:
-        maybe_send_signal_alert(selected, decision)
-
+        print("🔕 old maybe_send_signal_alert deaktivert")
     st.markdown("#### 🤖 Trading engine")
     d1, d2, d3 = st.columns(3)
     d1.metric("Beslutning", f"{decision['emoji']} {decision['decision']}")
@@ -1613,3 +1655,14 @@ def render_auto_portfolio_dashboard():
     if st.button("Reset paper portfolio"):
         reset_portfolio()
         st.success("Porteføljen er nullstilt. Refresh siden.")
+
+
+try:
+    _usa10 = locals().get("usa_results", locals().get("top_usa", []))
+    _no10 = locals().get("norway_results", locals().get("top_no", locals().get("norge_results", [])))
+    _se10 = locals().get("sweden_results", locals().get("top_se", locals().get("sverige_results", [])))
+    _all10 = locals().get("top_picks", []) or (_usa10 + _no10 + _se10)
+    _all10 = sorted(_all10, key=lambda x: x.get("score", 0), reverse=True)
+    _picked_from_top10 = render_market_top10_block(_usa10, _no10, _se10, _all10)
+except Exception as _e:
+    st.caption(f"Top 10-blokk ikke tilgjengelig: {_e}")

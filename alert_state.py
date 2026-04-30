@@ -1,11 +1,10 @@
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 LOCAL_ALERT_FILE = "alert_state.json"
-DEFAULT_COOLDOWN_MINUTES = int(os.getenv("ALERT_COOLDOWN_MINUTES", "30"))
 
 
 def _now_oslo():
@@ -23,7 +22,7 @@ def _db_available():
 
 def _init_alert_table():
     try:
-        from paper_store import get_conn, using_postgres
+        from paper_store import get_conn
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
@@ -37,8 +36,17 @@ def _init_alert_table():
         conn.commit()
         conn.close()
         return True
-    except Exception:
+    except Exception as e:
+        print(f"alert_state init warning: {e}")
         return False
+
+
+def _param():
+    try:
+        from paper_store import using_postgres
+        return "%s" if using_postgres() else "?"
+    except Exception:
+        return "?"
 
 
 def _load_local():
@@ -59,7 +67,20 @@ def _save_local(data):
         pass
 
 
+def normalize_signal(signal):
+    s = str(signal or "").upper().strip()
+    if "BUY" in s:
+        return "BUY"
+    if "SELL" in s or "AVOID" in s:
+        return "SELL"
+    if "HOLD" in s or "WAIT" in s:
+        return "HOLD"
+    return s or "UNKNOWN"
+
+
 def get_last_signal(ticker):
+    ticker = str(ticker).upper().strip()
+
     if _db_available() and _init_alert_table():
         try:
             from paper_store import get_conn, using_postgres
@@ -74,14 +95,15 @@ def get_last_signal(ticker):
             if using_postgres():
                 return {"signal": row[0], "sent_at": row[1], "meta": row[2]}
             return {"signal": row["signal"], "sent_at": row["sent_at"], "meta": row["meta"]}
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"get_last_signal db warning: {e}")
 
-    data = _load_local()
-    return data.get(ticker)
+    return _load_local().get(ticker)
 
 
 def save_signal(ticker, signal, meta=None):
+    ticker = str(ticker).upper().strip()
+    signal = normalize_signal(signal)
     sent_at = _now_oslo().isoformat()
     meta_raw = json.dumps(meta or {}, ensure_ascii=False)
 
@@ -107,8 +129,8 @@ def save_signal(ticker, signal, meta=None):
             conn.commit()
             conn.close()
             return True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"save_signal db warning: {e}")
 
     data = _load_local()
     data[ticker] = {"signal": signal, "sent_at": sent_at, "meta": meta_raw}
@@ -116,42 +138,26 @@ def save_signal(ticker, signal, meta=None):
     return False
 
 
-def should_send_alert(ticker, signal, cooldown_minutes=None):
+def should_send_alert(ticker, signal, cooldown_minutes=None, allow_repeat=False):
     """
-    Sender kun hvis:
-    - signal er nytt/endret, eller
-    - cooldown er passert og signalet fortsatt er viktig
-
-    Standard: Ikke spam samme signal innen ALERT_COOLDOWN_MINUTES.
+    STRAM ANTI-SPAM:
+    - Sender første gang.
+    - Sender når signal endrer seg, f.eks HOLD -> BUY eller BUY -> SELL.
+    - Sender IKKE samme BUY på nytt, uansett cooldown.
     """
-    cooldown_minutes = int(cooldown_minutes or DEFAULT_COOLDOWN_MINUTES)
+    ticker = str(ticker).upper().strip()
+    signal = normalize_signal(signal)
     last = get_last_signal(ticker)
 
     if not last:
-        return True, "new ticker"
+        return True, "first signal"
 
-    last_signal = last.get("signal")
-    sent_at = last.get("sent_at")
+    last_signal = normalize_signal(last.get("signal"))
 
     if last_signal != signal:
         return True, f"signal changed {last_signal} -> {signal}"
 
-    try:
-        last_time = datetime.fromisoformat(sent_at)
-        now = _now_oslo()
-        if last_time.tzinfo is None:
-            last_time = pytz.timezone("Europe/Oslo").localize(last_time)
-
-        if now - last_time >= timedelta(minutes=cooldown_minutes):
-            # For samme signal etter cooldown: fortsatt begrenset.
-            # Bare tillat repeterte varsler for sterke BUY/SELL hvis brukeren ønsker det.
-            repeat_enabled = os.getenv("ALLOW_REPEAT_ALERTS_AFTER_COOLDOWN", "false").lower() == "true"
-            if repeat_enabled:
-                return True, "cooldown passed"
-    except Exception:
-        pass
-
-    return False, "duplicate/cooldown"
+    return False, f"duplicate {ticker} {signal}"
 
 
 def record_alert(ticker, signal, meta=None):
@@ -168,8 +174,22 @@ def reset_alert_state():
             conn.commit()
             conn.close()
             return True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"reset alert db warning: {e}")
 
     _save_local({})
     return False
+
+
+def should_send_signal_alert(ticker, decision, meta=None):
+    """
+    Wrapper for eldre kode som sender direkte signalvarsler.
+    Returnerer True bare hvis signalet er nytt/endret.
+    """
+    signal = decision.get("decision", decision) if isinstance(decision, dict) else decision
+    return should_send_alert(ticker, signal)
+
+
+def record_signal_alert(ticker, decision, meta=None):
+    signal = decision.get("decision", decision) if isinstance(decision, dict) else decision
+    return record_alert(ticker, signal, meta)
