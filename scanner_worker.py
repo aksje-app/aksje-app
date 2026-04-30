@@ -53,6 +53,8 @@ if not market_is_open():
     exit()
 
 import os
+from alert_state import should_send_alert, record_alert
+from market_hours import open_markets, should_process_ticker
 from trading_settings import load_rules, should_buy, should_sell
 import time
 import pandas as pd
@@ -185,6 +187,9 @@ def run_once():
 
     for ticker in tickers:
         try:
+            if not should_process_ticker(ticker):
+                print(f'⏸ {ticker}: marked stengt - hopper over')
+                continue
             result = analyze_ticker(ticker)
             if not result:
                 continue
@@ -226,17 +231,27 @@ def run_once():
             if c["signal"] == "BUY" and should_buy(c["decision"], 50, rules):
                 ok, msg = paper_buy(c["ticker"], c["price"], c["decision"])
                 if ok:
-                    send_pushover_alert(
-                        f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
-                        title="Top 3 Paper Trading"
-                    )
+                    alert_ok, alert_reason = should_send_alert(c["ticker"], c["signal"])
+                    if alert_ok:
+                        send_pushover_alert(
+                            f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
+                            title="Top 3 Paper Trading"
+                        )
+                        record_alert(c["ticker"], c["signal"], {"confidence": c["confidence"], "price": c["price"], "reason": alert_reason})
+                    else:
+                        print(f"🔕 {c['ticker']}: alert blokkert ({alert_reason})")
             elif c["signal"] == "SELL / AVOID":
                 ok, msg = paper_sell(c["ticker"], c["price"], c["decision"])
                 if ok:
-                    send_pushover_alert(
-                        f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
-                        title="Top 3 Paper Trading"
-                    )
+                    alert_ok, alert_reason = should_send_alert(c["ticker"], c["signal"])
+                    if alert_ok:
+                        send_pushover_alert(
+                            f"🧪 {msg}\nPris: {c['price']:.2f}\nConfidence: {c['confidence']}%",
+                            title="Top 3 Paper Trading"
+                        )
+                        record_alert(c["ticker"], c["signal"], {"confidence": c["confidence"], "price": c["price"], "reason": alert_reason})
+                    else:
+                        print(f"🔕 {c['ticker']}: alert blokkert ({alert_reason})")
 
     portfolio = load_portfolio()
     value = portfolio_value(portfolio, latest_prices)

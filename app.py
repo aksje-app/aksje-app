@@ -1,6 +1,8 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from alert_state import reset_alert_state
+from market_hours import open_markets
 from trading_settings import load_rules, save_rules
 import pandas as pd
 import plotly.graph_objects as go
@@ -1221,6 +1223,13 @@ def render_strategy_backtest(tickers, label):
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
 st.sidebar.title("⚙️ Innstillinger")
+
+
+st.sidebar.markdown("### 🔕 Varselkontroll")
+st.sidebar.caption(f"Åpne markeder nå: {open_markets()}")
+if st.sidebar.button("Nullstill anti-spam signalhistorikk"):
+    db_reset = reset_alert_state()
+    st.sidebar.success("Signalhistorikk nullstilt ✅")
 
 st.sidebar.markdown("### ⚙️ Trading-regler")
 _rules = load_rules()
