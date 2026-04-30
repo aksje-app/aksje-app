@@ -1,6 +1,13 @@
 streamlit
+streamlit-autorefresh
 pandas
-plotly
 numpy
-psycopg2-binary
+plotly
+yfinance
 requests
+psycopg2-binary
+python-dotenv
+pytz
+lxml
+html5lib
+beautifulsoup4

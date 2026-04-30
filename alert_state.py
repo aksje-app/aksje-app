@@ -2,13 +2,17 @@
 import json
 import os
 from datetime import datetime
-import pytz
+try:
+    import pytz
+except Exception:
+    pytz = None
+from datetime import timezone
 
 LOCAL_ALERT_FILE = "alert_state.json"
 
 
 def _now_oslo():
-    return datetime.now(pytz.timezone("Europe/Oslo"))
+    return datetime.now((pytz.timezone if pytz else (lambda _tz: timezone.utc))("Europe/Oslo"))
 
 
 def normalize_signal(signal):
