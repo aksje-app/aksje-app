@@ -281,3 +281,32 @@ def storage_status():
 
 def force_schema_fix():
     return init_db()
+
+
+# -------------------------------------------------------------------
+# Compatibility fix for scanner_worker.py
+# Some restored cron versions import:
+#   from paper_store import force_schema_migration
+# This keeps old and new code compatible.
+# -------------------------------------------------------------------
+def force_schema_migration():
+    """
+    Kjører DB schema/migration trygt.
+    Returnerer True/False, men krasjer ikke appen hvis DB ikke er aktiv.
+    """
+    try:
+        if "init_db" in globals():
+            return bool(init_db())
+        if "force_schema_fix" in globals():
+            return bool(force_schema_fix())
+        return True
+    except Exception as e:
+        print(f"force_schema_migration failed: {e}")
+        return False
+
+
+def force_schema_fix():
+    """
+    Alias brukt av noen UI-versjoner.
+    """
+    return force_schema_migration()

@@ -223,8 +223,57 @@ hr {
         font-size: 1rem;
     }
 }
+
+/* --- PRO POLISH PATCH: stronger readability PC/mobile --- */
+.status-live {
+    display:inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(34,197,94,0.15);
+    border: 1px solid rgba(34,197,94,0.45);
+    color: #86efac !important;
+    font-weight: 900;
+}
+.status-danger {
+    display:inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(239,68,68,0.15);
+    border: 1px solid rgba(239,68,68,0.45);
+    color: #fecaca !important;
+    font-weight: 900;
+}
+.rsi-box {
+    background: linear-gradient(180deg, #111827 0%, #020617 100%);
+    border: 1px solid #475569;
+    border-radius: 18px;
+    padding: 16px;
+    margin: 12px 0;
+}
+.card, div[data-testid="stMetric"] {
+    border-color: #475569 !important;
+}
+.small, .muted, caption {
+    color: #cbd5e1 !important;
+}
+@media (max-width: 768px) {
+    .block-container {
+        max-width: 100% !important;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_signal_badge(signal):
+    s = str(signal or "").upper()
+    if "BUY" in s:
+        return "<span class='status-live'>🟢 BUY</span>"
+    if "SELL" in s or "AVOID" in s:
+        return "<span class='status-danger'>🔴 SELL / AVOID</span>"
+    return "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.5);color:#fde68a;font-weight:900;'>🟡 HOLD</span>"
+
 
 
 PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")

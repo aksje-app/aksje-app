@@ -11,59 +11,41 @@ MIN_BUY_CONFIDENCE = 60
 
 
 def build_trading_decision(item, technical_context=None):
+    """
+    Kompatibel beslutningsmotor for app13 UI.
+    Pro-tunet, men konservativ:
+    - BUY kun ved høy score + RSI ikke overkjøpt + teknisk støtte
+    - SELL/AVOID ved svak score, høy RSI eller bearish breakout
+    """
     technical_context = technical_context or {}
-    score = float(item.get("score", 0) or 0)
-    rsi = float(technical_context.get("rsi", 50) or 50)
-    macd_bullish = bool(technical_context.get("macd_bullish", False))
-    breakout_type = technical_context.get("breakout_type", "neutral")
+    base_score = item.get("score", 0) if isinstance(item, dict) else 0
+    score = adjusted_score(base_score, technical_context)
 
-    buy_points = 0
-    sell_points = 0
-    reasons = []
+    buy_ok, sell_avoid, rsi, macd_bullish, breakout_type = pro_signal_from_context(score, technical_context)
+    confidence = int(max(35, min(95, round(score * 10))))
 
-    if score >= 7:
-        buy_points += 3; reasons.append("Sterk totalscore")
-    elif score >= 6:
-        buy_points += 2; reasons.append("God totalscore")
-    elif score < 4:
-        sell_points += 2; reasons.append("Svak totalscore")
-
-    if rsi < 30:
-        buy_points += 2; reasons.append("RSI oversolgt")
-    elif rsi > 75:
-        sell_points += 2; reasons.append("RSI høyt/overkjøpt")
-    elif 40 <= rsi <= 65:
-        buy_points += 1; reasons.append("RSI i sunn sone")
-
-    if macd_bullish:
-        buy_points += 1; reasons.append("MACD bullish")
+    if buy_ok:
+        decision = "BUY"
+        emoji = "🟢"
+    elif sell_avoid:
+        decision = "SELL / AVOID"
+        emoji = "🔴"
     else:
-        sell_points += 1; reasons.append("MACD bearish")
-
-    if breakout_type == "bullish":
-        buy_points += 2; reasons.append("Bullish breakout")
-    elif breakout_type == "bearish":
-        sell_points += 2; reasons.append("Bearish breakdown")
-
-    decision_score = max(0, min(10, round(score + (buy_points - sell_points) * 0.35, 2)))
-    confidence = int(max(35, min(95, 45 + decision_score * 5 + (buy_points - sell_points) * 3)))
-
-    if buy_points >= sell_points + 2 and decision_score >= 6.0:
-        decision, emoji = "BUY", "🟢"
-    elif sell_points >= buy_points + 2:
-        decision, emoji = "SELL / AVOID", "🔴"
-    else:
-        decision, emoji = "HOLD / WAIT", "🟡"
+        decision = "HOLD / WAIT"
+        emoji = "🟡"
 
     return {
         "decision": decision,
         "emoji": emoji,
         "confidence": confidence,
-        "decision_score": decision_score,
-        "buy_points": buy_points,
-        "sell_points": sell_points,
-        "reasons": reasons,
+        "decision_score": score,
+        "score": score,
+        "rsi": rsi,
+        "macd_bullish": macd_bullish,
+        "breakout_type": breakout_type,
     }
+
+
 
 
 def adjusted_score(item, decision):
@@ -169,3 +151,39 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
     if "BUY" in sig:
         return paper_buy(ticker, price, confidence, "BUY signal")
     return False, "Ingen trade"
+
+
+# -------------------------------------------------------------------
+# Pro signal tuning v1
+# Conservative rules to reduce bad BUYs:
+# - no BUY when RSI is high/overbought
+# - prefer BUY only with good score + MACD/breakout support
+# -------------------------------------------------------------------
+def pro_signal_from_context(base_score, technical_context=None):
+    technical_context = technical_context or {}
+    try:
+        score = float(base_score or 0)
+    except Exception:
+        score = 0.0
+
+    try:
+        rsi = float(technical_context.get("rsi", 50))
+    except Exception:
+        rsi = 50.0
+
+    macd_bullish = bool(technical_context.get("macd_bullish", False))
+    breakout_type = str(technical_context.get("breakout_type", "neutral")).lower()
+
+    buy_ok = (
+        score >= 7.0
+        and rsi < 70
+        and (macd_bullish or breakout_type in ["bullish", "breakout", "up"])
+    )
+
+    sell_avoid = (
+        score <= 4.0
+        or rsi >= 78
+        or breakout_type in ["bearish", "breakdown", "down"]
+    )
+
+    return buy_ok, sell_avoid, rsi, macd_bullish, breakout_type
