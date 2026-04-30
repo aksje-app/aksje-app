@@ -293,34 +293,8 @@ div[data-testid="stAlert"] {
     border-radius: 14px !important;
 }
 
-
-/* --- NAV SIMPLIFY PATCH --- */
-.nav-help {
-    background: rgba(14,165,233,0.12);
-    border: 1px solid rgba(56,189,248,0.35);
-    border-radius: 14px;
-    padding: 10px 14px;
-    margin: 10px 0 18px 0;
-    color: #e0f2fe !important;
-    font-weight: 700;
-}
-
 </style>
 """, unsafe_allow_html=True)
-
-
-def market_from_tab(tab_name):
-    t = str(tab_name or "").lower()
-    if "usa" in t:
-        return "USA / S&P 500"
-    if "norge" in t:
-        return "Norge / Oslo Børs"
-    if "sverige" in t:
-        return "Sverige / Stockholm"
-    if "top" in t or "alle" in t:
-        return "Alle"
-    return "Alle"
-
 
 
 def render_decision_explanation(decision):
@@ -552,26 +526,6 @@ def scan_watchlist_and_alert(tickers):
             results.append({"ticker": ticker, "status": f"Feil: {e}"})
 
     return results
-
-
-
-# --- HARD TAB NAV PATCH ---
-def _safe_rank_for_market(tab_market, max_count=30):
-    try:
-        if tab_market == "USA":
-            return rank_stocks(get_sp500_tickers()[:max_count])
-        if tab_market == "Norge":
-            return rank_stocks(get_norwegian_tickers()[:max_count])
-        if tab_market == "Sverige":
-            return rank_stocks(get_swedish_tickers()[:max_count])
-        return rank_stocks(get_all_tickers()[:max_count])
-    except Exception as e:
-        st.error(f"Kunne ikke hente {tab_market}: {e}")
-        return []
-
-def render_market_tab_direct(tab_market, label):
-    results = _safe_rank_for_market(tab_market)
-    render_analysis(results, label)
 
 
 def score_color(score):
@@ -1473,10 +1427,6 @@ if 'top_picks' in locals():
     top_movers(top_picks)
 
 st.title("📈 AI Aksje Analyzer Pro — Restore")
-st.markdown(
-    "<div class='nav-help'>Tips: Bruk fanene øverst direkte. Du trenger ikke først å velge marked i sidepanelet.</div>",
-    unsafe_allow_html=True,
-)
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 
 if auto_watchlist_alerts or manual_watchlist_scan:
@@ -1537,4 +1487,89 @@ watchlist_scan_limit = st.sidebar.slider(
 )
 manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
 
-tabs = st.caption("Fanene henter nå sitt eget marked direkte — sidepanelets markedvalg trengs ikke for fanene.")
+st.caption("Fanene henter markedet direkte. Sidepanelets markedvalg brukes bare til watchlist/scanning.")
+tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"])
+
+with tabs[0]:
+    us_results = auto_rank_market(tickers_us, max_count=max_count, use_news=False)
+    render_ranking(us_results, "🏆 Dynamisk rangering USA/S&P 500")
+    render_analysis(us_results, "USA")
+
+with tabs[1]:
+    no_results = auto_rank_market(tickers_no, max_count=max_count, use_news=False)
+    render_ranking(no_results, "🇳🇴 Dynamisk rangering Norge")
+    render_analysis(no_results, "Norge")
+
+with tabs[2]:
+    se_results = auto_rank_market(tickers_se, max_count=max_count, use_news=False)
+    render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
+    render_analysis(se_results, "Sverige")
+
+with tabs[3]:
+    st.subheader("⭐ Automatiske Top Picks")
+    st.caption("Top Picks velges automatisk basert på score. Listen og rekkefølgen kan endre seg når markedet endrer seg.")
+
+    scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Alle"], horizontal=True)
+
+    if scan_market == "USA":
+        source_tickers = tickers_us
+    elif scan_market == "Norge":
+        source_tickers = tickers_no
+    elif scan_market == "Sverige":
+        source_tickers = tickers_se
+    else:
+        source_tickers = tickers_all
+
+    with st.spinner("Finner beste kandidater..."):
+        ranked = auto_rank_market(source_tickers, max_count=max_count, use_news=False)
+        top_picks = build_top_picks(ranked, min_score=min_top_pick_score, max_items=15)
+
+    render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
+    render_analysis(top_picks, f"TopPicks_{scan_market}")
+
+with tabs[4]:
+    render_ipo()
+
+with tabs[5]:
+    bt_market = st.radio("Backtest-marked", ["USA", "Norge", "Sverige"], horizontal=True)
+    if bt_market == "USA":
+        bt_tickers = tickers_us
+    elif bt_market == "Norge":
+        bt_tickers = get_norwegian_tickers(limit=max_count)
+    else:
+        bt_tickers = get_swedish_tickers(limit=max_count)
+
+    render_strategy_backtest(bt_tickers, bt_market)
+
+with tabs[6]:
+    render_paper_trading_dashboard()
+
+
+def add_rsi_current_box(fig, rsi):
+    try:
+        current_rsi = float(rsi.dropna().iloc[-1])
+
+        if current_rsi >= 80:
+            status, icon = "ekstremt overkjøpt", "🔥"
+        elif current_rsi >= 70:
+            status, icon = "overkjøpt", "⚠️"
+        elif current_rsi <= 30:
+            status, icon = "oversolgt", "🧊"
+        else:
+            status, icon = "nøytral", "📊"
+
+        fig.add_annotation(
+            text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> · {status}",
+            xref="paper",
+            yref="paper",
+            x=0.01,
+            y=1.15,
+            showarrow=False,
+            font=dict(size=15, color="white"),
+            bgcolor="rgba(30,41,59,0.95)",
+            bordercolor="rgba(255,255,255,0.3)",
+            borderwidth=1,
+        )
+    except:
+        pass
+    return fig
