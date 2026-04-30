@@ -1,6 +1,8 @@
 
 import streamlit as st
 import pandas as pd
+from broker_adapter import place_order, get_order_log
+from broker_config import broker_status, MAX_ORDER_VALUE
 
 from paper_store import load_portfolio, reset_portfolio, storage_status
 from trading_engine import auto_trade, portfolio_value, calc_levels
@@ -239,3 +241,39 @@ if bt["trades"]:
     st.dataframe(pd.DataFrame(bt["trades"]), use_container_width=True)
 else:
     st.info("Ingen backtest-trades med disse tersklene.")
+
+
+st.markdown("---")
+st.markdown("## 🏦 Broker / ekte ordre-klargjøring")
+st.warning("Ekte handel er låst AV som standard. Denne modulen er trygg dry-run/forberedelse.")
+
+bc1, bc2, bc3 = st.columns(3)
+bc1.metric("Broker-status", broker_status())
+bc2.metric("Maks ordrebeløp", f"{MAX_ORDER_VALUE:,.0f}")
+bc3.metric("Modus", "Dry-run / sikker")
+
+st.caption("Miljøvariabler for senere: REAL_TRADING_ENABLED=false, BROKER_MODE=paper, REQUIRE_MANUAL_CONFIRM=true, EMERGENCY_STOP=true, MAX_ORDER_VALUE=1000")
+
+with st.expander("Test broker dry-run ordre"):
+    o1, o2, o3 = st.columns(3)
+    with o1:
+        broker_ticker = st.text_input("Ticker", "AAPL", key="broker_ticker")
+    with o2:
+        broker_side = st.selectbox("Side", ["buy", "sell"], key="broker_side")
+    with o3:
+        broker_notional = st.number_input("Beløp", value=1000.0, step=100.0, key="broker_notional")
+
+    confirmed = st.checkbox("Jeg bekrefter dry-run testordre", key="broker_confirm")
+    if st.button("Logg dry-run ordre", key="broker_dry_run_btn"):
+        ok, msg = place_order(
+            broker_ticker,
+            broker_side,
+            notional=broker_notional,
+            confirmed=confirmed,
+        )
+        st.success(msg) if ok else st.error(msg)
+
+orders = get_order_log()
+if orders:
+    st.markdown("### Broker ordrelogg")
+    st.dataframe(pd.DataFrame(orders), use_container_width=True)
