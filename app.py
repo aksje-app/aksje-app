@@ -20,9 +20,9 @@ if st.sidebar.button("Nullstill paper portfolio", key="reset_portfolio_sidebar")
     st.sidebar.success("Paper portfolio nullstilt")
 
 st.title("📊 AI Aksje Analyzer Pro")
-st.subheader("🚀 Trading Engine v2")
+st.subheader("🚀 Auto SELL Engine v3")
 
-st.info("Auto trading v2: felles lagring, BUY/SELL, stop-loss, take-profit og trailing stop.")
+st.info("Auto SELL Engine v3: felles lagring, BUY/SELL, stop-loss, take-profit, trailing stop og RSI-sell.")
 
 ticker = "GOOGL"
 price = 349.94
@@ -90,6 +90,44 @@ with sell_col2:
     test_sell_price = st.number_input("Testpris", value=220.00, step=1.0)
 if st.button("Kjør SELL/TP/SL-test", key="sell_test_btn"):
     ok, msg = auto_trade(test_sell_ticker, test_sell_price, "HOLD", 70)
+    if ok:
+        st.success(msg)
+    else:
+        st.warning(msg)
+
+
+st.markdown("---")
+st.subheader("🔴 Direkte SELL-test")
+st.caption("Selger valgt ticker umiddelbart med SELL-signal hvis du eier den.")
+
+sell_signal_col1, sell_signal_col2 = st.columns(2)
+with sell_signal_col1:
+    direct_sell_ticker = st.text_input("Ticker for direkte SELL", "AAPL", key="direct_sell_ticker")
+with sell_signal_col2:
+    direct_sell_price = st.number_input("SELL-pris", value=190.10, step=1.0, key="direct_sell_price")
+
+if st.button("Kjør direkte SELL-signal", key="direct_sell_signal_btn"):
+    ok, msg = auto_trade(direct_sell_ticker, direct_sell_price, "SELL", 70)
+    if ok:
+        st.success(msg)
+    else:
+        st.warning(msg)
+
+st.subheader("📈 Take-profit test")
+st.caption("AAPL kjøpt på 190.10 har take-profit ca. 212.91. Pris 220 skal selge.")
+
+if st.button("Test take-profit AAPL @ 220", key="tp_test_aapl_btn"):
+    ok, msg = auto_trade("AAPL", 220.00, "HOLD", 70)
+    if ok:
+        st.success(msg)
+    else:
+        st.warning(msg)
+
+st.subheader("📉 Stop-loss test")
+st.caption("AAPL kjøpt på 190.10 har stop-loss ca. 176.79. Pris 170 skal selge.")
+
+if st.button("Test stop-loss AAPL @ 170", key="sl_test_aapl_btn"):
+    ok, msg = auto_trade("AAPL", 170.00, "HOLD", 70)
     if ok:
         st.success(msg)
     else:
