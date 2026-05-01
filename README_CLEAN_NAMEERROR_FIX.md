@@ -1,1 +1,0 @@
-Fikser NameError: name 's' is not defined ved å fjerne løs junk-linje i app.py. Beholder bonus/tab-fiks.
