@@ -1,4 +1,3 @@
-from stop_control import search_allowed
 
 from datetime import datetime, timedelta
 import pytz
@@ -55,9 +54,8 @@ def should_run_background_scan(mark_complete=True):
     """
     settings = load_settings()
 
-    _allowed, _reason = search_allowed()
-    if not _allowed:
-        return False, f"Full stopp / ferie-modus: {_reason}"
+    if bool(settings.get("vacation_mode_enabled", False)):
+        return False, f"Full stopp / ferie aktiv: {settings.get('full_stop_reason', '')}"
 
     if not bool(settings.get("background_scanning_enabled", True)):
         return False, "Bakgrunnssøk er deaktivert i app-innstillinger"
@@ -101,9 +99,46 @@ def cron_status_text():
 
     return {
         "enabled": enabled,
+        "vacation_mode": settings.get("vacation_mode_enabled", False),
+        "full_stop_reason": settings.get("full_stop_reason", ""),
         "allowed": allowed,
         "reason": reason,
         "interval": interval,
         "pause_until": pause_to,
         "last_scan_at": last_scan,
     }
+
+
+def activate_full_stop(reason="Ferie / full stopp"):
+    """
+    Full stopp:
+    - stopper bakgrunnssøk
+    - stopper auto trading
+    - setter ferie/full stopp flagg
+    """
+    settings = load_settings()
+    settings["vacation_mode_enabled"] = True
+    settings["background_scanning_enabled"] = False
+    settings["auto_trading_enabled"] = False
+    settings["full_stop_reason"] = reason
+    save_settings(settings)
+    return settings
+
+
+def deactivate_full_stop():
+    """
+    Starter igjen:
+    - bakgrunnssøk på
+    - auto trading på
+    - pause fjernet
+    - last_scan_at nulles slik at neste Cron kan kjøre
+    """
+    settings = load_settings()
+    settings["vacation_mode_enabled"] = False
+    settings["background_scanning_enabled"] = True
+    settings["auto_trading_enabled"] = True
+    settings["pause_scanning_until"] = None
+    settings["last_scan_at"] = None
+    settings["full_stop_reason"] = ""
+    save_settings(settings)
+    return settings

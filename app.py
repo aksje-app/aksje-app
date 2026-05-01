@@ -1,9 +1,7 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
-from notifier import send_pushover_alert, pushover_enabled
-from stop_control import full_stop_status, set_full_stop, set_full_stop_for_days, clear_full_stop, search_allowed
-from cron_control import cron_status_text, pause_until, clear_pause
+from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
@@ -2109,88 +2107,12 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.title("⚙️ Innstillinger")
 render_user_admin(current_user)
 
-# --- Pushover test ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔔 Pushover-test")
-if pushover_enabled():
-    st.sidebar.success("Pushover ENV funnet ✅")
-else:
-    st.sidebar.error("Pushover ENV mangler ❌")
-
-if st.sidebar.button("Send testvarsel", key="send_pushover_test_btn"):
-    _ok, _err = send_pushover_alert("Dette er en test fra AI Aksje Analyzer Pro.", title="Pushover test")
-    if _ok:
-        st.sidebar.success("Testvarsel sendt ✅")
-    else:
-        st.sidebar.error(f"Kunne ikke sende: {_err}")
-
-
 
 st.sidebar.markdown("### 🕒 Børsstatus")
 st.sidebar.caption("Bakgrunnssøk styres av børsstatus. Stengte markeder bruker cache hvis mulig.")
 
 # --- Cron / bakgrunnssøk kontroll ---
 st.sidebar.markdown("---")
-
-# --- Full stopp / ferie-modus ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("🛑 Full stopp / ferie")
-
-_stop_status = full_stop_status()
-
-if _stop_status.get("active"):
-    st.sidebar.error(_stop_status.get("message", "FULL STOPP aktiv"))
-else:
-    st.sidebar.success("Full stopp er av ✅")
-
-_stop_enabled = st.sidebar.checkbox(
-    "Aktiver full stopp",
-    value=bool(_stop_status.get("active")),
-    key="full_stop_enabled_box",
-)
-
-_stop_reason = st.sidebar.text_input(
-    "Årsak",
-    value=_stop_status.get("reason", "Ferie / full stopp"),
-    key="full_stop_reason_input",
-)
-
-_stop_choice = st.sidebar.selectbox(
-    "Varighet",
-    ["Ubestemt", "Resten av dagen", "1 dag", "3 dager", "7 dager", "14 dager"],
-    key="full_stop_duration",
-)
-
-if st.sidebar.button("💾 Lagre full stopp", key="save_full_stop_btn"):
-    if _stop_enabled:
-        if _stop_choice == "Resten av dagen":
-            set_full_stop_for_days(0, reason=_stop_reason)
-        elif _stop_choice == "1 dag":
-            set_full_stop_for_days(1, reason=_stop_reason)
-        elif _stop_choice == "3 dager":
-            set_full_stop_for_days(3, reason=_stop_reason)
-        elif _stop_choice == "7 dager":
-            set_full_stop_for_days(7, reason=_stop_reason)
-        elif _stop_choice == "14 dager":
-            set_full_stop_for_days(14, reason=_stop_reason)
-        else:
-            set_full_stop(True, until=None, reason=_stop_reason)
-        st.sidebar.error("Full stopp aktivert 🛑")
-    else:
-        clear_full_stop()
-        st.sidebar.success("Full stopp slått av ✅")
-    st.rerun()
-
-if st.sidebar.button("▶️ Start alt igjen nå", key="clear_full_stop_btn"):
-    clear_full_stop()
-    st.sidebar.success("Full stopp fjernet ✅")
-    st.rerun()
-
-_allowed_global, _reason_global = search_allowed()
-if not _allowed_global:
-    st.error(f"🛑 FULL STOPP / FERIE-MODUS: {_reason_global}")
-    st.info("Appen viser bare eksisterende/cached data. Nye søk, bakgrunnsscanning og auto-trading er stoppet.")
-
 st.sidebar.subheader("⏱ Cron / bakgrunnssøk")
 
 _cron_settings = load_settings()
@@ -2251,6 +2173,25 @@ if st.sidebar.button("💾 Lagre cron/søk", key="save_cron_control"):
 
     st.sidebar.success("Cron/søk lagret ✅")
     st.rerun()
+
+
+st.sidebar.markdown("**Ferie / full stopp**")
+_fs1, _fs2 = st.sidebar.columns(2)
+
+with _fs1:
+    if st.button("⛔ Full stopp", key="activate_full_stop_btn"):
+        activate_full_stop()
+        st.sidebar.error("Full stopp aktivert ⛔")
+        st.rerun()
+
+with _fs2:
+    if st.button("▶️ Start igjen", key="deactivate_full_stop_btn"):
+        deactivate_full_stop()
+        st.sidebar.success("Systemet er startet igjen ✅")
+        st.rerun()
+
+if _cron_status.get("vacation_mode"):
+    st.sidebar.error(f"Full stopp aktiv: {_cron_status.get('full_stop_reason', '')}")
 
 if st.sidebar.button("▶️ Fjern pause nå", key="clear_cron_pause"):
     clear_pause()
@@ -2517,8 +2458,6 @@ with tabs[3]:
         source_tickers = tickers_all
 
     st.caption(market_guard_summary(source_tickers))
-    if not _allowed_global:
-        st.warning("Full stopp er aktiv: Top Picks bruker cache hvis tilgjengelig og gjør ingen nye søk.")
 
     with st.spinner("Finner beste kandidater..."):
         ranked = auto_rank_market(source_tickers, max_count=max_count, use_news=False)
@@ -2534,7 +2473,7 @@ with tabs[3]:
 
     with top_pick_tabs[1]:
         if buy_now_picks:
-            st.info("Disse er kandidater med grønt teknisk signal akkurat nå. Bruk paper-knappene på kortene for å teste kjøp.")
+            st.info("Disse er kandidater med grønt teknisk signal akkurat nå. Bruk paper-knappene på kortene for å teste kjøp. Auto-kjøp skjer bare via Cron når bakgrunnssøk og auto trading er aktivt.")
             if st.button(f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
                 _messages = []
                 for _item in buy_now_picks:

@@ -1,4 +1,3 @@
-from stop_control import search_allowed
 import pandas as pd
 import streamlit as st
 from analysis import score_stock
@@ -6,10 +5,6 @@ from background_guard import score_stock_guarded
 
 @st.cache_data(ttl=900, show_spinner=False)
 def cached_score_stock(ticker, use_news=False):
-    _allowed, _reason = search_allowed()
-    if not _allowed:
-        print(f"Full stopp aktiv i cached_score_stock: {_reason}")
-        return None
     """
     Cache + market guard:
     - henter fersk data kun når markedet for tickeren er åpent

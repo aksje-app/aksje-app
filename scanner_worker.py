@@ -1,4 +1,3 @@
-from stop_control import search_allowed
 from cron_control import should_run_background_scan, mark_background_scan_started
 
 def _ticker_market(ticker):
@@ -99,7 +98,13 @@ def get_watchlist():
             seen.add(t)
             out.append(t)
 
-    return out[:SCANNER_MAX_TICKERS]
+    current_positions = list(load_portfolio().get("positions", {}).keys())
+    for t in current_positions:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+
+    return out[:max(SCANNER_MAX_TICKERS, len(current_positions))]
 
 
 def get_latest_price(item):
@@ -131,85 +136,6 @@ def get_rsi_values(item):
     return None, None
 
 
-
-def _calculate_rsi_from_close(close, period=14):
-    try:
-        delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        rsi = rsi.dropna()
-        if len(rsi) >= 2:
-            return float(rsi.iloc[-1]), float(rsi.iloc[-2])
-        if len(rsi) == 1:
-            return float(rsi.iloc[-1]), None
-    except Exception:
-        pass
-    return None, None
-
-
-def build_scanner_technical_context(item):
-    """
-    Bygger teknisk kontekst i Cron slik UI gjør for Kjøp nå-kortene.
-    Dette gjør at auto-buy og UI-signalet blir mer konsistent.
-    """
-    try:
-        hist = item.get("hist")
-        if hist is None or hist.empty or "Close" not in hist:
-            return {}
-
-        close = hist["Close"].dropna()
-        if len(close) < 35:
-            return {}
-
-        rsi, prev_rsi = _calculate_rsi_from_close(close)
-
-        ema12 = close.ewm(span=12, adjust=False).mean()
-        ema26 = close.ewm(span=26, adjust=False).mean()
-        macd = ema12 - ema26
-        macd_signal = macd.ewm(span=9, adjust=False).mean()
-        macd_bullish = bool(float(macd.iloc[-1]) > float(macd_signal.iloc[-1]))
-
-        ma50 = close.tail(min(50, len(close))).mean()
-        ma200 = close.tail(min(200, len(close))).mean()
-        last = float(close.iloc[-1])
-        if last > ma50 and (len(close) < 200 or last > ma200):
-            trend = "up"
-        elif last < ma50:
-            trend = "down"
-        else:
-            trend = "neutral"
-
-        recent = close.tail(80)
-        low = float(recent.min())
-        high = float(recent.max())
-        channel_pos = ((last - low) / (high - low) * 100) if high != low else 50
-
-        breakout_type = "neutral"
-        if len(close) >= 21:
-            prev_high = float(close.tail(21).iloc[:-1].max())
-            prev_low = float(close.tail(21).iloc[:-1].min())
-            if last >= prev_high:
-                breakout_type = "bullish"
-            elif last <= prev_low:
-                breakout_type = "bearish"
-
-        return {
-            "rsi": rsi if rsi is not None else 50,
-            "prev_rsi": prev_rsi,
-            "macd_bullish": macd_bullish,
-            "breakout_type": breakout_type,
-            "trend": trend,
-            "channel_pos": channel_pos,
-            "head_shoulders_found": False,
-            "inverse_head_shoulders_found": False,
-        }
-    except Exception as e:
-        print(f"build_scanner_technical_context failed: {e}")
-        return {}
-
-
 def analyze_ticker(ticker):
     item = score_stock(ticker)
     if not item:
@@ -220,12 +146,11 @@ def analyze_ticker(ticker):
         print(f"{ticker}: mangler pris")
         return None
 
-    technical_context = build_scanner_technical_context(item)
-    decision = build_trading_decision(item, technical_context)
+    decision = build_trading_decision(item)
     signal = decision.get("decision", "HOLD / WAIT")
     confidence = int(decision.get("confidence", 0) or 0)
     score = float(decision.get("decision_score", item.get("score", 0)) or 0)
-    rsi, prev_rsi = technical_context.get("rsi"), technical_context.get("prev_rsi")
+    rsi, prev_rsi = get_rsi_values(item)
 
     return {
         "ticker": ticker,
@@ -265,11 +190,6 @@ def maybe_send_trade_alert(result, msg):
 
 
 def run_once():
-    _global_allowed, _global_reason = search_allowed()
-    if not _global_allowed:
-        print(f"FULL STOPP: Cron avslutter uten søk. {_global_reason}")
-        return 0
-
     _allowed, _reason = should_run_background_scan()
     print(f"Cron control: {_reason}")
     if not _allowed:
@@ -287,6 +207,12 @@ def run_once():
         return 0
 
     print(f"Åpne markeder: {markets}")
+    settings = load_settings()
+    auto_trading_enabled = bool(settings.get("auto_trading_enabled", True))
+    min_buy_score = float(settings.get("min_buy_score", 7.2))
+    min_buy_confidence = int(settings.get("min_buy_confidence", 70))
+    if not auto_trading_enabled:
+        print("⏸ Auto trading er deaktivert i app-innstillinger")
 
     tickers = get_watchlist()
     print(f"Scanner {len(tickers)} tickers: {tickers}")
@@ -313,7 +239,16 @@ def run_once():
                 f"price={result['price']:.2f}"
             )
 
-            if PAPER_TRADING_ENABLED:
+            if PAPER_TRADING_ENABLED and auto_trading_enabled:
+                signal_text = str(result["signal"]).upper()
+                if "BUY" in signal_text:
+                    if result["score"] < min_buy_score:
+                        print(f"⏸ {ticker}: BUY blokkert - score {result['score']:.2f} < min {min_buy_score}")
+                    elif result["confidence"] < min_buy_confidence:
+                        print(f"⏸ {ticker}: BUY blokkert - confidence {result['confidence']} < min {min_buy_confidence}")
+                    else:
+                        print(f"✅ {ticker}: BUY-kandidat sendt til auto_trade")
+
                 traded, msg = auto_trade(
                     result["ticker"],
                     result["price"],
@@ -322,11 +257,13 @@ def run_once():
                     rsi=result.get("rsi"),
                     prev_rsi=result.get("prev_rsi"),
                 )
-                print(f"AUTO-TRADE-RESULT {ticker}: traded={traded} msg={msg}")
+                print(f"Auto trade {ticker}: {msg}")
 
                 if traded:
                     trades_executed += 1
                     print("Trade-varsling håndteres av trading_engine")
+            elif not PAPER_TRADING_ENABLED:
+                print("⏸ PAPER_TRADING_ENABLED=false i Render env")
 
             time.sleep(SCAN_SLEEP_SECONDS)
 

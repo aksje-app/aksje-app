@@ -1,29 +1,14 @@
-
 from settings_store import load_settings
 
 import os
 import requests
 
-
-def _get_pushover_token():
-    return (
-        os.getenv("PUSHOVER_APP_TOKEN")
-        or os.getenv("PUSHOVER_API_TOKEN")
-        or os.getenv("PUSHOVER_TOKEN")
-        or ""
-    ).strip()
-
-
-def _get_pushover_user():
-    return (
-        os.getenv("PUSHOVER_USER_KEY")
-        or os.getenv("PUSHOVER_USER")
-        or ""
-    ).strip()
+PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
 
 def pushover_enabled():
-    return bool(_get_pushover_token() and _get_pushover_user())
+    return bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
 
 
 def send_pushover_alert(message, title="AI Aksje Analyzer"):
@@ -33,24 +18,26 @@ def send_pushover_alert(message, title="AI Aksje Analyzer"):
             return False, "disabled by settings"
     except Exception:
         pass
-
-    token = _get_pushover_token()
-    user = _get_pushover_user()
-
-    if not token or not user:
-        print("Pushover ikke aktivert: mangler PUSHOVER_APP_TOKEN/PUSHOVER_API_TOKEN eller PUSHOVER_USER_KEY")
+    """
+    Sender Pushover-varsel.
+    Bruker Render ENV:
+    - PUSHOVER_APP_TOKEN
+    - PUSHOVER_USER_KEY
+    """
+    if not pushover_enabled():
+        print("Pushover ikke aktivert: mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY")
         return False, "missing env"
 
     try:
         response = requests.post(
             "https://api.pushover.net/1/messages.json",
             data={
-                "token": token,
-                "user": user,
+                "token": PUSHOVER_APP_TOKEN,
+                "user": PUSHOVER_USER_KEY,
                 "title": title,
                 "message": message,
             },
-            timeout=15,
+            timeout=10,
         )
 
         if response.status_code == 200:
@@ -65,29 +52,22 @@ def send_pushover_alert(message, title="AI Aksje Analyzer"):
         return False, str(e)
 
 
-def notify_trade(trade_type, ticker=None, price=None, amount=None, shares=None, confidence=None, reason=None, pnl_pct=None, title=None):
+def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence=None, reason=None, pnl_pct=None):
     """
-    Robust trade-varsel.
-
-    Støtter begge kall:
-    - notify_trade("BUY", ticker, price, ...)
-    - notify_trade("ferdig formattert melding")
+    Sendes kun når faktisk trade er utført.
+    Ikke ved vanlig signal/HOLD.
     """
-    # Backwards compatibility: if called with one formatted message
-    if ticker is None and price is None:
-        return send_pushover_alert(str(trade_type), title=title or "AI Aksje Analyzer - Trade")
-
     trade_type = str(trade_type).upper()
 
     if trade_type == "BUY":
         icon = "📈"
-        msg_title = title or "Paper BUY utført"
+        title = "Paper BUY utført"
     elif trade_type == "SELL":
         icon = "📉"
-        msg_title = title or "Paper SELL utført"
+        title = "Paper SELL utført"
     else:
         icon = "🔔"
-        msg_title = title or "Paper trade utført"
+        title = "Paper trade utført"
 
     lines = [
         f"{icon} {trade_type} {ticker}",
@@ -95,14 +75,18 @@ def notify_trade(trade_type, ticker=None, price=None, amount=None, shares=None, 
     ]
 
     if amount is not None:
-        lines.append(f"Beløp: {float(amount):,.2f}")
+        lines.append(f"Beløp: {float(amount):,.0f} kr")
+
     if shares is not None:
         lines.append(f"Antall: {float(shares):.6f}")
+
     if confidence is not None:
-        lines.append(f"Confidence: {int(confidence)}%")
+        lines.append(f"Confidence: {confidence}%")
+
     if pnl_pct is not None:
         lines.append(f"PnL: {float(pnl_pct):.2f}%")
+
     if reason:
         lines.append(f"Årsak: {reason}")
 
-    return send_pushover_alert("\n".join(lines), title=msg_title)
+    return send_pushover_alert("\n".join(lines), title=title)
