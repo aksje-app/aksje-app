@@ -1,6 +1,7 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines
@@ -29,6 +30,9 @@ from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
+
+current_user = require_login()
+
 st_autorefresh(interval=300000, key="refresh")
 
 st.markdown("""
@@ -1690,6 +1694,7 @@ def render_strategy_backtest(tickers, label):
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
 st.sidebar.title("⚙️ Innstillinger")
+render_user_admin(current_user)
 
 
 st.sidebar.markdown("### 🕒 Børsstatus")
