@@ -1,1 +1,0 @@
-Patch: app13 RSI-seksjon får tydelig RSI-boks. Ingen endringer i trading engine, DB, Cron eller Pushover.
