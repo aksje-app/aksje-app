@@ -204,3 +204,17 @@ def build_trading_decision(item, technical_context=None):
     Compatibility wrapper for scanner_worker.py and older app13 code.
     """
     return score_signal(item, technical_context or {})
+
+
+# INSIDER_WEIGHT_GUIDANCE_V1
+# Anbefalt modellvekt:
+# - Insider bør normalt være støtte-signal, ikke hovedsignal.
+# - Foreslått vekt i samlet beslutning: 5-10%.
+# - Positivt insiderbilde kan gi bonus, men bør aldri alene gi BUY.
+# - Negativt insiderbilde bør kunne trekke ned confidence/risiko, særlig ved ferske store salg.
+#
+# Praktisk tolkning:
+# - Score >= 0.65: liten/moderat bonus
+# - Score 0.45-0.65: nøytral
+# - Score <= 0.35: liten/moderat penalty
+# - Ferske handler (<30 dager) bør telle mer enn gamle handler.

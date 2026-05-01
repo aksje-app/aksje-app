@@ -12,6 +12,16 @@ def cached_score_stock(ticker, use_news=False):
     """
     return score_stock_guarded(score_stock, ticker, use_news=use_news, mode="background")
 
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_score_stock_manual(ticker, use_news=False):
+    """
+    Manuell UI-henting:
+    Tillater at bruker henter Top Picks selv om markedet er stengt.
+    Auto/Cron bruker fortsatt background guard.
+    """
+    return score_stock_guarded(score_stock, ticker, use_news=use_news, mode="manual")
+
+
 def auto_rank_market(tickers, max_count=30, use_news=False):
     """
     Automatisk markedsscanner:
@@ -22,7 +32,7 @@ def auto_rank_market(tickers, max_count=30, use_news=False):
     """
     results = []
     for ticker in tickers[:max_count]:
-        item = cached_score_stock(ticker, use_news=use_news)
+        item = cached_score_stock_manual(ticker, use_news=use_news) if force_manual_fetch else cached_score_stock(ticker, use_news=use_news)
         if item:
             results.append(item)
 

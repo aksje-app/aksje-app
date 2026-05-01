@@ -684,6 +684,56 @@ div[role="option"][aria-selected="true"] {
     -webkit-text-fill-color: #f8fafc !important;
 }
 
+
+/* --- SIDEBAR STRUCTURE V2 --- */
+.sidebar-status-card {
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    line-height: 1.15;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+.sidebar-status-card.open {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.45);
+}
+.sidebar-status-card.closed {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.45);
+}
+.sidebar-status-card.paused {
+    background: rgba(245, 158, 11, 0.13);
+    border-color: rgba(245, 158, 11, 0.45);
+}
+.sidebar-status-name {
+    color: #ffffff !important;
+    font-weight: 900;
+    font-size: 0.84rem;
+}
+.sidebar-status-main {
+    font-weight: 900;
+    font-size: 0.82rem;
+    margin-top: 2px;
+}
+.sidebar-status-main.open {
+    color: #86efac !important;
+}
+.sidebar-status-main.closed {
+    color: #fecaca !important;
+}
+.sidebar-status-reason {
+    color: #ff6b6b !important;
+    font-weight: 900;
+    font-size: 0.76rem;
+    margin-top: 2px;
+}
+.sidebar-small-note {
+    color: #94a3b8 !important;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    margin-bottom: 8px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1430,6 +1480,37 @@ def insider_signal_label(score):
     return "Blandet", "info-warning"
 
 
+
+def render_latest_insider_transactions(insider):
+    txs = insider.get("latest_transactions", []) if insider else []
+    if not txs:
+        st.caption("Ingen siste insiderhandler funnet.")
+        return
+
+    st.markdown("#### 🕵️ Siste insiderhandler")
+    rows = []
+    for tx in txs[:8]:
+        value = tx.get("value")
+        if value is None:
+            value_txt = "N/A"
+        else:
+            try:
+                value_txt = f"{float(value):,.0f}".replace(",", " ")
+            except Exception:
+                value_txt = "N/A"
+
+        rows.append({
+            "Dato": tx.get("date", ""),
+            "Type": "KJØP" if tx.get("type") == "BUY" else "SALG" if tx.get("type") == "SELL" else tx.get("type", ""),
+            "Aksjer": format_big_number(tx.get("shares", 0)),
+            "Pris": round(float(tx.get("price", 0) or 0), 2),
+            "Verdi": value_txt,
+            "Insider": tx.get("name", "")[:26],
+        })
+
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def render_intelligence_cards(insider, analyst, earnings):
     insider = insider or {}
     analyst = analyst or {}
@@ -1467,7 +1548,7 @@ def render_intelligence_cards(insider, analyst, earnings):
                 </div>
                 <div class="info-mini-small">
                     Transaksjoner: {transactions} · Kjøp: {buy_count} · Salg: {sell_count}<br>
-                    Tallene er summerte insider-transaksjoner i aksjer fra siste periode.
+                    Siste: {insider.get("latest_type", "N/A")} {insider.get("latest_date", "")}<br>Tallene er summerte insider-transaksjoner i aksjer fra siste periode.
                 </div>
             </div>
             """,
@@ -2141,11 +2222,154 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.title("⚙️ Innstillinger")
 render_user_admin(current_user)
 
+# --- Sidebar Structure v2 ---
+def render_sidebar_structure_v2():
+    st.sidebar.markdown("### 🕒 Børsstatus")
+    st.sidebar.markdown(
+        "<div class='sidebar-small-note'>Bakgrunnssøk styres av børsstatus. Stengte markeder bruker cache hvis mulig.</div>",
+        unsafe_allow_html=True,
+    )
 
-st.sidebar.markdown("### 🕒 Børsstatus")
-st.sidebar.caption("Bakgrunnssøk styres av børsstatus. Stengte markeder bruker cache hvis mulig.")
+    _statuses = market_statuses()
+    for _key, _status in _statuses.items():
+        _name = _status.get("name", _key)
+        _is_open = bool(_status.get("is_open"))
+        _reason = _status.get("reason", "ukjent")
+        _closes_at = _status.get("closes_at")
 
-# --- Cron / bakgrunnssøk kontroll ---
+        if _is_open:
+            _text = "Åpent ✅"
+            if _closes_at:
+                _text += f" til {_closes_at}"
+            st.sidebar.markdown(
+                f"""
+                <div class="sidebar-status-card open">
+                    <div class="sidebar-status-name">{_name}</div>
+                    <div class="sidebar-status-main open">{_text}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.sidebar.markdown(
+                f"""
+                <div class="sidebar-status-card closed">
+                    <div class="sidebar-status-name">{_name}</div>
+                    <div class="sidebar-status-main closed">Stengt ⚠️</div>
+                    <div class="sidebar-status-reason">{_reason}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### ⏱ Cron / bakgrunnssøk")
+
+    _cron_settings = load_settings()
+    _cron_status = cron_status_text()
+    _is_full_stop = bool(_cron_status.get("vacation_mode"))
+    _is_allowed = bool(_cron_status.get("allowed"))
+
+    if _is_full_stop:
+        st.sidebar.error("Status: Full stopp ⛔")
+    elif not _is_allowed:
+        st.sidebar.warning("Status: Pauset / hopper over ⏸")
+    else:
+        st.sidebar.success("Status: Aktiv ✅")
+
+    st.sidebar.caption(_cron_status.get("reason", ""))
+
+    _cron_enabled = st.sidebar.checkbox(
+        "Bakgrunnssøk aktiv",
+        value=bool(_cron_settings.get("background_scanning_enabled", True)),
+        key="cron_background_enabled_v2",
+    )
+
+    _cron_interval = st.sidebar.number_input(
+        "Søkintervall minutter",
+        min_value=1,
+        max_value=1440,
+        value=int(_cron_settings.get("scan_interval_minutes", 15)),
+        step=1,
+        key="cron_scan_interval_v2",
+    )
+
+    _pause_choice = st.sidebar.selectbox(
+        "Pause søk",
+        ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"],
+        key="cron_pause_choice_v2",
+    )
+
+    if st.sidebar.button("💾 Lagre søk/cron", key="save_cron_control_v2"):
+        _new_settings = load_settings()
+        _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
+        _new_settings["scan_interval_minutes"] = int(_cron_interval)
+
+        if _pause_choice == "30 minutter":
+            pause_until(minutes=30)
+        elif _pause_choice == "1 time":
+            pause_until(minutes=60)
+        elif _pause_choice == "2 timer":
+            pause_until(minutes=120)
+        elif _pause_choice == "Resten av dagen":
+            pause_until(rest_of_day=True)
+        elif _pause_choice == "Ingen pause":
+            _new_settings["pause_scanning_until"] = None
+            save_settings(_new_settings)
+
+        _merged = load_settings()
+        _merged["background_scanning_enabled"] = bool(_cron_enabled)
+        _merged["scan_interval_minutes"] = int(_cron_interval)
+        if _pause_choice == "Ingen pause":
+            _merged["pause_scanning_until"] = None
+        save_settings(_merged)
+
+        st.sidebar.success("Søk/cron lagret ✅")
+        st.rerun()
+
+    # Én samlet gjenoppta-knapp erstatter Start igjen + Fjern pause nå.
+    if _is_full_stop:
+        if st.sidebar.button("▶️ Start systemet igjen", key="resume_from_full_stop_v2"):
+            deactivate_full_stop()
+            st.sidebar.success("Systemet er startet igjen ✅")
+            st.rerun()
+    elif _cron_status.get("pause_until"):
+        if st.sidebar.button("▶️ Gjenoppta nå", key="resume_from_pause_v2"):
+            clear_pause()
+            st.sidebar.success("Pause fjernet ✅")
+            st.rerun()
+
+    if st.sidebar.button("⛔ Full stopp / ferie", key="activate_full_stop_btn_v2"):
+        activate_full_stop()
+        st.sidebar.error("Full stopp aktivert ⛔")
+        st.rerun()
+
+    if _cron_status.get("last_scan_at"):
+        st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
+    if _cron_status.get("pause_until"):
+        st.sidebar.caption(f"Pause til: {_cron_status.get('pause_until')}")
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### ⚡ Auto-kjøp")
+    st.sidebar.caption("Tester samme auto-motor som Cron, men manuelt nå.")
+
+    if st.sidebar.button("⚡ Kjør auto-kjøp nå", key="force_auto_buy_now_v2"):
+        try:
+            from scanner_worker import run_once
+            with st.spinner("Kjører auto-kjøp-motor..."):
+                _trades = run_once(force=True)
+            st.sidebar.success(f"Auto-motor ferdig. Trades: {_trades}")
+            st.rerun()
+        except Exception as _e:
+            st.sidebar.error(f"Auto-kjøp feilet: {_e}")
+
+render_sidebar_structure_v2()
+
+
+
+
+
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("⏱ Cron / bakgrunnssøk")
 
@@ -2209,40 +2433,6 @@ if st.sidebar.button("💾 Lagre cron/søk", key="save_cron_control"):
     st.rerun()
 
 
-st.sidebar.markdown("**Ferie / full stopp**")
-_fs1, _fs2 = st.sidebar.columns(2)
-
-with _fs1:
-    if st.button("⛔ Full stopp", key="activate_full_stop_btn"):
-        activate_full_stop()
-        st.sidebar.error("Full stopp aktivert ⛔")
-        st.rerun()
-
-with _fs2:
-    if st.button("▶️ Start igjen", key="deactivate_full_stop_btn"):
-        deactivate_full_stop()
-        st.sidebar.success("Systemet er startet igjen ✅")
-        st.rerun()
-
-if _cron_status.get("vacation_mode"):
-    st.sidebar.error(f"Full stopp aktiv: {_cron_status.get('full_stop_reason', '')}")
-
-if st.sidebar.button("▶️ Fjern pause nå", key="clear_cron_pause"):
-    clear_pause()
-    st.sidebar.success("Pause fjernet ✅")
-    st.rerun()
-
-
-st.sidebar.markdown("**Auto-kjøp test**")
-if st.sidebar.button("⚡ Kjør auto-kjøp nå", key="force_auto_buy_now"):
-    try:
-        from scanner_worker import run_once
-        with st.spinner("Kjører auto-kjøp-motor..."):
-            _trades = run_once(force=True)
-        st.sidebar.success(f"Auto-motor ferdig. Trades: {_trades}")
-        st.rerun()
-    except Exception as _e:
-        st.sidebar.error(f"Auto-kjøp feilet: {_e}")
 
 if _cron_status.get("last_scan_at"):
     st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
@@ -2503,12 +2693,39 @@ with tabs[3]:
     else:
         source_tickers = tickers_all
 
-    st.caption(market_guard_summary(source_tickers))
+    _guard_summary = market_guard_summary(source_tickers)
+    st.caption(_guard_summary)
+
+    _open_now = bool(open_markets())
+    _manual_fetch_closed = False
+
+    if not _open_now:
+        st.warning(
+            "Alle relevante markeder er stengt. Top Picks bruker cache hvis mulig. "
+            "Hvis cache er tom etter deploy/restart, kan listen bli tom."
+        )
+        _manual_fetch_closed = st.checkbox(
+            "Hent data manuelt likevel",
+            value=False,
+            help="Gjelder bare visning i appen. Cron/auto-trading holder seg fortsatt stengt.",
+            key=f"manual_fetch_closed_{scan_market}",
+        )
 
     with st.spinner("Finner beste kandidater..."):
-        ranked = auto_rank_market(source_tickers, max_count=max_count, use_news=False)
+        ranked = auto_rank_market(
+            source_tickers,
+            max_count=max_count,
+            use_news=False,
+            force_manual_fetch=_manual_fetch_closed,
+        )
         top_picks = build_top_picks(ranked, min_score=min_top_pick_score, max_items=15)
         buy_now_picks = [x for x in top_picks if is_buy_now_item(x)]
+
+    if not top_picks and not _manual_fetch_closed and not _open_now:
+        st.info(
+            "Ingen cache-data funnet. Kryss av for 'Hent data manuelt likevel' hvis du vil analysere utenfor åpningstid. "
+            "Dette starter ikke auto-trading."
+        )
 
     top_pick_tabs = st.tabs(["⭐ Top Picks", "🟢 Kjøp nå"])
 

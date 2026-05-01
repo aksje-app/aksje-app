@@ -111,7 +111,9 @@ def score_stock_guarded(score_func, ticker, use_news=False, mode="background"):
     """
     allowed, market, status = background_fetch_allowed(ticker)
 
-    if allowed:
+    if allowed or mode == "manual":
+        if not allowed and mode == "manual":
+            print(f"{ticker}: {market} stengt ({status.get('reason')}) - manuell UI-henting tillatt")
         item = score_func(ticker, use_news=use_news)
         if item:
             put_cached_score(ticker, item, use_news=use_news)
