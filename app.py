@@ -294,6 +294,50 @@ div[data-testid="stAlert"] {
     border-radius: 14px !important;
 }
 
+
+/* --- TOP PICKS ACTION CARDS V2 --- */
+.action-chip-row {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-top:8px;
+    margin-bottom:6px;
+}
+.action-chip {
+    display:inline-block;
+    padding:5px 10px;
+    border-radius:999px;
+    font-size:0.78rem;
+    font-weight:900;
+    border:1px solid rgba(255,255,255,0.20);
+    line-height:1.2;
+}
+.action-buy {
+    color:#bbf7d0 !important;
+    background:rgba(34,197,94,0.16);
+    border-color:rgba(34,197,94,0.5);
+}
+.action-hold {
+    color:#fde68a !important;
+    background:rgba(245,158,11,0.16);
+    border-color:rgba(245,158,11,0.5);
+}
+.action-sell {
+    color:#fecaca !important;
+    background:rgba(239,68,68,0.18);
+    border-color:rgba(239,68,68,0.55);
+}
+.action-info {
+    color:#bae6fd !important;
+    background:rgba(56,189,248,0.10);
+    border-color:rgba(56,189,248,0.35);
+}
+.action-explain {
+    color:#cbd5e1 !important;
+    font-size:0.82rem;
+    margin-top:4px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -692,6 +736,104 @@ def render_decision_banner(decision, item, adj_score):
         unsafe_allow_html=True,
     )
 
+
+def quick_context_for_card(item):
+    try:
+        df = item.get("hist")
+        if df is None or df.empty or "Close" not in df:
+            return {}
+
+        rsi_series = calculate_rsi(df)
+        latest_rsi = float(rsi_series.dropna().iloc[-1]) if len(rsi_series.dropna()) else 50.0
+
+        macd, macd_signal, _ = calculate_macd(df)
+        latest_macd = float(macd.dropna().iloc[-1]) if len(macd.dropna()) else 0.0
+        latest_macd_signal = float(macd_signal.dropna().iloc[-1]) if len(macd_signal.dropna()) else 0.0
+
+        trend_text = str(detect_trend(df))
+        if "Opptrend" in trend_text:
+            trend = "up"
+        elif "Nedtrend" in trend_text:
+            trend = "down"
+        else:
+            trend = "neutral"
+
+        breakout = breakout_scanner(df)
+        hs = detect_head_shoulders(df)
+        inv = detect_inverse_head_shoulders(df)
+
+        close = df["Close"].dropna()
+        recent = close.tail(80)
+        if len(recent) > 5:
+            low = float(recent.min())
+            high = float(recent.max())
+            last = float(close.iloc[-1])
+            channel_pos = ((last - low) / (high - low) * 100) if high != low else 50
+        else:
+            channel_pos = 50
+
+        return {
+            "rsi": latest_rsi,
+            "macd_bullish": latest_macd > latest_macd_signal,
+            "breakout_type": breakout.get("type", "neutral"),
+            "trend": trend,
+            "channel_pos": channel_pos,
+            "head_shoulders_found": bool(hs.get("found")),
+            "inverse_head_shoulders_found": bool(inv.get("found")),
+        }
+    except Exception:
+        return {}
+
+
+def card_decision_for_item(item):
+    try:
+        decision = calculate_signal_intelligence(item, quick_context_for_card(item))
+    except Exception:
+        decision = {
+            "decision": "HOLD / WAIT",
+            "confidence": 0,
+            "risk": "Middels",
+            "reasons": [],
+            "warnings": ["Teknisk signal kunne ikke beregnes på kortet"],
+            "final_score": item.get("score", 0),
+        }
+
+    text = str(decision.get("decision", "HOLD / WAIT")).upper()
+
+    if "BUY" in text:
+        decision["action_now"] = "KJØP NÅ"
+        decision["action_class"] = "action-buy"
+        decision["action_icon"] = "🟢"
+    elif "SELL" in text or "AVOID" in text:
+        decision["action_now"] = "UNNGÅ NÅ"
+        decision["action_class"] = "action-sell"
+        decision["action_icon"] = "🔴"
+    else:
+        decision["action_now"] = "VENT"
+        decision["action_class"] = "action-hold"
+        decision["action_icon"] = "🟡"
+
+    return decision
+
+
+def render_action_chips(decision):
+    st.markdown(
+        f"""
+        <div class="action-chip-row">
+            <span class="action-chip action-info">Teknisk: {decision.get("decision", "HOLD / WAIT")}</span>
+            <span class="action-chip {decision.get("action_class", "action-hold")}">{decision.get("action_icon", "🟡")} {decision.get("action_now", "VENT")}</span>
+            <span class="action-chip action-info">Conf: {decision.get("confidence", 0)}%</span>
+            <span class="action-chip action-info">Risiko: {decision.get("risk", "Middels")}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def is_buy_now_item(item):
+    return card_decision_for_item(item).get("action_now") == "KJØP NÅ"
+
+
 def render_ranking(results, title):
     st.subheader(title)
 
@@ -701,24 +843,26 @@ def render_ranking(results, title):
 
     best = results[0]
     best_price, best_change = get_item_price_change(best)
+    best_decision = card_decision_for_item(best)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Beste aksje", f"{best['ticker']} {best.get('score', 0)}/10")
+    c1.metric("Beste kandidat", f"{best['ticker']} {best.get('score', 0)}/10")
     c2.metric("Analyserte", len(results))
     c3.metric(
         "Siste kurs",
         f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A",
         delta=f"{best_change:+.2f}%" if best_change is not None else None,
     )
-    c4.metric("Auto-refresh", "1 min")
+    c4.metric("Beste handling", best_decision.get("action_now", "VENT"))
 
     st.markdown("### ⚡ Hurtigliste med kurs")
-    st.caption("Kurs og prosentendring vises direkte i listen.")
+    st.caption("Top Picks = sterk kandidat totalt. Handling nå = teknisk timing akkurat nå.")
 
     for idx, item in enumerate(results[:15], start=1):
         ticker = item.get("ticker", "N/A")
         score = item.get("score", 0)
         latest_price, change_pct = get_item_price_change(item)
+        card_decision = card_decision_for_item(item)
 
         price_text = "N/A"
         delta_text = None
@@ -730,14 +874,15 @@ def render_ranking(results, title):
             direction_icon = "🟢" if change_pct >= 0 else "🔴"
 
         with st.container(border=True):
-            left, mid, right = st.columns([1.25, 1.0, 2.1])
+            left, mid, right = st.columns([1.45, 1.0, 2.0])
 
             with left:
                 st.markdown(f"### {direction_icon} {ticker}")
                 st.caption(f"#{idx} · {item.get('name', '')}")
+                render_action_chips(card_decision)
 
             with mid:
-                st.metric("Score", f"{score}/10")
+                st.metric("Total score", f"{score}/10")
                 st.metric("Kurs", price_text, delta=delta_text)
 
             with right:
@@ -749,6 +894,14 @@ def render_ranking(results, title):
                     f"Vol: {item.get('volatility', 0):.4f} · "
                     f"DD: {item.get('max_drawdown', 0)*100:.1f}%"
                 )
+
+                warnings = card_decision.get("warnings", [])
+                reasons = card_decision.get("reasons", [])
+
+                if warnings:
+                    st.markdown(f"<div class='action-explain'>⚠️ {warnings[0]}</div>", unsafe_allow_html=True)
+                elif reasons:
+                    st.markdown(f"<div class='action-explain'>✅ {reasons[0]}</div>", unsafe_allow_html=True)
 
 
 
@@ -1552,7 +1705,10 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("⭐ Automatiske Top Picks")
-    st.caption("Top Picks velges automatisk basert på score. Listen og rekkefølgen kan endre seg når markedet endrer seg.")
+    st.caption(
+        "Top Picks = beste kandidater totalt. "
+        "Kjøp nå = kandidater som også har grønt teknisk signal akkurat nå."
+    )
 
     scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Alle"], horizontal=True)
 
@@ -1568,9 +1724,23 @@ with tabs[3]:
     with st.spinner("Finner beste kandidater..."):
         ranked = auto_rank_market(source_tickers, max_count=max_count, use_news=False)
         top_picks = build_top_picks(ranked, min_score=min_top_pick_score, max_items=15)
+        buy_now_picks = [x for x in top_picks if is_buy_now_item(x)]
 
-    render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
+    top_pick_tabs = st.tabs(["⭐ Top Picks", "🟢 Kjøp nå"])
+
+    with top_pick_tabs[0]:
+        render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
+        st.caption("Merk: En aksje kan være sterk totalt, men fortsatt ha VENT/UNNGÅ hvis teknisk timing er dårlig.")
+
+    with top_pick_tabs[1]:
+        if buy_now_picks:
+            render_ranking(buy_now_picks, f"🟢 Kjøp nå {scan_market}")
+        else:
+            st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
+            st.caption("Systemet tvinger ikke kjøp når timing/risiko ikke er god nok.")
+
     render_analysis(top_picks, f"TopPicks_{scan_market}")
+
 
 with tabs[4]:
     render_ipo()
