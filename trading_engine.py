@@ -65,6 +65,40 @@ def calc_levels(entry_price, highest_price=None):
 
 
 
+
+def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, confidence=None, reason=""):
+    """
+    Sentral varsling for ALLE faktiske paper trades:
+    - Cron BUY/SELL
+    - UI paper-kjøp/paper-selg
+    - Stop-loss
+    - Take-profit
+    - Trailing stop
+
+    Feil i Pushover skal aldri stoppe selve handelen.
+    """
+    try:
+        parts = [
+            f"{trade_type.upper()}: {ticker}",
+            f"Pris: {float(price):.2f}",
+        ]
+
+        if shares is not None:
+            parts.append(f"Antall: {float(shares):.4f}")
+        if amount is not None:
+            parts.append(f"Beløp: {float(amount):.2f}")
+        if confidence is not None:
+            parts.append(f"Confidence: {int(confidence)}%")
+        if reason:
+            parts.append(f"Årsak: {reason}")
+
+        message = "\\n".join(parts)
+        return notify_trade(message)
+    except Exception as e:
+        print(f"notify_executed_trade failed: {e}")
+        return False
+
+
 def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
