@@ -1,1 +1,0 @@
-Fikset StreamlitDuplicateElementId ved å legge unike key-argumenter på Plotly-grafer.
