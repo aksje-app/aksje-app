@@ -1,10 +1,12 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from cron_control import cron_status_text, pause_until, clear_pause
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines, market_statuses
+from background_guard import market_guard_summary
 from trading_settings import load_rules, save_rules
 import pandas as pd
 import plotly.graph_objects as go
@@ -607,6 +609,78 @@ div[data-baseweb="popover"] div[role="option"] {
 div[data-baseweb="popover"] div[role="option"]:hover {
     background: #1e293b !important;
     color: #ffffff !important;
+}
+
+
+/* --- SELECTBOX VISIBILITY FIX V1 --- */
+/* Closed select field */
+div[data-baseweb="select"] > div {
+    background-color: #1e293b !important;
+    color: #f8fafc !important;
+    border-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] div,
+div[data-baseweb="select"] input {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Dropdown popover */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+div[data-baseweb="menu"],
+ul[role="listbox"],
+div[role="listbox"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border: 1px solid rgba(148, 163, 184, 0.45) !important;
+}
+
+/* Options */
+li[role="option"],
+div[role="option"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    font-weight: 800 !important;
+    font-size: 1rem !important;
+}
+
+/* Option text descendants */
+li[role="option"] *,
+div[role="option"] * {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Hover / highlighted option */
+li[role="option"]:hover,
+div[role="option"]:hover,
+li[role="option"][aria-selected="true"],
+div[role="option"][aria-selected="true"] {
+    background-color: #334155 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Streamlit virtualized menu fallback */
+[data-testid="stSelectboxVirtualDropdown"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+[data-testid="stSelectboxVirtualDropdown"] * {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Popover content fallback */
+[data-baseweb="popover"] [role="option"] span,
+[data-baseweb="popover"] [role="option"] div {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
 }
 
 </style>
@@ -1898,6 +1972,7 @@ def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
     st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
+    st.caption("Auto-trading handler bare når relevant marked er åpent. Utenfor åpningstid brukes visning/cache, ikke nye auto-handler.")
 
     portfolio = load_portfolio()
 
@@ -2034,6 +2109,82 @@ render_user_admin(current_user)
 
 
 st.sidebar.markdown("### 🕒 Børsstatus")
+st.sidebar.caption("Bakgrunnssøk styres av børsstatus. Stengte markeder bruker cache hvis mulig.")
+
+# --- Cron / bakgrunnssøk kontroll ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("⏱ Cron / bakgrunnssøk")
+
+_cron_settings = load_settings()
+_cron_status = cron_status_text()
+
+_cron_enabled = st.sidebar.checkbox(
+    "Bakgrunnssøk aktiv",
+    value=bool(_cron_settings.get("background_scanning_enabled", True)),
+    key="cron_background_enabled",
+)
+
+_cron_interval = st.sidebar.number_input(
+    "Søkintervall minutter",
+    min_value=1,
+    max_value=1440,
+    value=int(_cron_settings.get("scan_interval_minutes", 15)),
+    step=1,
+    key="cron_scan_interval",
+)
+
+if _cron_status.get("allowed"):
+    st.sidebar.success("Cron-status: klar for neste scan ✅")
+else:
+    st.sidebar.warning("Cron-status: hopper over nå ⏸")
+
+st.sidebar.caption(_cron_status.get("reason", ""))
+
+_pause_choice = st.sidebar.selectbox(
+    "Pause søk",
+    ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"],
+    key="cron_pause_choice",
+)
+
+if st.sidebar.button("💾 Lagre cron/søk", key="save_cron_control"):
+    _new_settings = load_settings()
+    _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
+    _new_settings["scan_interval_minutes"] = int(_cron_interval)
+
+    if _pause_choice == "30 minutter":
+        pause_until(minutes=30)
+    elif _pause_choice == "1 time":
+        pause_until(minutes=60)
+    elif _pause_choice == "2 timer":
+        pause_until(minutes=120)
+    elif _pause_choice == "Resten av dagen":
+        pause_until(rest_of_day=True)
+    elif _pause_choice == "Ingen pause":
+        _new_settings["pause_scanning_until"] = None
+        save_settings(_new_settings)
+
+    # Save enabled/interval after possible pause update
+    _merged = load_settings()
+    _merged["background_scanning_enabled"] = bool(_cron_enabled)
+    _merged["scan_interval_minutes"] = int(_cron_interval)
+    if _pause_choice == "Ingen pause":
+        _merged["pause_scanning_until"] = None
+    save_settings(_merged)
+
+    st.sidebar.success("Cron/søk lagret ✅")
+    st.rerun()
+
+if st.sidebar.button("▶️ Fjern pause nå", key="clear_cron_pause"):
+    clear_pause()
+    st.sidebar.success("Pause fjernet ✅")
+    st.rerun()
+
+if _cron_status.get("last_scan_at"):
+    st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
+if _cron_status.get("pause_until"):
+    st.sidebar.caption(f"Pause til: {_cron_status.get('pause_until')}")
+
+
 
 _statuses = market_statuses()
 
@@ -2286,6 +2437,8 @@ with tabs[3]:
         source_tickers = tickers_se
     else:
         source_tickers = tickers_all
+
+    st.caption(market_guard_summary(source_tickers))
 
     with st.spinner("Finner beste kandidater..."):
         ranked = auto_rank_market(source_tickers, max_count=max_count, use_news=False)

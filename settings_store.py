@@ -22,7 +22,11 @@ DEFAULT_SETTINGS = {
     "position_size_pct": 10.0,
     "cooldown_minutes": 60,
     "pushover_enabled": True,
-    "scan_top_picks_only": True
+    "scan_top_picks_only": True,
+    "last_scan_at": None,
+    "pause_scanning_until": None,
+    "scan_interval_minutes": 15,
+    "background_scanning_enabled": True
 }
 
 def using_postgres():

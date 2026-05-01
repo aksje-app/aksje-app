@@ -1,3 +1,4 @@
+from cron_control import should_run_background_scan, mark_background_scan_started
 
 def _ticker_market(ticker):
     t = str(ticker).upper()
@@ -33,6 +34,7 @@ from paper_store import force_schema_migration
 from paper_trading import auto_trade, load_portfolio, portfolio_value
 from alert_state import should_send_alert, record_alert
 from market_hours import open_markets, should_process_ticker, market_status_lines
+from background_guard import print_market_guard_summary
 
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers
 from analysis import score_stock
@@ -182,6 +184,14 @@ def maybe_send_trade_alert(result, msg):
 
 
 def run_once():
+    _allowed, _reason = should_run_background_scan()
+    print(f"Cron control: {_reason}")
+    if not _allowed:
+        print("⏸ Cron våknet, men scanner ikke nå.")
+        return 0
+    mark_background_scan_started()
+
+    print_market_guard_summary()
     for line in market_status_lines():
         print(line)
 
@@ -230,7 +240,7 @@ def run_once():
 
                 if traded:
                     trades_executed += 1
-                    maybe_send_trade_alert(result, msg)
+                    print("Trade-varsling håndteres av trading_engine")
 
             time.sleep(SCAN_SLEEP_SECONDS)
 

@@ -1,13 +1,16 @@
 import pandas as pd
 import streamlit as st
 from analysis import score_stock
+from background_guard import score_stock_guarded
 
 @st.cache_data(ttl=900, show_spinner=False)
 def cached_score_stock(ticker, use_news=False):
     """
-    Cache i 15 min for å gjøre appen raskere og redusere API/data-kall.
+    Cache + market guard:
+    - henter fersk data kun når markedet for tickeren er åpent
+    - bruker cache når markedet er stengt
     """
-    return score_stock(ticker, use_news=use_news)
+    return score_stock_guarded(score_stock, ticker, use_news=use_news, mode="background")
 
 def auto_rank_market(tickers, max_count=30, use_news=False):
     """
