@@ -66,7 +66,7 @@ def calc_levels(entry_price, highest_price=None):
 
 
 
-def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, confidence=None, reason=""):
+def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, confidence=None, reason="", pnl_pct=None):
     """
     Sentral varsling for ALLE faktiske paper trades:
     - Cron BUY/SELL
@@ -78,25 +78,21 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
     Feil i Pushover skal aldri stoppe selve handelen.
     """
     try:
-        parts = [
-            f"{trade_type.upper()}: {ticker}",
-            f"Pris: {float(price):.2f}",
-        ]
-
-        if shares is not None:
-            parts.append(f"Antall: {float(shares):.4f}")
-        if amount is not None:
-            parts.append(f"Beløp: {float(amount):.2f}")
-        if confidence is not None:
-            parts.append(f"Confidence: {int(confidence)}%")
-        if reason:
-            parts.append(f"Årsak: {reason}")
-
-        message = "\\n".join(parts)
-        return notify_trade(message)
+        return notify_trade(
+            trade_type,
+            ticker,
+            price,
+            amount=amount,
+            shares=shares,
+            confidence=confidence,
+            reason=reason,
+            pnl_pct=pnl_pct,
+        )
     except Exception as e:
         print(f"notify_executed_trade failed: {e}")
         return False
+
+
 
 
 def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
@@ -126,6 +122,15 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
         "take_profit": tp, "trailing_stop": tr, "confidence": int(confidence or 0), "reason": reason,
     }
     add_trade(portfolio, {"type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason})
+    notify_executed_trade(
+        "BUY",
+        ticker,
+        price,
+        shares=shares,
+        amount=amount,
+        confidence=confidence,
+        reason=reason,
+    )
     return True, f"BUY {ticker} @ {price:.2f}"
 
 
@@ -143,6 +148,16 @@ def paper_sell(ticker, price, reason="SELL signal"):
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
     del portfolio["positions"][ticker]
     add_trade(portfolio, {"type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0), "pnl_pct":round(pnl_pct,2), "reason":reason})
+    notify_executed_trade(
+        "SELL",
+        ticker,
+        price,
+        shares=shares,
+        amount=amount,
+        confidence=int(pos.get("confidence", 0) or 0),
+        reason=reason,
+        pnl_pct=pnl_pct,
+    )
     return True, f"SELL {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
 
 

@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import pickle
 
 from market_hours import market_status, ticker_market, open_markets
+from stop_control import search_allowed
 
 CACHE_DIR = Path("cache")
 CACHE_FILE = CACHE_DIR / "score_stock_cache.pkl"
@@ -109,6 +110,15 @@ def score_stock_guarded(score_func, ticker, use_news=False, mode="background"):
       - bruk cache
       - hvis ingen cache: returner None
     """
+    _global_allowed, _global_reason = search_allowed()
+    if not _global_allowed:
+        cached = get_cached_score(ticker, use_news=use_news)
+        if cached:
+            print(f"{ticker}: full stopp aktiv - bruker cache")
+            return cached
+        print(f"{ticker}: full stopp aktiv - hopper over søk")
+        return None
+
     allowed, market, status = background_fetch_allowed(ticker)
 
     if allowed:
@@ -127,6 +137,10 @@ def score_stock_guarded(score_func, ticker, use_news=False, mode="background"):
 
 
 def filter_open_market_tickers(tickers):
+    _global_allowed, _global_reason = search_allowed()
+    if not _global_allowed:
+        return [], [(ticker, "FULL_STOPP", _global_reason) for ticker in tickers]
+
     out = []
     skipped = []
     for ticker in tickers:
@@ -161,6 +175,10 @@ def market_guard_summary(tickers):
 
 def print_market_guard_summary():
     print("=== MARKET GUARD ===")
+    _global_allowed, _global_reason = search_allowed()
+    if not _global_allowed:
+        print(f"FULL STOPP AKTIV: {_global_reason}")
+        print("Ingen scanning / ingen auto trade / cache ved UI")
     for m in ["USA", "NORGE", "SVERIGE"]:
         s = market_status(m)
         if s.get("is_open"):

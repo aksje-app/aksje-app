@@ -24,6 +24,9 @@ DEFAULT_SETTINGS = {
     "pushover_enabled": True,
     "scan_top_picks_only": True,
     "last_scan_at": None,
+    "full_stop_reason": "Ferie / full stopp",
+    "full_stop_until": None,
+    "full_stop_enabled": False,
     "pause_scanning_until": None,
     "scan_interval_minutes": 15,
     "background_scanning_enabled": True

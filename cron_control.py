@@ -1,3 +1,4 @@
+from stop_control import search_allowed
 
 from datetime import datetime, timedelta
 import pytz
@@ -53,6 +54,10 @@ def should_run_background_scan(mark_complete=True):
     The Render Cron may still wake up often, but this guard decides if it does real work.
     """
     settings = load_settings()
+
+    _allowed, _reason = search_allowed()
+    if not _allowed:
+        return False, f"Full stopp / ferie-modus: {_reason}"
 
     if not bool(settings.get("background_scanning_enabled", True)):
         return False, "Bakgrunnssøk er deaktivert i app-innstillinger"
