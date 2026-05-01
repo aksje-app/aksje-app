@@ -35,6 +35,79 @@ current_user = require_login()
 
 st_autorefresh(interval=300000, key="refresh")
 
+
+CHART_CONFIG = {
+    "scrollZoom": True,
+    "displayModeBar": True,
+    "displaylogo": False,
+    "modeBarButtonsToAdd": ["pan2d", "zoom2d", "resetScale2d"],
+}
+
+def render_interactive_chart(fig, *args, **kwargs):
+    """
+    Felles plotly-rendering:
+    - musehjul zoom
+    - pan med mus
+    - tydelig hover
+    """
+    try:
+        fig.update_layout(
+            dragmode="pan",
+            hovermode="x unified",
+            legend=dict(
+                bgcolor="rgba(15,23,42,0.75)",
+                bordercolor="rgba(148,163,184,0.35)",
+                borderwidth=1,
+            ),
+        )
+        fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+        fig.update_yaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+    except Exception:
+        pass
+
+    kwargs.setdefault("use_container_width", True)
+    kwargs.setdefault("config", CHART_CONFIG)
+    return st.plotly_chart(fig, *args, **kwargs)
+
+
+def render_graph_explanation(kind):
+    texts = {
+        "price": (
+            "📘 Prisgraf",
+            "Viser kursutvikling og gjeldende kurs. Bruk musehjul for zoom og dra i grafen for å panorere."
+        ),
+        "ta": (
+            "📘 Teknisk graf",
+            "Viser pris, Bollinger-bånd, støtte/motstand og eventuelle mønstre. Brudd over motstand kan være positivt, mens brudd under støtte er et risikoflagg."
+        ),
+        "rsi": (
+            "📘 RSI",
+            "RSI under 30 kan indikere oversolgt. RSI over 70 er overkjøpt, og over 80 er ekstremt overkjøpt. Høy RSI kan forklare HOLD/SELL selv om aksjen har høy total score."
+        ),
+        "equity": (
+            "📘 Strategi / equity curve",
+            "Viser hvordan den historiske strategien ville utviklet porteføljeverdien. Brukes som test, ikke garanti for fremtidig avkastning."
+        ),
+        "backtest": (
+            "📘 Backtest",
+            "Sammenligner strategi mot benchmark. Se særlig på drawdown, jevnhet og om strategien slår benchmark over tid."
+        ),
+        "drawdown": (
+            "📘 Drawdown",
+            "Viser hvor mye strategien faller fra tidligere topp. Lavere og kortere drawdown betyr normalt lavere risiko."
+        ),
+    }
+    title, body = texts.get(kind, ("📘 Graf", "Interaktiv graf med zoom, pan og hover."))
+    st.markdown(
+        f"""
+        <div class="graph-explain-box">
+            <b>{title}</b><br>{body}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.markdown("""
 <style>
 :root {
@@ -497,6 +570,22 @@ div[data-testid="stAlert"] {
     line-height: 1.45;
 }
 .macd-explain-box b {
+    color: #f8fafc !important;
+}
+
+
+/* --- GRAPH EXPLANATION BOXES V1 --- */
+.graph-explain-box {
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 8px 0 18px 0;
+    color: #cbd5e1 !important;
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+.graph-explain-box b {
     color: #f8fafc !important;
 }
 
@@ -1270,7 +1359,7 @@ def render_macd_explanation():
             <b>MACD-linje:</b> viser momentum i kursen.<br>
             <b>Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
             <b>Histogram:</b> forskjellen mellom MACD og signallinjen.<br>
-            <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum.
+            <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum. Grafene støtter musehjul-zoom og panering.
         </div>
         """,
         unsafe_allow_html=True,
@@ -1286,7 +1375,8 @@ def render_analysis(results, label):
     item = next(r for r in results if r["ticker"] == selected)
     df = item["hist"].copy()
 
-    st.plotly_chart(plot_price(df, f"{selected} - prisutvikling"), use_container_width=True, key=f"price_chart_{label}_{selected}")
+    render_interactive_chart(plot_price(df, f"{selected} - prisutvikling"), use_container_width=True, key=f"price_chart_{label}_{selected}")
+    render_graph_explanation("price")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Score", f"{item['score']}/10")
@@ -1479,7 +1569,8 @@ def render_analysis(results, label):
         )
     except Exception:
         pass
-    st.plotly_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
+    render_interactive_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
+    render_graph_explanation("ta")
 
     fig_macd = go.Figure()
     fig_macd.add_trace(go.Scatter(x=df.index, y=macd, name="MACD-linje", mode="lines"))
@@ -1492,7 +1583,7 @@ def render_analysis(results, label):
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
-    st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
+    render_interactive_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
 
     render_macd_explanation()
 
@@ -1509,7 +1600,8 @@ def render_analysis(results, label):
         plot_bgcolor="#0b111c",
         yaxis=dict(range=[0, 100]),
     )
-    st.plotly_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
+    render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
+    render_graph_explanation("rsi")
 
     st.markdown("#### 🧪 Strategi-test (historisk simulering)")
 
@@ -1581,7 +1673,8 @@ def render_analysis(results, label):
                 plot_bgcolor="#0b111c",
             )
 
-            st.plotly_chart(fig_eq, use_container_width=True, key=f"equity_chart_{label}_{selected}")
+            render_interactive_chart(fig_eq, use_container_width=True, key=f"equity_chart_{label}_{selected}")
+            render_graph_explanation("equity")
 
         st.markdown("#### Siste trades")
         if trades:
@@ -1662,8 +1755,9 @@ def render_paper_trading_dashboard():
     p4.metric("Trades i dag", f"{stats['trades_today']}/{stats['max_trades_per_day']}")
 
     r1, r2, r3, r4 = st.columns(4)
-    r1.metric("Stop-loss", f"{STOP_LOSS_PCT*100:.1f}%")
-    r2.metric("Trailing stop", f"{TRAILING_STOP_PCT*100:.1f}%")
+    _paper_rules = load_rules()
+    r1.metric("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%")
+    r2.metric("Trailing stop", f"{float(_paper_rules.get('trailing_stop_pct', 8.0)):.1f}%")
     r3.metric("Win rate", f"{stats['win_rate']}%")
     r4.metric("Lukkede trades", stats["closed_trades"])
 
@@ -1763,12 +1857,14 @@ def render_strategy_backtest(tickers, label):
         if not bench.empty:
             fig.add_trace(go.Scatter(x=bench["date"], y=bench["benchmark_value"], name="Benchmark", mode="lines"))
         fig.update_layout(title="Strategi vs benchmark", template="plotly_dark", height=430)
-        st.plotly_chart(fig, use_container_width=True, key=f"backtest_main_{label}")
+        render_interactive_chart(fig, use_container_width=True, key=f"backtest_main_{label}")
+        render_graph_explanation("backtest")
 
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=strategy["date"], y=strategy["drawdown"], fill="tozeroy", name="Drawdown"))
         fig_dd.update_layout(title="Drawdown", template="plotly_dark", height=300)
-        st.plotly_chart(fig_dd, use_container_width=True, key=f"backtest_drawdown_{label}")
+        render_interactive_chart(fig_dd, use_container_width=True, key=f"backtest_drawdown_{label}")
+        render_graph_explanation("drawdown")
 
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
@@ -1882,6 +1978,7 @@ with st.sidebar.expander("🔴 Salg", expanded=False):
     _rules["enable_sell_signal_exit"] = st.checkbox("Selg ved SELL/AVOID signal", bool(_rules["enable_sell_signal_exit"]))
     _rules["stop_loss_pct"] = st.slider("Stop-loss %", 1.0, 25.0, float(_rules["stop_loss_pct"]), 0.5)
     _rules["take_profit_pct"] = st.slider("Take-profit %", 1.0, 50.0, float(_rules["take_profit_pct"]), 0.5)
+    _rules["trailing_stop_pct"] = st.slider("Trailing stop %", 1.0, 30.0, float(_rules.get("trailing_stop_pct", 8.0)), 0.5)
     _rules["rsi_exit_level"] = st.slider("RSI exit nivå", 60, 90, int(_rules["rsi_exit_level"]))
     _rules["rsi_must_fall"] = st.checkbox("RSI må falle etter topp", bool(_rules["rsi_must_fall"]))
 

@@ -1,5 +1,6 @@
 from signal_engine import score_signal
 from notifier import notify_trade
+from trading_settings import load_rules
 
 from paper_store import load_portfolio, save_portfolio, add_trade
 
@@ -42,26 +43,44 @@ def portfolio_value(portfolio=None, latest_prices=None):
 
 
 def calc_levels(entry_price, highest_price=None):
+    """
+    Bruker lagrede trading-regler, slik at stop-loss/take-profit/trailing
+    er likt i sidebar, paper trading og auto trading.
+    """
+    rules = load_rules()
     entry_price = float(entry_price)
     highest_price = float(highest_price or entry_price)
-    stop_loss = entry_price * (1 - STOP_LOSS_PCT / 100)
-    take_profit = entry_price * (1 + TAKE_PROFIT_PCT / 100)
-    trailing_stop = highest_price * (1 - TRAILING_STOP_PCT / 100)
+
+    stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT))
+    take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT))
+    trailing_stop_pct = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT))
+
+    stop_loss = entry_price * (1 - stop_loss_pct / 100)
+    take_profit = entry_price * (1 + take_profit_pct / 100)
+    trailing_stop = highest_price * (1 - trailing_stop_pct / 100)
+
     return round(stop_loss, 2), round(take_profit, 2), round(trailing_stop, 2)
 
 
+
+
+
 def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
+    rules = load_rules()
+    max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
+    min_buy_confidence = int(rules.get("min_buy_confidence", MIN_BUY_CONFIDENCE))
+    position_size_pct = float(rules.get("position_size_pct", POSITION_SIZE_PCT))
     portfolio = load_portfolio()
     ticker = str(ticker).upper()
     price = float(price)
     if ticker in portfolio.get("positions", {}):
         return False, f"{ticker} eies allerede"
-    if len(portfolio.get("positions", {})) >= MAX_OPEN_POSITIONS:
+    if len(portfolio.get("positions", {})) >= max_open_positions:
         return False, "Maks åpne posisjoner nådd"
-    if int(confidence or 0) < MIN_BUY_CONFIDENCE:
+    if int(confidence or 0) < min_buy_confidence:
         return False, "Confidence for lav"
     total_value = portfolio_value(portfolio)
-    amount = min(float(portfolio.get("cash", 0)), total_value * POSITION_SIZE_PCT / 100)
+    amount = min(float(portfolio.get("cash", 0)), total_value * position_size_pct / 100)
     if amount <= 0:
         return False, "Ikke nok cash"
     shares = amount / price

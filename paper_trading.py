@@ -4,8 +4,8 @@ from trading_engine import portfolio_value, auto_trade, paper_buy, paper_sell, S
 from trading_settings import load_rules
 
 MAX_TRADES_PER_DAY = int(load_rules().get("max_trades_per_day", 3))
-STOP_LOSS_PCT = STOP_LOSS_PCT / 100
-TRAILING_STOP_PCT = TRAILING_STOP_PCT / 100
+STOP_LOSS_PCT = float(load_rules().get("stop_loss_pct", 7.0)) / 100
+TRAILING_STOP_PCT = float(load_rules().get("trailing_stop_pct", 8.0)) / 100
 
 
 def performance_stats(portfolio=None, latest_prices=None):
