@@ -1,3 +1,4 @@
+from settings_store import load_settings
 from signal_engine import score_signal
 from notifier import notify_trade
 
@@ -12,10 +13,6 @@ MIN_BUY_CONFIDENCE = 60
 
 
 def build_trading_decision(item, technical_context=None):
-    """
-    Smart Core v2 wrapper.
-    Beholder app13-kompatibelt output.
-    """
     return score_signal(item, technical_context or {})
 
 
@@ -94,6 +91,8 @@ def paper_sell(ticker, price, reason="SELL signal"):
 
 
 def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
+    if not auto_trading_allowed():
+        return False, "Auto trading er deaktivert i innstillinger"
     portfolio = load_portfolio()
     ticker = str(ticker).upper()
     price = float(price)
@@ -160,3 +159,13 @@ def pro_signal_from_context(base_score, technical_context=None):
     )
 
     return buy_ok, sell_avoid, rsi, macd_bullish, breakout_type
+
+
+def get_trading_settings():
+    try:
+        return load_settings()
+    except Exception:
+        return {}
+
+def auto_trading_allowed():
+    return bool(get_trading_settings().get("auto_trading_enabled", True))
