@@ -36,8 +36,10 @@ from alert_state import should_send_alert, record_alert
 from market_hours import open_markets, should_process_ticker, market_status_lines
 from background_guard import print_market_guard_summary
 
-from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers
+from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, US_FALLBACK, NORWEGIAN_STOCKS, SWEDISH_STOCKS
 from analysis import score_stock
+from technical import calculate_rsi, calculate_macd, detect_trend
+from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_head_shoulders
 from signal_engine import build_trading_decision
 
 
@@ -76,20 +78,104 @@ def _take(fn, n):
         return fn()[:n]
 
 
+
+
+def _merge_unique(*lists):
+    out = []
+    seen = set()
+    for lst in lists:
+        for t in lst or []:
+            t = str(t).upper()
+            if t and t not in seen:
+                seen.add(t)
+                out.append(t)
+    return out
+
+
+def build_cron_technical_context(item):
+    """
+    Samme type teknisk kontekst som Top Picks / Kjøp nå-kortene bruker.
+    Dette gjør at Cron og UI vurderer BUY/HOLD/SELL på samme grunnlag.
+    """
+    try:
+        df = item.get("hist")
+        if df is None or df.empty or "Close" not in df:
+            return {}
+
+        rsi_series = calculate_rsi(df)
+        rsi_clean = rsi_series.dropna()
+        latest_rsi = float(rsi_clean.iloc[-1]) if len(rsi_clean) else 50.0
+
+        macd, macd_signal, _ = calculate_macd(df)
+        macd_clean = macd.dropna()
+        signal_clean = macd_signal.dropna()
+        latest_macd = float(macd_clean.iloc[-1]) if len(macd_clean) else 0.0
+        latest_signal = float(signal_clean.iloc[-1]) if len(signal_clean) else 0.0
+
+        trend_text = str(detect_trend(df))
+        if "Opptrend" in trend_text:
+            trend = "up"
+        elif "Nedtrend" in trend_text:
+            trend = "down"
+        else:
+            trend = "neutral"
+
+        breakout = breakout_scanner(df)
+        hs = detect_head_shoulders(df)
+        inv = detect_inverse_head_shoulders(df)
+
+        close = df["Close"].dropna()
+        recent = close.tail(80)
+        if len(recent) > 5:
+            low = float(recent.min())
+            high = float(recent.max())
+            last = float(close.iloc[-1])
+            channel_pos = ((last - low) / (high - low) * 100) if high != low else 50
+        else:
+            channel_pos = 50
+
+        return {
+            "rsi": latest_rsi,
+            "macd_bullish": latest_macd > latest_signal,
+            "breakout_type": breakout.get("type", "neutral"),
+            "trend": trend,
+            "channel_pos": channel_pos,
+            "head_shoulders_found": bool(hs.get("found")),
+            "inverse_head_shoulders_found": bool(inv.get("found")),
+        }
+    except Exception as e:
+        print(f"Teknisk context feilet: {e}")
+        return {}
+
 def get_watchlist():
     custom = os.getenv("SCANNER_WATCHLIST", "").strip()
     if custom:
         return [x.strip().upper() for x in custom.replace(";", ",").split(",") if x.strip()]
 
+    settings = load_settings()
+    enabled = set(enabled_markets(settings))
+    max_per_market = int(settings.get("max_tickers_per_market", 20))
+    scan_top_only = bool(settings.get("scan_top_picks_only", True))
+
     markets = open_markets()
     tickers = []
 
-    if "USA" in markets:
-        tickers += _take(get_sp500_tickers, 30)
-    if "NORGE" in markets:
-        tickers += _take(get_norwegian_tickers, 20)
-    if "SVERIGE" in markets:
-        tickers += _take(get_swedish_tickers, 20)
+    # Viktig: prioriter kjente store/top-picks-kandidater først.
+    # Før var S&P-listen ofte alfabetisk, og AVGO/NVDA/AMZN kunne komme for sent.
+    if "USA" in markets and "USA" in enabled:
+        sp = _take(get_sp500_tickers, max(SCANNER_MAX_TICKERS, max_per_market))
+        if scan_top_only:
+            tickers += _merge_unique(US_FALLBACK, sp)[:max_per_market]
+        else:
+            tickers += _merge_unique(US_FALLBACK, sp)[:max(SCANNER_MAX_TICKERS, max_per_market)]
+
+    if "NORGE" in markets and "NORGE" in enabled:
+        no = _take(get_norwegian_tickers, max_per_market)
+        tickers += _merge_unique(NORWEGIAN_STOCKS, no)[:max_per_market]
+
+    if "SVERIGE" in markets and "SVERIGE" in enabled:
+        se = _take(get_swedish_tickers, max_per_market)
+        tickers += _merge_unique(SWEDISH_STOCKS, se)[:max_per_market]
 
     out = []
     seen = set()
@@ -98,13 +184,16 @@ def get_watchlist():
             seen.add(t)
             out.append(t)
 
+    # Åpne posisjoner må alltid overvåkes for stop-loss/take-profit/trailing.
     current_positions = list(load_portfolio().get("positions", {}).keys())
     for t in current_positions:
+        t = str(t).upper()
         if t not in seen:
             seen.add(t)
             out.append(t)
 
-    return out[:max(SCANNER_MAX_TICKERS, len(current_positions))]
+    return out[:max(SCANNER_MAX_TICKERS, len(current_positions), max_per_market)]
+
 
 
 def get_latest_price(item):
@@ -137,7 +226,7 @@ def get_rsi_values(item):
 
 
 def analyze_ticker(ticker):
-    item = score_stock(ticker)
+    item = score_stock(ticker, use_news=False)
     if not item:
         return None
 
@@ -146,11 +235,17 @@ def analyze_ticker(ticker):
         print(f"{ticker}: mangler pris")
         return None
 
-    decision = build_trading_decision(item)
+    technical_context = build_cron_technical_context(item)
+    decision = build_trading_decision(item, technical_context)
+
     signal = decision.get("decision", "HOLD / WAIT")
     confidence = int(decision.get("confidence", 0) or 0)
-    score = float(decision.get("decision_score", item.get("score", 0)) or 0)
+    score = float(decision.get("decision_score", decision.get("final_score", item.get("score", 0))) or 0)
     rsi, prev_rsi = get_rsi_values(item)
+
+    # Fallback: bruk RSI fra context dersom hist ikke har egen RSI-kolonne.
+    if rsi is None:
+        rsi = technical_context.get("rsi")
 
     return {
         "ticker": ticker,
@@ -162,6 +257,7 @@ def analyze_ticker(ticker):
         "score": score,
         "rsi": rsi,
         "prev_rsi": prev_rsi,
+        "technical_context": technical_context,
     }
 
 
@@ -241,27 +337,34 @@ def run_once():
 
             if PAPER_TRADING_ENABLED and auto_trading_enabled:
                 signal_text = str(result["signal"]).upper()
+                allow_trade = True
+
                 if "BUY" in signal_text:
                     if result["score"] < min_buy_score:
                         print(f"⏸ {ticker}: BUY blokkert - score {result['score']:.2f} < min {min_buy_score}")
+                        allow_trade = False
                     elif result["confidence"] < min_buy_confidence:
                         print(f"⏸ {ticker}: BUY blokkert - confidence {result['confidence']} < min {min_buy_confidence}")
+                        allow_trade = False
                     else:
                         print(f"✅ {ticker}: BUY-kandidat sendt til auto_trade")
 
-                traded, msg = auto_trade(
-                    result["ticker"],
-                    result["price"],
-                    result["signal"],
-                    confidence=result["confidence"],
-                    rsi=result.get("rsi"),
-                    prev_rsi=result.get("prev_rsi"),
-                )
-                print(f"Auto trade {ticker}: {msg}")
+                if allow_trade:
+                    traded, msg = auto_trade(
+                        result["ticker"],
+                        result["price"],
+                        result["signal"],
+                        confidence=result["confidence"],
+                        rsi=result.get("rsi"),
+                        prev_rsi=result.get("prev_rsi"),
+                    )
+                    print(f"Auto trade {ticker}: {msg}")
 
-                if traded:
-                    trades_executed += 1
-                    print("Trade-varsling håndteres av trading_engine")
+                    if traded:
+                        trades_executed += 1
+                        print("Trade-varsling håndteres av trading_engine")
+                else:
+                    print(f"Auto trade {ticker}: blokkert av regler")
             elif not PAPER_TRADING_ENABLED:
                 print("⏸ PAPER_TRADING_ENABLED=false i Render env")
 
