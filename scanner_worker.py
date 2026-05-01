@@ -31,7 +31,7 @@ import time
 import requests
 
 from paper_store import force_schema_migration
-from paper_trading import auto_trade, load_portfolio, portfolio_value
+from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
 from alert_state import should_send_alert, record_alert
 from market_hours import open_markets, should_process_ticker, market_status_lines
 from background_guard import print_market_guard_summary
@@ -147,6 +147,24 @@ def build_cron_technical_context(item):
         print(f"Teknisk context feilet: {e}")
         return {}
 
+
+def latest_ui_buy_candidate_tickers(settings=None):
+    """
+    Kjøp nå-listen i UI lagres i settings_store.
+    Cron prioriterer disse først, slik at UI og Cron vurderer samme aksjer.
+    """
+    settings = settings or load_settings()
+    out = []
+    seen = set()
+
+    for row in settings.get("latest_buy_now_candidates", []) or []:
+        ticker = str(row.get("ticker", "")).upper()
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(ticker)
+
+    return out
+
 def get_watchlist():
     custom = os.getenv("SCANNER_WATCHLIST", "").strip()
     if custom:
@@ -160,7 +178,13 @@ def get_watchlist():
     markets = open_markets()
     tickers = []
 
-    # Viktig: prioriter kjente store/top-picks-kandidater først.
+    # 1) Kandidater som UI nettopp viste som KJØP NÅ prioriteres først.
+    ui_candidates = latest_ui_buy_candidate_tickers(settings)
+    if ui_candidates:
+        print(f"Prioriterer UI Kjøp nå-kandidater: {ui_candidates}")
+        tickers += ui_candidates
+
+    # 2) Deretter kjente store/top-picks-kandidater.
     # Før var S&P-listen ofte alfabetisk, og AVGO/NVDA/AMZN kunne komme for sent.
     if "USA" in markets and "USA" in enabled:
         sp = _take(get_sp500_tickers, max(SCANNER_MAX_TICKERS, max_per_market))
@@ -285,13 +309,16 @@ def maybe_send_trade_alert(result, msg):
     return sent
 
 
-def run_once():
-    _allowed, _reason = should_run_background_scan()
-    print(f"Cron control: {_reason}")
-    if not _allowed:
-        print("⏸ Cron våknet, men scanner ikke nå.")
-        return 0
-    mark_background_scan_started()
+def run_once(force=False):
+    if force:
+        print("Cron control: FORCE=true, kjører auto-motor nå")
+    else:
+        _allowed, _reason = should_run_background_scan()
+        print(f"Cron control: {_reason}")
+        if not _allowed:
+            print("⏸ Cron våknet, men scanner ikke nå.")
+            return 0
+        mark_background_scan_started()
 
     print_market_guard_summary()
     for line in market_status_lines():
@@ -346,10 +373,24 @@ def run_once():
                     elif result["confidence"] < min_buy_confidence:
                         print(f"⏸ {ticker}: BUY blokkert - confidence {result['confidence']} < min {min_buy_confidence}")
                         allow_trade = False
-                    else:
-                        print(f"✅ {ticker}: BUY-kandidat sendt til auto_trade")
 
-                if allow_trade:
+                    if allow_trade:
+                        print(f"✅ {ticker}: BUY-kandidat godkjent, prøver paper_buy direkte")
+                        traded, msg = paper_buy(
+                            result["ticker"],
+                            result["price"],
+                            result["confidence"],
+                            "AUTO BUY via Cron/Kjøp nå"
+                        )
+                        print(f"Auto BUY {ticker}: {msg}")
+
+                        if traded:
+                            trades_executed += 1
+                            print("Trade-varsling håndteres av trading_engine")
+                    else:
+                        print(f"Auto BUY {ticker}: blokkert av regler")
+
+                else:
                     traded, msg = auto_trade(
                         result["ticker"],
                         result["price"],
@@ -363,8 +404,7 @@ def run_once():
                     if traded:
                         trades_executed += 1
                         print("Trade-varsling håndteres av trading_engine")
-                else:
-                    print(f"Auto trade {ticker}: blokkert av regler")
+
             elif not PAPER_TRADING_ENABLED:
                 print("⏸ PAPER_TRADING_ENABLED=false i Render env")
 

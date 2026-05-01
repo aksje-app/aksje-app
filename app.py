@@ -1,5 +1,6 @@
 from ui_components import market_pulse, top_movers
 import os
+import re
 import streamlit as st
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
@@ -1184,6 +1185,39 @@ def safe_widget_key(text):
     return re.sub(r"[^A-Za-z0-9_]+", "_", str(text))[:120]
 
 
+
+def save_latest_buy_now_candidates(candidates, market_label=""):
+    """
+    Lagrer siste UI-Kjøp nå kandidater til DB/settings.
+    Cron prioriterer disse først ved neste kjøring.
+    """
+    try:
+        rows = []
+        for item in candidates[:20]:
+            ticker = str(item.get("ticker", "")).upper()
+            if not ticker:
+                continue
+            decision = card_decision_for_item(item)
+            price, _change = get_item_price_change(item)
+            rows.append({
+                "ticker": ticker,
+                "score": float(item.get("score", 0) or 0),
+                "confidence": int(decision.get("confidence", 0) or 0),
+                "decision": str(decision.get("decision", "")),
+                "action_now": str(decision.get("action_now", "")),
+                "price": float(price) if price is not None else None,
+                "market": market_label,
+            })
+
+        settings = load_settings()
+        settings["latest_buy_now_candidates"] = rows
+        save_settings(settings)
+        return rows
+    except Exception as e:
+        st.caption(f"Kunne ikke lagre Kjøp nå-kandidater til Cron: {e}")
+        return []
+
+
 def render_ranking(results, title):
     st.subheader(title)
 
@@ -2198,6 +2232,18 @@ if st.sidebar.button("▶️ Fjern pause nå", key="clear_cron_pause"):
     st.sidebar.success("Pause fjernet ✅")
     st.rerun()
 
+
+st.sidebar.markdown("**Auto-kjøp test**")
+if st.sidebar.button("⚡ Kjør auto-kjøp nå", key="force_auto_buy_now"):
+    try:
+        from scanner_worker import run_once
+        with st.spinner("Kjører auto-kjøp-motor..."):
+            _trades = run_once(force=True)
+        st.sidebar.success(f"Auto-motor ferdig. Trades: {_trades}")
+        st.rerun()
+    except Exception as _e:
+        st.sidebar.error(f"Auto-kjøp feilet: {_e}")
+
 if _cron_status.get("last_scan_at"):
     st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
 if _cron_status.get("pause_until"):
@@ -2473,7 +2519,8 @@ with tabs[3]:
 
     with top_pick_tabs[1]:
         if buy_now_picks:
-            st.info("Disse er kandidater med grønt teknisk signal akkurat nå. Bruk paper-knappene på kortene for å teste kjøp. Auto-kjøp skjer bare via Cron når bakgrunnssøk og auto trading er aktivt.")
+            _saved_candidates = save_latest_buy_now_candidates(buy_now_picks, scan_market)
+            st.info(f"Disse er kandidater med grønt teknisk signal akkurat nå. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjøp skjer via Cron, eller knappen 'Kjør auto-kjøp nå'.")
             if st.button(f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
                 _messages = []
                 for _item in buy_now_picks:

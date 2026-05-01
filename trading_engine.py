@@ -1,3 +1,4 @@
+from datetime import datetime
 from signal_engine import score_signal
 from notifier import notify_trade
 from trading_settings import load_rules
@@ -66,6 +67,27 @@ def calc_levels(entry_price, highest_price=None):
 
 
 
+
+def trades_today_count(portfolio=None, trade_type=None):
+    """
+    Teller handler i dag basert på paper portfolio trade-logg.
+    Brukes for å hindre at auto-kjøp spammer posisjoner.
+    """
+    portfolio = portfolio or load_portfolio()
+    today = datetime.now().date().isoformat()
+    count = 0
+
+    for trade in portfolio.get("trades", []):
+        t = str(trade.get("time", ""))
+        if not t.startswith(today):
+            continue
+        if trade_type and str(trade.get("type", "")).upper() != str(trade_type).upper():
+            continue
+        count += 1
+
+    return count
+
+
 def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, confidence=None, reason=""):
     """
     Sentral varsling for ALLE faktiske paper trades:
@@ -109,6 +131,7 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
 def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
+    max_trades_per_day = int(rules.get("max_trades_per_day", 3))
     min_buy_confidence = int(rules.get("min_buy_confidence", MIN_BUY_CONFIDENCE))
     position_size_pct = float(rules.get("position_size_pct", POSITION_SIZE_PCT))
     portfolio = load_portfolio()
@@ -119,7 +142,9 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     if len(portfolio.get("positions", {})) >= max_open_positions:
         return False, "Maks åpne posisjoner nådd"
     if int(confidence or 0) < min_buy_confidence:
-        return False, "Confidence for lav"
+        return False, f"Confidence for lav ({int(confidence or 0)} < {min_buy_confidence})"
+    if trades_today_count(portfolio) >= max_trades_per_day:
+        return False, f"Maks trades per dag nådd ({max_trades_per_day})"
     total_value = portfolio_value(portfolio)
     amount = min(float(portfolio.get("cash", 0)), total_value * position_size_pct / 100)
     if amount <= 0:

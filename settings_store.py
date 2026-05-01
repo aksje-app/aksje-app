@@ -28,7 +28,8 @@ DEFAULT_SETTINGS = {
     "scan_interval_minutes": 15,
     "background_scanning_enabled": True,
     "full_stop_reason": "",
-    "vacation_mode_enabled": False
+    "vacation_mode_enabled": False,
+    "latest_buy_now_candidates": []
 }
 
 def using_postgres():
