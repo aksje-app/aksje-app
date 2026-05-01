@@ -1,6 +1,7 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from top_pick_logic import action_from_signal, top_pick_rank_score, render_action_badges_html
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets
@@ -294,8 +295,66 @@ div[data-testid="stAlert"] {
     border-radius: 14px !important;
 }
 
+
+/* --- TOP PICK LOGIC CARDS V1 --- */
+.tp-badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+.tp-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid #64748b;
+    color: #e2e8f0 !important;
+    background: rgba(148,163,184,0.12);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+.tp-buy {
+    color: #86efac !important;
+    border-color: rgba(34,197,94,0.65) !important;
+    background: rgba(34,197,94,0.16) !important;
+}
+.tp-wait {
+    color: #fde68a !important;
+    border-color: rgba(245,158,11,0.65) !important;
+    background: rgba(245,158,11,0.16) !important;
+}
+.tp-sell {
+    color: #fecaca !important;
+    border-color: rgba(239,68,68,0.65) !important;
+    background: rgba(239,68,68,0.16) !important;
+}
+.tp-note {
+    color: #cbd5e1 !important;
+    font-size: 0.85rem;
+}
+
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_top_pick_badges(signal_intelligence):
+    try:
+        st.markdown(render_action_badges_html(signal_intelligence), unsafe_allow_html=True)
+    except Exception:
+        pass
+
+def explain_top_pick_vs_buy(signal_intelligence):
+    try:
+        action, _ = action_from_signal(signal_intelligence)
+        decision = signal_intelligence.get("decision", "HOLD / WAIT")
+        if action == "VENT" and "SELL" not in str(decision).upper():
+            st.caption("Sterk kandidat, men ikke nødvendigvis kjøp akkurat nå.")
+        elif "SELL" in str(decision).upper() or "AVOID" in str(decision).upper():
+            st.caption("Sterk total score kan finnes, men teknisk timing/risko sier unngå nå.")
+    except Exception:
+        pass
+
 
 
 def render_decision_explanation(decision):
@@ -1552,7 +1611,7 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("⭐ Automatiske Top Picks")
-    st.caption("Top Picks velges automatisk basert på score. Listen og rekkefølgen kan endre seg når markedet endrer seg.")
+    st.caption("Top Picks velges automatisk basert på score. Merk: Top Pick betyr sterk kandidat totalt sett. Beste kjøp nå krever også grønt teknisk signal.")
 
     scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Alle"], horizontal=True)
 
@@ -1618,3 +1677,18 @@ def add_rsi_current_box(fig, rsi):
     except:
         pass
     return fig
+
+
+
+def sort_by_action_aware_score(items):
+    try:
+        enriched = []
+        for x in items:
+            si = x.get("signal_intelligence") or x.get("decision") or {}
+            base = x.get("score", 0)
+            x = dict(x)
+            x["action_rank_score"] = top_pick_rank_score(base, si if isinstance(si, dict) else {})
+            enriched.append(x)
+        return sorted(enriched, key=lambda z: z.get("action_rank_score", z.get("score", 0)), reverse=True)
+    except Exception:
+        return items
