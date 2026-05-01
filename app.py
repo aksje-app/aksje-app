@@ -484,6 +484,22 @@ div[data-testid="stAlert"] {
     margin-top: 2px;
 }
 
+
+/* --- MACD INFO BOX V1 --- */
+.macd-explain-box {
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 8px 0 18px 0;
+    color: #cbd5e1 !important;
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+.macd-explain-box b {
+    color: #f8fafc !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1245,6 +1261,22 @@ def render_intelligence_cards(insider, analyst, earnings):
 
 
 
+
+def render_macd_explanation():
+    st.markdown(
+        """
+        <div class="macd-explain-box">
+            <b>📘 MACD forklart</b><br>
+            <b>MACD-linje:</b> viser momentum i kursen.<br>
+            <b>Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
+            <b>Histogram:</b> forskjellen mellom MACD og signallinjen.<br>
+            <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
     if not results:
@@ -1450,17 +1482,19 @@ def render_analysis(results, label):
     st.plotly_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
 
     fig_macd = go.Figure()
-    fig_macd.add_trace(go.Scatter(x=df.index, y=macd, name="MACD", mode="lines"))
-    fig_macd.add_trace(go.Scatter(x=df.index, y=macd_signal, name="Signal", mode="lines"))
-    fig_macd.add_trace(go.Bar(x=df.index, y=macd_hist, name="Histogram"))
+    fig_macd.add_trace(go.Scatter(x=df.index, y=macd, name="MACD-linje", mode="lines"))
+    fig_macd.add_trace(go.Scatter(x=df.index, y=macd_signal, name="Signallinje", mode="lines"))
+    fig_macd.add_trace(go.Bar(x=df.index, y=macd_hist, name="Histogram (MACD - signallinje)"))
     fig_macd.update_layout(
-        title=f"{selected} - MACD",
+        title=f"{selected} - MACD / Signallinje / Histogram",
         template="plotly_dark",
         height=300,
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
     st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
+
+    render_macd_explanation()
 
     fig_rsi = go.Figure()
     fig_rsi.add_trace(go.Scatter(x=df.index, y=rsi, name="RSI", mode="lines"))
