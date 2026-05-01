@@ -197,3 +197,6 @@ def explain_decision(decision):
     if not isinstance(decision, dict):
         return [], []
     return decision.get("reasons", []), decision.get("warnings", [])
+
+def build_trading_decision(item, technical_context=None):
+    return score_signal(item, technical_context or {})
