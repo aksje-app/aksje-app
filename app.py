@@ -20,7 +20,7 @@ from market_selector import auto_rank_market, build_top_picks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
-from trading_engine import build_trading_decision, adjusted_score
+from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 from signal_engine import calculate_signal_intelligence
 from insider import get_insider_data
@@ -589,6 +589,26 @@ div[data-testid="stAlert"] {
     color: #f8fafc !important;
 }
 
+
+/* --- DARK SELECTBOX DROPDOWN V1 --- */
+div[data-baseweb="popover"] {
+    background: #0f172a !important;
+}
+div[data-baseweb="popover"] div[role="listbox"] {
+    background: #0f172a !important;
+    border: 1px solid rgba(148,163,184,0.45) !important;
+    color: #f8fafc !important;
+}
+div[data-baseweb="popover"] div[role="option"] {
+    color: #f8fafc !important;
+    background: #0f172a !important;
+    font-weight: 800 !important;
+}
+div[data-baseweb="popover"] div[role="option"]:hover {
+    background: #1e293b !important;
+    color: #ffffff !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1085,6 +1105,11 @@ def is_buy_now_item(item):
     return card_decision_for_item(item).get("action_now") == "KJØP NÅ"
 
 
+
+def safe_widget_key(text):
+    return re.sub(r"[^A-Za-z0-9_]+", "_", str(text))[:120]
+
+
 def render_ranking(results, title):
     st.subheader(title)
 
@@ -1153,6 +1178,36 @@ def render_ranking(results, title):
                     st.markdown(f"<div class='action-explain'>⚠️ {warnings[0]}</div>", unsafe_allow_html=True)
                 elif reasons:
                     st.markdown(f"<div class='action-explain'>✅ {reasons[0]}</div>", unsafe_allow_html=True)
+
+                # Direkte paper-trading fra kortet
+                try:
+                    _portfolio = load_portfolio()
+                    _owns = ticker in _portfolio.get("positions", {})
+                    _action_now = str(card_decision.get("action_now", "VENT")).upper()
+                    _conf = int(card_decision.get("confidence", 0) or 0)
+                    _btn_key_base = safe_widget_key(f"{title}_{ticker}_{idx}")
+
+                    if latest_price is not None and _action_now == "KJØP NÅ":
+                        if _owns:
+                            st.caption("📌 Allerede i paper-porteføljen")
+                        elif st.button(f"🟢 Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}"):
+                            _ok, _msg = paper_buy(ticker, latest_price, _conf, f"UI Kjøp nå: {title}")
+                            if _ok:
+                                st.success(_msg)
+                                st.rerun()
+                            else:
+                                st.warning(_msg)
+
+                    elif latest_price is not None and ("UNNGÅ" in _action_now or "SELL" in _action_now):
+                        if _owns and st.button(f"🔴 Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}"):
+                            _ok, _msg = paper_sell(ticker, latest_price, f"UI teknisk signal: {_action_now}")
+                            if _ok:
+                                st.success(_msg)
+                                st.rerun()
+                            else:
+                                st.warning(_msg)
+                except Exception as _e:
+                    st.caption(f"Paper-knapp ikke tilgjengelig: {_e}")
 
 
 
@@ -2242,15 +2297,30 @@ with tabs[3]:
     with top_pick_tabs[0]:
         render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
         st.caption("Merk: En aksje kan være sterk totalt, men fortsatt ha VENT/UNNGÅ hvis teknisk timing er dårlig.")
+        render_analysis(top_picks, f"TopPicks_{scan_market}")
 
     with top_pick_tabs[1]:
         if buy_now_picks:
+            st.info("Disse er kandidater med grønt teknisk signal akkurat nå. Bruk paper-knappene på kortene for å teste kjøp.")
+            if st.button(f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
+                _messages = []
+                for _item in buy_now_picks:
+                    _ticker = _item.get("ticker")
+                    _price, _change = get_item_price_change(_item)
+                    _decision = card_decision_for_item(_item)
+                    if _price is None:
+                        _messages.append(f"{_ticker}: mangler pris")
+                        continue
+                    _ok, _msg = paper_buy(_ticker, _price, int(_decision.get("confidence", 0) or 0), f"UI Kjøp nå alle: {scan_market}")
+                    _messages.append(_msg)
+                st.success(" | ".join(_messages[:8]))
+                st.rerun()
+
             render_ranking(buy_now_picks, f"🟢 Kjøp nå {scan_market}")
+            render_analysis(buy_now_picks, f"KjopNa_{scan_market}")
         else:
             st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
             st.caption("Systemet tvinger ikke kjøp når timing/risiko ikke er god nok.")
-
-    render_analysis(top_picks, f"TopPicks_{scan_market}")
 
 
 with tabs[4]:

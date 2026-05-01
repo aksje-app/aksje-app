@@ -221,7 +221,8 @@ def run_once():
                 traded, msg = auto_trade(
                     result["ticker"],
                     result["price"],
-                    result["decision"],
+                    result["signal"],
+                    confidence=result["confidence"],
                     rsi=result.get("rsi"),
                     prev_rsi=result.get("prev_rsi"),
                 )
