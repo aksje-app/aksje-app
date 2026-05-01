@@ -1,3 +1,4 @@
+from settings_store import load_settings
 
 import os
 import requests
@@ -11,6 +12,12 @@ def pushover_enabled():
 
 
 def send_pushover_alert(message, title="AI Aksje Analyzer"):
+    try:
+        if not bool(load_settings().get("pushover_enabled", True)):
+            print("Pushover disabled by settings")
+            return False, "disabled by settings"
+    except Exception:
+        pass
     """
     Sender Pushover-varsel.
     Bruker Render ENV:

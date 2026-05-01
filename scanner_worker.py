@@ -1,4 +1,30 @@
 
+def _ticker_market(ticker):
+    t = str(ticker).upper()
+    if t.endswith(".OL"):
+        return "NORGE"
+    if t.endswith(".ST"):
+        return "SVERIGE"
+    return "USA"
+
+def _filter_items_by_settings(items, settings):
+    allowed = set(enabled_markets(settings))
+    max_per = int(settings.get("max_tickers_per_market", 20))
+    counts = {"USA": 0, "NORGE": 0, "SVERIGE": 0}
+    out = []
+    for item in items:
+        ticker = item.get("ticker", item if isinstance(item, str) else "")
+        market = _ticker_market(ticker)
+        if market not in allowed:
+            continue
+        if counts[market] >= max_per:
+            continue
+        counts[market] += 1
+        out.append(item)
+    return out
+
+from settings_store import load_settings, enabled_markets
+
 import os
 import time
 import requests

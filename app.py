@@ -1,6 +1,7 @@
 from ui_components import market_pulse, top_movers
 import os
 import streamlit as st
+from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets
 from trading_settings import load_rules, save_rules
@@ -1350,6 +1351,50 @@ def render_strategy_backtest(tickers, label):
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
 st.sidebar.title("⚙️ Innstillinger")
+
+# --- Lagrede auto-innstillinger ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🤖 Auto trading")
+
+_settings = load_settings()
+
+_auto_enabled = st.sidebar.checkbox("Auto trading aktiv", value=bool(_settings.get("auto_trading_enabled", True)), key="persist_auto_enabled")
+
+st.sidebar.markdown("**Markeder Cron skal bruke**")
+_m_usa = st.sidebar.checkbox("USA", value=bool(_settings.get("markets", {}).get("USA", True)), key="persist_market_usa")
+_m_no = st.sidebar.checkbox("Norge", value=bool(_settings.get("markets", {}).get("NORGE", True)), key="persist_market_no")
+_m_se = st.sidebar.checkbox("Sverige", value=bool(_settings.get("markets", {}).get("SVERIGE", True)), key="persist_market_se")
+
+_max_tickers = st.sidebar.number_input("Maks aksjer per marked", 1, 100, int(_settings.get("max_tickers_per_market", 20)), 1, key="persist_max_tickers")
+_min_conf = st.sidebar.number_input("Min confidence for BUY", 0, 100, int(_settings.get("min_buy_confidence", 70)), 1, key="persist_min_conf")
+_min_score = st.sidebar.number_input("Min score for BUY", 0.0, 10.0, float(_settings.get("min_buy_score", 7.2)), 0.1, key="persist_min_score")
+_max_pos = st.sidebar.number_input("Maks åpne posisjoner", 1, 30, int(_settings.get("max_open_positions", 5)), 1, key="persist_max_pos")
+_max_trades = st.sidebar.number_input("Maks trades per dag", 1, 50, int(_settings.get("max_trades_per_day", 3)), 1, key="persist_max_trades")
+_pos_size = st.sidebar.number_input("Posisjonsstørrelse %", 1.0, 100.0, float(_settings.get("position_size_pct", 10.0)), 1.0, key="persist_pos_size")
+_cooldown = st.sidebar.number_input("Cooldown minutter", 0, 1440, int(_settings.get("cooldown_minutes", 60)), 5, key="persist_cooldown")
+_top_only = st.sidebar.checkbox("Auto trading kun Top Picks", value=bool(_settings.get("scan_top_picks_only", True)), key="persist_top_only")
+_push = st.sidebar.checkbox("Pushover aktiv", value=bool(_settings.get("pushover_enabled", True)), key="persist_push")
+
+if st.sidebar.button("💾 Lagre auto-innstillinger", key="persist_save_settings"):
+    save_settings({
+        "auto_trading_enabled": _auto_enabled,
+        "markets": {"USA": _m_usa, "NORGE": _m_no, "SVERIGE": _m_se},
+        "max_tickers_per_market": int(_max_tickers),
+        "min_buy_confidence": int(_min_conf),
+        "min_buy_score": float(_min_score),
+        "max_open_positions": int(_max_pos),
+        "max_trades_per_day": int(_max_trades),
+        "position_size_pct": float(_pos_size),
+        "cooldown_minutes": int(_cooldown),
+        "scan_top_picks_only": bool(_top_only),
+        "pushover_enabled": bool(_push),
+    })
+    st.sidebar.success("Lagret ✅")
+
+if st.sidebar.button("↩️ Standard auto-innstillinger", key="persist_reset_settings"):
+    reset_settings()
+    st.sidebar.success("Tilbakestilt ✅")
+
 
 
 st.sidebar.markdown("### 🔕 Varselkontroll")
