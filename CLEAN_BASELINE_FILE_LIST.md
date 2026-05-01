@@ -1,0 +1,35 @@
+# Clean baseline file list
+
+- `Procfile`
+- `README_CLEAN_BASELINE_V1.md`
+- `alert_state.py`
+- `analysis.py`
+- `analyst.py`
+- `app.py`
+- `auth.py`
+- `background_guard.py`
+- `backtest_strategy.py`
+- `check_system.py`
+- `cron_control.py`
+- `earnings.py`
+- `insider.py`
+- `ipo.py`
+- `market_hours.py`
+- `market_selector.py`
+- `news.py`
+- `notifier.py`
+- `paper_store.py`
+- `paper_trading.py`
+- `patterns.py`
+- `requirements.txt`
+- `runtime.txt`
+- `scanner_worker.py`
+- `settings_store.py`
+- `signal_engine.py`
+- `stocks.py`
+- `strategy_engine.py`
+- `technical.py`
+- `trading_engine.py`
+- `trading_settings.py`
+- `ui_components.py`
+- `user_store.py`
