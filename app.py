@@ -4,7 +4,7 @@ import streamlit as st
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
-from market_hours import open_markets, market_status_lines
+from market_hours import open_markets, market_status_lines, market_statuses
 from trading_settings import load_rules, save_rules
 import pandas as pd
 import plotly.graph_objects as go
@@ -437,6 +437,52 @@ div[data-testid="stAlert"] {
 .info-positive { color: #86efac !important; }
 .info-warning { color: #fde68a !important; }
 .info-negative { color: #fecaca !important; }
+
+
+/* --- COMPACT MARKET STATUS BOXES V1 --- */
+.market-status-box {
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    line-height: 1.15;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.market-status-box.open {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+.market-status-box.closed {
+    background: rgba(239, 68, 68, 0.10);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.market-status-name {
+    color: #ffffff !important;
+    font-weight: 900;
+    font-size: 0.86rem;
+    margin-bottom: 2px;
+}
+
+.market-status-open {
+    color: #86efac !important;
+    font-weight: 800;
+    font-size: 0.82rem;
+}
+
+.market-status-closed {
+    color: #fecaca !important;
+    font-weight: 900;
+    font-size: 0.82rem;
+}
+
+.market-status-reason {
+    color: #ff5c5c !important;
+    font-weight: 900;
+    font-size: 0.78rem;
+    margin-top: 2px;
+}
 
 </style>
 """, unsafe_allow_html=True)
@@ -1698,11 +1744,40 @@ render_user_admin(current_user)
 
 
 st.sidebar.markdown("### 🕒 Børsstatus")
-for _line in market_status_lines():
-    if "åpent" in _line:
-        st.sidebar.success(_line)
+
+_statuses = market_statuses()
+
+for _key, _status in _statuses.items():
+    _name = _status.get("name", _key)
+    _is_open = bool(_status.get("is_open"))
+    _reason = _status.get("reason", "ukjent")
+    _closes_at = _status.get("closes_at")
+
+    if _is_open:
+        _text = "Åpent ✅"
+        if _closes_at:
+            _text += f" til {_closes_at}"
+
+        st.sidebar.markdown(
+            f"""
+            <div class="market-status-box open">
+                <div class="market-status-name">{_name}</div>
+                <div class="market-status-open">{_text}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     else:
-        st.sidebar.warning(_line)
+        st.sidebar.markdown(
+            f"""
+            <div class="market-status-box closed">
+                <div class="market-status-name">{_name}</div>
+                <div class="market-status-closed">Stengt ⚠️</div>
+                <div class="market-status-reason">{_reason}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # --- Lagrede auto-innstillinger ---
