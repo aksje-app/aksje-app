@@ -229,3 +229,20 @@ def insider_signal(ticker):
 
 def fetch_insider(ticker):
     return get_insider_signal(ticker)
+
+
+# --- BACKWARD COMPATIBILITY V2 ---
+# Eldre app.py/signal_engine.py importerer get_insider_data.
+# Nye insider-funksjoner bruker get_insider_signal.
+# Disse aliasene gjør at gammel og ny kode fungerer samtidig.
+
+def get_insider_data(ticker, months=6):
+    return get_insider_signal(ticker, months=months)
+
+
+def get_insider(ticker, months=6):
+    return get_insider_signal(ticker, months=months)
+
+
+def get_insider_transactions(ticker, months=6):
+    return fetch_insider_transactions(ticker, months=months).get("transactions", [])
