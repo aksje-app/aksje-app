@@ -1,1 +1,0 @@
-Fikset ModuleNotFoundError: streamlit_autorefresh ved å legge streamlit-autorefresh i requirements.txt
