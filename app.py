@@ -338,6 +338,64 @@ div[data-testid="stAlert"] {
     margin-top:4px;
 }
 
+
+/* --- READABLE INSIDER / ANALYST / EARNINGS CARDS V1 --- */
+.info-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    gap: 14px;
+    margin: 12px 0 18px 0;
+}
+.info-card-big {
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 16px;
+    padding: 16px 18px;
+    min-height: 142px;
+}
+.info-card-title {
+    color: #f8fafc !important;
+    font-size: 1.05rem;
+    font-weight: 900;
+    margin-bottom: 10px;
+}
+.info-card-main {
+    color: #ffffff !important;
+    font-size: 1.55rem;
+    font-weight: 950;
+    line-height: 1.2;
+    margin: 8px 0;
+}
+.info-card-sub {
+    color: #cbd5e1 !important;
+    font-size: 0.98rem;
+    line-height: 1.45;
+    margin-top: 8px;
+}
+.info-card-small {
+    color: #94a3b8 !important;
+    font-size: 0.86rem;
+    line-height: 1.35;
+    margin-top: 8px;
+}
+.info-positive {
+    color: #86efac !important;
+}
+.info-warning {
+    color: #fde68a !important;
+}
+.info-negative {
+    color: #fecaca !important;
+}
+@media (max-width: 900px) {
+    .info-card-grid {
+        grid-template-columns: 1fr;
+    }
+    .info-card-main {
+        font-size: 1.35rem;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -986,6 +1044,104 @@ def add_rsi_level_labels(fig, rsi_series=None):
         pass
     return fig
 
+
+def format_big_number(value):
+    try:
+        v = float(value or 0)
+    except Exception:
+        return "0"
+
+    abs_v = abs(v)
+    if abs_v >= 1_000_000_000:
+        return f"{v/1_000_000_000:.2f} mrd"
+    if abs_v >= 1_000_000:
+        return f"{v/1_000_000:.2f} mill"
+    if abs_v >= 1_000:
+        return f"{v:,.0f}".replace(",", " ")
+    return f"{v:.0f}"
+
+
+def insider_signal_label(score):
+    try:
+        s = float(score)
+    except Exception:
+        return "Nøytral", "info-warning"
+
+    if s >= 0.60:
+        return "Netto kjøp", "info-positive"
+    if s <= 0.40:
+        return "Netto salg", "info-negative"
+    return "Blandet", "info-warning"
+
+
+def render_intelligence_cards(insider, analyst, earnings):
+    insider = insider or {}
+    analyst = analyst or {}
+    earnings = earnings or {}
+
+    insider_score = insider.get("score", "N/A")
+    insider_label, insider_class = insider_signal_label(insider_score)
+
+    buy_shares = format_big_number(insider.get("buy_shares", 0))
+    sell_shares = format_big_number(insider.get("sell_shares", 0))
+    buy_count = insider.get("buy_count", 0)
+    sell_count = insider.get("sell_count", 0)
+    transactions = insider.get("transactions", 0)
+
+    analyst_trend = analyst.get("trend", "N/A")
+    analyst_buy = analyst.get("buy", 0)
+    analyst_hold = analyst.get("hold", 0)
+    analyst_sell = analyst.get("sell", 0)
+
+    earnings_date = earnings.get("date") or "Ingen nær dato"
+    days_until = earnings.get("days_until", "N/A")
+
+    st.markdown(
+        f"""
+        <div class="info-card-grid">
+            <div class="info-card-big">
+                <div class="info-card-title">🕵️ Insider</div>
+                <div class="info-card-main {insider_class}">{insider_label}</div>
+                <div class="info-card-sub">
+                    Score: <b>{insider_score}</b><br>
+                    Kjøp: <b>{buy_shares}</b> aksjer<br>
+                    Salg: <b>{sell_shares}</b> aksjer
+                </div>
+                <div class="info-card-small">
+                    Transaksjoner: {transactions} · Kjøp: {buy_count} · Salg: {sell_count}<br>
+                    Tallene er summerte insider-transaksjoner i aksjer fra siste periode.
+                </div>
+            </div>
+
+            <div class="info-card-big">
+                <div class="info-card-title">📈 Analyst</div>
+                <div class="info-card-main">{analyst_trend}</div>
+                <div class="info-card-sub">
+                    Buy: <b>{analyst_buy}</b><br>
+                    Hold: <b>{analyst_hold}</b><br>
+                    Sell: <b>{analyst_sell}</b>
+                </div>
+                <div class="info-card-small">
+                    Analytikerbildet brukes som støtte, ikke som eneste beslutningsgrunnlag.
+                </div>
+            </div>
+
+            <div class="info-card-big">
+                <div class="info-card-title">⏰ Earnings</div>
+                <div class="info-card-main">{earnings_date}</div>
+                <div class="info-card-sub">
+                    Dager igjen: <b>{days_until}</b>
+                </div>
+                <div class="info-card-small">
+                    Nær rapportdato kan gi ekstra volatilitet og høyere risiko.
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
     if not results:
@@ -1071,30 +1227,7 @@ def render_analysis(results, label):
         si3.metric("Risk", signal_intelligence.get("risk", "Middels"))
         si4.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
 
-        i1, i2, i3 = st.columns(3)
-        with i1:
-            st.markdown("**🕵️ Insider**")
-            if insider.get("error"):
-                st.caption(insider["error"])
-            st.write(f"Score: {insider.get('score', 'N/A')}")
-            st.caption(f"Kjøp: {insider.get('buy_shares', 0)} · Salg: {insider.get('sell_shares', 0)}")
-
-        with i2:
-            st.markdown("**📈 Analyst**")
-            if analyst.get("error"):
-                st.caption(analyst["error"])
-            st.write(f"Trend: {analyst.get('trend', 'N/A')}")
-            st.caption(f"Buy: {analyst.get('buy', 0)} · Hold: {analyst.get('hold', 0)} · Sell: {analyst.get('sell', 0)}")
-
-        with i3:
-            st.markdown("**⏰ Earnings**")
-            if earnings.get("error"):
-                st.caption(earnings["error"])
-            if earnings.get("date"):
-                st.write(f"Dato: {earnings.get('date')}")
-                st.caption(f"Dager igjen: {earnings.get('days_until')}")
-            else:
-                st.write("Ingen nær dato funnet")
+        render_intelligence_cards(insider, analyst, earnings)
 
     with st.expander("Hvorfor dette signalet?"):
         for reason in decision["reasons"]:
