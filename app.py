@@ -1356,9 +1356,9 @@ def render_macd_explanation():
         """
         <div class="macd-explain-box">
             <b>📘 MACD forklart</b><br>
-            <b>MACD-linje:</b> viser momentum i kursen.<br>
-            <b>Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
-            <b>Histogram:</b> forskjellen mellom MACD og signallinjen.<br>
+            <b>🔵 MACD-linje:</b> viser momentum i kursen. Når den stiger, øker positivt momentum.<br>
+            <b>🔴 Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
+            <b>🟢/🔴 Histogram:</b> forskjellen mellom MACD og signallinjen. Grønt = MACD over signal, rødt = MACD under signal.<br>
             <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum. Grafene støtter musehjul-zoom og panering.
         </div>
         """,
@@ -1573,15 +1573,120 @@ def render_analysis(results, label):
     render_graph_explanation("ta")
 
     fig_macd = go.Figure()
-    fig_macd.add_trace(go.Scatter(x=df.index, y=macd, name="MACD-linje", mode="lines"))
-    fig_macd.add_trace(go.Scatter(x=df.index, y=macd_signal, name="Signallinje", mode="lines"))
-    fig_macd.add_trace(go.Bar(x=df.index, y=macd_hist, name="Histogram (MACD - signallinje)"))
+
+    macd_clean = macd.dropna()
+    macd_signal_clean = macd_signal.dropna()
+    macd_hist_clean = macd_hist.dropna()
+
+    macd_last = float(macd_clean.iloc[-1]) if len(macd_clean) else 0.0
+    signal_last = float(macd_signal_clean.iloc[-1]) if len(macd_signal_clean) else 0.0
+    hist_last = float(macd_hist_clean.iloc[-1]) if len(macd_hist_clean) else 0.0
+    last_x = df.index[-1]
+
+    hist_colors = ["#22c55e" if float(v) >= 0 else "#ef4444" for v in macd_hist.fillna(0)]
+
+    fig_macd.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=macd,
+            name="🔵 MACD-linje",
+            mode="lines",
+            line=dict(color="#3b82f6", width=2.6),
+            hovertemplate="<b>🔵 MACD-linje</b><br>Dato: %{x}<br>Verdi: %{y:.2f}<extra></extra>",
+        )
+    )
+
+    fig_macd.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=macd_signal,
+            name="🔴 Signallinje",
+            mode="lines",
+            line=dict(color="#ef4444", width=2.4),
+            hovertemplate="<b>🔴 Signallinje</b><br>Dato: %{x}<br>Verdi: %{y:.2f}<extra></extra>",
+        )
+    )
+
+    fig_macd.add_trace(
+        go.Bar(
+            x=df.index,
+            y=macd_hist,
+            name="🟢/🔴 Histogram",
+            marker=dict(color=hist_colors),
+            opacity=0.78,
+            hovertemplate="<b>🟢/🔴 Histogram</b><br>Dato: %{x}<br>MACD - signal: %{y:.2f}<extra></extra>",
+        )
+    )
+
+    fig_macd.add_hline(
+        y=0,
+        line_width=1,
+        line_dash="dot",
+        line_color="rgba(255,255,255,0.55)",
+        annotation_text="0-linje",
+        annotation_position="right",
+    )
+
+    fig_macd.add_annotation(
+        x=last_x,
+        y=macd_last,
+        text=f"🔵 MACD {macd_last:.2f}",
+        showarrow=True,
+        arrowhead=2,
+        ax=42,
+        ay=-26,
+        bgcolor="rgba(59,130,246,0.18)",
+        bordercolor="#3b82f6",
+        borderwidth=1,
+        font=dict(color="#dbeafe", size=12),
+    )
+
+    fig_macd.add_annotation(
+        x=last_x,
+        y=signal_last,
+        text=f"🔴 Signal {signal_last:.2f}",
+        showarrow=True,
+        arrowhead=2,
+        ax=42,
+        ay=26,
+        bgcolor="rgba(239,68,68,0.18)",
+        bordercolor="#ef4444",
+        borderwidth=1,
+        font=dict(color="#fee2e2", size=12),
+    )
+
+    fig_macd.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.01,
+        y=1.15,
+        text=f"Histogram nå: {'🟢 positiv' if hist_last >= 0 else '🔴 negativ'} ({hist_last:.2f})",
+        showarrow=False,
+        align="left",
+        bgcolor="rgba(15,23,42,0.88)",
+        bordercolor="rgba(148,163,184,0.45)",
+        borderwidth=1,
+        font=dict(color="#f8fafc", size=12),
+    )
+
     fig_macd.update_layout(
-        title=f"{selected} - MACD / Signallinje / Histogram",
+        title=f"{selected} - MACD: blå linje / rød signal / grønt-rødt histogram",
         template="plotly_dark",
-        height=300,
+        height=330,
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
+        margin=dict(l=40, r=90, t=95, b=35),
+        legend=dict(
+            title="Forklaring",
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
+            bgcolor="rgba(15,23,42,0.75)",
+            bordercolor="rgba(148,163,184,0.35)",
+            borderwidth=1,
+        ),
     )
     render_interactive_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
 
