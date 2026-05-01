@@ -48,7 +48,8 @@ def _load_from_db():
             return None
         raw = row[0] if using_postgres() else row["rules"]
         return json.loads(raw)
-    except Exception:
+    except Exception as e:
+        print(f"trading_rules load DB failed: {e}")
         return None
 
 
@@ -75,7 +76,8 @@ def _save_to_db(rules):
         conn.commit()
         conn.close()
         return True
-    except Exception:
+    except Exception as e:
+        print(f"trading_rules save DB failed: {e}")
         return False
 
 

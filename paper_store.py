@@ -106,6 +106,18 @@ def init_db():
     conn.close()
     return True
 
+
+# -------------------------------------------------------------------
+# Compatibility aliases
+# Older modules import init_store(), newer store uses init_db().
+# -------------------------------------------------------------------
+def init_store():
+    try:
+        return init_db()
+    except Exception as e:
+        print(f"init_store failed: {e}")
+        return False
+
 def _load_json():
     if not STORE_FILE.exists():
         save_portfolio(DEFAULT_PORTFOLIO.copy())
