@@ -1,1 +1,0 @@
-Denne versjonen viser siste kurs og prosentendring direkte på aksjekortene i rangeringslisten.
