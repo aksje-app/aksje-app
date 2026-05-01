@@ -396,6 +396,44 @@ div[data-testid="stAlert"] {
     }
 }
 
+
+/* --- READABLE INSIDER CARDS V2 --- */
+.info-mini-card {
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 16px;
+    padding: 16px 18px;
+    min-height: 178px;
+    margin-bottom: 12px;
+}
+.info-mini-title {
+    color: #f8fafc !important;
+    font-size: 1.05rem;
+    font-weight: 900;
+    margin-bottom: 10px;
+}
+.info-mini-main {
+    color: #ffffff !important;
+    font-size: 1.35rem;
+    font-weight: 950;
+    line-height: 1.25;
+    margin: 7px 0;
+}
+.info-mini-sub {
+    color: #cbd5e1 !important;
+    font-size: 0.98rem;
+    line-height: 1.45;
+}
+.info-mini-small {
+    color: #94a3b8 !important;
+    font-size: 0.84rem;
+    line-height: 1.35;
+    margin-top: 8px;
+}
+.info-positive { color: #86efac !important; }
+.info-warning { color: #fde68a !important; }
+.info-negative { color: #fecaca !important; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1096,50 +1134,65 @@ def render_intelligence_cards(insider, analyst, earnings):
     earnings_date = earnings.get("date") or "Ingen nær dato"
     days_until = earnings.get("days_until", "N/A")
 
-    st.markdown(
-        f"""
-        <div class="info-card-grid">
-            <div class="info-card-big">
-                <div class="info-card-title">🕵️ Insider</div>
-                <div class="info-card-main {insider_class}">{insider_label}</div>
-                <div class="info-card-sub">
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown(
+            f"""
+            <div class="info-mini-card">
+                <div class="info-mini-title">🕵️ Insider</div>
+                <div class="info-mini-main {insider_class}">{insider_label}</div>
+                <div class="info-mini-sub">
                     Score: <b>{insider_score}</b><br>
                     Kjøp: <b>{buy_shares}</b> aksjer<br>
                     Salg: <b>{sell_shares}</b> aksjer
                 </div>
-                <div class="info-card-small">
+                <div class="info-mini-small">
                     Transaksjoner: {transactions} · Kjøp: {buy_count} · Salg: {sell_count}<br>
                     Tallene er summerte insider-transaksjoner i aksjer fra siste periode.
                 </div>
             </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            <div class="info-card-big">
-                <div class="info-card-title">📈 Analyst</div>
-                <div class="info-card-main">{analyst_trend}</div>
-                <div class="info-card-sub">
+    with c2:
+        st.markdown(
+            f"""
+            <div class="info-mini-card">
+                <div class="info-mini-title">📈 Analyst</div>
+                <div class="info-mini-main">{analyst_trend}</div>
+                <div class="info-mini-sub">
                     Buy: <b>{analyst_buy}</b><br>
                     Hold: <b>{analyst_hold}</b><br>
                     Sell: <b>{analyst_sell}</b>
                 </div>
-                <div class="info-card-small">
+                <div class="info-mini-small">
                     Analytikerbildet brukes som støtte, ikke som eneste beslutningsgrunnlag.
                 </div>
             </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            <div class="info-card-big">
-                <div class="info-card-title">⏰ Earnings</div>
-                <div class="info-card-main">{earnings_date}</div>
-                <div class="info-card-sub">
+    with c3:
+        st.markdown(
+            f"""
+            <div class="info-mini-card">
+                <div class="info-mini-title">⏰ Earnings</div>
+                <div class="info-mini-main">{earnings_date}</div>
+                <div class="info-mini-sub">
                     Dager igjen: <b>{days_until}</b>
                 </div>
-                <div class="info-card-small">
+                <div class="info-mini-small">
                     Nær rapportdato kan gi ekstra volatilitet og høyere risiko.
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 
 
 def render_analysis(results, label):
