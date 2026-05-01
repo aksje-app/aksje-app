@@ -32,7 +32,7 @@ import requests
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, load_portfolio, portfolio_value
 from alert_state import should_send_alert, record_alert
-from market_hours import open_markets, should_process_ticker
+from market_hours import open_markets, should_process_ticker, market_status_lines
 
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers
 from analysis import score_stock
@@ -182,6 +182,9 @@ def maybe_send_trade_alert(result, msg):
 
 
 def run_once():
+    for line in market_status_lines():
+        print(line)
+
     markets = open_markets()
     if not markets:
         print("⏸ Alle markeder stengt - ingen scanning")

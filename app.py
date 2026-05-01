@@ -3,7 +3,7 @@ import os
 import streamlit as st
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
-from market_hours import open_markets
+from market_hours import open_markets, market_status_lines
 from trading_settings import load_rules, save_rules
 import pandas as pd
 import plotly.graph_objects as go
@@ -1691,6 +1691,15 @@ def render_strategy_backtest(tickers, label):
 
 st.sidebar.title("⚙️ Innstillinger")
 
+
+st.sidebar.markdown("### 🕒 Børsstatus")
+for _line in market_status_lines():
+    if "åpent" in _line:
+        st.sidebar.success(_line)
+    else:
+        st.sidebar.warning(_line)
+
+
 # --- Lagrede auto-innstillinger ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Auto trading")
@@ -1810,7 +1819,7 @@ if 'top_picks' in locals():
     market_pulse(top_picks)
     top_movers(top_picks)
 
-st.title("📈 AI Aksje Analyzer Pro — Restore")
+st.title("📈 AI Aksje Analyzer Pro — Dag Ø. Borch")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 
 if auto_watchlist_alerts or manual_watchlist_scan:
