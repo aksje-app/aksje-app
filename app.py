@@ -1680,7 +1680,7 @@ def render_analysis(results, label):
         decision["decision_score"] = signal_intelligence.get("final_score", signal_intelligence.get("decision_score", 0))
         decision["reasons"] = decision.get("reasons", []) + signal_intelligence.get("reasons", [])
 
-    # MOBILE_ANALYSIS_STEP1_V1
+    # MOBILE_ANALYSIS_STEP3_TRADING_PANEL_V1
     render_mobile_analysis_view(
         item,
         selected,

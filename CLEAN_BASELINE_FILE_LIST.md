@@ -1,7 +1,12 @@
 # Clean baseline file list
 
+- `CLEAN_BASELINE_FILE_LIST.md`
 - `Procfile`
 - `README_CLEAN_BASELINE_V1.md`
+- `README_MOBILE_ANALYSIS_STEP1_V1.md`
+- `README_MOBILE_ANALYSIS_STEP2_CHART_V1.md`
+- `README_MOBILE_ANALYSIS_STEP3_TRADING_PANEL_V1.md`
+- `README_SIDEBAR_DEDUPE_V1.md`
 - `alert_state.py`
 - `analysis.py`
 - `analyst.py`
@@ -16,6 +21,7 @@
 - `ipo.py`
 - `market_hours.py`
 - `market_selector.py`
+- `mobile_analysis_view.py`
 - `news.py`
 - `notifier.py`
 - `paper_store.py`
