@@ -2,6 +2,8 @@
 
 - `CLEAN_BASELINE_FILE_LIST.md`
 - `Procfile`
+- `README_BANNER_SYNC_TIMEFRAME_V1.md`
+- `README_BANNER_TICKER_TAPE_V2.md`
 - `README_CLEAN_BASELINE_V1.md`
 - `README_GRAPH_SIDEBAR_POLISH_V1.md`
 - `README_INDICATOR_LABELS_V1.md`
@@ -14,8 +16,14 @@
 - `README_PRO_TERMINAL_UI_V1.md`
 - `README_SIDEBAR_ALERTS_LAYOUT_V1.md`
 - `README_SIDEBAR_DEDUPE_V1.md`
+- `README_SIDEBAR_MARKET_DROPDOWN_V1.md`
 - `README_SIDEBAR_MARKET_PILLS_FIX_V2.md`
 - `README_WIDGET_KEY_FIX_V2.md`
+- `__pycache__/app.cpython-313.pyc`
+- `__pycache__/mobile_analysis_view.cpython-313.pyc`
+- `__pycache__/notifier.cpython-313.pyc`
+- `__pycache__/scanner_worker.cpython-313.pyc`
+- `__pycache__/settings_store.cpython-313.pyc`
 - `alert_state.py`
 - `analysis.py`
 - `analyst.py`

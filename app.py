@@ -68,6 +68,92 @@ UI_REFRESH_MINUTES = max(1, min(UI_REFRESH_MINUTES, 60))
 st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
 
+
+# SIDEBAR_MARKET_DROPDOWN_V1
+
+MARKET_CATEGORY_OPTIONS = [
+    "US Markets",
+    "Europe Markets",
+    "Norway / Oslo",
+    "Sweden / Stockholm",
+    "Cryptocurrencies",
+    "Rates",
+    "Commodities",
+    "Currencies",
+    "All Markets",
+]
+
+MARKET_CATEGORY_TO_MODE = {
+    "US Markets": "USA / S&P 500",
+    "Europe Markets": "Alle",
+    "Norway / Oslo": "Norge / Oslo Børs",
+    "Sweden / Stockholm": "Sverige / Stockholm",
+    "Cryptocurrencies": "Alle",
+    "Rates": "Alle",
+    "Commodities": "Alle",
+    "Currencies": "Alle",
+    "All Markets": "Alle",
+}
+
+
+def render_market_category_selector():
+    """
+    Kompakt markedskategori-velger i sidebar, inspirert av finansapper.
+    Returnerer gammel intern mode slik resten av appen fortsatt fungerer.
+    """
+    st.sidebar.markdown(
+        """
+        <style>
+        .market-category-card {
+            background: rgba(15,23,42,0.72);
+            border: 1px solid rgba(148,163,184,0.22);
+            border-radius: 12px;
+            padding: 9px 10px;
+            margin: 8px 0 10px 0;
+        }
+        .market-category-title {
+            color: #f8fafc;
+            font-weight: 950;
+            font-size: 0.88rem;
+            margin-bottom: 3px;
+        }
+        .market-category-sub {
+            color: #94a3b8;
+            font-weight: 650;
+            font-size: 0.70rem;
+            line-height: 1.2;
+        }
+        </style>
+        <div class="market-category-card">
+            <div class="market-category-title">◎ Markedskategori</div>
+            <div class="market-category-sub">Velg hvilket univers appen skal analysere.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    selected_category = st.sidebar.selectbox(
+        "Markedskategori",
+        MARKET_CATEGORY_OPTIONS,
+        index=0,
+        label_visibility="collapsed",
+        key="market_category_selector_v1",
+    )
+
+    mode = MARKET_CATEGORY_TO_MODE.get(selected_category, "Alle")
+
+    if selected_category in {"Cryptocurrencies", "Rates", "Commodities", "Currencies"}:
+        st.sidebar.info(
+            f"{selected_category}: kategori er lagt inn i menyen, men full analysemodell for dette universet kommer senere. "
+            "Foreløpig brukes aksjeuniverset som fallback."
+        )
+    elif selected_category == "Europe Markets":
+        st.sidebar.caption("Europe Markets bruker foreløpig samlet aksjeunivers/fallback. Norge og Sverige kan velges separat.")
+
+    return selected_category, mode
+
+
+
 CHART_CONFIG = {
     "scrollZoom": True,
     "displayModeBar": True,
@@ -2842,7 +2928,8 @@ st.sidebar.markdown("### 🎨 Visning")
 st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
-mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Sverige / Stockholm", "Alle"])
+st.sidebar.markdown('### 🔎 Analyseunivers')
+selected_market_category, mode = render_market_category_selector()
 max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 200, 30)
 st.sidebar.caption("Flere aksjer gir bedre dekning, men appen kan bli tregere.")
 min_top_pick_score = st.sidebar.slider("Minimum score for Top Picks", 4.0, 9.0, 6.5, 0.1)
