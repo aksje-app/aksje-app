@@ -24,6 +24,7 @@ from paper_trading import load_portfolio
 # INDICATOR_LABELS_V1
 # MOBILE_ANALYSIS_ADVANCED_INDICATORS_V1
 # PRO_TERMINAL_UI_V1
+# CONTROLS_FIX_V1
 
 
 TIMEFRAME_CONFIG = {
@@ -315,6 +316,23 @@ def _add_main_indicators(fig, df, indicators):
 
 
 
+
+def calculate_trend_channel(df, period=20):
+    """
+    Trendkanal basert på rullerende høy/lav.
+    Returnerer øvre, midtre og nedre kanal.
+    """
+    df = _clean_ohlcv(df)
+    if df.empty:
+        empty = pd.Series(index=df.index, dtype=float)
+        return empty, empty, empty
+
+    upper = df["High"].rolling(period).max()
+    lower = df["Low"].rolling(period).min()
+    mid = (upper + lower) / 2.0
+    return upper, mid, lower
+
+
 def _series_last(series):
     try:
         s = pd.Series(series).dropna()
@@ -439,7 +457,7 @@ def _add_last_value_label(fig, x, y, text, row=1, col=1, color='rgba(59,130,246,
 
 
 
-def build_mobile_chart(df, ticker, timeframe, indicators):
+def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
     df = _clean_ohlcv(df)
     if df.empty:
         return None
@@ -479,22 +497,50 @@ def build_mobile_chart(df, ticker, timeframe, indicators):
         specs=[[{"secondary_y": False}] for _ in range(rows)],
     )
 
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            name=f"{ticker} candles",
-            increasing_line_color="#22c55e",
-            decreasing_line_color="#ef4444",
-            increasing_fillcolor="#22c55e",
-            decreasing_fillcolor="#ef4444",
-            hovertemplate=("<b>%{x}</b><br>Open: %{open:.2f}<br>High: %{high:.2f}<br>Low: %{low:.2f}<br>Close: %{close:.2f}<extra></extra>"),
-        ),
-        row=1, col=1,
-    )
+    chart_type = chart_type or "Candles"
+    if chart_type == "Line":
+        fig.add_trace(
+            go.Scattergl(
+                x=df.index,
+                y=df["Close"],
+                name=f"{ticker} linje",
+                mode="lines",
+                line=dict(color="#60a5fa", width=1.8),
+                hovertemplate="<b>%{x}</b><br>Close: %{y:.2f}<extra></extra>",
+            ),
+            row=1, col=1,
+        )
+    elif chart_type == "Area":
+        fig.add_trace(
+            go.Scattergl(
+                x=df.index,
+                y=df["Close"],
+                name=f"{ticker} område",
+                mode="lines",
+                fill="tozeroy",
+                line=dict(color="#60a5fa", width=1.6),
+                fillcolor="rgba(96,165,250,0.18)",
+                hovertemplate="<b>%{x}</b><br>Close: %{y:.2f}<extra></extra>",
+            ),
+            row=1, col=1,
+        )
+    else:
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index,
+                open=df["Open"],
+                high=df["High"],
+                low=df["Low"],
+                close=df["Close"],
+                name=f"{ticker} candles",
+                increasing_line_color="#22c55e",
+                decreasing_line_color="#ef4444",
+                increasing_fillcolor="#22c55e",
+                decreasing_fillcolor="#ef4444",
+                hovertemplate=("<b>%{x}</b><br>Open: %{open:.2f}<br>High: %{high:.2f}<br>Low: %{low:.2f}<br>Close: %{close:.2f}<extra></extra>"),
+            ),
+            row=1, col=1,
+        )
 
     close = df["Close"]
     last_x = df.index[-1]
@@ -1313,6 +1359,30 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             .pro-symbol { font-size:1.35rem; }
         }
 
+
+        /* CONTROLS_FIX_V1: fix dark/black blob on first multiselect chip */
+        div[data-baseweb="select"] span,
+        div[data-baseweb="select"] div[role="button"] {
+            box-shadow: none !important;
+        }
+        div[data-baseweb="tag"] {
+            background: #ef4444 !important;
+            color: #ffffff !important;
+            border-radius: 10px !important;
+            border: 1px solid rgba(255,255,255,0.25) !important;
+            box-shadow: none !important;
+        }
+        div[data-baseweb="tag"] span {
+            color: #ffffff !important;
+        }
+        div[data-baseweb="tag"] svg {
+            color: #ffffff !important;
+            fill: #ffffff !important;
+        }
+        div[data-baseweb="select"] input {
+            color: #f8fafc !important;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1328,7 +1398,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
                 timeframe = tf
                 st.rerun()
 
-    st.caption("Mobil analyse er komprimert for raskere visning. Velg bare indikatorene du trenger for best ytelse.")
+    st.caption("Velg chart-type og indikatorer. Synlige indikatorer er aktive; X fjerner dem. Reset/Standard/Full legger dem raskt tilbake.")
 
     chart_df = fetch_timeframe_data(ticker, timeframe)
     if chart_df.empty:
@@ -1366,22 +1436,45 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     preset_default = render_pro_preset_bar(ticker, label, timeframe)
 
+    chart_type = st.radio(
+        "Chart-type",
+        ["Candles", "Line", "Area"],
+        horizontal=True,
+        key=f"chart_type_{label}_{ticker}_{timeframe}",
+        help="Candles = kandelvisning. Line = rask linjevisning. Area = linje med fyll.",
+    )
+
+    indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
+    reset_cols = st.columns(3)
+    with reset_cols[0]:
+        if st.button("↩️ Reset indikatorer", key=f"reset_ind_{label}_{ticker}_{timeframe}", use_container_width=True):
+            st.session_state[indicator_key] = preset_default
+            st.rerun()
+    with reset_cols[1]:
+        if st.button("✅ Standard", key=f"std_ind_{label}_{ticker}_{timeframe}", use_container_width=True):
+            st.session_state[indicator_key] = ["MA", "VOL", "KANAL"]
+            st.rerun()
+    with reset_cols[2]:
+        if st.button("⚡ Full", key=f"full_ind_{label}_{ticker}_{timeframe}", use_container_width=True):
+            st.session_state[indicator_key] = ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "RSI", "ADX"]
+            st.rerun()
+
     indicators = st.multiselect(
         "Indikatorer",
         ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX"],
         default=preset_default,
-        key=f"mobile_indicators_{label}_{ticker}_{timeframe}",
-        help="Velg indikatorer. MA, EMA, BOLL, SAR, VWAP og KANAL vises i prisgrafen. VOL, MACD, RSI, KDJ, ATR, OBV og ADX vises i egne paneler.",
+        key=indicator_key,
+        help="Synlig i feltet = aktiv i grafen. X fjerner indikatoren. Bruk Reset/Standard/Full for å legge tilbake raskt.",
     )
 
     _render_indicator_snapshot(chart_df, indicators, currency=currency)
     render_chart_help()
-    fig = build_mobile_chart(chart_df, ticker, timeframe, indicators)
+    fig = build_mobile_chart(chart_df, ticker, timeframe, indicators, chart_type=chart_type)
     if fig is not None:
         # Streamlit trenger unik key for hver Plotly-graf.
         # Uten key kan to like grafer få samme auto-ID og gi StreamlitDuplicateElementId.
         _indicator_key = "_".join([str(x) for x in indicators]) if indicators else "none"
-        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
+        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{chart_type}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
 
         st.plotly_chart(
             fig,
