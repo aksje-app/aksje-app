@@ -50,6 +50,7 @@ from analyst import get_analyst_trend
 from earnings import get_earnings
 from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
+from mobile_analysis_view import render_mobile_analysis_view
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 
@@ -1587,15 +1588,42 @@ def render_macd_explanation():
 
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
-    if not results:
+
+    result_options = [r.get("ticker") for r in (results or []) if r.get("ticker")]
+    default_options = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
+    options = []
+    for _t in result_options + default_options:
+        if _t and _t not in options:
+            options.append(_t)
+
+    s1, s2 = st.columns([2, 1])
+    with s1:
+        selected_from_list = st.selectbox(
+            f"Velg aksje fra aktuell liste ({label})",
+            options,
+            index=0,
+            key=f"select_{label}",
+        )
+    with s2:
+        manual_ticker = st.text_input(
+            "Eller skriv ticker",
+            value="",
+            placeholder="AAPL / EQNR.OL / ABB.ST",
+            key=f"manual_ticker_{label}",
+        )
+
+    selected = (manual_ticker.strip().upper() if manual_ticker.strip() else selected_from_list)
+
+    item = next((r for r in (results or []) if r.get("ticker") == selected), None)
+    if item is None:
+        with st.spinner(f"Henter analyse for {selected}..."):
+            item = score_stock(selected, use_news=False)
+
+    if not item:
+        st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. AAPL, EQNR.OL eller ABB.ST.")
         return
 
-    selected = st.selectbox(f"Velg aksje ({label})", [r["ticker"] for r in results], key=f"select_{label}")
-    item = next(r for r in results if r["ticker"] == selected)
     df = item["hist"].copy()
-
-    render_interactive_chart(plot_price(df, f"{selected} - prisutvikling"), use_container_width=True, key=f"price_chart_{label}_{selected}")
-    render_graph_explanation("price")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Score", f"{item['score']}/10")
@@ -1651,6 +1679,18 @@ def render_analysis(results, label):
         decision["confidence"] = signal_intelligence.get("confidence", 0)
         decision["decision_score"] = signal_intelligence.get("final_score", signal_intelligence.get("decision_score", 0))
         decision["reasons"] = decision.get("reasons", []) + signal_intelligence.get("reasons", [])
+
+    # MOBILE_ANALYSIS_STEP1_V1
+    render_mobile_analysis_view(
+        item,
+        selected,
+        label,
+        decision=decision,
+        technical_context=technical_context,
+        chart_renderer=render_interactive_chart,
+    )
+
+    st.markdown("---")
 
     if (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence:
         maybe_send_signal_alert(selected, decision)
