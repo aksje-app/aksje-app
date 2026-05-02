@@ -944,7 +944,7 @@ def parse_banner_tickers(settings=None):
     return tuple(out)
 
 
-def _sparkline_svg(values, positive=True, width=86, height=22, reference=None):
+def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
     """Yahoo-finance style mini chart with a dotted previous-close baseline.
     Green segments are above the reference level, red segments are below.
     """
@@ -1072,10 +1072,13 @@ def render_live_market_banner():
         pct_class = 'pos' if pct >= 0 else 'neg'
         pct_txt = f"{pct:+.2f}%"
         delta_txt = f"{delta:+.2f}"
+        market_label = html.escape(str(item.get('market', '')))
+        title_label = html.escape(item['label'])
         cards.append(
             f"<div class='ticker-tape-item'>"
             f"<div class='ticker-info'>"
-            f"<div class='ticker-title'>{html.escape(item['label'])}</div>"
+            f"<div class='ticker-market'>{market_label}</div>"
+            f"<div class='ticker-title'>{title_label}</div>"
             f"<div class='ticker-price'>{item['price']:.2f}</div>"
             f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
             f"</div>"
@@ -1095,62 +1098,130 @@ def render_live_market_banner():
     .ticker-tape-wrap {
         width: 100%;
         overflow: hidden;
-        margin: 0.45rem 0 1.05rem 0;
+        margin: 0.55rem 0 1.10rem 0;
         padding: 0;
         border-top: 1px solid rgba(15,23,42,0.10);
-        border-bottom: 1px solid rgba(15,23,42,0.15);
+        border-bottom: 1px solid rgba(15,23,42,0.14);
         background: #f8fafc;
-        border-radius: 8px;
-        min-height: 84px;
+        border-radius: 10px;
+        min-height: 102px;
+        box-shadow: inset 0 0 0 1px rgba(15,23,42,0.03);
     }
     .ticker-tape-track {
         display: flex;
         align-items: stretch;
         width: max-content;
-        gap: 18px;
+        gap: 16px;
         white-space: nowrap;
         animation: tickerTapeScroll {speed_seconds}s linear infinite;
-        padding: 10px 10px;
+        padding: 10px 12px;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
         animation-play-state: paused;
     }
     .ticker-tape-item {
         display: inline-grid;
-        grid-template-columns: 126px 98px;
+        grid-template-columns: 146px 112px;
         align-items: center;
         gap: 12px;
-        min-width: 238px;
-        height: 64px;
-        padding: 8px 12px;
-        border-radius: 8px;
+        min-width: 274px;
+        height: 80px;
+        padding: 8px 14px;
+        border-radius: 0;
         background: #ffffff;
-        border: 1px solid rgba(15,23,42,0.08);
-        box-shadow: 0 1px 3px rgba(15,23,42,0.05);
+        border-right: 1px solid rgba(15,23,42,0.10);
     }
-    .ticker-info {display:flex; flex-direction:column; justify-content:center; line-height:1.08;}
-    .ticker-title {font-size:0.88rem; font-weight:900; color:#2563eb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .ticker-price {font-size:1.18rem; font-weight:900; color:#1f2937; margin-top:4px;}
-    .ticker-change {font-size:0.92rem; font-weight:950; margin-top:4px;}
+    .ticker-info {
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        line-height:1.02;
+    }
+    .ticker-market {
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 2px;
+    }
+    .ticker-title {
+        font-size: 1.02rem;
+        font-weight: 900;
+        color: #2563eb;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+        margin-bottom: 4px;
+    }
+    .ticker-price {
+        font-size: 1.12rem;
+        font-weight: 900;
+        color:#1f2937;
+        margin-top: 0;
+    }
+    .ticker-change {
+        font-size: 0.98rem;
+        font-weight: 950;
+        margin-top: 5px;
+    }
     .ticker-change.pos {color:#059669;}
     .ticker-change.neg {color:#dc2626;}
-    .ticker-spark svg {display:block; width:98px; height:34px;}
-    @keyframes tickerTapeScroll {{
-        from {{ transform: translateX(0); }}
-        to {{ transform: translateX(-50%); }}
-    }}
-    @media (max-width: 700px) {{
-        .ticker-tape-item {{height:34px; padding:5px 9px; gap:6px;}}
-        .ticker-tape-item .spark svg {{width:62px; height:18px;}}
-        .ticker-tape-item .mkt {{font-size:0.60rem;}}
-        .ticker-tape-item .ticker, .ticker-tape-item .price, .ticker-tape-item .pct {{font-size:0.78rem;}}
-    }}
+    .ticker-spark {
+        display:flex;
+        align-items:center;
+        justify-content:flex-end;
+    }
+    .ticker-spark svg {
+        display:block;
+        width:112px;
+        height:42px;
+    }
+    @keyframes tickerTapeScroll {
+        from { transform: translateX(0); }
+        to { transform: translateX(-50%); }
+    }
+    @media (max-width: 1100px) {
+        .ticker-tape-wrap {min-height: 96px;}
+        .ticker-tape-item {
+            grid-template-columns: 134px 102px;
+            min-width: 252px;
+            height: 74px;
+            padding: 8px 12px;
+        }
+        .ticker-title {font-size: 0.96rem;}
+        .ticker-price {font-size: 1.04rem;}
+        .ticker-change {font-size: 0.90rem;}
+        .ticker-spark svg {width:102px; height:38px;}
+    }
+    @media (max-width: 700px) {
+        .ticker-tape-wrap {
+            min-height: 86px;
+            border-radius: 8px;
+        }
+        .ticker-tape-track {
+            gap: 12px;
+            padding: 8px 8px;
+        }
+        .ticker-tape-item {
+            grid-template-columns: 120px 86px;
+            min-width: 218px;
+            height: 64px;
+            padding: 7px 10px;
+            gap: 10px;
+        }
+        .ticker-market {font-size: 0.58rem; margin-bottom: 1px;}
+        .ticker-title {font-size: 0.82rem; margin-bottom: 3px;}
+        .ticker-price {font-size: 0.92rem;}
+        .ticker-change {font-size: 0.78rem; margin-top: 4px;}
+        .ticker-spark svg {width:86px; height:30px;}
+    }
     </style>
     <div class='ticker-tape-wrap'>
         <div class='ticker-tape-track'>{cards_html}{cards_html}</div>
     </div>
     """, unsafe_allow_html=True)
-    st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause. Mini-grafen bruker stiplet referanselinje som gårsdagens sluttkurs.")
+    st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause. Mini-grafen bruker stiplet referanselinje som gårsdagens sluttkurs, og fargene skifter over/under denne linjen som i Yahoo Finance-stil.")
 
 
 
