@@ -71,7 +71,6 @@ st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
 # SIDEBAR_MARKET_DROPDOWN_V1
 # BANNER_PERIOD_SYNC_FIX_V3
-# BANNER_WIDTH_NAMEERROR_FIX_V4
 
 MARKET_CATEGORY_OPTIONS = [
     "US Markets",
@@ -945,26 +944,80 @@ def parse_banner_tickers(settings=None):
     return tuple(out)
 
 
-def _sparkline_svg(values, positive=True, width=86, height=22):
+def _sparkline_svg(values, positive=True, width=86, height=22, reference=None):
+    """Yahoo-finance style mini chart with a dotted previous-close baseline.
+    Green segments are above the reference level, red segments are below.
+    """
     vals = [float(v) for v in (values or []) if v is not None]
     if len(vals) < 2:
         vals = [0.0, 0.0]
-    vmin = min(vals)
-    vmax = max(vals)
+
+    if reference is None:
+        reference = vals[-2] if len(vals) >= 2 else vals[-1]
+    ref = float(reference)
+
+    vmin = min(min(vals), ref)
+    vmax = max(max(vals), ref)
+    pad = max((vmax - vmin) * 0.10, abs(ref) * 0.002, 1e-6)
+    vmin -= pad
+    vmax += pad
     span = (vmax - vmin) or 1.0
-    pts = []
-    for i, val in enumerate(vals):
+
+    def _xy(i, val):
         x = i * (width / max(len(vals) - 1, 1))
-        y = height - ((val - vmin) / span) * (height - 4) - 2
-        pts.append(f"{x:.1f},{y:.1f}")
-    stroke = '#22c55e' if positive else '#ef4444'
-    fill = '34,197,94' if positive else '239,68,68'
-    polyline = ' '.join(pts)
-    area = f"0,{height} " + polyline + f" {width},{height}"
+        y = height - ((val - vmin) / span) * (height - 6) - 3
+        return x, y
+
+    points = [_xy(i, v) for i, v in enumerate(vals)]
+    ref_y = _xy(0, ref)[1]
+
+    green_segments = []
+    red_segments = []
+
+    def _add_segment(target, p1, p2):
+        if not target or target[-1][-1] != p1:
+            target.append([p1, p2])
+        else:
+            target[-1].append(p2)
+
+    for idx in range(len(vals) - 1):
+        v1, v2 = vals[idx], vals[idx + 1]
+        p1, p2 = points[idx], points[idx + 1]
+        above1 = v1 >= ref
+        above2 = v2 >= ref
+
+        if above1 == above2:
+            _add_segment(green_segments if above1 else red_segments, p1, p2)
+            continue
+
+        # Split line exactly where it crosses the reference line.
+        denom = (v2 - v1) or 1e-9
+        t = (ref - v1) / denom
+        cross_x = p1[0] + (p2[0] - p1[0]) * t
+        cross_point = (cross_x, ref_y)
+        _add_segment(green_segments if above1 else red_segments, p1, cross_point)
+        _add_segment(green_segments if above2 else red_segments, cross_point, p2)
+
+    def _polyline(points_seq, stroke):
+        if len(points_seq) < 2:
+            return ''
+        pts = ' '.join(f"{x:.2f},{y:.2f}" for x, y in points_seq)
+        return (
+            f'<polyline points="{pts}" fill="none" stroke="{stroke}" '
+            f'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>'
+        )
+
+    green_svg = ''.join(_polyline(seg, '#16a34a') for seg in green_segments)
+    red_svg = ''.join(_polyline(seg, '#dc2626') for seg in red_segments)
+    last_x, last_y = points[-1]
+    last_color = '#16a34a' if vals[-1] >= ref else '#dc2626'
+
     return (
         f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">'
-        f'<polyline points="{area}" fill="rgba({fill},0.10)" stroke="none"></polyline>'
-        f'<polyline points="{polyline}" fill="none" stroke="{stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>'
+        f'<line x1="0" y1="{ref_y:.2f}" x2="{width}" y2="{ref_y:.2f}" '
+        f'stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.95"></line>'
+        f'{green_svg}{red_svg}'
+        f'<circle cx="{last_x:.2f}" cy="{last_y:.2f}" r="1.9" fill="{last_color}"></circle>'
         f'</svg>'
     )
 
@@ -980,17 +1033,20 @@ def fetch_live_banner_snapshot(banner_items):
             if hist is None or hist.empty or 'Close' not in hist:
                 continue
             close = hist['Close'].dropna()
-            if close.empty:
+            if close.empty or len(close) < 2:
                 continue
-            current = float(close.iloc[-1])
-            prev = float(close.iloc[-2]) if len(close) >= 2 else current
+            series = close.tail(20)
+            current = float(series.iloc[-1])
+            prev = float(series.iloc[-2])
+            delta = current - prev
             pct = ((current / prev) - 1.0) * 100 if prev else 0.0
-            sparkline = _sparkline_svg(close.tail(20).tolist(), positive=pct >= 0)
+            sparkline = _sparkline_svg(series.tolist(), positive=pct >= 0, reference=prev)
             cards.append({
                 'market': market,
                 'ticker': ticker,
                 'label': label,
                 'price': current,
+                'delta': delta,
                 'pct': pct,
                 'sparkline': sparkline,
             })
@@ -1012,14 +1068,16 @@ def render_live_market_banner():
     cards = []
     for item in banner_cards:
         pct = item['pct']
+        delta = item.get('delta', 0.0)
         pct_class = 'pos' if pct >= 0 else 'neg'
         pct_txt = f"{pct:+.2f}%"
+        delta_txt = f"{delta:+.2f}"
         cards.append(
             f"<div class='ticker-tape-item'>"
             f"<div class='ticker-info'>"
             f"<div class='ticker-title'>{html.escape(item['label'])}</div>"
             f"<div class='ticker-price'>{item['price']:.2f}</div>"
-            f"<div class='ticker-change {pct_class}'>{pct_txt}</div>"
+            f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
             f"</div>"
             f"<div class='ticker-spark'>{item['sparkline']}</div>"
             f"</div>"
@@ -1032,9 +1090,7 @@ def render_live_market_banner():
     refresh_minutes = int(settings.get('ui_refresh_minutes', 5) or 5)
     speed_seconds = int(settings.get('live_banner_speed_seconds', 70) or 70)
     speed_seconds = max(15, min(speed_seconds, 180))
-
-    # Ikke bruk f-string rundt CSS. CSS-klammer { } kan ellers bli tolket som Python-felter.
-    css = """
+    st.markdown(f"""
     <style>
     .ticker-tape-wrap {
         width: 100%;
@@ -1044,89 +1100,57 @@ def render_live_market_banner():
         border-top: 1px solid rgba(15,23,42,0.10);
         border-bottom: 1px solid rgba(15,23,42,0.15);
         background: #f8fafc;
-        border-radius: 0;
-        min-height: 74px;
+        border-radius: 8px;
+        min-height: 84px;
     }
     .ticker-tape-track {
         display: flex;
         align-items: stretch;
         width: max-content;
-        gap: 24px;
+        gap: 18px;
         white-space: nowrap;
-        animation: tickerTapeScroll __SPEED__s linear infinite;
-        padding: 8px 0;
+        animation: tickerTapeScroll {speed_seconds}s linear infinite;
+        padding: 10px 10px;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
         animation-play-state: paused;
     }
     .ticker-tape-item {
         display: inline-grid;
-        grid-template-columns: 112px 86px;
+        grid-template-columns: 126px 98px;
         align-items: center;
-        gap: 10px;
-        min-width: 210px;
-        height: 58px;
-        padding: 6px 10px;
-        border-radius: 0;
-        background: transparent;
-        border: 0;
-        box-shadow: none;
+        gap: 12px;
+        min-width: 238px;
+        height: 64px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid rgba(15,23,42,0.08);
+        box-shadow: 0 1px 3px rgba(15,23,42,0.05);
     }
-    .ticker-info {
-        display:flex;
-        flex-direction:column;
-        justify-content:center;
-        line-height:1.10;
-    }
-    .ticker-title {
-        font-size:0.90rem;
-        font-weight:900;
-        color:#2563eb;
-        overflow:hidden;
-        text-overflow:ellipsis;
-        white-space:nowrap;
-    }
-    .ticker-price {
-        font-size:1.02rem;
-        font-weight:900;
-        color:#1f2937;
-        margin-top:3px;
-    }
-    .ticker-change {
-        font-size:0.88rem;
-        font-weight:950;
-        margin-top:2px;
-    }
-    .ticker-change.pos { color:#059669; }
-    .ticker-change.neg { color:#dc2626; }
-    .ticker-spark svg {
-        display:block;
-        width:86px;
-        height:28px;
-    }
-    @keyframes tickerTapeScroll {
-        from { transform: translateX(0); }
-        to { transform: translateX(-50%); }
-    }
-    @media (max-width: 700px) {
-        .ticker-tape-wrap { min-height: 58px; }
-        .ticker-tape-track { gap: 16px; padding: 6px 0; }
-        .ticker-tape-item { min-width: 168px; grid-template-columns: 88px 64px; height:42px; padding:5px 8px; gap:6px; }
-        .ticker-title { font-size:0.74rem; }
-        .ticker-price { font-size:0.84rem; }
-        .ticker-change { font-size:0.74rem; }
-        .ticker-spark svg { width:64px; height:20px; }
-    }
+    .ticker-info {display:flex; flex-direction:column; justify-content:center; line-height:1.08;}
+    .ticker-title {font-size:0.88rem; font-weight:900; color:#2563eb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .ticker-price {font-size:1.18rem; font-weight:900; color:#1f2937; margin-top:4px;}
+    .ticker-change {font-size:0.92rem; font-weight:950; margin-top:4px;}
+    .ticker-change.pos {color:#059669;}
+    .ticker-change.neg {color:#dc2626;}
+    .ticker-spark svg {display:block; width:98px; height:34px;}
+    @keyframes tickerTapeScroll {{
+        from {{ transform: translateX(0); }}
+        to {{ transform: translateX(-50%); }}
+    }}
+    @media (max-width: 700px) {{
+        .ticker-tape-item {{height:34px; padding:5px 9px; gap:6px;}}
+        .ticker-tape-item .spark svg {{width:62px; height:18px;}}
+        .ticker-tape-item .mkt {{font-size:0.60rem;}}
+        .ticker-tape-item .ticker, .ticker-tape-item .price, .ticker-tape-item .pct {{font-size:0.78rem;}}
+    }}
     </style>
-    """.replace("__SPEED__", str(speed_seconds))
-
-    html_block = (
-        "<div class='ticker-tape-wrap'>"
-        f"<div class='ticker-tape-track'>{cards_html}{cards_html}</div>"
-        "</div>"
-    )
-    st.markdown(css + html_block, unsafe_allow_html=True)
-    st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause.")
+    <div class='ticker-tape-wrap'>
+        <div class='ticker-tape-track'>{cards_html}{cards_html}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause. Mini-grafen bruker stiplet referanselinje som gårsdagens sluttkurs.")
 
 
 
