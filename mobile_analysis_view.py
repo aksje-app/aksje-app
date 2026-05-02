@@ -23,6 +23,7 @@ from paper_trading import load_portfolio
 # WIDGET_KEY_FIX_V2
 # INDICATOR_LABELS_V1
 # MOBILE_ANALYSIS_ADVANCED_INDICATORS_V1
+# PRO_TERMINAL_UI_V1
 
 
 TIMEFRAME_CONFIG = {
@@ -698,95 +699,296 @@ def _trade_rows_for_ticker(portfolio, ticker):
     return rows
 
 
+
+def _decision_class(signal_text: str) -> str:
+    s = str(signal_text or '').upper()
+    if 'BUY' in s or 'KJØP' in s:
+        return 'green'
+    if 'SELL' in s or 'SALG' in s or 'AVOID' in s or 'UNNGÅ' in s:
+        return 'red'
+    return ''
+
+
+def _render_mobile_section_picker(key_prefix=''):
+    st.markdown("<div style='margin:10px 0 6px 0; font-weight:900;'>Panel</div>", unsafe_allow_html=True)
+    return st.radio(
+        'Panelvalg',
+        ['Marked', 'Ordre', 'Trades', 'Info'],
+        horizontal=True,
+        label_visibility='collapsed',
+        key=f'mobile_panel_picker_{key_prefix}',
+    )
+
+
+
+
+def _position_side_text(position):
+    return "LONG" if position else "FLAT"
+
+
+def _signal_badge(signal_text):
+    s = str(signal_text or "").upper()
+    if "BUY" in s or "KJØP" in s:
+        return "BUY", "green"
+    if "SELL" in s or "SALG" in s or "AVOID" in s or "UNNGÅ" in s:
+        return "SELL", "red"
+    return "WAIT", ""
+
+
+def _pct_class(value):
+    try:
+        return "green" if float(value) >= 0 else "red"
+    except Exception:
+        return ""
+
+
+def render_pro_terminal_header(ticker, company, label, price, currency, change_pct, stats, decision, item, technical_context):
+    """
+    Trading-terminal header: mer kompakt, mer informativ og bedre på mobil.
+    """
+    portfolio = load_portfolio()
+    position = _get_position_for_ticker(portfolio, ticker)
+    metrics = _position_metrics(position, price)
+    signal_text = str(decision.get("decision", "HOLD / WAIT"))
+    signal_short, signal_class = _signal_badge(signal_text)
+    side = _position_side_text(position)
+    score = item.get("score", decision.get("decision_score", "N/A"))
+    confidence = int(decision.get("confidence", 0) or 0)
+    rsi = technical_context.get("rsi", None)
+    rsi_txt = f"{float(rsi):.1f}" if isinstance(rsi, (int, float)) else "N/A"
+    change_class = _pct_class(change_pct)
+
+    st.markdown(
+        f"""
+        <div class="pro-terminal-head">
+            <div class="pro-left">
+                <div class="pro-symbol-row">
+                    <span class="pro-symbol">{ticker}</span>
+                    <span class="pro-market">{label}</span>
+                    <span class="pro-badge {signal_class}">{signal_short}</span>
+                    <span class="pro-badge">POS: {side}</span>
+                </div>
+                <div class="pro-company">{company or "Ingen selskapsnavn"}</div>
+                <div class="pro-mini-line">
+                    <span>Score <b>{score}</b></span>
+                    <span>Conf <b>{confidence}%</b></span>
+                    <span>RSI <b>{rsi_txt}</b></span>
+                    <span>Risk <b>{decision.get("risk", "N/A")}</b></span>
+                </div>
+            </div>
+            <div class="pro-right">
+                <div class="pro-price">{_fmt_price(price, currency)}</div>
+                <div class="pro-change {change_class}">{_fmt_pct(change_pct)} · valgt periode</div>
+            </div>
+        </div>
+        <div class="pro-stat-grid">
+            <div class="pro-stat"><span>24t høy</span><b>{_fmt_price(stats.get("high"), currency)}</b></div>
+            <div class="pro-stat"><span>24t lav</span><b>{_fmt_price(stats.get("low"), currency)}</b></div>
+            <div class="pro-stat"><span>Volum</span><b>{_fmt_volume(stats.get("volume"))}</b></div>
+            <div class="pro-stat"><span>P/L</span><b>{_fmt_price(metrics.get("pnl", 0), currency) if position else "N/A"}</b></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_pro_preset_bar(ticker, label, timeframe):
+    """
+    Presets gjør analyse raskere på mobil og reduserer unødvendige indikatorer.
+    """
+    preset_key = _safe_key("indicator_preset_v1", label, ticker, timeframe)
+    preset = st.radio(
+        "Indikator-preset",
+        ["Standard", "Momentum", "Volatilitet", "Volum", "Full"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key=preset_key,
+    )
+    if preset == "Standard":
+        return ["MA", "VOL", "KANAL"]
+    if preset == "Momentum":
+        return ["MA", "MACD", "RSI", "KDJ"]
+    if preset == "Volatilitet":
+        return ["MA", "BOLL", "ATR", "KANAL"]
+    if preset == "Volum":
+        return ["VWAP", "VOL", "OBV", "ADX"]
+    return ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "RSI", "ADX"]
+
+
+def render_overview_panel_v4(ticker, price, currency, confidence, decision, item, technical_context=None, key_prefix=''):
+    technical_context = technical_context or {}
+    portfolio = load_portfolio()
+    position = _get_position_for_ticker(portfolio, ticker)
+    metrics = _position_metrics(position, price)
+    signal_text = str(decision.get('decision', 'HOLD / WAIT'))
+    signal_class = _decision_class(signal_text)
+    score = item.get('score', decision.get('decision_score', 'N/A'))
+    risk = decision.get('risk', 'N/A')
+    current_price = _safe_float(price)
+
+    st.markdown('### 📋 Oversikt')
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('Signal', signal_text)
+    c2.metric('Score', score)
+    c3.metric('Confidence', f"{int(confidence or 0)}%")
+    c4.metric('Risiko', risk)
+
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric('Siste pris', _fmt_price(current_price, currency))
+    d2.metric('Posisjon', 'Åpen' if position else 'Ingen')
+    d3.metric('Verdi nå', _fmt_price(metrics.get('value_now', 0), currency) if position else 'N/A')
+    d4.metric('P/L', _fmt_price(metrics.get('pnl', 0), currency) if position else 'N/A', delta=f"{metrics.get('pnl_pct', 0):+.2f}%" if position else None)
+
+    st.markdown(
+        f"""
+        <div style="margin:8px 0 10px 0; display:flex; flex-wrap:wrap; gap:8px;">
+            <span class="mobile-chip {signal_class}">Signal: {signal_text}</span>
+            <span class="mobile-chip">Score: {score}</span>
+            <span class="mobile-chip">Confidence: {int(confidence or 0)}%</span>
+            <span class="mobile-chip">RSI: {f"{float(technical_context.get('rsi')):.1f}" if isinstance(technical_context.get('rsi'), (int, float)) else 'N/A'}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    q1, q2 = st.columns(2)
+    with q1:
+        if st.button(f'🟢 Hurtig paper-kjøp {ticker}', key=f'quick_buy_{key_prefix}_{ticker}', use_container_width=True):
+            ok, msg = paper_buy(ticker, current_price, confidence, 'Mobil oversikt hurtigkjøp')
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.warning(msg)
+    with q2:
+        sell_disabled = not position
+        if st.button(f'🔴 Hurtig paper-selg {ticker}', key=f'quick_sell_{key_prefix}_{ticker}', use_container_width=True, disabled=sell_disabled):
+            ok, msg = paper_sell(ticker, current_price, 'Mobil oversikt hurtigsalg')
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.warning(msg)
+
+    st.caption('Marked-panelet er rask beslutningsflate. Ordre gir kontrollert kjøp/salg, Trades viser historikk og Info forklarer signal/risiko.')
+
+
+
 def render_trading_panel_v3(ticker, price, currency, confidence, decision, item, key_prefix=''):
     """
-    Step 3 trading panel.
+    Kompakt og mer mobilvennlig trading-panel.
     Bruker samme paper_buy/paper_sell som resten av systemet.
-    Endrer ikke auto-buy/Cron.
     """
-    _panel_key = _safe_key("order_panel_v3", key_prefix, ticker)
+    _panel_key = _safe_key("order_panel_v4", key_prefix, ticker)
     portfolio = load_portfolio()
     position = _get_position_for_ticker(portfolio, ticker)
     metrics = _position_metrics(position, price)
     price = _safe_float(price)
+    signal_text = str(decision.get('decision', 'HOLD / WAIT'))
+    score = item.get('score', decision.get('decision_score', 'N/A'))
+    risk = decision.get('risk', 'N/A')
 
     try:
         stop_loss, take_profit, trailing_stop = calc_levels(price)
     except Exception:
         stop_loss, take_profit, trailing_stop = None, None, None
 
-    st.markdown("### 🧾 Trading-panel")
-    st.caption("Dette er paper trading. Panelet bruker samme paper_buy/paper_sell som auto-motoren.")
+    st.markdown('<div class="pro-action-card">', unsafe_allow_html=True)
+    st.markdown('### 🧾 Ordre')
+    st.caption('Paper trading · samme motor som resten av systemet.')
 
-    pos_cols = st.columns(4)
-    pos_cols[0].metric("Åpen posisjon", "Ja" if position else "Nei")
-    pos_cols[1].metric("Antall", f"{metrics.get('shares', 0):.4f}" if position else "0")
-    pos_cols[2].metric("Inngang", _fmt_price(metrics.get("entry"), currency) if position else "N/A")
-    pos_cols[3].metric(
-        "P/L",
-        _fmt_price(metrics.get("pnl", 0), currency) if position else "N/A",
-        delta=f"{metrics.get('pnl_pct', 0):+.2f}%" if position else None,
-    )
+    top1, top2, top3, top4 = st.columns(4)
+    top1.metric('Pris', _fmt_price(price, currency))
+    top2.metric('Signal', signal_text)
+    top3.metric('Confidence', f"{int(confidence or 0)}%")
+    top4.metric('Score', score)
 
-    risk_cols = st.columns(3)
-    risk_cols[0].metric("Stop-loss", _fmt_price(stop_loss, currency) if stop_loss else "N/A")
-    risk_cols[1].metric("Take-profit", _fmt_price(take_profit, currency) if take_profit else "N/A")
-    risk_cols[2].metric("Trailing stop", _fmt_price(trailing_stop, currency) if trailing_stop else "N/A")
-
-    st.markdown("#### Ordre")
+    mode_labels = ['Kjøp beløp', 'Kjøp antall', 'Selg antall']
     mode = st.radio(
-        "Ordretype",
-        ["Kjøp for beløp", "Kjøp antall", "Selg antall"],
+        'Ordretype',
+        mode_labels,
         horizontal=True,
-        key=f"order_mode_v3_{_panel_key}",
+        key=f'order_mode_v4_{_panel_key}',
+        label_visibility='collapsed',
     )
 
-    default_cash = _safe_float(portfolio.get("cash", 0))
-    c1, c2 = st.columns(2)
+    default_cash = _safe_float(portfolio.get('cash', 0))
+    buy_amount_key = f'order_amount_v4_{_panel_key}'
+    qty_key = f'order_qty_v4_{_panel_key}'
+    price_key = f'order_price_v4_{_panel_key}'
+    if price_key not in st.session_state:
+        st.session_state[price_key] = float(round(price or 0, 4))
+    if buy_amount_key not in st.session_state:
+        st.session_state[buy_amount_key] = float(round(min(max(default_cash * 0.10, 1000), default_cash) if default_cash else 1000, 2))
+    if qty_key not in st.session_state:
+        max_sell = metrics.get('shares', 0) if position else 10.0
+        st.session_state[qty_key] = float(min(10.0, max_sell) if max_sell else 10.0)
 
+    st.markdown('**Hurtigvalg**')
+    quick_cols = st.columns(4)
+    if mode == 'Kjøp beløp':
+        quick_values = [0.10, 0.25, 0.50, 1.00]
+        for pct, col in zip(quick_values, quick_cols):
+            with col:
+                if st.button(f'{int(pct*100)}%', key=f'quickpct_buy_{pct}_{_panel_key}', use_container_width=True):
+                    st.session_state[buy_amount_key] = float(round(default_cash * pct, 2)) if default_cash else st.session_state.get(buy_amount_key, 1000.0)
+                    st.rerun()
+    elif mode == 'Selg antall':
+        max_sell = metrics.get('shares', 0) if position else 0
+        quick_values = [0.25, 0.50, 0.75, 1.00]
+        for pct, col in zip(quick_values, quick_cols):
+            with col:
+                if st.button(f'{int(pct*100)}%', key=f'quickpct_sell_{pct}_{_panel_key}', use_container_width=True, disabled=max_sell <= 0):
+                    st.session_state[qty_key] = float(round(max_sell * pct, 4))
+                    st.rerun()
+    else:
+        qty_values = [1, 5, 10, 25]
+        for val, col in zip(qty_values, quick_cols):
+            with col:
+                if st.button(f'{val}', key=f'quickqty_{val}_{_panel_key}', use_container_width=True):
+                    st.session_state[qty_key] = float(val)
+                    st.rerun()
+
+    c1, c2 = st.columns(2)
     with c1:
         order_price = st.number_input(
-            f"Pris ({currency})",
+            f'Pris ({currency})',
             min_value=0.0,
-            value=float(price or 0),
             step=0.1,
-            key=f"order_price_v3_{_panel_key}",
+            key=price_key,
         )
-
     with c2:
-        if mode == "Kjøp for beløp":
-            default_amount = min(max(default_cash * 0.10, 1000), default_cash) if default_cash else 1000
+        if mode == 'Kjøp beløp':
             amount = st.number_input(
-                f"Beløp ({currency})",
+                f'Beløp ({currency})',
                 min_value=0.0,
-                value=float(round(default_amount, 2)),
                 step=500.0,
-                key=f"order_amount_v3_{_panel_key}",
+                key=buy_amount_key,
             )
             qty = amount / order_price if order_price else 0
         else:
-            max_sell = metrics.get("shares", 0) if position else 100.0
             qty = st.number_input(
-                "Antall aksjer",
+                'Antall',
                 min_value=0.0,
-                value=float(min(10.0, max_sell) if max_sell else 10.0),
                 step=1.0,
-                key=f"order_qty_v3_{_panel_key}",
+                key=qty_key,
             )
             amount = qty * order_price
 
-    st.caption(
-        f"Estimert antall: {qty:.4f} · Estimert verdi: {_fmt_price(amount, currency)} · "
-        f"Cash: {_fmt_price(default_cash, currency)}"
-    )
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric('Estimert antall', f'{qty:.4f}')
+    s2.metric('Estimert verdi', _fmt_price(amount, currency))
+    s3.metric('Cash', _fmt_price(default_cash, currency))
+    s4.metric('Åpen posisjon', 'Ja' if position else 'Nei')
 
-    signal_text = str(decision.get("decision", "HOLD / WAIT"))
-    risk = decision.get("risk", "N/A")
-    score = item.get("score", decision.get("decision_score", "N/A"))
+    r1, r2, r3 = st.columns(3)
+    r1.metric('Stop-loss', _fmt_price(stop_loss, currency) if stop_loss else 'N/A')
+    r2.metric('Take-profit', _fmt_price(take_profit, currency) if take_profit else 'N/A')
+    r3.metric('Trailing stop', _fmt_price(trailing_stop, currency) if trailing_stop else 'N/A')
 
     st.markdown(
         f"""
-        <div style="background:rgba(15,23,42,0.75); border:1px solid rgba(148,163,184,0.25); border-radius:14px; padding:12px; margin:8px 0;">
+        <div style="background:rgba(15,23,42,0.75); border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:10px; margin:8px 0 12px 0;">
             <b>Ordregrunnlag</b><br>
             Signal: <b>{signal_text}</b> · Confidence: <b>{confidence}%</b> · Score: <b>{score}</b> · Risiko: <b>{risk}</b>
         </div>
@@ -795,21 +997,19 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
     )
 
     b1, b2 = st.columns(2)
-
     with b1:
-        buy_disabled = mode == "Selg antall" or order_price <= 0 or amount <= 0
-        if st.button(f"🟢 Paper-kjøp {ticker}", key=f"buy_v3_{_panel_key}", use_container_width=True, disabled=buy_disabled):
-            ok, msg = paper_buy(ticker, order_price, confidence, "Mobil analysepanel v3")
+        buy_disabled = mode == 'Selg antall' or order_price <= 0 or amount <= 0
+        if st.button(f'🟢 Paper-kjøp {ticker}', key=f'buy_v4_{_panel_key}', use_container_width=True, disabled=buy_disabled):
+            ok, msg = paper_buy(ticker, order_price, confidence, 'Mobil ordrepanel v4')
             if ok:
                 st.success(msg)
                 st.rerun()
             else:
                 st.warning(msg)
-
     with b2:
         sell_disabled = not position or qty <= 0 or order_price <= 0
-        if st.button(f"🔴 Paper-selg {ticker}", key=f"sell_v3_{_panel_key}", use_container_width=True, disabled=sell_disabled):
-            ok, msg = paper_sell(ticker, order_price, "Mobil analysepanel v3")
+        if st.button(f'🔴 Paper-selg {ticker}', key=f'sell_v4_{_panel_key}', use_container_width=True, disabled=sell_disabled):
+            ok, msg = paper_sell(ticker, order_price, 'Mobil ordrepanel v4')
             if ok:
                 st.success(msg)
                 st.rerun()
@@ -817,7 +1017,8 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
                 st.warning(msg)
 
     if not position:
-        st.caption("Selg-knappen er deaktivert fordi du ikke har åpen paper-posisjon i denne aksjen.")
+        st.caption('Selg-knappen er deaktivert fordi du ikke har åpen paper-posisjon i denne aksjen.')
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_trades_panel_v3(ticker):
@@ -829,9 +1030,6 @@ def render_trades_panel_v3(ticker):
         st.info("Ingen paper trades for denne aksjen ennå.")
         return
 
-    df = pd.DataFrame(rows[-30:])
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
     buy_count = sum(1 for r in rows if str(r.get("Type", "")).upper() == "BUY")
     sell_count = sum(1 for r in rows if str(r.get("Type", "")).upper() == "SELL")
     total_amount = sum(_safe_float(r.get("Beløp", 0)) for r in rows)
@@ -841,6 +1039,10 @@ def render_trades_panel_v3(ticker):
     c2.metric("Salg", sell_count)
     c3.metric("Omsatt", f"{total_amount:,.0f}".replace(",", " "))
 
+    df = pd.DataFrame(rows[-12:][::-1])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.caption("Viser de 12 siste handlene for valgt aksje.")
+
 
 def render_info_panel_v3(ticker, price, currency, decision, item, technical_context):
     portfolio = load_portfolio()
@@ -849,28 +1051,34 @@ def render_info_panel_v3(ticker, price, currency, decision, item, technical_cont
 
     st.markdown("### ℹ️ Informasjon")
 
-    i1, i2, i3 = st.columns(3)
+    i1, i2, i3, i4 = st.columns(4)
     i1.metric("Siste pris", _fmt_price(price, currency))
     i2.metric("Score", item.get("score", decision.get("decision_score", "N/A")))
     i3.metric("Confidence", f"{int(decision.get('confidence', 0) or 0)}%")
+    i4.metric("Risiko", decision.get("risk", "N/A"))
 
-    i4, i5, i6 = st.columns(3)
-    i4.metric("RSI", f"{float(technical_context.get('rsi')):.1f}" if isinstance(technical_context.get("rsi"), (int, float)) else "N/A")
-    i5.metric("Risiko", decision.get("risk", "N/A"))
-    i6.metric("Posisjonsverdi", _fmt_price(metrics.get("value_now", 0), currency) if position else "N/A")
+    j1, j2, j3, j4 = st.columns(4)
+    j1.metric("RSI", f"{float(technical_context.get('rsi')):.1f}" if isinstance(technical_context.get("rsi"), (int, float)) else "N/A")
+    j2.metric("Trend", technical_context.get("trend") or technical_context.get("trend_text") or "N/A")
+    j3.metric("MACD", technical_context.get("macd_signal") or technical_context.get("macd") or "N/A")
+    j4.metric("Posisjonsverdi", _fmt_price(metrics.get("value_now", 0), currency) if position else "N/A")
 
     reasons = decision.get("reasons", []) or []
     warnings = decision.get("warnings", []) or []
 
-    if reasons:
-        st.markdown("**Hvorfor signalet?**")
-        for r in reasons[:5]:
-            st.success(str(r))
+    with st.expander("Hvorfor signalet?", expanded=True):
+        if reasons:
+            for r in reasons[:8]:
+                st.success(str(r))
+        else:
+            st.caption("Ingen detaljer tilgjengelig.")
 
-    if warnings:
-        st.markdown("**Varsler / risiko**")
-        for w in warnings[:5]:
-            st.warning(str(w))
+    with st.expander("Varsler / risiko", expanded=bool(warnings)):
+        if warnings:
+            for w in warnings[:8]:
+                st.warning(str(w))
+        else:
+            st.caption("Ingen ekstra varsler registrert.")
 
     st.caption("Dette er analyse og paper trading, ikke investeringsråd.")
 
@@ -891,11 +1099,11 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         <style>
         .mobile-shell {
             background: radial-gradient(circle at top, rgba(37,99,235,0.16), rgba(2,6,23,0.92));
-            border: 1px solid rgba(148, 163, 184, 0.25);
-            border-radius: 18px;
-            padding: 12px;
-            margin: 8px 0 14px 0;
-            box-shadow: 0 18px 42px rgba(0,0,0,0.22);
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 16px;
+            padding: 10px;
+            margin: 6px 0 12px 0;
+            box-shadow: 0 14px 34px rgba(0,0,0,0.20);
         }
         .mobile-title-row {
             display:flex;
@@ -954,8 +1162,8 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         .mobile-subcard {
             background: rgba(15,23,42,0.72);
             border: 1px solid rgba(148,163,184,0.22);
-            border-radius: 14px;
-            padding: 10px;
+            border-radius: 12px;
+            padding: 9px;
             height: 100%;
         }
         .mobile-subcard .label {
@@ -975,11 +1183,142 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             .mobile-change-pos, .mobile-change-neg { text-align:left; }
             .mobile-ticker { font-size:1.6rem; }
         }
+
+        .pro-terminal-head {
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:10px;
+            background:rgba(2,6,23,0.58);
+            border:1px solid rgba(148,163,184,0.20);
+            border-radius:14px;
+            padding:10px;
+            margin-bottom:8px;
+        }
+        .pro-symbol-row {
+            display:flex;
+            flex-wrap:wrap;
+            align-items:center;
+            gap:6px;
+        }
+        .pro-symbol {
+            color:#f8fafc;
+            font-weight:950;
+            font-size:1.55rem;
+            letter-spacing:0.02em;
+        }
+        .pro-market {
+            color:#93c5fd;
+            font-weight:850;
+            font-size:0.78rem;
+            padding:4px 7px;
+            border:1px solid rgba(147,197,253,0.35);
+            border-radius:999px;
+        }
+        .pro-badge {
+            color:#e2e8f0;
+            background:rgba(15,23,42,0.95);
+            border:1px solid rgba(148,163,184,0.28);
+            border-radius:999px;
+            padding:4px 8px;
+            font-size:0.74rem;
+            font-weight:900;
+        }
+        .pro-badge.green {
+            color:#bbf7d0;
+            border-color:rgba(34,197,94,0.55);
+            background:rgba(22,101,52,0.28);
+        }
+        .pro-badge.red {
+            color:#fecaca;
+            border-color:rgba(239,68,68,0.55);
+            background:rgba(127,29,29,0.28);
+        }
+        .pro-company {
+            color:#94a3b8;
+            font-size:0.82rem;
+            margin-top:5px;
+        }
+        .pro-mini-line {
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+            color:#cbd5e1;
+            font-size:0.76rem;
+            margin-top:6px;
+        }
+        .pro-price {
+            color:#f8fafc;
+            font-size:2.05rem;
+            line-height:1.0;
+            font-weight:950;
+            text-align:right;
+        }
+        .pro-change {
+            text-align:right;
+            font-size:0.85rem;
+            font-weight:900;
+            margin-top:5px;
+            color:#cbd5e1;
+        }
+        .pro-change.green { color:#22c55e; }
+        .pro-change.red { color:#ef4444; }
+        .pro-stat-grid {
+            display:grid;
+            grid-template-columns: repeat(4, minmax(0,1fr));
+            gap:7px;
+            margin:7px 0 8px 0;
+        }
+        .pro-stat {
+            background:rgba(15,23,42,0.66);
+            border:1px solid rgba(148,163,184,0.18);
+            border-radius:12px;
+            padding:8px 9px;
+            min-height:54px;
+        }
+        .pro-stat span {
+            display:block;
+            color:#94a3b8;
+            font-size:0.72rem;
+            font-weight:800;
+        }
+        .pro-stat b {
+            display:block;
+            color:#f8fafc;
+            font-size:0.98rem;
+            margin-top:3px;
+        }
+        .pro-action-card {
+            position: sticky;
+            bottom: 0;
+            z-index: 20;
+            background:rgba(2,6,23,0.96);
+            backdrop-filter: blur(8px);
+            border:1px solid rgba(148,163,184,0.25);
+            border-radius:14px;
+            padding:10px;
+            margin-top:8px;
+        }
+        .pro-section-title {
+            font-size:0.92rem;
+            font-weight:950;
+            margin:10px 0 6px 0;
+            color:#f8fafc;
+        }
+        @media (max-width: 700px) {
+            .pro-terminal-head { flex-direction:column; padding:9px; }
+            .pro-price { text-align:left; font-size:1.85rem; }
+            .pro-change { text-align:left; }
+            .pro-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+            .pro-symbol { font-size:1.35rem; }
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+    st.markdown('<div class="pro-section-title">Tidsvalg</div>', unsafe_allow_html=True)
     timeframe = st.session_state.get(f"mobile_timeframe_{label}_{ticker}", "1d")
     tf_cols = st.columns(5)
     for tf, col in zip(["1m", "15m", "1h", "4h", "1d"], tf_cols):
@@ -988,6 +1327,8 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
                 st.session_state[f"mobile_timeframe_{label}_{ticker}"] = tf
                 timeframe = tf
                 st.rerun()
+
+    st.caption("Mobil analyse er komprimert for raskere visning. Velg bare indikatorene du trenger for best ytelse.")
 
     chart_df = fetch_timeframe_data(ticker, timeframe)
     if chart_df.empty:
@@ -1007,59 +1348,29 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     rsi_txt = f"{float(rsi):.1f}" if isinstance(rsi, (int, float)) else "N/A"
 
     st.markdown('<div class="mobile-shell">', unsafe_allow_html=True)
-    st.markdown(
-        f"""
-        <div class="mobile-title-row">
-            <div>
-                <div class="mobile-ticker">{ticker} ⭐</div>
-                <div class="mobile-company">{company}</div>
-                <span class="mobile-chip green">{label}</span>
-                <span class="mobile-chip">Analyse v2</span>
-            </div>
-            <div>
-                <div class="mobile-price">{_fmt_price(price, currency)}</div>
-                <div class="{change_class}">{_fmt_pct(change_pct)} · valgt periode</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+
+    render_pro_terminal_header(
+        ticker=ticker,
+        company=company,
+        label=label,
+        price=price,
+        currency=currency,
+        change_pct=change_pct,
+        stats=stats,
+        decision=decision,
+        item=item,
+        technical_context=technical_context,
     )
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(
-            f"<div class='mobile-subcard'><div class='label'>24t høy</div><div class='value'>{_fmt_price(stats.get('high'), currency)}</div></div>",
-            unsafe_allow_html=True,
-        )
-    with m2:
-        st.markdown(
-            f"<div class='mobile-subcard'><div class='label'>24t lav</div><div class='value'>{_fmt_price(stats.get('low'), currency)}</div></div>",
-            unsafe_allow_html=True,
-        )
-    with m3:
-        st.markdown(
-            f"<div class='mobile-subcard'><div class='label'>Volum</div><div class='value'>{_fmt_volume(stats.get('volume'))}</div></div>",
-            unsafe_allow_html=True,
-        )
+    st.markdown('<div class="pro-section-title">Tidsvalg</div>', unsafe_allow_html=True)
 
-    signal_class = "green" if ("BUY" in signal_text.upper() or "KJØP" in signal_text.upper()) else "red" if ("SELL" in signal_text.upper() or "SALG" in signal_text.upper()) else ""
-    st.markdown(
-        f"""
-        <div style="margin-top:12px;">
-            <span class="mobile-chip {signal_class}">{signal_emoji} Signal: {signal_text}</span>
-            <span class="mobile-chip">Score: {score}</span>
-            <span class="mobile-chip green">Confidence: {confidence}%</span>
-            <span class="mobile-chip">RSI: {rsi_txt}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    preset_default = render_pro_preset_bar(ticker, label, timeframe)
 
     indicators = st.multiselect(
         "Indikatorer",
         ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX"],
-        default=["MA", "VOL", "KANAL"],
-        key=f"mobile_indicators_{label}_{ticker}",
+        default=preset_default,
+        key=f"mobile_indicators_{label}_{ticker}_{timeframe}",
         help="Velg indikatorer. MA, EMA, BOLL, SAR, VWAP og KANAL vises i prisgrafen. VOL, MACD, RSI, KDJ, ATR, OBV og ADX vises i egne paneler.",
     )
 
@@ -1081,15 +1392,15 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     else:
         st.warning("Fant ikke nok kursdata til candlestick-graf.")
 
-    order_tab, trades_tab, info_tab = st.tabs(["Ordre", "Trades", "Informasjon"])
+    panel_choice = _render_mobile_section_picker(key_prefix=f"{label}_{ticker}_{timeframe}")
 
-    with order_tab:
+    if panel_choice == "Marked":
+        render_overview_panel_v4(ticker, price, currency, confidence, decision, item, technical_context, key_prefix=f'{label}_{ticker}_{timeframe}')
+    elif panel_choice == "Ordre":
         render_trading_panel_v3(ticker, price, currency, confidence, decision, item, key_prefix=f'{label}_{ticker}_{timeframe}')
-
-    with trades_tab:
+    elif panel_choice == "Trades":
         render_trades_panel_v3(ticker)
-
-    with info_tab:
+    else:
         render_info_panel_v3(ticker, price, currency, decision, item, technical_context)
 
     st.markdown("</div>", unsafe_allow_html=True)
