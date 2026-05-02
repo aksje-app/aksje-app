@@ -51,6 +51,17 @@ SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
 
 
 def send_pushover_alert(message, title="Auto Paper Trading"):
+    try:
+        _settings = load_settings()
+        if not bool(_settings.get("pushover_enabled", True)):
+            print("Pushover deaktivert i settings")
+            return False
+        if not bool(_settings.get("notify_paper_trades", True)):
+            print("Paper trade-varsler deaktivert i settings")
+            return False
+    except Exception:
+        pass
+
     token = os.getenv("PUSHOVER_APP_TOKEN")
     user = os.getenv("PUSHOVER_USER_KEY")
 

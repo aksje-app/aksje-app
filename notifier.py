@@ -57,6 +57,13 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
     Sendes kun når faktisk trade er utført.
     Ikke ved vanlig signal/HOLD.
     """
+    try:
+        if not bool(load_settings().get("notify_paper_trades", True)):
+            print("Paper trade-varsler deaktivert i settings")
+            return False, "paper trade alerts disabled"
+    except Exception:
+        pass
+
     trade_type = str(trade_type).upper()
 
     if trade_type == "BUY":

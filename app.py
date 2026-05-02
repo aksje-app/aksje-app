@@ -663,7 +663,8 @@ div[role="option"][aria-selected="true"] {
 
 /* --- SIDEBAR STRUCTURE V2 --- */
 /* GRAPH_SIDEBAR_POLISH_V1
-/* SIDEBAR_MARKET_PILLS_FIX_V2 */ */
+/* SIDEBAR_MARKET_PILLS_FIX_V2
+/* SIDEBAR_ALERTS_LAYOUT_V1 */ */ */
 .sidebar-status-card {
     border-radius: 9px;
     padding: 7px 7px;
@@ -770,6 +771,39 @@ div[role="option"][aria-selected="true"] {
     font-size: 0.78rem;
     line-height: 1.35;
     margin-bottom: 8px;
+}
+
+
+/* SIDEBAR_ALERTS_LAYOUT_V1 */
+.sidebar-tight-hr {
+    margin: 10px 0 10px 0;
+    border-top: 1px solid rgba(148,163,184,0.15);
+}
+.alert-status-pill {
+    border-radius: 10px;
+    padding: 8px 9px;
+    margin: 6px 0;
+    border: 1px solid rgba(148,163,184,0.22);
+    background: rgba(15,23,42,0.72);
+    line-height: 1.15;
+}
+.alert-status-pill.ok {
+    border-color: rgba(34,197,94,0.55);
+    background: rgba(6,78,59,0.34);
+}
+.alert-status-pill.bad {
+    border-color: rgba(248,113,113,0.60);
+    background: rgba(76,5,25,0.48);
+}
+.alert-status-title {
+    font-size: 0.82rem;
+    color: #f8fafc;
+    font-weight: 950;
+}
+.alert-status-sub {
+    font-size: 0.70rem;
+    color: #cbd5e1;
+    margin-top: 2px;
 }
 
 </style>
@@ -916,6 +950,10 @@ def scan_watchlist_and_alert(tickers):
     Scanner watchlist og sender Pushover-varsel når BUY/SELL signal endrer seg.
     Kjører når appen refresher, men unngår spam ved å lagre siste signal i session_state.
     """
+    _alert_settings = load_settings()
+    if not bool(_alert_settings.get("notify_watchlist_signal_changes", True)):
+        return []
+
     if not tickers:
         return []
 
@@ -1754,8 +1792,10 @@ def render_analysis(results, label):
 
     st.markdown("---")
 
-    if (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence:
-        maybe_send_signal_alert(selected, decision)
+    # UI-signalvarsler er deaktivert for å hindre dobbelvarsling.
+    # Varsler styres nå fra Varselkontroll:
+    # - faktisk paper BUY/SELL via trading_engine/notifier
+    # - watchlist signalendring via scan_watchlist_and_alert
 
     st.markdown("#### 🤖 Trading engine")
     d1, d2, d3 = st.columns(3)
@@ -2349,7 +2389,80 @@ def render_sidebar_structure_v2():
         unsafe_allow_html=True,
     )
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("### 🔕 Varselkontroll")
+
+    _alert_settings = load_settings()
+    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_setting_on = bool(_alert_settings.get("pushover_enabled", True))
+    _pushover_ready = _pushover_env_ok and _pushover_setting_on
+    _open_markets_now = open_markets()
+
+    st.sidebar.markdown(
+        f"""
+        <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
+            <div class="alert-status-title">Pushover: {'Aktiv ✅' if _pushover_ready else 'Ikke klar ❌'}</div>
+            <div class="alert-status-sub">Åpne markeder nå: {_open_markets_now}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _notify_trades = st.sidebar.checkbox(
+        "Varsle ved faktisk paper BUY/SELL",
+        value=bool(_alert_settings.get("notify_paper_trades", True)),
+        key="alert_notify_paper_trades_v1",
+    )
+    _notify_watchlist = st.sidebar.checkbox(
+        "Varsle ved watchlist signalendring",
+        value=bool(_alert_settings.get("notify_watchlist_signal_changes", True)),
+        key="alert_notify_watchlist_changes_v1",
+    )
+    _high_conf_only = st.sidebar.checkbox(
+        "Varsle kun høy confidence",
+        value=bool(_alert_settings.get("notify_high_confidence_only", True)),
+        key="alert_high_conf_only_v1",
+    )
+    _min_alert_conf = st.sidebar.slider(
+        "Confidence-grense",
+        50,
+        95,
+        int(_alert_settings.get("notify_min_confidence", 80)),
+        1,
+        key="alert_min_confidence_v1",
+    )
+
+    if st.sidebar.button("💾 Lagre varselkontroll", key="save_alert_control_v1"):
+        _merged_alert_settings = load_settings()
+        _merged_alert_settings["pushover_enabled"] = bool(_pushover_setting_on)
+        _merged_alert_settings["notify_paper_trades"] = bool(_notify_trades)
+        _merged_alert_settings["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
+        _merged_alert_settings["notify_high_confidence_only"] = bool(_high_conf_only)
+        _merged_alert_settings["notify_min_confidence"] = int(_min_alert_conf)
+        save_settings(_merged_alert_settings)
+        st.sidebar.success("Varselkontroll lagret ✅")
+        st.rerun()
+
+    _t1, _t2 = st.sidebar.columns(2)
+    with _t1:
+        if st.button("Test", key="alert_send_test_v1", disabled=not _pushover_env_ok):
+            ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+            if ok:
+                st.sidebar.success("Test sendt ✅")
+            else:
+                st.sidebar.error(f"Feil: {err}")
+    with _t2:
+        if st.button("Nullstill", key="alert_reset_antispam_v1"):
+            reset_alert_state()
+            st.sidebar.success("Signalhistorikk nullstilt ✅")
+
+    with st.sidebar.expander("Varselinfo", expanded=False):
+        st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
+        st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
+        st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
+        st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
+
+    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
     st.sidebar.markdown("### ⏱ Cron / bakgrunnssøk")
 
     _cron_settings = load_settings()
@@ -2455,7 +2568,7 @@ render_sidebar_structure_v2()
 
 
 # --- Lagrede auto-innstillinger ---
-st.sidebar.markdown("---")
+st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
 st.sidebar.subheader("🤖 Auto trading")
 
 _settings = load_settings()
@@ -2478,7 +2591,8 @@ _top_only = st.sidebar.checkbox("Auto trading kun Top Picks", value=bool(_settin
 _push = st.sidebar.checkbox("Pushover aktiv", value=bool(_settings.get("pushover_enabled", True)), key="persist_push")
 
 if st.sidebar.button("💾 Lagre auto-innstillinger", key="persist_save_settings"):
-    save_settings({
+    _current_settings_for_auto_save = load_settings()
+    _current_settings_for_auto_save.update({
         "auto_trading_enabled": _auto_enabled,
         "markets": {"USA": _m_usa, "NORGE": _m_no, "SVERIGE": _m_se},
         "max_tickers_per_market": int(_max_tickers),
@@ -2491,6 +2605,7 @@ if st.sidebar.button("💾 Lagre auto-innstillinger", key="persist_save_settings
         "scan_top_picks_only": bool(_top_only),
         "pushover_enabled": bool(_push),
     })
+    save_settings(_current_settings_for_auto_save)
     st.sidebar.success("Lagret ✅")
 
 if st.sidebar.button("↩️ Standard auto-innstillinger", key="persist_reset_settings"):
@@ -2499,12 +2614,7 @@ if st.sidebar.button("↩️ Standard auto-innstillinger", key="persist_reset_se
 
 
 
-st.sidebar.markdown("### 🔕 Varselkontroll")
-st.sidebar.caption(f"Åpne markeder nå: {open_markets()}")
-if st.sidebar.button("Nullstill anti-spam signalhistorikk", key="restore_reset_antispam"):
-    db_reset = reset_alert_state()
-    st.sidebar.success("Signalhistorikk nullstilt ✅")
-
+st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
 st.sidebar.markdown("### ⚙️ Trading-regler")
 _rules = load_rules()
 
@@ -2535,21 +2645,6 @@ if st.sidebar.button("💾 Lagre trading-regler", key="restore_save_rules"):
 
 st.sidebar.markdown("### 🎨 Visning")
 st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
-st.sidebar.markdown("### 📱 Varsler")
-st.session_state.enable_ui_signal_alerts = st.sidebar.checkbox("Aktiver UI-signalvarsler", value=False)
-pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
-st.sidebar.write("Pushover:", "✅ Aktiv" if pushover_enabled else "❌ Ikke konfigurert")
-with st.sidebar.expander("Debug varsler"):
-    st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
-    st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
-if pushover_enabled and st.sidebar.button("Send test-varsel", key="restore_test_pushover"):
-    ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer")
-    if ok:
-        st.sidebar.success("Testvarsel sendt")
-    else:
-        st.sidebar.error(f"Feil: {err}")
-st.sidebar.caption("Legg PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY i Render Environment Variables.")
-
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
 mode = st.sidebar.radio("Marked", ["USA / S&P 500", "Norge / Oslo Børs", "Sverige / Stockholm", "Alle"])
@@ -2558,12 +2653,14 @@ st.sidebar.caption("Flere aksjer gir bedre dekning, men appen kan bli tregere.")
 min_top_pick_score = st.sidebar.slider("Minimum score for Top Picks", 4.0, 9.0, 6.5, 0.1)
 use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
 use_signal_intelligence = st.sidebar.checkbox("Bruk Signal Intelligence", value=True)
-use_high_conf_alerts_only = st.sidebar.checkbox("Varsle kun høy confidence", value=True)
-min_alert_confidence = st.sidebar.slider("Min alert confidence", 50, 95, 70)
+_alert_runtime_settings = load_settings()
+pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY) and bool(_alert_runtime_settings.get("pushover_enabled", True))
+use_high_conf_alerts_only = bool(_alert_runtime_settings.get("notify_high_confidence_only", True))
+min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 80))
+auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
 # Trygge standardverdier for watchlist-knapper
-auto_watchlist_alerts = globals().get("auto_watchlist_alerts", False)
 manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
 watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
 watchlist_tickers = globals().get("watchlist_tickers", [])
