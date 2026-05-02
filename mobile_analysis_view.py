@@ -19,6 +19,7 @@ from paper_trading import load_portfolio
 
 # MOBILE_ANALYSIS_STEP2_CHART_V1
 # MOBILE_ANALYSIS_STEP3_TRADING_PANEL_V1
+# PLOTLY_KEY_FIX_V1
 
 TIMEFRAME_CONFIG = {
     "1m": {"period": "1d", "interval": "1m", "max_points": 390},
@@ -899,11 +900,17 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     render_chart_help()
     fig = build_mobile_chart(chart_df, ticker, timeframe, indicators)
     if fig is not None:
-        if chart_renderer:
-            # Use direct Streamlit here because existing chart_renderer may override config.
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-        else:
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+        # Streamlit trenger unik key for hver Plotly-graf.
+        # Uten key kan to like grafer få samme auto-ID og gi StreamlitDuplicateElementId.
+        _indicator_key = "_".join([str(x) for x in indicators]) if indicators else "none"
+        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config=CHART_CONFIG,
+            key=_chart_key,
+        )
     else:
         st.warning("Fant ikke nok kursdata til candlestick-graf.")
 
