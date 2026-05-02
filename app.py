@@ -662,7 +662,8 @@ div[role="option"][aria-selected="true"] {
 
 
 /* --- SIDEBAR STRUCTURE V2 --- */
-/* GRAPH_SIDEBAR_POLISH_V1 */
+/* GRAPH_SIDEBAR_POLISH_V1
+/* SIDEBAR_MARKET_PILLS_FIX_V2 */ */
 .sidebar-status-card {
     border-radius: 9px;
     padding: 7px 7px;
@@ -705,34 +706,63 @@ div[role="option"][aria-selected="true"] {
     margin-top: 2px;
 }
 
-.sidebar-status-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+
+/* SIDEBAR_MARKET_PILLS_FIX_V2 */
+.market-pill-row {
+    display: flex;
+    flex-direction: row;
     gap: 5px;
-    margin: 6px 0 8px 0;
+    width: 100%;
+    margin: 6px 0 10px 0;
+    align-items: stretch;
 }
-.sidebar-status-card.compact {
-    min-height: 62px;
+.market-pill {
+    flex: 1 1 0;
+    min-width: 0;
+    box-sizing: border-box;
+    border-radius: 9px;
     padding: 7px 5px;
+    line-height: 1.05;
     overflow: hidden;
+    min-height: 50px;
+    border: 1px solid rgba(148,163,184,0.28);
+    background: rgba(15,23,42,0.84);
 }
-.sidebar-status-card.compact .sidebar-status-name {
-    font-size: 0.72rem !important;
-    line-height: 1.05;
+.market-pill.open {
+    background: rgba(6,78,59,0.42);
+    border-color: rgba(34,197,94,0.55);
 }
-.sidebar-status-card.compact .sidebar-status-main {
-    font-size: 0.70rem !important;
-    line-height: 1.05;
+.market-pill.closed {
+    background: rgba(76,5,25,0.58);
+    border-color: rgba(248,113,113,0.65);
 }
-.sidebar-status-card.compact .sidebar-status-reason {
-    font-size: 0.68rem !important;
-    line-height: 1.05;
-    word-break: break-word;
+.market-pill-name {
+    font-size: 0.64rem;
+    font-weight: 950;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
-@media (max-width: 900px) {
-    .sidebar-status-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
+.market-pill-main {
+    font-size: 0.63rem;
+    font-weight: 900;
+    margin-top: 3px;
+}
+.market-pill-main.open {
+    color: #86efac;
+}
+.market-pill-main.closed {
+    color: #fecaca;
+}
+.market-pill-reason {
+    font-size: 0.60rem;
+    font-weight: 850;
+    color: #fca5a5;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .sidebar-small-note {
@@ -2282,34 +2312,40 @@ def render_sidebar_structure_v2():
     for _key, _status in _statuses.items():
         _name = _status.get("name", _key)
         _is_open = bool(_status.get("is_open"))
-        _reason = _status.get("reason", "ukjent")
+        _reason = str(_status.get("reason", "ukjent"))
         _closes_at = _status.get("closes_at")
 
+        # Korte navn gjør raden lesbar i Streamlit-sidebar
+        _short = {
+            "USA": "USA",
+            "Norge": "Norge",
+            "Sverige": "Sverige",
+        }.get(_name, _name)
+
         if _is_open:
-            _text = "Åpent ✅"
+            _main = "Åpent"
             if _closes_at:
-                _text += f" til {_closes_at}"
+                _reason_text = f"til {_closes_at}"
+            else:
+                _reason_text = ""
             _status_cards.append(
-                f"""
-                <div class="sidebar-status-card open compact">
-                    <div class="sidebar-status-name">{_name}</div>
-                    <div class="sidebar-status-main open">{_text}</div>
-                </div>
-                """
+                f"<div class='market-pill open'>"
+                f"<div class='market-pill-name'>{_short}</div>"
+                f"<div class='market-pill-main open'>{_main} ✅</div>"
+                f"<div class='market-pill-reason'>{_reason_text}</div>"
+                f"</div>"
             )
         else:
             _status_cards.append(
-                f"""
-                <div class="sidebar-status-card closed compact">
-                    <div class="sidebar-status-name">{_name}</div>
-                    <div class="sidebar-status-main closed">Stengt ⚠️</div>
-                    <div class="sidebar-status-reason">{_reason}</div>
-                </div>
-                """
+                f"<div class='market-pill closed'>"
+                f"<div class='market-pill-name'>{_short}</div>"
+                f"<div class='market-pill-main closed'>Stengt ⚠️</div>"
+                f"<div class='market-pill-reason'>{_reason}</div>"
+                f"</div>"
             )
 
     st.sidebar.markdown(
-        "<div class='sidebar-status-grid'>" + "".join(_status_cards) + "</div>",
+        "<div class='market-pill-row'>" + "".join(_status_cards) + "</div>",
         unsafe_allow_html=True,
     )
 
