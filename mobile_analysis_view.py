@@ -24,7 +24,7 @@ from paper_trading import load_portfolio
 # INDICATOR_LABELS_V1
 # MOBILE_ANALYSIS_ADVANCED_INDICATORS_V1
 # PRO_TERMINAL_UI_V1
-# CONTROLS_FIX_V1
+# GRAPH_SIDEBAR_POLISH_V1
 
 
 TIMEFRAME_CONFIG = {
@@ -242,6 +242,87 @@ def calculate_sar(df, step=0.02, max_step=0.2):
     return pd.Series(sar, index=df.index, name="SAR")
 
 
+
+
+def calculate_vwap(df):
+    df = _clean_ohlcv(df)
+    if df.empty:
+        return pd.Series(index=df.index, dtype=float)
+    typical = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    volume_cum = df["Volume"].replace(0, pd.NA).cumsum()
+    vwap = (typical * df["Volume"]).cumsum() / volume_cum
+    return vwap.ffill().bfill()
+
+
+def calculate_atr(df, period=14):
+    df = _clean_ohlcv(df)
+    if df.empty:
+        return pd.Series(index=df.index, dtype=float)
+    prev_close = df["Close"].shift(1)
+    tr = pd.concat([
+        df["High"] - df["Low"],
+        (df["High"] - prev_close).abs(),
+        (df["Low"] - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
+
+
+def calculate_obv(df):
+    df = _clean_ohlcv(df)
+    if df.empty:
+        return pd.Series(index=df.index, dtype=float)
+    direction = df["Close"].diff().fillna(0)
+    signed_volume = df["Volume"] * direction.apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    return signed_volume.cumsum()
+
+
+def calculate_adx(df, period=14):
+    df = _clean_ohlcv(df)
+    if df.empty or len(df) < period + 2:
+        empty = pd.Series(index=df.index, dtype=float)
+        return empty, empty, empty
+
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    tr = pd.concat([
+        high - low,
+        (high - close.shift(1)).abs(),
+        (low - close.shift(1)).abs(),
+    ], axis=1).max(axis=1)
+
+    atr = tr.rolling(period).mean().replace(0, pd.NA)
+    plus_di = 100 * (plus_dm.rolling(period).mean() / atr)
+    minus_di = 100 * (minus_dm.rolling(period).mean() / atr)
+    dx = ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, pd.NA)) * 100
+    adx = dx.rolling(period).mean()
+    return adx, plus_di, minus_di
+
+
+def calculate_trend_channel(df, period=20):
+    """
+    Enkel trendkanal:
+    - øvre = høyeste high siste perioder
+    - midt = snitt av øvre/nedre
+    - nedre = laveste low siste perioder
+    """
+    df = _clean_ohlcv(df)
+    if df.empty:
+        empty = pd.Series(index=df.index, dtype=float)
+        return empty, empty, empty
+
+    upper = df["High"].rolling(period).max()
+    lower = df["Low"].rolling(period).min()
+    middle = (upper + lower) / 2.0
+    return upper, middle, lower
+
+
 def calculate_kdj(df, n=9, k_period=3, d_period=3):
     """
     KDJ oscillator.
@@ -280,21 +361,21 @@ def _add_main_indicators(fig, df, indicators):
         ma5 = close.rolling(5).mean()
         ma10 = close.rolling(10).mean()
         ma20 = close.rolling(20).mean()
-        fig.add_trace(go.Scatter(x=df.index, y=ma5, name="MA(5)", mode="lines", line=dict(color="#3b82f6", width=1.7)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=ma10, name="MA(10)", mode="lines", line=dict(color="#22c55e", width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=ma20, name="MA(20)", mode="lines", line=dict(color="#f59e0b", width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=ma5, name="MA(5)", mode="lines", line=dict(color="#60a5fa", width=1.7)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=ma10, name="MA(10)", mode="lines", line=dict(color="#4ade80", width=2.0)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=ma20, name="MA(20)", mode="lines", line=dict(color="#fbbf24", width=2.0)), row=1, col=1)
 
     if "EMA" in indicators:
         ema12 = close.ewm(span=12, adjust=False).mean()
         ema26 = close.ewm(span=26, adjust=False).mean()
-        fig.add_trace(go.Scatter(x=df.index, y=ema12, name="EMA(12)", mode="lines", line=dict(color="#38bdf8", width=1.5, dash="dot")), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=ema26, name="EMA(26)", mode="lines", line=dict(color="#a78bfa", width=1.5, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=ema12, name="EMA(12)", mode="lines", line=dict(color="#67e8f9", width=2.0, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=ema26, name="EMA(26)", mode="lines", line=dict(color="#c4b5fd", width=2.0, dash="dot")), row=1, col=1)
 
     if "BOLL" in indicators:
         bb_ma, bb_upper, bb_lower = calculate_bollinger(df)
-        fig.add_trace(go.Scatter(x=df.index, y=bb_upper, name="BOLL øvre", mode="lines", line=dict(color="#94a3b8", width=1, dash="dash")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=bb_upper, name="BOLL øvre", mode="lines", line=dict(color="#e2e8f0", width=1, dash="dash")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=bb_ma, name="BOLL midt", mode="lines", line=dict(color="#64748b", width=1)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=bb_lower, name="BOLL nedre", mode="lines", line=dict(color="#94a3b8", width=1, dash="dash")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=bb_lower, name="BOLL nedre", mode="lines", line=dict(color="#e2e8f0", width=1, dash="dash")), row=1, col=1)
 
     if "SAR" in indicators:
         sar = calculate_sar(df)
@@ -314,23 +395,6 @@ def _add_main_indicators(fig, df, indicators):
     return fig
 
 
-
-
-
-def calculate_trend_channel(df, period=20):
-    """
-    Trendkanal basert på rullerende høy/lav.
-    Returnerer øvre, midtre og nedre kanal.
-    """
-    df = _clean_ohlcv(df)
-    if df.empty:
-        empty = pd.Series(index=df.index, dtype=float)
-        return empty, empty, empty
-
-    upper = df["High"].rolling(period).max()
-    lower = df["Low"].rolling(period).min()
-    mid = (upper + lower) / 2.0
-    return upper, mid, lower
 
 
 def _series_last(series):
@@ -497,32 +561,33 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
         specs=[[{"secondary_y": False}] for _ in range(rows)],
     )
 
-    chart_type = chart_type or "Candles"
     if chart_type == "Line":
         fig.add_trace(
             go.Scattergl(
                 x=df.index,
                 y=df["Close"],
-                name=f"{ticker} linje",
+                name=f"{ticker} prislinje",
                 mode="lines",
-                line=dict(color="#60a5fa", width=1.8),
-                hovertemplate="<b>%{x}</b><br>Close: %{y:.2f}<extra></extra>",
+                line=dict(color="#67e8f9", width=2.4),
+                hovertemplate="<b>%{x}</b><br>Pris: %{y:.2f}<extra></extra>",
             ),
-            row=1, col=1,
+            row=1,
+            col=1,
         )
     elif chart_type == "Area":
         fig.add_trace(
             go.Scattergl(
                 x=df.index,
                 y=df["Close"],
-                name=f"{ticker} område",
+                name=f"{ticker} area",
                 mode="lines",
                 fill="tozeroy",
-                line=dict(color="#60a5fa", width=1.6),
-                fillcolor="rgba(96,165,250,0.18)",
-                hovertemplate="<b>%{x}</b><br>Close: %{y:.2f}<extra></extra>",
+                line=dict(color="#67e8f9", width=2.2),
+                fillcolor="rgba(103,232,249,0.16)",
+                hovertemplate="<b>%{x}</b><br>Pris: %{y:.2f}<extra></extra>",
             ),
-            row=1, col=1,
+            row=1,
+            col=1,
         )
     else:
         fig.add_trace(
@@ -533,13 +598,14 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
                 low=df["Low"],
                 close=df["Close"],
                 name=f"{ticker} candles",
-                increasing_line_color="#22c55e",
-                decreasing_line_color="#ef4444",
-                increasing_fillcolor="#22c55e",
-                decreasing_fillcolor="#ef4444",
+                increasing_line_color="#4ade80",
+                decreasing_line_color="#fb7185",
+                increasing_fillcolor="#4ade80",
+                decreasing_fillcolor="#fb7185",
                 hovertemplate=("<b>%{x}</b><br>Open: %{open:.2f}<br>High: %{high:.2f}<br>Low: %{low:.2f}<br>Close: %{close:.2f}<extra></extra>"),
             ),
-            row=1, col=1,
+            row=1,
+            col=1,
         )
 
     close = df["Close"]
@@ -547,25 +613,25 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
 
     if "MA" in indicators:
         ma5 = close.rolling(5).mean(); ma10 = close.rolling(10).mean(); ma20 = close.rolling(20).mean()
-        fig.add_trace(go.Scattergl(x=df.index, y=ma5, name="MA5", mode="lines", line=dict(color="#3b82f6", width=1.2)), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=ma10, name="MA10", mode="lines", line=dict(color="#22c55e", width=1.2)), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=ma20, name="MA20", mode="lines", line=dict(color="#f59e0b", width=1.3)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ma5, name="MA5", mode="lines", line=dict(color="#60a5fa", width=1.7)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ma10, name="MA10", mode="lines", line=dict(color="#4ade80", width=1.7)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ma20, name="MA20", mode="lines", line=dict(color="#fbbf24", width=1.8)), row=1, col=1)
         _add_last_value_label(fig, last_x, _series_last(ma5), f"MA5 {(_series_last(ma5) or 0):.2f}", row=1, color='rgba(59,130,246,0.85)')
         _add_last_value_label(fig, last_x, _series_last(ma10), f"MA10 {(_series_last(ma10) or 0):.2f}", row=1, color='rgba(34,197,94,0.85)')
         _add_last_value_label(fig, last_x, _series_last(ma20), f"MA20 {(_series_last(ma20) or 0):.2f}", row=1, color='rgba(245,158,11,0.85)')
 
     if "EMA" in indicators:
         ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean()
-        fig.add_trace(go.Scattergl(x=df.index, y=ema12, name="EMA12", mode="lines", line=dict(color="#38bdf8", width=1.2)), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=ema26, name="EMA26", mode="lines", line=dict(color="#a78bfa", width=1.2)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ema12, name="EMA12", mode="lines", line=dict(color="#67e8f9", width=1.7)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ema26, name="EMA26", mode="lines", line=dict(color="#c4b5fd", width=1.7)), row=1, col=1)
         _add_last_value_label(fig, last_x, _series_last(ema12), f"EMA12 {(_series_last(ema12) or 0):.2f}", row=1, color='rgba(56,189,248,0.85)')
         _add_last_value_label(fig, last_x, _series_last(ema26), f"EMA26 {(_series_last(ema26) or 0):.2f}", row=1, color='rgba(167,139,250,0.85)')
 
     if "BOLL" in indicators:
         bb_ma, bb_upper, bb_lower = calculate_bollinger(df)
-        fig.add_trace(go.Scattergl(x=df.index, y=bb_upper, name="BOLL øvre", mode="lines", line=dict(color="#22d3ee", width=1.1, dash="dot")), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=bb_ma, name="BOLL midt", mode="lines", line=dict(color="#f97316", width=1.0)), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=bb_lower, name="BOLL nedre", mode="lines", line=dict(color="#a855f7", width=1.1, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=bb_upper, name="BOLL øvre", mode="lines", line=dict(color="#22d3ee", width=1.6, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=bb_ma, name="BOLL midt", mode="lines", line=dict(color="#fdba74", width=2.0)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=bb_lower, name="BOLL nedre", mode="lines", line=dict(color="#d8b4fe", width=1.6, dash="dot")), row=1, col=1)
         _add_last_value_label(fig, last_x, _series_last(bb_upper), f"BB øvre {(_series_last(bb_upper) or 0):.2f}", row=1, color='rgba(34,211,238,0.85)')
         _add_last_value_label(fig, last_x, _series_last(bb_ma), f"BB midt {(_series_last(bb_ma) or 0):.2f}", row=1, color='rgba(249,115,22,0.85)')
         _add_last_value_label(fig, last_x, _series_last(bb_lower), f"BB nedre {(_series_last(bb_lower) or 0):.2f}", row=1, color='rgba(168,85,247,0.85)')
@@ -577,14 +643,14 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
 
     if "VWAP" in indicators:
         vwap = calculate_vwap(df)
-        fig.add_trace(go.Scattergl(x=df.index, y=vwap, name="VWAP", mode="lines", line=dict(color="#facc15", width=1.2)), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=vwap, name="VWAP", mode="lines", line=dict(color="#fde047", width=1.7)), row=1, col=1)
         _add_last_value_label(fig, last_x, _series_last(vwap), f"VWAP {(_series_last(vwap) or 0):.2f}", row=1, color='rgba(250,204,21,0.88)', text_color='#111827')
 
     if "KANAL" in indicators:
         ch_u, ch_m, ch_l = calculate_trend_channel(df)
-        fig.add_trace(go.Scattergl(x=df.index, y=ch_u, name="Trendkanal øvre", mode="lines", line=dict(color="#94a3b8", width=1.0, dash="dash")), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=ch_m, name="Trendkanal midt", mode="lines", line=dict(color="#cbd5e1", width=1.0, dash="dot")), row=1, col=1)
-        fig.add_trace(go.Scattergl(x=df.index, y=ch_l, name="Trendkanal nedre", mode="lines", line=dict(color="#94a3b8", width=1.0, dash="dash")), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ch_u, name="Trendkanal øvre", mode="lines", line=dict(color="#e2e8f0", width=2.0, dash="dash")), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ch_m, name="Trendkanal midt", mode="lines", line=dict(color="#f8fafc", width=2.0, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scattergl(x=df.index, y=ch_l, name="Trendkanal nedre", mode="lines", line=dict(color="#e2e8f0", width=2.0, dash="dash")), row=1, col=1)
         _add_last_value_label(fig, last_x, _series_last(ch_u), f"Kanal Ø {(_series_last(ch_u) or 0):.2f}", row=1, color='rgba(148,163,184,0.85)', text_color='#111827')
         _add_last_value_label(fig, last_x, _series_last(ch_m), f"Kanal M {(_series_last(ch_m) or 0):.2f}", row=1, color='rgba(203,213,225,0.85)', text_color='#111827')
         _add_last_value_label(fig, last_x, _series_last(ch_l), f"Kanal N {(_series_last(ch_l) or 0):.2f}", row=1, color='rgba(148,163,184,0.85)', text_color='#111827')
@@ -596,29 +662,29 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
     row_idx = 2
     for panel in panel_rows:
         if panel == "VOL":
-            vol_colors = ["#22c55e" if c >= o else "#ef4444" for o, c in zip(df["Open"], df["Close"])]
+            vol_colors = ["#4ade80" if c >= o else "#fb7185" for o, c in zip(df["Open"], df["Close"])]
             fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="VOL", marker=dict(color=vol_colors), opacity=0.75), row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(df["Volume"]), f"VOL {_fmt_volume(_series_last(df['Volume']))}", row=row_idx, color='rgba(34,197,94,0.85)')
         elif panel == "MACD":
             macd, macd_signal, macd_hist = calculate_macd(df)
-            hist_colors = ["#22c55e" if float(v or 0) >= 0 else "#ef4444" for v in macd_hist.fillna(0)]
+            hist_colors = ["#4ade80" if float(v or 0) >= 0 else "#fb7185" for v in macd_hist.fillna(0)]
             fig.add_trace(go.Bar(x=df.index, y=macd_hist, name="MACD hist", marker=dict(color=hist_colors), opacity=0.5), row=row_idx, col=1)
-            fig.add_trace(go.Scattergl(x=df.index, y=macd, name="MACD", mode="lines", line=dict(color="#3b82f6", width=1.3)), row=row_idx, col=1)
-            fig.add_trace(go.Scattergl(x=df.index, y=macd_signal, name="Signal", mode="lines", line=dict(color="#ef4444", width=1.2)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=macd, name="MACD", mode="lines", line=dict(color="#60a5fa", width=1.8)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=macd_signal, name="Signal", mode="lines", line=dict(color="#fb7185", width=1.7)), row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(macd), f"MACD {(_series_last(macd) or 0):.2f}", row=row_idx, color='rgba(59,130,246,0.85)')
             _add_last_value_label(fig, last_x, _series_last(macd_signal), f"Signal {(_series_last(macd_signal) or 0):.2f}", row=row_idx, color='rgba(239,68,68,0.85)')
         elif panel == "RSI":
             rsi = calculate_rsi(df)
-            fig.add_trace(go.Scattergl(x=df.index, y=rsi, name="RSI", mode="lines", line=dict(color="#a78bfa", width=1.5)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=rsi, name="RSI", mode="lines", line=dict(color="#c4b5fd", width=2.0)), row=row_idx, col=1)
             fig.add_hline(y=70, line_dash="dash", line_color="rgba(239,68,68,0.75)", row=row_idx, col=1)
             fig.add_hline(y=30, line_dash="dash", line_color="rgba(34,197,94,0.75)", row=row_idx, col=1)
             fig.update_yaxes(range=[0, 100], row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(rsi), f"RSI {(_series_last(rsi) or 0):.1f}", row=row_idx, color='rgba(167,139,250,0.85)')
         elif panel == "KDJ":
             k, d, j = calculate_kdj(df)
-            fig.add_trace(go.Scattergl(x=df.index, y=k, name="K", mode="lines", line=dict(color="#3b82f6", width=1.3)), row=row_idx, col=1)
-            fig.add_trace(go.Scattergl(x=df.index, y=d, name="D", mode="lines", line=dict(color="#f59e0b", width=1.3)), row=row_idx, col=1)
-            fig.add_trace(go.Scattergl(x=df.index, y=j, name="J", mode="lines", line=dict(color="#e879f9", width=1.2)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=k, name="K", mode="lines", line=dict(color="#60a5fa", width=1.8)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=d, name="D", mode="lines", line=dict(color="#fbbf24", width=1.8)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=j, name="J", mode="lines", line=dict(color="#e879f9", width=1.7)), row=row_idx, col=1)
             fig.add_hline(y=80, line_dash="dash", line_color="rgba(239,68,68,0.65)", row=row_idx, col=1)
             fig.add_hline(y=20, line_dash="dash", line_color="rgba(34,197,94,0.65)", row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(k), f"K {(_series_last(k) or 0):.1f}", row=row_idx, color='rgba(59,130,246,0.85)')
@@ -626,17 +692,17 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
             _add_last_value_label(fig, last_x, _series_last(j), f"J {(_series_last(j) or 0):.1f}", row=row_idx, color='rgba(232,121,249,0.85)')
         elif panel == "ATR":
             atr = calculate_atr(df)
-            fig.add_trace(go.Scattergl(x=df.index, y=atr, name="ATR", mode="lines", line=dict(color="#f97316", width=1.4)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=atr, name="ATR", mode="lines", line=dict(color="#fdba74", width=1.9)), row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(atr), f"ATR {(_series_last(atr) or 0):.2f}", row=row_idx, color='rgba(249,115,22,0.85)')
         elif panel == "OBV":
             obv = calculate_obv(df)
-            fig.add_trace(go.Scattergl(x=df.index, y=obv, name="OBV", mode="lines", line=dict(color="#14b8a6", width=1.4)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=obv, name="OBV", mode="lines", line=dict(color="#5eead4", width=1.9)), row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(obv), f"OBV {_fmt_volume(_series_last(obv))}", row=row_idx, color='rgba(20,184,166,0.85)')
         elif panel == "ADX":
             adx, plus_di, minus_di = calculate_adx(df)
-            fig.add_trace(go.Scattergl(x=df.index, y=adx, name="ADX", mode="lines", line=dict(color="#facc15", width=1.4)), row=row_idx, col=1)
-            fig.add_trace(go.Scattergl(x=df.index, y=plus_di, name="+DI", mode="lines", line=dict(color="#22c55e", width=1.2)), row=row_idx, col=1)
-            fig.add_trace(go.Scattergl(x=df.index, y=minus_di, name="-DI", mode="lines", line=dict(color="#ef4444", width=1.2)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=adx, name="ADX", mode="lines", line=dict(color="#fde047", width=1.9)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=plus_di, name="+DI", mode="lines", line=dict(color="#4ade80", width=1.7)), row=row_idx, col=1)
+            fig.add_trace(go.Scattergl(x=df.index, y=minus_di, name="-DI", mode="lines", line=dict(color="#fb7185", width=1.7)), row=row_idx, col=1)
             fig.add_hline(y=25, line_dash="dash", line_color="rgba(250,204,21,0.50)", row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(adx), f"ADX {(_series_last(adx) or 0):.1f}", row=row_idx, color='rgba(250,204,21,0.88)', text_color='#111827')
         row_idx += 1
@@ -651,7 +717,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         dragmode="pan",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(7,17,31,0.70)", font=dict(size=10)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0, bgcolor="rgba(7,17,31,0.88)", bordercolor="rgba(248,250,252,0.18)", borderwidth=1, font=dict(size=12, color="#f8fafc")),
     )
 
     for i in range(1, rows + 1):
@@ -665,7 +731,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
 def render_chart_help():
 
 
-    st.caption("Graf: dra for pan, bruk musehjul/pinch for zoom, dobbelttrykk for reset. Verdier for aktive indikatorer vises over grafen og som etiketter på linjene. KANAL gir trendkanal tilbake rundt gjeldende kurs.")
+    st.caption("Graf: dra for pan, bruk musehjul/pinch for zoom, dobbelttrykk for reset. Verdier for aktive indikatorer vises over grafen og som etiketter på linjene. KANAL gir trendkanal tilbake rundt gjeldende kurs. Chart-type kan byttes mellom Candles, Line og Area.")
 
 
 
@@ -1165,7 +1231,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             line-height: 1.05;
         }
         .mobile-company {
-            color: #94a3b8;
+            color: #e2e8f0;
             font-size: 0.95rem;
             margin-top: 4px;
         }
@@ -1177,12 +1243,12 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             line-height: 1.05;
         }
         .mobile-change-pos {
-            color: #22c55e;
+            color: #4ade80;
             font-weight: 900;
             text-align: right;
         }
         .mobile-change-neg {
-            color: #ef4444;
+            color: #fb7185;
             font-weight: 900;
             text-align: right;
         }
@@ -1213,7 +1279,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             height: 100%;
         }
         .mobile-subcard .label {
-            color:#94a3b8;
+            color:#e2e8f0;
             font-size:0.82rem;
             font-weight:800;
         }
@@ -1281,7 +1347,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             background:rgba(127,29,29,0.28);
         }
         .pro-company {
-            color:#94a3b8;
+            color:#e2e8f0;
             font-size:0.82rem;
             margin-top:5px;
         }
@@ -1289,7 +1355,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             display:flex;
             flex-wrap:wrap;
             gap:8px;
-            color:#cbd5e1;
+            color:#f8fafc;
             font-size:0.76rem;
             margin-top:6px;
         }
@@ -1305,10 +1371,10 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             font-size:0.85rem;
             font-weight:900;
             margin-top:5px;
-            color:#cbd5e1;
+            color:#f8fafc;
         }
-        .pro-change.green { color:#22c55e; }
-        .pro-change.red { color:#ef4444; }
+        .pro-change.green { color:#4ade80; }
+        .pro-change.red { color:#fb7185; }
         .pro-stat-grid {
             display:grid;
             grid-template-columns: repeat(4, minmax(0,1fr));
@@ -1324,7 +1390,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         }
         .pro-stat span {
             display:block;
-            color:#94a3b8;
+            color:#e2e8f0;
             font-size:0.72rem;
             font-weight:800;
         }
@@ -1360,27 +1426,30 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         }
 
 
-        /* CONTROLS_FIX_V1: fix dark/black blob on first multiselect chip */
-        div[data-baseweb="select"] span,
-        div[data-baseweb="select"] div[role="button"] {
-            box-shadow: none !important;
-        }
+        /* GRAPH_SIDEBAR_POLISH_V1: clearer multiselect chips */
         div[data-baseweb="tag"] {
-            background: #ef4444 !important;
+            background: linear-gradient(135deg, #fb7185, #fb7185) !important;
             color: #ffffff !important;
-            border-radius: 10px !important;
-            border: 1px solid rgba(255,255,255,0.25) !important;
+            border: 1px solid rgba(255,255,255,0.18) !important;
             box-shadow: none !important;
+            border-radius: 9px !important;
         }
         div[data-baseweb="tag"] span {
             color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            font-weight: 850 !important;
         }
         div[data-baseweb="tag"] svg {
             color: #ffffff !important;
             fill: #ffffff !important;
         }
-        div[data-baseweb="select"] input {
+        .stMultiSelect div[data-baseweb="select"] > div {
+            background: rgba(30,41,59,0.92) !important;
+            border-color: rgba(148,163,184,0.40) !important;
+        }
+        .stMultiSelect input {
             color: #f8fafc !important;
+            background: transparent !important;
         }
 
         </style>
@@ -1398,7 +1467,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
                 timeframe = tf
                 st.rerun()
 
-    st.caption("Velg chart-type og indikatorer. Synlige indikatorer er aktive; X fjerner dem. Reset/Standard/Full legger dem raskt tilbake.")
+    st.caption("Mobil analyse er komprimert for raskere visning. Velg bare indikatorene du trenger for best ytelse.")
 
     chart_df = fetch_timeframe_data(ticker, timeframe)
     if chart_df.empty:
@@ -1434,38 +1503,43 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     st.markdown('<div class="pro-section-title">Tidsvalg</div>', unsafe_allow_html=True)
 
-    preset_default = render_pro_preset_bar(ticker, label, timeframe)
-
+    st.markdown('<div class="pro-section-title">Chart-type</div>', unsafe_allow_html=True)
     chart_type = st.radio(
         "Chart-type",
         ["Candles", "Line", "Area"],
         horizontal=True,
+        label_visibility="collapsed",
         key=f"chart_type_{label}_{ticker}_{timeframe}",
-        help="Candles = kandelvisning. Line = rask linjevisning. Area = linje med fyll.",
     )
 
-    indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
-    reset_cols = st.columns(3)
-    with reset_cols[0]:
-        if st.button("↩️ Reset indikatorer", key=f"reset_ind_{label}_{ticker}_{timeframe}", use_container_width=True):
-            st.session_state[indicator_key] = preset_default
+    preset_default = render_pro_preset_bar(ticker, label, timeframe)
+
+    _all_indicators = ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX"]
+    _indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
+
+    rb1, rb2, rb3 = st.columns(3)
+    with rb1:
+        if st.button("Standard", key=f"reset_standard_{label}_{ticker}_{timeframe}", use_container_width=True):
+            st.session_state[_indicator_key] = ["MA", "VOL", "KANAL"]
             st.rerun()
-    with reset_cols[1]:
-        if st.button("✅ Standard", key=f"std_ind_{label}_{ticker}_{timeframe}", use_container_width=True):
-            st.session_state[indicator_key] = ["MA", "VOL", "KANAL"]
+    with rb2:
+        if st.button("Reset preset", key=f"reset_preset_{label}_{ticker}_{timeframe}", use_container_width=True):
+            st.session_state[_indicator_key] = preset_default
             st.rerun()
-    with reset_cols[2]:
-        if st.button("⚡ Full", key=f"full_ind_{label}_{ticker}_{timeframe}", use_container_width=True):
-            st.session_state[indicator_key] = ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "RSI", "ADX"]
+    with rb3:
+        if st.button("Full", key=f"reset_full_{label}_{ticker}_{timeframe}", use_container_width=True):
+            st.session_state[_indicator_key] = _all_indicators
             st.rerun()
 
     indicators = st.multiselect(
         "Indikatorer",
-        ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX"],
+        _all_indicators,
         default=preset_default,
-        key=indicator_key,
-        help="Synlig i feltet = aktiv i grafen. X fjerner indikatoren. Bruk Reset/Standard/Full for å legge tilbake raskt.",
+        key=_indicator_key,
+        help="Velg indikatorer. MA, EMA, BOLL, SAR, VWAP og KANAL vises i prisgrafen. VOL, MACD, RSI, KDJ, ATR, OBV og ADX vises i egne paneler.",
     )
+
+    st.caption("Valgte indikatorer er aktive. X fjerner en indikator; bruk Standard, Reset preset eller Full for å legge dem tilbake.")
 
     _render_indicator_snapshot(chart_df, indicators, currency=currency)
     render_chart_help()

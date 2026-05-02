@@ -526,7 +526,7 @@ div[data-testid="stAlert"] {
 }
 .info-mini-small {
     color: #94a3b8 !important;
-    font-size: 0.84rem;
+    font-size: 0.78rem;
     line-height: 1.35;
     margin-top: 8px;
 }
@@ -662,10 +662,11 @@ div[role="option"][aria-selected="true"] {
 
 
 /* --- SIDEBAR STRUCTURE V2 --- */
+/* GRAPH_SIDEBAR_POLISH_V1 */
 .sidebar-status-card {
-    border-radius: 10px;
-    padding: 8px 10px;
-    margin: 6px 0;
+    border-radius: 9px;
+    padding: 7px 7px;
+    margin: 4px 0;
     line-height: 1.15;
     border: 1px solid rgba(148, 163, 184, 0.25);
 }
@@ -688,7 +689,7 @@ div[role="option"][aria-selected="true"] {
 }
 .sidebar-status-main {
     font-weight: 900;
-    font-size: 0.82rem;
+    font-size: 0.70rem;
     margin-top: 2px;
 }
 .sidebar-status-main.open {
@@ -703,6 +704,37 @@ div[role="option"][aria-selected="true"] {
     font-size: 0.76rem;
     margin-top: 2px;
 }
+
+.sidebar-status-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    margin: 6px 0 8px 0;
+}
+.sidebar-status-card.compact {
+    min-height: 62px;
+    padding: 7px 5px;
+    overflow: hidden;
+}
+.sidebar-status-card.compact .sidebar-status-name {
+    font-size: 0.72rem !important;
+    line-height: 1.05;
+}
+.sidebar-status-card.compact .sidebar-status-main {
+    font-size: 0.70rem !important;
+    line-height: 1.05;
+}
+.sidebar-status-card.compact .sidebar-status-reason {
+    font-size: 0.68rem !important;
+    line-height: 1.05;
+    word-break: break-word;
+}
+@media (max-width: 900px) {
+    .sidebar-status-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
 .sidebar-small-note {
     color: #94a3b8 !important;
     font-size: 0.78rem;
@@ -2241,11 +2273,12 @@ render_user_admin(current_user)
 def render_sidebar_structure_v2():
     st.sidebar.markdown("### 🕒 Børsstatus")
     st.sidebar.markdown(
-        "<div class='sidebar-small-note'>Bakgrunnssøk styres av børsstatus. Stengte markeder bruker cache hvis mulig.</div>",
+        "<div class='sidebar-small-note'>Bakgrunnssøk styres av børsstatus. Cache brukes når marked er stengt.</div>",
         unsafe_allow_html=True,
     )
 
     _statuses = market_statuses()
+    _status_cards = []
     for _key, _status in _statuses.items():
         _name = _status.get("name", _key)
         _is_open = bool(_status.get("is_open"))
@@ -2256,26 +2289,29 @@ def render_sidebar_structure_v2():
             _text = "Åpent ✅"
             if _closes_at:
                 _text += f" til {_closes_at}"
-            st.sidebar.markdown(
+            _status_cards.append(
                 f"""
-                <div class="sidebar-status-card open">
+                <div class="sidebar-status-card open compact">
                     <div class="sidebar-status-name">{_name}</div>
                     <div class="sidebar-status-main open">{_text}</div>
                 </div>
-                """,
-                unsafe_allow_html=True,
+                """
             )
         else:
-            st.sidebar.markdown(
+            _status_cards.append(
                 f"""
-                <div class="sidebar-status-card closed">
+                <div class="sidebar-status-card closed compact">
                     <div class="sidebar-status-name">{_name}</div>
                     <div class="sidebar-status-main closed">Stengt ⚠️</div>
                     <div class="sidebar-status-reason">{_reason}</div>
                 </div>
-                """,
-                unsafe_allow_html=True,
+                """
             )
+
+    st.sidebar.markdown(
+        "<div class='sidebar-status-grid'>" + "".join(_status_cards) + "</div>",
+        unsafe_allow_html=True,
+    )
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⏱ Cron / bakgrunnssøk")
