@@ -8,6 +8,7 @@
 - `README_MOBILE_ANALYSIS_STEP3_TRADING_PANEL_V1.md`
 - `README_PLOTLY_KEY_FIX_V1.md`
 - `README_SIDEBAR_DEDUPE_V1.md`
+- `README_WIDGET_KEY_FIX_V2.md`
 - `alert_state.py`
 - `analysis.py`
 - `analyst.py`

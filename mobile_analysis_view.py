@@ -20,6 +20,7 @@ from paper_trading import load_portfolio
 # MOBILE_ANALYSIS_STEP2_CHART_V1
 # MOBILE_ANALYSIS_STEP3_TRADING_PANEL_V1
 # PLOTLY_KEY_FIX_V1
+# WIDGET_KEY_FIX_V2
 
 TIMEFRAME_CONFIG = {
     "1m": {"period": "1d", "interval": "1m", "max_points": 390},
@@ -472,6 +473,20 @@ def render_chart_help():
 
 
 
+
+def _safe_key(*parts):
+    raw = "_".join(str(p) for p in parts if p is not None)
+    return (
+        raw.replace(" ", "_")
+        .replace("/", "_")
+        .replace(".", "_")
+        .replace(":", "_")
+        .replace("-", "_")
+        .replace("(", "")
+        .replace(")", "")
+    )
+
+
 def _safe_float(value, default=0.0):
     try:
         if value is None:
@@ -533,12 +548,13 @@ def _trade_rows_for_ticker(portfolio, ticker):
     return rows
 
 
-def render_trading_panel_v3(ticker, price, currency, confidence, decision, item):
+def render_trading_panel_v3(ticker, price, currency, confidence, decision, item, key_prefix=''):
     """
     Step 3 trading panel.
     Bruker samme paper_buy/paper_sell som resten av systemet.
     Endrer ikke auto-buy/Cron.
     """
+    _panel_key = _safe_key("order_panel_v3", key_prefix, ticker)
     portfolio = load_portfolio()
     position = _get_position_for_ticker(portfolio, ticker)
     metrics = _position_metrics(position, price)
@@ -572,7 +588,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
         "Ordretype",
         ["Kjøp for beløp", "Kjøp antall", "Selg antall"],
         horizontal=True,
-        key=f"order_mode_v3_{ticker}",
+        key=f"order_mode_v3_{_panel_key}",
     )
 
     default_cash = _safe_float(portfolio.get("cash", 0))
@@ -584,7 +600,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
             min_value=0.0,
             value=float(price or 0),
             step=0.1,
-            key=f"order_price_v3_{ticker}",
+            key=f"order_price_v3_{_panel_key}",
         )
 
     with c2:
@@ -595,7 +611,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
                 min_value=0.0,
                 value=float(round(default_amount, 2)),
                 step=500.0,
-                key=f"order_amount_v3_{ticker}",
+                key=f"order_amount_v3_{_panel_key}",
             )
             qty = amount / order_price if order_price else 0
         else:
@@ -605,7 +621,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
                 min_value=0.0,
                 value=float(min(10.0, max_sell) if max_sell else 10.0),
                 step=1.0,
-                key=f"order_qty_v3_{ticker}",
+                key=f"order_qty_v3_{_panel_key}",
             )
             amount = qty * order_price
 
@@ -632,7 +648,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
 
     with b1:
         buy_disabled = mode == "Selg antall" or order_price <= 0 or amount <= 0
-        if st.button(f"🟢 Paper-kjøp {ticker}", key=f"buy_v3_{ticker}", use_container_width=True, disabled=buy_disabled):
+        if st.button(f"🟢 Paper-kjøp {ticker}", key=f"buy_v3_{_panel_key}", use_container_width=True, disabled=buy_disabled):
             ok, msg = paper_buy(ticker, order_price, confidence, "Mobil analysepanel v3")
             if ok:
                 st.success(msg)
@@ -642,7 +658,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
 
     with b2:
         sell_disabled = not position or qty <= 0 or order_price <= 0
-        if st.button(f"🔴 Paper-selg {ticker}", key=f"sell_v3_{ticker}", use_container_width=True, disabled=sell_disabled):
+        if st.button(f"🔴 Paper-selg {ticker}", key=f"sell_v3_{_panel_key}", use_container_width=True, disabled=sell_disabled):
             ok, msg = paper_sell(ticker, order_price, "Mobil analysepanel v3")
             if ok:
                 st.success(msg)
@@ -917,7 +933,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     order_tab, trades_tab, info_tab = st.tabs(["Ordre", "Trades", "Informasjon"])
 
     with order_tab:
-        render_trading_panel_v3(ticker, price, currency, confidence, decision, item)
+        render_trading_panel_v3(ticker, price, currency, confidence, decision, item, key_prefix=f'{label}_{ticker}_{timeframe}')
 
     with trades_tab:
         render_trades_panel_v3(ticker)
