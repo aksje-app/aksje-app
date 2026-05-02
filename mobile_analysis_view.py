@@ -25,6 +25,8 @@ from paper_trading import load_portfolio
 # MOBILE_ANALYSIS_ADVANCED_INDICATORS_V1
 # PRO_TERMINAL_UI_V1
 # GRAPH_SIDEBAR_POLISH_V1
+# TIMEFRAME_EXPLAINER_V1
+# DYNAMIC_CHART_RANGE_CHANNEL_V1
 
 
 TIMEFRAME_CONFIG = {
@@ -33,6 +35,76 @@ TIMEFRAME_CONFIG = {
     "1h": {"period": "1mo", "interval": "1h", "max_points": 180},
     "4h": {"period": "3mo", "interval": "1h", "max_points": 180},
     "1d": {"period": "1y", "interval": "1d", "max_points": 220},
+}
+
+TIMEFRAME_LABELS = {
+    "1m": "1 min",
+    "15m": "15 min",
+    "1h": "1 time",
+    "4h": "4 timer",
+    "1d": "1 dag",
+}
+
+TIMEFRAME_DATA_LABELS = {
+    "1m": "siste handelsdag",
+    "15m": "siste 5 handelsdager",
+    "1h": "siste måned",
+    "4h": "siste 3 måneder",
+    "1d": "siste 1 år",
+}
+
+TIMEFRAME_USE_LABELS = {
+    "1m": "intradag timing",
+    "15m": "intradag timing",
+    "1h": "swing timing",
+    "4h": "swing / mellomlang timing",
+    "1d": "hovedtrend",
+}
+
+CHART_RANGE_PERIODS = {
+    "Auto": None,
+    "1 dag": "1d",
+    "5 dager": "5d",
+    "1 måned": "1mo",
+    "3 måneder": "3mo",
+    "6 måneder": "6mo",
+    "1 år": "1y",
+    "2 år": "2y",
+    "5 år": "5y",
+    "Maks": "max",
+}
+
+CHART_RANGE_OPTIONS_BY_TIMEFRAME = {
+    "1m": ["Auto", "1 dag", "5 dager"],
+    "15m": ["Auto", "1 dag", "5 dager", "1 måned"],
+    "1h": ["Auto", "5 dager", "1 måned", "3 måneder", "6 måneder", "1 år", "2 år"],
+    "4h": ["Auto", "1 måned", "3 måneder", "6 måneder", "1 år", "2 år"],
+    "1d": ["Auto", "1 måned", "3 måneder", "6 måneder", "1 år", "2 år", "5 år", "Maks"],
+}
+
+CHART_RANGE_HELP = {
+    "1m": "1-minuttsdata er normalt begrenset til få handelsdager.",
+    "15m": "15-minuttsdata brukes til intradag og kort swing.",
+    "1h": "Timesdata egner seg til swing og mellomlang timing.",
+    "4h": "4-timersvisning resamples fra timesdata og passer mellomlang analyse.",
+    "1d": "Dagsdata brukes til hovedtrend og lange perioder.",
+}
+
+TREND_CHANNEL_AUTO_PERIOD = {
+    "1m": 60,
+    "15m": 32,
+    "1h": 50,
+    "4h": 45,
+    "1d": 80,
+}
+
+TREND_CHANNEL_PRESETS = {
+    "Auto": None,
+    "Kort": 20,
+    "Middels": 50,
+    "Lang": 100,
+    "Ekstra lang": 180,
+    "Egendefinert": None,
 }
 
 
@@ -137,15 +209,80 @@ def _resample_4h(df):
         return df
 
 
+
+
+def _period_for_timeframe_range(timeframe, range_key):
+    cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"])
+    if not range_key or range_key == "Auto":
+        return cfg.get("period", "1y")
+    return CHART_RANGE_PERIODS.get(range_key) or cfg.get("period", "1y")
+
+
+def _max_points_for_range(timeframe, range_key):
+    if range_key == "Auto":
+        return int(TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"]).get("max_points", 220))
+
+    # Rask nok på mobil, men fortsatt mer historikk når brukeren ber om det.
+    if timeframe == "1m":
+        return 700
+    if timeframe == "15m":
+        return 900
+    if timeframe in {"1h", "4h"}:
+        return 900
+    if timeframe == "1d":
+        if range_key in {"5 år", "Maks"}:
+            return 1300
+        if range_key == "2 år":
+            return 520
+        return 260
+    return 400
+
+
+def _chart_range_options(timeframe):
+    return CHART_RANGE_OPTIONS_BY_TIMEFRAME.get(timeframe, ["Auto", "1 måned", "3 måneder", "1 år"])
+
+
+def _auto_channel_period(timeframe, range_key="Auto"):
+    base = int(TREND_CHANNEL_AUTO_PERIOD.get(timeframe, 50))
+
+    # Lengre graf bør gi litt lengre kanal, ellers blir kanal for nervøs.
+    if range_key in {"2 år", "5 år", "Maks"}:
+        return max(base, 120)
+    if range_key in {"6 måneder", "1 år"}:
+        return max(base, 80)
+    if range_key in {"1 dag", "5 dager"} and timeframe in {"1m", "15m"}:
+        return base
+    return base
+
+
+def _trend_channel_period(timeframe, range_key, mode, custom):
+    if mode == "Egendefinert":
+        return int(custom)
+    preset = TREND_CHANNEL_PRESETS.get(mode)
+    if preset:
+        return int(preset)
+    return int(_auto_channel_period(timeframe, range_key))
+
+
+def _trend_channel_text(timeframe, range_key, mode, custom):
+    period = _trend_channel_period(timeframe, range_key, mode, custom)
+    tf_label = TIMEFRAME_LABELS.get(timeframe, timeframe)
+    if mode == "Auto":
+        return f"Auto: {period} candles basert på {tf_label} og {range_key.lower()}"
+    if mode == "Egendefinert":
+        return f"Egendefinert: {period} candles"
+    return f"{mode}: {period} candles"
+
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_timeframe_data(ticker, timeframe):
+def fetch_timeframe_data(ticker, timeframe, range_key="Auto"):
     if yf is None:
         return pd.DataFrame()
 
     cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"])
+    period = _period_for_timeframe_range(timeframe, range_key)
     try:
         hist = yf.Ticker(ticker).history(
-            period=cfg["period"],
+            period=period,
             interval=cfg["interval"],
             auto_adjust=False,
             prepost=False,
@@ -307,16 +444,14 @@ def calculate_adx(df, period=14):
 
 def calculate_trend_channel(df, period=20):
     """
-    Enkel trendkanal:
-    - øvre = høyeste high siste perioder
-    - midt = snitt av øvre/nedre
-    - nedre = laveste low siste perioder
+    Dynamisk trendkanal basert på valgt antall candles.
+    period=20 betyr siste 20 candles i valgt timeframe.
     """
     df = _clean_ohlcv(df)
     if df.empty:
         empty = pd.Series(index=df.index, dtype=float)
         return empty, empty, empty
-
+    period = max(5, int(period or 20))
     upper = df["High"].rolling(period).max()
     lower = df["Low"].rolling(period).min()
     middle = (upper + lower) / 2.0
@@ -419,7 +554,7 @@ def _fmt_any(value, currency=""):
     return f"{value:.2f}"
 
 
-def _indicator_snapshot(df, indicators, currency=""):
+def _indicator_snapshot(df, indicators, currency="", trend_channel_period=20):
     df = _clean_ohlcv(df)
     snap = []
     if df.empty:
@@ -451,7 +586,7 @@ def _indicator_snapshot(df, indicators, currency=""):
         vwap = calculate_vwap(df)
         snap += [('VWAP', _series_last(vwap), currency)]
     if 'KANAL' in indicators:
-        ch_u, ch_m, ch_l = calculate_trend_channel(df)
+        ch_u, ch_m, ch_l = calculate_trend_channel(df, period=trend_channel_period)
         snap += [('Kanal Ø', _series_last(ch_u), currency), ('Kanal M', _series_last(ch_m), currency), ('Kanal N', _series_last(ch_l), currency)]
     if 'VOL' in indicators and 'Volume' in df:
         snap += [('VOL', _series_last(df['Volume']), '')]
@@ -480,8 +615,8 @@ def _indicator_snapshot(df, indicators, currency=""):
     return [(name, value, unit) for name, value, unit in snap if value is not None]
 
 
-def _render_indicator_snapshot(df, indicators, currency=""):
-    snap = _indicator_snapshot(df, indicators, currency=currency)
+def _render_indicator_snapshot(df, indicators, currency="", trend_channel_period=20):
+    snap = _indicator_snapshot(df, indicators, currency=currency, trend_channel_period=trend_channel_period)
     if not snap:
         return
     st.markdown('**Aktive indikatorer nå**')
@@ -521,13 +656,12 @@ def _add_last_value_label(fig, x, y, text, row=1, col=1, color='rgba(59,130,246,
 
 
 
-def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
+def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', range_key='Auto', trend_channel_period=20):
     df = _clean_ohlcv(df)
     if df.empty:
         return None
 
-    cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"])
-    max_points = cfg.get("max_points", 220)
+    max_points = _max_points_for_range(timeframe, range_key)
     if len(df) > max_points:
         df = df.tail(max_points)
 
@@ -647,7 +781,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
         _add_last_value_label(fig, last_x, _series_last(vwap), f"VWAP {(_series_last(vwap) or 0):.2f}", row=1, color='rgba(250,204,21,0.88)', text_color='#111827')
 
     if "KANAL" in indicators:
-        ch_u, ch_m, ch_l = calculate_trend_channel(df)
+        ch_u, ch_m, ch_l = calculate_trend_channel(df, period=trend_channel_period)
         fig.add_trace(go.Scattergl(x=df.index, y=ch_u, name="Trendkanal øvre", mode="lines", line=dict(color="#e2e8f0", width=2.0, dash="dash")), row=1, col=1)
         fig.add_trace(go.Scattergl(x=df.index, y=ch_m, name="Trendkanal midt", mode="lines", line=dict(color="#f8fafc", width=2.0, dash="dot")), row=1, col=1)
         fig.add_trace(go.Scattergl(x=df.index, y=ch_l, name="Trendkanal nedre", mode="lines", line=dict(color="#e2e8f0", width=2.0, dash="dash")), row=1, col=1)
@@ -708,7 +842,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
         row_idx += 1
 
     fig.update_layout(
-        title=f"{ticker} · {timeframe}",
+        title=f"{ticker} · {TIMEFRAME_LABELS.get(timeframe, timeframe)} · {range_key}",
         template="plotly_dark",
         height=height,
         paper_bgcolor="#07111f",
@@ -1452,6 +1586,29 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             background: transparent !important;
         }
 
+
+        .timeframe-info-box {
+            background: rgba(14,165,233,0.12);
+            border: 1px solid rgba(56,189,248,0.38);
+            color: #dbeafe;
+            border-radius: 12px;
+            padding: 9px 10px;
+            margin: 8px 0 8px 0;
+            font-size: 0.82rem;
+            line-height: 1.35;
+        }
+        @media (max-width: 700px) {
+            .timeframe-info-box {
+                font-size: 0.78rem;
+                padding: 8px 9px;
+            }
+        }
+
+
+        .timeframe-info-box b {
+            color: #ffffff;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1462,14 +1619,70 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     tf_cols = st.columns(5)
     for tf, col in zip(["1m", "15m", "1h", "4h", "1d"], tf_cols):
         with col:
-            if st.button(tf, key=f"tf_{label}_{ticker}_{tf}", use_container_width=True):
+            _tf_label = TIMEFRAME_LABELS.get(tf, tf)
+            _btn_label = f"✓ {_tf_label}" if tf == timeframe else _tf_label
+            if st.button(_btn_label, key=f"tf_{label}_{ticker}_{tf}", use_container_width=True):
                 st.session_state[f"mobile_timeframe_{label}_{ticker}"] = tf
                 timeframe = tf
                 st.rerun()
 
-    st.caption("Mobil analyse er komprimert for raskere visning. Velg bare indikatorene du trenger for best ytelse.")
+    _tf_label = TIMEFRAME_LABELS.get(timeframe, timeframe)
+    _tf_data = TIMEFRAME_DATA_LABELS.get(timeframe, "")
+    _tf_use = TIMEFRAME_USE_LABELS.get(timeframe, "")
 
-    chart_df = fetch_timeframe_data(ticker, timeframe)
+    _range_options = _chart_range_options(timeframe)
+    _range_key_name = f"chart_range_{label}_{ticker}_{timeframe}"
+    if st.session_state.get(_range_key_name) not in _range_options:
+        st.session_state[_range_key_name] = "Auto"
+
+    c_range, c_channel = st.columns([1, 1])
+    with c_range:
+        range_key = st.selectbox(
+            "Visningsperiode",
+            _range_options,
+            index=_range_options.index(st.session_state.get(_range_key_name, "Auto")),
+            key=_range_key_name,
+            help="Hvor langt tilbake grafen skal vise. Tilgjengelige valg avhenger av tidsoppløsningen.",
+        )
+    with c_channel:
+        channel_mode = st.selectbox(
+            "Trendkanal",
+            list(TREND_CHANNEL_PRESETS.keys()),
+            index=0,
+            key=f"trend_channel_mode_{label}_{ticker}_{timeframe}",
+            help="Auto tilpasser kanalen til tidsvalg/visningsperiode. Bruk Kort/Lang/Egendefinert hvis du vil styre kanalen selv.",
+        )
+
+    custom_channel_period = 50
+    if channel_mode == "Egendefinert":
+        custom_channel_period = st.slider(
+            "Trendkanal candles",
+            10,
+            250,
+            50,
+            5,
+            key=f"trend_channel_custom_{label}_{ticker}_{timeframe}",
+            help="Antall candles som brukes i trendkanalen. Høyere tall gir roligere/langsommere kanal.",
+        )
+
+    trend_channel_period = _trend_channel_period(timeframe, range_key, channel_mode, custom_channel_period)
+    trend_channel_desc = _trend_channel_text(timeframe, range_key, channel_mode, custom_channel_period)
+
+    st.markdown(
+        f"""
+        <div class="timeframe-info-box">
+            <b>Aktiv: {_tf_label}</b> · visningsperiode: <b>{range_key}</b> · {_tf_use}<br>
+            Tidsvalget styrer candles, volum og indikatorer. Visningsperiode styrer hvor langt grafen går tilbake.
+            Hovedsignal/Top Picks bruker fortsatt dagsdata.<br>
+            <b>Trendkanal:</b> {trend_channel_desc}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.caption(f"Tips: 1–15 min = kort intradag, 1–4 timer = swing timing, 1 dag = hovedtrend. {CHART_RANGE_HELP.get(timeframe, '')}")
+
+    chart_df = fetch_timeframe_data(ticker, timeframe, range_key=range_key)
     if chart_df.empty:
         chart_df = fallback_df
 
@@ -1541,14 +1754,14 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     st.caption("Valgte indikatorer er aktive. X fjerner en indikator; bruk Standard, Reset preset eller Full for å legge dem tilbake.")
 
-    _render_indicator_snapshot(chart_df, indicators, currency=currency)
+    _render_indicator_snapshot(chart_df, indicators, currency=currency, trend_channel_period=trend_channel_period)
     render_chart_help()
-    fig = build_mobile_chart(chart_df, ticker, timeframe, indicators, chart_type=chart_type)
+    fig = build_mobile_chart(chart_df, ticker, timeframe, indicators, chart_type=chart_type, range_key=range_key, trend_channel_period=trend_channel_period)
     if fig is not None:
         # Streamlit trenger unik key for hver Plotly-graf.
         # Uten key kan to like grafer få samme auto-ID og gi StreamlitDuplicateElementId.
         _indicator_key = "_".join([str(x) for x in indicators]) if indicators else "none"
-        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{chart_type}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
+        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{range_key}_{chart_type}_{trend_channel_period}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
 
         st.plotly_chart(
             fig,
