@@ -56,7 +56,7 @@ from analyst import get_analyst_trend
 from earnings import get_earnings
 from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
-from mobile_analysis_view import render_mobile_analysis_view
+from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
 
@@ -70,6 +70,7 @@ st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
 
 # SIDEBAR_MARKET_DROPDOWN_V1
+# BANNER_PERIOD_SYNC_FIX_V3
 
 MARKET_CATEGORY_OPTIONS = [
     "US Markets",
@@ -1014,11 +1015,12 @@ def render_live_market_banner():
         pct_txt = f"{pct:+.2f}%"
         cards.append(
             f"<div class='ticker-tape-item'>"
-            f"<span class='mkt'>{html.escape(item['market'])}</span>"
-            f"<span class='ticker'>{html.escape(item['label'])}</span>"
-            f"<span class='price'>{item['price']:.2f}</span>"
-            f"<span class='pct {pct_class}'>{pct_txt}</span>"
-            f"<span class='spark'>{item['sparkline']}</span>"
+            f"<div class='ticker-info'>"
+            f"<div class='ticker-title'>{html.escape(item['label'])}</div>"
+            f"<div class='ticker-price'>{item['price']:.2f}</div>"
+            f"<div class='ticker-change {pct_class}'>{pct_txt}</div>"
+            f"</div>"
+            f"<div class='ticker-spark'>{item['sparkline']}</div>"
             f"</div>"
         )
 
@@ -1031,47 +1033,49 @@ def render_live_market_banner():
     speed_seconds = max(15, min(speed_seconds, 180))
     st.markdown(f"""
     <style>
-    .ticker-tape-wrap {{
+    .ticker-tape-wrap {
         width: 100%;
         overflow: hidden;
-        margin: 0.35rem 0 0.85rem 0;
-        padding: 0.15rem 0;
-        border-top: 1px solid rgba(148,163,184,0.14);
-        border-bottom: 1px solid rgba(148,163,184,0.14);
-        background: linear-gradient(90deg, rgba(2,6,23,0.10), rgba(15,23,42,0.42), rgba(2,6,23,0.10));
-        border-radius: 999px;
-    }}
-    .ticker-tape-track {{
+        margin: 0.45rem 0 1.05rem 0;
+        padding: 0;
+        border-top: 1px solid rgba(15,23,42,0.10);
+        border-bottom: 1px solid rgba(15,23,42,0.15);
+        background: #f8fafc;
+        border-radius: 0;
+        min-height: 74px;
+    }
+    .ticker-tape-track {
         display: flex;
-        align-items: center;
+        align-items: stretch;
         width: max-content;
-        gap: 10px;
+        gap: 24px;
         white-space: nowrap;
         animation: tickerTapeScroll {speed_seconds}s linear infinite;
-        padding: 0.25rem 0;
-    }}
-    .ticker-tape-wrap:hover .ticker-tape-track {{
+        padding: 8px 0;
+    }
+    .ticker-tape-wrap:hover .ticker-tape-track {
         animation-play-state: paused;
-    }}
-    .ticker-tape-item {{
-        display: inline-flex;
+    }
+    .ticker-tape-item {
+        display: inline-grid;
+        grid-template-columns: 112px 86px;
         align-items: center;
-        gap: 8px;
-        min-width: max-content;
-        height: 38px;
-        padding: 6px 11px;
-        border-radius: 999px;
-        background: rgba(15,23,42,0.94);
-        border: 1px solid rgba(148,163,184,0.20);
-        box-shadow: 0 3px 10px rgba(0,0,0,0.20);
-    }}
-    .ticker-tape-item .mkt {{font-size:0.68rem; font-weight:900; color:#93c5fd; text-transform:uppercase; letter-spacing:0.05em;}}
-    .ticker-tape-item .ticker {{font-size:0.92rem; font-weight:900; color:#f8fafc;}}
-    .ticker-tape-item .price {{font-size:0.88rem; font-weight:850; color:#e5e7eb;}}
-    .ticker-tape-item .pct {{font-size:0.88rem; font-weight:950;}}
-    .ticker-tape-item .pct.pos {{color:#22c55e;}}
-    .ticker-tape-item .pct.neg {{color:#ef4444;}}
-    .ticker-tape-item .spark svg {{display:block; width:86px; height:22px;}}
+        gap: 10px;
+        min-width: 210px;
+        height: 58px;
+        padding: 6px 10px;
+        border-radius: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+    .ticker-info {display:flex; flex-direction:column; justify-content:center; line-height:1.10;}
+    .ticker-title {font-size:0.90rem; font-weight:900; color:#2563eb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .ticker-price {font-size:1.02rem; font-weight:900; color:#1f2937; margin-top:3px;}
+    .ticker-change {font-size:0.88rem; font-weight:950; margin-top:2px;}
+    .ticker-change.pos {color:#059669;}
+    .ticker-change.neg {color:#dc2626;}
+    .ticker-spark svg {display:block; width:86px; height:28px;}
     @keyframes tickerTapeScroll {{
         from {{ transform: translateX(0); }}
         to {{ transform: translateX(-50%); }}
@@ -1089,6 +1093,38 @@ def render_live_market_banner():
     """, unsafe_allow_html=True)
     st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause.")
 
+
+
+def render_banner_sidebar_controls(expanded=True):
+    """Synlig kontroll for ticker-banner i sidepanelet."""
+    with st.sidebar.expander("📺 Rediger ticker-banner", expanded=expanded):
+        _banner_settings = load_settings()
+        _banner_enabled = st.checkbox("Vis ticker-banner øverst", value=bool(_banner_settings.get("live_banner_enabled", True)), key="banner_enabled_top_v3")
+        _refresh_options = [1, 5, 15, 30, 60]
+        _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
+        if _current_refresh not in _refresh_options:
+            _refresh_options.append(_current_refresh)
+            _refresh_options = sorted(set(_refresh_options))
+        _refresh_choice = st.selectbox("Oppdatering", _refresh_options, index=_refresh_options.index(_current_refresh), format_func=lambda x: f"{x} min", key="banner_refresh_top_v3")
+        _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
+        _banner_speed = st.slider("Bannerhastighet", 15, 180, _current_speed, 5, help="Lavere tall = raskere. Høyere tall = saktere.", key="banner_speed_top_v3")
+        _ticker_settings = _banner_settings.get("live_banner_tickers", {}) or {}
+        st.caption("Legg til/fjern tickere. Bruk komma. Norske tickere bruker ofte .OL, svenske .ST.")
+        _usa_banner = st.text_area("USA", value=str(_ticker_settings.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")), height=54, key="banner_usa_top_v3")
+        _no_banner = st.text_area("Norge", value=str(_ticker_settings.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")), height=54, key="banner_no_top_v3")
+        _se_banner = st.text_area("Sverige", value=str(_ticker_settings.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")), height=54, key="banner_se_top_v3")
+        if st.button("💾 Lagre banner", use_container_width=True, key="save_banner_top_v3"):
+            _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
+            _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
+            _banner_settings["live_banner_speed_seconds"] = int(_banner_speed)
+            _banner_settings["live_banner_tickers"] = {"USA": _usa_banner, "Norge": _no_banner, "Sverige": _se_banner}
+            save_settings(_banner_settings)
+            try:
+                fetch_live_banner_snapshot.clear()
+            except Exception:
+                pass
+            st.success("Banner lagret ✅")
+            st.rerun()
 
 def render_decision_explanation(decision):
     try:
@@ -2004,7 +2040,12 @@ def render_analysis(results, label):
         st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. AAPL, EQNR.OL eller ABB.ST.")
         return
 
-    df = item["hist"].copy()
+    _sync_timeframe, _sync_period = get_selected_time_settings(label, selected)
+    _synced_df = fetch_timeframe_data(selected, _sync_timeframe, _sync_period)
+    if _synced_df is not None and not _synced_df.empty:
+        df = _synced_df.copy()
+    else:
+        df = item["hist"].copy()
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Score", f"{item['score']}/10")
@@ -2671,6 +2712,9 @@ def render_sidebar_structure_v2():
     )
 
     st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
+    render_banner_sidebar_controls(expanded=True)
+
+    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
     st.sidebar.markdown("### 🔕 Varselkontroll")
 
     _alert_settings = load_settings()
@@ -2941,52 +2985,6 @@ use_high_conf_alerts_only = bool(_alert_runtime_settings.get("notify_high_confid
 min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 80))
 auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
-
-with st.sidebar.expander("📺 Live banner / auto-refresh", expanded=False):
-    _banner_settings = load_settings()
-    _banner_enabled = st.checkbox("Vis rullende ticker-banner øverst", value=bool(_banner_settings.get("live_banner_enabled", True)))
-
-    _refresh_options = [1, 5, 15, 30, 60]
-    _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
-    if _current_refresh not in _refresh_options:
-        _refresh_options.append(_current_refresh)
-        _refresh_options = sorted(set(_refresh_options))
-    _refresh_choice = st.selectbox(
-        "Oppdatering av data/app",
-        _refresh_options,
-        index=_refresh_options.index(_current_refresh),
-        format_func=lambda x: f"{x} min",
-    )
-
-    _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
-    _banner_speed = st.slider(
-        "Bannerhastighet",
-        15,
-        180,
-        _current_speed,
-        5,
-        help="Lavere tall = raskere vandring. Høyere tall = saktere vandring.",
-    )
-
-    _ticker_settings = _banner_settings.get("live_banner_tickers", {}) or {}
-    st.caption("Legg til/fjern tickere selv. Bruk komma mellom tickere. Norske tickere bruker ofte .OL, svenske .ST.")
-    _usa_banner = st.text_area("USA banner", value=str(_ticker_settings.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")), height=72)
-    _no_banner = st.text_area("Norge banner", value=str(_ticker_settings.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")), height=72)
-    _se_banner = st.text_area("Sverige banner", value=str(_ticker_settings.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")), height=72)
-
-    if st.button("💾 Lagre banner/refresh", use_container_width=True):
-        _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
-        _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
-        _banner_settings["live_banner_speed_seconds"] = int(_banner_speed)
-        _banner_settings["live_banner_tickers"] = {
-            "USA": _usa_banner,
-            "Norge": _no_banner,
-            "Sverige": _se_banner,
-        }
-        save_settings(_banner_settings)
-        fetch_live_banner_snapshot.clear()
-        st.success("Banner/refresh lagret ✅")
-        st.rerun()
 
 # Trygge standardverdier for watchlist-knapper
 manual_watchlist_scan = globals().get("manual_watchlist_scan", False)

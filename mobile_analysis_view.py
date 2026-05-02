@@ -25,6 +25,7 @@ from paper_trading import load_portfolio
 # MOBILE_ANALYSIS_ADVANCED_INDICATORS_V1
 # PRO_TERMINAL_UI_V1
 # GRAPH_SIDEBAR_POLISH_V1
+# BANNER_PERIOD_SYNC_FIX_V3
 
 
 TIMEFRAME_CONFIG = {
@@ -32,8 +33,61 @@ TIMEFRAME_CONFIG = {
     "15m": {"period": "5d", "interval": "15m", "max_points": 180},
     "1h": {"period": "1mo", "interval": "1h", "max_points": 180},
     "4h": {"period": "3mo", "interval": "1h", "max_points": 180},
-    "1d": {"period": "1y", "interval": "1d", "max_points": 220},
+    "1d": {"period": "1y", "interval": "1d", "max_points": 260},
 }
+
+PERIOD_OPTIONS = {
+    "Auto": None,
+    "1 dag": "1d",
+    "5 dager": "5d",
+    "1 måned": "1mo",
+    "3 måneder": "3mo",
+    "6 måneder": "6mo",
+    "1 år": "1y",
+    "2 år": "2y",
+    "5 år": "5y",
+    "Maks": "max",
+}
+
+TIMEFRAME_LABELS = {
+    "1m": "1 min",
+    "15m": "15 min",
+    "1h": "1 time",
+    "4h": "4 timer",
+    "1d": "1 dag",
+}
+
+PERIOD_MAX_POINTS = {
+    "1d": 240,
+    "5d": 300,
+    "1mo": 400,
+    "3mo": 500,
+    "6mo": 700,
+    "1y": 900,
+    "2y": 1100,
+    "5y": 1400,
+    "max": 1800,
+}
+
+
+def get_selected_time_settings(label, ticker):
+    """Deler valgt tidsoppløsning/periode mellom mobilgraf og andre analysegrafer."""
+    tf = st.session_state.get(f"mobile_timeframe_{label}_{ticker}", "1d")
+    period_label = st.session_state.get(f"mobile_period_{label}_{ticker}", "Auto")
+    return tf, PERIOD_OPTIONS.get(period_label)
+
+
+def _normalize_period_for_interval(interval, period):
+    if not period:
+        return None
+    # yfinance har begrensninger på intradag-data.
+    if interval == "1m" and period not in {"1d", "5d", "7d"}:
+        return "5d"
+    if interval in {"15m", "30m"} and period in {"1y", "2y", "5y", "max"}:
+        return "60d"
+    if interval in {"60m", "1h"} and period in {"5y", "max"}:
+        return "2y"
+    return period
 
 
 CHART_CONFIG = {
@@ -138,14 +192,15 @@ def _resample_4h(df):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_timeframe_data(ticker, timeframe):
+def fetch_timeframe_data(ticker, timeframe, period_choice=None):
     if yf is None:
         return pd.DataFrame()
 
     cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"])
+    period = _normalize_period_for_interval(cfg["interval"], period_choice) or cfg["period"]
     try:
         hist = yf.Ticker(ticker).history(
-            period=cfg["period"],
+            period=period,
             interval=cfg["interval"],
             auto_adjust=False,
             prepost=False,
@@ -521,13 +576,15 @@ def _add_last_value_label(fig, x, y, text, row=1, col=1, color='rgba(59,130,246,
 
 
 
-def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
+def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', period_choice=None):
     df = _clean_ohlcv(df)
     if df.empty:
         return None
 
     cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"])
     max_points = cfg.get("max_points", 220)
+    if period_choice and timeframe == "1d":
+        max_points = PERIOD_MAX_POINTS.get(period_choice, max_points)
     if len(df) > max_points:
         df = df.tail(max_points)
 
@@ -708,7 +765,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles'):
         row_idx += 1
 
     fig.update_layout(
-        title=f"{ticker} · {timeframe}",
+        title=f"{ticker} · {TIMEFRAME_LABELS.get(timeframe, timeframe)} · {period_choice or 'auto'}",
         template="plotly_dark",
         height=height,
         paper_bgcolor="#07111f",
@@ -1462,14 +1519,28 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     tf_cols = st.columns(5)
     for tf, col in zip(["1m", "15m", "1h", "4h", "1d"], tf_cols):
         with col:
-            if st.button(tf, key=f"tf_{label}_{ticker}_{tf}", use_container_width=True):
+            if st.button(TIMEFRAME_LABELS.get(tf, tf), key=f"tf_{label}_{ticker}_{tf}", use_container_width=True):
                 st.session_state[f"mobile_timeframe_{label}_{ticker}"] = tf
                 timeframe = tf
                 st.rerun()
 
-    st.caption("1m og 15m = minutter, 1h og 4h = timer, 1d = dag. Dette ene tidsvalget styrer alle analyse-grafer under valgt aksje. Indikatorer beregnes på nytt når du bytter tidsvalg.")
+    _period_label_key = f"mobile_period_{label}_{ticker}"
+    _period_labels = list(PERIOD_OPTIONS.keys())
+    _current_period_label = st.session_state.get(_period_label_key, "Auto")
+    if _current_period_label not in _period_labels:
+        _current_period_label = "Auto"
+    period_label = st.selectbox(
+        "Historikkperiode",
+        _period_labels,
+        index=_period_labels.index(_current_period_label),
+        key=_period_label_key,
+        help="Velg hvor langt tilbake analyse-grafene skal se. Intradag-data kan ha begrensninger hos dataleverandøren.",
+    )
+    period_choice = PERIOD_OPTIONS.get(period_label)
 
-    chart_df = fetch_timeframe_data(ticker, timeframe)
+    st.caption(f"Valgt: {TIMEFRAME_LABELS.get(timeframe, timeframe)} candles · historikk: {period_label}. Dette ene tidsvalget styrer alle analyse-grafer under valgt aksje. Indikatorer beregnes på nytt når du bytter tidsvalg/periode.")
+
+    chart_df = fetch_timeframe_data(ticker, timeframe, period_choice)
     if chart_df.empty:
         chart_df = fallback_df
 
@@ -1543,12 +1614,12 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     _render_indicator_snapshot(chart_df, indicators, currency=currency)
     render_chart_help()
-    fig = build_mobile_chart(chart_df, ticker, timeframe, indicators, chart_type=chart_type)
+    fig = build_mobile_chart(chart_df, ticker, timeframe, indicators, chart_type=chart_type, period_choice=period_choice)
     if fig is not None:
         # Streamlit trenger unik key for hver Plotly-graf.
         # Uten key kan to like grafer få samme auto-ID og gi StreamlitDuplicateElementId.
         _indicator_key = "_".join([str(x) for x in indicators]) if indicators else "none"
-        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{chart_type}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
+        _chart_key = f"mobile_chart_v3_{label}_{ticker}_{timeframe}_{period_label}_{chart_type}_{_indicator_key}".replace(" ", "_").replace("/", "_").replace(".", "_")
 
         st.plotly_chart(
             fig,
@@ -1574,6 +1645,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     return {
         "timeframe": timeframe,
+        "period": period_choice,
         "chart_df": chart_df,
         "price": price,
         "volume": stats.get("volume"),
