@@ -71,6 +71,7 @@ st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
 # SIDEBAR_MARKET_DROPDOWN_V1
 # BANNER_PERIOD_SYNC_FIX_V3
+# BANNER_WIDTH_NAMEERROR_FIX_V4
 
 MARKET_CATEGORY_OPTIONS = [
     "US Markets",
@@ -1031,7 +1032,9 @@ def render_live_market_banner():
     refresh_minutes = int(settings.get('ui_refresh_minutes', 5) or 5)
     speed_seconds = int(settings.get('live_banner_speed_seconds', 70) or 70)
     speed_seconds = max(15, min(speed_seconds, 180))
-    st.markdown(f"""
+
+    # Ikke bruk f-string rundt CSS. CSS-klammer { } kan ellers bli tolket som Python-felter.
+    css = """
     <style>
     .ticker-tape-wrap {
         width: 100%;
@@ -1050,7 +1053,7 @@ def render_live_market_banner():
         width: max-content;
         gap: 24px;
         white-space: nowrap;
-        animation: tickerTapeScroll {speed_seconds}s linear infinite;
+        animation: tickerTapeScroll __SPEED__s linear infinite;
         padding: 8px 0;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
@@ -1069,28 +1072,60 @@ def render_live_market_banner():
         border: 0;
         box-shadow: none;
     }
-    .ticker-info {display:flex; flex-direction:column; justify-content:center; line-height:1.10;}
-    .ticker-title {font-size:0.90rem; font-weight:900; color:#2563eb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .ticker-price {font-size:1.02rem; font-weight:900; color:#1f2937; margin-top:3px;}
-    .ticker-change {font-size:0.88rem; font-weight:950; margin-top:2px;}
-    .ticker-change.pos {color:#059669;}
-    .ticker-change.neg {color:#dc2626;}
-    .ticker-spark svg {display:block; width:86px; height:28px;}
-    @keyframes tickerTapeScroll {{
-        from {{ transform: translateX(0); }}
-        to {{ transform: translateX(-50%); }}
-    }}
-    @media (max-width: 700px) {{
-        .ticker-tape-item {{height:34px; padding:5px 9px; gap:6px;}}
-        .ticker-tape-item .spark svg {{width:62px; height:18px;}}
-        .ticker-tape-item .mkt {{font-size:0.60rem;}}
-        .ticker-tape-item .ticker, .ticker-tape-item .price, .ticker-tape-item .pct {{font-size:0.78rem;}}
-    }}
+    .ticker-info {
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        line-height:1.10;
+    }
+    .ticker-title {
+        font-size:0.90rem;
+        font-weight:900;
+        color:#2563eb;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+    }
+    .ticker-price {
+        font-size:1.02rem;
+        font-weight:900;
+        color:#1f2937;
+        margin-top:3px;
+    }
+    .ticker-change {
+        font-size:0.88rem;
+        font-weight:950;
+        margin-top:2px;
+    }
+    .ticker-change.pos { color:#059669; }
+    .ticker-change.neg { color:#dc2626; }
+    .ticker-spark svg {
+        display:block;
+        width:86px;
+        height:28px;
+    }
+    @keyframes tickerTapeScroll {
+        from { transform: translateX(0); }
+        to { transform: translateX(-50%); }
+    }
+    @media (max-width: 700px) {
+        .ticker-tape-wrap { min-height: 58px; }
+        .ticker-tape-track { gap: 16px; padding: 6px 0; }
+        .ticker-tape-item { min-width: 168px; grid-template-columns: 88px 64px; height:42px; padding:5px 8px; gap:6px; }
+        .ticker-title { font-size:0.74rem; }
+        .ticker-price { font-size:0.84rem; }
+        .ticker-change { font-size:0.74rem; }
+        .ticker-spark svg { width:64px; height:20px; }
+    }
     </style>
-    <div class='ticker-tape-wrap'>
-        <div class='ticker-tape-track'>{cards_html}{cards_html}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    """.replace("__SPEED__", str(speed_seconds))
+
+    html_block = (
+        "<div class='ticker-tape-wrap'>"
+        f"<div class='ticker-tape-track'>{cards_html}{cards_html}</div>"
+        "</div>"
+    )
+    st.markdown(css + html_block, unsafe_allow_html=True)
     st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause.")
 
 
