@@ -35,7 +35,13 @@ DEFAULT_SETTINGS = {
     "vacation_mode_enabled": False,
     "latest_buy_now_candidates": [],
     "live_banner_enabled": True,
-    "ui_refresh_minutes": 5
+    "ui_refresh_minutes": 5,
+    "live_banner_speed_seconds": 70,
+    "live_banner_tickers": {
+        "USA": "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA",
+        "Norge": "EQNR.OL, DNB.OL, NHY.OL, YAR.OL",
+        "Sverige": "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST"
+    }
 }
 
 def using_postgres():

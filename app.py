@@ -819,14 +819,45 @@ div[role="option"][aria-selected="true"] {
 """, unsafe_allow_html=True)
 
 
-LIVE_BANNER_DEFAULTS = {
-    "USA": [("^GSPC", "S&P 500"), ("^IXIC", "NASDAQ"), ("^DJI", "DOW")],
-    "Norge": [("EQNR.OL", "Equinor"), ("DNB.OL", "DNB"), ("NHY.OL", "Hydro")],
-    "Sverige": [("ATCO-A.ST", "Atlas Copco"), ("VOLV-B.ST", "Volvo B"), ("ERIC-B.ST", "Ericsson")],
+
+LIVE_BANNER_LABELS = {
+    "^GSPC": "S&P 500",
+    "^IXIC": "NASDAQ",
+    "^DJI": "DOW",
+    "EQNR.OL": "Equinor",
+    "DNB.OL": "DNB",
+    "NHY.OL": "Hydro",
+    "YAR.OL": "Yara",
+    "ATCO-A.ST": "Atlas Copco",
+    "VOLV-B.ST": "Volvo B",
+    "ERIC-B.ST": "Ericsson",
+    "ABB.ST": "ABB",
 }
 
 
-def _sparkline_svg(values, positive=True, width=84, height=26):
+def parse_banner_tickers(settings=None):
+    """
+    Leser tickere fra settings.
+    Brukeren kan legge til/fjerne ved å redigere tekstfeltene i sidepanelet.
+    """
+    settings = settings or load_settings()
+    raw = settings.get("live_banner_tickers", {}) or {}
+    out = []
+    for market in ["USA", "Norge", "Sverige"]:
+        text_value = raw.get(market, "") if isinstance(raw, dict) else ""
+        parts = str(text_value).replace(";", ",").replace("\n", ",").split(",")
+        seen = set()
+        for part in parts:
+            ticker = str(part).strip().upper()
+            if not ticker or ticker in seen:
+                continue
+            seen.add(ticker)
+            label = LIVE_BANNER_LABELS.get(ticker, ticker)
+            out.append((market, ticker, label))
+    return tuple(out)
+
+
+def _sparkline_svg(values, positive=True, width=86, height=22):
     vals = [float(v) for v in (values or []) if v is not None]
     if len(vals) < 2:
         vals = [0.0, 0.0]
@@ -851,36 +882,33 @@ def _sparkline_svg(values, positive=True, width=84, height=26):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_live_banner_snapshot():
+def fetch_live_banner_snapshot(banner_items):
     if yf is None:
-        return {}
-    data = {}
-    for market, items in LIVE_BANNER_DEFAULTS.items():
-        market_cards = []
-        for ticker, label in items:
-            try:
-                hist = yf.Ticker(ticker).history(period='1mo', interval='1d', auto_adjust=False, prepost=False)
-                if hist is None or hist.empty or 'Close' not in hist:
-                    continue
-                close = hist['Close'].dropna()
-                if close.empty:
-                    continue
-                current = float(close.iloc[-1])
-                prev = float(close.iloc[-2]) if len(close) >= 2 else current
-                pct = ((current / prev) - 1.0) * 100 if prev else 0.0
-                sparkline = _sparkline_svg(close.tail(20).tolist(), positive=pct >= 0)
-                market_cards.append({
-                    'ticker': ticker,
-                    'label': label,
-                    'price': current,
-                    'pct': pct,
-                    'sparkline': sparkline,
-                })
-            except Exception:
+        return []
+    cards = []
+    for market, ticker, label in banner_items:
+        try:
+            hist = yf.Ticker(ticker).history(period='1mo', interval='1d', auto_adjust=False, prepost=False)
+            if hist is None or hist.empty or 'Close' not in hist:
                 continue
-        if market_cards:
-            data[market] = market_cards
-    return data
+            close = hist['Close'].dropna()
+            if close.empty:
+                continue
+            current = float(close.iloc[-1])
+            prev = float(close.iloc[-2]) if len(close) >= 2 else current
+            pct = ((current / prev) - 1.0) * 100 if prev else 0.0
+            sparkline = _sparkline_svg(close.tail(20).tolist(), positive=pct >= 0)
+            cards.append({
+                'market': market,
+                'ticker': ticker,
+                'label': label,
+                'price': current,
+                'pct': pct,
+                'sparkline': sparkline,
+            })
+        except Exception:
+            continue
+    return cards
 
 
 def render_live_market_banner():
@@ -888,76 +916,92 @@ def render_live_market_banner():
     if not settings.get('live_banner_enabled', True):
         return
 
-    banner_data = fetch_live_banner_snapshot()
+    banner_items = parse_banner_tickers(settings)
+    if not banner_items:
+        return
+
+    banner_cards = fetch_live_banner_snapshot(banner_items)
     cards = []
-    for market, items in banner_data.items():
-        for item in items:
-            pct = item['pct']
-            pct_class = 'pos' if pct >= 0 else 'neg'
-            pct_txt = f"{pct:+.2f}%"
-            cards.append(
-                f"<div class='live-banner-card'>"
-                f"<div class='live-banner-top'><span class='mkt'>{html.escape(market)}</span><span class='ticker'>{html.escape(item['label'])}</span></div>"
-                f"<div class='live-banner-mid'><span class='price'>{item['price']:.2f}</span><span class='pct {pct_class}'>{pct_txt}</span></div>"
-                f"<div class='live-banner-spark'>{item['sparkline']}</div>"
-                f"</div>"
-            )
+    for item in banner_cards:
+        pct = item['pct']
+        pct_class = 'pos' if pct >= 0 else 'neg'
+        pct_txt = f"{pct:+.2f}%"
+        cards.append(
+            f"<div class='ticker-tape-item'>"
+            f"<span class='mkt'>{html.escape(item['market'])}</span>"
+            f"<span class='ticker'>{html.escape(item['label'])}</span>"
+            f"<span class='price'>{item['price']:.2f}</span>"
+            f"<span class='pct {pct_class}'>{pct_txt}</span>"
+            f"<span class='spark'>{item['sparkline']}</span>"
+            f"</div>"
+        )
 
     if not cards:
         return
 
     cards_html = ''.join(cards)
     refresh_minutes = int(settings.get('ui_refresh_minutes', 5) or 5)
+    speed_seconds = int(settings.get('live_banner_speed_seconds', 70) or 70)
+    speed_seconds = max(15, min(speed_seconds, 180))
     st.markdown(f"""
     <style>
-    .live-banner-wrap {{
+    .ticker-tape-wrap {{
         width: 100%;
         overflow: hidden;
-        margin: 0.4rem 0 1.0rem 0;
+        margin: 0.35rem 0 0.85rem 0;
         padding: 0.15rem 0;
         border-top: 1px solid rgba(148,163,184,0.14);
         border-bottom: 1px solid rgba(148,163,184,0.14);
-        background: linear-gradient(90deg, rgba(2,6,23,0.10), rgba(15,23,42,0.35), rgba(2,6,23,0.10));
-        border-radius: 14px;
+        background: linear-gradient(90deg, rgba(2,6,23,0.10), rgba(15,23,42,0.42), rgba(2,6,23,0.10));
+        border-radius: 999px;
     }}
-    .live-banner-track {{
+    .ticker-tape-track {{
         display: flex;
+        align-items: center;
         width: max-content;
-        gap: 12px;
-        animation: liveBannerScroll 75s linear infinite;
-        padding: 0.35rem 0;
+        gap: 10px;
+        white-space: nowrap;
+        animation: tickerTapeScroll {speed_seconds}s linear infinite;
+        padding: 0.25rem 0;
     }}
-    .live-banner-wrap:hover .live-banner-track {{
+    .ticker-tape-wrap:hover .ticker-tape-track {{
         animation-play-state: paused;
     }}
-    .live-banner-card {{
-        min-width: 195px;
-        max-width: 195px;
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(15,23,42,0.92);
+    .ticker-tape-item {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: max-content;
+        height: 38px;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: rgba(15,23,42,0.94);
         border: 1px solid rgba(148,163,184,0.20);
-        box-shadow: 0 4px 14px rgba(0,0,0,0.20);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.20);
     }}
-    .live-banner-top {{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}}
-    .live-banner-top .mkt {{font-size:0.70rem; font-weight:800; color:#93c5fd; text-transform:uppercase; letter-spacing:0.06em;}}
-    .live-banner-top .ticker {{font-size:0.95rem; font-weight:800; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}}
-    .live-banner-mid {{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:4px;}}
-    .live-banner-mid .price {{font-size:1.05rem; font-weight:850; color:#f8fafc;}}
-    .live-banner-mid .pct {{font-size:0.92rem; font-weight:850;}}
-    .live-banner-mid .pct.pos {{color:#22c55e;}}
-    .live-banner-mid .pct.neg {{color:#ef4444;}}
-    .live-banner-spark svg {{display:block; width:100%; height:28px;}}
-    @keyframes liveBannerScroll {{
+    .ticker-tape-item .mkt {{font-size:0.68rem; font-weight:900; color:#93c5fd; text-transform:uppercase; letter-spacing:0.05em;}}
+    .ticker-tape-item .ticker {{font-size:0.92rem; font-weight:900; color:#f8fafc;}}
+    .ticker-tape-item .price {{font-size:0.88rem; font-weight:850; color:#e5e7eb;}}
+    .ticker-tape-item .pct {{font-size:0.88rem; font-weight:950;}}
+    .ticker-tape-item .pct.pos {{color:#22c55e;}}
+    .ticker-tape-item .pct.neg {{color:#ef4444;}}
+    .ticker-tape-item .spark svg {{display:block; width:86px; height:22px;}}
+    @keyframes tickerTapeScroll {{
         from {{ transform: translateX(0); }}
         to {{ transform: translateX(-50%); }}
     }}
+    @media (max-width: 700px) {{
+        .ticker-tape-item {{height:34px; padding:5px 9px; gap:6px;}}
+        .ticker-tape-item .spark svg {{width:62px; height:18px;}}
+        .ticker-tape-item .mkt {{font-size:0.60rem;}}
+        .ticker-tape-item .ticker, .ticker-tape-item .price, .ticker-tape-item .pct {{font-size:0.78rem;}}
+    }}
     </style>
-    <div class='live-banner-wrap'>
-        <div class='live-banner-track'>{cards_html}{cards_html}</div>
+    <div class='ticker-tape-wrap'>
+        <div class='ticker-tape-track'>{cards_html}{cards_html}</div>
     </div>
     """, unsafe_allow_html=True)
-    st.caption(f"📡 Live-banner oppdateres sammen med appen ca. hver {refresh_minutes}. minutt. Hold pekeren over banneret for å pause rullingen.")
+    st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause.")
 
 
 def render_decision_explanation(decision):
@@ -1022,6 +1066,7 @@ def render_signal_badge(signal):
 PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
+# BANNER_TICKER_TAPE_V2
 # fallback hvis Render gir tom string
 if not PUSHOVER_APP_TOKEN:
     PUSHOVER_APP_TOKEN = None
@@ -2812,19 +2857,49 @@ search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, 
 
 with st.sidebar.expander("📺 Live banner / auto-refresh", expanded=False):
     _banner_settings = load_settings()
-    _banner_enabled = st.checkbox("Vis rullende live-banner øverst", value=bool(_banner_settings.get("live_banner_enabled", True)))
+    _banner_enabled = st.checkbox("Vis rullende ticker-banner øverst", value=bool(_banner_settings.get("live_banner_enabled", True)))
+
     _refresh_options = [1, 5, 15, 30, 60]
     _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
     if _current_refresh not in _refresh_options:
         _refresh_options.append(_current_refresh)
         _refresh_options = sorted(set(_refresh_options))
-    _refresh_choice = st.selectbox("Oppdatering (hele appen)", _refresh_options, index=_refresh_options.index(_current_refresh), format_func=lambda x: f"{x} min")
-    st.caption("Banneret viser standard kort for USA, Norge og Sverige med liten graf og % bevegelse.")
+    _refresh_choice = st.selectbox(
+        "Oppdatering av data/app",
+        _refresh_options,
+        index=_refresh_options.index(_current_refresh),
+        format_func=lambda x: f"{x} min",
+    )
+
+    _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
+    _banner_speed = st.slider(
+        "Bannerhastighet",
+        15,
+        180,
+        _current_speed,
+        5,
+        help="Lavere tall = raskere vandring. Høyere tall = saktere vandring.",
+    )
+
+    _ticker_settings = _banner_settings.get("live_banner_tickers", {}) or {}
+    st.caption("Legg til/fjern tickere selv. Bruk komma mellom tickere. Norske tickere bruker ofte .OL, svenske .ST.")
+    _usa_banner = st.text_area("USA banner", value=str(_ticker_settings.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")), height=72)
+    _no_banner = st.text_area("Norge banner", value=str(_ticker_settings.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")), height=72)
+    _se_banner = st.text_area("Sverige banner", value=str(_ticker_settings.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")), height=72)
+
     if st.button("💾 Lagre banner/refresh", use_container_width=True):
         _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
         _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
+        _banner_settings["live_banner_speed_seconds"] = int(_banner_speed)
+        _banner_settings["live_banner_tickers"] = {
+            "USA": _usa_banner,
+            "Norge": _no_banner,
+            "Sverige": _se_banner,
+        }
         save_settings(_banner_settings)
-        st.success("Lagret. Ny oppdateringsfrekvens brukes ved neste refresh / reload.")
+        fetch_live_banner_snapshot.clear()
+        st.success("Banner/refresh lagret ✅")
+        st.rerun()
 
 # Trygge standardverdier for watchlist-knapper
 manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
