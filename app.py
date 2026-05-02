@@ -12,7 +12,13 @@ from trading_settings import load_rules, save_rules
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+import html
 from streamlit_autorefresh import st_autorefresh
+
+try:
+    import yfinance as yf
+except Exception:
+    yf = None
 
 from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal
 from patterns import detect_head_shoulders, detect_inverse_head_shoulders, breakout_scanner, build_signal_alerts
@@ -56,7 +62,10 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 current_user = require_login()
 
-st_autorefresh(interval=300000, key="refresh")
+_runtime_settings = load_settings()
+UI_REFRESH_MINUTES = int(_runtime_settings.get("ui_refresh_minutes", 5) or 5)
+UI_REFRESH_MINUTES = max(1, min(UI_REFRESH_MINUTES, 60))
+st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
 
 CHART_CONFIG = {
@@ -808,6 +817,147 @@ div[role="option"][aria-selected="true"] {
 
 </style>
 """, unsafe_allow_html=True)
+
+
+LIVE_BANNER_DEFAULTS = {
+    "USA": [("^GSPC", "S&P 500"), ("^IXIC", "NASDAQ"), ("^DJI", "DOW")],
+    "Norge": [("EQNR.OL", "Equinor"), ("DNB.OL", "DNB"), ("NHY.OL", "Hydro")],
+    "Sverige": [("ATCO-A.ST", "Atlas Copco"), ("VOLV-B.ST", "Volvo B"), ("ERIC-B.ST", "Ericsson")],
+}
+
+
+def _sparkline_svg(values, positive=True, width=84, height=26):
+    vals = [float(v) for v in (values or []) if v is not None]
+    if len(vals) < 2:
+        vals = [0.0, 0.0]
+    vmin = min(vals)
+    vmax = max(vals)
+    span = (vmax - vmin) or 1.0
+    pts = []
+    for i, val in enumerate(vals):
+        x = i * (width / max(len(vals) - 1, 1))
+        y = height - ((val - vmin) / span) * (height - 4) - 2
+        pts.append(f"{x:.1f},{y:.1f}")
+    stroke = '#22c55e' if positive else '#ef4444'
+    fill = '34,197,94' if positive else '239,68,68'
+    polyline = ' '.join(pts)
+    area = f"0,{height} " + polyline + f" {width},{height}"
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">'
+        f'<polyline points="{area}" fill="rgba({fill},0.10)" stroke="none"></polyline>'
+        f'<polyline points="{polyline}" fill="none" stroke="{stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>'
+        f'</svg>'
+    )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_live_banner_snapshot():
+    if yf is None:
+        return {}
+    data = {}
+    for market, items in LIVE_BANNER_DEFAULTS.items():
+        market_cards = []
+        for ticker, label in items:
+            try:
+                hist = yf.Ticker(ticker).history(period='1mo', interval='1d', auto_adjust=False, prepost=False)
+                if hist is None or hist.empty or 'Close' not in hist:
+                    continue
+                close = hist['Close'].dropna()
+                if close.empty:
+                    continue
+                current = float(close.iloc[-1])
+                prev = float(close.iloc[-2]) if len(close) >= 2 else current
+                pct = ((current / prev) - 1.0) * 100 if prev else 0.0
+                sparkline = _sparkline_svg(close.tail(20).tolist(), positive=pct >= 0)
+                market_cards.append({
+                    'ticker': ticker,
+                    'label': label,
+                    'price': current,
+                    'pct': pct,
+                    'sparkline': sparkline,
+                })
+            except Exception:
+                continue
+        if market_cards:
+            data[market] = market_cards
+    return data
+
+
+def render_live_market_banner():
+    settings = load_settings()
+    if not settings.get('live_banner_enabled', True):
+        return
+
+    banner_data = fetch_live_banner_snapshot()
+    cards = []
+    for market, items in banner_data.items():
+        for item in items:
+            pct = item['pct']
+            pct_class = 'pos' if pct >= 0 else 'neg'
+            pct_txt = f"{pct:+.2f}%"
+            cards.append(
+                f"<div class='live-banner-card'>"
+                f"<div class='live-banner-top'><span class='mkt'>{html.escape(market)}</span><span class='ticker'>{html.escape(item['label'])}</span></div>"
+                f"<div class='live-banner-mid'><span class='price'>{item['price']:.2f}</span><span class='pct {pct_class}'>{pct_txt}</span></div>"
+                f"<div class='live-banner-spark'>{item['sparkline']}</div>"
+                f"</div>"
+            )
+
+    if not cards:
+        return
+
+    cards_html = ''.join(cards)
+    refresh_minutes = int(settings.get('ui_refresh_minutes', 5) or 5)
+    st.markdown(f"""
+    <style>
+    .live-banner-wrap {{
+        width: 100%;
+        overflow: hidden;
+        margin: 0.4rem 0 1.0rem 0;
+        padding: 0.15rem 0;
+        border-top: 1px solid rgba(148,163,184,0.14);
+        border-bottom: 1px solid rgba(148,163,184,0.14);
+        background: linear-gradient(90deg, rgba(2,6,23,0.10), rgba(15,23,42,0.35), rgba(2,6,23,0.10));
+        border-radius: 14px;
+    }}
+    .live-banner-track {{
+        display: flex;
+        width: max-content;
+        gap: 12px;
+        animation: liveBannerScroll 75s linear infinite;
+        padding: 0.35rem 0;
+    }}
+    .live-banner-wrap:hover .live-banner-track {{
+        animation-play-state: paused;
+    }}
+    .live-banner-card {{
+        min-width: 195px;
+        max-width: 195px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(15,23,42,0.92);
+        border: 1px solid rgba(148,163,184,0.20);
+        box-shadow: 0 4px 14px rgba(0,0,0,0.20);
+    }}
+    .live-banner-top {{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}}
+    .live-banner-top .mkt {{font-size:0.70rem; font-weight:800; color:#93c5fd; text-transform:uppercase; letter-spacing:0.06em;}}
+    .live-banner-top .ticker {{font-size:0.95rem; font-weight:800; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}}
+    .live-banner-mid {{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:4px;}}
+    .live-banner-mid .price {{font-size:1.05rem; font-weight:850; color:#f8fafc;}}
+    .live-banner-mid .pct {{font-size:0.92rem; font-weight:850;}}
+    .live-banner-mid .pct.pos {{color:#22c55e;}}
+    .live-banner-mid .pct.neg {{color:#ef4444;}}
+    .live-banner-spark svg {{display:block; width:100%; height:28px;}}
+    @keyframes liveBannerScroll {{
+        from {{ transform: translateX(0); }}
+        to {{ transform: translateX(-50%); }}
+    }}
+    </style>
+    <div class='live-banner-wrap'>
+        <div class='live-banner-track'>{cards_html}{cards_html}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption(f"📡 Live-banner oppdateres sammen med appen ca. hver {refresh_minutes}. minutt. Hold pekeren over banneret for å pause rullingen.")
 
 
 def render_decision_explanation(decision):
@@ -2660,6 +2810,22 @@ min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 
 auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
+with st.sidebar.expander("📺 Live banner / auto-refresh", expanded=False):
+    _banner_settings = load_settings()
+    _banner_enabled = st.checkbox("Vis rullende live-banner øverst", value=bool(_banner_settings.get("live_banner_enabled", True)))
+    _refresh_options = [1, 5, 15, 30, 60]
+    _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
+    if _current_refresh not in _refresh_options:
+        _refresh_options.append(_current_refresh)
+        _refresh_options = sorted(set(_refresh_options))
+    _refresh_choice = st.selectbox("Oppdatering (hele appen)", _refresh_options, index=_refresh_options.index(_current_refresh), format_func=lambda x: f"{x} min")
+    st.caption("Banneret viser standard kort for USA, Norge og Sverige med liten graf og % bevegelse.")
+    if st.button("💾 Lagre banner/refresh", use_container_width=True):
+        _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
+        _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
+        save_settings(_banner_settings)
+        st.success("Lagret. Ny oppdateringsfrekvens brukes ved neste refresh / reload.")
+
 # Trygge standardverdier for watchlist-knapper
 manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
 watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
@@ -2673,6 +2839,7 @@ if 'top_picks' in locals():
 
 st.title("📈 AI Aksje Analyzer Pro — Dag Ø. Borch")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
+render_live_market_banner()
 
 if auto_watchlist_alerts or manual_watchlist_scan:
     st.markdown("### 🔔 Watchlist signaler")

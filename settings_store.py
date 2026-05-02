@@ -33,7 +33,9 @@ DEFAULT_SETTINGS = {
     "background_scanning_enabled": True,
     "full_stop_reason": "",
     "vacation_mode_enabled": False,
-    "latest_buy_now_candidates": []
+    "latest_buy_now_candidates": [],
+    "live_banner_enabled": True,
+    "ui_refresh_minutes": 5
 }
 
 def using_postgres():
