@@ -36,6 +36,7 @@ DEFAULT_SETTINGS = {
     "latest_buy_now_candidates": [],
     "live_banner_enabled": True,
     "ui_refresh_minutes": 5,
+    "ui_auto_refresh_enabled": False,
     "live_banner_speed_seconds": 70,
     "live_banner_tickers": {
         "USA": "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA",

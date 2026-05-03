@@ -159,8 +159,8 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
         <style>
         .fixed-time-scale-wrap {
             position: relative;
-            height: 36px;
-            margin: -34px 118px 6px 8px;
+            height: 30px;
+            margin: -12px 118px 4px 8px;
             border-top: 2px solid rgba(248,250,252,0.86);
             background: linear-gradient(180deg, rgba(7,17,31,0.98), rgba(7,17,31,0.62));
             border-radius: 0 0 12px 12px;
@@ -168,7 +168,7 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
         .fixed-time-scale-title {
             position: absolute;
             left: 0;
-            top: 20px;
+            top: 16px;
             color: #cbd5e1 !important;
             font-size: 0.73rem;
             font-weight: 850;
@@ -201,7 +201,7 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
             text-shadow: 0 1px 2px rgba(0,0,0,0.65);
         }
         @media (max-width: 800px) {
-            .fixed-time-scale-wrap { margin: -28px 72px 6px 8px; height: 34px; }
+            .fixed-time-scale-wrap { margin: -10px 72px 4px 8px; height: 28px; }
             .fixed-time-scale-label { font-size: 0.66rem; }
             .fixed-time-scale-title { font-size: 0.66rem; }
         }
@@ -826,10 +826,11 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
         row_heights = [1.0]
     else:
         if "MND%" in panel_rows:
-            # V10 / Oppgave 02B: MND%-panelet må være stort nok til både stolper og tydelig tidsskala.
-            price_h = 0.52 if len(panel_rows) <= 2 else 0.46
-            monthly_h = 0.28 if len(panel_rows) <= 2 else 0.24
-            remainder = max(0.12, 1.0 - price_h - monthly_h)
+            # V13 / Oppgave 37: Hold MND%-stripen kompakt slik at tidsskalaen havner tett under grafen,
+            # ikke langt nede i en stor tom bunnflate.
+            price_h = 0.60 if len(panel_rows) <= 2 else 0.54
+            monthly_h = 0.10 if len(panel_rows) <= 2 else 0.09
+            remainder = max(0.20, 1.0 - price_h - monthly_h)
             other_count = max(len(panel_rows) - 1, 0)
             other_h = remainder / other_count if other_count else 0
             row_heights = [price_h] + [monthly_h if p == "MND%" else other_h for p in panel_rows]
@@ -839,7 +840,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
             each = remainder / len(panel_rows)
             row_heights = [price_h] + [each] * len(panel_rows)
 
-    height = min(520 + (rows - 1) * 150 + (110 if "MND%" in panel_rows else 0), 1450)
+    height = min(500 + (rows - 1) * 105 + (30 if "MND%" in panel_rows else 0), 1120)
 
     fig = make_subplots(
         rows=rows,
@@ -1053,7 +1054,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
         height=height,
         paper_bgcolor="#07111f",
         plot_bgcolor="#07111f",
-        margin=dict(l=8, r=118, t=60, b=74 if _has_monthly_panel else 44),
+        margin=dict(l=8, r=118, t=60, b=28 if _has_monthly_panel else 44),
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         dragmode="pan",
@@ -1087,22 +1088,13 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
 
     if _has_monthly_panel:
         fig.update_xaxes(
-            showticklabels=True,
-            tickformat=_bottom_time_axis_format(timeframe, period_choice),
-            tickangle=0,
-            ticks="outside",
-            nticks=12,
-            showline=True,
-            linewidth=2,
-            linecolor="rgba(248,250,252,0.86)",
-            tickcolor="rgba(248,250,252,0.95)",
-            ticklen=10,
-            tickwidth=1.6,
-            tickfont=dict(color="#f8fafc", size=13, family="Arial Black, Arial, sans-serif"),
-            title_text="Tidsskala",
-            title_font=dict(color="#cbd5e1", size=12),
-            title_standoff=12,
-            automargin=True,
+            # Ekstern kompakt tidsskala under grafen brukes når MND% er aktiv.
+            # Plotly sin egen bunnakse skjules for å unngå dobbeltakse og stor bunnpadding.
+            showticklabels=False,
+            ticks="",
+            showline=False,
+            title_text=None,
+            automargin=False,
             row=rows,
             col=1,
         )

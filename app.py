@@ -68,7 +68,11 @@ current_user = require_login()
 _runtime_settings = load_settings()
 UI_REFRESH_MINUTES = int(_runtime_settings.get("ui_refresh_minutes", 5) or 5)
 UI_REFRESH_MINUTES = max(1, min(UI_REFRESH_MINUTES, 60))
-st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
+# V13 / Oppgave 35: Ikke kjør automatisk rerun når auto-oppdatering er slått av.
+# Periodisk refresh må aktiveres eksplisitt i banner-innstillingene.
+UI_AUTO_REFRESH_ENABLED = bool(_runtime_settings.get("ui_auto_refresh_enabled", False))
+if UI_AUTO_REFRESH_ENABLED:
+    st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
 
 
@@ -1532,12 +1536,19 @@ def render_banner_sidebar_controls(expanded=True):
             if _current_refresh not in _refresh_options:
                 _refresh_options.append(_current_refresh)
                 _refresh_options = sorted(set(_refresh_options))
+            _auto_refresh_enabled = st.checkbox(
+                "Auto-oppdater appen periodisk",
+                value=bool(_banner_settings.get("ui_auto_refresh_enabled", False)),
+                help="Av = appen henter ikke ny analyse/graf automatisk mens du endrer felt. Bruk Oppdater / bruk endringer manuelt.",
+                key="ui_auto_refresh_enabled_form_v13",
+            )
             _refresh_choice = st.selectbox(
-                "Oppdatering",
+                "Oppdateringsintervall",
                 _refresh_options,
                 index=_refresh_options.index(_current_refresh),
                 format_func=lambda x: f"{x} min",
                 key="banner_refresh_form_v9",
+                help="Brukes bare når periodisk auto-oppdatering er aktiv.",
             )
             _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
             _banner_speed = st.slider(
@@ -1564,6 +1575,7 @@ def render_banner_sidebar_controls(expanded=True):
 
         if _save_banner:
             _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
+            _banner_settings["ui_auto_refresh_enabled"] = bool(_auto_refresh_enabled)
             _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
             _banner_settings["live_banner_speed_seconds"] = int(_banner_speed)
             _banner_settings["live_banner_markets_visible"] = list(_selected_markets or _market_options)
@@ -3300,12 +3312,7 @@ def render_sidebar_structure_v2():
         st.sidebar.error("Full stopp aktivert ⛔")
         st.rerun()
 
-    if _cron_status.get("last_scan_at"):
-        st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
-    if _cron_status.get("pause_until"):
-        st.sidebar.caption(f"Pause til: {_cron_status.get('pause_until')}")
-
-    st.sidebar.markdown("---")
+    # V13 / Oppgave 36: Auto-kjøp skal ligge direkte under Full stopp / ferie.
     st.sidebar.markdown("### ⚡ Auto-kjøp")
     st.sidebar.caption("Tester samme auto-motor som Cron, men manuelt nå.")
 
@@ -3319,6 +3326,10 @@ def render_sidebar_structure_v2():
         except Exception as _e:
             st.sidebar.error(f"Auto-kjøp feilet: {_e}")
 
+    if _cron_status.get("last_scan_at"):
+        st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
+    if _cron_status.get("pause_until"):
+        st.sidebar.caption(f"Pause til: {_cron_status.get('pause_until')}")
 
     st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
     render_banner_sidebar_controls(expanded=True)

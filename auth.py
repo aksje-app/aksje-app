@@ -19,6 +19,8 @@ from user_store import (
 
 REMEMBER_FILE = Path("remember_tokens.json")
 REMEMBER_DAYS = 30
+SESSION_HOURS = 24
+
 
 
 def _load_remember_tokens():
@@ -49,6 +51,32 @@ def _create_remember_token(user):
     return token
 
 
+def _set_logged_in(user, remember=False):
+    """V13: tydelig session-varighet. Vanlig login varer 24 t, Husk meg varer 30 dager."""
+    st.session_state["auth_user"] = user
+    expires_at = datetime.now() + (timedelta(days=REMEMBER_DAYS) if remember else timedelta(hours=SESSION_HOURS))
+    st.session_state["auth_expires_at"] = expires_at.isoformat(timespec="seconds")
+
+
+def _session_is_valid():
+    user = st.session_state.get("auth_user")
+    if not user:
+        return False
+    raw = st.session_state.get("auth_expires_at")
+    if not raw:
+        # Eldre session fra tidligere versjon: gi den standard levetid i stedet for å kaste bruker ut.
+        st.session_state["auth_expires_at"] = (datetime.now() + timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
+        return True
+    try:
+        if datetime.fromisoformat(str(raw)) >= datetime.now():
+            return True
+    except Exception:
+        pass
+    st.session_state.pop("auth_user", None)
+    st.session_state.pop("auth_expires_at", None)
+    return False
+
+
 def _restore_from_remember_token():
     try:
         token = st.query_params.get("remember_token", None)
@@ -68,7 +96,10 @@ def _restore_from_remember_token():
         username = item.get("username")
         for user in list_users():
             if user.get("username") == username and user.get("active", True):
-                st.session_state["auth_user"] = user
+                # Forny tokenet ved bruk, slik at Husk meg faktisk holder lenge på PC og mobil.
+                tokens[str(token)] = {"username": username, "expires": (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")}
+                _save_remember_tokens(tokens)
+                _set_logged_in(user, remember=True)
                 return user
     except Exception:
         return None
@@ -95,6 +126,7 @@ def _clear_remember_token():
 def _logout():
     _clear_remember_token()
     st.session_state.pop("auth_user", None)
+    st.session_state.pop("auth_expires_at", None)
     st.rerun()
 
 
@@ -124,26 +156,41 @@ def render_first_admin_setup():
 
 
 def render_login():
+    # V13 / Oppgave 33: hele login-formen skal være kort og sentrert, ikke bare headeren.
     st.markdown(
         """
         <style>
-        .login-shell { max-width: 520px; margin: 7vh auto 0 auto; }
-        .login-card {
+        .login-header {
+            max-width: 520px;
+            margin: 7vh auto 0.75rem auto;
             background: linear-gradient(180deg, rgba(17,24,39,0.98), rgba(15,23,42,0.98));
             border: 1px solid rgba(148,163,184,0.38);
-            border-radius: 20px;
-            padding: 24px 24px 18px 24px;
+            border-radius: 18px;
+            padding: 22px 24px 18px 24px;
             box-shadow: 0 18px 48px rgba(0,0,0,0.35);
         }
         .login-title { color:#f8fafc; font-size:1.65rem; font-weight:950; margin-bottom:2px; }
-        .login-sub { color:#cbd5e1; font-weight:800; margin-bottom:18px; }
-        .login-card input { min-height: 40px !important; }
-        .login-card button { width: 100% !important; }
-        @media (max-width: 700px) { .login-shell { max-width: 94vw; margin-top: 3vh; } .login-card { padding: 18px; } }
+        .login-sub { color:#cbd5e1; font-weight:800; margin-bottom:0; }
+        div[data-testid="stForm"] {
+            max-width: 520px !important;
+            margin: 0 auto !important;
+            border: 1px solid rgba(148,163,184,0.34) !important;
+            border-radius: 16px !important;
+            padding: 18px 18px 16px 18px !important;
+            background: rgba(255,255,255,0.96) !important;
+            box-shadow: 0 10px 32px rgba(15,23,42,0.08) !important;
+        }
+        div[data-testid="stForm"] input { min-height: 38px !important; }
+        div[data-testid="stForm"] button { width: auto !important; min-width: 104px !important; }
+        @media (max-width: 700px) {
+            .login-header { max-width: 94vw; margin-top: 3vh; padding: 18px; }
+            div[data-testid="stForm"] { max-width: 94vw !important; }
+        }
         </style>
-        <div class="login-shell"><div class="login-card">
+        <div class="login-header">
             <div class="login-title">🔐 Logg inn</div>
             <div class="login-sub">AI Aksje Analyzer Pro</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -154,12 +201,10 @@ def render_login():
         remember_me = st.checkbox("Husk meg på denne enheten", value=True)
         submitted = st.form_submit_button("Logg inn")
 
-    st.markdown("</div></div>", unsafe_allow_html=True)
-
     if submitted:
         ok, user, msg = authenticate(username, password)
         if ok:
-            st.session_state["auth_user"] = user
+            _set_logged_in(user, remember=bool(remember_me))
             if remember_me:
                 try:
                     st.query_params["remember_token"] = _create_remember_token(user)
@@ -172,16 +217,16 @@ def render_login():
 
     st.stop()
 
-
 def require_login():
     init_user_store()
 
     if user_count() == 0:
         render_first_admin_setup()
 
-    user = st.session_state.get("auth_user")
-    if not user:
-        user = _restore_from_remember_token()
+    if _session_is_valid():
+        return st.session_state.get("auth_user")
+
+    user = _restore_from_remember_token()
     if not user:
         render_login()
 
