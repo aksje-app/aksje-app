@@ -26,6 +26,7 @@ from paper_trading import load_portfolio
 # PRO_TERMINAL_UI_V1
 # GRAPH_SIDEBAR_POLISH_V1
 # BANNER_PERIOD_SYNC_FIX_V3
+# MONTHLY_RETURN_PANEL_V8
 
 
 TIMEFRAME_CONFIG = {
@@ -66,7 +67,7 @@ PERIOD_MAX_POINTS = {
     "1y": 900,
     "2y": 1100,
     "5y": 1400,
-    "max": 1800,
+    "max": 6500,
 }
 
 
@@ -397,6 +398,79 @@ def calculate_kdj(df, n=9, k_period=3, d_period=3):
     return k, d, j
 
 
+
+NORWEGIAN_MONTHS_SHORT = [
+    "jan", "feb", "mar", "apr", "mai", "jun",
+    "jul", "aug", "sep", "okt", "nov", "des",
+]
+
+
+def _format_month_year_no(value):
+    """Formatterer dato som norsk måned + år, f.eks. 'november 2004'."""
+    try:
+        ts = pd.Timestamp(value)
+        month_names = [
+            "januar", "februar", "mars", "april", "mai", "juni",
+            "juli", "august", "september", "oktober", "november", "desember",
+        ]
+        return f"{month_names[ts.month - 1]} {ts.year}"
+    except Exception:
+        return str(value)
+
+
+def calculate_monthly_returns(df):
+    """
+    Månedlig kursavkastning i prosent, basert på siste sluttkurs per måned.
+    Inneværende måned blir med som delvis måned dersom den finnes i datagrunnlaget.
+    """
+    df = _clean_ohlcv(df)
+    if df.empty or "Close" not in df:
+        return pd.Series(dtype=float)
+
+    close = df["Close"].dropna()
+    if close.empty:
+        return pd.Series(dtype=float)
+
+    try:
+        close.index = pd.to_datetime(close.index)
+        monthly_close = close.resample("M").last().dropna()
+        monthly_returns = monthly_close.pct_change().mul(100).dropna()
+        monthly_returns.name = "Månedlig avkastning (%)"
+        return monthly_returns
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+def monthly_return_summary(monthly_returns):
+    """Kort norsk tekst for siste måned og eventuell rekord/rangering."""
+    try:
+        monthly_returns = monthly_returns.dropna()
+        if monthly_returns.empty:
+            return ""
+
+        latest_date = monthly_returns.index[-1]
+        latest = float(monthly_returns.iloc[-1])
+        latest_txt = f"{latest:+.2f}%"
+        base = f"Månedlig avkastning: siste måned {latest_txt}."
+
+        previous = monthly_returns.iloc[:-1].dropna()
+        if previous.empty:
+            return base
+
+        previous_best = float(previous.max())
+        previous_best_date = previous.idxmax()
+        if latest > previous_best:
+            return (
+                f"{base} Dette er beste måned i dataserien, "
+                f"og høyere enn forrige topp fra {_format_month_year_no(previous_best_date)}."
+            )
+
+        rank = int((monthly_returns > latest).sum() + 1)
+        total = int(monthly_returns.count())
+        return f"{base} Historisk rangering: #{rank} av {total} måneder i valgt historikk."
+    except Exception:
+        return ""
+
 def _panel_count(indicators):
     panels = 1  # main candle
     panels += 1  # volume always shown as bottom base
@@ -510,6 +584,9 @@ def _indicator_snapshot(df, indicators, currency=""):
         snap += [('Kanal Ø', _series_last(ch_u), currency), ('Kanal M', _series_last(ch_m), currency), ('Kanal N', _series_last(ch_l), currency)]
     if 'VOL' in indicators and 'Volume' in df:
         snap += [('VOL', _series_last(df['Volume']), '')]
+    if 'MND%' in indicators:
+        monthly_returns = calculate_monthly_returns(df)
+        snap += [('MND%', _series_last(monthly_returns), '%')]
     if 'MACD' in indicators:
         macd, macd_signal, macd_hist = calculate_macd(df)
         snap += [
@@ -544,6 +621,8 @@ def _render_indicator_snapshot(df, indicators, currency=""):
     for name, value, unit in snap:
         if name in {'VOL', 'OBV'}:
             vtxt = _fmt_volume(value)
+        elif name == 'MND%':
+            vtxt = f"{float(value):+.2f}%"
         elif name in {'RSI', 'K', 'D', 'J', 'MACD', 'Signal', 'Hist', 'ADX', '+DI', '-DI'}:
             vtxt = f"{float(value):.2f}"
         else:
@@ -580,6 +659,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
     df = _clean_ohlcv(df)
     if df.empty:
         return None
+    full_df_for_monthly = df.copy()
 
     cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["1d"])
     max_points = cfg.get("max_points", 220)
@@ -591,7 +671,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
     indicators = indicators or ["MA", "VOL", "KANAL"]
     overlay_set = {"MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL"}
     panel_rows = []
-    for name in ["VOL", "MACD", "RSI", "KDJ", "ATR", "OBV", "ADX"]:
+    for name in ["VOL", "MACD", "RSI", "KDJ", "ATR", "OBV", "ADX", "MND%"]:
         if name in indicators:
             panel_rows.append(name)
 
@@ -762,6 +842,55 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
             fig.add_trace(go.Scattergl(x=df.index, y=minus_di, name="-DI", mode="lines", line=dict(color="#fb7185", width=1.7)), row=row_idx, col=1)
             fig.add_hline(y=25, line_dash="dash", line_color="rgba(250,204,21,0.50)", row=row_idx, col=1)
             _add_last_value_label(fig, last_x, _series_last(adx), f"ADX {(_series_last(adx) or 0):.1f}", row=row_idx, color='rgba(250,204,21,0.88)', text_color='#111827')
+        elif panel == "MND%":
+            monthly_returns = calculate_monthly_returns(full_df_for_monthly)
+            if not monthly_returns.empty:
+                visible_start = df.index.min()
+                visible_end = df.index.max()
+                visible_monthly = monthly_returns[(monthly_returns.index >= visible_start) & (monthly_returns.index <= visible_end)]
+                if visible_monthly.empty:
+                    visible_monthly = monthly_returns.tail(24)
+
+                fig.add_trace(
+                    go.Bar(
+                        x=visible_monthly.index,
+                        y=visible_monthly.values,
+                        name="Månedlig avkastning (%)",
+                        marker=dict(color="#d946ef"),
+                        opacity=0.74,
+                        hovertemplate="<b>%{x|%b %Y}</b><br>Månedlig avkastning: %{y:+.2f}%<extra></extra>",
+                    ),
+                    row=row_idx,
+                    col=1,
+                )
+                fig.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.48)", row=row_idx, col=1)
+
+                latest_m = float(monthly_returns.iloc[-1])
+                latest_x = monthly_returns.index[-1]
+                _add_last_value_label(
+                    fig,
+                    latest_x,
+                    latest_m,
+                    f"MND {latest_m:+.2f}%",
+                    row=row_idx,
+                    color="rgba(217,70,239,0.88)",
+                )
+
+                summary = monthly_return_summary(monthly_returns)
+                if summary:
+                    fig.add_annotation(
+                        text=summary,
+                        xref="paper",
+                        yref="paper",
+                        x=0.01,
+                        y=-0.12,
+                        showarrow=False,
+                        align="left",
+                        font=dict(size=11, color="#f5d0fe"),
+                        bgcolor="rgba(88,28,135,0.45)",
+                        bordercolor="rgba(217,70,239,0.45)",
+                        borderwidth=1,
+                    )
         row_idx += 1
 
     fig.update_layout(
@@ -788,7 +917,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
 def render_chart_help():
 
 
-    st.caption("Graf: dra for pan, bruk musehjul/pinch for zoom, dobbelttrykk for reset. Verdier for aktive indikatorer vises over grafen og som etiketter på linjene. KANAL gir trendkanal tilbake rundt gjeldende kurs. Chart-type kan byttes mellom Candles, Line og Area.")
+    st.caption("Graf: dra for pan, bruk musehjul/pinch for zoom, dobbelttrykk for reset. Verdier for aktive indikatorer vises over grafen og som etiketter på linjene. KANAL gir trendkanal rundt gjeldende kurs. MND% viser månedlig avkastning i prosent nederst; velg Historikkperiode = Maks for lengst mulig historikk. Chart-type kan byttes mellom Candles, Line og Area.")
 
 
 
@@ -974,14 +1103,14 @@ def render_pro_preset_bar(ticker, label, timeframe):
         key=preset_key,
     )
     if preset == "Standard":
-        return ["MA", "VOL", "KANAL"]
+        return ["MA", "VOL", "MND%", "KANAL"]
     if preset == "Momentum":
         return ["MA", "MACD", "RSI", "KDJ"]
     if preset == "Volatilitet":
         return ["MA", "BOLL", "ATR", "KANAL"]
     if preset == "Volum":
         return ["VWAP", "VOL", "OBV", "ADX"]
-    return ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "RSI", "ADX"]
+    return ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "RSI", "ADX", "MND%"]
 
 
 def render_overview_panel_v4(ticker, price, currency, confidence, decision, item, technical_context=None, key_prefix=''):
@@ -1583,13 +1712,13 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     preset_default = render_pro_preset_bar(ticker, label, timeframe)
 
-    _all_indicators = ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX"]
+    _all_indicators = ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX", "MND%"]
     _indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
 
     rb1, rb2, rb3 = st.columns(3)
     with rb1:
         if st.button("Standard", key=f"reset_standard_{label}_{ticker}_{timeframe}", use_container_width=True):
-            st.session_state[_indicator_key] = ["MA", "VOL", "KANAL"]
+            st.session_state[_indicator_key] = ["MA", "VOL", "MND%", "KANAL"]
             st.rerun()
     with rb2:
         if st.button("Reset preset", key=f"reset_preset_{label}_{ticker}_{timeframe}", use_container_width=True):
@@ -1605,10 +1734,10 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         _all_indicators,
         default=preset_default,
         key=_indicator_key,
-        help="Velg indikatorer. MA, EMA, BOLL, SAR, VWAP og KANAL vises i prisgrafen. VOL, MACD, RSI, KDJ, ATR, OBV og ADX vises i egne paneler.",
+        help="Velg indikatorer. MA, EMA, BOLL, SAR, VWAP og KANAL vises i prisgrafen. VOL, MACD, RSI, KDJ, ATR, OBV, ADX og MND% vises i egne paneler.",
     )
 
-    st.caption("Valgte indikatorer er aktive. X fjerner en indikator; bruk Standard, Reset preset eller Full for å legge dem tilbake.")
+    st.caption("Valgte indikatorer er aktive. MND% = månedlig avkastning i prosent. X fjerner en indikator; bruk Standard, Reset preset eller Full for å legge dem tilbake.")
     if timeframe in {"1m", "15m"}:
         st.info("Mønstergjenkjenning på svært korte tidsvalg kan være mer støyende. Bruk helst 1h, 4h eller 1d for mer stabile mønster-signaler.")
 
