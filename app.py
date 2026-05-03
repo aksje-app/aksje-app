@@ -1059,6 +1059,107 @@ div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="popover"
     .block-container { padding-left: 0.65rem !important; padding-right: 0.65rem !important; }
 }
 
+
+/* --- V14 FIX: diskrete hjelpeikoner og mørke tooltips (oppgave 28/32) --- */
+/* Den generelle button-stilen i appen skal ikke gjøre Streamlit sine ?-hjelpeikoner blå/store. */
+[data-testid="stTooltipIcon"],
+[data-testid="stTooltipIcon"] *,
+button[aria-label="Help"],
+button[aria-label="help"],
+button[title="View more"],
+button[title="help"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    color: #94a3b8 !important;
+    -webkit-text-fill-color: #94a3b8 !important;
+    min-height: 18px !important;
+    width: 18px !important;
+    height: 18px !important;
+    padding: 0 !important;
+    margin: 0 0 0 4px !important;
+    border-radius: 999px !important;
+    opacity: 0.76 !important;
+}
+[data-testid="stTooltipIcon"] svg,
+button[aria-label="Help"] svg,
+button[aria-label="help"] svg {
+    width: 14px !important;
+    height: 14px !important;
+    fill: #94a3b8 !important;
+    color: #94a3b8 !important;
+}
+[data-testid="stTooltipIcon"]:hover,
+button[aria-label="Help"]:hover,
+button[aria-label="help"]:hover {
+    opacity: 1 !important;
+    background: rgba(148,163,184,0.12) !important;
+}
+div[data-baseweb="tooltip"],
+div[role="tooltip"],
+[data-testid="stTooltipContent"] {
+    background: #111827 !important;
+    color: #e2e8f0 !important;
+    -webkit-text-fill-color: #e2e8f0 !important;
+    border: 1px solid rgba(148,163,184,0.38) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.38) !important;
+    max-width: 320px !important;
+    font-weight: 750 !important;
+}
+div[data-baseweb="tooltip"] *,
+div[role="tooltip"] *,
+[data-testid="stTooltipContent"] * {
+    background: transparent !important;
+    color: #e2e8f0 !important;
+    -webkit-text-fill-color: #e2e8f0 !important;
+}
+
+/* Kompakt Trading engine v14 */
+.trading-engine-compact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    background: rgba(15,23,42,0.88);
+    border: 1px solid rgba(148,163,184,0.38);
+    border-radius: 14px;
+    padding: 10px 12px;
+    margin: 8px 0 8px 0;
+}
+.trading-engine-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(34,197,94,0.13);
+    border: 1px solid rgba(34,197,94,0.36);
+    color: #d1fae5 !important;
+    font-weight: 950;
+}
+.trading-engine-muted { color: #cbd5e1 !important; font-weight: 850; }
+.trading-engine-value { color: #ffffff !important; font-weight: 950; }
+.trading-engine-details {
+    background: rgba(15,23,42,0.62);
+    border: 1px solid rgba(148,163,184,0.22);
+    border-radius: 12px;
+    padding: 8px 10px;
+    margin: 6px 0 12px 0;
+    color: #cbd5e1 !important;
+    font-size: 0.90rem;
+}
+
+/* Paper Trading justeringer v14 */
+.paper-edit-card {
+    background: rgba(15,23,42,0.72);
+    border: 1px solid rgba(148,163,184,0.32);
+    border-radius: 14px;
+    padding: 10px 12px;
+    margin: 6px 0 10px 0;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1539,7 +1640,6 @@ def render_banner_sidebar_controls(expanded=True):
             _auto_refresh_enabled = st.checkbox(
                 "Auto-oppdater appen periodisk",
                 value=bool(_banner_settings.get("ui_auto_refresh_enabled", False)),
-                help="Av = appen henter ikke ny analyse/graf automatisk mens du endrer felt. Bruk Oppdater / bruk endringer manuelt.",
                 key="ui_auto_refresh_enabled_form_v13",
             )
             _refresh_choice = st.selectbox(
@@ -1548,7 +1648,6 @@ def render_banner_sidebar_controls(expanded=True):
                 index=_refresh_options.index(_current_refresh),
                 format_func=lambda x: f"{x} min",
                 key="banner_refresh_form_v9",
-                help="Brukes bare når periodisk auto-oppdatering er aktiv.",
             )
             _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
             _banner_speed = st.slider(
@@ -1557,14 +1656,13 @@ def render_banner_sidebar_controls(expanded=True):
                 180,
                 _current_speed,
                 5,
-                help="Lavere tall = raskere. Høyere tall = saktere.",
                 key="banner_speed_form_v9",
             )
+            st.caption(f"Bannerhastighet valgt: {_banner_speed}s. Lavere tall = raskere, høyere tall = saktere. Trykk Lagre banner for å bruke verdien.")
             _selected_markets = st.multiselect(
                 "Markeder som vises i banner",
                 _market_options,
                 default=_visible_markets,
-                help="Velg ett, flere eller alle markeder. Tomt valg lagres som alle markeder.",
                 key="banner_markets_visible_form_v9",
             )
             st.caption("Legg til/fjern tickere. Bruk komma. Norske tickere bruker ofte .OL, svenske .ST.")
@@ -1963,29 +2061,43 @@ def add_pattern_markers(fig, pattern, name):
 
 
 def render_decision_banner(decision, item, adj_score):
-    decision_text = decision.get("decision", "HOLD / WAIT")
-    emoji = decision.get("emoji", "🟡")
-    color = decision.get("color", "orange")
+    """Kompakt Trading engine-status (v14 / oppgave 29B).
 
-    if decision_text == "BUY":
-        st.success(f"{emoji} BUY-signal | Confidence: {decision.get('confidence', 'N/A')}%")
-    elif decision_text == "SELL / AVOID":
-        st.error(f"{emoji} SELL / AVOID | Confidence: {decision.get('confidence', 'N/A')}%")
-    else:
-        st.warning(f"{emoji} HOLD / WAIT | Confidence: {decision.get('confidence', 'N/A')}%")
+    Tidligere viste appen samme BUY/HOLD-info tre ganger i store bokser.
+    Denne varianten viser én kompakt statuslinje og legger detaljene i en lukket forklaring.
+    """
+    decision_text = str(decision.get("decision", "HOLD / WAIT"))
+    emoji = str(decision.get("emoji", "🟡"))
+    confidence = decision.get("confidence", "N/A")
+    score = decision.get("decision_score", "N/A")
+    color = "#86efac" if "BUY" in decision_text.upper() else ("#fecaca" if "SELL" in decision_text.upper() else "#fde68a")
 
     st.markdown(
         f"""
-        <div class="card">
-            <h3 style="color:{color}; margin-bottom: 0.4rem;">{emoji} {decision_text}</h3>
-            <p style="font-size:1.05rem; margin-bottom:0.2rem;">
-                Original score: <b>{item['score']}/10</b> · Pattern-justert score: <b>{adj_score}/10</b>
-            </p>
-            <p class="small">Dette er analysehjelp, ikke investeringsråd.</p>
+        <div class="trading-engine-compact">
+            <span class="trading-engine-pill" style="border-color:{color}; background:rgba(34,197,94,0.10);">
+                <span>{html.escape(emoji)}</span>
+                <span style="color:{color}!important;">{html.escape(decision_text)}</span>
+            </span>
+            <span class="trading-engine-muted">Score: <span class="trading-engine-value">{html.escape(str(score))}</span></span>
+            <span class="trading-engine-muted">Confidence: <span class="trading-engine-value">{html.escape(str(confidence))}%</span></span>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    with st.expander("Vis forklaring for signalet", expanded=False):
+        st.markdown(
+            f"""
+            <div class="trading-engine-details">
+                <b>{html.escape(emoji)} {html.escape(decision_text)}</b><br>
+                Original score: <b>{html.escape(str(item.get('score', 'N/A')))}/10</b> ·
+                Pattern-justert score: <b>{html.escape(str(adj_score))}/10</b><br>
+                Dette er analysehjelp, ikke investeringsråd.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def quick_context_for_card(item):
@@ -2465,6 +2577,16 @@ def render_macd_explanation():
     )
 
 
+def normalize_user_ticker(ticker: str) -> str:
+    """Normaliserer manuell ticker uten å falle stille tilbake til AAPL."""
+    return str(ticker or "").strip().upper().replace(" ", "")
+
+
+def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> str:
+    manual = normalize_user_ticker(manual_ticker)
+    return manual if manual else normalize_user_ticker(selected_from_list)
+
+
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
 
@@ -2491,9 +2613,11 @@ def render_analysis(results, label):
             key=f"manual_ticker_{label}",
         )
 
-    selected = (manual_ticker.strip().upper() if manual_ticker.strip() else selected_from_list)
+    selected = active_ticker_from_inputs(manual_ticker, selected_from_list)
+    if manual_ticker.strip():
+        st.caption(f"Manuell ticker overstyrer listen: {selected}")
 
-    item = next((r for r in (results or []) if r.get("ticker") == selected), None)
+    item = next((r for r in (results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
     if item is None:
         with st.spinner(f"Henter analyse for {selected}..."):
             item = score_stock(selected, use_news=False)
@@ -2582,11 +2706,6 @@ def render_analysis(results, label):
     # - watchlist signalendring via scan_watchlist_and_alert
 
     st.markdown("#### 🤖 Trading engine")
-    d1, d2, d3 = st.columns(3)
-    d1.metric("Beslutning", f"{decision['emoji']} {decision['decision']}")
-    d2.metric("Signal-score", decision["decision_score"])
-    d3.metric("Confidence", f"{decision['confidence']}%")
-
     render_decision_banner(decision, item, adj_score)
 
     if signal_intelligence:
@@ -3034,8 +3153,13 @@ def render_paper_trading_dashboard():
     r3.metric("Win rate", f"{stats['win_rate']}%")
     r4.metric("Lukkede trades", stats["closed_trades"])
 
-    with st.expander("💼 Rediger Paper Trading startverdier", expanded=False):
-        st.caption("Porteføljeverdi kan justeres kontrollert. Appen justerer cash-delen, mens åpne posisjoner beholdes.")
+    with st.expander("💼 Juster Paper Trading startverdier / porteføljeverdi", expanded=True):
+        st.markdown("""
+        <div class="paper-edit-card">
+            <b>Regulerbare startverdier</b><br>
+            Juster startkapital eller ønsket porteføljeverdi. Ved "Bruk porteføljeverdi" justeres cash-delen, mens åpne posisjoner beholdes.
+        </div>
+        """, unsafe_allow_html=True)
         c_start, c_value = st.columns(2)
         with c_start:
             new_start_cash = st.number_input(

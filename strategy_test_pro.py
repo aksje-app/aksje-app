@@ -583,12 +583,21 @@ def make_simple_pdf(lines: List[str], title: str = "Strategi-test Pro rapport") 
     return bytes(out)
 
 
+def _normalize_ticker(ticker: str) -> str:
+    return str(ticker or "").strip().upper().replace(" ", "")
+
+
 def _parse_ticker_text(raw: str, fallback: Iterable[str]) -> List[str]:
+    """Parser testtickere. Manuell tekst har alltid prioritet over default/fallback.
+
+    V14: leser og normaliserer streng direkte, slik at feltet "Tickere som skal testes"
+    faktisk styrer Strategi-test Pro og ikke faller stille tilbake til valgt AAPL.
+    """
     raw = str(raw or "")
     parts = raw.replace(";", ",").replace("\n", ",").split(",")
-    tickers = [p.strip().upper() for p in parts if p.strip()]
+    tickers = [_normalize_ticker(p) for p in parts if _normalize_ticker(p)]
     if not tickers:
-        tickers = [str(t).strip().upper() for t in fallback if str(t).strip()]
+        tickers = [_normalize_ticker(t) for t in fallback if _normalize_ticker(t)]
     seen = set()
     out = []
     for t in tickers:
@@ -645,9 +654,9 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 "Tickere som skal testes",
                 value=", ".join(default_list[:6]) if default_list else str(default_ticker or "AAPL"),
                 height=64,
-                help="Bruk komma. Eksempel: AAPL, MSFT, NVDA, EQNR.OL, VOLV-B.ST",
                 key=f"{key_prefix}_tickers",
             )
+            st.caption("Bruk komma. Eksempel: AAPL, MSFT, NVDA, EQNR.OL, VOLV-B.ST")
         with c2:
             period_label = st.selectbox(
                 "Tidshorisont bakover",
@@ -675,7 +684,6 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 [500, 2_000, 5_000, 10_000, 20_000, 50_000],
                 index=3,
                 key=f"{key_prefix}_max_combos",
-                help="Vern mot at intervallet blir for tungt. Kraftig smart-test bruker grovtest + finjustering.",
             )
 
         # Hovedregel for gjeldende test
@@ -737,7 +745,9 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             "max_trades_per_day": parse_values(v_buys, default_range["max_trades_per_day"], int),
         }
 
-        tickers_preview = _parse_ticker_text(raw_tickers, default_list)
+        raw_tickers_active = st.session_state.get(f"{key_prefix}_tickers", raw_tickers)
+        tickers_preview = _parse_ticker_text(raw_tickers_active, default_list)
+        st.caption("Testen vil bruke: " + (", ".join(tickers_preview) if tickers_preview else "ingen tickere valgt"))
         est_ranges = custom_ranges if test_type in {"Egendefinert intervall", "Kraftig smart-test"} else preset_ranges(base, test_type if test_type in {"Rask test", "Standard test"} else "Rask test")
         if test_type == "Gjeldende regler":
             total_est = 1
@@ -747,7 +757,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             candidate_est = min(int(max_combos), total_est)
         _show_combination_status(total_est, candidate_est, len(tickers_preview) or 1)
 
-        run_btn = st.button("🧪 Kjør Strategi-test Pro", type="primary", use_container_width=False, key=f"{key_prefix}_run")
+        run_btn = st.button("🧪 Kjør Strategi-test Pro for " + (", ".join(tickers_preview[:3]) if tickers_preview else "valgte tickere"), type="primary", use_container_width=False, key=f"{key_prefix}_run")
 
         with st.expander("📚 Strategi-test logg", expanded=False):
             logs = _load_json_list(LOG_FILE)
@@ -771,7 +781,8 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         if not run_btn:
             return
 
-        tickers = _parse_ticker_text(raw_tickers, default_list)
+        raw_tickers_active = st.session_state.get(f"{key_prefix}_tickers", raw_tickers)
+        tickers = _parse_ticker_text(raw_tickers_active, default_list)
         if not tickers:
             st.warning("Legg inn minst én ticker.")
             return
