@@ -927,11 +927,18 @@ def parse_banner_tickers(settings=None):
     """
     Leser tickere fra settings.
     Brukeren kan legge til/fjerne ved å redigere tekstfeltene i sidepanelet.
+    V9: banneret kan filtreres til valgte markeder.
     """
     settings = settings or load_settings()
     raw = settings.get("live_banner_tickers", {}) or {}
+    visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+    if isinstance(visible_markets, str):
+        visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
+    visible_markets = set(visible_markets or [])
     out = []
     for market in ["USA", "Norge", "Sverige"]:
+        if market not in visible_markets:
+            continue
         text_value = raw.get(market, "") if isinstance(raw, dict) else ""
         parts = str(text_value).replace(";", ",").replace("\n", ",").split(",")
         seen = set()
@@ -1244,26 +1251,96 @@ def render_live_market_banner():
 
 def render_banner_sidebar_controls(expanded=True):
     """Synlig kontroll for ticker-banner i sidepanelet."""
+    st.sidebar.markdown(
+        """
+        <style>
+        /* BANNER_FORM_FOCUS_AND_MARKET_FILTER_V9 */
+        section[data-testid="stSidebar"] textarea,
+        section[data-testid="stSidebar"] [data-baseweb="textarea"] textarea {
+            caret-color: #38bdf8 !important;
+            color: #f8fafc !important;
+            background: rgba(15,23,42,0.94) !important;
+            border-color: rgba(148,163,184,0.55) !important;
+            font-weight: 800 !important;
+        }
+        section[data-testid="stSidebar"] [data-baseweb="textarea"]:focus-within,
+        section[data-testid="stSidebar"] textarea:focus {
+            outline: none !important;
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 2px rgba(56,189,248,0.22) !important;
+        }
+        section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+            min-height: 38px !important;
+            background: rgba(15,23,42,0.92) !important;
+            border: 1px solid rgba(148,163,184,0.42) !important;
+            border-radius: 11px !important;
+        }
+        section[data-testid="stSidebar"] div[data-baseweb="select"]:focus-within > div {
+            border-color: rgba(56,189,248,0.92) !important;
+            box-shadow: 0 0 0 2px rgba(56,189,248,0.20) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     with st.sidebar.expander("📺 Rediger ticker-banner", expanded=expanded):
         _banner_settings = load_settings()
-        _banner_enabled = st.checkbox("Vis ticker-banner øverst", value=bool(_banner_settings.get("live_banner_enabled", True)), key="banner_enabled_top_v3")
-        _refresh_options = [1, 5, 15, 30, 60]
-        _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
-        if _current_refresh not in _refresh_options:
-            _refresh_options.append(_current_refresh)
-            _refresh_options = sorted(set(_refresh_options))
-        _refresh_choice = st.selectbox("Oppdatering", _refresh_options, index=_refresh_options.index(_current_refresh), format_func=lambda x: f"{x} min", key="banner_refresh_top_v3")
-        _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
-        _banner_speed = st.slider("Bannerhastighet", 15, 180, _current_speed, 5, help="Lavere tall = raskere. Høyere tall = saktere.", key="banner_speed_top_v3")
         _ticker_settings = _banner_settings.get("live_banner_tickers", {}) or {}
-        st.caption("Legg til/fjern tickere. Bruk komma. Norske tickere bruker ofte .OL, svenske .ST.")
-        _usa_banner = st.text_area("USA", value=str(_ticker_settings.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")), height=54, key="banner_usa_top_v3")
-        _no_banner = st.text_area("Norge", value=str(_ticker_settings.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")), height=54, key="banner_no_top_v3")
-        _se_banner = st.text_area("Sverige", value=str(_ticker_settings.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")), height=54, key="banner_se_top_v3")
-        if st.button("💾 Lagre banner", use_container_width=True, key="save_banner_top_v3"):
+        _market_options = ["USA", "Norge", "Sverige"]
+        _visible_markets = _banner_settings.get("live_banner_markets_visible", _market_options)
+        if isinstance(_visible_markets, str):
+            _visible_markets = [m.strip() for m in _visible_markets.replace(";", ",").split(",") if m.strip()]
+        _visible_markets = [m for m in (_visible_markets or _market_options) if m in _market_options]
+        if not _visible_markets:
+            _visible_markets = list(_market_options)
+
+        st.caption("Endringer i banneret er samlet i skjemaet. Rediger flere felt først, og trykk Lagre banner når du er klar.")
+        with st.form("banner_settings_form_v9", clear_on_submit=False):
+            _banner_enabled = st.checkbox(
+                "Vis ticker-banner øverst",
+                value=bool(_banner_settings.get("live_banner_enabled", True)),
+                key="banner_enabled_form_v9",
+            )
+            _refresh_options = [1, 5, 15, 30, 60]
+            _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
+            if _current_refresh not in _refresh_options:
+                _refresh_options.append(_current_refresh)
+                _refresh_options = sorted(set(_refresh_options))
+            _refresh_choice = st.selectbox(
+                "Oppdatering",
+                _refresh_options,
+                index=_refresh_options.index(_current_refresh),
+                format_func=lambda x: f"{x} min",
+                key="banner_refresh_form_v9",
+            )
+            _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
+            _banner_speed = st.slider(
+                "Bannerhastighet",
+                15,
+                180,
+                _current_speed,
+                5,
+                help="Lavere tall = raskere. Høyere tall = saktere.",
+                key="banner_speed_form_v9",
+            )
+            _selected_markets = st.multiselect(
+                "Markeder som vises i banner",
+                _market_options,
+                default=_visible_markets,
+                help="Velg ett, flere eller alle markeder. Tomt valg lagres som alle markeder.",
+                key="banner_markets_visible_form_v9",
+            )
+            st.caption("Legg til/fjern tickere. Bruk komma. Norske tickere bruker ofte .OL, svenske .ST.")
+            _usa_banner = st.text_area("USA", value=str(_ticker_settings.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")), height=64, key="banner_usa_form_v9")
+            _no_banner = st.text_area("Norge", value=str(_ticker_settings.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")), height=64, key="banner_no_form_v9")
+            _se_banner = st.text_area("Sverige", value=str(_ticker_settings.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")), height=64, key="banner_se_form_v9")
+            _save_banner = st.form_submit_button("💾 Lagre banner", use_container_width=True)
+
+        if _save_banner:
             _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
             _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
             _banner_settings["live_banner_speed_seconds"] = int(_banner_speed)
+            _banner_settings["live_banner_markets_visible"] = list(_selected_markets or _market_options)
             _banner_settings["live_banner_tickers"] = {"USA": _usa_banner, "Norge": _no_banner, "Sverige": _se_banner}
             save_settings(_banner_settings)
             try:
@@ -2636,12 +2713,20 @@ def render_analysis(results, label):
                 f"Max DD: {best['max_drawdown']}%"
             )
 
-    st.markdown("#### 🧠 Score-forklaring")
     parts = item.get("score_parts", {})
-    if parts:
-        for k, v in parts.items():
-            st.progress(float(v))
-            st.caption(f"{k}: {v}")
+    with st.expander("🧠 Score-forklaring", expanded=False):
+        if parts:
+            st.caption("Åpne/lukk denne seksjonen etter behov. Verdiene er normalisert fra 0 til 1.")
+            for k, v in parts.items():
+                try:
+                    _score_value = max(0.0, min(1.0, float(v)))
+                except Exception:
+                    _score_value = 0.0
+                _label = str(k).replace("_", " ").title()
+                st.progress(_score_value)
+                st.caption(f"{_label}: {_score_value:.3f}")
+        else:
+            st.caption("Ingen score-detaljer tilgjengelig for denne aksjen.")
 
     st.markdown("#### 📰 Nyheter")
     st.caption("For å spare NewsAPI-kall hentes nyheter bare for valgt aksje når du trykker knappen.")
