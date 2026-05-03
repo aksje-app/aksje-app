@@ -1,3 +1,4 @@
+# BANNER_SAFE_PRO_V7
 from ui_components import market_pulse, top_movers
 import os
 import re
@@ -1026,38 +1027,42 @@ def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
 def fetch_live_banner_snapshot(banner_items):
     if yf is None:
         return []
+
     cards = []
     for market, ticker, label in banner_items:
         try:
-            hist = yf.Ticker(ticker).history(period='1mo', interval='1d', auto_adjust=False, prepost=False)
-            if hist is None or hist.empty or 'Close' not in hist:
+            hist = yf.Ticker(ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
+            if hist is None or hist.empty or "Close" not in hist:
                 continue
-            close = hist['Close'].dropna()
+
+            close = hist["Close"].dropna()
             if close.empty or len(close) < 2:
                 continue
+
             series = close.tail(20)
             current = float(series.iloc[-1])
             prev = float(series.iloc[-2])
             delta = current - prev
             pct = ((current / prev) - 1.0) * 100 if prev else 0.0
-            sparkline = _sparkline_svg(series.tolist(), positive=pct >= 0, reference=prev)
+
             cards.append({
-                'market': market,
-                'ticker': ticker,
-                'label': label,
-                'price': current,
-                'delta': delta,
-                'pct': pct,
-                'sparkline': sparkline,
+                "market": market,
+                "ticker": ticker,
+                "label": label,
+                "price": current,
+                "delta": delta,
+                "pct": pct,
+                "sparkline": _sparkline_svg(series.tolist(), positive=pct >= 0, reference=prev),
             })
         except Exception:
             continue
+
     return cards
 
 
 def render_live_market_banner():
     settings = load_settings()
-    if not settings.get('live_banner_enabled', True):
+    if not settings.get("live_banner_enabled", True):
         return
 
     banner_items = parse_banner_tickers(settings)
@@ -1065,35 +1070,40 @@ def render_live_market_banner():
         return
 
     banner_cards = fetch_live_banner_snapshot(banner_items)
-    cards = []
-    for item in banner_cards:
-        pct = item['pct']
-        delta = item.get('delta', 0.0)
-        pct_class = 'pos' if pct >= 0 else 'neg'
-        pct_txt = f"{pct:+.2f}%"
-        delta_txt = f"{delta:+.2f}"
-        market_label = html.escape(str(item.get('market', '')))
-        title_label = html.escape(item['label'])
-        cards.append(
-            f"<div class='ticker-tape-item'>"
-            f"<div class='ticker-info'>"
-            f"<div class='ticker-market'>{market_label}</div>"
-            f"<div class='ticker-title'>{title_label}</div>"
-            f"<div class='ticker-price'>{item['price']:.2f}</div>"
-            f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
-            f"</div>"
-            f"<div class='ticker-spark'>{item['sparkline']}</div>"
-            f"</div>"
-        )
-
-    if not cards:
+    if not banner_cards:
         return
 
-    cards_html = ''.join(cards)
-    refresh_minutes = int(settings.get('ui_refresh_minutes', 5) or 5)
-    speed_seconds = int(settings.get('live_banner_speed_seconds', 70) or 70)
+    cards = []
+    for item in banner_cards:
+        pct = float(item.get("pct", 0.0))
+        delta = float(item.get("delta", 0.0))
+        pct_class = "pos" if pct >= 0 else "neg"
+        market_label = html.escape(str(item.get("market", "")))
+        title_label = html.escape(str(item.get("label", item.get("ticker", ""))))
+        price_txt = f"{float(item.get('price', 0.0)):,.2f}"
+        delta_txt = f"{delta:+.2f}"
+        pct_txt = f"{pct:+.2f}%"
+
+        cards.append(
+            "<div class='ticker-tape-item'>"
+            "<div class='ticker-info'>"
+            f"<div class='ticker-market'>{market_label}</div>"
+            f"<div class='ticker-title'>{title_label}</div>"
+            f"<div class='ticker-price'>{price_txt}</div>"
+            f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
+            "</div>"
+            f"<div class='ticker-spark'>{item.get('sparkline', '')}</div>"
+            "</div>"
+        )
+
+    cards_html = "".join(cards)
+    refresh_minutes = int(settings.get("ui_refresh_minutes", 5) or 5)
+    speed_seconds = int(settings.get("live_banner_speed_seconds", 70) or 70)
     speed_seconds = max(15, min(speed_seconds, 180))
-    st.markdown(f"""
+
+    # IMPORTANT:
+    # CSS ligger i vanlig string, ikke f-string, for å unngå SyntaxError fra CSS-klammer.
+    banner_html = """
     <style>
     .ticker-tape-wrap {
         width: 100%;
@@ -1113,7 +1123,7 @@ def render_live_market_banner():
         width: max-content;
         gap: 16px;
         white-space: nowrap;
-        animation: tickerTapeScroll {speed_seconds}s linear infinite;
+        animation: tickerTapeScroll __SPEED__s linear infinite;
         padding: 10px 12px;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
@@ -1132,10 +1142,10 @@ def render_live_market_banner():
         border-right: 1px solid rgba(15,23,42,0.10);
     }
     .ticker-info {
-        display:flex;
-        flex-direction:column;
-        justify-content:center;
-        line-height:1.02;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        line-height: 1.02;
     }
     .ticker-market {
         font-size: 0.68rem;
@@ -1149,15 +1159,15 @@ def render_live_market_banner():
         font-size: 1.02rem;
         font-weight: 900;
         color: #2563eb;
-        overflow:hidden;
-        text-overflow:ellipsis;
-        white-space:nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         margin-bottom: 4px;
     }
     .ticker-price {
         font-size: 1.12rem;
         font-weight: 900;
-        color:#1f2937;
+        color: #1f2937;
         margin-top: 0;
     }
     .ticker-change {
@@ -1165,34 +1175,34 @@ def render_live_market_banner():
         font-weight: 950;
         margin-top: 5px;
     }
-    .ticker-change.pos {color:#059669;}
-    .ticker-change.neg {color:#dc2626;}
+    .ticker-change.pos { color: #059669; }
+    .ticker-change.neg { color: #dc2626; }
     .ticker-spark {
-        display:flex;
-        align-items:center;
-        justify-content:flex-end;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
     }
     .ticker-spark svg {
-        display:block;
-        width:112px;
-        height:42px;
+        display: block;
+        width: 112px;
+        height: 42px;
     }
     @keyframes tickerTapeScroll {
         from { transform: translateX(0); }
         to { transform: translateX(-50%); }
     }
     @media (max-width: 1100px) {
-        .ticker-tape-wrap {min-height: 96px;}
+        .ticker-tape-wrap { min-height: 96px; }
         .ticker-tape-item {
             grid-template-columns: 134px 102px;
             min-width: 252px;
             height: 74px;
             padding: 8px 12px;
         }
-        .ticker-title {font-size: 0.96rem;}
-        .ticker-price {font-size: 1.04rem;}
-        .ticker-change {font-size: 0.90rem;}
-        .ticker-spark svg {width:102px; height:38px;}
+        .ticker-title { font-size: 0.96rem; }
+        .ticker-price { font-size: 1.04rem; }
+        .ticker-change { font-size: 0.90rem; }
+        .ticker-spark svg { width: 102px; height: 38px; }
     }
     @media (max-width: 700px) {
         .ticker-tape-wrap {
@@ -1210,18 +1220,25 @@ def render_live_market_banner():
             padding: 7px 10px;
             gap: 10px;
         }
-        .ticker-market {font-size: 0.58rem; margin-bottom: 1px;}
-        .ticker-title {font-size: 0.82rem; margin-bottom: 3px;}
-        .ticker-price {font-size: 0.92rem;}
-        .ticker-change {font-size: 0.78rem; margin-top: 4px;}
-        .ticker-spark svg {width:86px; height:30px;}
+        .ticker-market { font-size: 0.58rem; margin-bottom: 1px; }
+        .ticker-title { font-size: 0.82rem; margin-bottom: 3px; }
+        .ticker-price { font-size: 0.92rem; }
+        .ticker-change { font-size: 0.78rem; margin-top: 4px; }
+        .ticker-spark svg { width: 86px; height: 30px; }
     }
     </style>
     <div class='ticker-tape-wrap'>
-        <div class='ticker-tape-track'>{cards_html}{cards_html}</div>
+        <div class='ticker-tape-track'>__CARDS____CARDS__</div>
     </div>
-    """, unsafe_allow_html=True)
-    st.caption(f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · hastighet {speed_seconds}s. Hold pekeren over for pause. Mini-grafen bruker stiplet referanselinje som gårsdagens sluttkurs, og fargene skifter over/under denne linjen som i Yahoo Finance-stil.")
+    """
+    banner_html = banner_html.replace("__SPEED__", str(speed_seconds)).replace("__CARDS__", cards_html)
+
+    st.markdown(banner_html, unsafe_allow_html=True)
+    st.caption(
+        f"📡 Ticker-banner: {len(banner_cards)} kort · oppdateres ca. hver {refresh_minutes}. min · "
+        f"hastighet {speed_seconds}s. Hold pekeren over for pause. Mini-grafen bruker stiplet referanselinje "
+        "som gårsdagens sluttkurs, med grønt/rødt over/under linjen."
+    )
 
 
 
