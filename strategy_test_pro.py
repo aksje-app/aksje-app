@@ -1,15 +1,25 @@
-"""Strategi-test Pro: historisk simulering og enkel regel-optimalisering.
+"""Strategi-test Pro: historisk simulering, intervall-testing og smart optimalisering.
 
-Denne modulen er laget for Streamlit-appen og kjører kun når brukeren trykker på
-Kjør-knappen. Den bruker daglige historiske kurser og en teknisk, historisk proxy
-for score/confidence, slik at reglene kan testes bakover i tid uten å kalle den
-fulle analysemodellen for hver historiske dag.
+V12 dekker:
+- test av én eller flere tickere samtidig
+- ferdige test-ranger: rask, standard og kraftig smart-test
+- kombinasjonsvern, slik at appen ikke henger ved for store intervaller
+- automatisk logg av resultater og grovtest
+- PDF-rapport og strategi-profiler
+
+Merk: Dette er historisk simulering med teknisk score-proxy, ikke investeringsråd
+og ikke ordreutførelse.
 """
 
 from __future__ import annotations
 
+import html
+import itertools
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
@@ -18,7 +28,7 @@ import streamlit as st
 
 try:
     import yfinance as yf
-except Exception:  # pragma: no cover - appen viser varsel i UI
+except Exception:  # pragma: no cover
     yf = None
 
 
@@ -30,6 +40,10 @@ PERIOD_MAP = {
     "5 år": "5y",
     "Maks": "max",
 }
+
+LOG_FILE = Path("strategy_test_logs.json")
+PROFILE_FILE = Path("strategy_profiles.json")
+MAX_DISPLAY_ROWS = 25
 
 
 @dataclass(frozen=True)
@@ -43,15 +57,32 @@ class RuleSet:
     rsi_exit_level: int
     position_size_pct: float
     max_open_positions: int = 5
-    max_trades_per_day: int = 5
+    max_trades_per_day: int = 5  # brukes som maks kjøp per dag i V12
 
     def as_label(self) -> str:
         return (
             f"Score≥{self.min_buy_score:.1f}, Conf≥{self.min_buy_confidence}, "
-            f"RSI≤{self.max_buy_rsi}, SL {self.stop_loss_pct:.0f}%, TP {self.take_profit_pct:.0f}%"
+            f"RSI≤{self.max_buy_rsi}, SL {self.stop_loss_pct:.1f}%, "
+            f"TP {self.take_profit_pct:.1f}%, Trail {self.trailing_stop_pct:.1f}%"
         )
 
+    def to_row(self) -> Dict[str, object]:
+        return {
+            "Min score": self.min_buy_score,
+            "Min confidence": self.min_buy_confidence,
+            "Maks RSI kjøp": self.max_buy_rsi,
+            "Stop-loss %": self.stop_loss_pct,
+            "Take-profit %": self.take_profit_pct,
+            "Trailing stop %": self.trailing_stop_pct,
+            "RSI exit": self.rsi_exit_level,
+            "Posisjonsstørrelse %": self.position_size_pct,
+            "Maks kjøp per dag": self.max_trades_per_day,
+        }
 
+
+# -------------------------------------------------------------------
+# Data og score-proxy
+# -------------------------------------------------------------------
 @st.cache_data(ttl=30 * 60, show_spinner=False)
 def fetch_strategy_histories(tickers_tuple: Tuple[str, ...], period: str) -> Dict[str, pd.DataFrame]:
     """Henter historikk for en liste tickere. Cache hindrer nye kall ved hver rerun."""
@@ -86,12 +117,7 @@ def _clip01(series: pd.Series) -> pd.Series:
 
 
 def add_historical_score_proxy(df: pd.DataFrame) -> pd.DataFrame:
-    """Legger på historisk proxy for Top Pick-score og confidence.
-
-    Proxyen bruker bare informasjon som finnes samme dag: trend, momentum, RSI og
-    volatilitet. Det er ikke identisk med full dagsanalyse, men gjør det mulig å
-    teste regel-kombinasjoner på historiske data uten lookahead.
-    """
+    """Historisk proxy for Top Pick-score og confidence uten lookahead."""
     out = df.copy()
     close = out["Close"].astype(float)
     ma20 = close.rolling(20).mean()
@@ -124,6 +150,9 @@ def add_historical_score_proxy(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# -------------------------------------------------------------------
+# Simulering
+# -------------------------------------------------------------------
 def _max_drawdown_pct(values: pd.Series) -> float:
     if values is None or values.empty:
         return 0.0
@@ -146,6 +175,7 @@ def simulate_one_ticker(df: pd.DataFrame, rules: RuleSet, start_cash: float = 10
     peak_price = 0.0
     trades: List[Dict[str, object]] = []
     equity_rows: List[Tuple[pd.Timestamp, float]] = []
+    buys_by_day: Dict[str, int] = {}
 
     for date, row in data.iterrows():
         price = float(row["Close"])
@@ -153,14 +183,17 @@ def simulate_one_ticker(df: pd.DataFrame, rules: RuleSet, start_cash: float = 10
         score = float(row.get("score_proxy", 0))
         conf = float(row.get("confidence_proxy", 0))
         ma20 = row.get("ma20")
+        day_key = pd.Timestamp(date).date().isoformat()
 
         market_value = shares * price
         total_value = cash + market_value
         equity_rows.append((date, total_value))
 
         has_position = shares > 0
+        buy_count_today = buys_by_day.get(day_key, 0)
         buy_signal = (
             not has_position
+            and buy_count_today < max(1, int(rules.max_trades_per_day))
             and score >= rules.min_buy_score
             and conf >= rules.min_buy_confidence
             and rsi <= rules.max_buy_rsi
@@ -176,9 +209,11 @@ def simulate_one_ticker(df: pd.DataFrame, rules: RuleSet, start_cash: float = 10
                 shares += new_shares
                 entry = price
                 peak_price = price
+                buys_by_day[day_key] = buy_count_today + 1
                 trades.append({"date": date, "type": "BUY", "price": price, "score": score, "confidence": conf, "rsi": rsi})
             continue
 
+        # V12: exit/salg begrenses aldri av maks kjøp per dag.
         if has_position:
             peak_price = max(peak_price, price)
             pnl_pct = ((price / entry) - 1) * 100 if entry else 0
@@ -202,7 +237,6 @@ def simulate_one_ticker(df: pd.DataFrame, rules: RuleSet, start_cash: float = 10
                 entry = 0.0
                 peak_price = 0.0
 
-    # Sluttverdi med åpen posisjon mark-to-market.
     last_date = data.index[-1]
     last_price = float(data["Close"].iloc[-1])
     final_value = cash + shares * last_price
@@ -218,6 +252,7 @@ def simulate_one_ticker(df: pd.DataFrame, rules: RuleSet, start_cash: float = 10
         "buy_hold_return_pct": buy_hold,
         "max_drawdown_pct": _max_drawdown_pct(equity["value"]),
         "trades": len(trades),
+        "buys": len([t for t in trades if t.get("type") == "BUY"]),
         "closed_trades": len(sells),
         "win_rate_pct": (len(wins) / len(sells) * 100) if sells else 0,
         "final_value": final_value,
@@ -246,7 +281,6 @@ def combine_ticker_results(results: Dict[str, Dict[str, object]], start_cash_tot
 
     merged = pd.concat(equity_parts, ignore_index=True)
     portfolio = merged.groupby("date", as_index=False)["value"].sum().sort_values("date")
-    # Reindekser daglig og forward-filler, så aksjer med ulik historikk summeres jevnere.
     if not portfolio.empty:
         portfolio = portfolio.set_index("date").sort_index().asfreq("D").ffill().dropna().reset_index()
     return portfolio, per_df
@@ -259,14 +293,15 @@ def summarize_portfolio(portfolio: pd.DataFrame, per_df: pd.DataFrame, start_cas
     total_ret = (vals.iloc[-1] / start_cash_total - 1) * 100
     dd = _max_drawdown_pct(vals)
     trades = int(per_df["trades"].sum()) if "trades" in per_df else 0
+    buys = int(per_df["buys"].sum()) if "buys" in per_df else 0
     closed = float(per_df["closed_trades"].sum()) if "closed_trades" in per_df else 0
-    # Vektet win-rate er komplisert uten hver trade; snitt er oversiktlig nok for UI.
     win_rate = float(per_df["win_rate_pct"].mean()) if "win_rate_pct" in per_df and not per_df.empty else 0
     buy_hold = float(per_df["buy_hold_return_pct"].mean()) if "buy_hold_return_pct" in per_df and not per_df.empty else 0
     return {
         "total_return_pct": total_ret,
         "max_drawdown_pct": dd,
         "trades": trades,
+        "buys": buys,
         "closed_trades": closed,
         "win_rate_pct": win_rate,
         "buy_hold_return_pct": buy_hold,
@@ -286,59 +321,266 @@ def run_group_backtest(histories: Dict[str, pd.DataFrame], rules: RuleSet, start
     return {"portfolio": portfolio, "per_ticker": per_df, "summary": summary, "raw": raw}
 
 
-def _candidate_rule_sets(base: RuleSet, width: str) -> List[RuleSet]:
-    if width == "Liten":
-        score_values = sorted({round(base.min_buy_score - 0.3, 1), round(base.min_buy_score, 1), round(base.min_buy_score + 0.3, 1)})
-        conf_values = sorted({max(40, base.min_buy_confidence - 5), base.min_buy_confidence, min(95, base.min_buy_confidence + 5)})
-        rsi_values = sorted({max(40, base.max_buy_rsi - 5), base.max_buy_rsi, min(90, base.max_buy_rsi + 5)})
-    elif width == "Bred":
-        score_values = [6.0, 6.5, 7.0, 7.5, 8.0, 8.5]
-        conf_values = [55, 65, 75, 85]
-        rsi_values = [55, 65, 72, 80]
-    else:
-        score_values = [6.5, 7.0, 7.5, 8.0]
-        conf_values = [60, 70, 80]
-        rsi_values = [60, 72, 80]
+# -------------------------------------------------------------------
+# Intervaller, kombinasjonsvern og optimalisering
+# -------------------------------------------------------------------
+def _unique_sorted(values, cast=float):
+    out = []
+    for v in values:
+        try:
+            cv = cast(v)
+            if cv not in out:
+                out.append(cv)
+        except Exception:
+            pass
+    return sorted(out)
 
+
+def preset_ranges(base: RuleSet, preset: str) -> Dict[str, List[float]]:
+    if preset == "Rask test":
+        return {
+            "min_buy_score": [7.0, 7.5, 8.0],
+            "min_buy_confidence": [60, 70, 80],
+            "max_buy_rsi": [55, 65, 75],
+            "stop_loss_pct": [2, 5],
+            "take_profit_pct": [5, 10],
+            "trailing_stop_pct": [0, 5, 8],
+            "rsi_exit_level": [70, 80],
+            "position_size_pct": [5, 10],
+            "max_trades_per_day": [1, 3, 5],
+        }
+    if preset == "Kraftig grovtest":
+        return {
+            "min_buy_score": [6.5, 7.0, 7.5, 8.0, 8.5],
+            "min_buy_confidence": [55, 65, 70, 75, 85],
+            "max_buy_rsi": [50, 55, 60, 65, 70, 75],
+            "stop_loss_pct": [1.5, 2, 3, 5, 8],
+            "take_profit_pct": [2, 3, 5, 8, 12, 15],
+            "trailing_stop_pct": [0, 3, 5, 8, 12],
+            "rsi_exit_level": [65, 70, 75, 80, 85],
+            "position_size_pct": [5, 10, 15],
+            "max_trades_per_day": [1, 3, 5],
+        }
+    # Standard test - balansert, men capper faktisk kjøring dersom for stort.
+    return {
+        "min_buy_score": [6.5, 7.0, 7.5, 8.0, 8.5],
+        "min_buy_confidence": [55, 65, 75, 85],
+        "max_buy_rsi": [55, 65, 72, 80],
+        "stop_loss_pct": [2, 5, 8],
+        "take_profit_pct": [3, 8, 12, 15],
+        "trailing_stop_pct": [0, 5, 8, 12],
+        "rsi_exit_level": [70, 75, 80, 85],
+        "position_size_pct": [5, 10, 15],
+        "max_trades_per_day": [1, 3, 5],
+    }
+
+
+def parse_values(raw: str, default: List[float], cast=float) -> List[float]:
+    text = str(raw or "").replace(";", ",")
+    vals = [x.strip().replace("%", "") for x in text.split(",") if x.strip()]
+    parsed = _unique_sorted(vals, cast=cast)
+    return parsed if parsed else default
+
+
+def count_combinations(ranges: Dict[str, List[float]]) -> int:
+    total = 1
+    for vals in ranges.values():
+        total *= max(1, len(vals))
+    return int(total)
+
+
+def rules_from_ranges(ranges: Dict[str, List[float]], base: RuleSet, max_combinations: int = 20_000) -> List[RuleSet]:
+    keys = [
+        "min_buy_score", "min_buy_confidence", "max_buy_rsi", "stop_loss_pct", "take_profit_pct",
+        "trailing_stop_pct", "rsi_exit_level", "position_size_pct", "max_trades_per_day"
+    ]
+    values = [ranges.get(k, [getattr(base, k)]) for k in keys]
+    total = count_combinations({k: list(v) for k, v in zip(keys, values)})
+    step = max(1, math.ceil(total / max(1, int(max_combinations))))
     out: List[RuleSet] = []
-    for score in score_values:
-        for conf in conf_values:
-            for rsi in rsi_values:
-                out.append(RuleSet(
-                    min_buy_score=float(score),
-                    min_buy_confidence=int(conf),
-                    max_buy_rsi=int(rsi),
-                    stop_loss_pct=base.stop_loss_pct,
-                    take_profit_pct=base.take_profit_pct,
-                    trailing_stop_pct=base.trailing_stop_pct,
-                    rsi_exit_level=base.rsi_exit_level,
-                    position_size_pct=base.position_size_pct,
-                    max_open_positions=base.max_open_positions,
-                    max_trades_per_day=base.max_trades_per_day,
-                ))
+    for i, combo in enumerate(itertools.product(*values)):
+        if i % step != 0:
+            continue
+        kwargs = dict(zip(keys, combo))
+        out.append(RuleSet(
+            min_buy_score=float(kwargs["min_buy_score"]),
+            min_buy_confidence=int(kwargs["min_buy_confidence"]),
+            max_buy_rsi=int(kwargs["max_buy_rsi"]),
+            stop_loss_pct=float(kwargs["stop_loss_pct"]),
+            take_profit_pct=float(kwargs["take_profit_pct"]),
+            trailing_stop_pct=float(kwargs["trailing_stop_pct"]),
+            rsi_exit_level=int(kwargs["rsi_exit_level"]),
+            position_size_pct=float(kwargs["position_size_pct"]),
+            max_open_positions=base.max_open_positions,
+            max_trades_per_day=int(kwargs["max_trades_per_day"]),
+        ))
     return out
 
 
-def optimize_rule_sets(histories: Dict[str, pd.DataFrame], base: RuleSet, width: str, start_cash: float = 100_000.0) -> pd.DataFrame:
+def strategy_rank_score(summary: Dict[str, float]) -> float:
+    # Drawdown er negativ, derfor legger vi den til med positiv koeffisient for å straffe dype fall.
+    ret = float(summary.get("total_return_pct", 0))
+    excess = float(summary.get("vs_buy_hold_pct", 0))
+    dd = float(summary.get("max_drawdown_pct", 0))
+    win = float(summary.get("win_rate_pct", 0))
+    trades = float(summary.get("trades", 0))
+    trade_penalty = max(0, trades - 120) * 0.03
+    return ret + excess * 0.35 + dd * 0.50 + win * 0.05 - trade_penalty
+
+
+def optimize_rule_sets(histories: Dict[str, pd.DataFrame], candidates: List[RuleSet], start_cash: float = 100_000.0) -> pd.DataFrame:
     rows = []
-    for rules in _candidate_rule_sets(base, width):
+    progress = st.progress(0.0) if len(candidates) > 100 else None
+    for i, rules in enumerate(candidates):
         result = run_group_backtest(histories, rules, start_cash=start_cash)
         s = result.get("summary", {}) or {}
-        rows.append({
-            "Min score": rules.min_buy_score,
-            "Min confidence": rules.min_buy_confidence,
-            "Maks RSI kjøp": rules.max_buy_rsi,
+        row = rules.to_row()
+        row.update({
             "Avkastning %": round(float(s.get("total_return_pct", 0)), 2),
             "Mot buy&hold %": round(float(s.get("vs_buy_hold_pct", 0)), 2),
             "Max drawdown %": round(float(s.get("max_drawdown_pct", 0)), 2),
             "Trades": int(s.get("trades", 0) or 0),
+            "Kjøp": int(s.get("buys", 0) or 0),
             "Win rate %": round(float(s.get("win_rate_pct", 0)), 1),
-            "Score": round(float(s.get("total_return_pct", 0)) + float(s.get("vs_buy_hold_pct", 0)) * 0.25 + float(s.get("max_drawdown_pct", 0)) * 0.35, 2),
+            "Strategi-score": round(strategy_rank_score(s), 2),
         })
+        rows.append(row)
+        if progress and (i % 50 == 0 or i == len(candidates) - 1):
+            progress.progress((i + 1) / len(candidates))
+    if progress:
+        progress.empty()
     opt = pd.DataFrame(rows)
     if opt.empty:
         return opt
-    return opt.sort_values(["Score", "Avkastning %"], ascending=False).reset_index(drop=True)
+    return opt.sort_values(["Strategi-score", "Avkastning %"], ascending=False).reset_index(drop=True)
+
+
+def _rules_from_opt_row(row, base: RuleSet) -> RuleSet:
+    return RuleSet(
+        min_buy_score=float(row["Min score"]),
+        min_buy_confidence=int(row["Min confidence"]),
+        max_buy_rsi=int(row["Maks RSI kjøp"]),
+        stop_loss_pct=float(row["Stop-loss %"]),
+        take_profit_pct=float(row["Take-profit %"]),
+        trailing_stop_pct=float(row["Trailing stop %"]),
+        rsi_exit_level=int(row["RSI exit"]),
+        position_size_pct=float(row["Posisjonsstørrelse %"]),
+        max_open_positions=base.max_open_positions,
+        max_trades_per_day=int(row.get("Maks kjøp per dag", base.max_trades_per_day)),
+    )
+
+
+def refine_candidates_from_top(top_df: pd.DataFrame, base: RuleSet, max_candidates: int = 12_000) -> List[RuleSet]:
+    candidates: Dict[Tuple, RuleSet] = {}
+    if top_df is None or top_df.empty:
+        return []
+    for _, row in top_df.head(30).iterrows():
+        seed = _rules_from_opt_row(row, base)
+        ranges = {
+            "min_buy_score": _unique_sorted([seed.min_buy_score - 0.2, seed.min_buy_score - 0.1, seed.min_buy_score, seed.min_buy_score + 0.1, seed.min_buy_score + 0.2]),
+            "min_buy_confidence": _unique_sorted([seed.min_buy_confidence - 5, seed.min_buy_confidence, seed.min_buy_confidence + 5], int),
+            "max_buy_rsi": _unique_sorted([seed.max_buy_rsi - 3, seed.max_buy_rsi, seed.max_buy_rsi + 3], int),
+            "stop_loss_pct": _unique_sorted([max(0.5, seed.stop_loss_pct - 1), seed.stop_loss_pct, seed.stop_loss_pct + 1]),
+            "take_profit_pct": _unique_sorted([max(1, seed.take_profit_pct - 2), seed.take_profit_pct, seed.take_profit_pct + 2]),
+            "trailing_stop_pct": _unique_sorted([max(0, seed.trailing_stop_pct - 1), seed.trailing_stop_pct, seed.trailing_stop_pct + 1]),
+            "rsi_exit_level": _unique_sorted([seed.rsi_exit_level - 3, seed.rsi_exit_level, seed.rsi_exit_level + 3], int),
+            "position_size_pct": _unique_sorted([max(1, seed.position_size_pct - 2), seed.position_size_pct, seed.position_size_pct + 2]),
+            "max_trades_per_day": [seed.max_trades_per_day],
+        }
+        for rules in rules_from_ranges(ranges, seed, max_combinations=450):
+            key = tuple(asdict(rules).items())
+            candidates[key] = rules
+            if len(candidates) >= max_candidates:
+                break
+        if len(candidates) >= max_candidates:
+            break
+    return list(candidates.values())
+
+
+# -------------------------------------------------------------------
+# Logg, profiler og PDF
+# -------------------------------------------------------------------
+def _load_json_list(path: Path) -> List[dict]:
+    try:
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+    except Exception:
+        pass
+    return []
+
+
+def _save_json_list(path: Path, rows: List[dict]) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows[-250:], f, indent=2, ensure_ascii=False, default=str)
+    except Exception:
+        pass
+
+
+def save_strategy_log(payload: dict) -> str:
+    rows = _load_json_list(LOG_FILE)
+    test_id = datetime.now().strftime("STRAT-%Y%m%d-%H%M%S")
+    payload = dict(payload)
+    payload.setdefault("test_id", test_id)
+    payload.setdefault("created_at", datetime.now().isoformat(timespec="seconds"))
+    rows.append(payload)
+    _save_json_list(LOG_FILE, rows)
+    return str(payload["test_id"])
+
+
+def latest_coarse_log() -> dict | None:
+    rows = _load_json_list(LOG_FILE)
+    for row in reversed(rows):
+        if row.get("phase") == "grovtest" and row.get("top_rows"):
+            return row
+    return None
+
+
+def save_strategy_profile(profile: dict) -> None:
+    rows = _load_json_list(PROFILE_FILE)
+    rows.append(profile)
+    _save_json_list(PROFILE_FILE, rows)
+
+
+def _pdf_escape(text: str) -> str:
+    return str(text).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def make_simple_pdf(lines: List[str], title: str = "Strategi-test Pro rapport") -> bytes:
+    """Lager en enkel PDF uten eksterne biblioteker."""
+    safe_lines = [str(title), "", *[str(x) for x in lines]]
+    y = 800
+    commands = ["BT", "/F1 16 Tf", f"50 {y} Td", f"({_pdf_escape(safe_lines[0])}) Tj"]
+    commands += ["/F1 10 Tf"]
+    y -= 28
+    for line in safe_lines[1:60]:
+        if y < 55:
+            break
+        commands.append(f"50 {y} Td")
+        commands.append(f"({_pdf_escape(line)}) Tj")
+        commands.append(f"-50 {-y} Td")
+        y -= 14
+    commands.append("ET")
+    stream = "\n".join(commands).encode("latin-1", errors="replace")
+    objs = []
+    objs.append(b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n")
+    objs.append(b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n")
+    objs.append(b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n")
+    objs.append(b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n")
+    objs.append(b"5 0 obj << /Length " + str(len(stream)).encode() + b" >> stream\n" + stream + b"\nendstream endobj\n")
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objs:
+        offsets.append(len(out))
+        out.extend(obj)
+    xref = len(out)
+    out.extend(f"xref\n0 {len(objs)+1}\n0000000000 65535 f \n".encode())
+    for off in offsets[1:]:
+        out.extend(f"{off:010d} 00000 n \n".encode())
+    out.extend(f"trailer << /Size {len(objs)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode())
+    return bytes(out)
 
 
 def _parse_ticker_text(raw: str, fallback: Iterable[str]) -> List[str]:
@@ -353,7 +595,7 @@ def _parse_ticker_text(raw: str, fallback: Iterable[str]) -> List[str]:
         if t and t not in seen:
             out.append(t)
             seen.add(t)
-    return out[:12]
+    return out[:20]
 
 
 def _rule_from_ui(default_rules: dict) -> RuleSet:
@@ -371,24 +613,38 @@ def _rule_from_ui(default_rules: dict) -> RuleSet:
     )
 
 
+def _show_combination_status(total: int, candidates: int, tickers: int) -> None:
+    full_tests = total * max(1, tickers)
+    actual_tests = candidates * max(1, tickers)
+    if total > candidates:
+        st.warning(
+            f"Kombinasjonsvern aktivt: {total:,} mulige kombinasjoner ({full_tests:,} aksje-tester) "
+            f"er redusert til {candidates:,} kombinasjoner ({actual_tests:,} aksje-tester).".replace(",", " ")
+        )
+    else:
+        st.info(f"Denne kjøringen tester {candidates:,} kombinasjoner × {tickers} ticker(e).".replace(",", " "))
+
+
 def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str], default_rules: dict, key_prefix: str = "strategy_pro") -> None:
-    """Streamlit UI for Oppgave 10."""
+    """Streamlit UI for Strategi-test Pro."""
     default_list = list(default_tickers or [])
     if default_ticker and default_ticker not in default_list:
         default_list.insert(0, default_ticker)
 
+    base_from_rules = _rule_from_ui(default_rules)
+
     with st.expander("🧪 Strategi-test Pro / optimalisering", expanded=False):
         st.caption(
-            "Test én eller flere tickere mot trading-reglene og en historisk teknisk score-proxy. "
+            "Test én eller flere tickere mot trading-reglene og historisk teknisk score-proxy. "
             "Dette er simulering, ikke investeringsråd eller ordreutførelse."
         )
 
-        c1, c2, c3 = st.columns([2.1, 1, 1])
+        c1, c2, c3 = st.columns([2.0, 1.05, 1.15])
         with c1:
             raw_tickers = st.text_area(
                 "Tickere som skal testes",
                 value=", ".join(default_list[:6]) if default_list else str(default_ticker or "AAPL"),
-                height=76,
+                height=64,
                 help="Bruk komma. Eksempel: AAPL, MSFT, NVDA, EQNR.OL, VOLV-B.ST",
                 key=f"{key_prefix}_tickers",
             )
@@ -408,36 +664,110 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 key=f"{key_prefix}_cash",
             )
         with c3:
-            mode = st.radio(
-                "Testmodus",
-                ["Test gjeldende regler", "Finn beste kombinasjon"],
+            test_type = st.selectbox(
+                "Test-type",
+                ["Gjeldende regler", "Rask test", "Standard test", "Kraftig smart-test", "Finjuster siste grovtest", "Egendefinert intervall"],
                 index=0,
-                key=f"{key_prefix}_mode",
+                key=f"{key_prefix}_test_type",
             )
-            grid_width = st.selectbox(
-                "Søkeområde",
-                ["Liten", "Normal", "Bred"],
-                index=1,
-                disabled=mode != "Finn beste kombinasjon",
-                key=f"{key_prefix}_width",
+            max_combos = st.selectbox(
+                "Maks kombinasjoner",
+                [500, 2_000, 5_000, 10_000, 20_000, 50_000],
+                index=3,
+                key=f"{key_prefix}_max_combos",
+                help="Vern mot at intervallet blir for tungt. Kraftig smart-test bruker grovtest + finjustering.",
             )
 
-        with st.expander("Juster regler for denne testen", expanded=False):
+        # Hovedregel for gjeldende test
+        with st.expander("Juster gjeldende regler", expanded=False):
             r1, r2, r3, r4 = st.columns(4)
             with r1:
                 min_score = st.slider("Min BUY score", 4.0, 10.0, float(default_rules.get("min_buy_score", 7.5)), 0.1, key=f"{key_prefix}_min_score")
-                stop_loss = st.slider("Stop-loss %", 1.0, 30.0, float(default_rules.get("stop_loss_pct", 7.0)), 0.5, key=f"{key_prefix}_sl")
+                stop_loss = st.slider("Stop-loss %", 0.5, 30.0, float(default_rules.get("stop_loss_pct", 7.0)), 0.5, key=f"{key_prefix}_sl")
             with r2:
                 min_conf = st.slider("Min BUY confidence", 40, 95, int(default_rules.get("min_buy_confidence", 70)), 1, key=f"{key_prefix}_min_conf")
                 take_profit = st.slider("Take-profit %", 1.0, 80.0, float(default_rules.get("take_profit_pct", 12.0)), 0.5, key=f"{key_prefix}_tp")
             with r3:
                 max_rsi = st.slider("Maks RSI for kjøp", 40, 90, int(default_rules.get("max_buy_rsi", 72)), 1, key=f"{key_prefix}_max_rsi")
-                trailing = st.slider("Trailing stop %", 1.0, 40.0, float(default_rules.get("trailing_stop_pct", 8.0)), 0.5, key=f"{key_prefix}_trail")
+                trailing = st.slider("Trailing stop %", 0.0, 40.0, float(default_rules.get("trailing_stop_pct", 8.0)), 0.5, key=f"{key_prefix}_trail")
             with r4:
                 rsi_exit = st.slider("RSI exit", 55, 95, int(default_rules.get("rsi_exit_level", 75)), 1, key=f"{key_prefix}_rsi_exit")
                 pos_size = st.slider("Posisjonsstørrelse %", 1.0, 100.0, float(default_rules.get("position_size_pct", 10.0)), 1.0, key=f"{key_prefix}_pos")
+                max_buys = st.slider("Maks kjøp per dag", 1, 10, int(default_rules.get("max_trades_per_day", 3)), 1, key=f"{key_prefix}_max_buys")
 
-        run_btn = st.button("🧪 Kjør Strategi-test Pro", type="primary", use_container_width=True, key=f"{key_prefix}_run")
+        base = RuleSet(
+            min_buy_score=float(min_score),
+            min_buy_confidence=int(min_conf),
+            max_buy_rsi=int(max_rsi),
+            stop_loss_pct=float(stop_loss),
+            take_profit_pct=float(take_profit),
+            trailing_stop_pct=float(trailing),
+            rsi_exit_level=int(rsi_exit),
+            position_size_pct=float(pos_size),
+            max_open_positions=base_from_rules.max_open_positions,
+            max_trades_per_day=int(max_buys),
+        )
+
+        default_range = preset_ranges(base, "Kraftig grovtest" if test_type == "Kraftig smart-test" else "Standard test")
+        with st.expander("Intervaller for test", expanded=False):
+            st.caption("Bruk komma mellom verdier. Mindre intervaller er kraftige, men kan gi svært mange kombinasjoner.")
+            a, b, c = st.columns(3)
+            with a:
+                v_score = st.text_input("BUY score", ", ".join(map(str, default_range["min_buy_score"])), key=f"{key_prefix}_range_score")
+                v_conf = st.text_input("BUY confidence", ", ".join(map(str, default_range["min_buy_confidence"])), key=f"{key_prefix}_range_conf")
+                v_buy_rsi = st.text_input("Maks RSI kjøp", ", ".join(map(str, default_range["max_buy_rsi"])), key=f"{key_prefix}_range_buy_rsi")
+            with b:
+                v_sl = st.text_input("Stop-loss %", ", ".join(map(str, default_range["stop_loss_pct"])), key=f"{key_prefix}_range_sl")
+                v_tp = st.text_input("Take-profit %", ", ".join(map(str, default_range["take_profit_pct"])), key=f"{key_prefix}_range_tp")
+                v_tr = st.text_input("Trailing stop %", ", ".join(map(str, default_range["trailing_stop_pct"])), key=f"{key_prefix}_range_tr")
+            with c:
+                v_exit = st.text_input("RSI exit", ", ".join(map(str, default_range["rsi_exit_level"])), key=f"{key_prefix}_range_exit")
+                v_pos = st.text_input("Posisjonsstørrelse %", ", ".join(map(str, default_range["position_size_pct"])), key=f"{key_prefix}_range_pos")
+                v_buys = st.text_input("Maks kjøp per dag", ", ".join(map(str, default_range["max_trades_per_day"])), key=f"{key_prefix}_range_buys")
+
+        custom_ranges = {
+            "min_buy_score": parse_values(v_score, default_range["min_buy_score"]),
+            "min_buy_confidence": parse_values(v_conf, default_range["min_buy_confidence"], int),
+            "max_buy_rsi": parse_values(v_buy_rsi, default_range["max_buy_rsi"], int),
+            "stop_loss_pct": parse_values(v_sl, default_range["stop_loss_pct"]),
+            "take_profit_pct": parse_values(v_tp, default_range["take_profit_pct"]),
+            "trailing_stop_pct": parse_values(v_tr, default_range["trailing_stop_pct"]),
+            "rsi_exit_level": parse_values(v_exit, default_range["rsi_exit_level"], int),
+            "position_size_pct": parse_values(v_pos, default_range["position_size_pct"]),
+            "max_trades_per_day": parse_values(v_buys, default_range["max_trades_per_day"], int),
+        }
+
+        tickers_preview = _parse_ticker_text(raw_tickers, default_list)
+        est_ranges = custom_ranges if test_type in {"Egendefinert intervall", "Kraftig smart-test"} else preset_ranges(base, test_type if test_type in {"Rask test", "Standard test"} else "Rask test")
+        if test_type == "Gjeldende regler":
+            total_est = 1
+            candidate_est = 1
+        else:
+            total_est = count_combinations(est_ranges)
+            candidate_est = min(int(max_combos), total_est)
+        _show_combination_status(total_est, candidate_est, len(tickers_preview) or 1)
+
+        run_btn = st.button("🧪 Kjør Strategi-test Pro", type="primary", use_container_width=False, key=f"{key_prefix}_run")
+
+        with st.expander("📚 Strategi-test logg", expanded=False):
+            logs = _load_json_list(LOG_FILE)
+            if logs:
+                log_rows = []
+                for row in logs[-10:][::-1]:
+                    best = row.get("best_summary", {}) or {}
+                    log_rows.append({
+                        "Test-ID": row.get("test_id"),
+                        "Tid": row.get("created_at"),
+                        "Type": row.get("test_type"),
+                        "Fase": row.get("phase", "slutt"),
+                        "Tickere": ", ".join(row.get("tickers", [])[:5]),
+                        "Avkastning %": round(float(best.get("total_return_pct", 0)), 2),
+                        "Mot B&H %": round(float(best.get("vs_buy_hold_pct", 0)), 2),
+                    })
+                st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen strategi-tester er lagret ennå.")
+
         if not run_btn:
             return
 
@@ -445,8 +775,8 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         if not tickers:
             st.warning("Legg inn minst én ticker.")
             return
-        if len(tickers) >= 12:
-            st.info("Maks 12 tickere testes samtidig i denne versjonen for å holde appen rask.")
+        if len(tickers) >= 20:
+            st.info("Maks 20 tickere testes samtidig i denne versjonen for å holde appen rask.")
 
         period = PERIOD_MAP.get(period_label, "1y")
         with st.spinner(f"Henter historikk og tester {len(tickers)} ticker(e)..."):
@@ -459,39 +789,58 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             st.error("Klarte ikke å hente historikk. Sjekk internett/Yahoo Finance eller ticker-symbolene.")
             return
 
-        rules = RuleSet(
-            min_buy_score=float(min_score),
-            min_buy_confidence=int(min_conf),
-            max_buy_rsi=int(max_rsi),
-            stop_loss_pct=float(stop_loss),
-            take_profit_pct=float(take_profit),
-            trailing_stop_pct=float(trailing),
-            rsi_exit_level=int(rsi_exit),
-            position_size_pct=float(pos_size),
-            max_open_positions=int(default_rules.get("max_open_positions", 5)),
-            max_trades_per_day=int(default_rules.get("max_trades_per_day", 5)),
-        )
+        opt = pd.DataFrame()
+        rules = base
+        run_note = ""
+        phase = "slutt"
 
-        if mode == "Finn beste kombinasjon":
-            opt = optimize_rule_sets(histories, rules, grid_width, start_cash=float(start_cash))
-            if opt.empty:
-                st.warning("Fant ingen gyldige optimaliseringsresultater.")
+        if test_type == "Gjeldende regler":
+            st.info("Tester gjeldende regelsett uten optimalisering.")
+        elif test_type == "Finjuster siste grovtest":
+            last = latest_coarse_log()
+            if not last:
+                st.warning("Fant ingen lagret grovtest. Kjør Kraftig smart-test først.")
                 return
+            top_rows = pd.DataFrame(last.get("top_rows", []))
+            candidates = refine_candidates_from_top(top_rows, base, max_candidates=int(max_combos))
+            st.info(f"Finjusterer {len(candidates)} kombinasjoner fra siste lagrede grovtest: {last.get('test_id')}")
+            opt = optimize_rule_sets(histories, candidates, start_cash=float(start_cash))
+        elif test_type == "Kraftig smart-test":
+            coarse_ranges = custom_ranges
+            total = count_combinations(coarse_ranges)
+            coarse_candidates = rules_from_ranges(coarse_ranges, base, max_combinations=int(max_combos))
+            _show_combination_status(total, len(coarse_candidates), len(histories))
+            st.info("Steg 1/2: kjører grovtest og lagrer toppresultater automatisk.")
+            coarse = optimize_rule_sets(histories, coarse_candidates, start_cash=float(start_cash))
+            if coarse.empty:
+                st.warning("Grovtesten ga ingen resultater.")
+                return
+            coarse_id = save_strategy_log({
+                "test_type": test_type,
+                "phase": "grovtest",
+                "period_label": period_label,
+                "tickers": list(histories.keys()),
+                "combination_count": int(len(coarse_candidates)),
+                "top_rows": coarse.head(50).to_dict(orient="records"),
+                "best_summary": {"total_return_pct": float(coarse.iloc[0].get("Avkastning %", 0)), "vs_buy_hold_pct": float(coarse.iloc[0].get("Mot buy&hold %", 0))},
+            })
+            st.success(f"Grovtest lagret automatisk: {coarse_id}")
+            st.info("Steg 2/2: finjusterer rundt beste grovtest-kombinasjoner.")
+            refine = refine_candidates_from_top(coarse, base, max_candidates=int(max_combos))
+            opt = optimize_rule_sets(histories, refine, start_cash=float(start_cash))
+            run_note = f"Kraftig smart-test: grovtest {coarse_id} + finjustering."
+        else:
+            ranges = custom_ranges if test_type == "Egendefinert intervall" else preset_ranges(base, test_type)
+            total = count_combinations(ranges)
+            candidates = rules_from_ranges(ranges, base, max_combinations=int(max_combos))
+            _show_combination_status(total, len(candidates), len(histories))
+            opt = optimize_rule_sets(histories, candidates, start_cash=float(start_cash))
+
+        if not opt.empty:
             st.markdown("#### Beste kombinasjoner")
-            st.dataframe(opt.head(20), use_container_width=True, hide_index=True)
+            st.dataframe(opt.head(MAX_DISPLAY_ROWS), use_container_width=True, hide_index=True)
             best = opt.iloc[0]
-            rules = RuleSet(
-                min_buy_score=float(best["Min score"]),
-                min_buy_confidence=int(best["Min confidence"]),
-                max_buy_rsi=int(best["Maks RSI kjøp"]),
-                stop_loss_pct=float(stop_loss),
-                take_profit_pct=float(take_profit),
-                trailing_stop_pct=float(trailing),
-                rsi_exit_level=int(rsi_exit),
-                position_size_pct=float(pos_size),
-                max_open_positions=int(default_rules.get("max_open_positions", 5)),
-                max_trades_per_day=int(default_rules.get("max_trades_per_day", 5)),
-            )
+            rules = _rules_from_opt_row(best, base)
             st.success("Beste regelsett brukes i grafen under: " + rules.as_label())
 
         result = run_group_backtest(histories, rules, start_cash=float(start_cash))
@@ -521,6 +870,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 plot_bgcolor="#07111f",
                 margin=dict(l=35, r=35, t=55, b=45),
                 hovermode="x unified",
+                hoverlabel=dict(bgcolor="rgba(15,23,42,0.96)", bordercolor="rgba(148,163,184,0.45)", font=dict(color="#f8fafc")),
             )
             st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True, "displaylogo": False})
 
@@ -532,15 +882,82 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 "buy_hold_return_pct": "Buy&hold %",
                 "max_drawdown_pct": "Max DD %",
                 "trades": "Trades",
+                "buys": "Kjøp",
                 "win_rate_pct": "Win rate %",
                 "final_value": "Sluttverdi",
             }
             show = show.rename(columns=rename)
-            wanted = [c for c in ["Ticker", "Avkastning %", "Buy&hold %", "Max DD %", "Trades", "Win rate %", "Sluttverdi"] if c in show.columns]
+            wanted = [c for c in ["Ticker", "Avkastning %", "Buy&hold %", "Max DD %", "Trades", "Kjøp", "Win rate %", "Sluttverdi"] if c in show.columns]
             st.markdown("#### Resultat per ticker")
             st.dataframe(show[wanted].round(2), use_container_width=True, hide_index=True)
 
+        top_rows = opt.head(50).to_dict(orient="records") if not opt.empty else []
+        test_id = save_strategy_log({
+            "test_type": test_type,
+            "phase": phase,
+            "period_label": period_label,
+            "period": period,
+            "tickers": list(histories.keys()),
+            "start_cash": float(start_cash),
+            "rules": asdict(rules),
+            "best_summary": {k: float(v) if isinstance(v, (int, float)) else v for k, v in summary.items()},
+            "top_rows": top_rows,
+            "note": run_note,
+        })
+        st.success(f"Resultat lagret i strategi-test-logg: {test_id}")
+
+        profile = {
+            "name": f"{','.join(list(histories.keys())[:3])} {period_label} {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "tickers": list(histories.keys()),
+            "period_label": period_label,
+            "rules": asdict(rules),
+            "summary": summary,
+            "source_test_id": test_id,
+        }
+        if st.button("⭐ Lagre beste strategi som profil", key=f"{key_prefix}_save_profile"):
+            save_strategy_profile(profile)
+            st.success("Strategi-profil lagret ✅")
+
+        pdf_lines = [
+            f"Test-ID: {test_id}",
+            f"Dato: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            f"Test-type: {test_type}",
+            f"Tickere: {', '.join(list(histories.keys()))}",
+            f"Tidshorisont: {period_label}",
+            "",
+            "Beste parametere:",
+            *[f"- {k}: {v}" for k, v in rules.to_row().items()],
+            "",
+            "Resultater:",
+            f"- Total avkastning: {float(summary.get('total_return_pct', 0)):.2f}%",
+            f"- Mot buy & hold: {float(summary.get('vs_buy_hold_pct', 0)):+.2f}%",
+            f"- Max drawdown: {float(summary.get('max_drawdown_pct', 0)):.2f}%",
+            f"- Win rate: {float(summary.get('win_rate_pct', 0)):.1f}%",
+            f"- Trades: {int(summary.get('trades', 0) or 0)}",
+            "",
+            "Merk: historisk simulering/proxy - ingen garanti for fremtidig avkastning.",
+        ]
+        st.download_button(
+            "📄 Last ned PDF-rapport",
+            data=make_simple_pdf(pdf_lines),
+            file_name=f"strategi_test_{test_id}.pdf",
+            mime="application/pdf",
+            use_container_width=False,
+            key=f"{key_prefix}_pdf",
+        )
+
+        if not opt.empty:
+            st.download_button(
+                "⬇️ Last ned beste kombinasjoner CSV",
+                data=opt.head(200).to_csv(index=False).encode("utf-8"),
+                file_name=f"strategi_test_{test_id}_kombinasjoner.csv",
+                mime="text/csv",
+                use_container_width=False,
+                key=f"{key_prefix}_csv",
+            )
+
         st.caption(
-            "Merk: historisk score/confidence er en teknisk proxy beregnet uten fremtidsdata. "
-            "Resultater kan bli annerledes i live-modellen med nyheter, fundamentale data og faktisk spread/slippage."
+            "Historisk score/confidence er en teknisk proxy beregnet uten fremtidsdata. "
+            "Resultater kan bli annerledes i live-modellen med nyheter, fundamentale data, spread/slippage og datakvalitet."
         )

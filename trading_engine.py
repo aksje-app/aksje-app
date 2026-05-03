@@ -137,14 +137,17 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     portfolio = load_portfolio()
     ticker = str(ticker).upper()
     price = float(price)
+    if price <= 0:
+        return False, "Ugyldig prisdata - kjøp stoppet"
     if ticker in portfolio.get("positions", {}):
         return False, f"{ticker} eies allerede"
     if len(portfolio.get("positions", {})) >= max_open_positions:
         return False, "Maks åpne posisjoner nådd"
     if int(confidence or 0) < min_buy_confidence:
         return False, f"Confidence for lav ({int(confidence or 0)} < {min_buy_confidence})"
-    if trades_today_count(portfolio) >= max_trades_per_day:
-        return False, f"Maks trades per dag nådd ({max_trades_per_day})"
+    # V12: dagsgrensen gjelder kun nye kjøp, ikke salg/exit.
+    if trades_today_count(portfolio, trade_type="BUY") >= max_trades_per_day:
+        return False, f"Maks kjøp per dag nådd ({max_trades_per_day})"
     total_value = portfolio_value(portfolio)
     amount = min(float(portfolio.get("cash", 0)), total_value * position_size_pct / 100)
     if amount <= 0:

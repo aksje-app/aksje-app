@@ -159,8 +159,8 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
         <style>
         .fixed-time-scale-wrap {
             position: relative;
-            height: 54px;
-            margin: -10px 118px 16px 8px;
+            height: 36px;
+            margin: -34px 118px 6px 8px;
             border-top: 2px solid rgba(248,250,252,0.86);
             background: linear-gradient(180deg, rgba(7,17,31,0.98), rgba(7,17,31,0.62));
             border-radius: 0 0 12px 12px;
@@ -168,7 +168,7 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
         .fixed-time-scale-title {
             position: absolute;
             left: 0;
-            top: 26px;
+            top: 20px;
             color: #cbd5e1 !important;
             font-size: 0.73rem;
             font-weight: 850;
@@ -187,8 +187,8 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
         .fixed-time-scale-tick {
             display: block;
             width: 2px;
-            height: 12px;
-            margin: 0 auto 5px auto;
+            height: 8px;
+            margin: 0 auto 3px auto;
             background: rgba(248,250,252,0.95);
             border-radius: 4px;
         }
@@ -201,7 +201,7 @@ def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
             text-shadow: 0 1px 2px rgba(0,0,0,0.65);
         }
         @media (max-width: 800px) {
-            .fixed-time-scale-wrap { margin-right: 72px; height: 48px; }
+            .fixed-time-scale-wrap { margin: -28px 72px 6px 8px; height: 34px; }
             .fixed-time-scale-label { font-size: 0.66rem; }
             .fixed-time-scale-title { font-size: 0.66rem; }
         }
@@ -856,7 +856,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
             go.Scattergl(
                 x=df.index,
                 y=df["Close"],
-                name=f"{ticker} prislinje",
+                name=f"{ticker}",
                 mode="lines",
                 line=dict(color="#67e8f9", width=2.4),
                 hovertemplate="<b>%{x}</b><br>Pris: %{y:.2f}<extra></extra>",
@@ -869,7 +869,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
             go.Scattergl(
                 x=df.index,
                 y=df["Close"],
-                name=f"{ticker} area",
+                name=f"{ticker}",
                 mode="lines",
                 fill="tozeroy",
                 line=dict(color="#67e8f9", width=2.2),
@@ -887,7 +887,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
                 high=df["High"],
                 low=df["Low"],
                 close=df["Close"],
-                name=f"{ticker} candles",
+                name=f"{ticker}",
                 increasing_line_color="#4ade80",
                 decreasing_line_color="#fb7185",
                 increasing_fillcolor="#4ade80",
@@ -1053,11 +1053,12 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
         height=height,
         paper_bgcolor="#07111f",
         plot_bgcolor="#07111f",
-        margin=dict(l=8, r=118, t=56, b=142 if _has_monthly_panel else 44),
+        margin=dict(l=8, r=118, t=60, b=74 if _has_monthly_panel else 44),
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         dragmode="pan",
-        legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0, bgcolor="rgba(7,17,31,0.88)", bordercolor="rgba(248,250,252,0.18)", borderwidth=1, font=dict(size=12, color="#f8fafc")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.025, xanchor="left", x=0, bgcolor="rgba(7,17,31,0.96)", bordercolor="rgba(248,250,252,0.30)", borderwidth=1, font=dict(size=12, color="#f8fafc")),
+        hoverlabel=dict(bgcolor="rgba(15,23,42,0.96)", bordercolor="rgba(148,163,184,0.45)", font=dict(color="#f8fafc", size=12)),
     )
 
     for i in range(1, rows + 1):
@@ -1968,6 +1969,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             )
     else:
         st.info("Kontrollert oppdatering er aktiv: gjør flere endringer, og trykk Oppdater / bruk endringer når du er klar.")
+        st.markdown("<span class='pro-dirty-status'>Endringer lagres først når du trykker Oppdater / bruk endringer</span>", unsafe_allow_html=True)
         with st.form(_safe_key("chart_settings_form_v9", label, ticker), clear_on_submit=False):
             c1, c2, c3 = st.columns([0.85, 1.05, 1.0])
             with c1:
@@ -2008,7 +2010,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
                     help="Velg flere indikatorer uten at grafen oppdateres for hvert klikk.",
                 )
 
-            submitted = st.form_submit_button("🔄 Oppdater / bruk endringer", use_container_width=True)
+            submitted = st.form_submit_button("🔄 Oppdater / bruk endringer", use_container_width=False)
             if submitted:
                 if preset_choice != "Behold valgt":
                     new_indicators = _preset_values(preset_choice)
@@ -2017,6 +2019,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
                 st.session_state[_period_label_key] = new_period_label
                 st.session_state[_chart_type_key] = new_chart_type
                 st.session_state[new_indicator_key] = [x for x in new_indicators if x in _all_indicators]
+                st.session_state[f"chart_settings_applied_{label}_{ticker}"] = True
                 st.rerun()
 
         timeframe = st.session_state.get(_tf_key, "1d")

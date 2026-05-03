@@ -58,6 +58,7 @@ from analyst import get_analyst_trend
 from earnings import get_earnings
 from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
+from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
@@ -902,6 +903,156 @@ div[role="option"][aria-selected="true"] {
     font-size: 0.70rem;
     color: #cbd5e1;
     margin-top: 2px;
+}
+
+
+/* --- V12 PRO DARK UI STANDARD (tasks 11-15,18,20-23) --- */
+:root {
+    --pro-panel: #0f172a;
+    --pro-panel-2: #111827;
+    --pro-panel-3: #1e293b;
+    --pro-text: #f8fafc;
+    --pro-muted: #cbd5e1;
+    --pro-border: rgba(148,163,184,0.38);
+    --pro-blue: #38bdf8;
+}
+button, .stButton > button, [data-testid="stFormSubmitButton"] button {
+    width: auto !important;
+    max-width: 100% !important;
+    background: linear-gradient(180deg, #0ea5e9 0%, #0369a1 100%) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border: 1px solid rgba(125,211,252,0.72) !important;
+    border-radius: 12px !important;
+    font-weight: 950 !important;
+    min-height: 38px !important;
+    box-shadow: 0 6px 16px rgba(2,132,199,0.20) !important;
+}
+button:hover, .stButton > button:hover, [data-testid="stFormSubmitButton"] button:hover {
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border-color: #bae6fd !important;
+}
+button *, .stButton > button *, [data-testid="stFormSubmitButton"] button * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+}
+[data-testid="stExpander"] details,
+div[data-testid="stExpander"] details,
+section[data-testid="stSidebar"] details {
+    background: rgba(15,23,42,0.74) !important;
+    border: 1px solid var(--pro-border) !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.16) !important;
+}
+[data-testid="stExpander"] summary,
+div[data-testid="stExpander"] summary,
+section[data-testid="stSidebar"] details > summary {
+    background: linear-gradient(180deg, rgba(30,41,59,0.98), rgba(15,23,42,0.98)) !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    border-bottom: 1px solid rgba(148,163,184,0.22) !important;
+    min-height: 38px !important;
+    padding-top: 0.36rem !important;
+    padding-bottom: 0.36rem !important;
+    font-weight: 950 !important;
+}
+[data-testid="stExpander"] summary:hover,
+div[data-testid="stExpander"] summary:hover,
+section[data-testid="stSidebar"] details > summary:hover {
+    background: linear-gradient(180deg, rgba(51,65,85,0.98), rgba(30,41,59,0.98)) !important;
+}
+[data-testid="stExpander"] summary *,
+div[data-testid="stExpander"] summary *,
+section[data-testid="stSidebar"] details > summary * {
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    opacity: 1 !important;
+}
+[data-testid="stExpander"] [data-testid="stExpanderDetails"],
+div[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+    background: rgba(2,6,23,0.42) !important;
+}
+input, textarea, [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea, [data-testid="stNumberInput"] input {
+    caret-color: var(--pro-blue) !important;
+    background: rgba(15,23,42,0.96) !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    border: 1px solid rgba(148,163,184,0.45) !important;
+    border-radius: 11px !important;
+    font-weight: 850 !important;
+}
+input:focus, textarea:focus, [data-testid="stTextInput"] input:focus, [data-testid="stTextArea"] textarea:focus, [data-testid="stNumberInput"] input:focus {
+    outline: none !important;
+    border-color: rgba(56,189,248,0.96) !important;
+    box-shadow: 0 0 0 2px rgba(56,189,248,0.22) !important;
+}
+[data-testid="stNumberInput"] button {
+    background: rgba(30,41,59,0.96) !important;
+    border-color: rgba(148,163,184,0.45) !important;
+    color: var(--pro-text) !important;
+    min-height: 32px !important;
+}
+[data-baseweb="select"] > div,
+div[data-baseweb="select"] > div {
+    background: rgba(15,23,42,0.96) !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    border: 1px solid rgba(148,163,184,0.45) !important;
+    border-radius: 11px !important;
+    min-height: 38px !important;
+}
+div[data-baseweb="popover"], div[data-baseweb="popover"] * {
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+}
+div[data-baseweb="popover"] ul {
+    background: #0f172a !important;
+    border: 1px solid rgba(148,163,184,0.40) !important;
+    border-radius: 12px !important;
+}
+div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="popover"] li:hover {
+    background: rgba(56,189,248,0.18) !important;
+}
+[data-testid="stTextArea"] textarea {
+    min-height: 58px !important;
+}
+[data-testid="stCheckbox"] label, [data-testid="stCheckbox"] p, [data-testid="stCheckbox"] span {
+    white-space: normal !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+}
+.pro-dirty-status {
+    display:inline-block;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border:1px solid rgba(251,191,36,0.45);
+    background:rgba(120,53,15,0.28);
+    color:#fde68a !important;
+    font-size:0.76rem;
+    font-weight:900;
+    margin: 4px 0 8px 0;
+}
+.pro-clean-status {
+    display:inline-block;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border:1px solid rgba(34,197,94,0.45);
+    background:rgba(22,101,52,0.28);
+    color:#bbf7d0 !important;
+    font-size:0.76rem;
+    font-weight:900;
+    margin: 4px 0 8px 0;
+}
+@media (max-width: 760px) {
+    [data-testid="stExpander"] summary, div[data-testid="stExpander"] summary, section[data-testid="stSidebar"] details > summary { min-height: 42px !important; }
+    [data-testid="stTextArea"] textarea { min-height: 74px !important; }
+    .block-container { padding-left: 0.65rem !important; padding-right: 0.65rem !important; }
 }
 
 </style>
@@ -2862,7 +3013,7 @@ def render_paper_trading_dashboard():
     p1.metric("Cash", f"{portfolio.get('cash', 0):,.0f} kr")
     p2.metric("Porteføljeverdi", f"{total_value:,.0f} kr")
     p3.metric("Total avkastning", f"{stats['total_return_pct']}%")
-    p4.metric("Trades i dag", f"{stats['trades_today']}/{stats['max_trades_per_day']}")
+    p4.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
 
     r1, r2, r3, r4 = st.columns(4)
     _paper_rules = load_rules()
@@ -2871,9 +3022,44 @@ def render_paper_trading_dashboard():
     r3.metric("Win rate", f"{stats['win_rate']}%")
     r4.metric("Lukkede trades", stats["closed_trades"])
 
-    if st.button("Reset paper portfolio", key="restore_reset_paper_portfolio"):
-        reset_portfolio()
-        st.success("Paper portfolio nullstilt. Refresh siden.")
+    with st.expander("💼 Rediger Paper Trading startverdier", expanded=False):
+        st.caption("Porteføljeverdi kan justeres kontrollert. Appen justerer cash-delen, mens åpne posisjoner beholdes.")
+        c_start, c_value = st.columns(2)
+        with c_start:
+            new_start_cash = st.number_input(
+                "Startkapital / reset-verdi",
+                min_value=10_000,
+                max_value=50_000_000,
+                value=int(float(_paper_rules.get("start_cash", 100000))),
+                step=10_000,
+                key="paper_start_cash_v12",
+            )
+        with c_value:
+            new_portfolio_value = st.number_input(
+                "Porteføljeverdi",
+                min_value=0,
+                max_value=50_000_000,
+                value=int(float(total_value)),
+                step=10_000,
+                key="paper_total_value_v12",
+            )
+        c_apply, c_reset = st.columns(2)
+        with c_apply:
+            if st.button("💾 Bruk porteføljeverdi", key="paper_apply_total_value_v12"):
+                delta = float(new_portfolio_value) - float(total_value)
+                portfolio["cash"] = round(float(portfolio.get("cash", 0)) + delta, 2)
+                save_portfolio(portfolio)
+                _paper_rules["start_cash"] = float(new_start_cash)
+                save_rules(_paper_rules)
+                st.success("Porteføljeverdi oppdatert ved å justere cash ✅")
+                st.rerun()
+        with c_reset:
+            if st.button("↩️ Reset til startkapital", key="restore_reset_paper_portfolio"):
+                _paper_rules["start_cash"] = float(new_start_cash)
+                save_rules(_paper_rules)
+                reset_portfolio(float(new_start_cash))
+                st.success("Paper portfolio nullstilt ✅")
+                st.rerun()
 
     st.markdown("#### Posisjoner")
     positions = portfolio.get("positions", {})
@@ -3384,12 +3570,18 @@ with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
             key="persist_max_pos_v10",
         )
         _max_trades = st.number_input(
-            "Maks trades per dag",
+            "Maks kjøp per dag",
             1,
             50,
             int(_settings.get("max_trades_per_day", 3)),
             1,
             key="persist_max_trades_v10",
+        )
+        _safety_mode = st.checkbox(
+            "Sikkerhetsmodus for auto-kjøp",
+            value=bool(_settings.get("auto_buy_safety_mode", True)),
+            key="persist_safety_mode_v12",
+            help="Når på: salg/exit skal alltid få gå, mens nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd.",
         )
         _push = st.checkbox(
             "Pushover aktiv",
@@ -3414,6 +3606,7 @@ with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
             "cooldown_minutes": int(_cooldown),
             "scan_top_picks_only": bool(_top_only),
             "pushover_enabled": bool(_push),
+            "auto_buy_safety_mode": bool(_safety_mode),
         })
         save_settings(_current_settings_for_auto_save)
         st.sidebar.success("Auto-innstillinger lagret ✅")
@@ -3434,7 +3627,7 @@ with st.sidebar.expander("📈 Kjøp", expanded=False):
     _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules["min_buy_score"]), 0.1)
     _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules["min_buy_confidence"]))
     _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules["max_buy_rsi"]))
-    _rules["max_trades_per_day"] = st.slider("Maks trades per dag", 1, 10, int(_rules["max_trades_per_day"]))
+    _rules["max_trades_per_day"] = st.slider("Maks kjøp per dag", 1, 10, int(_rules["max_trades_per_day"]))
 
 with st.sidebar.expander("🟡 Hold", expanded=False):
     _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules["min_hold_days"]))

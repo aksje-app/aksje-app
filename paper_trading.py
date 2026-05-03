@@ -27,5 +27,7 @@ def performance_stats(portfolio=None, latest_prices=None):
         "avg_win": round(sum(float(t.get("pnl_pct") or 0) for t in wins)/len(wins),2) if wins else 0,
         "avg_loss": round(sum(float(t.get("pnl_pct") or 0) for t in losses)/len(losses),2) if losses else 0,
         "trades_today": len(trades),
+        "buys_today": len([t for t in trades if str(t.get("type", "")).upper() == "BUY"]),
         "max_trades_per_day": int(rules.get("max_trades_per_day", 3)),
+        "max_buys_per_day": int(rules.get("max_trades_per_day", 3)),
     }
