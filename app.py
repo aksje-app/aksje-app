@@ -32,6 +32,7 @@ from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
 from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
+from strategy_test_pro import render_strategy_test_pro
 from signal_engine import calculate_signal_intelligence
 try:
     from insider import get_insider_data
@@ -2787,6 +2788,20 @@ def render_analysis(results, label):
                 f"Max DD: {best['max_drawdown']}%"
             )
 
+    _strategy_default_tickers = []
+    for _r in (results or [])[:10]:
+        _t = _r.get("ticker") if isinstance(_r, dict) else None
+        if _t and _t not in _strategy_default_tickers:
+            _strategy_default_tickers.append(_t)
+    if selected and selected not in _strategy_default_tickers:
+        _strategy_default_tickers.insert(0, selected)
+    render_strategy_test_pro(
+        selected,
+        _strategy_default_tickers,
+        load_rules(),
+        key_prefix=f"strategy_pro_{label}_{selected}".replace(" ", "_").replace("/", "_").replace(".", "_"),
+    )
+
     parts = item.get("score_parts", {})
     with st.expander("🧠 Score-forklaring", expanded=False):
         if parts:
@@ -3240,6 +3255,41 @@ st.sidebar.markdown(
         font-weight: 950;
         font-size: 0.84rem;
     }
+    .auto-market-list-note {
+        color: #94a3b8 !important;
+        font-size: 0.74rem;
+        margin: 2px 0 6px 0;
+    }
+    section[data-testid="stSidebar"] [data-testid="stForm"] button {
+        background: #0ea5e9 !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        border: 1px solid rgba(125,211,252,0.70) !important;
+        border-radius: 12px !important;
+        font-weight: 950 !important;
+        min-height: 40px !important;
+        opacity: 1 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stForm"] button * {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stForm"] button:hover {
+        background: #0284c7 !important;
+        color: #ffffff !important;
+        border-color: #bae6fd !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stCheckbox"] label,
+    section[data-testid="stSidebar"] [data-testid="stCheckbox"] span,
+    section[data-testid="stSidebar"] [data-testid="stCheckbox"] p {
+        white-space: normal !important;
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        color: #f8fafc !important;
+        font-weight: 800 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -3311,14 +3361,11 @@ with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
         )
 
         st.markdown('<div class="auto-settings-group-title">Kapasitet / risiko</div>', unsafe_allow_html=True)
-        st.caption("Markeder Cron skal bruke")
-        _mc1, _mc2, _mc3 = st.columns(3)
-        with _mc1:
-            _m_usa = st.checkbox("USA", value=bool(_markets_settings.get("USA", True)), key="persist_market_usa_v10")
-        with _mc2:
-            _m_no = st.checkbox("Norge", value=bool(_markets_settings.get("NORGE", True)), key="persist_market_no_v10")
-        with _mc3:
-            _m_se = st.checkbox("Sverige", value=bool(_markets_settings.get("SVERIGE", True)), key="persist_market_se_v10")
+        st.markdown('<div class="auto-market-list-note">Markeder Cron skal bruke</div>', unsafe_allow_html=True)
+        # Oppgave 09: ikke bruk tre smale kolonner i sidebar. Da brytes Norge/Sverige bokstavvis.
+        _m_usa = st.checkbox("USA", value=bool(_markets_settings.get("USA", True)), key="persist_market_usa_v11")
+        _m_no = st.checkbox("Norge", value=bool(_markets_settings.get("NORGE", True)), key="persist_market_no_v11")
+        _m_se = st.checkbox("Sverige", value=bool(_markets_settings.get("SVERIGE", True)), key="persist_market_se_v11")
 
         _max_tickers = st.number_input(
             "Maks aksjer per marked",

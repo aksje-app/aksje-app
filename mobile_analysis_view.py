@@ -1,5 +1,6 @@
 
 import math
+import html
 from datetime import datetime
 
 import pandas as pd
@@ -84,6 +85,134 @@ def _bottom_time_axis_format(timeframe, period_choice):
         return "%b\n%Y"
     return "%d.%m\n%Y"
 
+
+
+
+
+def _time_scale_labels(df, timeframe, period_choice, max_labels=7):
+    """Bygger en robust, fast tidsskala under Plotly-grafen.
+
+    Brukes som ekstra sikkerhet når Plotly skjuler/kutter nederste x-akse.
+    """
+    try:
+        clean = _clean_ohlcv(df)
+        if clean.empty:
+            return []
+        idx = pd.to_datetime(clean.index).tz_localize(None)
+        start = idx.min()
+        end = idx.max()
+        if pd.isna(start) or pd.isna(end) or start == end:
+            return []
+
+        period_choice = period_choice or ""
+        if timeframe in {"1m", "15m", "1h", "4h"}:
+            ticks = pd.date_range(start=start, end=end, periods=min(max_labels, 6))
+            fmt = "%d.%m %H:%M"
+        elif period_choice in {"max", "5y", "2y"} or (end - start).days > 730:
+            years = list(range(start.year, end.year + 1))
+            if len(years) > max_labels:
+                step = max(1, math.ceil(len(years) / max_labels))
+                years = years[::step]
+                if years[-1] != end.year:
+                    years.append(end.year)
+            ticks = [pd.Timestamp(year=y, month=1, day=1) for y in years]
+            fmt = "%Y"
+        elif (end - start).days > 120:
+            ticks = pd.date_range(start=start, end=end, periods=min(max_labels, 6))
+            fmt = "%b %Y"
+        else:
+            ticks = pd.date_range(start=start, end=end, periods=min(max_labels, 6))
+            fmt = "%d.%m"
+
+        labels = []
+        for tick in ticks:
+            try:
+                pos = (pd.Timestamp(tick) - start) / (end - start)
+                pct = max(0.0, min(100.0, float(pos) * 100.0))
+                labels.append((pct, pd.Timestamp(tick).strftime(fmt)))
+            except Exception:
+                continue
+        # Sikre start/slutt ved korte akser.
+        if labels:
+            labels[0] = (0.0, start.strftime(fmt))
+            labels[-1] = (100.0, end.strftime(fmt))
+        return labels
+    except Exception:
+        return []
+
+
+def render_fixed_time_scale(df, timeframe, period_choice, key_note=""):
+    labels = _time_scale_labels(df, timeframe, period_choice)
+    if not labels:
+        return
+    marks = []
+    for pct, label in labels:
+        safe_label = html.escape(str(label))
+        marks.append(
+            f"<div class='fixed-time-scale-mark' style='left:{pct:.3f}%;'>"
+            f"<span class='fixed-time-scale-tick'></span>"
+            f"<span class='fixed-time-scale-label'>{safe_label}</span>"
+            "</div>"
+        )
+    st.markdown(
+        """
+        <style>
+        .fixed-time-scale-wrap {
+            position: relative;
+            height: 54px;
+            margin: -10px 118px 16px 8px;
+            border-top: 2px solid rgba(248,250,252,0.86);
+            background: linear-gradient(180deg, rgba(7,17,31,0.98), rgba(7,17,31,0.62));
+            border-radius: 0 0 12px 12px;
+        }
+        .fixed-time-scale-title {
+            position: absolute;
+            left: 0;
+            top: 26px;
+            color: #cbd5e1 !important;
+            font-size: 0.73rem;
+            font-weight: 850;
+            opacity: 0.92;
+        }
+        .fixed-time-scale-mark {
+            position: absolute;
+            top: -2px;
+            transform: translateX(-50%);
+            min-width: 44px;
+            text-align: center;
+            white-space: nowrap;
+        }
+        .fixed-time-scale-mark:first-child { transform: translateX(0); text-align:left; }
+        .fixed-time-scale-mark:last-child { transform: translateX(-100%); text-align:right; }
+        .fixed-time-scale-tick {
+            display: block;
+            width: 2px;
+            height: 12px;
+            margin: 0 auto 5px auto;
+            background: rgba(248,250,252,0.95);
+            border-radius: 4px;
+        }
+        .fixed-time-scale-label {
+            display: block;
+            color: #f8fafc !important;
+            font-size: 0.78rem;
+            font-weight: 950;
+            letter-spacing: 0.01em;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.65);
+        }
+        @media (max-width: 800px) {
+            .fixed-time-scale-wrap { margin-right: 72px; height: 48px; }
+            .fixed-time-scale-label { font-size: 0.66rem; }
+            .fixed-time-scale-title { font-size: 0.66rem; }
+        }
+        </style>
+        """
+        + "<div class='fixed-time-scale-wrap'>"
+        + "<div class='fixed-time-scale-title'>Tidsskala</div>"
+        + "".join(marks)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def get_selected_time_settings(label, ticker):
@@ -1955,6 +2084,8 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             config=CHART_CONFIG,
             key=_chart_key,
         )
+        if "MND%" in indicators:
+            render_fixed_time_scale(chart_df, timeframe, period_choice, key_note=_chart_key)
     else:
         st.warning("Fant ikke nok kursdata til candlestick-graf.")
 
