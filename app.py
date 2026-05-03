@@ -912,15 +912,87 @@ LIVE_BANNER_LABELS = {
     "^GSPC": "S&P 500",
     "^IXIC": "NASDAQ",
     "^DJI": "DOW",
+    "^VIX": "VIX Volatility Index",
+    "^RUT": "Russell 2000",
+    "^FTSE": "FTSE 100",
+    "^GDAXI": "DAX",
+    "^FCHI": "CAC 40",
+    "^STOXX50E": "Euro Stoxx 50",
+    "GC=F": "Gold Futures",
+    "SI=F": "Silver Futures",
+    "CL=F": "Crude Oil Futures",
+    "BZ=F": "Brent Crude Futures",
+    "NG=F": "Natural Gas Futures",
+    "HG=F": "Copper Futures",
+    "PL=F": "Platinum Futures",
+    "PA=F": "Palladium Futures",
+    "ZC=F": "Corn Futures",
+    "ZW=F": "Wheat Futures",
+    "ZS=F": "Soybean Futures",
+    "BTC-USD": "Bitcoin",
+    "ETH-USD": "Ethereum",
+    "EURUSD=X": "EUR/USD",
+    "USDNOK=X": "USD/NOK",
+    "EURNOK=X": "EUR/NOK",
     "EQNR.OL": "Equinor",
-    "DNB.OL": "DNB",
-    "NHY.OL": "Hydro",
-    "YAR.OL": "Yara",
-    "ATCO-A.ST": "Atlas Copco",
+    "DNB.OL": "DNB Bank",
+    "NHY.OL": "Norsk Hydro",
+    "YAR.OL": "Yara International",
+    "ATCO-A.ST": "Atlas Copco A",
     "VOLV-B.ST": "Volvo B",
-    "ERIC-B.ST": "Ericsson",
+    "ERIC-B.ST": "Ericsson B",
     "ABB.ST": "ABB",
 }
+
+
+def _is_weak_banner_name(name, ticker):
+    """Returnerer True når Yahoo-navnet egentlig bare er ticker eller tom tekst."""
+    try:
+        name = str(name or "").strip()
+        ticker = str(ticker or "").strip().upper()
+        compact_name = re.sub(r"[^A-Z0-9]", "", name.upper())
+        compact_ticker = re.sub(r"[^A-Z0-9]", "", ticker.upper())
+        if not name or compact_name in {"", compact_ticker}:
+            return True
+        if name.upper() in {ticker, compact_ticker}:
+            return True
+        return False
+    except Exception:
+        return True
+
+
+@st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
+def resolve_live_banner_label(ticker, fallback_label=None):
+    """
+    Finner penere navn til bannerkort.
+    Prøver Yahoo-navn først, deretter egen fallback-liste for indeks, futures, råvarer, valuta og krypto.
+    """
+    ticker = str(ticker or "").strip().upper()
+    fallback_label = str(fallback_label or "").strip()
+
+    if yf is not None:
+        try:
+            info = {}
+            yft = yf.Ticker(ticker)
+            try:
+                info = yft.get_info() or {}
+            except Exception:
+                try:
+                    info = yft.info or {}
+                except Exception:
+                    info = {}
+            for key in ("shortName", "longName", "displayName"):
+                candidate = info.get(key) if isinstance(info, dict) else None
+                if candidate and not _is_weak_banner_name(candidate, ticker):
+                    return str(candidate).strip()
+        except Exception:
+            pass
+
+    if ticker in LIVE_BANNER_LABELS:
+        return LIVE_BANNER_LABELS[ticker]
+    if fallback_label and not _is_weak_banner_name(fallback_label, ticker):
+        return fallback_label
+    return ticker
 
 
 def parse_banner_tickers(settings=None):
@@ -1052,10 +1124,12 @@ def fetch_live_banner_snapshot(banner_items):
             delta = current - prev
             pct = ((current / prev) - 1.0) * 100 if prev else 0.0
 
+            display_label = resolve_live_banner_label(ticker, label)
+
             cards.append({
                 "market": market,
                 "ticker": ticker,
-                "label": label,
+                "label": display_label,
                 "price": current,
                 "delta": delta,
                 "pct": pct,
@@ -2944,82 +3018,6 @@ def render_sidebar_structure_v2():
     )
 
     st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-    render_banner_sidebar_controls(expanded=True)
-
-    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-    st.sidebar.markdown("### 🔕 Varselkontroll")
-
-    _alert_settings = load_settings()
-    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
-    _pushover_setting_on = bool(_alert_settings.get("pushover_enabled", True))
-    _pushover_ready = _pushover_env_ok and _pushover_setting_on
-    _open_markets_now = open_markets()
-
-    st.sidebar.markdown(
-        f"""
-        <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
-            <div class="alert-status-title">Pushover: {'Aktiv ✅' if _pushover_ready else 'Ikke klar ❌'}</div>
-            <div class="alert-status-sub">Åpne markeder nå: {_open_markets_now}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    _notify_trades = st.sidebar.checkbox(
-        "Varsle ved faktisk paper BUY/SELL",
-        value=bool(_alert_settings.get("notify_paper_trades", True)),
-        key="alert_notify_paper_trades_v1",
-    )
-    _notify_watchlist = st.sidebar.checkbox(
-        "Varsle ved watchlist signalendring",
-        value=bool(_alert_settings.get("notify_watchlist_signal_changes", True)),
-        key="alert_notify_watchlist_changes_v1",
-    )
-    _high_conf_only = st.sidebar.checkbox(
-        "Varsle kun høy confidence",
-        value=bool(_alert_settings.get("notify_high_confidence_only", True)),
-        key="alert_high_conf_only_v1",
-    )
-    _min_alert_conf = st.sidebar.slider(
-        "Confidence-grense",
-        50,
-        95,
-        int(_alert_settings.get("notify_min_confidence", 80)),
-        1,
-        key="alert_min_confidence_v1",
-    )
-
-    if st.sidebar.button("💾 Lagre varselkontroll", key="save_alert_control_v1"):
-        _merged_alert_settings = load_settings()
-        _merged_alert_settings["pushover_enabled"] = bool(_pushover_setting_on)
-        _merged_alert_settings["notify_paper_trades"] = bool(_notify_trades)
-        _merged_alert_settings["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
-        _merged_alert_settings["notify_high_confidence_only"] = bool(_high_conf_only)
-        _merged_alert_settings["notify_min_confidence"] = int(_min_alert_conf)
-        save_settings(_merged_alert_settings)
-        st.sidebar.success("Varselkontroll lagret ✅")
-        st.rerun()
-
-    _t1, _t2 = st.sidebar.columns(2)
-    with _t1:
-        if st.button("Test", key="alert_send_test_v1", disabled=not _pushover_env_ok):
-            ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-            if ok:
-                st.sidebar.success("Test sendt ✅")
-            else:
-                st.sidebar.error(f"Feil: {err}")
-    with _t2:
-        if st.button("Nullstill", key="alert_reset_antispam_v1"):
-            reset_alert_state()
-            st.sidebar.success("Signalhistorikk nullstilt ✅")
-
-    with st.sidebar.expander("Varselinfo", expanded=False):
-        st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
-        st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
-        st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
-        st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
-
-    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
     st.sidebar.markdown("### ⏱ Cron / bakgrunnssøk")
 
     _cron_settings = load_settings()
@@ -3120,54 +3118,264 @@ def render_sidebar_structure_v2():
         except Exception as _e:
             st.sidebar.error(f"Auto-kjøp feilet: {_e}")
 
+
+    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
+    render_banner_sidebar_controls(expanded=True)
+
+    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("### 🔕 Varselkontroll")
+
+    _alert_settings = load_settings()
+    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_setting_on = bool(_alert_settings.get("pushover_enabled", True))
+    _pushover_ready = _pushover_env_ok and _pushover_setting_on
+    _open_markets_now = open_markets()
+
+    st.sidebar.markdown(
+        f"""
+        <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
+            <div class="alert-status-title">Pushover: {'Aktiv ✅' if _pushover_ready else 'Ikke klar ❌'}</div>
+            <div class="alert-status-sub">Åpne markeder nå: {_open_markets_now}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _notify_trades = st.sidebar.checkbox(
+        "Varsle ved faktisk paper BUY/SELL",
+        value=bool(_alert_settings.get("notify_paper_trades", True)),
+        key="alert_notify_paper_trades_v1",
+    )
+    _notify_watchlist = st.sidebar.checkbox(
+        "Varsle ved watchlist signalendring",
+        value=bool(_alert_settings.get("notify_watchlist_signal_changes", True)),
+        key="alert_notify_watchlist_changes_v1",
+    )
+    _high_conf_only = st.sidebar.checkbox(
+        "Varsle kun høy confidence",
+        value=bool(_alert_settings.get("notify_high_confidence_only", True)),
+        key="alert_high_conf_only_v1",
+    )
+    _min_alert_conf = st.sidebar.slider(
+        "Confidence-grense",
+        50,
+        95,
+        int(_alert_settings.get("notify_min_confidence", 80)),
+        1,
+        key="alert_min_confidence_v1",
+    )
+
+    if st.sidebar.button("💾 Lagre varselkontroll", key="save_alert_control_v1"):
+        _merged_alert_settings = load_settings()
+        _merged_alert_settings["pushover_enabled"] = bool(_pushover_setting_on)
+        _merged_alert_settings["notify_paper_trades"] = bool(_notify_trades)
+        _merged_alert_settings["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
+        _merged_alert_settings["notify_high_confidence_only"] = bool(_high_conf_only)
+        _merged_alert_settings["notify_min_confidence"] = int(_min_alert_conf)
+        save_settings(_merged_alert_settings)
+        st.sidebar.success("Varselkontroll lagret ✅")
+        st.rerun()
+
+    _t1, _t2 = st.sidebar.columns(2)
+    with _t1:
+        if st.button("Test", key="alert_send_test_v1", disabled=not _pushover_env_ok):
+            ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+            if ok:
+                st.sidebar.success("Test sendt ✅")
+            else:
+                st.sidebar.error(f"Feil: {err}")
+    with _t2:
+        if st.button("Nullstill", key="alert_reset_antispam_v1"):
+            reset_alert_state()
+            st.sidebar.success("Signalhistorikk nullstilt ✅")
+
+    with st.sidebar.expander("Varselinfo", expanded=False):
+        st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
+        st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
+        st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
+        st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
+
+
 render_sidebar_structure_v2()
 # SIDEBAR_DEDUPE_V1: old duplicate Cron/status block removed
 
 
 # --- Lagrede auto-innstillinger ---
+st.sidebar.markdown(
+    """
+    <style>
+    /* AUTO_TRADING_ACCORDION_V10 */
+    section[data-testid="stSidebar"] details {
+        border-radius: 14px !important;
+        border: 1px solid rgba(148,163,184,0.22) !important;
+        background: rgba(15,23,42,0.52) !important;
+        margin-bottom: 8px !important;
+    }
+    section[data-testid="stSidebar"] details > summary {
+        min-height: 38px !important;
+        font-weight: 950 !important;
+        color: #f8fafc !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input {
+        caret-color: #38bdf8 !important;
+        background: rgba(30,41,59,0.94) !important;
+        color: #f8fafc !important;
+        font-weight: 850 !important;
+        border-radius: 10px !important;
+    }
+    .auto-settings-summary {
+        color: #cbd5e1;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 7px 9px;
+        border-radius: 11px;
+        background: rgba(2,6,23,0.32);
+        border: 1px solid rgba(148,163,184,0.16);
+        margin-bottom: 8px;
+    }
+    .auto-settings-group-title {
+        margin-top: 8px;
+        margin-bottom: 4px;
+        color: #f8fafc;
+        font-weight: 950;
+        font-size: 0.84rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
 st.sidebar.subheader("🤖 Auto trading")
 
 _settings = load_settings()
+_markets_settings = _settings.get("markets", {}) or {}
 
-_auto_enabled = st.sidebar.checkbox("Auto trading aktiv", value=bool(_settings.get("auto_trading_enabled", True)), key="persist_auto_enabled")
+st.sidebar.markdown(
+    f"""
+    <div class="auto-settings-summary">
+        Aktiv: <b>{'Ja' if bool(_settings.get('auto_trading_enabled', True)) else 'Nei'}</b> ·
+        BUY conf: <b>{int(_settings.get('min_buy_confidence', 70))}%</b> ·
+        Score: <b>{float(_settings.get('min_buy_score', 7.2)):.1f}</b> ·
+        Max pos: <b>{int(_settings.get('max_open_positions', 5))}</b>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-st.sidebar.markdown("**Markeder Cron skal bruke**")
-_m_usa = st.sidebar.checkbox("USA", value=bool(_settings.get("markets", {}).get("USA", True)), key="persist_market_usa")
-_m_no = st.sidebar.checkbox("Norge", value=bool(_settings.get("markets", {}).get("NORGE", True)), key="persist_market_no")
-_m_se = st.sidebar.checkbox("Sverige", value=bool(_settings.get("markets", {}).get("SVERIGE", True)), key="persist_market_se")
+with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
+    st.caption("Samlet i to grupper. Endringer lagres først når du trykker Lagre.")
+    with st.form("auto_trading_settings_form_v10", clear_on_submit=False):
+        _auto_enabled = st.checkbox(
+            "Auto trading aktiv",
+            value=bool(_settings.get("auto_trading_enabled", True)),
+            key="persist_auto_enabled_v10",
+        )
 
-_max_tickers = st.sidebar.number_input("Maks aksjer per marked", 1, 100, int(_settings.get("max_tickers_per_market", 20)), 1, key="persist_max_tickers")
-_min_conf = st.sidebar.number_input("Min confidence for BUY", 0, 100, int(_settings.get("min_buy_confidence", 70)), 1, key="persist_min_conf")
-_min_score = st.sidebar.number_input("Min score for BUY", 0.0, 10.0, float(_settings.get("min_buy_score", 7.2)), 0.1, key="persist_min_score")
-_max_pos = st.sidebar.number_input("Maks åpne posisjoner", 1, 30, int(_settings.get("max_open_positions", 5)), 1, key="persist_max_pos")
-_max_trades = st.sidebar.number_input("Maks trades per dag", 1, 50, int(_settings.get("max_trades_per_day", 3)), 1, key="persist_max_trades")
-_pos_size = st.sidebar.number_input("Posisjonsstørrelse %", 1.0, 100.0, float(_settings.get("position_size_pct", 10.0)), 1.0, key="persist_pos_size")
-_cooldown = st.sidebar.number_input("Cooldown minutter", 0, 1440, int(_settings.get("cooldown_minutes", 60)), 5, key="persist_cooldown")
-_top_only = st.sidebar.checkbox("Auto trading kun Top Picks", value=bool(_settings.get("scan_top_picks_only", True)), key="persist_top_only")
-_push = st.sidebar.checkbox("Pushover aktiv", value=bool(_settings.get("pushover_enabled", True)), key="persist_push")
+        st.markdown('<div class="auto-settings-group-title">Kjøpsgrenser</div>', unsafe_allow_html=True)
+        _min_conf = st.number_input(
+            "Min confidence for BUY",
+            0,
+            100,
+            int(_settings.get("min_buy_confidence", 70)),
+            1,
+            key="persist_min_conf_v10",
+        )
+        _min_score = st.number_input(
+            "Min score for BUY",
+            0.0,
+            10.0,
+            float(_settings.get("min_buy_score", 7.2)),
+            0.1,
+            key="persist_min_score_v10",
+        )
+        _pos_size = st.number_input(
+            "Posisjonsstørrelse %",
+            1.0,
+            100.0,
+            float(_settings.get("position_size_pct", 10.0)),
+            1.0,
+            key="persist_pos_size_v10",
+        )
+        _cooldown = st.number_input(
+            "Cooldown minutter",
+            0,
+            1440,
+            int(_settings.get("cooldown_minutes", 60)),
+            5,
+            key="persist_cooldown_v10",
+        )
+        _top_only = st.checkbox(
+            "Auto trading kun Top Picks",
+            value=bool(_settings.get("scan_top_picks_only", True)),
+            key="persist_top_only_v10",
+        )
 
-if st.sidebar.button("💾 Lagre auto-innstillinger", key="persist_save_settings"):
-    _current_settings_for_auto_save = load_settings()
-    _current_settings_for_auto_save.update({
-        "auto_trading_enabled": _auto_enabled,
-        "markets": {"USA": _m_usa, "NORGE": _m_no, "SVERIGE": _m_se},
-        "max_tickers_per_market": int(_max_tickers),
-        "min_buy_confidence": int(_min_conf),
-        "min_buy_score": float(_min_score),
-        "max_open_positions": int(_max_pos),
-        "max_trades_per_day": int(_max_trades),
-        "position_size_pct": float(_pos_size),
-        "cooldown_minutes": int(_cooldown),
-        "scan_top_picks_only": bool(_top_only),
-        "pushover_enabled": bool(_push),
-    })
-    save_settings(_current_settings_for_auto_save)
-    st.sidebar.success("Lagret ✅")
+        st.markdown('<div class="auto-settings-group-title">Kapasitet / risiko</div>', unsafe_allow_html=True)
+        st.caption("Markeder Cron skal bruke")
+        _mc1, _mc2, _mc3 = st.columns(3)
+        with _mc1:
+            _m_usa = st.checkbox("USA", value=bool(_markets_settings.get("USA", True)), key="persist_market_usa_v10")
+        with _mc2:
+            _m_no = st.checkbox("Norge", value=bool(_markets_settings.get("NORGE", True)), key="persist_market_no_v10")
+        with _mc3:
+            _m_se = st.checkbox("Sverige", value=bool(_markets_settings.get("SVERIGE", True)), key="persist_market_se_v10")
 
-if st.sidebar.button("↩️ Standard auto-innstillinger", key="persist_reset_settings"):
-    reset_settings()
-    st.sidebar.success("Tilbakestilt ✅")
+        _max_tickers = st.number_input(
+            "Maks aksjer per marked",
+            1,
+            100,
+            int(_settings.get("max_tickers_per_market", 20)),
+            1,
+            key="persist_max_tickers_v10",
+        )
+        _max_pos = st.number_input(
+            "Maks åpne posisjoner",
+            1,
+            30,
+            int(_settings.get("max_open_positions", 5)),
+            1,
+            key="persist_max_pos_v10",
+        )
+        _max_trades = st.number_input(
+            "Maks trades per dag",
+            1,
+            50,
+            int(_settings.get("max_trades_per_day", 3)),
+            1,
+            key="persist_max_trades_v10",
+        )
+        _push = st.checkbox(
+            "Pushover aktiv",
+            value=bool(_settings.get("pushover_enabled", True)),
+            key="persist_push_v10",
+        )
+
+        _save_auto = st.form_submit_button("💾 Lagre auto-innstillinger", use_container_width=True)
+        _reset_auto = st.form_submit_button("↩️ Standard auto-innstillinger", use_container_width=True)
+
+    if _save_auto:
+        _current_settings_for_auto_save = load_settings()
+        _current_settings_for_auto_save.update({
+            "auto_trading_enabled": bool(_auto_enabled),
+            "markets": {"USA": bool(_m_usa), "NORGE": bool(_m_no), "SVERIGE": bool(_m_se)},
+            "max_tickers_per_market": int(_max_tickers),
+            "min_buy_confidence": int(_min_conf),
+            "min_buy_score": float(_min_score),
+            "max_open_positions": int(_max_pos),
+            "max_trades_per_day": int(_max_trades),
+            "position_size_pct": float(_pos_size),
+            "cooldown_minutes": int(_cooldown),
+            "scan_top_picks_only": bool(_top_only),
+            "pushover_enabled": bool(_push),
+        })
+        save_settings(_current_settings_for_auto_save)
+        st.sidebar.success("Auto-innstillinger lagret ✅")
+        st.rerun()
+
+    if _reset_auto:
+        reset_settings()
+        st.sidebar.success("Auto-innstillinger tilbakestilt ✅")
+        st.rerun()
 
 
 

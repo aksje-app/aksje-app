@@ -71,6 +71,21 @@ PERIOD_MAX_POINTS = {
 }
 
 
+def _bottom_time_axis_format(timeframe, period_choice):
+    """Tydelig datoformat nederst i grafen, spesielt når MND% er aktiv."""
+    period_choice = period_choice or ""
+    if timeframe in {"1m", "15m"}:
+        return "%H:%M\n%d.%m"
+    if timeframe in {"1h", "4h"}:
+        return "%d.%m\n%H:%M"
+    if period_choice in {"max", "5y", "2y"}:
+        return "%Y"
+    if period_choice in {"1y", "6mo"}:
+        return "%b\n%Y"
+    return "%d.%m\n%Y"
+
+
+
 def get_selected_time_settings(label, ticker):
     """Deler valgt tidsoppløsning/periode mellom mobilgraf og andre analysegrafer."""
     tf = st.session_state.get(f"mobile_timeframe_{label}_{ticker}", "1d")
@@ -681,18 +696,21 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
     if len(panel_rows) == 0:
         row_heights = [1.0]
     else:
-        price_h = 0.54 if len(panel_rows) <= 2 else 0.46
-        remainder = max(0.26, 1.0 - price_h)
-        if "MND%" in panel_rows and len(panel_rows) > 1:
-            # V9: Gi månedsavkastning nok høyde til at tidsaksen under panelet vises tydelig.
-            monthly_h = max(0.18, remainder / len(panel_rows))
-            other_h = max(0.08, (remainder - monthly_h) / max(len(panel_rows) - 1, 1))
+        if "MND%" in panel_rows:
+            # V10 / Oppgave 02B: MND%-panelet må være stort nok til både stolper og tydelig tidsskala.
+            price_h = 0.52 if len(panel_rows) <= 2 else 0.46
+            monthly_h = 0.28 if len(panel_rows) <= 2 else 0.24
+            remainder = max(0.12, 1.0 - price_h - monthly_h)
+            other_count = max(len(panel_rows) - 1, 0)
+            other_h = remainder / other_count if other_count else 0
             row_heights = [price_h] + [monthly_h if p == "MND%" else other_h for p in panel_rows]
         else:
+            price_h = 0.56 if len(panel_rows) <= 2 else 0.48
+            remainder = max(0.26, 1.0 - price_h)
             each = remainder / len(panel_rows)
             row_heights = [price_h] + [each] * len(panel_rows)
 
-    height = min(440 + (rows - 1) * 118 + (70 if "MND%" in panel_rows else 0), 1280)
+    height = min(520 + (rows - 1) * 150 + (110 if "MND%" in panel_rows else 0), 1450)
 
     fig = make_subplots(
         rows=rows,
@@ -887,9 +905,9 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
                     fig.add_annotation(
                         text=summary,
                         xref="paper",
-                        yref="paper",
+                        yref=f"y{row_idx} domain" if row_idx > 1 else "y domain",
                         x=0.01,
-                        y=-0.12,
+                        y=0.96,
                         showarrow=False,
                         align="left",
                         font=dict(size=11, color="#f5d0fe"),
@@ -906,7 +924,7 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
         height=height,
         paper_bgcolor="#07111f",
         plot_bgcolor="#07111f",
-        margin=dict(l=8, r=110, t=52, b=92 if _has_monthly_panel else 36),
+        margin=dict(l=8, r=118, t=56, b=142 if _has_monthly_panel else 44),
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         dragmode="pan",
@@ -914,14 +932,23 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
     )
 
     for i in range(1, rows + 1):
+        is_bottom = i == rows
         fig.update_yaxes(side="right", row=i, col=1, gridcolor="rgba(148,163,184,0.12)", zeroline=False)
         fig.update_xaxes(
             showspikes=True,
             spikemode="across",
             spikesnap="cursor",
-            showticklabels=(i == rows),
-            ticks="outside" if i == rows else "",
-            nticks=9,
+            showticklabels=is_bottom,
+            ticks="outside" if is_bottom else "",
+            nticks=10,
+            showline=is_bottom,
+            linewidth=2 if is_bottom else 1,
+            linecolor="rgba(226,232,240,0.78)" if is_bottom else "rgba(148,163,184,0.18)",
+            tickcolor="rgba(226,232,240,0.92)" if is_bottom else "rgba(148,163,184,0.20)",
+            ticklen=8 if is_bottom else 0,
+            tickwidth=1.4 if is_bottom else 0,
+            tickfont=dict(color="#f8fafc", size=12 if is_bottom else 10),
+            automargin=True,
             row=i,
             col=1,
             gridcolor="rgba(148,163,184,0.10)",
@@ -931,13 +958,25 @@ def build_mobile_chart(df, ticker, timeframe, indicators, chart_type='Candles', 
     if _has_monthly_panel:
         fig.update_xaxes(
             showticklabels=True,
-            tickformat="%b\n%Y",
+            tickformat=_bottom_time_axis_format(timeframe, period_choice),
             tickangle=0,
             ticks="outside",
-            nticks=10,
+            nticks=12,
+            showline=True,
+            linewidth=2,
+            linecolor="rgba(248,250,252,0.86)",
+            tickcolor="rgba(248,250,252,0.95)",
+            ticklen=10,
+            tickwidth=1.6,
+            tickfont=dict(color="#f8fafc", size=13, family="Arial Black, Arial, sans-serif"),
+            title_text="Tidsskala",
+            title_font=dict(color="#cbd5e1", size=12),
+            title_standoff=12,
+            automargin=True,
             row=rows,
             col=1,
         )
+
 
     return fig
 
