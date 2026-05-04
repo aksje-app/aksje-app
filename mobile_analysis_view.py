@@ -263,6 +263,34 @@ def _fmt_pct(value):
         return "N/A"
 
 
+
+def _view_mode():
+    return st.session_state.get("app_view_mode", "Kompakt")
+
+
+def _compact_stats(items, columns=4):
+    """Kompakte stat-kort for mobil og Kompakt-visning."""
+    cards = []
+    for item in items:
+        label = str(item[0] if len(item) > 0 else "")
+        value = str(item[1] if len(item) > 1 else "N/A")
+        delta = item[2] if len(item) > 2 else None
+        delta_html = ""
+        if delta not in (None, ""):
+            neg = " neg" if str(delta).strip().startswith("-") else ""
+            delta_html = f"<div class='mstat-delta{neg}'>{html.escape(str(delta))}</div>"
+        cards.append(
+            "<div class='mstat-card'>"
+            f"<div class='mstat-label'>{html.escape(label)}</div>"
+            f"<div class='mstat-value'>{html.escape(value)}</div>"
+            f"{delta_html}"
+            "</div>"
+        )
+    st.markdown(
+        f"<div class='mstat-grid' style='grid-template-columns: repeat({int(columns)}, minmax(0,1fr));'>" + "".join(cards) + "</div>",
+        unsafe_allow_html=True,
+    )
+
 def _fmt_volume(value):
     try:
         value = float(value)
@@ -1317,17 +1345,29 @@ def render_overview_panel_v4(ticker, price, currency, confidence, decision, item
     current_price = _safe_float(price)
 
     st.markdown('### 📋 Oversikt')
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric('Signal', signal_text)
-    c2.metric('Score', score)
-    c3.metric('Confidence', f"{int(confidence or 0)}%")
-    c4.metric('Risiko', risk)
+    if _view_mode() == 'Full':
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric('Signal', signal_text)
+        c2.metric('Score', score)
+        c3.metric('Confidence', f"{int(confidence or 0)}%")
+        c4.metric('Risiko', risk)
 
-    d1, d2, d3, d4 = st.columns(4)
-    d1.metric('Siste pris', _fmt_price(current_price, currency))
-    d2.metric('Posisjon', 'Åpen' if position else 'Ingen')
-    d3.metric('Verdi nå', _fmt_price(metrics.get('value_now', 0), currency) if position else 'N/A')
-    d4.metric('P/L', _fmt_price(metrics.get('pnl', 0), currency) if position else 'N/A', delta=f"{metrics.get('pnl_pct', 0):+.2f}%" if position else None)
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric('Siste pris', _fmt_price(current_price, currency))
+        d2.metric('Posisjon', 'Åpen' if position else 'Ingen')
+        d3.metric('Verdi nå', _fmt_price(metrics.get('value_now', 0), currency) if position else 'N/A')
+        d4.metric('P/L', _fmt_price(metrics.get('pnl', 0), currency) if position else 'N/A', delta=f"{metrics.get('pnl_pct', 0):+.2f}%" if position else None)
+    else:
+        _compact_stats([
+            ('Signal', signal_text),
+            ('Score', score),
+            ('Confidence', f"{int(confidence or 0)}%"),
+            ('Risiko', risk),
+            ('Siste pris', _fmt_price(current_price, currency)),
+            ('Posisjon', 'Åpen' if position else 'Ingen'),
+            ('Verdi nå', _fmt_price(metrics.get('value_now', 0), currency) if position else 'N/A'),
+            ('P/L', _fmt_price(metrics.get('pnl', 0), currency) if position else 'N/A', f"{metrics.get('pnl_pct', 0):+.2f}%" if position else None),
+        ], columns=4)
 
     st.markdown(
         f"""
@@ -1387,11 +1427,14 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
     st.markdown('### 🧾 Ordre')
     st.caption('Paper trading · samme motor som resten av systemet.')
 
-    top1, top2, top3, top4 = st.columns(4)
-    top1.metric('Pris', _fmt_price(price, currency))
-    top2.metric('Signal', signal_text)
-    top3.metric('Confidence', f"{int(confidence or 0)}%")
-    top4.metric('Score', score)
+    if _view_mode() == 'Full':
+        top1, top2, top3, top4 = st.columns(4)
+        top1.metric('Pris', _fmt_price(price, currency))
+        top2.metric('Signal', signal_text)
+        top3.metric('Confidence', f"{int(confidence or 0)}%")
+        top4.metric('Score', score)
+    else:
+        _compact_stats([('Pris', _fmt_price(price, currency)), ('Signal', signal_text), ('Confidence', f"{int(confidence or 0)}%"), ('Score', score)], columns=4)
 
     mode_labels = ['Kjøp beløp', 'Kjøp antall', 'Selg antall']
     mode = st.radio(
@@ -1465,16 +1508,27 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
             )
             amount = qty * order_price
 
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric('Estimert antall', f'{qty:.4f}')
-    s2.metric('Estimert verdi', _fmt_price(amount, currency))
-    s3.metric('Cash', _fmt_price(default_cash, currency))
-    s4.metric('Åpen posisjon', 'Ja' if position else 'Nei')
+    if _view_mode() == 'Full':
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric('Estimert antall', f'{qty:.4f}')
+        s2.metric('Estimert verdi', _fmt_price(amount, currency))
+        s3.metric('Cash', _fmt_price(default_cash, currency))
+        s4.metric('Åpen posisjon', 'Ja' if position else 'Nei')
 
-    r1, r2, r3 = st.columns(3)
-    r1.metric('Stop-loss', _fmt_price(stop_loss, currency) if stop_loss else 'N/A')
-    r2.metric('Take-profit', _fmt_price(take_profit, currency) if take_profit else 'N/A')
-    r3.metric('Trailing stop', _fmt_price(trailing_stop, currency) if trailing_stop else 'N/A')
+        r1, r2, r3 = st.columns(3)
+        r1.metric('Stop-loss', _fmt_price(stop_loss, currency) if stop_loss else 'N/A')
+        r2.metric('Take-profit', _fmt_price(take_profit, currency) if take_profit else 'N/A')
+        r3.metric('Trailing stop', _fmt_price(trailing_stop, currency) if trailing_stop else 'N/A')
+    else:
+        _compact_stats([
+            ('Estimert antall', f'{qty:.4f}'),
+            ('Estimert verdi', _fmt_price(amount, currency)),
+            ('Cash', _fmt_price(default_cash, currency)),
+            ('Åpen posisjon', 'Ja' if position else 'Nei'),
+            ('Stop-loss', _fmt_price(stop_loss, currency) if stop_loss else 'N/A'),
+            ('Take-profit', _fmt_price(take_profit, currency) if take_profit else 'N/A'),
+            ('Trailing stop', _fmt_price(trailing_stop, currency) if trailing_stop else 'N/A'),
+        ], columns=4)
 
     st.markdown(
         f"""
@@ -1524,10 +1578,13 @@ def render_trades_panel_v3(ticker):
     sell_count = sum(1 for r in rows if str(r.get("Type", "")).upper() == "SELL")
     total_amount = sum(_safe_float(r.get("Beløp", 0)) for r in rows)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Kjøp", buy_count)
-    c2.metric("Salg", sell_count)
-    c3.metric("Omsatt", f"{total_amount:,.0f}".replace(",", " "))
+    if _view_mode() == 'Full':
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Kjøp", buy_count)
+        c2.metric("Salg", sell_count)
+        c3.metric("Omsatt", f"{total_amount:,.0f}".replace(",", " "))
+    else:
+        _compact_stats([('Kjøp', buy_count), ('Salg', sell_count), ('Omsatt', f"{total_amount:,.0f}".replace(",", " "))], columns=3)
 
     df = pd.DataFrame(rows[-12:][::-1])
     st.dataframe(df, use_container_width=True, hide_index=True)
@@ -1541,17 +1598,29 @@ def render_info_panel_v3(ticker, price, currency, decision, item, technical_cont
 
     st.markdown("### ℹ️ Informasjon")
 
-    i1, i2, i3, i4 = st.columns(4)
-    i1.metric("Siste pris", _fmt_price(price, currency))
-    i2.metric("Score", item.get("score", decision.get("decision_score", "N/A")))
-    i3.metric("Confidence", f"{int(decision.get('confidence', 0) or 0)}%")
-    i4.metric("Risiko", decision.get("risk", "N/A"))
+    if _view_mode() == 'Full':
+        i1, i2, i3, i4 = st.columns(4)
+        i1.metric("Siste pris", _fmt_price(price, currency))
+        i2.metric("Score", item.get("score", decision.get("decision_score", "N/A")))
+        i3.metric("Confidence", f"{int(decision.get('confidence', 0) or 0)}%")
+        i4.metric("Risiko", decision.get("risk", "N/A"))
 
-    j1, j2, j3, j4 = st.columns(4)
-    j1.metric("RSI", f"{float(technical_context.get('rsi')):.1f}" if isinstance(technical_context.get("rsi"), (int, float)) else "N/A")
-    j2.metric("Trend", technical_context.get("trend") or technical_context.get("trend_text") or "N/A")
-    j3.metric("MACD", technical_context.get("macd_signal") or technical_context.get("macd") or "N/A")
-    j4.metric("Posisjonsverdi", _fmt_price(metrics.get("value_now", 0), currency) if position else "N/A")
+        j1, j2, j3, j4 = st.columns(4)
+        j1.metric("RSI", f"{float(technical_context.get('rsi')):.1f}" if isinstance(technical_context.get("rsi"), (int, float)) else "N/A")
+        j2.metric("Trend", technical_context.get("trend") or technical_context.get("trend_text") or "N/A")
+        j3.metric("MACD", technical_context.get("macd_signal") or technical_context.get("macd") or "N/A")
+        j4.metric("Posisjonsverdi", _fmt_price(metrics.get("value_now", 0), currency) if position else "N/A")
+    else:
+        _compact_stats([
+            ("Siste pris", _fmt_price(price, currency)),
+            ("Score", item.get("score", decision.get("decision_score", "N/A"))),
+            ("Confidence", f"{int(decision.get('confidence', 0) or 0)}%"),
+            ("Risiko", decision.get("risk", "N/A")),
+            ("RSI", f"{float(technical_context.get('rsi')):.1f}" if isinstance(technical_context.get("rsi"), (int, float)) else "N/A"),
+            ("Trend", technical_context.get("trend") or technical_context.get("trend_text") or "N/A"),
+            ("MACD", technical_context.get("macd_signal") or technical_context.get("macd") or "N/A"),
+            ("Posisjonsverdi", _fmt_price(metrics.get("value_now", 0), currency) if position else "N/A"),
+        ], columns=4)
 
     reasons = decision.get("reasons", []) or []
     warnings = decision.get("warnings", []) or []
@@ -1587,6 +1656,45 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     st.markdown(
         """
         <style>
+
+        .mstat-grid {
+            display:grid;
+            grid-template-columns: repeat(4, minmax(0,1fr));
+            gap:7px;
+            margin:7px 0 9px 0;
+        }
+        .mstat-card {
+            background:rgba(15,23,42,0.72);
+            border:1px solid rgba(148,163,184,0.24);
+            border-radius:12px;
+            padding:7px 9px;
+            min-height:48px;
+        }
+        .mstat-label {
+            color:#cbd5e1 !important;
+            font-size:0.70rem;
+            font-weight:850;
+            line-height:1.05;
+            margin-bottom:3px;
+        }
+        .mstat-value {
+            color:#f8fafc !important;
+            font-size:1.00rem;
+            font-weight:950;
+            line-height:1.10;
+        }
+        .mstat-delta {
+            display:inline-block;
+            margin-top:3px;
+            padding:1px 6px;
+            border-radius:999px;
+            color:#bbf7d0 !important;
+            background:rgba(22,101,52,0.30);
+            font-size:0.68rem;
+            font-weight:900;
+        }
+        .mstat-delta.neg { color:#fecaca !important; background:rgba(127,29,29,0.30); }
+
         .mobile-shell {
             background: radial-gradient(circle at top, rgba(37,99,235,0.16), rgba(2,6,23,0.92));
             border: 1px solid rgba(148, 163, 184, 0.24);
@@ -1803,6 +1911,30 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
             .pro-symbol { font-size:1.35rem; }
         }
 
+
+
+        @media (max-width: 700px) {
+            .mstat-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; gap:6px !important; }
+            .mstat-card { min-height:42px !important; padding:6px 8px !important; border-radius:10px !important; }
+            .mstat-label { font-size:0.64rem !important; }
+            .mstat-value { font-size:0.88rem !important; }
+            .mobile-shell { padding:7px !important; border-radius:12px !important; margin:4px 0 8px 0 !important; }
+            .mobile-chip { padding:4px 7px !important; font-size:0.68rem !important; border-radius:8px !important; margin:2px 3px 2px 0 !important; }
+            .pro-terminal-head { padding:7px !important; border-radius:12px !important; margin-bottom:5px !important; }
+            .pro-symbol { font-size:1.05rem !important; }
+            .pro-price { font-size:1.20rem !important; }
+            .pro-mini-line { gap:5px !important; font-size:0.66rem !important; }
+            .pro-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; gap:5px !important; margin:5px 0 !important; }
+            .pro-stat { min-height:40px !important; padding:5px 7px !important; border-radius:10px !important; }
+            .pro-stat span { font-size:0.62rem !important; }
+            .pro-stat b { font-size:0.80rem !important; }
+            .pro-action-card { padding:7px !important; border-radius:12px !important; margin-top:5px !important; position:relative !important; }
+            .pro-action-card h3, .pro-action-card .stMarkdown h3 { font-size:1.0rem !important; margin:0.25rem 0 !important; }
+            .stButton > button { min-height:40px !important; padding:0.35rem 0.55rem !important; font-size:0.86rem !important; border-radius:12px !important; }
+            [data-testid="stMetric"] { min-height:42px !important; padding:5px 7px !important; border-radius:10px !important; }
+            [data-testid="stMetricLabel"] { font-size:0.62rem !important; }
+            [data-testid="stMetricValue"] { font-size:0.90rem !important; }
+        }
 
         /* GRAPH_SIDEBAR_POLISH_V1: clearer multiselect chips */
         div[data-baseweb="tag"] {

@@ -1151,6 +1151,134 @@ div[role="tooltip"] *,
     font-size: 0.90rem;
 }
 
+
+
+/* --- V14.6 tasks 51-54: faktisk visningsmodus, mobil-komprimering og kontrollsenter --- */
+:root {
+    --compact-card-pad: 8px 10px;
+    --compact-card-radius: 12px;
+}
+.compact-stat-grid {
+    display:grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap:8px;
+    margin:8px 0 10px 0;
+}
+.compact-stat-card {
+    background: rgba(15,23,42,0.78);
+    border:1px solid rgba(148,163,184,0.28);
+    border-radius: var(--compact-card-radius);
+    padding: var(--compact-card-pad);
+    min-height:54px;
+}
+.compact-stat-label {
+    color:#cbd5e1 !important;
+    font-size:0.72rem;
+    font-weight:850;
+    line-height:1.05;
+    margin-bottom:3px;
+}
+.compact-stat-value {
+    color:#f8fafc !important;
+    font-size:1.08rem;
+    font-weight:950;
+    line-height:1.12;
+    word-break:normal;
+}
+.compact-stat-delta {
+    display:inline-block;
+    margin-top:4px;
+    color:#86efac !important;
+    font-size:0.74rem;
+    font-weight:900;
+}
+.compact-stat-delta.neg { color:#fecaca !important; }
+.view-mode-status {
+    border:1px solid rgba(56,189,248,0.30);
+    background:rgba(14,165,233,0.10);
+    color:#dff6ff !important;
+    border-radius:999px;
+    padding:5px 9px;
+    font-size:0.76rem;
+    font-weight:900;
+    margin:4px 0 8px 0;
+}
+.control-center-status {
+    border:1px solid rgba(148,163,184,0.28);
+    background:rgba(15,23,42,0.76);
+    border-radius:14px;
+    padding:8px 10px;
+    margin:6px 0 8px 0;
+    color:#e2e8f0 !important;
+    font-size:0.78rem;
+    line-height:1.35;
+}
+.status-dot { display:inline-block; width:9px; height:9px; border-radius:999px; margin-right:5px; vertical-align:middle; }
+.status-dot.green { background:#22c55e; box-shadow:0 0 10px rgba(34,197,94,0.55); }
+.status-dot.red { background:#ef4444; box-shadow:0 0 10px rgba(239,68,68,0.55); }
+.status-dot.yellow { background:#facc15; box-shadow:0 0 10px rgba(250,204,21,0.45); }
+.auto-status-badge {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 9px;
+    border-radius:999px;
+    font-weight:950;
+    font-size:0.84rem;
+    margin-bottom:6px;
+}
+.auto-status-badge.on { background:rgba(22,101,52,0.34); border:1px solid rgba(34,197,94,0.55); color:#bbf7d0 !important; }
+.auto-status-badge.off { background:rgba(127,29,29,0.34); border:1px solid rgba(239,68,68,0.55); color:#fecaca !important; }
+@media (max-width: 900px) {
+    .compact-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px; }
+    .compact-stat-card { min-height:44px; padding:6px 8px; border-radius:10px; }
+    .compact-stat-label { font-size:0.66rem; }
+    .compact-stat-value { font-size:0.94rem; }
+    [data-testid="stMetric"] {
+        min-height:44px !important;
+        padding:6px 8px !important;
+        border-radius:10px !important;
+        margin-bottom:4px !important;
+    }
+    [data-testid="stMetricLabel"] { font-size:0.66rem !important; line-height:1.05 !important; }
+    [data-testid="stMetricValue"] { font-size:0.98rem !important; line-height:1.08 !important; }
+    [data-testid="stMetricDelta"] { font-size:0.68rem !important; }
+    .stButton > button, section[data-testid="stSidebar"] .stButton > button, section[data-testid="stSidebar"] button {
+        min-height:42px !important;
+        padding:0.36rem 0.65rem !important;
+        border-radius:12px !important;
+        font-size:0.90rem !important;
+        line-height:1.15 !important;
+        box-shadow:0 6px 14px rgba(14,165,233,0.18) !important;
+    }
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+        font-size:1.05rem !important;
+        line-height:1.15 !important;
+        margin:0.45rem 0 0.35rem 0 !important;
+    }
+    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] span {
+        font-size:0.88rem !important;
+        line-height:1.22 !important;
+    }
+    section[data-testid="stSidebar"] details > summary {
+        min-height:36px !important;
+        padding:6px 8px !important;
+        font-size:0.90rem !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+    section[data-testid="stSidebar"] textarea {
+        min-height:38px !important;
+        font-size:0.88rem !important;
+        padding:6px 8px !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        padding:6px !important;
+        border-radius:12px !important;
+    }
+}
+
 /* Paper Trading justeringer v14 */
 .paper-edit-card {
     background: rgba(15,23,42,0.72);
@@ -1173,6 +1301,8 @@ APP_VIEW_MODE = st.sidebar.radio(
     key="global_view_mode_v145",
     help="Kompakt sparer plass. Normal bruker standard. Full viser større kort og mer luft.",
 )
+st.session_state["app_view_mode"] = APP_VIEW_MODE
+st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv visning: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
     st.markdown(
@@ -1201,6 +1331,13 @@ if APP_VIEW_MODE == "Kompakt":
         details { margin-bottom: 0.45rem !important; }
         details > summary { min-height: 32px !important; }
         .graph-explain-box { padding: 7px 9px !important; font-size: 0.76rem !important; }
+        .compact-stat-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap:6px; }
+        .compact-stat-card { min-height:44px; padding:6px 8px; }
+        .compact-stat-value { font-size:0.98rem; }
+        @media (max-width: 900px) {
+            .compact-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+            .stButton > button { min-height:40px !important; font-size:0.88rem !important; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1632,7 +1769,7 @@ def render_live_market_banner():
 
 
 
-def render_banner_sidebar_controls(expanded=True):
+def render_banner_sidebar_controls(expanded=False):
     """Synlig kontroll for ticker-banner i sidepanelet."""
     st.sidebar.markdown(
         """
@@ -2112,6 +2249,39 @@ def add_pattern_markers(fig, pattern, name):
     return fig
 
 
+
+def _safe_html_value(value):
+    return html.escape(str(value if value is not None else "N/A"))
+
+
+def render_compact_stat_grid(items, columns=4):
+    """Kompakt statusgrid som gjør tydelig forskjell på Kompakt/Normal/Full.
+
+    items: liste med (label, value[, delta])
+    """
+    if not items:
+        return
+    cards = []
+    for item in items:
+        label = item[0] if len(item) > 0 else ""
+        value = item[1] if len(item) > 1 else "N/A"
+        delta = item[2] if len(item) > 2 else None
+        delta_html = ""
+        if delta not in (None, ""):
+            neg = " neg" if str(delta).strip().startswith("-") else ""
+            delta_html = f"<div class='compact-stat-delta{neg}'>{_safe_html_value(delta)}</div>"
+        cards.append(
+            "<div class='compact-stat-card'>"
+            f"<div class='compact-stat-label'>{_safe_html_value(label)}</div>"
+            f"<div class='compact-stat-value'>{_safe_html_value(value)}</div>"
+            f"{delta_html}"
+            "</div>"
+        )
+    st.markdown(
+        f"<div class='compact-stat-grid' style='grid-template-columns: repeat({int(columns)}, minmax(0,1fr));'>" + "".join(cards) + "</div>",
+        unsafe_allow_html=True,
+    )
+
 def render_decision_banner(decision, item, adj_score):
     """Kompakt Trading engine-status (v14 / oppgave 29B).
 
@@ -2298,15 +2468,23 @@ def render_ranking(results, title):
     best_price, best_change = get_item_price_change(best)
     best_decision = card_decision_for_item(best)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Beste kandidat", f"{best['ticker']} {best.get('score', 0)}/10")
-    c2.metric("Analyserte", len(results))
-    c3.metric(
-        "Siste kurs",
-        f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A",
-        delta=f"{best_change:+.2f}%" if best_change is not None else None,
-    )
-    c4.metric("Beste handling", best_decision.get("action_now", "VENT"))
+    if APP_VIEW_MODE == "Full":
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Beste kandidat", f"{best['ticker']} {best.get('score', 0)}/10")
+        c2.metric("Analyserte", len(results))
+        c3.metric(
+            "Siste kurs",
+            f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A",
+            delta=f"{best_change:+.2f}%" if best_change is not None else None,
+        )
+        c4.metric("Beste handling", best_decision.get("action_now", "VENT"))
+    else:
+        render_compact_stat_grid([
+            ("Beste kandidat", f"{best['ticker']} {best.get('score', 0)}/10"),
+            ("Analyserte", len(results)),
+            ("Siste kurs", f"{best_price:.2f} {currency_suffix(best['ticker'])}" if best_price else "N/A", f"{best_change:+.2f}%" if best_change is not None else None),
+            ("Beste handling", best_decision.get("action_now", "VENT")),
+        ], columns=4)
 
     st.markdown("### ⚡ Hurtigliste med kurs")
     st.caption("Top Picks = sterk kandidat totalt. Handling nå = teknisk timing akkurat nå.")
@@ -2335,8 +2513,14 @@ def render_ranking(results, title):
                 render_action_chips(card_decision)
 
             with mid:
-                st.metric("Total score", f"{score}/10")
-                st.metric("Kurs", price_text, delta=delta_text)
+                if APP_VIEW_MODE == "Full":
+                    st.metric("Total score", f"{score}/10")
+                    st.metric("Kurs", price_text, delta=delta_text)
+                else:
+                    render_compact_stat_grid([
+                        ("Score", f"{score}/10"),
+                        ("Kurs", price_text, delta_text),
+                    ], columns=1)
 
             with right:
                 st.progress(min(float(score) / 10, 1.0))
@@ -2685,11 +2869,19 @@ def render_analysis(results, label):
     else:
         df = item["hist"].copy()
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Score", f"{item['score']}/10")
-    m2.metric("P/E", item.get("forward_pe") or item.get("trailing_pe") or "N/A")
-    m3.metric("Revenue growth", f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A")
-    m4.metric("Max drawdown", f"{item['max_drawdown']*100:.1f}%")
+    if APP_VIEW_MODE == "Full":
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Score", f"{item['score']}/10")
+        m2.metric("P/E", item.get("forward_pe") or item.get("trailing_pe") or "N/A")
+        m3.metric("Revenue growth", f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A")
+        m4.metric("Max drawdown", f"{item['max_drawdown']*100:.1f}%")
+    else:
+        render_compact_stat_grid([
+            ("Score", f"{item['score']}/10"),
+            ("P/E", item.get("forward_pe") or item.get("trailing_pe") or "N/A"),
+            ("Revenue growth", f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A"),
+            ("Max drawdown", f"{item['max_drawdown']*100:.1f}%"),
+        ], columns=4)
 
     st.markdown("#### 📈 Teknisk analyse")
 
@@ -2762,11 +2954,18 @@ def render_analysis(results, label):
 
     if signal_intelligence:
         st.markdown("#### 🧠 Signal Intelligence")
-        si1, si2, si3, si4 = st.columns(4)
-        si1.metric("Smart score", f"{signal_intelligence.get('final_score', signal_intelligence.get('decision_score', 0))}/10")
-        si2.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
-        si3.metric("Risk", signal_intelligence.get("risk", "Middels"))
-        si4.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
+        if APP_VIEW_MODE == "Full":
+            si1, si2, si3, si4 = st.columns(4)
+            si1.metric("Smart score", f"{signal_intelligence.get('final_score', signal_intelligence.get('decision_score', 0))}/10")
+            si2.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
+            si3.metric("Risk", signal_intelligence.get("risk", "Middels"))
+            si4.metric("Confidence", f"{signal_intelligence.get('confidence', 0)}%")
+        else:
+            render_compact_stat_grid([
+                ("Smart score", f"{signal_intelligence.get('final_score', signal_intelligence.get('decision_score', 0))}/10"),
+                ("Confidence", f"{signal_intelligence.get('confidence', 0)}%"),
+                ("Risk", signal_intelligence.get("risk", "Middels")),
+            ], columns=3)
 
         render_intelligence_cards(insider, analyst, earnings)
 
@@ -3232,18 +3431,30 @@ def render_paper_trading_dashboard():
     total_value = portfolio_value(portfolio, latest_prices)
     stats = performance_stats(portfolio, latest_prices)
 
-    p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Cash", f"{portfolio.get('cash', 0):,.0f} kr")
-    p2.metric("Porteføljeverdi", f"{total_value:,.0f} kr")
-    p3.metric("Total avkastning", f"{stats['total_return_pct']}%")
-    p4.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
-
-    r1, r2, r3, r4 = st.columns(4)
     _paper_rules = load_rules()
-    r1.metric("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%")
-    r2.metric("Trailing stop", f"{float(_paper_rules.get('trailing_stop_pct', 8.0)):.1f}%")
-    r3.metric("Win rate", f"{stats['win_rate']}%")
-    r4.metric("Lukkede trades", stats["closed_trades"])
+    if APP_VIEW_MODE == "Full":
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Cash", f"{portfolio.get('cash', 0):,.0f} kr")
+        p2.metric("Porteføljeverdi", f"{total_value:,.0f} kr")
+        p3.metric("Total avkastning", f"{stats['total_return_pct']}%")
+        p4.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
+
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%")
+        r2.metric("Trailing stop", f"{float(_paper_rules.get('trailing_stop_pct', 8.0)):.1f}%")
+        r3.metric("Win rate", f"{stats['win_rate']}%")
+        r4.metric("Lukkede trades", stats["closed_trades"])
+    else:
+        render_compact_stat_grid([
+            ("Cash", f"{portfolio.get('cash', 0):,.0f} kr"),
+            ("Porteføljeverdi", f"{total_value:,.0f} kr"),
+            ("Total avkastning", f"{stats['total_return_pct']}%"),
+            ("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}"),
+            ("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%"),
+            ("Trailing stop", f"{float(_paper_rules.get('trailing_stop_pct', 8.0)):.1f}%"),
+            ("Win rate", f"{stats['win_rate']}%"),
+            ("Lukkede trades", stats["closed_trades"]),
+        ], columns=4)
 
     with st.expander("💼 Juster Paper Trading startverdier / porteføljeverdi", expanded=True):
         st.markdown("""
@@ -3395,6 +3606,27 @@ def render_strategy_backtest(tickers, label):
 
 st.sidebar.title("⚙️ Innstillinger")
 render_user_admin(current_user)
+try:
+    _cc_settings = load_settings()
+    _cc_cron = cron_status_text()
+    _cc_auto_on = bool(_cc_settings.get("auto_trading_enabled", True))
+    _cc_paper_on = True
+    _cc_full_stop = bool(_cc_cron.get("vacation_mode"))
+    _cc_dot = "red" if _cc_full_stop else ("green" if _cc_auto_on else "red")
+    st.sidebar.markdown(
+        f"""
+        <div class='control-center-status'>
+            <b>Kontrollsenter</b><br>
+            <span class='status-dot {_cc_dot}'></span>Auto trading: <b>{'AKTIV' if _cc_auto_on else 'AV'}</b><br>
+            <span class='status-dot {'green' if _cc_paper_on else 'red'}'></span>Paper trading: <b>AKTIV</b><br>
+            <span class='status-dot {'red' if _cc_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _cc_full_stop else 'NEI'}</b><br>
+            Siste scan: <b>{_cc_cron.get('last_scan_at') or 'ikke kjørt'}</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+except Exception:
+    pass
 
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
@@ -3548,7 +3780,7 @@ def render_sidebar_structure_v2():
         st.sidebar.caption(f"Pause til: {_cron_status.get('pause_until')}")
 
     st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-    render_banner_sidebar_controls(expanded=True)
+    render_banner_sidebar_controls(expanded=False)
 
     st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
     st.sidebar.markdown("### 🔕 Varselkontroll")
@@ -3713,10 +3945,14 @@ st.sidebar.subheader("🤖 Auto trading")
 _settings = load_settings()
 _markets_settings = _settings.get("markets", {}) or {}
 
+_auto_on_now = bool(_settings.get('auto_trading_enabled', True))
 st.sidebar.markdown(
     f"""
     <div class="auto-settings-summary">
-        Aktiv: <b>{'Ja' if bool(_settings.get('auto_trading_enabled', True)) else 'Nei'}</b> ·
+        <div class="auto-status-badge {'on' if _auto_on_now else 'off'}">
+            <span class="status-dot {'green' if _auto_on_now else 'red'}"></span>
+            Auto trading: {'AKTIV' if _auto_on_now else 'AV'}
+        </div><br>
         BUY conf: <b>{int(_settings.get('min_buy_confidence', 70))}%</b> ·
         Score: <b>{float(_settings.get('min_buy_score', 7.2)):.1f}</b> ·
         Max pos: <b>{int(_settings.get('max_open_positions', 5))}</b>
