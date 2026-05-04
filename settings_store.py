@@ -12,7 +12,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 SETTINGS_FILE = Path("app_settings.json")
 
 DEFAULT_SETTINGS = {
-    "auto_trading_enabled": True,
+    "auto_trading_enabled": False,
+    "auto_trading_paused": False,
+    "auto_trading_emergency_stop": False,
+    "auto_trading_safe_edit_mode": True,
     "markets": {"USA": True, "NORGE": True, "SVERIGE": True},
     "max_tickers_per_market": 20,
     "min_buy_confidence": 70,
@@ -37,6 +40,7 @@ DEFAULT_SETTINGS = {
     "live_banner_enabled": True,
     "ui_refresh_minutes": 5,
     "ui_auto_refresh_enabled": False,
+    "chart_auto_update_enabled": False,
     "live_banner_speed_seconds": 70,
     "live_banner_tickers": {
         "USA": "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA",

@@ -342,7 +342,13 @@ def run_once(force=False):
 
     print(f"Åpne markeder: {markets}")
     settings = load_settings()
-    auto_trading_enabled = bool(settings.get("auto_trading_enabled", True))
+    auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
+    if bool(settings.get("auto_trading_paused", False)):
+        auto_trading_enabled = False
+        print("⏸ Auto trading er pauset i app-innstillinger")
+    if bool(settings.get("auto_trading_emergency_stop", False)):
+        auto_trading_enabled = False
+        print("🧯 Auto trading er i NØDSTOPP - ingen nye handler")
     min_buy_score = float(settings.get("min_buy_score", 7.2))
     min_buy_confidence = int(settings.get("min_buy_confidence", 70))
     if not auto_trading_enabled:

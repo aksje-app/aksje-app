@@ -52,9 +52,13 @@ def _create_remember_token(user):
 
 
 def _set_logged_in(user, remember=False):
-    """V13: tydelig session-varighet. Vanlig login varer 24 t, Husk meg varer 30 dager."""
+    """V14.7: tydelig session-varighet. Vanlig login varer 24 t, Husk meg varer 30 dager."""
+    now = datetime.now()
     st.session_state["auth_user"] = user
-    expires_at = datetime.now() + (timedelta(days=REMEMBER_DAYS) if remember else timedelta(hours=SESSION_HOURS))
+    st.session_state["auth_logged_in_at"] = st.session_state.get("auth_logged_in_at") or now.isoformat(timespec="seconds")
+    st.session_state["auth_last_activity_at"] = now.isoformat(timespec="seconds")
+    st.session_state["auth_remember_me"] = bool(remember)
+    expires_at = now + (timedelta(days=REMEMBER_DAYS) if remember else timedelta(hours=SESSION_HOURS))
     st.session_state["auth_expires_at"] = expires_at.isoformat(timespec="seconds")
 
 
@@ -68,12 +72,22 @@ def _session_is_valid():
         st.session_state["auth_expires_at"] = (datetime.now() + timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
         return True
     try:
-        if datetime.fromisoformat(str(raw)) >= datetime.now():
+        expires = datetime.fromisoformat(str(raw))
+        now = datetime.now()
+        if expires >= now:
+            st.session_state["auth_last_activity_at"] = now.isoformat(timespec="seconds")
+            # Husk meg skal oppleves stabilt på mobil: forny session-vindu ved aktiv bruk.
+            if bool(st.session_state.get("auth_remember_me", False)):
+                st.session_state["auth_expires_at"] = (now + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
             return True
     except Exception:
         pass
     st.session_state.pop("auth_user", None)
     st.session_state.pop("auth_expires_at", None)
+    st.session_state.pop("auth_logged_in_at", None)
+    st.session_state.pop("auth_last_activity_at", None)
+    st.session_state.pop("auth_remember_me", None)
+    st.session_state.pop("remember_token", None)
     return False
 
 
@@ -99,6 +113,7 @@ def _restore_from_remember_token():
                 # Forny tokenet ved bruk, slik at Husk meg faktisk holder lenge på PC og mobil.
                 tokens[str(token)] = {"username": username, "expires": (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")}
                 _save_remember_tokens(tokens)
+                st.session_state["remember_token"] = str(token)
                 _set_logged_in(user, remember=True)
                 return user
     except Exception:
@@ -127,6 +142,10 @@ def _logout():
     _clear_remember_token()
     st.session_state.pop("auth_user", None)
     st.session_state.pop("auth_expires_at", None)
+    st.session_state.pop("auth_logged_in_at", None)
+    st.session_state.pop("auth_last_activity_at", None)
+    st.session_state.pop("auth_remember_me", None)
+    st.session_state.pop("remember_token", None)
     st.rerun()
 
 
@@ -207,7 +226,9 @@ def render_login():
             _set_logged_in(user, remember=bool(remember_me))
             if remember_me:
                 try:
-                    st.query_params["remember_token"] = _create_remember_token(user)
+                    token = _create_remember_token(user)
+                    st.session_state["remember_token"] = token
+                    st.query_params["remember_token"] = token
                 except Exception:
                     pass
             st.success("Innlogget")
@@ -224,6 +245,13 @@ def require_login():
         render_first_admin_setup()
 
     if _session_is_valid():
+        # Hold remember-token synlig i URL når mulig, så refresh/mobil-nettleser ikke mister login.
+        try:
+            tok = st.session_state.get("remember_token")
+            if tok and not st.query_params.get("remember_token"):
+                st.query_params["remember_token"] = tok
+        except Exception:
+            pass
         return st.session_state.get("auth_user")
 
     user = _restore_from_remember_token()
@@ -237,6 +265,25 @@ def render_user_admin(current_user):
     st.sidebar.markdown("---")
     st.sidebar.subheader("👤 Bruker")
     st.sidebar.caption(f"Innlogget: {current_user.get('username')} ({current_user.get('role')})")
+    try:
+        _login_at = st.session_state.get("auth_logged_in_at", "-")
+        _last_at = st.session_state.get("auth_last_activity_at", "-")
+        _expires_at = st.session_state.get("auth_expires_at", "-")
+        _remember = "På" if st.session_state.get("auth_remember_me") else "Av"
+        st.sidebar.markdown(
+            f"""
+            <div class='control-center-status auth-session-status'>
+                <b>Innlogging</b><br>
+                Innlogget siden: <b>{_login_at}</b><br>
+                Siste aktivitet: <b>{_last_at}</b><br>
+                Utløper: <b>{_expires_at}</b><br>
+                Husk meg: <b>{_remember}</b>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
 
     if st.sidebar.button("Logg ut", key="auth_logout_btn"):
         _logout()

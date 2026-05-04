@@ -16,6 +16,7 @@ except Exception:
 from technical import calculate_rsi, calculate_macd, calculate_bollinger
 from trading_engine import paper_buy, paper_sell, calc_levels
 from paper_trading import load_portfolio
+from settings_store import load_settings, save_settings
 
 
 # MOBILE_ANALYSIS_STEP2_CHART_V1
@@ -2039,12 +2040,19 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     if not current_indicators:
         current_indicators = _preset_values("Standard")
 
+    _settings_for_auto = load_settings()
+    _global_auto_update = bool(_settings_for_auto.get("chart_auto_update_enabled", False))
+    _global_toggle_key = f"{_auto_key}_global_toggle"
     auto_update = st.checkbox(
         "Auto-oppdater ved endringer",
-        value=bool(st.session_state.get(_auto_key, False)),
-        key=_auto_key,
+        value=_global_auto_update,
+        key=_global_toggle_key,
         help="Av = du kan endre flere valg først, og grafen oppdateres først når du trykker Oppdater / bruk endringer.",
     )
+    if bool(auto_update) != _global_auto_update:
+        _settings_for_auto["chart_auto_update_enabled"] = bool(auto_update)
+        save_settings(_settings_for_auto)
+        st.rerun()
 
     if auto_update:
         c1, c2, c3 = st.columns([0.85, 1.05, 1.0])

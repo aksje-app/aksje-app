@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import html
+from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 try:
@@ -74,6 +75,46 @@ UI_AUTO_REFRESH_ENABLED = bool(_runtime_settings.get("ui_auto_refresh_enabled", 
 if UI_AUTO_REFRESH_ENABLED:
     st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
 
+
+# --- V14.7 helpers: stabilitet, kontrollsenter og status ---
+def _save_setting_patch(**updates):
+    _s = load_settings()
+    _s.update(updates)
+    save_settings(_s)
+    return _s
+
+
+def _auto_state(settings=None):
+    _s = settings or load_settings()
+    if bool(_s.get("auto_trading_emergency_stop", False)):
+        return "NØDSTOPP", "red"
+    if bool(_s.get("auto_trading_paused", False)):
+        return "PAUSET", "yellow"
+    if bool(_s.get("auto_trading_enabled", False)):
+        return "AKTIV", "green"
+    return "AV", "red"
+
+
+def _set_auto_state(state):
+    state = str(state).upper()
+    if state == "START":
+        _save_setting_patch(auto_trading_enabled=True, auto_trading_paused=False, auto_trading_emergency_stop=False)
+    elif state == "PAUSE":
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=True, auto_trading_emergency_stop=False)
+    elif state == "STOPP":
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=False)
+    elif state == "NØDSTOPP":
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=True)
+    st.rerun()
+
+
+def _fmt_dt_short(value):
+    if not value:
+        return "ikke kjørt"
+    try:
+        return str(value).replace("T", " ")[:16]
+    except Exception:
+        return str(value)
 
 
 # SIDEBAR_MARKET_DROPDOWN_V1
@@ -1287,6 +1328,65 @@ div[role="tooltip"] *,
     padding: 10px 12px;
     margin: 6px 0 10px 0;
 }
+
+/* --- V14.7: kompakt header, sentral auto trading, watchlist og sterk mobil-komprimering --- */
+.top-app-header {
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    padding:6px 0 8px 0; margin:0 0 6px 0; border-bottom:1px solid rgba(148,163,184,0.16);
+}
+.top-app-title { color:#f8fafc !important; font-size:1.24rem; font-weight:950; letter-spacing:-0.02em; line-height:1.1; }
+.top-app-status { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap; }
+.top-chip {
+    display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:999px;
+    border:1px solid rgba(148,163,184,0.24); background:rgba(15,23,42,0.70);
+    color:#e2e8f0 !important; font-size:0.74rem; font-weight:900; white-space:nowrap;
+}
+.top-chip.green { border-color:rgba(34,197,94,0.42); background:rgba(22,101,52,0.24); color:#bbf7d0 !important; }
+.top-chip.red { border-color:rgba(239,68,68,0.44); background:rgba(127,29,29,0.24); color:#fecaca !important; }
+.top-chip.yellow { border-color:rgba(250,204,21,0.44); background:rgba(113,63,18,0.24); color:#fef3c7 !important; }
+.top-quick-row { margin:2px 0 6px 0; padding:6px 8px; border-radius:12px; background:rgba(15,23,42,0.38); border:1px solid rgba(148,163,184,0.14); }
+.watchlist-compact {
+    margin:8px 0 10px 0; padding:8px 10px; border-radius:12px; background:rgba(15,23,42,0.50);
+    border:1px solid rgba(148,163,184,0.18);
+}
+.watchlist-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.watchlist-title { color:#f8fafc !important; font-weight:950; font-size:1.05rem; line-height:1.1; }
+.watchlist-meta { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.watchlist-empty { color:#cbd5e1 !important; font-size:0.78rem; font-weight:850; padding:5px 8px; border-radius:999px; background:rgba(30,41,59,0.72); display:inline-flex; margin-top:6px; }
+.control-center-status { font-size:0.88rem !important; line-height:1.45 !important; padding:10px 12px !important; }
+.control-center-status b { font-size:0.92rem !important; }
+.auto-command-card {
+    background:rgba(15,23,42,0.78); border:1px solid rgba(148,163,184,0.28); border-radius:14px;
+    padding:10px 12px; margin:8px 0 10px 0; color:#e2e8f0 !important;
+}
+.auto-command-title { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:950; font-size:0.98rem; margin-bottom:7px; }
+.auto-command-line { color:#cbd5e1 !important; font-size:0.80rem; font-weight:850; line-height:1.3; }
+.auto-status-badge { font-size:0.90rem !important; padding:7px 10px !important; }
+.compact-mobile-note { color:#94a3b8 !important; font-size:0.72rem; font-weight:800; }
+
+@media (max-width: 900px) {
+    .top-app-header { padding:4px 0 6px 0 !important; gap:6px; }
+    .top-app-title { font-size:1.02rem !important; }
+    .top-app-status { justify-content:flex-start; }
+    .top-chip { font-size:0.66rem !important; padding:4px 6px !important; }
+    .watchlist-compact { margin:6px 0 7px 0 !important; padding:7px 8px !important; }
+    .watchlist-title { font-size:0.92rem !important; }
+    .watchlist-empty { font-size:0.70rem !important; padding:4px 7px !important; }
+    [data-testid="stMetric"] { min-height:34px !important; padding:4px 7px !important; border-radius:10px !important; }
+    [data-testid="stMetricLabel"] { font-size:0.62rem !important; line-height:1.0 !important; margin-bottom:0 !important; }
+    [data-testid="stMetricValue"] { font-size:0.86rem !important; line-height:1.0 !important; }
+    .compact-stat-card { min-height:34px !important; padding:5px 7px !important; border-radius:10px !important; }
+    .compact-stat-label { font-size:0.60rem !important; }
+    .compact-stat-value { font-size:0.82rem !important; }
+    .stButton > button, section[data-testid="stSidebar"] .stButton > button {
+        min-height:36px !important; padding:0.28rem 0.52rem !important; font-size:0.82rem !important; border-radius:10px !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+    section[data-testid="stSidebar"] textarea { min-height:34px !important; font-size:0.80rem !important; }
+}
+
 
 </style>
 """, unsafe_allow_html=True)
@@ -3609,22 +3709,35 @@ render_user_admin(current_user)
 try:
     _cc_settings = load_settings()
     _cc_cron = cron_status_text()
-    _cc_auto_on = bool(_cc_settings.get("auto_trading_enabled", True))
+    _cc_auto_state, _cc_auto_color = _auto_state(_cc_settings)
     _cc_paper_on = True
     _cc_full_stop = bool(_cc_cron.get("vacation_mode"))
-    _cc_dot = "red" if _cc_full_stop else ("green" if _cc_auto_on else "red")
+    _cc_chart_auto = bool(_cc_settings.get("chart_auto_update_enabled", False))
+    _cc_periodic = bool(_cc_settings.get("ui_auto_refresh_enabled", False))
     st.sidebar.markdown(
         f"""
         <div class='control-center-status'>
             <b>Kontrollsenter</b><br>
-            <span class='status-dot {_cc_dot}'></span>Auto trading: <b>{'AKTIV' if _cc_auto_on else 'AV'}</b><br>
+            <span class='status-dot {_cc_auto_color}'></span>Auto trading: <b>{_cc_auto_state}</b><br>
             <span class='status-dot {'green' if _cc_paper_on else 'red'}'></span>Paper trading: <b>AKTIV</b><br>
             <span class='status-dot {'red' if _cc_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _cc_full_stop else 'NEI'}</b><br>
-            Siste scan: <b>{_cc_cron.get('last_scan_at') or 'ikke kjørt'}</b>
+            <span class='status-dot {'green' if _cc_chart_auto else 'red'}'></span>Auto-oppdater endringer: <b>{'PÅ' if _cc_chart_auto else 'AV'}</b><br>
+            Siste scan: <b>{_fmt_dt_short(_cc_cron.get('last_scan_at'))}</b>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    _toggle_auto_update = st.sidebar.checkbox(
+        "Auto-oppdater ved endringer",
+        value=_cc_chart_auto,
+        key="sidebar_chart_auto_update_v147",
+        help="Av = endringer i graf/indikatorer brukes først når du trykker Oppdater / bruk endringer.",
+    )
+    if bool(_toggle_auto_update) != _cc_chart_auto:
+        _save_setting_patch(chart_auto_update_enabled=bool(_toggle_auto_update))
+        st.session_state.pop("top_chart_auto_update_v147", None)
+        st.sidebar.success("Auto-oppdatering oppdatert ✅")
+        st.rerun()
 except Exception:
     pass
 
@@ -3945,29 +4058,51 @@ st.sidebar.subheader("🤖 Auto trading")
 _settings = load_settings()
 _markets_settings = _settings.get("markets", {}) or {}
 
-_auto_on_now = bool(_settings.get('auto_trading_enabled', True))
+_auto_state_label, _auto_state_color = _auto_state(_settings)
 st.sidebar.markdown(
     f"""
-    <div class="auto-settings-summary">
-        <div class="auto-status-badge {'on' if _auto_on_now else 'off'}">
-            <span class="status-dot {'green' if _auto_on_now else 'red'}"></span>
-            Auto trading: {'AKTIV' if _auto_on_now else 'AV'}
-        </div><br>
-        BUY conf: <b>{int(_settings.get('min_buy_confidence', 70))}%</b> ·
-        Score: <b>{float(_settings.get('min_buy_score', 7.2)):.1f}</b> ·
-        Max pos: <b>{int(_settings.get('max_open_positions', 5))}</b>
+    <div class="auto-command-card">
+        <div class="auto-command-title">
+            <span>🤖 Auto trading</span>
+            <span class="auto-status-badge {'on' if _auto_state_color == 'green' else 'off'}">
+                <span class="status-dot {_auto_state_color}"></span>{_auto_state_label}
+            </span>
+        </div>
+        <div class="auto-command-line">
+            BUY conf: <b>{int(_settings.get('min_buy_confidence', 70))}%</b> ·
+            Score: <b>{float(_settings.get('min_buy_score', 7.2)):.1f}</b> ·
+            Max pos: <b>{int(_settings.get('max_open_positions', 5))}</b>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+_ac1, _ac2, _ac3 = st.sidebar.columns(3)
+with _ac1:
+    if st.button("▶️ Start", key="auto_start_sidebar_v147", use_container_width=True):
+        _set_auto_state("START")
+with _ac2:
+    if st.button("⏸ Pause", key="auto_pause_sidebar_v147", use_container_width=True):
+        _set_auto_state("PAUSE")
+with _ac3:
+    if st.button("⛔ Stopp", key="auto_stop_sidebar_v147", use_container_width=True):
+        _set_auto_state("STOPP")
+if st.sidebar.button("🧯 Nødstopp Auto trading", key="auto_emergency_sidebar_v147", use_container_width=True):
+    _set_auto_state("NØDSTOPP")
 
 with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
     st.caption("Samlet i to grupper. Endringer lagres først når du trykker Lagre.")
     with st.form("auto_trading_settings_form_v10", clear_on_submit=False):
         _auto_enabled = st.checkbox(
             "Auto trading aktiv",
-            value=bool(_settings.get("auto_trading_enabled", True)),
+            value=bool(_settings.get("auto_trading_enabled", False)),
             key="persist_auto_enabled_v10",
+        )
+        _safe_edit = st.checkbox(
+            "Pause auto trading når parametere lagres",
+            value=bool(_settings.get("auto_trading_safe_edit_mode", True)),
+            key="persist_safe_edit_mode_v147",
+            help="Sikker redigeringsmodus: ved lagring settes auto trading i pause, slik at du kan kontrollere parametere før ny start.",
         )
 
         st.markdown('<div class="auto-settings-group-title">Kjøpsgrenser</div>', unsafe_allow_html=True)
@@ -4058,7 +4193,10 @@ with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
     if _save_auto:
         _current_settings_for_auto_save = load_settings()
         _current_settings_for_auto_save.update({
-            "auto_trading_enabled": bool(_auto_enabled),
+            "auto_trading_enabled": bool(_auto_enabled) and not bool(_safe_edit),
+            "auto_trading_paused": bool(_safe_edit) if bool(_auto_enabled) else False,
+            "auto_trading_emergency_stop": False,
+            "auto_trading_safe_edit_mode": bool(_safe_edit),
             "markets": {"USA": bool(_m_usa), "NORGE": bool(_m_no), "SVERIGE": bool(_m_se)},
             "max_tickers_per_market": int(_max_tickers),
             "min_buy_confidence": int(_min_conf),
@@ -4135,28 +4273,62 @@ watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
 watchlist_tickers = globals().get("watchlist_tickers", [])
 
 
-st.markdown("## 📊 Market Overview")
+# V14.7 / Oppgave 64-66: kompakt toppheader med viktig status og hurtigkontroller.
+_top_settings = load_settings()
+_top_cron = cron_status_text()
+_top_auto_state, _top_auto_color = _auto_state(_top_settings)
+_top_full_stop = bool(_top_cron.get("vacation_mode"))
+_top_paper = True
+_top_chart_auto = bool(_top_settings.get("chart_auto_update_enabled", False))
+st.markdown(
+    f"""
+    <div class="top-app-header">
+        <div class="top-app-title">📊 Market Overview – 📈 AI Aksje Analyzer Pro</div>
+        <div class="top-app-status">
+            <span class="top-chip {_top_auto_color}">Auto trading: <b>{_top_auto_state}</b></span>
+            <span class="top-chip {'green' if _top_paper else 'red'}">Paper: <b>AKTIV</b></span>
+            <span class="top-chip {'red' if _top_full_stop else 'green'}">Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
+            <span class="top-chip {'green' if _top_chart_auto else 'red'}">Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
+            <span class="top-chip">Siste scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+_tq1, _tq2, _tq3, _tq4, _tq5 = st.columns([1, 1, 1, 1.15, 1.15])
+with _tq1:
+    if st.button("▶️ Start auto", key="auto_start_top_v147", use_container_width=True):
+        _set_auto_state("START")
+with _tq2:
+    if st.button("⏸ Pause auto", key="auto_pause_top_v147", use_container_width=True):
+        _set_auto_state("PAUSE")
+with _tq3:
+    if st.button("⛔ Stopp auto", key="auto_stop_top_v147", use_container_width=True):
+        _set_auto_state("STOPP")
+with _tq4:
+    _top_toggle_auto_update = st.checkbox(
+        "Auto-oppdater ved endringer",
+        value=_top_chart_auto,
+        key="top_chart_auto_update_v147",
+        help="Av = graf/indikator-endringer brukes først når du trykker Oppdater / bruk endringer.",
+    )
+    if bool(_top_toggle_auto_update) != _top_chart_auto:
+        _save_setting_patch(chart_auto_update_enabled=bool(_top_toggle_auto_update))
+        st.session_state.pop("sidebar_chart_auto_update_v147", None)
+        st.rerun()
+with _tq5:
+    if not _top_chart_auto:
+        if st.button("🔄 Oppdater / bruk endringer", key="top_apply_changes_v147", use_container_width=True):
+            st.rerun()
+    else:
+        st.caption("Auto-oppdatering på")
+
 if 'top_picks' in locals():
     market_pulse(top_picks)
     top_movers(top_picks)
 
-st.title("📈 AI Aksje Analyzer Pro — Dag Ø. Borch")
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 render_live_market_banner()
-
-if auto_watchlist_alerts or manual_watchlist_scan:
-    st.markdown("### 🔔 Watchlist signaler")
-    if not pushover_enabled:
-        st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
-    elif not watchlist_tickers:
-        st.info("Legg inn minst én ticker i watchlist.")
-    else:
-        with st.spinner("Scanner watchlist..."):
-            watch_results = scan_watchlist_and_alert(watchlist_tickers[:watchlist_scan_limit])
-
-        if watch_results:
-            st.dataframe(pd.DataFrame(watch_results), use_container_width=True)
-            st.caption("Varsel sendes bare når et tidligere registrert signal endrer seg til BUY eller SELL / AVOID.")
 
 if search.strip():
     tickers_us = [search.strip().upper()]
@@ -4196,11 +4368,48 @@ auto_watchlist_alerts = st.sidebar.checkbox(
     value=False,
     help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
 )
+_watchlist_default_limit = min(30, max(5, len(watchlist_tickers or [])))
 watchlist_scan_limit = st.sidebar.slider(
     "Maks aksjer å scanne for varsler",
-    5, 100, min(30, len(watchlist_tickers))
+    5, 100, _watchlist_default_limit
 )
 manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
+
+# V14.7 / Oppgave 58, 63 og 66: kompakt watchlist-/scanstatus høyt oppe.
+_watch_count = len(watchlist_tickers or [])
+_watch_status = "PÅ" if bool(auto_watchlist_alerts) else "AV"
+_watch_push = "PÅ" if bool(pushover_enabled) else "AV"
+_watch_scan = _fmt_dt_short(cron_status_text().get("last_scan_at"))
+st.markdown(
+    f"""
+    <div class="watchlist-compact">
+        <div class="watchlist-row">
+            <div class="watchlist-title">🔔 Watchlist signaler</div>
+            <div class="watchlist-meta">
+                <span class="top-chip">Tickere: <b>{_watch_count}</b></span>
+                <span class="top-chip {'green' if auto_watchlist_alerts else 'red'}">Auto-scan: <b>{_watch_status}</b></span>
+                <span class="top-chip {'green' if pushover_enabled else 'red'}">Varsler: <b>{_watch_push}</b></span>
+                <span class="top-chip">Siste scan: <b>{_watch_scan}</b></span>
+            </div>
+        </div>
+        {"<div class='watchlist-empty'>Watchlist tom – legg til tickere i venstre panel eller bruk dynamisk watchlist.</div>" if _watch_count == 0 else ""}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+if auto_watchlist_alerts or manual_watchlist_scan:
+    if not pushover_enabled:
+        st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
+    elif not watchlist_tickers:
+        st.info("Watchlist er tom. Legg inn minst én ticker, eller slå på dynamisk watchlist.")
+    else:
+        with st.spinner("Scanner watchlist..."):
+            watch_results = scan_watchlist_and_alert(watchlist_tickers[:watchlist_scan_limit])
+        if watch_results:
+            st.dataframe(pd.DataFrame(watch_results), use_container_width=True)
+            st.caption("Varsel sendes bare når et tidligere registrert signal endrer seg til BUY eller SELL / AVOID.")
+        else:
+            st.info("Ingen nye watchlist-signaler akkurat nå.")
 
 st.caption("Fanene henter markedet direkte. Sidepanelets markedvalg brukes bare til watchlist/scanning.")
 tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"])
