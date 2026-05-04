@@ -6,6 +6,7 @@ V12 dekker:
 - kombinasjonsvern, slik at appen ikke henger ved for store intervaller
 - automatisk logg av resultater og grovtest
 - PDF-rapport og strategi-profiler
+- in-sample / out-of-sample-validering for å redusere falsk beste strategi
 
 Merk: Dette er historisk simulering med teknisk score-proxy, ikke investeringsråd
 og ikke ordreutførelse.
@@ -62,6 +63,22 @@ TEST_TYPE_HELP = {
     "Finjuster siste grovtest": "Bruker sist lagrede grovtest fra loggen og finjusterer den videre.",
     "Egendefinert intervall": "Bruker intervallene du selv skriver inn i feltene under.",
 }
+
+VALIDATION_METHOD_OPTIONS = [
+    "Ingen validering / hele perioden",
+    "70/30 in-sample / out-of-sample",
+    "80/20 in-sample / out-of-sample",
+    "Walk-forward test",
+]
+
+VALIDATION_HELP = {
+    "Ingen validering / hele perioden": "Bruker hele perioden både til test og vurdering. Raskt, men høyere risiko for falsk beste strategi.",
+    "70/30 in-sample / out-of-sample": "Første 70 % finner reglene. Siste 30 % tester låste regler uten ny justering.",
+    "80/20 in-sample / out-of-sample": "Første 80 % finner reglene. Siste 20 % tester låste regler uten ny justering.",
+    "Walk-forward test": "Bruker rullerende out-of-sample-kontroll av låste regler over flere senere perioder.",
+}
+
+TRAINING_SHARE_OPTIONS = [60, 70, 80]
 
 
 def _safe_widget_suffix(text: str) -> str:
@@ -341,6 +358,183 @@ def run_group_backtest(histories: Dict[str, pd.DataFrame], rules: RuleSet, start
     portfolio, per_df = combine_ticker_results(raw, start_cash)
     summary = summarize_portfolio(portfolio, per_df, start_cash)
     return {"portfolio": portfolio, "per_ticker": per_df, "summary": summary, "raw": raw}
+
+
+# -------------------------------------------------------------------
+# Validering mot falsk beste strategi / overtilpasning
+# -------------------------------------------------------------------
+def _validation_train_share_pct(method: str, selected_pct: int) -> int:
+    if method.startswith("70/30"):
+        return 70
+    if method.startswith("80/20"):
+        return 80
+    try:
+        return int(selected_pct)
+    except Exception:
+        return 70
+
+
+def split_histories_in_out(histories: Dict[str, pd.DataFrame], train_pct: int) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, str]]:
+    """Splitter hver ticker kronologisk: første del = in-sample, siste del = out-of-sample."""
+    train: Dict[str, pd.DataFrame] = {}
+    validate: Dict[str, pd.DataFrame] = {}
+    meta: Dict[str, str] = {}
+    share = max(0.50, min(0.90, float(train_pct) / 100.0))
+    for ticker, df in histories.items():
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            continue
+        clean = df.sort_index().dropna(subset=["Close"]) if "Close" in df.columns else df.sort_index()
+        n = len(clean)
+        if n < 60:
+            train[ticker] = clean
+            meta[ticker] = "For lite historikk til robust split - hele serien brukt som in-sample."
+            continue
+        split_idx = int(n * share)
+        split_idx = max(35, min(split_idx, n - 20))
+        tr = clean.iloc[:split_idx].copy()
+        va = clean.iloc[split_idx:].copy()
+        if not tr.empty:
+            train[ticker] = tr
+        if not va.empty:
+            validate[ticker] = va
+        meta[ticker] = f"{tr.index[0].date()} -> {tr.index[-1].date()} / {va.index[0].date()} -> {va.index[-1].date()}" if not tr.empty and not va.empty else "Split ga ikke nok data."
+    return train, validate, meta
+
+
+def _summary_row(summary: Dict[str, object], label: str) -> Dict[str, object]:
+    summary = summary or {}
+    return {
+        "Måling": label,
+        "Avkastning %": round(float(summary.get("total_return_pct", 0) or 0), 2),
+        "Mot buy & hold %": round(float(summary.get("vs_buy_hold_pct", 0) or 0), 2),
+        "Max drawdown %": round(float(summary.get("max_drawdown_pct", 0) or 0), 2),
+        "Win rate %": round(float(summary.get("win_rate_pct", 0) or 0), 1),
+        "Trades": int(summary.get("trades", 0) or 0),
+    }
+
+
+def assess_overfit_risk(in_sample: Dict[str, object], out_sample: Dict[str, object]) -> str:
+    """En enkel, forklarbar risikovurdering. Brukes som varsel, ikke fasit."""
+    if not out_sample:
+        return "Ukjent"
+    in_ret = float((in_sample or {}).get("total_return_pct", 0) or 0)
+    out_ret = float((out_sample or {}).get("total_return_pct", 0) or 0)
+    in_vs = float((in_sample or {}).get("vs_buy_hold_pct", 0) or 0)
+    out_vs = float((out_sample or {}).get("vs_buy_hold_pct", 0) or 0)
+    in_dd = abs(float((in_sample or {}).get("max_drawdown_pct", 0) or 0))
+    out_dd = abs(float((out_sample or {}).get("max_drawdown_pct", 0) or 0))
+
+    if in_ret > 5 and out_ret < 0:
+        return "Høy"
+    if in_ret > 0 and out_ret < in_ret * 0.35:
+        return "Høy"
+    if in_vs > 0 and out_vs < -5:
+        return "Høy"
+    if out_dd > max(15, in_dd * 1.75):
+        return "Høy"
+    if in_ret > 0 and out_ret < in_ret * 0.70:
+        return "Moderat"
+    if out_vs < 0 <= in_vs:
+        return "Moderat"
+    if out_dd > in_dd * 1.25 and out_dd > 8:
+        return "Moderat"
+    return "Lav"
+
+
+def _avg_summaries(rows: List[Dict[str, object]]) -> Dict[str, float]:
+    if not rows:
+        return {"total_return_pct": 0, "vs_buy_hold_pct": 0, "max_drawdown_pct": 0, "win_rate_pct": 0, "trades": 0}
+    return {
+        "total_return_pct": float(sum(float(r.get("total_return_pct", 0) or 0) for r in rows) / len(rows)),
+        "vs_buy_hold_pct": float(sum(float(r.get("vs_buy_hold_pct", 0) or 0) for r in rows) / len(rows)),
+        # max drawdown er negativ - bruk verste fold
+        "max_drawdown_pct": float(min(float(r.get("max_drawdown_pct", 0) or 0) for r in rows)),
+        "win_rate_pct": float(sum(float(r.get("win_rate_pct", 0) or 0) for r in rows) / len(rows)),
+        "trades": int(sum(int(r.get("trades", 0) or 0) for r in rows)),
+    }
+
+
+def run_walk_forward_validation(histories: Dict[str, pd.DataFrame], rules: RuleSet, start_cash: float, train_pct: int, folds: int = 3) -> Dict[str, object]:
+    """Rullerende validering av låste regler.
+
+    For å holde appen rask gjenoptimaliseres ikke reglene i hver fold i denne versjonen.
+    Reglene er allerede valgt/optimalisert på in-sample før denne kontrollen kjøres.
+    """
+    train_summaries: List[Dict[str, object]] = []
+    out_summaries: List[Dict[str, object]] = []
+    fold_rows: List[Dict[str, object]] = []
+    share = max(0.50, min(0.90, float(train_pct) / 100.0))
+
+    for fold in range(max(1, int(folds))):
+        tr: Dict[str, pd.DataFrame] = {}
+        va: Dict[str, pd.DataFrame] = {}
+        for ticker, df in histories.items():
+            if not isinstance(df, pd.DataFrame) or df.empty or "Close" not in df.columns:
+                continue
+            clean = df.sort_index().dropna(subset=["Close"])
+            n = len(clean)
+            if n < 90:
+                continue
+            initial_end = int(n * share)
+            remaining = n - initial_end
+            if remaining < 20:
+                continue
+            fold_size = max(10, remaining // max(1, folds))
+            val_start = initial_end + fold * fold_size
+            val_end = n if fold == folds - 1 else min(n, val_start + fold_size)
+            if val_start >= n or val_end <= val_start:
+                continue
+            train_end = val_start
+            tr[ticker] = clean.iloc[:train_end].copy()
+            va[ticker] = clean.iloc[val_start:val_end].copy()
+        if not tr or not va:
+            continue
+        tr_res = run_group_backtest(tr, rules, start_cash=start_cash)
+        va_res = run_group_backtest(va, rules, start_cash=start_cash)
+        tr_sum = dict(tr_res.get("summary", {}) or {})
+        va_sum = dict(va_res.get("summary", {}) or {})
+        train_summaries.append(tr_sum)
+        out_summaries.append(va_sum)
+        fold_rows.append({
+            "Fold": fold + 1,
+            "In-sample avkastning %": round(float(tr_sum.get("total_return_pct", 0) or 0), 2),
+            "Out-of-sample avkastning %": round(float(va_sum.get("total_return_pct", 0) or 0), 2),
+            "Out-of-sample mot B&H %": round(float(va_sum.get("vs_buy_hold_pct", 0) or 0), 2),
+            "Out-of-sample drawdown %": round(float(va_sum.get("max_drawdown_pct", 0) or 0), 2),
+            "Trades": int(va_sum.get("trades", 0) or 0),
+        })
+
+    in_avg = _avg_summaries(train_summaries)
+    out_avg = _avg_summaries(out_summaries)
+    return {
+        "method": "Walk-forward test",
+        "train_pct": int(train_pct),
+        "mode": "rolling_locked_rules",
+        "fold_rows": fold_rows,
+        "in_sample_summary": in_avg,
+        "out_of_sample_summary": out_avg,
+        "overfit_risk": assess_overfit_risk(in_avg, out_avg),
+    }
+
+
+def run_validation_check(histories: Dict[str, pd.DataFrame], rules: RuleSet, start_cash: float, method: str, train_pct: int) -> Dict[str, object]:
+    if method == "Ingen validering / hele perioden":
+        return {}
+    if method == "Walk-forward test":
+        return run_walk_forward_validation(histories, rules, start_cash=start_cash, train_pct=train_pct, folds=3)
+    train_hist, out_hist, split_meta = split_histories_in_out(histories, train_pct)
+    train_result = run_group_backtest(train_hist, rules, start_cash=start_cash) if train_hist else {"summary": {}}
+    out_result = run_group_backtest(out_hist, rules, start_cash=start_cash) if out_hist else {"summary": {}}
+    in_summary = dict(train_result.get("summary", {}) or {})
+    out_summary = dict(out_result.get("summary", {}) or {})
+    return {
+        "method": method,
+        "train_pct": int(train_pct),
+        "split_meta": split_meta,
+        "in_sample_summary": in_summary,
+        "out_of_sample_summary": out_summary,
+        "overfit_risk": assess_overfit_risk(in_summary, out_summary),
+    }
 
 
 # -------------------------------------------------------------------
@@ -712,6 +906,25 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 index=3,
                 key=f"{key_prefix}_max_combos",
             )
+            validation_method = st.selectbox(
+                "Valideringsmetode",
+                VALIDATION_METHOD_OPTIONS,
+                index=0,
+                key=f"{key_prefix}_validation_method",
+            )
+            default_train_idx = 1
+            if validation_method.startswith("80/20"):
+                default_train_idx = 2
+            elif validation_method == "Walk-forward test":
+                default_train_idx = 1
+            training_share_choice = st.selectbox(
+                "Treningsandel",
+                TRAINING_SHARE_OPTIONS,
+                index=default_train_idx,
+                key=f"{key_prefix}_training_share",
+            )
+            applied_train_share = _validation_train_share_pct(validation_method, int(training_share_choice))
+            st.caption(VALIDATION_HELP.get(validation_method, ""))
 
         # Hovedregel for gjeldende test
         with st.expander("Juster gjeldende regler", expanded=False):
@@ -843,6 +1056,20 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             st.error("Klarte ikke å hente historikk. Sjekk internett/Yahoo Finance eller ticker-symbolene.")
             return
 
+        validation_active = validation_method != "Ingen validering / hele perioden"
+        train_histories, out_histories, split_meta = ({}, {}, {})
+        optimization_histories = histories
+        if validation_active:
+            train_histories, out_histories, split_meta = split_histories_in_out(histories, applied_train_share)
+            if train_histories:
+                optimization_histories = train_histories
+            st.info(
+                f"Validering aktiv: {validation_method}. Reglene optimaliseres på in-sample "
+                f"({applied_train_share} %) og testes låst på out-of-sample."
+            )
+            if not out_histories and validation_method != "Walk-forward test":
+                st.warning("Fant ikke nok out-of-sample-data for alle tickere. Bruk lengre tidshorisont eller lavere treningsandel.")
+
         opt = pd.DataFrame()
         rules = base
         run_note = ""
@@ -858,14 +1085,14 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             top_rows = pd.DataFrame(last.get("top_rows", []))
             candidates = refine_candidates_from_top(top_rows, base, max_candidates=int(max_combos))
             st.info(f"Finjusterer {len(candidates)} kombinasjoner fra siste lagrede grovtest: {last.get('test_id')}")
-            opt = optimize_rule_sets(histories, candidates, start_cash=float(start_cash))
+            opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash))
         elif test_type == "Kraftig smart-test":
             coarse_ranges = custom_ranges
             total = count_combinations(coarse_ranges)
             coarse_candidates = rules_from_ranges(coarse_ranges, base, max_combinations=int(max_combos))
             _show_combination_status(total, len(coarse_candidates), len(histories))
             st.info("Steg 1/2: kjører grovtest og lagrer toppresultater automatisk.")
-            coarse = optimize_rule_sets(histories, coarse_candidates, start_cash=float(start_cash))
+            coarse = optimize_rule_sets(optimization_histories, coarse_candidates, start_cash=float(start_cash))
             if coarse.empty:
                 st.warning("Grovtesten ga ingen resultater.")
                 return
@@ -875,20 +1102,23 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 "period_label": period_label,
                 "tickers": list(histories.keys()),
                 "combination_count": int(len(coarse_candidates)),
+                "validation_method": validation_method,
+                "training_share_pct": int(applied_train_share),
+                "split_meta": split_meta,
                 "top_rows": coarse.head(50).to_dict(orient="records"),
                 "best_summary": {"total_return_pct": float(coarse.iloc[0].get("Avkastning %", 0)), "vs_buy_hold_pct": float(coarse.iloc[0].get("Mot buy&hold %", 0))},
             })
             st.success(f"Grovtest lagret automatisk: {coarse_id}")
             st.info("Steg 2/2: finjusterer rundt beste grovtest-kombinasjoner.")
             refine = refine_candidates_from_top(coarse, base, max_candidates=int(max_combos))
-            opt = optimize_rule_sets(histories, refine, start_cash=float(start_cash))
+            opt = optimize_rule_sets(optimization_histories, refine, start_cash=float(start_cash))
             run_note = f"Kraftig smart-test: grovtest {coarse_id} + finjustering."
         else:
             ranges = custom_ranges if test_type == "Egendefinert intervall" else preset_ranges(base, test_type)
             total = count_combinations(ranges)
             candidates = rules_from_ranges(ranges, base, max_combinations=int(max_combos))
             _show_combination_status(total, len(candidates), len(histories))
-            opt = optimize_rule_sets(histories, candidates, start_cash=float(start_cash))
+            opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash))
 
         if not opt.empty:
             st.markdown("#### Beste kombinasjoner")
@@ -901,6 +1131,25 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         portfolio = result.get("portfolio")
         per_ticker = result.get("per_ticker")
         summary = result.get("summary", {}) or {}
+        validation_payload = run_validation_check(histories, rules, float(start_cash), validation_method, int(applied_train_share)) if validation_active else {}
+
+        if validation_payload:
+            st.markdown("#### In-sample / out-of-sample-validering")
+            val_rows = [
+                _summary_row(validation_payload.get("in_sample_summary", {}), "In-sample"),
+                _summary_row(validation_payload.get("out_of_sample_summary", {}), "Out-of-sample"),
+            ]
+            st.dataframe(pd.DataFrame(val_rows), use_container_width=True, hide_index=True)
+            risk = validation_payload.get("overfit_risk", "Ukjent")
+            if risk == "Høy":
+                st.error("Overfit-risiko: Høy - strategien ser mye svakere ut utenfor treningsperioden.")
+            elif risk == "Moderat":
+                st.warning("Overfit-risiko: Moderat - vurder lengre periode eller flere tickere.")
+            else:
+                st.success(f"Overfit-risiko: {risk} - out-of-sample er relativt stabil mot in-sample.")
+            if validation_payload.get("fold_rows"):
+                with st.expander("Walk-forward detaljer", expanded=False):
+                    st.dataframe(pd.DataFrame(validation_payload.get("fold_rows", [])), use_container_width=True, hide_index=True)
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total avkastning", f"{float(summary.get('total_return_pct', 0)):.2f}%")
@@ -954,6 +1203,10 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             "tickers": list(histories.keys()),
             "start_cash": float(start_cash),
             "rules": asdict(rules),
+            "validation_method": validation_method,
+            "training_share_pct": int(applied_train_share),
+            "split_meta": split_meta,
+            "validation": validation_payload,
             "best_summary": {k: float(v) if isinstance(v, (int, float)) else v for k, v in summary.items()},
             "top_rows": top_rows,
             "note": run_note,
@@ -967,6 +1220,9 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             "period_label": period_label,
             "rules": asdict(rules),
             "summary": summary,
+            "validation_method": validation_method,
+            "training_share_pct": int(applied_train_share),
+            "validation": validation_payload,
             "source_test_id": test_id,
         }
         if st.button("⭐ Lagre beste strategi som profil", key=f"{key_prefix}_save_profile"):
@@ -977,6 +1233,9 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             f"Test-ID: {test_id}",
             f"Dato: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
             f"Test-type: {test_type}",
+            f"Valideringsmetode: {validation_method}",
+            f"Treningsandel: {applied_train_share}%" if validation_active else "Treningsandel: ikke brukt",
+            f"Overfit-risiko: {validation_payload.get('overfit_risk', 'Ikke beregnet')}" if validation_active else "Overfit-risiko: ikke beregnet",
             f"Tickere: {', '.join(list(histories.keys()))}",
             f"Tidshorisont: {period_label}",
             "",
@@ -989,6 +1248,20 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             f"- Max drawdown: {float(summary.get('max_drawdown_pct', 0)):.2f}%",
             f"- Win rate: {float(summary.get('win_rate_pct', 0)):.1f}%",
             f"- Trades: {int(summary.get('trades', 0) or 0)}",
+        ]
+        if validation_payload:
+            in_s = validation_payload.get("in_sample_summary", {}) or {}
+            out_s = validation_payload.get("out_of_sample_summary", {}) or {}
+            pdf_lines += [
+                "",
+                "Validering:",
+                f"- In-sample avkastning: {float(in_s.get('total_return_pct', 0)):.2f}%",
+                f"- Out-of-sample avkastning: {float(out_s.get('total_return_pct', 0)):.2f}%",
+                f"- Out-of-sample mot buy & hold: {float(out_s.get('vs_buy_hold_pct', 0)):+.2f}%",
+                f"- Out-of-sample max drawdown: {float(out_s.get('max_drawdown_pct', 0)):.2f}%",
+                f"- Overfit-risiko: {validation_payload.get('overfit_risk', 'Ukjent')}",
+            ]
+        pdf_lines += [
             "",
             "Merk: historisk simulering/proxy - ingen garanti for fremtidig avkastning.",
         ]
