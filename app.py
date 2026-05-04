@@ -3064,14 +3064,51 @@ def render_analysis(results, label):
         else:
             st.dataframe(opt_df.head(10), use_container_width=True)
 
-            best = opt_df.iloc[0]
-            st.success(
-                f"Beste variant: BUY RSI < {best['buy_rsi']}, "
-                f"SELL RSI > {best['sell_rsi']}, "
-                f"MACD: {best['use_macd']} | "
-                f"Return: {best['total_return']}% | "
-                f"Max DD: {best['max_drawdown']}%"
-            )
+            # HOTFIX v14.2 / Oppgave 39:
+            # Optimaliseringsresultater har hatt to ulike formater i appen:
+            # 1) bredt format: buy_rsi, sell_rsi, use_macd, total_return, max_drawdown
+            # 2) langt format: parameter, value, score
+            # Appen skal ikke krasje hvis enkelte nøkler mangler.
+            def _best_get(row, *keys, default="N/A"):
+                for key in keys:
+                    try:
+                        if key in row.index and pd.notna(row.get(key)):
+                            return row.get(key)
+                    except Exception:
+                        pass
+                return default
+
+            if {"parameter", "value"}.issubset(set(opt_df.columns)):
+                try:
+                    _opt_sorted = opt_df.sort_values("score", ascending=False) if "score" in opt_df.columns else opt_df
+                except Exception:
+                    _opt_sorted = opt_df
+                _top = _opt_sorted.iloc[0]
+                _parts = []
+                for _, _row in opt_df.head(10).iterrows():
+                    _param = _best_get(_row, "parameter", "Parameter")
+                    _value = _best_get(_row, "value", "Verdi")
+                    if _param != "N/A":
+                        _parts.append(f"{_param}: {_value}")
+                _score_txt = ""
+                _score = _best_get(_top, "score", "Score", default=None)
+                if _score is not None:
+                    _score_txt = f" | Beste score: {_score}"
+                st.success("Beste variant: " + " | ".join(_parts[:6]) + _score_txt)
+            else:
+                best = opt_df.iloc[0]
+                buy_rsi = _best_get(best, "buy_rsi", "max_buy_rsi", "Maks RSI for kjøp", "RSI kjøp")
+                sell_rsi = _best_get(best, "sell_rsi", "rsi_exit", "RSI exit", "RSI salg")
+                use_macd = _best_get(best, "use_macd", "MACD", default="N/A")
+                total_return = _best_get(best, "total_return", "total_return_pct", "Avkastning %")
+                max_drawdown = _best_get(best, "max_drawdown", "max_drawdown_pct", "Max drawdown %", "Max DD %")
+                st.success(
+                    f"Beste variant: BUY RSI < {buy_rsi}, "
+                    f"SELL RSI > {sell_rsi}, "
+                    f"MACD: {use_macd} | "
+                    f"Return: {total_return}% | "
+                    f"Max DD: {max_drawdown}%"
+                )
 
     _strategy_default_tickers = []
     for _r in (results or [])[:10]:
