@@ -117,6 +117,93 @@ def _fmt_dt_short(value):
         return str(value)
 
 
+def _now_short():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def _set_update_reason(reason: str):
+    """Lagrer synlig forklaring på hvorfor tung analyse/refresh ble kjørt."""
+    st.session_state["last_update_started_by_v148"] = reason
+    st.session_state["last_update_started_at_v148"] = _now_short()
+
+
+def _last_update_label():
+    reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
+    at = st.session_state.get("last_update_started_at_v148", "-")
+    return f"{reason} · {at}"
+
+
+def _controls_differ(a, b):
+    return {k: a.get(k) for k in sorted(a)} != {k: b.get(k) for k in sorted(b)}
+
+
+def _heavy_update_allowed():
+    """True bare når bruker har trykket Oppdater / auto-oppdater er aktiv / cache mangler."""
+    settings = load_settings()
+    return bool(settings.get("chart_auto_update_enabled", False)) or bool(st.session_state.get("heavy_update_allowed_v148", False))
+
+
+def _rank_cache_store(label, fp, data):
+    st.session_state[f"rank_cache_v148_{label}"] = {"fp": fp, "data": data, "updated_at": _now_short()}
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    latest[label] = data or []
+
+
+def _rank_cache_get(label, fp):
+    cache = st.session_state.get(f"rank_cache_v148_{label}") or {}
+    if cache.get("fp") == fp:
+        return cache.get("data")
+    return None
+
+
+def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False):
+    """Cache rundt auto_rank_market for å hindre tung rangering ved bare menyendringer.
+
+    Når auto-oppdater er AV, kjøres ny rangering bare når bruker trykker
+    Oppdater / bruk endringer, eller når cache mangler.
+    """
+    safe_tickers = list(tickers or [])
+    fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch))
+    cached = _rank_cache_get(label, fp)
+    if cached is not None and not _heavy_update_allowed():
+        return cached
+    if cached is not None and not bool(load_settings().get("chart_auto_update_enabled", False)) and not st.session_state.get("heavy_update_allowed_v148", False):
+        return cached
+    data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch)
+    _rank_cache_store(label, fp, data)
+    return data
+
+
+def _latest_ranked_results_for_source(source_label, fallback_results=None):
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    fallback_results = fallback_results or []
+    if source_label == "Aktuell liste":
+        return fallback_results
+    if source_label == "Dynamisk watchlist / best rangerte":
+        merged = []
+        seen = set()
+        for key in ["USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
+            for item in latest.get(key, []) or []:
+                ticker = normalize_user_ticker(item.get("ticker"))
+                if ticker and ticker not in seen:
+                    seen.add(ticker)
+                    merged.append(item)
+        return sorted(merged, key=lambda x: float(x.get("score", 0) or 0), reverse=True) or fallback_results
+    if source_label == "USA":
+        return latest.get("USA") or fallback_results
+    if source_label == "Norge":
+        return latest.get("Norge") or fallback_results
+    if source_label == "Sverige":
+        return latest.get("Sverige") or fallback_results
+    if source_label == "Top Picks":
+        merged = []
+        for key, value in latest.items():
+            if str(key).startswith("TopPicks"):
+                merged.extend(value or [])
+        return sorted(merged, key=lambda x: float(x.get("score", 0) or 0), reverse=True) or fallback_results
+    return fallback_results
+
+
 # SIDEBAR_MARKET_DROPDOWN_V1
 # BANNER_PERIOD_SYNC_FIX_V3
 
@@ -1390,6 +1477,60 @@ div[role="tooltip"] *,
 
 </style>
 """, unsafe_allow_html=True)
+
+
+# V14.8 / Oppgave 67-69: strammere desktop-layout, mørk topp og tydeligere status.
+st.markdown(
+    """
+    <style>
+    header[data-testid="stHeader"] {
+        background: rgba(15,23,42,0.0) !important;
+        height: 0.25rem !important;
+        min-height: 0.25rem !important;
+    }
+    [data-testid="stToolbar"], #MainMenu, footer { visibility: hidden !important; height: 0 !important; }
+    .block-container {
+        max-width: 1720px !important;
+        padding-top: 0.25rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+    @media (min-width: 1200px) {
+        section[data-testid="stSidebar"] {
+            width: 235px !important;
+            min-width: 235px !important;
+        }
+        .main .block-container,
+        [data-testid="stAppViewContainer"] .block-container {
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] { gap: 0.65rem !important; }
+    }
+    .top-app-header {
+        padding: 3px 0 5px 0 !important;
+        margin-bottom: 4px !important;
+        border-bottom: 1px solid rgba(148,163,184,0.22) !important;
+    }
+    .top-app-title { font-size: 1.06rem !important; line-height: 1.05 !important; }
+    .top-chip { font-size: 0.82rem !important; padding: 5px 9px !important; }
+    .update-debug-line {
+        display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;
+        margin: 2px 0 6px 0; padding: 5px 8px;
+        border-radius: 999px; border:1px solid rgba(148,163,184,0.22);
+        background:rgba(15,23,42,0.62); color:#cbd5e1 !important;
+        font-size:0.78rem; font-weight:850;
+    }
+    .pending-changes-box {
+        margin: 4px 0 8px 0; padding: 7px 10px; border-radius: 12px;
+        background: rgba(120,53,15,0.22); border: 1px solid rgba(251,191,36,0.38);
+        color:#fde68a !important; font-weight:900; font-size:0.84rem;
+    }
+    .panel-radio-label { color:#cbd5e1 !important; font-size:0.78rem; font-weight:800; margin-top:3px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # V14.5 / Oppgave 44: Global visningsmodus.
 # Kompakt gjør status-/analysebokser lavere uten å fjerne informasjon.
@@ -2926,20 +3067,41 @@ def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> st
 def render_analysis(results, label):
     st.subheader("📊 Interaktiv analyse")
 
-    result_options = [r.get("ticker") for r in (results or []) if r.get("ticker")]
+    # V14.8 / Oppgave 73: Interaktiv analyse kan hente fra siste lagrede dynamiske rangering,
+    # uten å starte en ny scan/rangering bare fordi menyen åpnes.
+    source_choice = st.selectbox(
+        "Aksjekilde",
+        ["Aktuell liste", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige"],
+        index=0,
+        key=f"analysis_source_{label}_v148",
+        help="Bruker siste lagrede/godkjente rangering. Manuell ticker overstyrer alltid listen.",
+    )
+    source_results = _latest_ranked_results_for_source(source_choice, results or [])
+
+    result_options = [r.get("ticker") for r in (source_results or []) if r.get("ticker")]
     default_options = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
     options = []
+    option_labels = {}
+    for r in (source_results or []):
+        t = r.get("ticker")
+        if t:
+            score = r.get("score", "N/A")
+            action = card_decision_for_item(r).get("action_now", "") if isinstance(r, dict) else ""
+            option_labels[t] = f"{t} · score {score} · {action}"
     for _t in result_options + default_options:
         if _t and _t not in options:
             options.append(_t)
 
-    s1, s2 = st.columns([2, 1])
+    s0, s1, s2 = st.columns([1.15, 2, 1])
+    with s0:
+        st.caption(f"Kilde: {source_choice}")
     with s1:
         selected_from_list = st.selectbox(
-            f"Velg aksje fra aktuell liste ({label})",
+            f"Velg aksje fra valgt kilde ({label})",
             options,
             index=0,
             key=f"select_{label}",
+            format_func=lambda x: option_labels.get(x, x),
         )
     with s2:
         manual_ticker = st.text_input(
@@ -2953,7 +3115,7 @@ def render_analysis(results, label):
     if manual_ticker.strip():
         st.caption(f"Manuell ticker overstyrer listen: {selected}")
 
-    item = next((r for r in (results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
+    item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
     if item is None:
         with st.spinner(f"Henter analyse for {selected}..."):
             item = score_stock(selected, use_news=False)
@@ -4267,6 +4429,39 @@ min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 
 auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
 search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
 
+# V14.8 / Oppgave 70 og 72:
+# Menyer skriver først til draft. Tunge analyser bruker aktive verdier til bruker trykker
+# Oppdater / bruk endringer, med mindre Auto-oppdater er PÅ.
+_draft_analysis_controls_v148 = {
+    "selected_market_category": selected_market_category,
+    "mode": mode,
+    "max_count": int(max_count),
+    "min_top_pick_score": float(min_top_pick_score),
+    "use_news": bool(use_news),
+    "use_signal_intelligence": bool(use_signal_intelligence),
+    "search": str(search or "").strip().upper(),
+}
+if "active_analysis_controls_v148" not in st.session_state:
+    st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+    _set_update_reason("Oppstart / første aktive innstillinger")
+
+# Auto-oppdater = draft blir aktivt med en gang. Av = behold sist aktive til bruker trykker Oppdater.
+if bool(load_settings().get("chart_auto_update_enabled", False)):
+    st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+    st.session_state["heavy_update_allowed_v148"] = True
+    _set_update_reason("Auto-oppdater ved endringer")
+
+_active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
+_pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
+
+# Aktive verdier brukes av datahenting/rangering. Widgetverdier kan endres uten tung analyse.
+mode = _active_analysis_controls_v148.get("mode", mode)
+max_count = int(_active_analysis_controls_v148.get("max_count", max_count))
+min_top_pick_score = float(_active_analysis_controls_v148.get("min_top_pick_score", min_top_pick_score))
+use_news = bool(_active_analysis_controls_v148.get("use_news", use_news))
+use_signal_intelligence = bool(_active_analysis_controls_v148.get("use_signal_intelligence", use_signal_intelligence))
+search = str(_active_analysis_controls_v148.get("search", search or "")).strip()
+
 # Trygge standardverdier for watchlist-knapper
 manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
 watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
@@ -4319,9 +4514,16 @@ with _tq4:
 with _tq5:
     if not _top_chart_auto:
         if st.button("🔄 Oppdater / bruk endringer", key="top_apply_changes_v147", use_container_width=True):
+            st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+            st.session_state["heavy_update_allowed_v148"] = True
+            _set_update_reason("Oppdater-knapp / bruk endringer")
             st.rerun()
     else:
         st.caption("Auto-oppdatering på")
+
+st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
+if (not _top_chart_auto) and _pending_analysis_changes_v148:
+    st.markdown("<div class='pending-changes-box'>⚠️ Endringer i menyene er ikke brukt ennå. Trykk Oppdater / bruk endringer for ny analyse/graf/rangering.</div>", unsafe_allow_html=True)
 
 if 'top_picks' in locals():
     market_pulse(top_picks)
@@ -4411,25 +4613,32 @@ if auto_watchlist_alerts or manual_watchlist_scan:
         else:
             st.info("Ingen nye watchlist-signaler akkurat nå.")
 
-st.caption("Fanene henter markedet direkte. Sidepanelets markedvalg brukes bare til watchlist/scanning.")
-tabs = st.tabs(["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"])
+st.caption("Velg panel. Bare valgt panel beregnes tungt, slik at skjulte faner ikke starter nye analyser.")
+st.markdown("<div class='panel-radio-label'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
+active_panel = st.radio(
+    "Aktivt hovedpanel",
+    ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="active_main_panel_v148",
+)
 
-with tabs[0]:
-    us_results = auto_rank_market(tickers_us, max_count=max_count, use_news=False)
+if active_panel == "🇺🇸 USA":
+    us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False)
     render_ranking(us_results, "🏆 Dynamisk rangering USA/S&P 500")
     render_analysis(us_results, "USA")
 
-with tabs[1]:
-    no_results = auto_rank_market(tickers_no, max_count=max_count, use_news=False)
+elif active_panel == "🇳🇴 Norge":
+    no_results = cached_auto_rank_market("Norge", tickers_no, max_count=max_count, use_news=False)
     render_ranking(no_results, "🇳🇴 Dynamisk rangering Norge")
     render_analysis(no_results, "Norge")
 
-with tabs[2]:
-    se_results = auto_rank_market(tickers_se, max_count=max_count, use_news=False)
+elif active_panel == "🇸🇪 Sverige":
+    se_results = cached_auto_rank_market("Sverige", tickers_se, max_count=max_count, use_news=False)
     render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
     render_analysis(se_results, "Sverige")
 
-with tabs[3]:
+elif active_panel == "⭐ Top Picks":
     st.subheader("⭐ Automatiske Top Picks")
     st.caption(
         "Top Picks = beste kandidater totalt. "
@@ -4466,7 +4675,8 @@ with tabs[3]:
         )
 
     with st.spinner("Finner beste kandidater..."):
-        ranked = auto_rank_market(
+        ranked = cached_auto_rank_market(
+            f"TopPicks_{scan_market}",
             source_tickers,
             max_count=max_count,
             use_news=False,
@@ -4474,6 +4684,8 @@ with tabs[3]:
         )
         top_picks = build_top_picks(ranked, min_score=min_top_pick_score, max_items=15)
         buy_now_picks = [x for x in top_picks if is_buy_now_item(x)]
+        latest = st.session_state.setdefault("latest_rankings_v148", {})
+        latest[f"TopPicks_{scan_market}"] = top_picks or []
 
     if not top_picks and not _manual_fetch_closed and not _open_now:
         st.info(
@@ -4481,14 +4693,13 @@ with tabs[3]:
             "Dette starter ikke auto-trading."
         )
 
-    top_pick_tabs = st.tabs(["⭐ Top Picks", "🟢 Kjøp nå"])
+    top_pick_view = st.radio("Top Picks-visning", ["⭐ Top Picks", "🟢 Kjøp nå"], horizontal=True, key=f"top_pick_view_{scan_market}_v148")
 
-    with top_pick_tabs[0]:
+    if top_pick_view == "⭐ Top Picks":
         render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
         st.caption("Merk: En aksje kan være sterk totalt, men fortsatt ha VENT/UNNGÅ hvis teknisk timing er dårlig.")
         render_analysis(top_picks, f"TopPicks_{scan_market}")
-
-    with top_pick_tabs[1]:
+    else:
         if buy_now_picks:
             _saved_candidates = save_latest_buy_now_candidates(buy_now_picks, scan_market)
             st.info(f"Disse er kandidater med grønt teknisk signal akkurat nå. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjøp skjer via Cron, eller knappen 'Kjør auto-kjøp nå'.")
@@ -4512,11 +4723,10 @@ with tabs[3]:
             st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
             st.caption("Systemet tvinger ikke kjøp når timing/risiko ikke er god nok.")
 
-
-with tabs[4]:
+elif active_panel == "🚀 IPO":
     render_ipo()
 
-with tabs[5]:
+elif active_panel == "🧪 Backtesting":
     bt_market = st.radio("Backtest-marked", ["USA", "Norge", "Sverige"], horizontal=True)
     if bt_market == "USA":
         bt_tickers = tickers_us
@@ -4527,8 +4737,11 @@ with tabs[5]:
 
     render_strategy_backtest(bt_tickers, bt_market)
 
-with tabs[6]:
+elif active_panel == "🧪 Paper Trading":
     render_paper_trading_dashboard()
+
+# Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.
+st.session_state["heavy_update_allowed_v148"] = False
 
 
 def add_rsi_current_box(fig, rsi):
