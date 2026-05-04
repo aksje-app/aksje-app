@@ -45,6 +45,28 @@ LOG_FILE = Path("strategy_test_logs.json")
 PROFILE_FILE = Path("strategy_profiles.json")
 MAX_DISPLAY_ROWS = 25
 
+TEST_TYPE_OPTIONS = [
+    "Gjeldende regler",
+    "Rask test",
+    "Standard test",
+    "Kraftig smart-test",
+    "Finjuster siste grovtest",
+    "Egendefinert intervall",
+]
+
+TEST_TYPE_HELP = {
+    "Gjeldende regler": 'Tester bare verdiene som står i "Juster gjeldende regler". Ingen optimalisering.',
+    "Rask test": "Få forhåndsvalgte intervaller. Rask kontroll av om strategien har potensial.",
+    "Standard test": "Balansert intervall-test. Anbefalt startpunkt for én eller flere aksjer.",
+    "Kraftig smart-test": "Kjører først grovtest, lagrer toppresultater, og finjusterer automatisk rundt de beste.",
+    "Finjuster siste grovtest": "Bruker sist lagrede grovtest fra loggen og finjusterer den videre.",
+    "Egendefinert intervall": "Bruker intervallene du selv skriver inn i feltene under.",
+}
+
+
+def _safe_widget_suffix(text: str) -> str:
+    return str(text or "").lower().replace(" ", "_").replace("/", "_").replace("-", "_").replace("æ", "ae").replace("ø", "o").replace("å", "a")
+
 
 @dataclass(frozen=True)
 class RuleSet:
@@ -673,12 +695,17 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 key=f"{key_prefix}_cash",
             )
         with c3:
-            test_type = st.selectbox(
+            # V14.3 hotfix / Oppgave 40:
+            # Vis alle testvalg tydelig. Tidligere så det ut som bare "Gjeldende regler" fantes,
+            # selv om mer funksjonalitet lå under. Radio-listen gjør valgene synlige uten å
+            # endre logg/PDF-formatet eller selve testmotoren.
+            test_type = st.radio(
                 "Test-type",
-                ["Gjeldende regler", "Rask test", "Standard test", "Kraftig smart-test", "Finjuster siste grovtest", "Egendefinert intervall"],
+                TEST_TYPE_OPTIONS,
                 index=0,
                 key=f"{key_prefix}_test_type",
             )
+            st.caption(TEST_TYPE_HELP.get(test_type, ""))
             max_combos = st.selectbox(
                 "Maks kombinasjoner",
                 [500, 2_000, 5_000, 10_000, 20_000, 50_000],
@@ -716,22 +743,28 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             max_trades_per_day=int(max_buys),
         )
 
-        default_range = preset_ranges(base, "Kraftig grovtest" if test_type == "Kraftig smart-test" else "Standard test")
-        with st.expander("Intervaller for test", expanded=False):
-            st.caption("Bruk komma mellom verdier. Mindre intervaller er kraftige, men kan gi svært mange kombinasjoner.")
+        default_range = preset_ranges(base, "Kraftig grovtest" if test_type == "Kraftig smart-test" else test_type if test_type in {"Rask test", "Standard test"} else "Standard test")
+        range_key_suffix = _safe_widget_suffix(test_type)
+        with st.expander("Intervaller for test", expanded=test_type in {"Rask test", "Standard test", "Kraftig smart-test", "Egendefinert intervall"}):
+            if test_type == "Gjeldende regler":
+                st.caption("Intervallfeltene brukes ikke i denne modusen. Velg Rask, Standard, Kraftig eller Egendefinert for optimalisering.")
+            elif test_type == "Finjuster siste grovtest":
+                st.caption("Intervallfeltene brukes ikke direkte. Programmet henter toppkombinasjoner fra siste lagrede grovtest og lager finere intervaller rundt dem.")
+            else:
+                st.caption("Bruk komma mellom verdier. Mindre intervaller er kraftige, men kan gi svært mange kombinasjoner.")
             a, b, c = st.columns(3)
             with a:
-                v_score = st.text_input("BUY score", ", ".join(map(str, default_range["min_buy_score"])), key=f"{key_prefix}_range_score")
-                v_conf = st.text_input("BUY confidence", ", ".join(map(str, default_range["min_buy_confidence"])), key=f"{key_prefix}_range_conf")
-                v_buy_rsi = st.text_input("Maks RSI kjøp", ", ".join(map(str, default_range["max_buy_rsi"])), key=f"{key_prefix}_range_buy_rsi")
+                v_score = st.text_input("BUY score", ", ".join(map(str, default_range["min_buy_score"])), key=f"{key_prefix}_{range_key_suffix}_range_score")
+                v_conf = st.text_input("BUY confidence", ", ".join(map(str, default_range["min_buy_confidence"])), key=f"{key_prefix}_{range_key_suffix}_range_conf")
+                v_buy_rsi = st.text_input("Maks RSI kjøp", ", ".join(map(str, default_range["max_buy_rsi"])), key=f"{key_prefix}_{range_key_suffix}_range_buy_rsi")
             with b:
-                v_sl = st.text_input("Stop-loss %", ", ".join(map(str, default_range["stop_loss_pct"])), key=f"{key_prefix}_range_sl")
-                v_tp = st.text_input("Take-profit %", ", ".join(map(str, default_range["take_profit_pct"])), key=f"{key_prefix}_range_tp")
-                v_tr = st.text_input("Trailing stop %", ", ".join(map(str, default_range["trailing_stop_pct"])), key=f"{key_prefix}_range_tr")
+                v_sl = st.text_input("Stop-loss %", ", ".join(map(str, default_range["stop_loss_pct"])), key=f"{key_prefix}_{range_key_suffix}_range_sl")
+                v_tp = st.text_input("Take-profit %", ", ".join(map(str, default_range["take_profit_pct"])), key=f"{key_prefix}_{range_key_suffix}_range_tp")
+                v_tr = st.text_input("Trailing stop %", ", ".join(map(str, default_range["trailing_stop_pct"])), key=f"{key_prefix}_{range_key_suffix}_range_tr")
             with c:
-                v_exit = st.text_input("RSI exit", ", ".join(map(str, default_range["rsi_exit_level"])), key=f"{key_prefix}_range_exit")
-                v_pos = st.text_input("Posisjonsstørrelse %", ", ".join(map(str, default_range["position_size_pct"])), key=f"{key_prefix}_range_pos")
-                v_buys = st.text_input("Maks kjøp per dag", ", ".join(map(str, default_range["max_trades_per_day"])), key=f"{key_prefix}_range_buys")
+                v_exit = st.text_input("RSI exit", ", ".join(map(str, default_range["rsi_exit_level"])), key=f"{key_prefix}_{range_key_suffix}_range_exit")
+                v_pos = st.text_input("Posisjonsstørrelse %", ", ".join(map(str, default_range["position_size_pct"])), key=f"{key_prefix}_{range_key_suffix}_range_pos")
+                v_buys = st.text_input("Maks kjøp per dag", ", ".join(map(str, default_range["max_trades_per_day"])), key=f"{key_prefix}_{range_key_suffix}_range_buys")
 
         custom_ranges = {
             "min_buy_score": parse_values(v_score, default_range["min_buy_score"]),
@@ -748,11 +781,21 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         raw_tickers_active = st.session_state.get(f"{key_prefix}_tickers", raw_tickers)
         tickers_preview = _parse_ticker_text(raw_tickers_active, default_list)
         st.caption("Testen vil bruke: " + (", ".join(tickers_preview) if tickers_preview else "ingen tickere valgt"))
-        est_ranges = custom_ranges if test_type in {"Egendefinert intervall", "Kraftig smart-test"} else preset_ranges(base, test_type if test_type in {"Rask test", "Standard test"} else "Rask test")
         if test_type == "Gjeldende regler":
             total_est = 1
             candidate_est = 1
+        elif test_type == "Finjuster siste grovtest":
+            last = latest_coarse_log()
+            if last and last.get("top_rows"):
+                total_est = min(len(last.get("top_rows", [])) * 450, int(max_combos))
+                candidate_est = total_est
+                st.info(f"Finjustering bruker siste lagrede grovtest: {last.get('test_id', 'ukjent')}")
+            else:
+                total_est = 0
+                candidate_est = 0
+                st.warning("Ingen lagret grovtest funnet ennå. Kjør Kraftig smart-test først.")
         else:
+            est_ranges = custom_ranges if test_type in {"Egendefinert intervall", "Kraftig smart-test"} else preset_ranges(base, test_type if test_type in {"Rask test", "Standard test"} else "Rask test")
             total_est = count_combinations(est_ranges)
             candidate_est = min(int(max_combos), total_est)
         _show_combination_status(total_est, candidate_est, len(tickers_preview) or 1)
