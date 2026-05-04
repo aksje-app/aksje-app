@@ -1163,6 +1163,58 @@ div[role="tooltip"] *,
 </style>
 """, unsafe_allow_html=True)
 
+# V14.5 / Oppgave 44: Global visningsmodus.
+# Kompakt gjør status-/analysebokser lavere uten å fjerne informasjon.
+APP_VIEW_MODE = st.sidebar.radio(
+    "Visningsmodus",
+    ["Kompakt", "Normal", "Full"],
+    index=0,
+    horizontal=True,
+    key="global_view_mode_v145",
+    help="Kompakt sparer plass. Normal bruker standard. Full viser større kort og mer luft.",
+)
+
+if APP_VIEW_MODE == "Kompakt":
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 0.75rem !important; }
+        [data-testid="stMetric"] {
+            padding: 8px 10px !important;
+            border-radius: 12px !important;
+            min-height: 58px !important;
+            box-shadow: none !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 0.70rem !important;
+            line-height: 1.05 !important;
+            margin-bottom: 1px !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 1.12rem !important;
+            line-height: 1.05 !important;
+        }
+        div[data-testid="column"] { gap: 0.45rem !important; }
+        .stAlert { padding: 0.55rem 0.75rem !important; }
+        .trading-engine-compact { padding: 7px 9px !important; margin: 5px 0 !important; }
+        .trading-engine-details { padding: 6px 8px !important; font-size: 0.80rem !important; }
+        details { margin-bottom: 0.45rem !important; }
+        details > summary { min-height: 32px !important; }
+        .graph-explain-box { padding: 7px 9px !important; font-size: 0.76rem !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+elif APP_VIEW_MODE == "Full":
+    st.markdown(
+        """
+        <style>
+        [data-testid="stMetric"] { padding: 18px !important; min-height: 92px !important; }
+        [data-testid="stMetricValue"] { font-size: 1.85rem !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 LIVE_BANNER_LABELS = {

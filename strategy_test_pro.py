@@ -644,10 +644,47 @@ def strategy_rank_score(summary: Dict[str, float]) -> float:
     return ret + excess * 0.35 + dd * 0.50 + win * 0.05 - trade_penalty
 
 
-def optimize_rule_sets(histories: Dict[str, pd.DataFrame], candidates: List[RuleSet], start_cash: float = 100_000.0) -> pd.DataFrame:
+def optimize_rule_sets(
+    histories: Dict[str, pd.DataFrame],
+    candidates: List[RuleSet],
+    start_cash: float = 100_000.0,
+    phase_label: str = "Test",
+    ticker_count: int | None = None,
+    cancel_key: str | None = None,
+) -> pd.DataFrame:
+    """Tester regelsett med synlig fremdrift.
+
+    V14.5 / Oppgave 42 og 48:
+    - viser ferdige kombinasjoner og prosent
+    - viser fase
+    - støtter en enkel avbryt-flaggsjekk via session_state
+    """
     rows = []
-    progress = st.progress(0.0) if len(candidates) > 100 else None
+    total = max(1, len(candidates))
+    tickers_n = int(ticker_count or len(histories) or 1)
+    status_box = st.empty()
+    progress = st.progress(0.0)
+
+    def _render_progress(done: int) -> None:
+        pct = min(100.0, max(0.0, (done / total) * 100.0))
+        status_box.markdown(
+            f"""
+            <div class="strategy-progress-box">
+                <b>Strategi-test fremdrift</b><br>
+                Fase: <b>{html.escape(str(phase_label))}</b> · 
+                Ferdig: <b>{done:,}</b> / <b>{total:,}</b> kombinasjoner 
+                ({pct:.1f} %) · Tickere: <b>{tickers_n}</b>
+            </div>
+            """.replace(",", " "),
+            unsafe_allow_html=True,
+        )
+        progress.progress(min(1.0, done / total))
+
+    _render_progress(0)
     for i, rules in enumerate(candidates):
+        if cancel_key and bool(st.session_state.get(cancel_key, False)):
+            st.warning(f"Testen ble avbrutt etter {len(rows)} av {total} kombinasjoner.")
+            break
         result = run_group_backtest(histories, rules, start_cash=start_cash)
         s = result.get("summary", {}) or {}
         row = rules.to_row()
@@ -661,10 +698,14 @@ def optimize_rule_sets(histories: Dict[str, pd.DataFrame], candidates: List[Rule
             "Strategi-score": round(strategy_rank_score(s), 2),
         })
         rows.append(row)
-        if progress and (i % 50 == 0 or i == len(candidates) - 1):
-            progress.progress((i + 1) / len(candidates))
-    if progress:
-        progress.empty()
+        done = i + 1
+        if done == 1 or done % 10 == 0 or done == total:
+            _render_progress(done)
+
+    if rows:
+        _render_progress(len(rows))
+    progress.empty()
+    # Behold siste statusboks synlig, slik at ferdig prosent ikke forsvinner med en gang.
     opt = pd.DataFrame(rows)
     if opt.empty:
         return opt
@@ -850,8 +891,115 @@ def _show_combination_status(total: int, candidates: int, tickers: int) -> None:
         st.info(f"Denne kjøringen tester {candidates:,} kombinasjoner × {tickers} ticker(e).".replace(",", " "))
 
 
+def render_test_summary_card(
+    tickers: List[str],
+    period_label: str,
+    test_type: str,
+    validation_method: str,
+    train_pct: int,
+    total_est: int,
+    candidate_est: int,
+    max_combos: int,
+) -> None:
+    """V14.5 / Oppgave 47: tydelig sammendrag før kjøring."""
+    tickers_txt = ", ".join(tickers[:8]) + (" ..." if len(tickers) > 8 else "") if tickers else "Ingen"
+    validation_txt = validation_method
+    if validation_method != "Ingen validering / hele perioden":
+        validation_txt += f" · treningsandel {train_pct}%"
+    capped_txt = "Ja" if total_est > candidate_est else "Nei"
+    st.markdown(
+        f"""
+        <div class="strategy-summary-card">
+            <b>Test-sammendrag før kjøring</b><br>
+            Tickere: <b>{html.escape(tickers_txt)}</b> · Tidshorisont: <b>{html.escape(period_label)}</b><br>
+            Test-type: <b>{html.escape(test_type)}</b> · Validering: <b>{html.escape(validation_txt)}</b><br>
+            Kombinasjoner: <b>{candidate_est:,}</b> av <b>{total_est:,}</b> mulig · Maksgrense: <b>{int(max_combos):,}</b> · Begrenset: <b>{capped_txt}</b><br>
+            Logg/PDF: resultat lagres etter kjøring, og PDF kan lastes ned fra resultatdelen.
+        </div>
+        """.replace(",", " "),
+        unsafe_allow_html=True,
+    )
+
+
+def data_quality_warnings(histories: Dict[str, pd.DataFrame], requested_tickers: List[str]) -> List[str]:
+    """V14.5 / Oppgave 46: enkle datakvalitetsvarsler før resultat tolkes."""
+    warnings: List[str] = []
+    missing = [t for t in requested_tickers if t not in histories]
+    if missing:
+        warnings.append("Mangler historikk for: " + ", ".join(missing))
+    for ticker, df in histories.items():
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            warnings.append(f"{ticker}: ingen brukbare historiske rader.")
+            continue
+        n = len(df)
+        if n < 90:
+            warnings.append(f"{ticker}: bare {n} historiske datapunkter. Strategi-testen kan være svak.")
+        elif n < 180:
+            warnings.append(f"{ticker}: relativt kort historikk ({n} datapunkter). Vurder lengre periode for robuste tester.")
+        if "Close" not in df.columns or df["Close"].dropna().empty:
+            warnings.append(f"{ticker}: mangler sluttkurs/Close-data.")
+        try:
+            last_date = pd.to_datetime(df.index[-1]).date()
+            days_old = (datetime.now().date() - last_date).days
+            if days_old > 10:
+                warnings.append(f"{ticker}: siste datapunkt er {last_date} ({days_old} dager gammelt).")
+        except Exception:
+            pass
+        if "Volume" in df.columns:
+            try:
+                nonzero_share = float((df["Volume"].fillna(0) > 0).mean())
+                if nonzero_share < 0.30:
+                    warnings.append(f"{ticker}: volumdata virker mangelfullt. Volum-baserte signaler kan bli svake.")
+            except Exception:
+                pass
+    return warnings
+
+
+def show_data_quality_box(histories: Dict[str, pd.DataFrame], requested_tickers: List[str]) -> None:
+    warnings = data_quality_warnings(histories, requested_tickers)
+    if warnings:
+        with st.expander("⚠️ Datakvalitetsvarsler", expanded=True):
+            for msg in warnings[:12]:
+                st.warning(msg)
+            if len(warnings) > 12:
+                st.caption(f"+ {len(warnings) - 12} flere varsler skjult.")
+    else:
+        st.success("Datakvalitet: OK for valgte tickere og periode.")
+
+
 def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str], default_rules: dict, key_prefix: str = "strategy_pro") -> None:
     """Streamlit UI for Strategi-test Pro."""
+    st.markdown(
+        """
+        <style>
+        .strategy-summary-card, .strategy-progress-box {
+            background: rgba(15,23,42,0.88);
+            border: 1px solid rgba(56,189,248,0.32);
+            border-radius: 12px;
+            padding: 9px 12px;
+            margin: 8px 0;
+            color: #dbeafe !important;
+            font-size: 0.86rem;
+            line-height: 1.45;
+        }
+        .strategy-progress-box {
+            border-color: rgba(34,197,94,0.36);
+            background: rgba(5,46,22,0.30);
+        }
+        .strategy-confirm-card {
+            background: rgba(245,158,11,0.10);
+            border: 1px solid rgba(245,158,11,0.40);
+            border-radius: 12px;
+            padding: 9px 12px;
+            margin: 8px 0;
+            color: #fde68a !important;
+            font-size: 0.84rem;
+            line-height: 1.4;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     default_list = list(default_tickers or [])
     if default_ticker and default_ticker not in default_list:
         default_list.insert(0, default_ticker)
@@ -1012,8 +1160,27 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             total_est = count_combinations(est_ranges)
             candidate_est = min(int(max_combos), total_est)
         _show_combination_status(total_est, candidate_est, len(tickers_preview) or 1)
+        render_test_summary_card(
+            tickers_preview,
+            period_label,
+            test_type,
+            validation_method,
+            int(applied_train_share),
+            int(total_est),
+            int(candidate_est),
+            int(max_combos),
+        )
 
-        run_btn = st.button("🧪 Kjør Strategi-test Pro for " + (", ".join(tickers_preview[:3]) if tickers_preview else "valgte tickere"), type="primary", use_container_width=False, key=f"{key_prefix}_run")
+        cancel_key = f"{key_prefix}_cancel_requested"
+        run_col, cancel_col = st.columns([1.0, 1.0])
+        with run_col:
+            run_btn = st.button("🧪 Kjør Strategi-test Pro for " + (", ".join(tickers_preview[:3]) if tickers_preview else "valgte tickere"), type="primary", use_container_width=False, key=f"{key_prefix}_run")
+        with cancel_col:
+            if st.button("⏹️ Avbryt test", use_container_width=False, key=f"{key_prefix}_cancel_btn"):
+                st.session_state[cancel_key] = True
+                st.warning("Avbryt er bedt om. Pågående test stopper ved neste mulige kontrollpunkt.")
+        if run_btn:
+            st.session_state[cancel_key] = False
 
         with st.expander("📚 Strategi-test logg", expanded=False):
             logs = _load_json_list(LOG_FILE)
@@ -1055,6 +1222,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         if not histories:
             st.error("Klarte ikke å hente historikk. Sjekk internett/Yahoo Finance eller ticker-symbolene.")
             return
+        show_data_quality_box(histories, tickers)
 
         validation_active = validation_method != "Ingen validering / hele perioden"
         train_histories, out_histories, split_meta = ({}, {}, {})
@@ -1085,14 +1253,14 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             top_rows = pd.DataFrame(last.get("top_rows", []))
             candidates = refine_candidates_from_top(top_rows, base, max_candidates=int(max_combos))
             st.info(f"Finjusterer {len(candidates)} kombinasjoner fra siste lagrede grovtest: {last.get('test_id')}")
-            opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash))
+            opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash), phase_label="Finjustering", ticker_count=len(histories), cancel_key=cancel_key)
         elif test_type == "Kraftig smart-test":
             coarse_ranges = custom_ranges
             total = count_combinations(coarse_ranges)
             coarse_candidates = rules_from_ranges(coarse_ranges, base, max_combinations=int(max_combos))
             _show_combination_status(total, len(coarse_candidates), len(histories))
             st.info("Steg 1/2: kjører grovtest og lagrer toppresultater automatisk.")
-            coarse = optimize_rule_sets(optimization_histories, coarse_candidates, start_cash=float(start_cash))
+            coarse = optimize_rule_sets(optimization_histories, coarse_candidates, start_cash=float(start_cash), phase_label="Grovtest", ticker_count=len(histories), cancel_key=cancel_key)
             if coarse.empty:
                 st.warning("Grovtesten ga ingen resultater.")
                 return
@@ -1111,14 +1279,14 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             st.success(f"Grovtest lagret automatisk: {coarse_id}")
             st.info("Steg 2/2: finjusterer rundt beste grovtest-kombinasjoner.")
             refine = refine_candidates_from_top(coarse, base, max_candidates=int(max_combos))
-            opt = optimize_rule_sets(optimization_histories, refine, start_cash=float(start_cash))
+            opt = optimize_rule_sets(optimization_histories, refine, start_cash=float(start_cash), phase_label="Finjustering", ticker_count=len(histories), cancel_key=cancel_key)
             run_note = f"Kraftig smart-test: grovtest {coarse_id} + finjustering."
         else:
             ranges = custom_ranges if test_type == "Egendefinert intervall" else preset_ranges(base, test_type)
             total = count_combinations(ranges)
             candidates = rules_from_ranges(ranges, base, max_combinations=int(max_combos))
             _show_combination_status(total, len(candidates), len(histories))
-            opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash))
+            opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash), phase_label=test_type, ticker_count=len(histories), cancel_key=cancel_key)
 
         if not opt.empty:
             st.markdown("#### Beste kombinasjoner")
@@ -1225,7 +1393,21 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             "validation": validation_payload,
             "source_test_id": test_id,
         }
-        if st.button("⭐ Lagre beste strategi som profil", key=f"{key_prefix}_save_profile"):
+        st.markdown(
+            """
+            <div class="strategy-confirm-card">
+                <b>Trygg bruk av strategi</b><br>
+                Før du lagrer eller bruker en strategi i praksis bør out-of-sample-resultat, drawdown, antall trades og datakvalitet vurderes.
+                Historisk best kombinasjon er ikke en garanti for fremtidig resultat.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        confirm_profile = st.checkbox(
+            "Jeg har vurdert validering/datavarsler og vil lagre dette som strategi-profil",
+            key=f"{key_prefix}_confirm_profile",
+        )
+        if st.button("⭐ Lagre beste strategi som profil", key=f"{key_prefix}_save_profile", disabled=not confirm_profile):
             save_strategy_profile(profile)
             st.success("Strategi-profil lagret ✅")
 
