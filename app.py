@@ -2998,7 +2998,10 @@ def render_analysis(results, label):
         s6.metric("Avg win/loss", f"{stats['avg_win']}% / {stats['avg_loss']}%")
         s7.metric("Profit factor", stats["profit_factor"])
 
-        if equity:
+        # HOTFIX v14.1 / Oppgave 38:
+        # equity kan være en pandas DataFrame. Da kan den ikke sjekkes med `if equity`,
+        # fordi pandas ikke vet om hele tabellen skal tolkes som True/False.
+        if equity is not None and not (hasattr(equity, "empty") and equity.empty):
             eq_df = pd.DataFrame(equity, columns=["date", "value"])
 
             fig_eq = go.Figure()
