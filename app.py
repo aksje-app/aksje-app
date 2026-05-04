@@ -174,34 +174,69 @@ def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_
     return data
 
 
-def _latest_ranked_results_for_source(source_label, fallback_results=None):
+def _sort_ranked_items(items):
+    """Sorter rangeringer etter appens egen score, uten å starte ny datainnhenting."""
+    def _score(item):
+        try:
+            return float((item or {}).get("score", 0) or 0)
+        except Exception:
+            return 0.0
+    return sorted([x for x in (items or []) if isinstance(x, dict) and x.get("ticker")], key=_score, reverse=True)
+
+
+def _dedupe_ranked_items(items):
+    out, seen = [], set()
+    for item in _sort_ranked_items(items):
+        ticker = normalize_user_ticker(item.get("ticker"))
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(item)
+    return out
+
+
+def _latest_ranked_results_for_source(source_label, fallback_results=None, current_label=None):
+    """Hent dynamisk aksjeliste for Interaktiv analyse uten AAPL-fallback.
+
+    Viktig for oppgave 76/76B:
+    - USA/Norge/Sverige/Top Picks bruker siste lagrede rangering fra appen.
+    - Hvis listen mangler, faller vi bare tilbake til gjeldende resultater når
+      gjeldende panel faktisk er samme kilde.
+    - Det skal ikke stilltiende byttes til AAPL når brukeren har valgt Norge/Sverige.
+    """
     latest = st.session_state.get("latest_rankings_v148", {}) or {}
     fallback_results = fallback_results or []
+    current_label_clean = str(current_label or "").replace("TopPicks_", "Top Picks")
+
     if source_label == "Aktuell liste":
-        return fallback_results
+        return _dedupe_ranked_items(fallback_results)
+
     if source_label == "Dynamisk watchlist / best rangerte":
         merged = []
-        seen = set()
         for key in ["USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
-            for item in latest.get(key, []) or []:
-                ticker = normalize_user_ticker(item.get("ticker"))
-                if ticker and ticker not in seen:
-                    seen.add(ticker)
-                    merged.append(item)
-        return sorted(merged, key=lambda x: float(x.get("score", 0) or 0), reverse=True) or fallback_results
-    if source_label == "USA":
-        return latest.get("USA") or fallback_results
-    if source_label == "Norge":
-        return latest.get("Norge") or fallback_results
-    if source_label == "Sverige":
-        return latest.get("Sverige") or fallback_results
+            merged.extend(latest.get(key, []) or [])
+        return _dedupe_ranked_items(merged or fallback_results)
+
+    if source_label in {"USA", "Norge", "Sverige"}:
+        stored = latest.get(source_label) or []
+        if stored:
+            return _dedupe_ranked_items(stored)
+        # Bare bruk fallback hvis aktivt panel faktisk er samme marked.
+        if current_label_clean == source_label:
+            return _dedupe_ranked_items(fallback_results)
+        return []
+
     if source_label == "Top Picks":
         merged = []
         for key, value in latest.items():
             if str(key).startswith("TopPicks"):
                 merged.extend(value or [])
-        return sorted(merged, key=lambda x: float(x.get("score", 0) or 0), reverse=True) or fallback_results
-    return fallback_results
+        if merged:
+            return _dedupe_ranked_items(merged)
+        if str(current_label or "").startswith("TopPicks"):
+            return _dedupe_ranked_items(fallback_results)
+        return []
+
+    return _dedupe_ranked_items(fallback_results)
 
 
 # SIDEBAR_MARKET_DROPDOWN_V1
@@ -1527,6 +1562,83 @@ st.markdown(
         color:#fde68a !important; font-weight:900; font-size:0.84rem;
     }
     .panel-radio-label { color:#cbd5e1 !important; font-size:0.78rem; font-weight:800; margin-top:3px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# V14.9 / Oppgave 67B og 75: strammere desktop-layout og kompakte sideknapper.
+st.markdown(
+    """
+    <style>
+    @media (min-width: 1100px) {
+        [data-testid="stAppViewContainer"] .main .block-container,
+        .main .block-container,
+        .block-container {
+            max-width: none !important;
+            width: 100% !important;
+            padding-left: 0.35rem !important;
+            padding-right: 0.55rem !important;
+        }
+        section[data-testid="stSidebar"] {
+            width: 205px !important;
+            min-width: 205px !important;
+        }
+        section[data-testid="stSidebar"] > div:first-child {
+            padding-left: 0.45rem !important;
+            padding-right: 0.45rem !important;
+        }
+        [data-testid="stAppViewContainer"] {
+            gap: 0 !important;
+        }
+        div[data-testid="stHorizontalBlock"] {
+            gap: 0.45rem !important;
+        }
+    }
+    section[data-testid="stSidebar"] .stButton > button,
+    section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+        min-height: 30px !important;
+        padding: 0.22rem 0.42rem !important;
+        font-size: 0.70rem !important;
+        line-height: 1.05 !important;
+        border-radius: 9px !important;
+        box-shadow: 0 3px 9px rgba(2,132,199,0.18) !important;
+        white-space: nowrap !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button p,
+    section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button p {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        font-size: 0.70rem !important;
+        line-height: 1.05 !important;
+    }
+    section[data-testid="stSidebar"] .stButton { margin-bottom: 0.22rem !important; }
+    section[data-testid="stSidebar"] .element-container { margin-bottom: 0.18rem !important; }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        margin-top: 0.35rem !important;
+        margin-bottom: 0.25rem !important;
+    }
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] span {
+        font-size: 0.78rem !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+    section[data-testid="stSidebar"] textarea {
+        min-height: 30px !important;
+        font-size: 0.76rem !important;
+    }
+    section[data-testid="stSidebar"] details > summary {
+        min-height: 30px !important;
+        padding-top: 0.22rem !important;
+        padding-bottom: 0.22rem !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -3076,44 +3188,64 @@ def render_analysis(results, label):
         key=f"analysis_source_{label}_v148",
         help="Bruker siste lagrede/godkjente rangering. Manuell ticker overstyrer alltid listen.",
     )
-    source_results = _latest_ranked_results_for_source(source_choice, results or [])
+    source_results = _latest_ranked_results_for_source(source_choice, results or [], current_label=label)
 
-    result_options = [r.get("ticker") for r in (source_results or []) if r.get("ticker")]
-    default_options = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
+    # Oppgave 76/76B: dynamiske, rangerte valg etter valgt aksjekilde.
+    # Standard AAPL-listen brukes bare når brukeren står på "Aktuell liste" og ingen rangering finnes.
+    result_options = [normalize_user_ticker(r.get("ticker")) for r in (source_results or []) if r.get("ticker")]
+    fallback_static = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
     options = []
     option_labels = {}
     for r in (source_results or []):
-        t = r.get("ticker")
+        t = normalize_user_ticker(r.get("ticker"))
         if t:
             score = r.get("score", "N/A")
+            try:
+                score_txt = f"{float(score):.2f}"
+            except Exception:
+                score_txt = str(score)
             action = card_decision_for_item(r).get("action_now", "") if isinstance(r, dict) else ""
-            option_labels[t] = f"{t} · score {score} · {action}"
-    for _t in result_options + default_options:
+            option_labels[t] = f"{t} · score {score_txt}" + (f" · {action}" if action else "")
+    for _t in result_options:
         if _t and _t not in options:
             options.append(_t)
+    if not options and source_choice == "Aktuell liste":
+        for _t in fallback_static:
+            if _t not in options:
+                options.append(_t)
 
     s0, s1, s2 = st.columns([1.15, 2, 1])
     with s0:
-        st.caption(f"Kilde: {source_choice}")
-    with s1:
-        selected_from_list = st.selectbox(
-            f"Velg aksje fra valgt kilde ({label})",
-            options,
-            index=0,
-            key=f"select_{label}",
-            format_func=lambda x: option_labels.get(x, x),
-        )
+        st.caption(f"Aktiv kilde: {source_choice}")
     with s2:
         manual_ticker = st.text_input(
             "Eller skriv ticker",
             value="",
-            placeholder="AAPL / EQNR.OL / ABB.ST",
+            placeholder="STB.OL / EQNR.OL / ABB.ST",
             key=f"manual_ticker_{label}",
         )
+    with s1:
+        selected_from_list = ""
+        if options:
+            source_key = re.sub(r"[^A-Za-z0-9]+", "_", source_choice).strip("_") or "source"
+            selected_from_list = st.selectbox(
+                f"Velg aksje fra valgt kilde ({source_choice})",
+                options,
+                index=0,
+                key=f"select_{label}_{source_key}_v149",
+                format_func=lambda x: option_labels.get(x, x),
+            )
+        else:
+            st.info(f"Ingen lagret dynamisk rangering for {source_choice}. Trykk Oppdater / Scan watchlist først, eller skriv ticker manuelt.")
 
     selected = active_ticker_from_inputs(manual_ticker, selected_from_list)
     if manual_ticker.strip():
-        st.caption(f"Manuell ticker overstyrer listen: {selected}")
+        st.caption(f"Aktiv tickerkilde: Manuell ticker · Bruker ticker: {selected}")
+    elif selected:
+        st.caption(f"Aktiv tickerkilde: {source_choice} · Bruker ticker: {selected}")
+    else:
+        st.warning("Velg en ticker fra listen, eller skriv ticker manuelt.")
+        return
 
     item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
     if item is None:
@@ -4365,6 +4497,7 @@ with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
             "min_buy_score": float(_min_score),
             "max_open_positions": int(_max_pos),
             "max_trades_per_day": int(_max_trades),
+            "max_buys_per_day": int(_max_trades),
             "position_size_pct": float(_pos_size),
             "cooldown_minutes": int(_cooldown),
             "scan_top_picks_only": bool(_top_only),
@@ -4372,6 +4505,14 @@ with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
             "auto_buy_safety_mode": bool(_safety_mode),
         })
         save_settings(_current_settings_for_auto_save)
+        # Oppgave 74: én felles verdi for maks kjøp per dag.
+        # Auto-/paper-motoren leser trading_rules, derfor speiles verdien dit også.
+        try:
+            _r = load_rules()
+            _r["max_trades_per_day"] = int(_max_trades)
+            save_rules(_r)
+        except Exception:
+            pass
         st.sidebar.success("Auto-innstillinger lagret ✅")
         st.rerun()
 
@@ -4390,7 +4531,7 @@ with st.sidebar.expander("📈 Kjøp", expanded=False):
     _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules["min_buy_score"]), 0.1)
     _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules["min_buy_confidence"]))
     _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules["max_buy_rsi"]))
-    _rules["max_trades_per_day"] = st.slider("Maks kjøp per dag", 1, 10, int(_rules["max_trades_per_day"]))
+    st.caption("Maks kjøp per dag styres kun i Auto-kjøp parametere (-/+). Gjelder bare nye kjøp, ikke salg/exit.")
 
 with st.sidebar.expander("🟡 Hold", expanded=False):
     _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules["min_hold_days"]))
