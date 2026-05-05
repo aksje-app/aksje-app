@@ -2,9 +2,15 @@
 import streamlit as st
 import pandas as pd
 import json
+import os
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+
+try:
+    import psycopg2
+except Exception:
+    psycopg2 = None
 
 from user_store import (
     authenticate,
@@ -20,7 +26,85 @@ from user_store import (
 REMEMBER_FILE = Path("remember_tokens.json")
 REMEMBER_DAYS = 30
 SESSION_HOURS = 24
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
+
+
+
+def _remember_db_available():
+    return bool(DATABASE_URL) and psycopg2 is not None
+
+
+def _init_remember_db():
+    if not _remember_db_available():
+        return False
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS app_remember_tokens (
+                token TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                expires TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        """)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def _db_get_remember_item(token):
+    if not token or not _init_remember_db():
+        return None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT username, expires FROM app_remember_tokens WHERE token=%s", (str(token),))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {"username": row[0], "expires": row[1]}
+    except Exception:
+        return None
+
+
+def _db_upsert_remember_item(token, username, expires):
+    if not token or not username or not _init_remember_db():
+        return False
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO app_remember_tokens (token, username, expires, updated_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (token) DO UPDATE SET
+                username=EXCLUDED.username,
+                expires=EXCLUDED.expires,
+                updated_at=EXCLUDED.updated_at
+        """, (str(token), str(username), str(expires), datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def _db_delete_remember_item(token):
+    if not token or not _init_remember_db():
+        return False
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM app_remember_tokens WHERE token=%s", (str(token),))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
 
 
 def _load_remember_tokens():
@@ -44,10 +128,12 @@ def _save_remember_tokens(tokens):
 
 def _create_remember_token(user):
     token = uuid.uuid4().hex + uuid.uuid4().hex
-    tokens = _load_remember_tokens()
     expires = (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
-    tokens[token] = {"username": user.get("username"), "expires": expires}
-    _save_remember_tokens(tokens)
+    username = user.get("username")
+    if not _db_upsert_remember_item(token, username, expires):
+        tokens = _load_remember_tokens()
+        tokens[token] = {"username": username, "expires": expires}
+        _save_remember_tokens(tokens)
     return token
 
 
@@ -98,12 +184,18 @@ def _restore_from_remember_token():
             token = token[0] if token else None
         if not token:
             return None
-        tokens = _load_remember_tokens()
-        item = tokens.get(str(token))
+        item = _db_get_remember_item(str(token))
+        tokens = None
+        if not item:
+            tokens = _load_remember_tokens()
+            item = tokens.get(str(token))
         if not item:
             return None
         expires = datetime.fromisoformat(str(item.get("expires")))
         if expires < datetime.now():
+            _db_delete_remember_item(str(token))
+            if tokens is None:
+                tokens = _load_remember_tokens()
             tokens.pop(str(token), None)
             _save_remember_tokens(tokens)
             return None
@@ -111,8 +203,12 @@ def _restore_from_remember_token():
         for user in list_users():
             if user.get("username") == username and user.get("active", True):
                 # Forny tokenet ved bruk, slik at Husk meg faktisk holder lenge på PC og mobil.
-                tokens[str(token)] = {"username": username, "expires": (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")}
-                _save_remember_tokens(tokens)
+                new_expires = (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
+                if not _db_upsert_remember_item(str(token), username, new_expires):
+                    if tokens is None:
+                        tokens = _load_remember_tokens()
+                    tokens[str(token)] = {"username": username, "expires": new_expires}
+                    _save_remember_tokens(tokens)
                 st.session_state["remember_token"] = str(token)
                 _set_logged_in(user, remember=True)
                 return user
@@ -127,6 +223,7 @@ def _clear_remember_token():
         if isinstance(token, list):
             token = token[0] if token else None
         if token:
+            _db_delete_remember_item(str(token))
             tokens = _load_remember_tokens()
             tokens.pop(str(token), None)
             _save_remember_tokens(tokens)

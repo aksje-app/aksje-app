@@ -1125,10 +1125,10 @@ div[role="option"][aria-selected="true"] {
     min-width: 0;
     box-sizing: border-box;
     border-radius: 9px;
-    padding: 7px 5px;
+    padding: 5px 4px;
     line-height: 1.05;
     overflow: hidden;
-    min-height: 50px;
+    min-height: 34px;
     border: 1px solid rgba(148,163,184,0.28);
     background: rgba(15,23,42,0.84);
 }
@@ -1715,6 +1715,96 @@ section[data-testid="stSidebar"] .stButton > button {
     .top-app-status { gap:5px; }
 }
 
+
+
+/* --- V15: kontrollert layout/state cleanup --- */
+@media (min-width: 1100px) {
+    .block-container {
+        max-width: none !important;
+        padding-left: 0.25rem !important;
+        padding-right: 0.35rem !important;
+    }
+    section[data-testid="stSidebar"] {
+        width: 190px !important;
+        min-width: 190px !important;
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+    }
+}
+.v15-desktop-status-strip {
+    display:grid;
+    grid-template-columns: 1.1fr 1.1fr 1.1fr 1.5fr;
+    gap:8px;
+    align-items:stretch;
+    margin:4px 0 8px 0;
+}
+.v15-status-block {
+    background:rgba(15,23,42,0.56);
+    border:1px solid rgba(148,163,184,0.20);
+    border-radius:12px;
+    padding:7px 9px;
+    min-height:42px;
+}
+.v15-status-title {
+    color:#cbd5e1 !important;
+    font-size:0.70rem;
+    font-weight:950;
+    margin-bottom:3px;
+    line-height:1.0;
+}
+.v15-auto-controls-wrap {
+    display:flex;
+    align-items:center;
+    gap:7px;
+    flex-wrap:wrap;
+    margin:5px 0 6px 0;
+}
+.v15-inline-help {
+    color:#94a3b8 !important;
+    font-size:0.72rem;
+    font-weight:800;
+    margin:3px 0 4px 0;
+}
+.v15-section-sep {
+    height:1px;
+    background:rgba(148,163,184,0.12);
+    margin:6px 0 8px 0;
+}
+/* Ikke vis PC-statusstrip på mobil; mobil bruker sidebar/drawer. */
+@media (max-width: 900px) {
+    .v15-desktop-status-strip { display:none !important; }
+    .top-app-header { margin-top:0.25rem !important; }
+}
+/* Sidebaren skal være kompakt; ingen enorme blå knapper. */
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+    min-height:28px !important;
+    padding:0.18rem 0.38rem !important;
+    font-size:0.68rem !important;
+    line-height:1.05 !important;
+    border-radius:8px !important;
+    box-shadow:0 2px 7px rgba(14,165,233,0.14) !important;
+}
+section[data-testid="stSidebar"] .stButton > button p,
+section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button p {
+    font-size:0.68rem !important;
+    line-height:1.05 !important;
+}
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    margin-top:0.20rem !important;
+    margin-bottom:0.18rem !important;
+    font-size:0.98rem !important;
+}
+section[data-testid="stSidebar"] .element-container {
+    margin-bottom:0.12rem !important;
+}
+section[data-testid="stSidebar"] hr {
+    margin:0.35rem 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1843,6 +1933,47 @@ st.markdown(
         min-height: 30px !important;
         padding-top: 0.22rem !important;
         padding-bottom: 0.22rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# V15.1 / Oppgave 90-92: kompakt toppkontroll og mindre knapper.
+st.markdown(
+    """
+    <style>
+    .top-market-status-row {
+        display:flex; align-items:center; justify-content:flex-start; gap:5px; flex-wrap:wrap;
+        min-height:30px; padding:2px 0 0 2px;
+    }
+    .top-market-label {
+        color:#cbd5e1 !important; font-size:0.72rem; font-weight:950; margin-right:2px;
+    }
+    .market-help-inline {
+        display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+        border-radius:999px; border:1px solid rgba(148,163,184,0.24); color:#94a3b8 !important;
+        font-size:0.68rem; font-weight:950; background:rgba(15,23,42,0.62);
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button {
+        min-height:30px !important;
+        padding:0.22rem 0.46rem !important;
+        border-radius:9px !important;
+        font-size:0.76rem !important;
+        line-height:1.05 !important;
+        box-shadow:0 3px 10px rgba(14,165,233,0.18) !important;
+        white-space:nowrap !important;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button p {
+        font-size:0.76rem !important; line-height:1.05 !important; white-space:nowrap !important;
+    }
+    .v15-inline-help { font-size:0.68rem !important; margin:2px 0 3px 0 !important; }
+    @media (max-width: 900px) {
+        .top-market-status-row { margin-top:4px; }
+        div[data-testid="stHorizontalBlock"] .stButton > button {
+            min-height:34px !important; font-size:0.78rem !important; padding:0.28rem 0.44rem !important;
+        }
     }
     </style>
     """,
@@ -4266,71 +4397,14 @@ try:
         """,
         unsafe_allow_html=True,
     )
-    _toggle_auto_update = st.sidebar.checkbox(
-        "Auto-oppdater ved endringer",
-        value=_cc_chart_auto,
-        key="sidebar_chart_auto_update_v147",
-        help="Av = endringer i graf/indikatorer brukes først når du trykker Oppdater / bruk endringer.",
-    )
-    if bool(_toggle_auto_update) != _cc_chart_auto:
-        _save_setting_patch(chart_auto_update_enabled=bool(_toggle_auto_update))
-        st.session_state.pop("top_chart_auto_update_v147", None)
-        st.sidebar.success("Auto-oppdatering oppdatert ✅")
-        st.rerun()
+    st.sidebar.caption("Auto-oppdater styres nå kun i toppkontrollen ved Auto trading-knappene.")
 except Exception:
     pass
 
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
-    st.sidebar.markdown("### 🕒 Børsstatus")
-    st.sidebar.markdown(
-        "<div class='sidebar-small-note'>Bakgrunnssøk styres av børsstatus. Cache brukes når marked er stengt.</div>",
-        unsafe_allow_html=True,
-    )
-
-    _statuses = market_statuses()
-    _status_cards = []
-    for _key, _status in _statuses.items():
-        _name = _status.get("name", _key)
-        _is_open = bool(_status.get("is_open"))
-        _reason = str(_status.get("reason", "ukjent"))
-        _closes_at = _status.get("closes_at")
-
-        # Korte navn gjør raden lesbar i Streamlit-sidebar
-        _short = {
-            "USA": "USA",
-            "Norge": "Norge",
-            "Sverige": "Sverige",
-        }.get(_name, _name)
-
-        if _is_open:
-            _main = "Åpent"
-            if _closes_at:
-                _reason_text = f"til {_closes_at}"
-            else:
-                _reason_text = ""
-            _status_cards.append(
-                f"<div class='market-pill open'>"
-                f"<div class='market-pill-name'>{_short}</div>"
-                f"<div class='market-pill-main open'>{_main} ✅</div>"
-                f"<div class='market-pill-reason'>{_reason_text}</div>"
-                f"</div>"
-            )
-        else:
-            _status_cards.append(
-                f"<div class='market-pill closed'>"
-                f"<div class='market-pill-name'>{_short}</div>"
-                f"<div class='market-pill-main closed'>Stengt ⚠️</div>"
-                f"<div class='market-pill-reason'>{_reason}</div>"
-                f"</div>"
-            )
-
-    st.sidebar.markdown(
-        "<div class='market-pill-row'>" + "".join(_status_cards) + "</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
+    # V15.1 / Oppgave 90B: Børsstatus er flyttet opp til høyre for Auto trading-kontrollene.
+    # Sidebar starter derfor direkte på Cron/bakgrunnssøk.
     st.sidebar.markdown("### ⏱ Cron / bakgrunnssøk")
 
     _cron_settings = load_settings()
@@ -4591,40 +4665,10 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-st.sidebar.subheader("🤖 Auto trading")
-
+# V15.1 / Oppgave 92: Duplikat Auto trading-status og Start/Pause/Stopp er fjernet fra sidebar.
+# Auto trading styres ett sted: toppkontrollen i hovedbildet.
 _settings = load_settings()
 _markets_settings = _settings.get("markets", {}) or {}
-
-_auto_state_label, _auto_state_color = _auto_state(_settings)
-st.sidebar.markdown(
-    f"""
-    <div class="auto-command-card">
-        <div class="auto-command-title">
-            <span>🤖 Auto trading</span>
-            <span class="auto-status-badge {'on' if _auto_state_color == 'green' else 'off'}">
-                <span class="status-dot {_auto_state_color}"></span>{_auto_state_label}
-            </span>
-        </div>
-        <div class="auto-command-line">
-            BUY conf: <b>{int(_settings.get('min_buy_confidence', 70))}%</b> ·
-            Score: <b>{float(_settings.get('min_buy_score', 7.2)):.1f}</b> ·
-            Max pos: <b>{int(_settings.get('max_open_positions', 5))}</b>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-st.sidebar.caption("Auto trading-kontroller. Påvirker kun auto trading, ikke systemdrift/full stopp.")
-if st.sidebar.button("▶ Start", key="auto_start_sidebar_v1412", use_container_width=True):
-    _set_auto_state("START")
-if st.sidebar.button("⏸ Pause", key="auto_pause_sidebar_v1412", use_container_width=True):
-    _set_auto_state("PAUSE")
-if st.sidebar.button("⛔ Stopp", key="auto_stop_sidebar_v1412", use_container_width=True):
-    _set_auto_state("STOPP")
-if st.sidebar.button("🚨 Nødstopp Auto trading", key="auto_emergency_sidebar_v1412", use_container_width=True):
-    _set_auto_state("NØDSTOPP")
 
 with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
     st.caption("Samlet i to grupper. Endringer lagres først når du trykker Lagre.")
@@ -4874,80 +4918,59 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.12 / Oppgave 81-86 og 89B: ryddig kontrollsenter, ikke duplisert/rotete mobilpanel.
-# Hovedsiden viser en kompakt fallback-meny. Ekte Streamlit-sidebar brukes på PC/drawer,
-# men denne gir trygg tilgang på mobil uten halv sidebar.
-with st.expander("☰ Kontrollsenter / mobil hurtigmeny", expanded=False):
-    st.markdown(
-        f"""
-        <div class='control-center-wide'>
-            <div class='control-info-block'>
-                <div class='control-info-title'>Driftstatus</div>
-                <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
-                <span class='mini-status-chip {'green' if _top_paper else 'red'}'>Paper: <b>AKTIV</b></span>
-                <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
-                <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
-            </div>
-            <div class='control-info-block'>
-                <div class='control-info-title'>Børsstatus</div>
-                {_market_status_chips_html()}
-            </div>
-            <div class='control-info-block'>
-                <div class='control-info-title'>Bruker / sesjon</div>
-                {_session_status_html(current_user)}
-            </div>
-            <div class='control-info-block'>
-                <div class='control-info-title'>Siste oppdatering</div>
-                <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
-                <span class='mini-status-chip'>Tung: <b>{html.escape(_last_update_label())}</b></span>
-            </div>
+# V15 / kontrollsenterstatus: ingen duplisert mobil-hurtigmeny i hovedbildet.
+# PC får en kompakt horisontal statusstrip som bruker høyreplassen ved Driftstatus.
+st.markdown(
+    f"""
+    <div class='v15-desktop-status-strip'>
+        <div class='v15-status-block'>
+            <div class='v15-status-title'>Driftstatus</div>
+            <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
+            <span class='mini-status-chip {'green' if _top_paper else 'red'}'>Paper: <b>AKTIV</b></span>
+            <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
+            <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div class='auto-control-help'>Auto trading-kontroller: styrer kun auto trading. Salg/exit og vanlig visning av data påvirkes ikke.</div>", unsafe_allow_html=True)
-    mc1, mc2, mc3, mc4 = st.columns([0.85, 0.85, 0.85, 1.55])
-    with mc1:
-        if st.button("▶ Start", key="mobile_auto_start_v1412", use_container_width=True):
-            _set_auto_state("START")
-    with mc2:
-        if st.button("⏸ Pause", key="mobile_auto_pause_v1412", use_container_width=True):
-            _set_auto_state("PAUSE")
-    with mc3:
-        if st.button("⛔ Stopp", key="mobile_auto_stop_v1412", use_container_width=True):
-            _set_auto_state("STOPP")
-    with mc4:
-        if st.button("🚨 Nødstopp Auto trading", key="mobile_auto_emergency_v1412", use_container_width=True):
-            _set_auto_state("NØDSTOPP")
+        <div class='v15-status-block'>
+            <div class='v15-status-title'>Børsstatus</div>
+            {_market_status_chips_html()}
+        </div>
+        <div class='v15-status-block'>
+            <div class='v15-status-title'>Bruker / sesjon</div>
+            {_session_status_html(current_user)}
+        </div>
+        <div class='v15-status-block'>
+            <div class='v15-status-title'>Siste oppdatering</div>
+            <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
+            <span class='mini-status-chip'>Tung: <b>{html.escape(_last_update_label())}</b></span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-    st.markdown("<div class='system-control-help'>System/drift: Full stopp og Start systemet igjen styrer bakgrunnssøk/cron og generell drift, ikke bare Auto trading.</div>", unsafe_allow_html=True)
-    vc1, vc2 = st.columns([1, 1])
-    with vc1:
-        if st.button("⛔ Full stopp / ferie", key="mobile_full_stop_v1412", use_container_width=True):
-            activate_full_stop()
-            st.rerun()
-    with vc2:
-        if st.button("▶ Start systemet igjen", key="mobile_resume_system_v1412", use_container_width=True):
-            deactivate_full_stop()
-            st.rerun()
-
-# Kompakt auto trading-kontrollrad på hovedsiden. Systemknapper vises i Kontrollsenter, ikke blandet her.
-st.markdown("<div class='auto-control-help'>Auto trading: ▶ Start · ⏸ Pause · ⛔ Stopp · 🚨 Nødstopp. Full stopp/ferie ligger i Kontrollsenter.</div>", unsafe_allow_html=True)
-_tq1, _tq2, _tq3, _tq4, _tq_spacer = st.columns([0.72, 0.72, 0.72, 1.45, 3.2])
+# V15.1 / Oppgave 90: kompakt Auto trading-kontrollgruppe.
+# Systemkontroller ligger fortsatt i Kontrollsenter/sidebar; markedstatus ligger til høyre i samme rad.
+st.markdown("<div class='v15-inline-help'><b>Auto trading:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. Full stopp/ferie og systemstart ligger i Kontrollsenter/sidebar.</div>", unsafe_allow_html=True)
+_tq1, _tq2, _tq3, _tq4, _market_col = st.columns([0.42, 0.44, 0.44, 1.05, 4.4], gap="small")
 with _tq1:
-    if st.button("▶ Start", key="auto_start_top_v1412", use_container_width=True):
+    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True):
         _set_auto_state("START")
 with _tq2:
-    if st.button("⏸ Pause", key="auto_pause_top_v1412", use_container_width=True):
+    if st.button("⏸ Pause", key="auto_pause_top_v15", use_container_width=True):
         _set_auto_state("PAUSE")
 with _tq3:
-    if st.button("⛔ Stopp", key="auto_stop_top_v1412", use_container_width=True):
+    if st.button("⛔ Stopp", key="auto_stop_top_v15", use_container_width=True):
         _set_auto_state("STOPP")
 with _tq4:
-    if st.button("🚨 Nødstopp Auto trading", key="auto_emergency_top_v1412", use_container_width=True):
+    if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
+with _market_col:
+    st.markdown(
+        f"<div class='top-market-status-row'><span class='top-market-label'>Børsstatus</span>{_market_status_chips_html()}<span class='market-help-inline' title='Bakgrunnssøk styres av børsstatus. Cache brukes når markedet er stengt.'>ⓘ</span></div>",
+        unsafe_allow_html=True,
+    )
 
-_uc1, _uc2, _uc3 = st.columns([1.35, 1.45, 3.2])
+_uc1, _uc2, _uc3 = st.columns([1.15, 1.25, 5.6])
 with _uc1:
     _top_toggle_auto_update = st.checkbox(
         "Auto-oppdater ved endringer",
@@ -5065,17 +5088,19 @@ if auto_watchlist_alerts or manual_watchlist_scan:
 st.caption("Velg panel. Bare valgt panel beregnes tungt, slik at skjulte faner ikke starter nye analyser.")
 st.markdown("<div class='panel-radio-label'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
 _panel_options_v1412 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"]
-if "active_main_panel_v148" not in st.session_state:
-    st.session_state["active_main_panel_v148"] = st.session_state.get("active_main_panel_persist_v1412", "🇺🇸 USA")
-if st.session_state.get("active_main_panel_v148") not in _panel_options_v1412:
-    st.session_state["active_main_panel_v148"] = "🇺🇸 USA"
+_saved_panel_v15 = st.session_state.get("active_main_panel_persist_v15") or st.session_state.get("active_main_panel_persist_v1412") or "🇺🇸 USA"
+if _saved_panel_v15 not in _panel_options_v1412:
+    _saved_panel_v15 = "🇺🇸 USA"
+_panel_index_v15 = _panel_options_v1412.index(_saved_panel_v15)
 active_panel = st.radio(
     "Aktivt hovedpanel",
     _panel_options_v1412,
+    index=_panel_index_v15,
     horizontal=True,
     label_visibility="collapsed",
-    key="active_main_panel_v148",
+    key="active_main_panel_radio_v15",
 )
+st.session_state["active_main_panel_persist_v15"] = active_panel
 st.session_state["active_main_panel_persist_v1412"] = active_panel
 
 if active_panel == "🇺🇸 USA":
