@@ -62,7 +62,7 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
 current_user = require_login()
 
@@ -507,6 +507,41 @@ st.markdown("""
 [data-testid="stSidebar"] {
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border);
+}
+
+/* V14.11 hotfix / Oppgave 80: mobil-sidebar skal ikke forsvinne.
+   Streamlit skjuler ofte sidebar på mobil. Vi ber nettleseren holde den synlig/tilgjengelig,
+   og lar hovedsiden fortsatt ha mobil hurtigmeny som reserve. */
+[data-testid="stSidebar"] * { box-sizing: border-box; }
+@media (max-width: 900px) {
+    [data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: #020617 !important;
+        border-right: 1px solid rgba(148,163,184,0.28) !important;
+        z-index: 999999 !important;
+    }
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 1000000 !important;
+        position: fixed !important;
+        top: 0.55rem !important;
+        left: 0.55rem !important;
+        background: rgba(14,165,233,0.95) !important;
+        border: 1px solid rgba(125,211,252,0.70) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 8px 20px rgba(14,165,233,0.25) !important;
+    }
+    section[data-testid="stSidebar"] {
+        min-width: 275px !important;
+        max-width: 320px !important;
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 0.75rem !important;
+    }
 }
 
 html, body, [class*="css"], p, span, div {
@@ -4755,7 +4790,7 @@ st.markdown(
 
 # V14.10 / Oppgave 77: Mobilen mister ofte Streamlit-sidebaren.
 # Legg kritiske kontroller i hovedsiden også, uten å fjerne sidebaren på PC.
-with st.expander("☰ Kontrollsenter / mobil hurtigmeny", expanded=False):
+with st.expander("☰ Kontrollsenter / mobil hurtigmeny", expanded=True):
     st.markdown(
         f"""
         <div class='control-center-status'>
