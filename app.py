@@ -85,7 +85,14 @@ def _save_setting_patch(**updates):
 
 
 def _auto_state(settings=None):
+    """Returnerer samlet Auto trading-status. Full stopp/ferie overstyrer alltid AKTIV."""
     _s = settings or load_settings()
+    try:
+        _cron = cron_status_text()
+        if bool((_cron or {}).get("vacation_mode")):
+            return "BLOKKERT", "red"
+    except Exception:
+        pass
     if bool(_s.get("auto_trading_emergency_stop", False)):
         return "NØDSTOPP", "red"
     if bool(_s.get("auto_trading_paused", False)):
@@ -97,6 +104,15 @@ def _auto_state(settings=None):
 
 def _set_auto_state(state):
     state = str(state).upper()
+    # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
+    try:
+        _cron = cron_status_text()
+        _full_stop_active = bool((_cron or {}).get("vacation_mode"))
+    except Exception:
+        _full_stop_active = False
+    if state == "START" and _full_stop_active:
+        st.warning("Full stopp / ferie er aktiv. Auto trading kan ikke startes før systemet er startet igjen.")
+        return
     if state == "START":
         _save_setting_patch(auto_trading_enabled=True, auto_trading_paused=False, auto_trading_emergency_stop=False)
     elif state == "PAUSE":
@@ -1973,6 +1989,67 @@ st.markdown(
         .top-market-status-row { margin-top:4px; }
         div[data-testid="stHorizontalBlock"] .stButton > button {
             min-height:34px !important; font-size:0.78rem !important; padding:0.28rem 0.44rem !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# V15.2 / Oppgave 93-98: ryddet topbar, én statuskilde, større tekst og tett Auto trading-gruppe.
+st.markdown(
+    """
+    <style>
+    .v152-top-clean {
+        justify-content:flex-start !important;
+        padding:2px 0 4px 0 !important;
+        margin-bottom:5px !important;
+    }
+    .v15-desktop-status-strip {
+        grid-template-columns: 1.05fr 1.05fr 1.05fr 1.45fr !important;
+        gap:7px !important;
+        margin:3px 0 7px 0 !important;
+    }
+    .v15-status-block {
+        padding:8px 10px !important;
+        min-height:48px !important;
+        border-color:rgba(148,163,184,0.24) !important;
+    }
+    .v15-status-title {
+        font-size:0.84rem !important;
+        line-height:1.05 !important;
+        margin-bottom:5px !important;
+        color:#e2e8f0 !important;
+    }
+    .mini-status-chip {
+        font-size:0.80rem !important;
+        padding:5px 8px !important;
+        margin:2px 5px 2px 0 !important;
+    }
+    .v15-inline-help {
+        font-size:0.73rem !important;
+        margin:2px 0 3px 0 !important;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button {
+        min-height:28px !important;
+        padding:0.18rem 0.34rem !important;
+        border-radius:8px !important;
+        font-size:0.72rem !important;
+        box-shadow:0 2px 7px rgba(14,165,233,0.16) !important;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button p {
+        font-size:0.72rem !important;
+        line-height:1.02 !important;
+    }
+    .top-app-status, .top-market-status-row { display:none !important; }
+    @media (max-width: 900px) {
+        .v15-status-title { font-size:0.88rem !important; }
+        .mini-status-chip { font-size:0.82rem !important; padding:5px 8px !important; }
+        div[data-testid="stHorizontalBlock"] .stButton > button {
+            min-height:32px !important;
+            font-size:0.76rem !important;
+            padding:0.22rem 0.38rem !important;
         }
     }
     </style>
@@ -4904,15 +4981,8 @@ _top_paper = True
 _top_chart_auto = bool(_top_settings.get("chart_auto_update_enabled", False))
 st.markdown(
     f"""
-    <div class="top-app-header">
+    <div class="top-app-header v152-top-clean">
         <div class="top-app-title">📊 Market Overview – 📈 AI Aksje Analyzer Pro</div>
-        <div class="top-app-status">
-            <span class="top-chip {_top_auto_color}">Auto trading: <b>{_top_auto_state}</b></span>
-            <span class="top-chip {'green' if _top_paper else 'red'}">Paper: <b>AKTIV</b></span>
-            <span class="top-chip {'red' if _top_full_stop else 'green'}">Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
-            <span class="top-chip {'green' if _top_chart_auto else 'red'}">Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
-            <span class="top-chip">Siste scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
-        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -4951,7 +5021,7 @@ st.markdown(
 # V15.1 / Oppgave 90: kompakt Auto trading-kontrollgruppe.
 # Systemkontroller ligger fortsatt i Kontrollsenter/sidebar; markedstatus ligger til høyre i samme rad.
 st.markdown("<div class='v15-inline-help'><b>Auto trading:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. Full stopp/ferie og systemstart ligger i Kontrollsenter/sidebar.</div>", unsafe_allow_html=True)
-_tq1, _tq2, _tq3, _tq4, _market_col = st.columns([0.42, 0.44, 0.44, 1.05, 4.4], gap="small")
+_tq1, _tq2, _tq3, _tq4, _control_spacer = st.columns([0.34, 0.34, 0.36, 0.78, 8.0], gap="small")
 with _tq1:
     if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True):
         _set_auto_state("START")
@@ -4964,11 +5034,6 @@ with _tq3:
 with _tq4:
     if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
-with _market_col:
-    st.markdown(
-        f"<div class='top-market-status-row'><span class='top-market-label'>Børsstatus</span>{_market_status_chips_html()}<span class='market-help-inline' title='Bakgrunnssøk styres av børsstatus. Cache brukes når markedet er stengt.'>ⓘ</span></div>",
-        unsafe_allow_html=True,
-    )
 
 _uc1, _uc2, _uc3 = st.columns([1.15, 1.25, 5.6])
 with _uc1:
