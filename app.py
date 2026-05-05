@@ -212,7 +212,7 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
 
     if source_label == "Dynamisk watchlist / best rangerte":
         merged = []
-        for key in ["USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
+        for key in ["Dynamisk watchlist / best rangerte", "USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
             merged.extend(latest.get(key, []) or [])
         return _dedupe_ranked_items(merged or fallback_results)
 
@@ -237,6 +237,85 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
         return []
 
     return _dedupe_ranked_items(fallback_results)
+
+
+def _source_tickers_for_interactive(source_label, max_fallback=30):
+    """Ticker-univers for Interaktiv analyse når lagret rangering mangler.
+
+    Brukes bare når bruker aktivt trykker på Oppdater-listen-knappen.
+    Den skal ikke trigge tung rangering automatisk ved menyvalg.
+    """
+    try:
+        limit = int(globals().get("max_count", max_fallback) or max_fallback)
+    except Exception:
+        limit = max_fallback
+    limit = max(5, min(limit, 200))
+
+    if source_label == "USA":
+        return list(globals().get("tickers_us") or get_sp500_tickers(limit=limit))
+    if source_label == "Norge":
+        return list(globals().get("tickers_no") or get_norwegian_tickers(limit=limit))
+    if source_label == "Sverige":
+        return list(globals().get("tickers_se") or get_swedish_tickers(limit=limit))
+    if source_label == "Dynamisk watchlist / best rangerte":
+        wl = list(globals().get("watchlist_tickers") or [])
+        if wl:
+            return wl[:limit]
+        return list(globals().get("dynamic_watchlist") or [])[:limit]
+    if source_label == "Top Picks":
+        merged = []
+        for seq in [globals().get("tickers_us"), globals().get("tickers_no"), globals().get("tickers_se")]:
+            merged.extend(list(seq or [])[: max(5, limit // 3)])
+        if not merged:
+            merged = get_all_tickers(limit_per_market=max(5, limit // 3))
+        return merged[:limit]
+    return []
+
+
+def _build_interactive_source_ranking_now(source_label):
+    """Bygg valgt kilde på eksplisitt knappetrykk og lagre i siste rangering.
+
+    Dette er hotfix v14.10 for 76/76B/78: når Norge/USA/Sverige mangler lagret
+    dynamisk rangering, skal brukeren kunne bygge den aktuelle listen uten at appen
+    faller tilbake til AAPL eller starter automatisk tung jobb.
+    """
+    tickers = _source_tickers_for_interactive(source_label)
+    if not tickers:
+        return []
+    try:
+        limit = int(globals().get("max_count", len(tickers)) or len(tickers))
+    except Exception:
+        limit = len(tickers)
+    limit = max(1, min(limit, len(tickers), 200))
+    data = auto_rank_market(tickers[:limit], max_count=limit, use_news=False, force_manual_fetch=True)
+    if source_label == "Top Picks":
+        key = "TopPicks_Alle"
+    elif source_label == "Dynamisk watchlist / best rangerte":
+        key = "Dynamisk watchlist / best rangerte"
+    else:
+        key = source_label
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    latest[key] = data or []
+    # Lagre også under normal kildenøkkel når relevant, slik at dropdownen finner listen direkte.
+    if source_label in {"USA", "Norge", "Sverige"}:
+        latest[source_label] = data or []
+    st.session_state[f"rank_cache_v148_{key}"] = {"fp": ("manual_build", tuple(tickers[:limit])), "data": data or [], "updated_at": _now_short()}
+    _set_update_reason(f"Interaktiv analyse: bygget {source_label}-liste")
+    return data or []
+
+
+def _clean_manual_ticker_input(value: str) -> str:
+    """Rydd manuell ticker. Eksempeltekst og lister skal ikke behandles som aktiv ticker."""
+    raw = str(value or "").strip()
+    examples = {"STB.OL / EQNR.OL / ABB.ST", "AAPL / EQNR.OL / ABB.ST"}
+    if raw.upper() in {x.upper() for x in examples}:
+        return ""
+    # Interaktiv analyse er for én ticker. Hvis bruker limer inn en liste, bruk første og vis info.
+    for sep in [",", ";", "/", "|"]:
+        if sep in raw:
+            raw = raw.split(sep)[0].strip()
+            break
+    return normalize_user_ticker(raw)
 
 
 # SIDEBAR_MARKET_DROPDOWN_V1
@@ -1494,6 +1573,8 @@ div[role="tooltip"] *,
     .watchlist-compact { margin:6px 0 7px 0 !important; padding:7px 8px !important; }
     .watchlist-title { font-size:0.92rem !important; }
     .watchlist-empty { font-size:0.70rem !important; padding:4px 7px !important; }
+    .mobile-control-center-note { font-size:0.78rem !important; line-height:1.25 !important; }
+    [data-testid="stExpander"] details summary p { font-size:0.92rem !important; font-weight:900 !important; }
     [data-testid="stMetric"] { min-height:34px !important; padding:4px 7px !important; border-radius:10px !important; }
     [data-testid="stMetricLabel"] { font-size:0.62rem !important; line-height:1.0 !important; margin-bottom:0 !important; }
     [data-testid="stMetricValue"] { font-size:0.86rem !important; line-height:1.0 !important; }
@@ -3172,7 +3253,7 @@ def normalize_user_ticker(ticker: str) -> str:
 
 
 def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> str:
-    manual = normalize_user_ticker(manual_ticker)
+    manual = _clean_manual_ticker_input(manual_ticker)
     return manual if manual else normalize_user_ticker(selected_from_list)
 
 
@@ -3190,61 +3271,101 @@ def render_analysis(results, label):
     )
     source_results = _latest_ranked_results_for_source(source_choice, results or [], current_label=label)
 
-    # Oppgave 76/76B: dynamiske, rangerte valg etter valgt aksjekilde.
-    # Standard AAPL-listen brukes bare når brukeren står på "Aktuell liste" og ingen rangering finnes.
-    result_options = [normalize_user_ticker(r.get("ticker")) for r in (source_results or []) if r.get("ticker")]
-    fallback_static = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
-    options = []
-    option_labels = {}
-    for r in (source_results or []):
-        t = normalize_user_ticker(r.get("ticker"))
-        if t:
-            score = r.get("score", "N/A")
-            try:
-                score_txt = f"{float(score):.2f}"
-            except Exception:
-                score_txt = str(score)
-            action = card_decision_for_item(r).get("action_now", "") if isinstance(r, dict) else ""
-            option_labels[t] = f"{t} · score {score_txt}" + (f" · {action}" if action else "")
-    for _t in result_options:
-        if _t and _t not in options:
-            options.append(_t)
-    if not options and source_choice == "Aktuell liste":
-        for _t in fallback_static:
-            if _t not in options:
-                options.append(_t)
+    # Oppgave 76/76B + 78/79: dynamiske, rangerte valg etter valgt aksjekilde.
+    # Standard AAPL-listen brukes bare for Aktuell liste. Andre kilder må ha lagret rangering
+    # eller bygges eksplisitt med egen knapp. Ingen stille fallback til AAPL.
+    def _build_options(_source_results):
+        result_options = [normalize_user_ticker(r.get("ticker")) for r in (_source_results or []) if isinstance(r, dict) and r.get("ticker")]
+        _options = []
+        _labels = {}
+        for r in (_source_results or []):
+            if not isinstance(r, dict):
+                continue
+            t = normalize_user_ticker(r.get("ticker"))
+            if t:
+                score = r.get("score", "N/A")
+                try:
+                    score_txt = f"{float(score):.2f}"
+                except Exception:
+                    score_txt = str(score)
+                try:
+                    action = card_decision_for_item(r).get("action_now", "")
+                except Exception:
+                    action = ""
+                _labels[t] = f"{t} · score {score_txt}" + (f" · {action}" if action else "")
+        for _t in result_options:
+            if _t and _t not in _options:
+                _options.append(_t)
+        return _options, _labels
 
-    s0, s1, s2 = st.columns([1.15, 2, 1])
+    options, option_labels = _build_options(source_results)
+    fallback_static = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
+    if not options and source_choice == "Aktuell liste":
+        options = list(fallback_static)
+
+    # V14.10: hvis valgt dynamisk kilde mangler liste, gi eksplisitt knapp for å bygge akkurat denne kilden.
+    if not options and source_choice != "Aktuell liste":
+        st.info(f"Ingen lagret dynamisk rangering for {source_choice}. Bygg listen nå, eller skriv én ticker manuelt.")
+        build_cols = st.columns([1, 2])
+        with build_cols[0]:
+            if st.button(f"🔄 Oppdater {source_choice}-liste nå", key=f"build_interactive_source_{label}_{source_choice}_v1410", use_container_width=True):
+                with st.spinner(f"Bygger dynamisk {source_choice}-liste..."):
+                    source_results = _build_interactive_source_ranking_now(source_choice)
+                options, option_labels = _build_options(source_results)
+                if options:
+                    st.success(f"{source_choice}-listen er oppdatert med {len(options)} aksjer ✅")
+                else:
+                    st.warning(f"Fant ingen data for {source_choice}. Prøv Oppdater / Scan watchlist eller skriv ticker manuelt.")
+        with build_cols[1]:
+            st.caption("Knappen kjører bare valgt kilde. Den skal ikke starte AAPL-fallback eller skjulte markedspaneler.")
+
+    source_key = re.sub(r"[^A-Za-z0-9]+", "_", source_choice).strip("_") or "source"
+    manual_key = f"manual_ticker_{label}_v1410"
+    clear_key = f"clear_manual_ticker_{label}_v1410"
+    if manual_key not in st.session_state:
+        st.session_state[manual_key] = ""
+    if st.session_state.get(clear_key):
+        st.session_state[manual_key] = ""
+        st.session_state[clear_key] = False
+
+    s0, s1, s2 = st.columns([1.05, 2.0, 1.25])
     with s0:
         st.caption(f"Aktiv kilde: {source_choice}")
-    with s2:
-        manual_ticker = st.text_input(
-            "Eller skriv ticker",
-            value="",
-            placeholder="STB.OL / EQNR.OL / ABB.ST",
-            key=f"manual_ticker_{label}",
-        )
     with s1:
         selected_from_list = ""
         if options:
-            source_key = re.sub(r"[^A-Za-z0-9]+", "_", source_choice).strip("_") or "source"
             selected_from_list = st.selectbox(
                 f"Velg aksje fra valgt kilde ({source_choice})",
                 options,
                 index=0,
-                key=f"select_{label}_{source_key}_v149",
+                key=f"select_{label}_{source_key}_v1410",
                 format_func=lambda x: option_labels.get(x, x),
             )
         else:
-            st.info(f"Ingen lagret dynamisk rangering for {source_choice}. Trykk Oppdater / Scan watchlist først, eller skriv ticker manuelt.")
+            st.caption("Ingen listevalg tilgjengelig for valgt kilde ennå.")
+    with s2:
+        manual_ticker_raw = st.text_input(
+            "Eller skriv ticker",
+            placeholder="Skriv én ticker, f.eks. STB.OL",
+            key=manual_key,
+            help="Manuell ticker overstyrer valgt kilde. For flere tickere bruker du Strategi-test.",
+        )
+        if st.button("Tøm manuell ticker", key=f"manual_ticker_clear_btn_{label}_v1410", use_container_width=True):
+            st.session_state[manual_key] = ""
+            st.rerun()
+        st.caption("Eksempel: STB.OL, EQNR.OL eller ABB.ST")
 
-    selected = active_ticker_from_inputs(manual_ticker, selected_from_list)
-    if manual_ticker.strip():
+    manual_ticker_clean = _clean_manual_ticker_input(manual_ticker_raw)
+    if manual_ticker_raw and manual_ticker_clean != normalize_user_ticker(manual_ticker_raw):
+        st.caption(f"Manuell input er tolket som én ticker: {manual_ticker_clean or 'ingen'}")
+
+    selected = active_ticker_from_inputs(manual_ticker_raw, selected_from_list)
+    if manual_ticker_clean:
         st.caption(f"Aktiv tickerkilde: Manuell ticker · Bruker ticker: {selected}")
     elif selected:
         st.caption(f"Aktiv tickerkilde: {source_choice} · Bruker ticker: {selected}")
     else:
-        st.warning("Velg en ticker fra listen, eller skriv ticker manuelt.")
+        st.warning("Velg en ticker fra listen, bygg valgt kilde, eller skriv én ticker manuelt.")
         return
 
     item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
@@ -4631,6 +4752,47 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# V14.10 / Oppgave 77: Mobilen mister ofte Streamlit-sidebaren.
+# Legg kritiske kontroller i hovedsiden også, uten å fjerne sidebaren på PC.
+with st.expander("☰ Kontrollsenter / mobil hurtigmeny", expanded=False):
+    st.markdown(
+        f"""
+        <div class='control-center-status'>
+            <b>Driftstatus</b><br>
+            <span class='status-dot {_top_auto_color}'></span>Auto trading: <b>{_top_auto_state}</b><br>
+            <span class='status-dot {'green' if _top_paper else 'red'}'></span>Paper trading: <b>AKTIV</b><br>
+            <span class='status-dot {'red' if _top_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _top_full_stop else 'NEI'}</b><br>
+            <span class='status-dot {'green' if _top_chart_auto else 'red'}'></span>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b><br>
+            Siste scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    with mc1:
+        if st.button("▶️ Start", key="mobile_auto_start_v1410", use_container_width=True):
+            _set_auto_state("START")
+    with mc2:
+        if st.button("⏸ Pause", key="mobile_auto_pause_v1410", use_container_width=True):
+            _set_auto_state("PAUSE")
+    with mc3:
+        if st.button("⛔ Stopp", key="mobile_auto_stop_v1410", use_container_width=True):
+            _set_auto_state("STOPP")
+    with mc4:
+        if st.button("🚨 Nødstopp", key="mobile_auto_emergency_v1410", use_container_width=True):
+            _set_auto_state("NØDSTOPP")
+    vc1, vc2 = st.columns(2)
+    with vc1:
+        if st.button("⛔ Full stopp / ferie", key="mobile_full_stop_v1410", use_container_width=True):
+            activate_full_stop()
+            st.rerun()
+    with vc2:
+        if st.button("▶️ Start systemet igjen", key="mobile_resume_system_v1410", use_container_width=True):
+            deactivate_full_stop()
+            st.rerun()
+    st.markdown("<div class='mobile-control-center-note'>Sidebaren finnes fortsatt på PC. På mobil er denne menyen reserve/hurtigtilgang til kritiske kontroller.</div>", unsafe_allow_html=True)
+
 _tq1, _tq2, _tq3, _tq4, _tq5 = st.columns([1, 1, 1, 1.15, 1.15])
 with _tq1:
     if st.button("▶️ Start auto", key="auto_start_top_v147", use_container_width=True):
