@@ -2667,6 +2667,118 @@ def render_live_market_banner():
 
 
 
+def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v157"):
+    """V15.8.1: robust banner settings form used only below the ticker banner.
+
+    This function was referenced by render_banner_main_controls() in v15.8 but was
+    missing, which caused NameError when opening "Rediger ticker-banner".  It is
+    intentionally self-contained and only updates banner-related settings.
+    """
+    settings = load_settings()
+    raw = settings.get("live_banner_tickers", {}) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+    if isinstance(visible_markets, str):
+        visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
+    visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
+
+    st_obj.caption("Endringer i ticker-banner lagres her. Banneret oppdateres etter lagring/ny kjøring, ikke fra venstremenyen.")
+
+    with st_obj.form(form_key, clear_on_submit=False):
+        c_enable, c_speed, c_refresh = st.columns([1.1, 1.1, 1.1])
+        with c_enable:
+            live_banner_enabled = st.checkbox(
+                "Vis ticker-banner",
+                value=bool(settings.get("live_banner_enabled", True)),
+                key=f"{form_key}_enabled",
+            )
+        with c_speed:
+            live_banner_speed = st.number_input(
+                "Bannerhastighet sekunder",
+                min_value=10,
+                max_value=240,
+                value=int(settings.get("live_banner_speed_seconds", 70) or 70),
+                step=5,
+                key=f"{form_key}_speed",
+                help="Lavere tall = raskere bevegelse. Høyere tall = saktere banner.",
+            )
+        with c_refresh:
+            ui_refresh_minutes = st.number_input(
+                "Oppdateringsintervall min",
+                min_value=1,
+                max_value=240,
+                value=int(settings.get("ui_refresh_minutes", 60) or 60),
+                step=1,
+                key=f"{form_key}_refresh",
+                help="Hvor ofte bannerdata kan oppdateres når auto-refresh er aktivert.",
+            )
+
+        st.markdown("**Markeder som vises i banneret**")
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            show_usa = st.checkbox("USA", value=("USA" in visible_markets), key=f"{form_key}_show_usa")
+        with m2:
+            show_no = st.checkbox("Norge", value=("Norge" in visible_markets), key=f"{form_key}_show_no")
+        with m3:
+            show_se = st.checkbox("Sverige", value=("Sverige" in visible_markets), key=f"{form_key}_show_se")
+
+        t1, t2, t3 = st.columns(3)
+        with t1:
+            usa_tickers = st.text_area(
+                "USA tickere",
+                value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")),
+                height=90,
+                key=f"{form_key}_usa_tickers",
+                help="Kommaseparert liste, f.eks. AAPL, MSFT, NVDA.",
+            )
+        with t2:
+            no_tickers = st.text_area(
+                "Norge tickere",
+                value=str(raw.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")),
+                height=90,
+                key=f"{form_key}_no_tickers",
+                help="Kommaseparert liste, f.eks. EQNR.OL, DNB.OL.",
+            )
+        with t3:
+            se_tickers = st.text_area(
+                "Sverige tickere",
+                value=str(raw.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")),
+                height=90,
+                key=f"{form_key}_se_tickers",
+                help="Kommaseparert liste, f.eks. VOLV-B.ST, ERIC-B.ST.",
+            )
+
+        submitted = st.form_submit_button("💾 Lagre ticker-banner", use_container_width=True)
+
+    if submitted:
+        new_visible = []
+        if show_usa:
+            new_visible.append("USA")
+        if show_no:
+            new_visible.append("Norge")
+        if show_se:
+            new_visible.append("Sverige")
+        if not new_visible:
+            new_visible = ["USA", "Norge", "Sverige"]
+
+        settings.update({
+            "live_banner_enabled": bool(live_banner_enabled),
+            "live_banner_speed_seconds": int(live_banner_speed),
+            "ui_refresh_minutes": int(ui_refresh_minutes),
+            "live_banner_markets_visible": new_visible,
+            "live_banner_tickers": {
+                "USA": str(usa_tickers).strip(),
+                "Norge": str(no_tickers).strip(),
+                "Sverige": str(se_tickers).strip(),
+            },
+        })
+        save_settings(settings)
+        st.success("Ticker-banner lagret.")
+        st.rerun()
+
+
 def render_banner_sidebar_controls(expanded=False):
     """V15.8 regresjonssperre: ticker-banner skal kun redigeres under selve banneret, aldri i venstremenyen."""
     return
