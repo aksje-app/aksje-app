@@ -119,19 +119,74 @@ def _set_auto_state(state):
     # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
     _full_stop_is_on = _full_stop_active()
     if state == "START" and _full_stop_is_on:
-        # Ikke vis advarsel inne i den smale Start-knapp-kolonnen.
-        # Lagre heller en fullbredde-status som rendres under kontrollgruppen.
-        st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Auto trading kan ikke startes før systemet er startet igjen."
+        st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Bruk Opphev stopp / gjør klar før Auto trading kan startes."
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        return
+    if state == "START" and bool(_s := load_settings()).get("auto_trading_emergency_stop", False):
+        st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes."
         st.session_state["auto_control_notice_level_v153"] = "warning"
         return
     if state == "START":
-        _save_setting_patch(auto_trading_enabled=True, auto_trading_paused=False, auto_trading_emergency_stop=False)
+        _save_setting_patch(auto_trading_enabled=True, auto_trading_paused=False)
     elif state == "PAUSE":
-        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=True, auto_trading_emergency_stop=False)
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=True)
     elif state == "STOPP":
-        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=False)
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
     elif state == "NØDSTOPP":
         _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=True)
+    st.rerun()
+
+
+def _reset_emergency_stop_v157():
+    """V15.7: Nødstopp er en egen sikkerhetslås og må oppheves eksplisitt."""
+    _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=False)
+    st.session_state["auto_control_notice_v153"] = "Nødstopp er tilbakestilt. Trykk Start når du vil aktivere Auto trading."
+    st.session_state["auto_control_notice_level_v153"] = "info"
+    st.rerun()
+
+
+def _deactivate_full_stop_v157():
+    """V15.7: Full stopp/ferie oppheves med egen tydelig handling."""
+    try:
+        deactivate_full_stop()
+    except Exception:
+        pass
+    st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er slått av. Auto trading er fortsatt AV. Trykk Start når du vil aktivere den."
+    st.session_state["auto_control_notice_level_v153"] = "success"
+    st.rerun()
+
+
+def _auto_block_reason(settings=None):
+    """V15.8: forklar hvorfor Auto trading ikke kan starte."""
+    _s = settings or load_settings()
+    if _full_stop_active():
+        return "Full stopp / ferie"
+    if bool(_s.get("auto_trading_emergency_stop", False)):
+        return "Nødstopp"
+    if bool(_s.get("auto_trading_paused", False)):
+        return "Pause"
+    return ""
+
+
+def _clear_stops_ready_v158():
+    """V15.8: trygg hovedknapp. Opphever vanlig full stopp/pause, men starter ikke trading og nullstiller ikke nødstopp."""
+    _s = load_settings()
+    if bool(_s.get("auto_trading_emergency_stop", False)):
+        st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan gjøres klar."
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        st.rerun()
+        return
+    try:
+        deactivate_full_stop()
+    except Exception:
+        pass
+    try:
+        clear_pause()
+    except Exception:
+        pass
+    _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
+    st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV – trykk Start for å starte."
+    st.session_state["auto_control_notice_level_v153"] = "success"
     st.rerun()
 
 
@@ -214,18 +269,22 @@ def _rank_cache_get(label, fp):
 
 
 def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False):
-    """Cache rundt auto_rank_market for å hindre tung rangering ved bare menyendringer.
+    """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
 
-    Når auto-oppdater er AV, kjøres ny rangering bare når bruker trykker
-    Oppdater / bruk endringer, eller når cache mangler.
+    Draft-verdier kan endres fritt; aktiv rangering oppdateres først via
+    Oppdater / bruk endringer, Auto-oppdater eller manuell scan.
     """
     safe_tickers = list(tickers or [])
     fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch))
     cached = _rank_cache_get(label, fp)
-    if cached is not None and not _heavy_update_allowed():
-        return cached
-    if cached is not None and not bool(load_settings().get("chart_auto_update_enabled", False)) and not st.session_state.get("heavy_update_allowed_v148", False):
-        return cached
+    if not _heavy_update_allowed():
+        if cached is not None:
+            return cached
+        latest = (st.session_state.get("latest_rankings_v148") or {}).get(label)
+        if latest is not None:
+            return latest
+        # Ingen cache ennå: ikke start tung jobb ved vanlig widget-rerun.
+        return []
     data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch)
     _rank_cache_store(label, fp, data)
     return data
@@ -2120,16 +2179,78 @@ if APP_VIEW_MODE == "Kompakt":
         unsafe_allow_html=True,
     )
 elif APP_VIEW_MODE == "Full":
+    # V15.7: Full visning betyr flere detaljer, ikke enorme KPI-kort.
     st.markdown(
         """
         <style>
-        [data-testid="stMetric"] { padding: 18px !important; min-height: 92px !important; }
-        [data-testid="stMetricValue"] { font-size: 1.85rem !important; }
+        [data-testid="stMetric"] { padding: 10px 12px !important; min-height: 64px !important; }
+        [data-testid="stMetricValue"] { font-size: 1.22rem !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+
+
+# V15.7 / Oppgave 112: KPI-kort harmoniseres med resten av UI-et, også i Full-visning.
+st.markdown(
+    """
+    <style>
+    [data-testid="stMetric"] {
+        min-height: 58px !important;
+        padding: 8px 10px !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.70rem !important;
+        line-height: 1.05 !important;
+        margin-bottom: 1px !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.12rem !important;
+        line-height: 1.05 !important;
+    }
+    .info-mini-card {
+        min-height: 84px !important;
+        padding: 10px 12px !important;
+        border-radius: 12px !important;
+    }
+    .info-mini-title { font-size: 0.86rem !important; margin-bottom: 5px !important; }
+    .info-mini-main { font-size: 1.02rem !important; margin: 3px 0 !important; }
+    .info-mini-sub { font-size: 0.78rem !important; line-height: 1.25 !important; }
+    .info-mini-small { font-size: 0.68rem !important; }
+    .rsi-box { padding: 10px 12px !important; border-radius: 12px !important; margin: 8px 0 10px 0 !important; }
+    .rsi-title { font-size: 0.92rem !important; }
+    .rsi-value { font-size: 1.20rem !important; }
+    .v157-toolbar .stButton > button {
+        min-height: 28px !important;
+        padding: 0.18rem 0.42rem !important;
+        font-size: 0.72rem !important;
+        border-radius: 8px !important;
+    }
+    .v157-toolbar .stButton > button p { font-size: 0.72rem !important; line-height: 1.02 !important; }
+    .v153-control-note, .v153-control-note * {
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+    }
+    .v153-control-note {
+        max-width: 980px !important;
+        min-width: min(520px, 100%) !important;
+        display: block !important;
+    }
+    @media (max-width: 900px) {
+        [data-testid="stMetric"] { min-height: 46px !important; padding: 6px 8px !important; }
+        [data-testid="stMetricValue"] { font-size: 0.95rem !important; }
+        .v153-control-note { min-width: 0 !important; width: 100% !important; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 LIVE_BANNER_LABELS = {
     "^GSPC": "S&P 500",
@@ -2547,110 +2668,110 @@ def render_live_market_banner():
 
 
 def render_banner_sidebar_controls(expanded=False):
-    """Synlig kontroll for ticker-banner i sidepanelet."""
-    st.sidebar.markdown(
-        """
-        <style>
-        /* BANNER_FORM_FOCUS_AND_MARKET_FILTER_V9 */
-        section[data-testid="stSidebar"] textarea,
-        section[data-testid="stSidebar"] [data-baseweb="textarea"] textarea {
-            caret-color: #38bdf8 !important;
-            color: #f8fafc !important;
-            background: rgba(15,23,42,0.94) !important;
-            border-color: rgba(148,163,184,0.55) !important;
-            font-weight: 800 !important;
-        }
-        section[data-testid="stSidebar"] [data-baseweb="textarea"]:focus-within,
-        section[data-testid="stSidebar"] textarea:focus {
-            outline: none !important;
-            border-color: #38bdf8 !important;
-            box-shadow: 0 0 0 2px rgba(56,189,248,0.22) !important;
-        }
-        section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
-            min-height: 38px !important;
-            background: rgba(15,23,42,0.92) !important;
-            border: 1px solid rgba(148,163,184,0.42) !important;
-            border-radius: 11px !important;
-        }
-        section[data-testid="stSidebar"] div[data-baseweb="select"]:focus-within > div {
-            border-color: rgba(56,189,248,0.92) !important;
-            box-shadow: 0 0 0 2px rgba(56,189,248,0.20) !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    with st.sidebar.expander("📺 Rediger ticker-banner", expanded=expanded):
-        _banner_settings = load_settings()
-        _ticker_settings = _banner_settings.get("live_banner_tickers", {}) or {}
-        _market_options = ["USA", "Norge", "Sverige"]
-        _visible_markets = _banner_settings.get("live_banner_markets_visible", _market_options)
-        if isinstance(_visible_markets, str):
-            _visible_markets = [m.strip() for m in _visible_markets.replace(";", ",").split(",") if m.strip()]
-        _visible_markets = [m for m in (_visible_markets or _market_options) if m in _market_options]
-        if not _visible_markets:
-            _visible_markets = list(_market_options)
+    """V15.8 regresjonssperre: ticker-banner skal kun redigeres under selve banneret, aldri i venstremenyen."""
+    return
 
-        st.caption("Endringer i banneret er samlet i skjemaet. Rediger flere felt først, og trykk Lagre banner når du er klar.")
-        with st.form("banner_settings_form_v9", clear_on_submit=False):
-            _banner_enabled = st.checkbox(
-                "Vis ticker-banner øverst",
-                value=bool(_banner_settings.get("live_banner_enabled", True)),
-                key="banner_enabled_form_v9",
-            )
-            _refresh_options = [1, 5, 15, 30, 60]
-            _current_refresh = int(_banner_settings.get("ui_refresh_minutes", 5) or 5)
-            if _current_refresh not in _refresh_options:
-                _refresh_options.append(_current_refresh)
-                _refresh_options = sorted(set(_refresh_options))
-            _auto_refresh_enabled = st.checkbox(
-                "Auto-oppdater appen periodisk",
-                value=bool(_banner_settings.get("ui_auto_refresh_enabled", False)),
-                key="ui_auto_refresh_enabled_form_v13",
-            )
-            _refresh_choice = st.selectbox(
-                "Oppdateringsintervall",
-                _refresh_options,
-                index=_refresh_options.index(_current_refresh),
-                format_func=lambda x: f"{x} min",
-                key="banner_refresh_form_v9",
-            )
-            _current_speed = int(_banner_settings.get("live_banner_speed_seconds", 70) or 70)
-            _banner_speed = st.slider(
-                "Bannerhastighet",
-                15,
-                180,
-                _current_speed,
-                5,
-                key="banner_speed_form_v9",
-            )
-            st.caption(f"Bannerhastighet valgt: {_banner_speed}s. Lavere tall = raskere, høyere tall = saktere. Trykk Lagre banner for å bruke verdien.")
-            _selected_markets = st.multiselect(
-                "Markeder som vises i banner",
-                _market_options,
-                default=_visible_markets,
-                key="banner_markets_visible_form_v9",
-            )
-            st.caption("Legg til/fjern tickere. Bruk komma. Norske tickere bruker ofte .OL, svenske .ST.")
-            _usa_banner = st.text_area("USA", value=str(_ticker_settings.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")), height=64, key="banner_usa_form_v9")
-            _no_banner = st.text_area("Norge", value=str(_ticker_settings.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")), height=64, key="banner_no_form_v9")
-            _se_banner = st.text_area("Sverige", value=str(_ticker_settings.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")), height=64, key="banner_se_form_v9")
-            _save_banner = st.form_submit_button("💾 Lagre banner", use_container_width=True)
 
-        if _save_banner:
-            _banner_settings["live_banner_enabled"] = bool(_banner_enabled)
-            _banner_settings["ui_auto_refresh_enabled"] = bool(_auto_refresh_enabled)
-            _banner_settings["ui_refresh_minutes"] = int(_refresh_choice)
-            _banner_settings["live_banner_speed_seconds"] = int(_banner_speed)
-            _banner_settings["live_banner_markets_visible"] = list(_selected_markets or _market_options)
-            _banner_settings["live_banner_tickers"] = {"USA": _usa_banner, "Norge": _no_banner, "Sverige": _se_banner}
-            save_settings(_banner_settings)
-            try:
-                fetch_live_banner_snapshot.clear()
-            except Exception:
-                pass
-            st.success("Banner lagret ✅")
+def render_banner_main_controls():
+    """Oppgave 111 / Fase 3: Rediger ticker-banner rett under selve banneret."""
+    with st.expander("📺 Rediger ticker-banner", expanded=False):
+        _render_banner_settings_form_v157(st, form_key="banner_settings_form_v157_main")
+
+
+def render_system_admin_workspace():
+    """Fase 3: Cron/bakgrunnssøk og systemdrift ut av venstremenyen og inn i hovedområdet."""
+    with st.expander("🛠 System / admin · Bakgrunnssøk / Cron", expanded=False):
+        st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjøp. Start auto opphever ikke sikkerhetslåser.")
+        _cron_settings = load_settings()
+        _cron_status = cron_status_text()
+        _is_full_stop = bool(_cron_status.get("vacation_mode"))
+        _is_allowed = bool(_cron_status.get("allowed"))
+        if _is_full_stop:
+            st.warning("Status: Full stopp / ferie er aktiv ⛔")
+        elif not _is_allowed:
+            st.info("Status: Pauset / hopper over ⏸")
+        else:
+            st.success("Status: Aktiv ✅")
+        st.caption(_cron_status.get("reason", ""))
+
+        with st.form("system_admin_cron_form_v157", clear_on_submit=False):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                _cron_enabled = st.checkbox("Bakgrunnssøk aktiv", value=bool(_cron_settings.get("background_scanning_enabled", True)), key="main_cron_background_enabled_v157")
+            with c2:
+                _cron_interval = st.number_input("Søkintervall minutter", min_value=1, max_value=1440, value=int(_cron_settings.get("scan_interval_minutes", 15)), step=1, key="main_cron_scan_interval_v157")
+            with c3:
+                _pause_choice = st.selectbox("Pause søk", ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"], key="main_cron_pause_choice_v157")
+            _save_cron = st.form_submit_button("💾 Lagre søk/cron", use_container_width=True)
+        if _save_cron:
+            _new_settings = load_settings()
+            _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
+            _new_settings["scan_interval_minutes"] = int(_cron_interval)
+            save_settings(_new_settings)
+            if _pause_choice == "30 minutter":
+                pause_until(minutes=30)
+            elif _pause_choice == "1 time":
+                pause_until(minutes=60)
+            elif _pause_choice == "2 timer":
+                pause_until(minutes=120)
+            elif _pause_choice == "Resten av dagen":
+                pause_until(rest_of_day=True)
+            elif _pause_choice == "Ingen pause":
+                clear_pause()
+            st.success("Søk/cron lagret ✅")
             st.rerun()
+
+        s1, s2, s3, s4 = st.columns([1, 1, 1, 2.2])
+        with s1:
+            if _is_full_stop:
+                if st.button("🔓 Slå av Full stopp", key="main_disable_full_stop_v157", use_container_width=True):
+                    _deactivate_full_stop_v157()
+            else:
+                if st.button("⛔ Full stopp / ferie", key="main_activate_full_stop_v157", use_container_width=True):
+                    activate_full_stop()
+                    st.rerun()
+        with s2:
+            if _cron_status.get("pause_until"):
+                if st.button("▶️ Gjenoppta nå", key="main_resume_pause_v157", use_container_width=True):
+                    clear_pause()
+                    st.rerun()
+            else:
+                st.caption("Ingen aktiv pause")
+        with s3:
+            if st.button("⚡ Kjør auto-kjøp nå", key="main_force_auto_buy_now_v157", use_container_width=True, disabled=_is_full_stop):
+                try:
+                    from scanner_worker import run_once
+                    with st.spinner("Kjører auto-kjøp-motor..."):
+                        _trades = run_once(force=True)
+                    st.success(f"Auto-motor ferdig. Trades: {_trades}")
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f"Auto-kjøp feilet: {_e}")
+        with s4:
+            st.caption("Auto-kjøp nå er en engangskjøring. Den starter ikke fast Auto trading, og blokkeres av Full stopp / ferie.")
+
+
+def render_analysis_universe_workspace():
+    """Fase 3: Analyseunivers flyttet fra venstremeny til hovedområdet nær Market overview."""
+    with st.expander("🔎 Analyseunivers / Market overview-oppsett", expanded=False):
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            selected_category = st.selectbox(
+                "Markedskategori",
+                MARKET_CATEGORY_OPTIONS,
+                index=MARKET_CATEGORY_OPTIONS.index(st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0])) if st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0]) in MARKET_CATEGORY_OPTIONS else 0,
+                key="market_category_selector_v157",
+            )
+            if selected_category in {"Cryptocurrencies", "Rates", "Commodities", "Currencies"}:
+                st.info(f"{selected_category}: full analysemodell kommer senere. Aksjeunivers brukes som fallback.")
+        with a2:
+            st.slider("Antall aksjer å analysere", 5, 200, int(st.session_state.get("max_count_main_v157", 30)), key="max_count_main_v157")
+            st.slider("Minimum score for Top Picks", 4.0, 9.0, float(st.session_state.get("min_top_pick_score_main_v157", 6.5)), 0.1, key="min_top_pick_score_main_v157")
+        with a3:
+            st.checkbox("Bruk nyheter/sentiment", value=bool(st.session_state.get("use_news_main_v157", True)), key="use_news_main_v157")
+            st.checkbox("Bruk Signal Intelligence", value=bool(st.session_state.get("use_signal_intelligence_main_v157", True)), key="use_signal_intelligence_main_v157")
+            st.text_input("Søk ticker manuelt", value=str(st.session_state.get("search_main_v157", "")), placeholder="F.eks. AAPL, EQNR.OL", key="search_main_v157")
+        st.caption("Endringer følger Auto-oppdater-regelen: er Auto-oppdater av, brukes de først når du trykker Oppdater / bruk endringer.")
 
 def render_decision_explanation(decision):
     try:
@@ -4867,114 +4988,13 @@ except Exception:
 
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
-    # V15.1 / Oppgave 90B: Børsstatus er flyttet opp til høyre for Auto trading-kontrollene.
-    # Sidebar starter derfor direkte på Cron/bakgrunnssøk.
-    st.sidebar.markdown("### ⏱ Cron / bakgrunnssøk")
-
-    _cron_settings = load_settings()
-    _cron_status = cron_status_text()
-    _is_full_stop = bool(_cron_status.get("vacation_mode"))
-    _is_allowed = bool(_cron_status.get("allowed"))
-
-    if _is_full_stop:
-        st.sidebar.error("Status: Full stopp ⛔")
-    elif not _is_allowed:
-        st.sidebar.warning("Status: Pauset / hopper over ⏸")
-    else:
-        st.sidebar.success("Status: Aktiv ✅")
-
-    st.sidebar.caption(_cron_status.get("reason", ""))
-
-    _cron_enabled = st.sidebar.checkbox(
-        "Bakgrunnssøk aktiv",
-        value=bool(_cron_settings.get("background_scanning_enabled", True)),
-        key="cron_background_enabled_v2",
+    """V15.7 / Fase 3: sidebar er kun status/navigasjon. System/admin, banner og analyseunivers er flyttet til hovedområdet."""
+    st.sidebar.markdown("### 🧭 Arbeidsflater")
+    st.sidebar.info(
+        "Cron/bakgrunnssøk, ticker-banner, analyseunivers, watchlist/varsler, trading-regler og Auto trading-parametere er flyttet til hovedområdet. "
+        "Venstremenyen brukes nå til status, bruker og hurtigorientering."
     )
 
-    _cron_interval = st.sidebar.number_input(
-        "Søkintervall minutter",
-        min_value=1,
-        max_value=1440,
-        value=int(_cron_settings.get("scan_interval_minutes", 15)),
-        step=1,
-        key="cron_scan_interval_v2",
-    )
-
-    _pause_choice = st.sidebar.selectbox(
-        "Pause søk",
-        ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"],
-        key="cron_pause_choice_v2",
-    )
-
-    if st.sidebar.button("💾 Lagre søk/cron", key="save_cron_control_v2"):
-        _new_settings = load_settings()
-        _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
-        _new_settings["scan_interval_minutes"] = int(_cron_interval)
-
-        if _pause_choice == "30 minutter":
-            pause_until(minutes=30)
-        elif _pause_choice == "1 time":
-            pause_until(minutes=60)
-        elif _pause_choice == "2 timer":
-            pause_until(minutes=120)
-        elif _pause_choice == "Resten av dagen":
-            pause_until(rest_of_day=True)
-        elif _pause_choice == "Ingen pause":
-            _new_settings["pause_scanning_until"] = None
-            save_settings(_new_settings)
-
-        _merged = load_settings()
-        _merged["background_scanning_enabled"] = bool(_cron_enabled)
-        _merged["scan_interval_minutes"] = int(_cron_interval)
-        if _pause_choice == "Ingen pause":
-            _merged["pause_scanning_until"] = None
-        save_settings(_merged)
-
-        st.sidebar.success("Søk/cron lagret ✅")
-        st.rerun()
-
-    # Én samlet gjenoppta-knapp erstatter Start igjen + Fjern pause nå.
-    if _is_full_stop:
-        if st.sidebar.button("▶️ Start systemet igjen", key="resume_from_full_stop_v2"):
-            deactivate_full_stop()
-            st.sidebar.success("Systemet er startet igjen ✅")
-            st.rerun()
-    elif _cron_status.get("pause_until"):
-        if st.sidebar.button("▶️ Gjenoppta nå", key="resume_from_pause_v2"):
-            clear_pause()
-            st.sidebar.success("Pause fjernet ✅")
-            st.rerun()
-
-    if st.sidebar.button("⛔ Full stopp / ferie", key="activate_full_stop_btn_v2"):
-        activate_full_stop()
-        st.sidebar.error("Full stopp aktivert ⛔")
-        st.rerun()
-
-    # V13 / Oppgave 36: Auto-kjøp skal ligge direkte under Full stopp / ferie.
-    st.sidebar.markdown("### ⚡ Auto-kjøp")
-    st.sidebar.caption("Tester samme auto-motor som Cron, men manuelt nå.")
-
-    if st.sidebar.button("⚡ Kjør auto-kjøp nå", key="force_auto_buy_now_v2"):
-        try:
-            from scanner_worker import run_once
-            with st.spinner("Kjører auto-kjøp-motor..."):
-                _trades = run_once(force=True)
-            st.sidebar.success(f"Auto-motor ferdig. Trades: {_trades}")
-            st.rerun()
-        except Exception as _e:
-            st.sidebar.error(f"Auto-kjøp feilet: {_e}")
-
-    if _cron_status.get("last_scan_at"):
-        st.sidebar.caption(f"Siste scan: {_cron_status.get('last_scan_at')}")
-    if _cron_status.get("pause_until"):
-        st.sidebar.caption(f"Pause til: {_cron_status.get('pause_until')}")
-
-    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-    render_banner_sidebar_controls(expanded=False)
-
-    st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-    st.sidebar.markdown("### 🔕 Varsler og watchlist")
-    st.sidebar.info("Flyttet til hovedområdet under **Watchlist signaler**. Bruk seksjonen der for varselkontroll, dynamisk watchlist og manuell scan.")
 
 
 
@@ -5061,32 +5081,27 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-# V15.5 / Fase 1: store arbeidsinnstillinger er flyttet ut av venstremenyen.
-# Venstremenyen skal være navigasjon/status/hurtigkontroll, ikke lang arbeidsflate.
-st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-st.sidebar.markdown("### 🧭 Arbeidsflater")
-st.sidebar.info(
-    "Trading-regler og Auto trading-parametere er flyttet til hovedområdet under panelet **Paper Trading**. "
-    "Dette gir mindre scrolling i venstremenyen og bedre arbeidsflate i midten."
-)
-
+# V15.8: ingen duplisert arbeidsflate-info i venstremenyen.
 st.sidebar.markdown("### 🎨 Visning")
 st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
-st.sidebar.markdown('### 🔎 Analyseunivers')
-selected_market_category, mode = render_market_category_selector()
-max_count = st.sidebar.slider("Antall aksjer å analysere", 5, 200, 30)
-st.sidebar.caption("Flere aksjer gir bedre dekning, men appen kan bli tregere.")
-min_top_pick_score = st.sidebar.slider("Minimum score for Top Picks", 4.0, 9.0, 6.5, 0.1)
-use_news = st.sidebar.checkbox("Bruk nyheter/sentiment", value=True)
-use_signal_intelligence = st.sidebar.checkbox("Bruk Signal Intelligence", value=True)
+# V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
+# Verdiene leses fra session_state slik at kontroller kan ligge visuelt senere i hovedflaten.
+selected_market_category = st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0])
+if selected_market_category not in MARKET_CATEGORY_OPTIONS:
+    selected_market_category = MARKET_CATEGORY_OPTIONS[0]
+mode = MARKET_CATEGORY_TO_MODE.get(selected_market_category, "Alle")
+max_count = int(st.session_state.get("max_count_main_v157", 30) or 30)
+min_top_pick_score = float(st.session_state.get("min_top_pick_score_main_v157", 6.5) or 6.5)
+use_news = bool(st.session_state.get("use_news_main_v157", True))
+use_signal_intelligence = bool(st.session_state.get("use_signal_intelligence_main_v157", True))
 _alert_runtime_settings = load_settings()
 pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY) and bool(_alert_runtime_settings.get("pushover_enabled", True))
 use_high_conf_alerts_only = bool(_alert_runtime_settings.get("notify_high_confidence_only", True))
 min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 80))
 auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
-search = st.sidebar.text_input("Søk ticker manuelt", placeholder="F.eks. AAPL, EQNR.OL")
+search = str(st.session_state.get("search_main_v157", "") or "").strip().upper()
 
 # V14.8 / Oppgave 70 og 72:
 # Menyer skriver først til draft. Tunge analyser bruker aktive verdier til bruker trykker
@@ -5102,6 +5117,7 @@ _draft_analysis_controls_v148 = {
 }
 if "active_analysis_controls_v148" not in st.session_state:
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+    st.session_state["heavy_update_allowed_v148"] = True
     _set_update_reason("Oppstart / første aktive innstillinger")
 
 # Auto-oppdater = draft blir aktivt med en gang. Av = behold sist aktive til bruker trykker Oppdater.
@@ -5166,6 +5182,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+# V15.8: hardere kompakt KPI-stil og anti-vertikal tekst i kontrollområdet.
+st.markdown("""
+<style>
+[data-testid="stMetric"] {
+    min-height: 54px !important;
+    padding: 7px 10px !important;
+    border-radius: 11px !important;
+}
+[data-testid="stMetricLabel"] { font-size: 0.68rem !important; line-height: 1.05 !important; }
+[data-testid="stMetricValue"] { font-size: 1.05rem !important; line-height: 1.08 !important; }
+.v153-control-note, .v153-control-note *, .v15-inline-help, .v15-inline-help * {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    white-space: normal !important;
+}
+</style>
+""", unsafe_allow_html=True)
 # V15.4: siste hard-override for å hindre smale meldingsbokser og for å gjøre toppkontroller mer samlet.
 st.markdown(
     """
@@ -5233,17 +5269,31 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.4 / helhetlig opprydding: kompakt Auto trading-kontrollgruppe.
-# Systemkontroller ligger i Kontrollsenter/sidebar. Full stopp/ferie overstyrer alltid start av Auto trading.
-st.markdown("<div class='v15-inline-help'><b>Auto trading:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. Full stopp/ferie og systemstart ligger i Kontrollsenter/sidebar.</div>", unsafe_allow_html=True)
+render_analysis_universe_workspace()
+
+# V15.8: kompakt Auto trading-kontrollgruppe med tydelige sikkerhetslåser.
+# Start opphever aldri Full stopp eller Nødstopp.
+_top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
+_block_reason = _auto_block_reason(_top_settings)
+st.markdown(
+    "<div class='v15-inline-help'><b>Auto trading:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
+    "Sikkerhetslåser oppheves med egne knapper.</div>",
+    unsafe_allow_html=True,
+)
 if bool(_top_full_stop):
     st.markdown(
-        "<div class='v153-control-note warning'>⛔ Full stopp / ferie er aktiv. Auto trading kan ikke startes før systemet startes igjen. Paper Trading er kun visning.</div>",
+        "<div class='v153-control-note warning'>⛔ Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
+        "Bruk <b>Opphev stopp / gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
         unsafe_allow_html=True,
     )
-_tq1, _tq2, _tq3, _tq4, _control_spacer = st.columns([0.30, 0.30, 0.32, 0.58, 8.5], gap="small")
+elif _top_emergency_stop:
+    st.markdown(
+        "<div class='v153-control-note warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
+        unsafe_allow_html=True,
+    )
+_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.34, 0.34, 0.36, 0.45, 0.78, 0.74, 6.9], gap="small")
 with _tq1:
-    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop)):
+    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
         _set_auto_state("START")
 with _tq2:
     if st.button("⏸ Pause", key="auto_pause_top_v15", use_container_width=True):
@@ -5254,13 +5304,22 @@ with _tq3:
 with _tq4:
     if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
+with _tq5:
+    if bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)):
+        if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True):
+            _clear_stops_ready_v158()
+with _tq6:
+    if _top_emergency_stop:
+        if st.button("🔓 Nødstopp", key="reset_emergency_top_v157", use_container_width=True):
+            _reset_emergency_stop_v157()
 
-# V15.4: fullbredde status for blokkert Start rendres før knapper. Her håndteres bare eventuell engangsnotis.
-if (not bool(_top_full_stop)) and st.session_state.get("auto_control_notice_v153"):
+# V15.8: alle handlingsmeldinger vises fullbredde under kontrollgruppen.
+if st.session_state.get("auto_control_notice_v153"):
     _notice = html.escape(str(st.session_state.pop("auto_control_notice_v153", "")))
-    st.session_state.pop("auto_control_notice_level_v153", None)
+    _level = str(st.session_state.pop("auto_control_notice_level_v153", "info"))
+    _prefix = "✅" if _level == "success" else ("⚠️" if _level == "warning" else "ℹ️")
     if _notice:
-        st.markdown(f"<div class='v153-control-note warning'>⚠️ {_notice}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
 _uc1, _uc2, _uc3 = st.columns([1.15, 1.25, 5.6])
 with _uc1:
@@ -5294,6 +5353,8 @@ if 'top_picks' in locals():
 
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
 render_live_market_banner()
+render_banner_main_controls()
+render_system_admin_workspace()
 
 if search.strip():
     tickers_us = [search.strip().upper()]
