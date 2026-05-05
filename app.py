@@ -122,7 +122,8 @@ def _set_auto_state(state):
         st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Bruk Opphev stopp / gjør klar før Auto trading kan startes."
         st.session_state["auto_control_notice_level_v153"] = "warning"
         return
-    if state == "START" and bool(_s := load_settings()).get("auto_trading_emergency_stop", False):
+    _settings_for_start = load_settings()
+    if state == "START" and bool((_settings_for_start or {}).get("auto_trading_emergency_stop", False)):
         st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes."
         st.session_state["auto_control_notice_level_v153"] = "warning"
         return
@@ -249,10 +250,83 @@ def _controls_differ(a, b):
     return {k: a.get(k) for k in sorted(a)} != {k: b.get(k) for k in sorted(b)}
 
 
+def _manual_update_mode_enabled(settings=None):
+    """True når bruker har slått AV auto-oppdatering.
+
+    Streamlit vil fortsatt rerende skjermen når widgets endres, men i manuell
+    modus skal appen ikke gjøre tung datahenting/analyse før bruker trykker
+    Oppdater / bruk endringer.
+    """
+    _s = settings or load_settings()
+    return not bool((_s or {}).get("chart_auto_update_enabled", False))
+
+
 def _heavy_update_allowed():
-    """True bare når bruker har trykket Oppdater / auto-oppdater er aktiv / cache mangler."""
+    """Én hard gate for tung datahenting/analyse.
+
+    V16: Denne skal sjekkes før alt som kan hente markedsdata, bygge ranking,
+    scanne watchlist, hente bannerdata eller gjøre ekstern analyse.
+    """
     settings = load_settings()
-    return bool(settings.get("chart_auto_update_enabled", False)) or bool(st.session_state.get("heavy_update_allowed_v148", False))
+    return (not _manual_update_mode_enabled(settings)) or bool(st.session_state.get("heavy_update_allowed_v148", False))
+
+
+def _mark_pending_manual_change(reason="Endringer venter"):
+    st.session_state["pending_manual_changes_v16"] = True
+    st.session_state["pending_manual_changes_reason_v16"] = reason
+
+
+def _clear_pending_manual_change():
+    st.session_state["pending_manual_changes_v16"] = False
+    st.session_state["pending_manual_changes_reason_v16"] = ""
+
+
+def _cache_key_safe(*parts):
+    raw = "__".join(str(x) for x in parts)
+    return re.sub(r"[^A-Za-z0-9_]+", "_", raw)[:180]
+
+
+def cached_score_stock_manual(ticker, use_news=False, force=False):
+    """score_stock med manuell-modus cache.
+
+    Når Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
+    hentes ikke data før bruker trykker Oppdater / bruk endringer.
+    """
+    ticker = normalize_user_ticker(ticker)
+    key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news))}"
+    if (not force) and (not _heavy_update_allowed()):
+        return st.session_state.get(key)
+    item = score_stock(ticker, use_news=use_news)
+    if item:
+        st.session_state[key] = item
+    return item
+
+
+def cached_timeframe_data_manual(ticker, timeframe, period, force=False):
+    ticker = normalize_user_ticker(ticker)
+    key = f"timeframe_cache_v16_{_cache_key_safe(ticker, timeframe, period)}"
+    if (not force) and (not _heavy_update_allowed()):
+        return st.session_state.get(key)
+    df = fetch_timeframe_data(ticker, timeframe, period)
+    try:
+        if df is not None and not df.empty:
+            st.session_state[key] = df.copy()
+    except Exception:
+        pass
+    return df
+
+
+def _cached_external_signal_manual(kind, ticker, fetcher, default=None):
+    ticker = normalize_user_ticker(ticker)
+    key = f"external_signal_cache_v16_{_cache_key_safe(kind, ticker)}"
+    if not _heavy_update_allowed():
+        return st.session_state.get(key, default)
+    try:
+        val = fetcher(ticker)
+        st.session_state[key] = val
+        return val
+    except Exception:
+        return st.session_state.get(key, default)
 
 
 def _rank_cache_store(label, fp, data):
@@ -2494,7 +2568,18 @@ def render_live_market_banner():
     if not banner_items:
         return
 
-    banner_cards = fetch_live_banner_snapshot(banner_items)
+    _banner_fp = tuple((str(m), str(t), str(l)) for m, t, l in banner_items)
+    _banner_key = f"live_banner_cache_v16_{_cache_key_safe(_banner_fp)}"
+    if not _heavy_update_allowed():
+        banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
+        if not banner_cards:
+            st.caption("📡 Ticker-banner bruker manuell modus. Trykk Oppdater / bruk endringer for å hente nye bannerdata.")
+            return
+    else:
+        banner_cards = fetch_live_banner_snapshot(banner_items)
+        if banner_cards:
+            st.session_state[_banner_key] = banner_cards
+            st.session_state["live_banner_cache_v16_latest"] = banner_cards
     if not banner_cards:
         return
 
@@ -2785,9 +2870,111 @@ def render_banner_sidebar_controls(expanded=False):
 
 
 def render_banner_main_controls():
-    """Oppgave 111 / Fase 3: Rediger ticker-banner rett under selve banneret."""
+    """Oppgave 111 / v15.8.2: Rediger ticker-banner rett under selve banneret.
+
+    Hard fix: form-renderingen er lagt direkte her, så appen ikke kan krasje med
+    NameError hvis en hjelpefunksjon ikke er lastet i runtime.
+    """
     with st.expander("📺 Rediger ticker-banner", expanded=False):
-        _render_banner_settings_form_v157(st, form_key="banner_settings_form_v157_main")
+        settings = load_settings()
+        raw = settings.get("live_banner_tickers", {}) or {}
+        if not isinstance(raw, dict):
+            raw = {}
+
+        visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+        if isinstance(visible_markets, str):
+            visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
+        visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
+
+        st.caption("Endringer i ticker-banner lagres her. Kontrollene ligger under banneret, ikke i venstremenyen.")
+
+        with st.form("banner_settings_form_v1582_main", clear_on_submit=False):
+            c_enable, c_speed, c_refresh = st.columns(3)
+            with c_enable:
+                live_banner_enabled = st.checkbox(
+                    "Vis ticker-banner",
+                    value=bool(settings.get("live_banner_enabled", True)),
+                    key="banner_v1582_enabled",
+                )
+            with c_speed:
+                live_banner_speed = st.number_input(
+                    "Bannerhastighet sekunder",
+                    min_value=10,
+                    max_value=240,
+                    value=int(settings.get("live_banner_speed_seconds", 70) or 70),
+                    step=5,
+                    key="banner_v1582_speed",
+                    help="Lavere tall = raskere bevegelse. Høyere tall = saktere banner.",
+                )
+            with c_refresh:
+                ui_refresh_minutes = st.number_input(
+                    "Oppdateringsintervall min",
+                    min_value=1,
+                    max_value=240,
+                    value=int(settings.get("ui_refresh_minutes", 60) or 60),
+                    step=1,
+                    key="banner_v1582_refresh",
+                )
+
+            st.markdown("**Markeder som vises i banneret**")
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                show_usa = st.checkbox("USA", value=("USA" in visible_markets), key="banner_v1582_show_usa")
+            with m2:
+                show_no = st.checkbox("Norge", value=("Norge" in visible_markets), key="banner_v1582_show_no")
+            with m3:
+                show_se = st.checkbox("Sverige", value=("Sverige" in visible_markets), key="banner_v1582_show_se")
+
+            t1, t2, t3 = st.columns(3)
+            with t1:
+                usa_tickers = st.text_area(
+                    "USA tickere",
+                    value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")),
+                    height=90,
+                    key="banner_v1582_usa_tickers",
+                )
+            with t2:
+                no_tickers = st.text_area(
+                    "Norge tickere",
+                    value=str(raw.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")),
+                    height=90,
+                    key="banner_v1582_no_tickers",
+                )
+            with t3:
+                se_tickers = st.text_area(
+                    "Sverige tickere",
+                    value=str(raw.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")),
+                    height=90,
+                    key="banner_v1582_se_tickers",
+                )
+
+            submitted = st.form_submit_button("💾 Lagre ticker-banner", use_container_width=True)
+
+        if submitted:
+            new_visible = []
+            if show_usa:
+                new_visible.append("USA")
+            if show_no:
+                new_visible.append("Norge")
+            if show_se:
+                new_visible.append("Sverige")
+            if not new_visible:
+                new_visible = ["USA", "Norge", "Sverige"]
+
+            settings.update({
+                "live_banner_enabled": bool(live_banner_enabled),
+                "live_banner_speed_seconds": int(live_banner_speed),
+                "ui_refresh_minutes": int(ui_refresh_minutes),
+                "live_banner_markets_visible": new_visible,
+                "live_banner_tickers": {
+                    "USA": str(usa_tickers).strip(),
+                    "Norge": str(no_tickers).strip(),
+                    "Sverige": str(se_tickers).strip(),
+                },
+            })
+            save_settings(settings)
+            st.success("Ticker-banner lagret.")
+            st.rerun()
 
 
 def render_system_admin_workspace():
@@ -3947,14 +4134,17 @@ def render_analysis(results, label):
     item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
     if item is None:
         with st.spinner(f"Henter analyse for {selected}..."):
-            item = score_stock(selected, use_news=False)
+            item = cached_score_stock_manual(selected, use_news=False)
 
     if not item:
-        st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. AAPL, EQNR.OL eller ABB.ST.")
+        if _manual_update_mode_enabled():
+            st.info("Manuell modus er aktiv og det finnes ingen lagret analyse for valgt ticker. Trykk Oppdater / bruk endringer for å hente data.")
+        else:
+            st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. AAPL, EQNR.OL eller ABB.ST.")
         return
 
     _sync_timeframe, _sync_period = get_selected_time_settings(label, selected)
-    _synced_df = fetch_timeframe_data(selected, _sync_timeframe, _sync_period)
+    _synced_df = cached_timeframe_data_manual(selected, _sync_timeframe, _sync_period)
     if _synced_df is not None and not _synced_df.empty:
         df = _synced_df.copy()
     else:
@@ -4004,9 +4194,9 @@ def render_analysis(results, label):
     decision = build_trading_decision(item, technical_context)
     adj_score = adjusted_score(item, decision)
 
-    insider = get_insider_data(selected)
-    analyst = get_analyst_trend(selected)
-    earnings = get_earnings(selected)
+    insider = _cached_external_signal_manual("insider", selected, get_insider_data, default={"score": 0.5, "label": "Cache/ikke hentet"})
+    analyst = _cached_external_signal_manual("analyst", selected, get_analyst_trend, default={})
+    earnings = _cached_external_signal_manual("earnings", selected, get_earnings, default={})
 
     signal_intelligence = calculate_signal_intelligence(
         item,
@@ -4508,6 +4698,42 @@ def render_analysis(results, label):
 
 
 
+# V15.9 / Oppgave 121: trading-regel-presets må oppdatere både lagrede regler og synlige widget-verdier.
+def _apply_trading_rule_preset_v159(name: str, values: dict):
+    """Setter trading-regel preset uten å trigge tung analyse.
+
+    Streamlit-widgeter med key beholder ellers gamle verdier i session_state selv om
+    save_rules() oppdaterer fil/database. Derfor må de synlige widget-keyene settes
+    eksplisitt før rerun. Verdiene lagres også i trading rules, slik at neste åpning
+    viser samme preset.
+    """
+    current = load_rules() or {}
+    preset = dict(current)
+    preset.update(values or {})
+
+    key_map = {
+        "min_buy_score": "main_rules_min_buy_score_v156",
+        "min_buy_confidence": "main_rules_min_buy_conf_v156",
+        "max_buy_rsi": "main_rules_max_buy_rsi_v156",
+        "min_hold_days": "main_rules_min_hold_days_v156",
+        "enable_sell_signal_exit": "main_rules_sell_signal_v156",
+        "stop_loss_pct": "main_rules_stop_loss_v156",
+        "take_profit_pct": "main_rules_take_profit_v156",
+        "trailing_stop_pct": "main_rules_trailing_stop_v156",
+        "rsi_exit_level": "main_rules_rsi_exit_v156",
+        "rsi_must_fall": "main_rules_rsi_fall_v156",
+        "use_noise_filter": "main_rules_use_noise_filter_v156",
+        "ignore_small_moves_pct": "main_rules_ignore_small_v156",
+    }
+    for rule_key, widget_key in key_map.items():
+        if rule_key in preset:
+            st.session_state[widget_key] = preset[rule_key]
+
+    save_rules(preset)
+    st.session_state["rules_preset_notice_v159"] = f"{name} er lagt inn. Trykk Lagre trading-regler hvis du justerer videre."
+    st.rerun()
+
+
 # V15.5 / Fase 1: flytt store arbeidsinnstillinger ut av venstremenyen og inn i hovedarbeidsflaten.
 def render_trading_rules_workspace():
     """Hovedområde for trading-regler. Erstatter lange Kjøp/Hold/Salg-menyer i venstresiden."""
@@ -4517,8 +4743,7 @@ def render_trading_rules_workspace():
         p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
         with p1:
             if st.button("↩️ Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
-                _standard = DEFAULT_RULES.copy()
-                _standard.update({
+                _apply_trading_rule_preset_v159("Standard trading-regler", {
                     "min_buy_score": 7.5,
                     "min_buy_confidence": 70,
                     "max_buy_rsi": 72,
@@ -4532,25 +4757,43 @@ def render_trading_rules_workspace():
                     "rsi_exit_level": 75,
                     "rsi_must_fall": True,
                 })
-                save_rules(_standard)
-                st.success("Standard trading-regler lagt inn ✅")
-                st.rerun()
         with p2:
             if st.button("🛡️ Konservativ", key="main_rules_preset_conservative_v156", use_container_width=True):
-                _preset = DEFAULT_RULES.copy()
-                _preset.update({"min_buy_score": 8.0, "min_buy_confidence": 80, "max_buy_rsi": 65, "stop_loss_pct": 5.0, "take_profit_pct": 10.0, "trailing_stop_pct": 6.0, "use_noise_filter": False, "ignore_small_moves_pct": 1.0})
-                save_rules(_preset)
-                st.success("Konservativt preset lagt inn ✅")
-                st.rerun()
+                _apply_trading_rule_preset_v159("Konservativt preset", {
+                    "min_buy_score": 8.0,
+                    "min_buy_confidence": 80,
+                    "max_buy_rsi": 65,
+                    "min_hold_days": 2,
+                    "enable_sell_signal_exit": True,
+                    "stop_loss_pct": 5.0,
+                    "take_profit_pct": 10.0,
+                    "trailing_stop_pct": 6.0,
+                    "rsi_exit_level": 72,
+                    "rsi_must_fall": True,
+                    "use_noise_filter": False,
+                    "ignore_small_moves_pct": 1.0,
+                })
         with p3:
             if st.button("⚡ Aggressiv", key="main_rules_preset_aggressive_v156", use_container_width=True):
-                _preset = DEFAULT_RULES.copy()
-                _preset.update({"min_buy_score": 7.0, "min_buy_confidence": 60, "max_buy_rsi": 80, "stop_loss_pct": 8.0, "take_profit_pct": 18.0, "trailing_stop_pct": 10.0, "use_noise_filter": False, "ignore_small_moves_pct": 1.0})
-                save_rules(_preset)
-                st.success("Aggressivt preset lagt inn ✅")
-                st.rerun()
+                _apply_trading_rule_preset_v159("Aggressivt preset", {
+                    "min_buy_score": 7.0,
+                    "min_buy_confidence": 60,
+                    "max_buy_rsi": 80,
+                    "min_hold_days": 0,
+                    "enable_sell_signal_exit": True,
+                    "stop_loss_pct": 8.0,
+                    "take_profit_pct": 18.0,
+                    "trailing_stop_pct": 10.0,
+                    "rsi_exit_level": 80,
+                    "rsi_must_fall": True,
+                    "use_noise_filter": False,
+                    "ignore_small_moves_pct": 1.0,
+                })
         with p4:
-            st.caption("Preset-knappene endrer bare trading-regler. Auto trading-parametere endres ikke.")
+            st.caption("Preset-knappene endrer bare trading-regler. Auto trading-parametere endres ikke, og tung analyse startes ikke av preset alene.")
+
+        if st.session_state.get("rules_preset_notice_v159"):
+            st.success(st.session_state.pop("rules_preset_notice_v159"))
 
         with st.form("main_trading_rules_workspace_v156", clear_on_submit=False):
             buy_col, hold_col, sell_col = st.columns(3)
@@ -5395,7 +5638,7 @@ st.markdown(
 if bool(_top_full_stop):
     st.markdown(
         "<div class='v153-control-note warning'>⛔ Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
-        "Bruk <b>Opphev stopp / gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
+        "Bruk <b>Gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
         unsafe_allow_html=True,
     )
 elif _top_emergency_stop:
@@ -5403,7 +5646,7 @@ elif _top_emergency_stop:
         "<div class='v153-control-note warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
         unsafe_allow_html=True,
     )
-_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.34, 0.34, 0.36, 0.45, 0.78, 0.74, 6.9], gap="small")
+_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.34, 0.34, 0.36, 0.45, 0.78, 1.25, 6.35], gap="small")
 with _tq1:
     if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
         _set_auto_state("START")
@@ -5417,12 +5660,14 @@ with _tq4:
     if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
 with _tq5:
+    # V15.9 / Oppgave 122: Gjør klar skal vises stabilt når vanlig stopp/pause blokkerer.
     if bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)):
         if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True):
             _clear_stops_ready_v158()
 with _tq6:
+    # V15.9 / Oppgave 122: aktiv og opphev nødstopp må aldri ha samme uklare knappetekst.
     if _top_emergency_stop:
-        if st.button("🔓 Nødstopp", key="reset_emergency_top_v157", use_container_width=True):
+        if st.button("🔓 Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
             _reset_emergency_stop_v157()
 
 # V15.8: alle handlingsmeldinger vises fullbredde under kontrollgruppen.
@@ -5450,14 +5695,18 @@ with _uc2:
         if st.button("🔄 Oppdater / bruk endringer", key="top_apply_changes_v147", use_container_width=True):
             st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
             st.session_state["heavy_update_allowed_v148"] = True
+            _clear_pending_manual_change()
             _set_update_reason("Oppdater-knapp / bruk endringer")
             st.rerun()
     else:
         st.caption("Auto-oppdatering på")
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
-if (not _top_chart_auto) and _pending_analysis_changes_v148:
-    st.markdown("<div class='pending-changes-box'>⚠️ Endringer i menyene er ikke brukt ennå. Trykk Oppdater / bruk endringer for ny analyse/graf/rangering.</div>", unsafe_allow_html=True)
+if not _top_chart_auto:
+    if _pending_analysis_changes_v148 or bool(st.session_state.get("pending_manual_changes_v16", False)):
+        st.markdown("<div class='pending-changes-box'>⚠️ Manuell modus: endringer venter. Ingen tung datahenting/graf/rangering kjøres før du trykker Oppdater / bruk endringer.</div>", unsafe_allow_html=True)
+    else:
+        st.caption("Manuell modus aktiv: widget-endringer rerendrer skjermen, men tung analyse bruker sist godkjente data.")
 
 if 'top_picks' in locals():
     market_pulse(top_picks)
@@ -5510,7 +5759,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if auto_watchlist_alerts or manual_watchlist_scan:
+_watchlist_scan_allowed_v16 = bool(manual_watchlist_scan) or (bool(auto_watchlist_alerts) and _heavy_update_allowed())
+if auto_watchlist_alerts and (not _watchlist_scan_allowed_v16):
+    st.caption("Watchlist auto-scan er klar, men manuell modus er aktiv. Scan kjøres først ved Oppdater / bruk endringer eller Scan watchlist nå.")
+if _watchlist_scan_allowed_v16:
     if not pushover_enabled:
         st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
     elif not watchlist_tickers:
