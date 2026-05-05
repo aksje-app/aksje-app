@@ -9,7 +9,7 @@ from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines, market_statuses
 from background_guard import market_guard_summary
-from trading_settings import load_rules, save_rules
+from trading_settings import load_rules, save_rules, DEFAULT_RULES
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -4281,93 +4281,80 @@ def render_trading_rules_workspace():
     _rules = load_rules()
     with st.expander("📊 Trading-regler", expanded=False):
         st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer lagres først når du trykker Lagre trading-regler.")
-        with st.form("main_trading_rules_workspace_v155", clear_on_submit=False):
+        p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
+        with p1:
+            if st.button("↩️ Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
+                _standard = DEFAULT_RULES.copy()
+                _standard.update({
+                    "min_buy_score": 7.5,
+                    "min_buy_confidence": 70,
+                    "max_buy_rsi": 72,
+                    "min_hold_days": 1,
+                    "use_noise_filter": False,
+                    "ignore_small_moves_pct": 1.0,
+                    "enable_sell_signal_exit": True,
+                    "stop_loss_pct": 7.0,
+                    "take_profit_pct": 12.0,
+                    "trailing_stop_pct": 8.0,
+                    "rsi_exit_level": 75,
+                    "rsi_must_fall": True,
+                })
+                save_rules(_standard)
+                st.success("Standard trading-regler lagt inn ✅")
+                st.rerun()
+        with p2:
+            if st.button("🛡️ Konservativ", key="main_rules_preset_conservative_v156", use_container_width=True):
+                _preset = DEFAULT_RULES.copy()
+                _preset.update({"min_buy_score": 8.0, "min_buy_confidence": 80, "max_buy_rsi": 65, "stop_loss_pct": 5.0, "take_profit_pct": 10.0, "trailing_stop_pct": 6.0, "use_noise_filter": False, "ignore_small_moves_pct": 1.0})
+                save_rules(_preset)
+                st.success("Konservativt preset lagt inn ✅")
+                st.rerun()
+        with p3:
+            if st.button("⚡ Aggressiv", key="main_rules_preset_aggressive_v156", use_container_width=True):
+                _preset = DEFAULT_RULES.copy()
+                _preset.update({"min_buy_score": 7.0, "min_buy_confidence": 60, "max_buy_rsi": 80, "stop_loss_pct": 8.0, "take_profit_pct": 18.0, "trailing_stop_pct": 10.0, "use_noise_filter": False, "ignore_small_moves_pct": 1.0})
+                save_rules(_preset)
+                st.success("Aggressivt preset lagt inn ✅")
+                st.rerun()
+        with p4:
+            st.caption("Preset-knappene endrer bare trading-regler. Auto trading-parametere endres ikke.")
+
+        with st.form("main_trading_rules_workspace_v156", clear_on_submit=False):
             buy_col, hold_col, sell_col = st.columns(3)
             with buy_col:
                 st.markdown("#### 📈 Kjøp")
-                _rules["min_buy_score"] = st.slider(
-                    "Min BUY score",
-                    1.0,
-                    10.0,
-                    float(_rules.get("min_buy_score", 7.5)),
-                    0.1,
-                    key="main_rules_min_buy_score_v155",
-                )
-                _rules["min_buy_confidence"] = st.slider(
-                    "Min BUY confidence",
-                    1,
-                    100,
-                    int(_rules.get("min_buy_confidence", 70)),
-                    key="main_rules_min_buy_conf_v155",
-                )
-                _rules["max_buy_rsi"] = st.slider(
-                    "Maks RSI for kjøp",
-                    40,
-                    90,
-                    int(_rules.get("max_buy_rsi", 72)),
-                    key="main_rules_max_buy_rsi_v155",
-                )
+                _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules.get("min_buy_score", 7.5)), 0.1, key="main_rules_min_buy_score_v156")
+                _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules.get("min_buy_confidence", 70)), key="main_rules_min_buy_conf_v156")
+                _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules.get("max_buy_rsi", 72)), key="main_rules_max_buy_rsi_v156")
                 st.caption("Maks kjøp per dag styres i Auto trading-oppsett. Gjelder bare nye kjøp, ikke salg/exit.")
             with hold_col:
                 st.markdown("#### 🟡 Hold")
-                _rules["min_hold_days"] = st.slider(
-                    "Min hold-dager",
-                    0,
-                    30,
-                    int(_rules.get("min_hold_days", 1)),
-                    key="main_rules_min_hold_days_v155",
-                )
-                _rules["ignore_small_moves_pct"] = st.slider(
-                    "Ignorer små svingninger %",
-                    0.0,
-                    10.0,
-                    float(_rules.get("ignore_small_moves_pct", 2.0)),
-                    0.5,
-                    key="main_rules_ignore_small_v155",
-                )
+                _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules.get("min_hold_days", 1)), key="main_rules_min_hold_days_v156")
+                st.caption("Støyfilter er flyttet til Avanserte salgsregler slik at enkel visning ikke forveksler filter med stop-loss/take-profit.")
             with sell_col:
                 st.markdown("#### 🔴 Salg")
-                _rules["enable_sell_signal_exit"] = st.checkbox(
-                    "Selg ved SELL/AVOID signal",
-                    bool(_rules.get("enable_sell_signal_exit", True)),
-                    key="main_rules_sell_signal_v155",
+                _rules["enable_sell_signal_exit"] = st.checkbox("Selg ved SELL/AVOID signal", bool(_rules.get("enable_sell_signal_exit", True)), key="main_rules_sell_signal_v156")
+                _rules["stop_loss_pct"] = st.slider("Stop-loss %", 1.0, 25.0, float(_rules.get("stop_loss_pct", 7.0)), 0.5, key="main_rules_stop_loss_v156")
+                _rules["take_profit_pct"] = st.slider("Take-profit %", 1.0, 50.0, float(_rules.get("take_profit_pct", 12.0)), 0.5, key="main_rules_take_profit_v156")
+                _rules["trailing_stop_pct"] = st.slider("Trailing stop %", 1.0, 30.0, float(_rules.get("trailing_stop_pct", 8.0)), 0.5, key="main_rules_trailing_stop_v156")
+                _rules["rsi_exit_level"] = st.slider("RSI exit nivå", 60, 90, int(_rules.get("rsi_exit_level", 75)), key="main_rules_rsi_exit_v156")
+                _rules["rsi_must_fall"] = st.checkbox("RSI må falle etter topp", bool(_rules.get("rsi_must_fall", True)), key="main_rules_rsi_fall_v156")
+            with st.expander("Avanserte salgsregler / støyfilter", expanded=False):
+                _rules["use_noise_filter"] = st.checkbox(
+                    "Bruk støyfilter",
+                    bool(_rules.get("use_noise_filter", False)),
+                    key="main_rules_use_noise_filter_v156",
+                    help="Valgfritt filter som kan hindre reaksjon på små signalendringer. Blokkerer aldri stop-loss, take-profit, trailing stop eller RSI-exit.",
                 )
-                _rules["stop_loss_pct"] = st.slider(
-                    "Stop-loss %",
-                    1.0,
-                    25.0,
-                    float(_rules.get("stop_loss_pct", 2.0)),
-                    0.5,
-                    key="main_rules_stop_loss_v155",
+                _rules["ignore_small_moves_pct"] = st.slider(
+                    "Støyfilter / ignorer små svingninger %",
+                    0.0,
+                    5.0,
+                    float(_rules.get("ignore_small_moves_pct", 1.0)),
+                    0.25,
+                    key="main_rules_ignore_small_v156",
                 )
-                _rules["take_profit_pct"] = st.slider(
-                    "Take-profit %",
-                    1.0,
-                    50.0,
-                    float(_rules.get("take_profit_pct", 3.0)),
-                    0.5,
-                    key="main_rules_take_profit_v155",
-                )
-                _rules["trailing_stop_pct"] = st.slider(
-                    "Trailing stop %",
-                    1.0,
-                    30.0,
-                    float(_rules.get("trailing_stop_pct", 8.0)),
-                    0.5,
-                    key="main_rules_trailing_stop_v155",
-                )
-                _rules["rsi_exit_level"] = st.slider(
-                    "RSI exit nivå",
-                    60,
-                    90,
-                    int(_rules.get("rsi_exit_level", 75)),
-                    key="main_rules_rsi_exit_v155",
-                )
-                _rules["rsi_must_fall"] = st.checkbox(
-                    "RSI må falle etter topp",
-                    bool(_rules.get("rsi_must_fall", True)),
-                    key="main_rules_rsi_fall_v155",
-                )
+                st.caption("Anbefalt: Av som standard. Hvis aktivert: 0.5–1.0 %. Stop-loss og andre risikoutganger har alltid prioritet.")
             save_rules_btn = st.form_submit_button("💾 Lagre trading-regler", use_container_width=True)
         if save_rules_btn:
             saved_db = save_rules(_rules)
@@ -4518,6 +4505,144 @@ def render_auto_trading_workspace():
             reset_settings()
             st.success("Auto-innstillinger tilbakestilt ✅")
             st.rerun()
+
+
+# V15.6 / Fase 2: Varselkontroll og dynamisk watchlist flyttes fra venstremenyen til hovedområdet.
+def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtime=False):
+    """Returnerer (watchlist_tickers, auto_watchlist_alerts, watchlist_scan_limit, manual_watchlist_scan)."""
+    _settings = load_settings()
+    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_setting_on = bool(_settings.get("pushover_enabled", True))
+    _pushover_ready = _pushover_env_ok and _pushover_setting_on
+
+    _default_use_dynamic = bool(_settings.get("use_dynamic_watchlist_from_market", True))
+    _default_auto_scan = bool(_settings.get("auto_watchlist_alerts_refresh", False))
+    _default_limit = int(_settings.get("watchlist_scan_limit", min(30, max(5, len(dynamic_watchlist or [])))))
+    _default_limit = max(5, min(100, _default_limit))
+    _watchlist_tickers = list(dynamic_watchlist or [])
+    _auto_scan = _default_auto_scan
+    _scan_limit = _default_limit
+    _manual_scan = False
+
+    with st.expander("🔔 Varsler og dynamisk watchlist", expanded=False):
+        st.caption("Fase 2: Watchlist- og varselinnstillinger er flyttet hit fra venstremenyen, nær signalene de styrer.")
+        wl_tab, alert_tab = st.tabs(["Dynamisk watchlist", "Varselkontroll"])
+        with wl_tab:
+            c1, c2 = st.columns([1.2, 1])
+            with c1:
+                _use_dynamic = st.checkbox(
+                    "Bruk dynamisk watchlist fra markedet",
+                    value=_default_use_dynamic,
+                    key="main_use_dynamic_watchlist_v156",
+                    help="Når aktiv: watchlisten følger valgt marked og appens egne score/rangeringer.",
+                )
+                if _use_dynamic:
+                    _watchlist_tickers = list(dynamic_watchlist or [])
+                    st.info(f"Dynamisk watchlist aktiv: {len(_watchlist_tickers)} aksjer")
+                    with st.expander("Vis dynamisk watchlist", expanded=False):
+                        st.write(", ".join(_watchlist_tickers) if _watchlist_tickers else "Ingen tickere i listen ennå.")
+                else:
+                    _watchlist_text = st.text_area(
+                        "Aksjer å overvåke",
+                        value=", ".join(list(dynamic_watchlist or [])[:30]),
+                        help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL og svenske .ST",
+                        key="main_watchlist_text_v156",
+                    )
+                    _watchlist_tickers = parse_watchlist(_watchlist_text)
+            with c2:
+                _auto_scan = st.checkbox(
+                    "Auto-scan watchlist ved refresh",
+                    value=_default_auto_scan,
+                    key="main_auto_watchlist_scan_v156",
+                    help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
+                )
+                _scan_limit = st.slider(
+                    "Maks aksjer å scanne for varsler",
+                    5,
+                    100,
+                    _default_limit,
+                    key="main_watchlist_scan_limit_v156",
+                )
+                _manual_scan = st.button("Scan watchlist nå", key="main_scan_watchlist_now_v156")
+                if st.button("💾 Lagre watchlist-innstillinger", key="main_save_watchlist_settings_v156"):
+                    _save = load_settings()
+                    _save["use_dynamic_watchlist_from_market"] = bool(_use_dynamic)
+                    _save["auto_watchlist_alerts_refresh"] = bool(_auto_scan)
+                    _save["watchlist_scan_limit"] = int(_scan_limit)
+                    save_settings(_save)
+                    st.success("Watchlist-innstillinger lagret ✅")
+                    st.rerun()
+
+        with alert_tab:
+            st.markdown(
+                f"""
+                <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
+                    <div class="alert-status-title">Pushover: {'Aktiv ✅' if _pushover_ready else 'Ikke klar ❌'}</div>
+                    <div class="alert-status-sub">Åpne markeder nå: {open_markets()}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            ac1, ac2 = st.columns(2)
+            with ac1:
+                _pushover_setting_on = st.checkbox(
+                    "Pushover aktiv",
+                    value=bool(_settings.get("pushover_enabled", True)),
+                    key="main_alert_pushover_enabled_v156",
+                )
+                _notify_trades = st.checkbox(
+                    "Varsle ved faktisk paper BUY/SELL",
+                    value=bool(_settings.get("notify_paper_trades", True)),
+                    key="main_alert_notify_paper_v156",
+                )
+                _notify_watchlist = st.checkbox(
+                    "Varsle ved watchlist signalendring",
+                    value=bool(_settings.get("notify_watchlist_signal_changes", True)),
+                    key="main_alert_notify_watchlist_v156",
+                )
+            with ac2:
+                _high_conf_only = st.checkbox(
+                    "Varsle kun høy confidence",
+                    value=bool(_settings.get("notify_high_confidence_only", True)),
+                    key="main_alert_high_conf_only_v156",
+                )
+                _min_alert_conf = st.slider(
+                    "Confidence-grense",
+                    50,
+                    95,
+                    int(_settings.get("notify_min_confidence", 80)),
+                    1,
+                    key="main_alert_min_conf_v156",
+                )
+                st.caption("Watchlist-varsler bruker denne grensen når høy confidence er aktivert.")
+
+            b1, b2, b3 = st.columns([1, 0.7, 0.7])
+            with b1:
+                if st.button("💾 Lagre varselkontroll", key="main_save_alert_control_v156", use_container_width=True):
+                    _merged = load_settings()
+                    _merged["pushover_enabled"] = bool(_pushover_setting_on)
+                    _merged["notify_paper_trades"] = bool(_notify_trades)
+                    _merged["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
+                    _merged["notify_high_confidence_only"] = bool(_high_conf_only)
+                    _merged["notify_min_confidence"] = int(_min_alert_conf)
+                    save_settings(_merged)
+                    st.success("Varselkontroll lagret ✅")
+                    st.rerun()
+            with b2:
+                if st.button("Test", key="main_alert_send_test_v156", disabled=not _pushover_env_ok, use_container_width=True):
+                    ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+                    st.success("Test sendt ✅") if ok else st.error(f"Feil: {err}")
+            with b3:
+                if st.button("Nullstill", key="main_alert_reset_antispam_v156", use_container_width=True):
+                    reset_alert_state()
+                    st.success("Signalhistorikk nullstilt ✅")
+            with st.expander("Varselinfo", expanded=False):
+                st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
+                st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
+                st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
+                st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
+
+    return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
 
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
@@ -4848,77 +4973,9 @@ def render_sidebar_structure_v2():
     render_banner_sidebar_controls(expanded=False)
 
     st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-    st.sidebar.markdown("### 🔕 Varselkontroll")
+    st.sidebar.markdown("### 🔕 Varsler og watchlist")
+    st.sidebar.info("Flyttet til hovedområdet under **Watchlist signaler**. Bruk seksjonen der for varselkontroll, dynamisk watchlist og manuell scan.")
 
-    _alert_settings = load_settings()
-    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
-    _pushover_setting_on = bool(_alert_settings.get("pushover_enabled", True))
-    _pushover_ready = _pushover_env_ok and _pushover_setting_on
-    _open_markets_now = open_markets()
-
-    st.sidebar.markdown(
-        f"""
-        <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
-            <div class="alert-status-title">Pushover: {'Aktiv ✅' if _pushover_ready else 'Ikke klar ❌'}</div>
-            <div class="alert-status-sub">Åpne markeder nå: {_open_markets_now}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    _notify_trades = st.sidebar.checkbox(
-        "Varsle ved faktisk paper BUY/SELL",
-        value=bool(_alert_settings.get("notify_paper_trades", True)),
-        key="alert_notify_paper_trades_v1",
-    )
-    _notify_watchlist = st.sidebar.checkbox(
-        "Varsle ved watchlist signalendring",
-        value=bool(_alert_settings.get("notify_watchlist_signal_changes", True)),
-        key="alert_notify_watchlist_changes_v1",
-    )
-    _high_conf_only = st.sidebar.checkbox(
-        "Varsle kun høy confidence",
-        value=bool(_alert_settings.get("notify_high_confidence_only", True)),
-        key="alert_high_conf_only_v1",
-    )
-    _min_alert_conf = st.sidebar.slider(
-        "Confidence-grense",
-        50,
-        95,
-        int(_alert_settings.get("notify_min_confidence", 80)),
-        1,
-        key="alert_min_confidence_v1",
-    )
-
-    if st.sidebar.button("💾 Lagre varselkontroll", key="save_alert_control_v1"):
-        _merged_alert_settings = load_settings()
-        _merged_alert_settings["pushover_enabled"] = bool(_pushover_setting_on)
-        _merged_alert_settings["notify_paper_trades"] = bool(_notify_trades)
-        _merged_alert_settings["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
-        _merged_alert_settings["notify_high_confidence_only"] = bool(_high_conf_only)
-        _merged_alert_settings["notify_min_confidence"] = int(_min_alert_conf)
-        save_settings(_merged_alert_settings)
-        st.sidebar.success("Varselkontroll lagret ✅")
-        st.rerun()
-
-    _t1, _t2 = st.sidebar.columns(2)
-    with _t1:
-        if st.button("Test", key="alert_send_test_v1", disabled=not _pushover_env_ok):
-            ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-            if ok:
-                st.sidebar.success("Test sendt ✅")
-            else:
-                st.sidebar.error(f"Feil: {err}")
-    with _t2:
-        if st.button("Nullstill", key="alert_reset_antispam_v1"):
-            reset_alert_state()
-            st.sidebar.success("Signalhistorikk nullstilt ✅")
-
-    with st.sidebar.expander("Varselinfo", expanded=False):
-        st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
-        st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
-        st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
-        st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
 
 
 render_sidebar_structure_v2()
@@ -5251,37 +5308,11 @@ else:
 
 dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
 
-st.sidebar.markdown("### 👀 Watchlist alerts")
-use_dynamic_watchlist = st.sidebar.checkbox(
-    "Bruk dynamisk watchlist fra markedet",
-    value=True,
-    help="Når aktiv: watchlisten følger valgt marked og antall aksjer automatisk.",
+# V15.6 / Fase 2: Watchlist og varselkontroll er flyttet fra venstremenyen til hovedområdet.
+watchlist_tickers, auto_watchlist_alerts, watchlist_scan_limit, manual_watchlist_scan = render_watchlist_alerts_workspace(
+    dynamic_watchlist,
+    pushover_enabled_runtime=pushover_enabled,
 )
-
-if use_dynamic_watchlist:
-    watchlist_tickers = dynamic_watchlist
-    st.sidebar.info(f"Dynamisk watchlist aktiv: {len(watchlist_tickers)} aksjer")
-    with st.sidebar.expander("Vis dynamisk watchlist"):
-        st.write(", ".join(watchlist_tickers))
-else:
-    watchlist_text = st.sidebar.text_area(
-        "Aksjer å overvåke",
-        value=", ".join(dynamic_watchlist[:30]),
-        help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL og svenske .ST",
-    )
-    watchlist_tickers = parse_watchlist(watchlist_text)
-
-auto_watchlist_alerts = st.sidebar.checkbox(
-    "Auto-scan watchlist ved refresh",
-    value=False,
-    help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
-)
-_watchlist_default_limit = min(30, max(5, len(watchlist_tickers or [])))
-watchlist_scan_limit = st.sidebar.slider(
-    "Maks aksjer å scanne for varsler",
-    5, 100, _watchlist_default_limit
-)
-manual_watchlist_scan = st.sidebar.button("Scan watchlist nå")
 
 # V14.7 / Oppgave 58, 63 og 66: kompakt watchlist-/scanstatus høyt oppe.
 _watch_count = len(watchlist_tickers or [])

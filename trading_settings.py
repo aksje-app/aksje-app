@@ -16,7 +16,8 @@ DEFAULT_RULES = {
 
     # HOLD
     "min_hold_days": 1,
-    "ignore_small_moves_pct": 2.0,
+    "use_noise_filter": False,
+    "ignore_small_moves_pct": 1.0,
 
     # SELL
     "enable_sell_signal_exit": True,
@@ -138,9 +139,7 @@ def should_sell(decision, position, current_price, rsi=None, prev_rsi=None, rule
     current_price = float(current_price)
     pnl_pct = ((current_price - entry) / entry * 100) if entry else 0
 
-    if rules.get("enable_sell_signal_exit", True) and ("SELL" in signal or "AVOID" in signal):
-        return True, "SELL/AVOID signal"
-
+    # Risikoutganger skal alltid ha prioritet og skal aldri blokkeres av støyfilter.
     if pnl_pct <= -float(rules["stop_loss_pct"]):
         return True, f"Stop-loss {pnl_pct:.2f}%"
 
@@ -153,5 +152,14 @@ def should_sell(decision, position, current_price, rsi=None, prev_rsi=None, rule
             return True, f"RSI exit {rsi:.1f}"
         if prev_rsi is not None and rsi < float(prev_rsi):
             return True, f"RSI > {rules['rsi_exit_level']} og faller"
+
+    # Støyfilter er valgfritt og gjelder kun SELL/AVOID-signal ved helt små bevegelser.
+    # Det skal ikke hindre stop-loss, take-profit eller RSI-exit over.
+    if rules.get("enable_sell_signal_exit", True) and ("SELL" in signal or "AVOID" in signal):
+        if rules.get("use_noise_filter", False):
+            noise_pct = abs(float(rules.get("ignore_small_moves_pct", 1.0) or 0))
+            if abs(pnl_pct) < noise_pct:
+                return False, f"Støyfilter: ignorerer liten bevegelse {pnl_pct:.2f}%"
+        return True, "SELL/AVOID signal"
 
     return False, "Hold"
