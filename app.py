@@ -84,15 +84,20 @@ def _save_setting_patch(**updates):
     return _s
 
 
+def _full_stop_active():
+    """Én kilde for Full stopp/ferie-status."""
+    try:
+        _cron = cron_status_text()
+        return bool((_cron or {}).get("vacation_mode"))
+    except Exception:
+        return False
+
+
 def _auto_state(settings=None):
     """Returnerer samlet Auto trading-status. Full stopp/ferie overstyrer alltid AKTIV."""
     _s = settings or load_settings()
-    try:
-        _cron = cron_status_text()
-        if bool((_cron or {}).get("vacation_mode")):
-            return "BLOKKERT", "red"
-    except Exception:
-        pass
+    if _full_stop_active():
+        return "BLOKKERT", "red"
     if bool(_s.get("auto_trading_emergency_stop", False)):
         return "NØDSTOPP", "red"
     if bool(_s.get("auto_trading_paused", False)):
@@ -102,16 +107,22 @@ def _auto_state(settings=None):
     return "AV", "red"
 
 
+def _paper_state(full_stop=None):
+    """Paper-porteføljen kan vises når Full stopp er aktiv, men nye auto-paper-kjøp skal ikke fremstå som aktive."""
+    if bool(_full_stop_active() if full_stop is None else full_stop):
+        return "VISNING", "yellow"
+    return "AKTIV", "green"
+
+
 def _set_auto_state(state):
     state = str(state).upper()
     # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
-    try:
-        _cron = cron_status_text()
-        _full_stop_active = bool((_cron or {}).get("vacation_mode"))
-    except Exception:
-        _full_stop_active = False
-    if state == "START" and _full_stop_active:
-        st.warning("Full stopp / ferie er aktiv. Auto trading kan ikke startes før systemet er startet igjen.")
+    _full_stop_is_on = _full_stop_active()
+    if state == "START" and _full_stop_is_on:
+        # Ikke vis advarsel inne i den smale Start-knapp-kolonnen.
+        # Lagre heller en fullbredde-status som rendres under kontrollgruppen.
+        st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Auto trading kan ikke startes før systemet er startet igjen."
+        st.session_state["auto_control_notice_level_v153"] = "warning"
         return
     if state == "START":
         _save_setting_patch(auto_trading_enabled=True, auto_trading_paused=False, auto_trading_emergency_stop=False)
@@ -4263,6 +4274,251 @@ def render_analysis(results, label):
         st.info("Trykk på knappen over for å hente nyheter for valgt aksje.")
 
 
+
+# V15.5 / Fase 1: flytt store arbeidsinnstillinger ut av venstremenyen og inn i hovedarbeidsflaten.
+def render_trading_rules_workspace():
+    """Hovedområde for trading-regler. Erstatter lange Kjøp/Hold/Salg-menyer i venstresiden."""
+    _rules = load_rules()
+    with st.expander("📊 Trading-regler", expanded=False):
+        st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer lagres først når du trykker Lagre trading-regler.")
+        with st.form("main_trading_rules_workspace_v155", clear_on_submit=False):
+            buy_col, hold_col, sell_col = st.columns(3)
+            with buy_col:
+                st.markdown("#### 📈 Kjøp")
+                _rules["min_buy_score"] = st.slider(
+                    "Min BUY score",
+                    1.0,
+                    10.0,
+                    float(_rules.get("min_buy_score", 7.5)),
+                    0.1,
+                    key="main_rules_min_buy_score_v155",
+                )
+                _rules["min_buy_confidence"] = st.slider(
+                    "Min BUY confidence",
+                    1,
+                    100,
+                    int(_rules.get("min_buy_confidence", 70)),
+                    key="main_rules_min_buy_conf_v155",
+                )
+                _rules["max_buy_rsi"] = st.slider(
+                    "Maks RSI for kjøp",
+                    40,
+                    90,
+                    int(_rules.get("max_buy_rsi", 72)),
+                    key="main_rules_max_buy_rsi_v155",
+                )
+                st.caption("Maks kjøp per dag styres i Auto trading-oppsett. Gjelder bare nye kjøp, ikke salg/exit.")
+            with hold_col:
+                st.markdown("#### 🟡 Hold")
+                _rules["min_hold_days"] = st.slider(
+                    "Min hold-dager",
+                    0,
+                    30,
+                    int(_rules.get("min_hold_days", 1)),
+                    key="main_rules_min_hold_days_v155",
+                )
+                _rules["ignore_small_moves_pct"] = st.slider(
+                    "Ignorer små svingninger %",
+                    0.0,
+                    10.0,
+                    float(_rules.get("ignore_small_moves_pct", 2.0)),
+                    0.5,
+                    key="main_rules_ignore_small_v155",
+                )
+            with sell_col:
+                st.markdown("#### 🔴 Salg")
+                _rules["enable_sell_signal_exit"] = st.checkbox(
+                    "Selg ved SELL/AVOID signal",
+                    bool(_rules.get("enable_sell_signal_exit", True)),
+                    key="main_rules_sell_signal_v155",
+                )
+                _rules["stop_loss_pct"] = st.slider(
+                    "Stop-loss %",
+                    1.0,
+                    25.0,
+                    float(_rules.get("stop_loss_pct", 2.0)),
+                    0.5,
+                    key="main_rules_stop_loss_v155",
+                )
+                _rules["take_profit_pct"] = st.slider(
+                    "Take-profit %",
+                    1.0,
+                    50.0,
+                    float(_rules.get("take_profit_pct", 3.0)),
+                    0.5,
+                    key="main_rules_take_profit_v155",
+                )
+                _rules["trailing_stop_pct"] = st.slider(
+                    "Trailing stop %",
+                    1.0,
+                    30.0,
+                    float(_rules.get("trailing_stop_pct", 8.0)),
+                    0.5,
+                    key="main_rules_trailing_stop_v155",
+                )
+                _rules["rsi_exit_level"] = st.slider(
+                    "RSI exit nivå",
+                    60,
+                    90,
+                    int(_rules.get("rsi_exit_level", 75)),
+                    key="main_rules_rsi_exit_v155",
+                )
+                _rules["rsi_must_fall"] = st.checkbox(
+                    "RSI må falle etter topp",
+                    bool(_rules.get("rsi_must_fall", True)),
+                    key="main_rules_rsi_fall_v155",
+                )
+            save_rules_btn = st.form_submit_button("💾 Lagre trading-regler", use_container_width=True)
+        if save_rules_btn:
+            saved_db = save_rules(_rules)
+            if saved_db:
+                st.success("Trading-regler lagret i database ✅")
+            else:
+                st.warning("Trading-regler lagret lokalt. DATABASE_URL mangler eller DB feilet.")
+            st.rerun()
+
+
+def render_auto_trading_workspace():
+    """Hovedområde for Auto trading / Auto-kjøp parametere. Erstatter stor sidebar-meny."""
+    _settings = load_settings()
+    _markets_settings = _settings.get("markets", {}) or {}
+    with st.expander("⚙️ Auto trading-oppsett", expanded=False):
+        st.caption("Samlet arbeidsflate for Auto trading. Full stopp / ferie og nødstopp overstyrer alltid disse innstillingene.")
+        with st.form("main_auto_trading_workspace_v155", clear_on_submit=False):
+            drift_col, buy_col, risk_col, safe_col = st.columns(4)
+            with drift_col:
+                st.markdown("#### Drift")
+                _auto_enabled = st.checkbox(
+                    "Auto trading aktiv",
+                    value=bool(_settings.get("auto_trading_enabled", False)),
+                    key="main_auto_enabled_v155",
+                )
+                _safe_edit = st.checkbox(
+                    "Pause når parametere lagres",
+                    value=bool(_settings.get("auto_trading_safe_edit_mode", True)),
+                    key="main_auto_safe_edit_v155",
+                    help="Ved lagring settes auto trading i pause slik at du kan kontrollere parametere før ny start.",
+                )
+                _top_only = st.checkbox(
+                    "Kun Top Picks",
+                    value=bool(_settings.get("scan_top_picks_only", True)),
+                    key="main_auto_top_only_v155",
+                )
+                st.markdown("**Markeder**")
+                _m_usa = st.checkbox("USA", value=bool(_markets_settings.get("USA", True)), key="main_auto_market_usa_v155")
+                _m_no = st.checkbox("Norge", value=bool(_markets_settings.get("NORGE", True)), key="main_auto_market_no_v155")
+                _m_se = st.checkbox("Sverige", value=bool(_markets_settings.get("SVERIGE", True)), key="main_auto_market_se_v155")
+            with buy_col:
+                st.markdown("#### Kjøpsgrenser")
+                _min_conf = st.number_input(
+                    "Min confidence for BUY",
+                    0,
+                    100,
+                    int(_settings.get("min_buy_confidence", 70)),
+                    1,
+                    key="main_auto_min_conf_v155",
+                )
+                _min_score = st.number_input(
+                    "Min score for BUY",
+                    0.0,
+                    10.0,
+                    float(_settings.get("min_buy_score", 7.2)),
+                    0.1,
+                    key="main_auto_min_score_v155",
+                )
+                _pos_size = st.number_input(
+                    "Posisjonsstørrelse %",
+                    1.0,
+                    100.0,
+                    float(_settings.get("position_size_pct", 10.0)),
+                    1.0,
+                    key="main_auto_pos_size_v155",
+                )
+                _cooldown = st.number_input(
+                    "Cooldown mellom kjøp (min)",
+                    0,
+                    1440,
+                    int(_settings.get("cooldown_minutes", 60)),
+                    5,
+                    key="main_auto_cooldown_v155",
+                )
+                st.caption("Cooldown og maks kjøp gjelder bare nye kjøp. Salg/exit blokkeres ikke.")
+            with risk_col:
+                st.markdown("#### Kapasitet / risiko")
+                _max_tickers = st.number_input(
+                    "Maks aksjer per marked",
+                    1,
+                    100,
+                    int(_settings.get("max_tickers_per_market", 20)),
+                    1,
+                    key="main_auto_max_tickers_v155",
+                )
+                _max_pos = st.number_input(
+                    "Maks åpne posisjoner",
+                    1,
+                    30,
+                    int(_settings.get("max_open_positions", 5)),
+                    1,
+                    key="main_auto_max_pos_v155",
+                )
+                _max_buys = st.number_input(
+                    "Maks kjøp per dag",
+                    1,
+                    50,
+                    int(_settings.get("max_buys_per_day", _settings.get("max_trades_per_day", 3))),
+                    1,
+                    key="main_auto_max_buys_v155",
+                )
+            with safe_col:
+                st.markdown("#### Sikkerhet / varsling")
+                _safety_mode = st.checkbox(
+                    "Sikkerhetsmodus",
+                    value=bool(_settings.get("auto_buy_safety_mode", True)),
+                    key="main_auto_safety_mode_v155",
+                    help="Når på: nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd. Salg/exit skal fortsatt få gå.",
+                )
+                _push = st.checkbox(
+                    "Pushover aktiv",
+                    value=bool(_settings.get("pushover_enabled", True)),
+                    key="main_auto_push_v155",
+                )
+                st.caption("Full stopp / ferie og nødstopp har alltid høyest prioritet.")
+            save_auto_btn = st.form_submit_button("💾 Lagre auto-innstillinger", use_container_width=True)
+            reset_auto_btn = st.form_submit_button("↩️ Standard auto-innstillinger", use_container_width=True)
+        if save_auto_btn:
+            _current = load_settings()
+            _current.update({
+                "auto_trading_enabled": bool(_auto_enabled) and not bool(_safe_edit),
+                "auto_trading_paused": bool(_safe_edit) if bool(_auto_enabled) else False,
+                "auto_trading_emergency_stop": False,
+                "auto_trading_safe_edit_mode": bool(_safe_edit),
+                "markets": {"USA": bool(_m_usa), "NORGE": bool(_m_no), "SVERIGE": bool(_m_se)},
+                "max_tickers_per_market": int(_max_tickers),
+                "min_buy_confidence": int(_min_conf),
+                "min_buy_score": float(_min_score),
+                "max_open_positions": int(_max_pos),
+                "max_trades_per_day": int(_max_buys),
+                "max_buys_per_day": int(_max_buys),
+                "position_size_pct": float(_pos_size),
+                "cooldown_minutes": int(_cooldown),
+                "scan_top_picks_only": bool(_top_only),
+                "pushover_enabled": bool(_push),
+                "auto_buy_safety_mode": bool(_safety_mode),
+            })
+            save_settings(_current)
+            try:
+                _r = load_rules()
+                _r["max_trades_per_day"] = int(_max_buys)
+                save_rules(_r)
+            except Exception:
+                pass
+            st.success("Auto-innstillinger lagret ✅")
+            st.rerun()
+        if reset_auto_btn:
+            reset_settings()
+            st.success("Auto-innstillinger tilbakestilt ✅")
+            st.rerun()
+
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
@@ -4346,6 +4602,12 @@ def render_paper_trading_dashboard():
                 reset_portfolio(float(new_start_cash))
                 st.success("Paper portfolio nullstilt ✅")
                 st.rerun()
+
+    st.markdown("---")
+    st.subheader("⚙️ Auto trading og regler")
+    st.caption("Fase 1: Store innstillinger er flyttet hit fra venstremenyen, slik at du kan jobbe midt på skjermen.")
+    render_auto_trading_workspace()
+    render_trading_rules_workspace()
 
     st.markdown("#### Posisjoner")
     positions = portfolio.get("positions", {})
@@ -4457,8 +4719,8 @@ try:
     _cc_settings = load_settings()
     _cc_cron = cron_status_text()
     _cc_auto_state, _cc_auto_color = _auto_state(_cc_settings)
-    _cc_paper_on = True
     _cc_full_stop = bool(_cc_cron.get("vacation_mode"))
+    _cc_paper_label, _cc_paper_color = _paper_state(_cc_full_stop)
     _cc_chart_auto = bool(_cc_settings.get("chart_auto_update_enabled", False))
     _cc_periodic = bool(_cc_settings.get("ui_auto_refresh_enabled", False))
     st.sidebar.markdown(
@@ -4466,7 +4728,7 @@ try:
         <div class='control-center-status'>
             <b>Kontrollsenter</b><br>
             <span class='status-dot {_cc_auto_color}'></span>Auto trading: <b>{_cc_auto_state}</b><br>
-            <span class='status-dot {'green' if _cc_paper_on else 'red'}'></span>Paper trading: <b>AKTIV</b><br>
+            <span class='status-dot {_cc_paper_color}'></span>Paper trading: <b>{_cc_paper_label}</b><br>
             <span class='status-dot {'red' if _cc_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _cc_full_stop else 'NEI'}</b><br>
             <span class='status-dot {'green' if _cc_chart_auto else 'red'}'></span>Auto-oppdater endringer: <b>{'PÅ' if _cc_chart_auto else 'AV'}</b><br>
             Siste scan: <b>{_fmt_dt_short(_cc_cron.get('last_scan_at'))}</b>
@@ -4742,178 +5004,14 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-# V15.1 / Oppgave 92: Duplikat Auto trading-status og Start/Pause/Stopp er fjernet fra sidebar.
-# Auto trading styres ett sted: toppkontrollen i hovedbildet.
-_settings = load_settings()
-_markets_settings = _settings.get("markets", {}) or {}
-
-with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
-    st.caption("Samlet i to grupper. Endringer lagres først når du trykker Lagre.")
-    with st.form("auto_trading_settings_form_v10", clear_on_submit=False):
-        _auto_enabled = st.checkbox(
-            "Auto trading aktiv",
-            value=bool(_settings.get("auto_trading_enabled", False)),
-            key="persist_auto_enabled_v10",
-        )
-        _safe_edit = st.checkbox(
-            "Pause auto trading når parametere lagres",
-            value=bool(_settings.get("auto_trading_safe_edit_mode", True)),
-            key="persist_safe_edit_mode_v147",
-            help="Sikker redigeringsmodus: ved lagring settes auto trading i pause, slik at du kan kontrollere parametere før ny start.",
-        )
-
-        st.markdown('<div class="auto-settings-group-title">Kjøpsgrenser</div>', unsafe_allow_html=True)
-        _min_conf = st.number_input(
-            "Min confidence for BUY",
-            0,
-            100,
-            int(_settings.get("min_buy_confidence", 70)),
-            1,
-            key="persist_min_conf_v10",
-        )
-        _min_score = st.number_input(
-            "Min score for BUY",
-            0.0,
-            10.0,
-            float(_settings.get("min_buy_score", 7.2)),
-            0.1,
-            key="persist_min_score_v10",
-        )
-        _pos_size = st.number_input(
-            "Posisjonsstørrelse %",
-            1.0,
-            100.0,
-            float(_settings.get("position_size_pct", 10.0)),
-            1.0,
-            key="persist_pos_size_v10",
-        )
-        _cooldown = st.number_input(
-            "Cooldown minutter",
-            0,
-            1440,
-            int(_settings.get("cooldown_minutes", 60)),
-            5,
-            key="persist_cooldown_v10",
-        )
-        _top_only = st.checkbox(
-            "Auto trading kun Top Picks",
-            value=bool(_settings.get("scan_top_picks_only", True)),
-            key="persist_top_only_v10",
-        )
-
-        st.markdown('<div class="auto-settings-group-title">Kapasitet / risiko</div>', unsafe_allow_html=True)
-        st.markdown('<div class="auto-market-list-note">Markeder Cron skal bruke</div>', unsafe_allow_html=True)
-        # Oppgave 09: ikke bruk tre smale kolonner i sidebar. Da brytes Norge/Sverige bokstavvis.
-        _m_usa = st.checkbox("USA", value=bool(_markets_settings.get("USA", True)), key="persist_market_usa_v11")
-        _m_no = st.checkbox("Norge", value=bool(_markets_settings.get("NORGE", True)), key="persist_market_no_v11")
-        _m_se = st.checkbox("Sverige", value=bool(_markets_settings.get("SVERIGE", True)), key="persist_market_se_v11")
-
-        _max_tickers = st.number_input(
-            "Maks aksjer per marked",
-            1,
-            100,
-            int(_settings.get("max_tickers_per_market", 20)),
-            1,
-            key="persist_max_tickers_v10",
-        )
-        _max_pos = st.number_input(
-            "Maks åpne posisjoner",
-            1,
-            30,
-            int(_settings.get("max_open_positions", 5)),
-            1,
-            key="persist_max_pos_v10",
-        )
-        _max_trades = st.number_input(
-            "Maks kjøp per dag",
-            1,
-            50,
-            int(_settings.get("max_trades_per_day", 3)),
-            1,
-            key="persist_max_trades_v10",
-        )
-        _safety_mode = st.checkbox(
-            "Sikkerhetsmodus for auto-kjøp",
-            value=bool(_settings.get("auto_buy_safety_mode", True)),
-            key="persist_safety_mode_v12",
-            help="Når på: salg/exit skal alltid få gå, mens nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd.",
-        )
-        _push = st.checkbox(
-            "Pushover aktiv",
-            value=bool(_settings.get("pushover_enabled", True)),
-            key="persist_push_v10",
-        )
-
-        _save_auto = st.form_submit_button("💾 Lagre auto-innstillinger", use_container_width=True)
-        _reset_auto = st.form_submit_button("↩️ Standard auto-innstillinger", use_container_width=True)
-
-    if _save_auto:
-        _current_settings_for_auto_save = load_settings()
-        _current_settings_for_auto_save.update({
-            "auto_trading_enabled": bool(_auto_enabled) and not bool(_safe_edit),
-            "auto_trading_paused": bool(_safe_edit) if bool(_auto_enabled) else False,
-            "auto_trading_emergency_stop": False,
-            "auto_trading_safe_edit_mode": bool(_safe_edit),
-            "markets": {"USA": bool(_m_usa), "NORGE": bool(_m_no), "SVERIGE": bool(_m_se)},
-            "max_tickers_per_market": int(_max_tickers),
-            "min_buy_confidence": int(_min_conf),
-            "min_buy_score": float(_min_score),
-            "max_open_positions": int(_max_pos),
-            "max_trades_per_day": int(_max_trades),
-            "max_buys_per_day": int(_max_trades),
-            "position_size_pct": float(_pos_size),
-            "cooldown_minutes": int(_cooldown),
-            "scan_top_picks_only": bool(_top_only),
-            "pushover_enabled": bool(_push),
-            "auto_buy_safety_mode": bool(_safety_mode),
-        })
-        save_settings(_current_settings_for_auto_save)
-        # Oppgave 74: én felles verdi for maks kjøp per dag.
-        # Auto-/paper-motoren leser trading_rules, derfor speiles verdien dit også.
-        try:
-            _r = load_rules()
-            _r["max_trades_per_day"] = int(_max_trades)
-            save_rules(_r)
-        except Exception:
-            pass
-        st.sidebar.success("Auto-innstillinger lagret ✅")
-        st.rerun()
-
-    if _reset_auto:
-        reset_settings()
-        st.sidebar.success("Auto-innstillinger tilbakestilt ✅")
-        st.rerun()
-
-
-
+# V15.5 / Fase 1: store arbeidsinnstillinger er flyttet ut av venstremenyen.
+# Venstremenyen skal være navigasjon/status/hurtigkontroll, ikke lang arbeidsflate.
 st.sidebar.markdown("<div class='sidebar-tight-hr'></div>", unsafe_allow_html=True)
-st.sidebar.markdown("### ⚙️ Trading-regler")
-_rules = load_rules()
-
-with st.sidebar.expander("📈 Kjøp", expanded=False):
-    _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules["min_buy_score"]), 0.1)
-    _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules["min_buy_confidence"]))
-    _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules["max_buy_rsi"]))
-    st.caption("Maks kjøp per dag styres kun i Auto-kjøp parametere (-/+). Gjelder bare nye kjøp, ikke salg/exit.")
-
-with st.sidebar.expander("🟡 Hold", expanded=False):
-    _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules["min_hold_days"]))
-    _rules["ignore_small_moves_pct"] = st.slider("Ignorer små svingninger %", 0.0, 10.0, float(_rules["ignore_small_moves_pct"]), 0.5)
-
-with st.sidebar.expander("🔴 Salg", expanded=False):
-    _rules["enable_sell_signal_exit"] = st.checkbox("Selg ved SELL/AVOID signal", bool(_rules["enable_sell_signal_exit"]))
-    _rules["stop_loss_pct"] = st.slider("Stop-loss %", 1.0, 25.0, float(_rules["stop_loss_pct"]), 0.5)
-    _rules["take_profit_pct"] = st.slider("Take-profit %", 1.0, 50.0, float(_rules["take_profit_pct"]), 0.5)
-    _rules["trailing_stop_pct"] = st.slider("Trailing stop %", 1.0, 30.0, float(_rules.get("trailing_stop_pct", 8.0)), 0.5)
-    _rules["rsi_exit_level"] = st.slider("RSI exit nivå", 60, 90, int(_rules["rsi_exit_level"]))
-    _rules["rsi_must_fall"] = st.checkbox("RSI må falle etter topp", bool(_rules["rsi_must_fall"]))
-
-if st.sidebar.button("💾 Lagre trading-regler", key="restore_save_rules"):
-    saved_db = save_rules(_rules)
-    if saved_db:
-        st.sidebar.success("Lagret i database ✅")
-    else:
-        st.sidebar.warning("Lagret lokalt. DATABASE_URL mangler eller DB feilet.")
+st.sidebar.markdown("### 🧭 Arbeidsflater")
+st.sidebar.info(
+    "Trading-regler og Auto trading-parametere er flyttet til hovedområdet under panelet **Paper Trading**. "
+    "Dette gir mindre scrolling i venstremenyen og bedre arbeidsflate i midten."
+)
 
 st.sidebar.markdown("### 🎨 Visning")
 st.sidebar.caption("Mobilvennlig kontrast og større tekst er aktivert.")
@@ -4977,7 +5075,67 @@ _top_settings = load_settings()
 _top_cron = cron_status_text()
 _top_auto_state, _top_auto_color = _auto_state(_top_settings)
 _top_full_stop = bool(_top_cron.get("vacation_mode"))
-_top_paper = True
+
+# V15.3 / Oppgave 99: Kontrollnotis skal være kompakt fullbredde, ikke smal kolonne.
+st.markdown("""
+<style>
+.v153-control-note{
+    display:block;
+    align-items:center;
+    width:100%;
+    max-width: 980px;
+    padding: 7px 11px;
+    margin: 6px 0 4px 0;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.25;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+.v153-control-note.warning{
+    background: rgba(255, 193, 7, 0.14);
+    border: 1px solid rgba(255, 193, 7, 0.38);
+    color: #ffe08a;
+}
+@media (max-width: 700px){
+    .v153-control-note{
+        max-width: 100%;
+        font-size: 0.82rem;
+        padding: 7px 9px;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# V15.4: siste hard-override for å hindre smale meldingsbokser og for å gjøre toppkontroller mer samlet.
+st.markdown(
+    """
+    <style>
+    .v153-control-note, .v153-control-note * {
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+        min-width: 360px !important;
+    }
+    @media (max-width: 700px){
+        .v153-control-note { min-width: 0 !important; width: 100% !important; }
+    }
+    .v15-desktop-status-strip .mini-status-chip.yellow {
+        background: rgba(250, 204, 21, 0.14) !important;
+        color: #fde68a !important;
+        border-color: rgba(250, 204, 21, 0.42) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
+_top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = bool(_top_settings.get("chart_auto_update_enabled", False))
 st.markdown(
     f"""
@@ -4996,7 +5154,7 @@ st.markdown(
         <div class='v15-status-block'>
             <div class='v15-status-title'>Driftstatus</div>
             <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
-            <span class='mini-status-chip {'green' if _top_paper else 'red'}'>Paper: <b>AKTIV</b></span>
+            <span class='mini-status-chip {_top_paper_color}'>Paper: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
             <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
         </div>
@@ -5018,12 +5176,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.1 / Oppgave 90: kompakt Auto trading-kontrollgruppe.
-# Systemkontroller ligger fortsatt i Kontrollsenter/sidebar; markedstatus ligger til høyre i samme rad.
+# V15.4 / helhetlig opprydding: kompakt Auto trading-kontrollgruppe.
+# Systemkontroller ligger i Kontrollsenter/sidebar. Full stopp/ferie overstyrer alltid start av Auto trading.
 st.markdown("<div class='v15-inline-help'><b>Auto trading:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. Full stopp/ferie og systemstart ligger i Kontrollsenter/sidebar.</div>", unsafe_allow_html=True)
-_tq1, _tq2, _tq3, _tq4, _control_spacer = st.columns([0.34, 0.34, 0.36, 0.78, 8.0], gap="small")
+if bool(_top_full_stop):
+    st.markdown(
+        "<div class='v153-control-note warning'>⛔ Full stopp / ferie er aktiv. Auto trading kan ikke startes før systemet startes igjen. Paper Trading er kun visning.</div>",
+        unsafe_allow_html=True,
+    )
+_tq1, _tq2, _tq3, _tq4, _control_spacer = st.columns([0.30, 0.30, 0.32, 0.58, 8.5], gap="small")
 with _tq1:
-    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True):
+    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop)):
         _set_auto_state("START")
 with _tq2:
     if st.button("⏸ Pause", key="auto_pause_top_v15", use_container_width=True):
@@ -5034,6 +5197,13 @@ with _tq3:
 with _tq4:
     if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
+
+# V15.4: fullbredde status for blokkert Start rendres før knapper. Her håndteres bare eventuell engangsnotis.
+if (not bool(_top_full_stop)) and st.session_state.get("auto_control_notice_v153"):
+    _notice = html.escape(str(st.session_state.pop("auto_control_notice_v153", "")))
+    st.session_state.pop("auto_control_notice_level_v153", None)
+    if _notice:
+        st.markdown(f"<div class='v153-control-note warning'>⚠️ {_notice}</div>", unsafe_allow_html=True)
 
 _uc1, _uc2, _uc3 = st.columns([1.15, 1.25, 5.6])
 with _uc1:
