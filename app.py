@@ -62,7 +62,7 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 current_user = require_login()
 
@@ -131,6 +131,36 @@ def _last_update_label():
     reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
     at = st.session_state.get("last_update_started_at_v148", "-")
     return f"{reason} · {at}"
+
+
+def _market_status_chips_html():
+    """Kompakt børsstatus til Kontrollsenter/sidebar uten ekstra widget-reruns."""
+    chips = []
+    try:
+        statuses = market_statuses()
+    except Exception:
+        statuses = {}
+    for key, status in (statuses or {}).items():
+        name = status.get("name", key)
+        short = {"USA": "USA", "Norge": "Norge", "Sverige": "Sverige"}.get(name, name)
+        is_open = bool(status.get("is_open"))
+        cls = "green" if is_open else "red"
+        txt = "Åpent" if is_open else "Stengt"
+        chips.append(f"<span class='mini-status-chip {cls}'>{html.escape(str(short))}: <b>{txt}</b></span>")
+    if not chips:
+        chips.append("<span class='mini-status-chip'>Børsstatus: <b>ukjent</b></span>")
+    return "".join(chips)
+
+
+def _session_status_html(user=None):
+    username = (user or {}).get("username", "-")
+    remember = "På" if st.session_state.get("auth_remember_me") else "Av"
+    expires = _fmt_dt_short(st.session_state.get("auth_expires_at"))
+    return (
+        f"<span class='mini-status-chip'>Bruker: <b>{html.escape(str(username))}</b></span>"
+        f"<span class='mini-status-chip {'green' if remember == 'På' else 'red'}'>Husk meg: <b>{remember}</b></span>"
+        f"<span class='mini-status-chip'>Utløper: <b>{html.escape(str(expires))}</b></span>"
+    )
 
 
 def _controls_differ(a, b):
@@ -509,19 +539,11 @@ st.markdown("""
     border-right: 1px solid var(--border);
 }
 
-/* V14.11 hotfix / Oppgave 80: mobil-sidebar skal ikke forsvinne.
-   Streamlit skjuler ofte sidebar på mobil. Vi ber nettleseren holde den synlig/tilgjengelig,
-   og lar hovedsiden fortsatt ha mobil hurtigmeny som reserve. */
+/* V14.12 / Oppgave 81-83: mobil skal ikke ha en halv sidebar synlig.
+   Streamlit får bruke sin egen drawer-knapp på mobil, mens hovedsiden har et kompakt
+   Kontrollsenter som funksjonell fallback. */
 [data-testid="stSidebar"] * { box-sizing: border-box; }
 @media (max-width: 900px) {
-    [data-testid="stSidebar"] {
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        background: #020617 !important;
-        border-right: 1px solid rgba(148,163,184,0.28) !important;
-        z-index: 999999 !important;
-    }
     [data-testid="collapsedControl"] {
         display: flex !important;
         visibility: visible !important;
@@ -530,17 +552,18 @@ st.markdown("""
         position: fixed !important;
         top: 0.55rem !important;
         left: 0.55rem !important;
-        background: rgba(14,165,233,0.95) !important;
+        background: rgba(14,165,233,0.96) !important;
         border: 1px solid rgba(125,211,252,0.70) !important;
         border-radius: 12px !important;
         box-shadow: 0 8px 20px rgba(14,165,233,0.25) !important;
     }
     section[data-testid="stSidebar"] {
-        min-width: 275px !important;
-        max-width: 320px !important;
+        background: #020617 !important;
+        border-right: 1px solid rgba(148,163,184,0.28) !important;
+        max-width: min(88vw, 340px) !important;
     }
     section[data-testid="stSidebar"] > div:first-child {
-        padding-top: 0.75rem !important;
+        padding-top: 0.65rem !important;
     }
 }
 
@@ -1625,6 +1648,72 @@ div[role="tooltip"] *,
     section[data-testid="stSidebar"] textarea { min-height:34px !important; font-size:0.80rem !important; }
 }
 
+
+
+/* --- V14.12: mobil/drawer cleanup, kontrollrad, bruker/børsstatus --- */
+.control-center-wide {
+    display:grid;
+    grid-template-columns: minmax(220px,1.1fr) minmax(220px,1.25fr) minmax(220px,1.1fr) minmax(240px,1.4fr);
+    gap:10px;
+    align-items:stretch;
+}
+.control-info-block {
+    background:rgba(15,23,42,0.72);
+    border:1px solid rgba(148,163,184,0.26);
+    border-radius:14px;
+    padding:9px 11px;
+    min-height:58px;
+}
+.control-info-title {
+    font-size:0.78rem;
+    color:#cbd5e1 !important;
+    font-weight:950;
+    margin-bottom:5px;
+}
+.mini-status-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    margin:2px 4px 2px 0;
+    padding:4px 7px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.24);
+    background:rgba(15,23,42,0.66);
+    color:#e2e8f0 !important;
+    font-size:0.72rem;
+    font-weight:900;
+    white-space:nowrap;
+}
+.mini-status-chip.green { border-color:rgba(34,197,94,0.42); background:rgba(22,101,52,0.20); color:#bbf7d0 !important; }
+.mini-status-chip.red { border-color:rgba(239,68,68,0.44); background:rgba(127,29,29,0.20); color:#fecaca !important; }
+.auto-control-help, .system-control-help {
+    color:#94a3b8 !important;
+    font-size:0.74rem;
+    font-weight:800;
+    margin:2px 0 5px 0;
+}
+.auto-control-separator { margin:5px 0 8px 0; border-top:1px solid rgba(148,163,184,0.12); }
+.auth-compact-line { color:#cbd5e1 !important; font-size:0.78rem; font-weight:850; margin:1px 0 5px 0; }
+.auth-session-details {
+    background:rgba(15,23,42,0.55);
+    border:1px solid rgba(148,163,184,0.22);
+    border-radius:10px;
+    padding:7px 9px;
+    font-size:0.72rem;
+    line-height:1.35;
+}
+section[data-testid="stSidebar"] .stButton > button {
+    min-height:32px !important;
+    padding:0.24rem 0.50rem !important;
+    font-size:0.78rem !important;
+    border-radius:9px !important;
+}
+@media (max-width: 900px) {
+    .control-center-wide { grid-template-columns: 1fr; gap:7px; }
+    .control-info-block { padding:8px 9px; min-height:auto; }
+    .mini-status-chip { font-size:0.68rem; padding:3px 6px; }
+    .top-app-status { gap:5px; }
+}
 
 </style>
 """, unsafe_allow_html=True)
@@ -4527,17 +4616,14 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-_ac1, _ac2, _ac3 = st.sidebar.columns(3)
-with _ac1:
-    if st.button("▶️ Start", key="auto_start_sidebar_v147", use_container_width=True):
-        _set_auto_state("START")
-with _ac2:
-    if st.button("⏸ Pause", key="auto_pause_sidebar_v147", use_container_width=True):
-        _set_auto_state("PAUSE")
-with _ac3:
-    if st.button("⛔ Stopp", key="auto_stop_sidebar_v147", use_container_width=True):
-        _set_auto_state("STOPP")
-if st.sidebar.button("🧯 Nødstopp Auto trading", key="auto_emergency_sidebar_v147", use_container_width=True):
+st.sidebar.caption("Auto trading-kontroller. Påvirker kun auto trading, ikke systemdrift/full stopp.")
+if st.sidebar.button("▶ Start", key="auto_start_sidebar_v1412", use_container_width=True):
+    _set_auto_state("START")
+if st.sidebar.button("⏸ Pause", key="auto_pause_sidebar_v1412", use_container_width=True):
+    _set_auto_state("PAUSE")
+if st.sidebar.button("⛔ Stopp", key="auto_stop_sidebar_v1412", use_container_width=True):
+    _set_auto_state("STOPP")
+if st.sidebar.button("🚨 Nødstopp Auto trading", key="auto_emergency_sidebar_v1412", use_container_width=True):
     _set_auto_state("NØDSTOPP")
 
 with st.sidebar.expander("⚙️ Auto-kjøp parametere", expanded=False):
@@ -4788,57 +4874,81 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.10 / Oppgave 77: Mobilen mister ofte Streamlit-sidebaren.
-# Legg kritiske kontroller i hovedsiden også, uten å fjerne sidebaren på PC.
-with st.expander("☰ Kontrollsenter / mobil hurtigmeny", expanded=True):
+# V14.12 / Oppgave 81-86 og 89B: ryddig kontrollsenter, ikke duplisert/rotete mobilpanel.
+# Hovedsiden viser en kompakt fallback-meny. Ekte Streamlit-sidebar brukes på PC/drawer,
+# men denne gir trygg tilgang på mobil uten halv sidebar.
+with st.expander("☰ Kontrollsenter / mobil hurtigmeny", expanded=False):
     st.markdown(
         f"""
-        <div class='control-center-status'>
-            <b>Driftstatus</b><br>
-            <span class='status-dot {_top_auto_color}'></span>Auto trading: <b>{_top_auto_state}</b><br>
-            <span class='status-dot {'green' if _top_paper else 'red'}'></span>Paper trading: <b>AKTIV</b><br>
-            <span class='status-dot {'red' if _top_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _top_full_stop else 'NEI'}</b><br>
-            <span class='status-dot {'green' if _top_chart_auto else 'red'}'></span>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b><br>
-            Siste scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b>
+        <div class='control-center-wide'>
+            <div class='control-info-block'>
+                <div class='control-info-title'>Driftstatus</div>
+                <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
+                <span class='mini-status-chip {'green' if _top_paper else 'red'}'>Paper: <b>AKTIV</b></span>
+                <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
+                <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
+            </div>
+            <div class='control-info-block'>
+                <div class='control-info-title'>Børsstatus</div>
+                {_market_status_chips_html()}
+            </div>
+            <div class='control-info-block'>
+                <div class='control-info-title'>Bruker / sesjon</div>
+                {_session_status_html(current_user)}
+            </div>
+            <div class='control-info-block'>
+                <div class='control-info-title'>Siste oppdatering</div>
+                <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
+                <span class='mini-status-chip'>Tung: <b>{html.escape(_last_update_label())}</b></span>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    mc1, mc2, mc3, mc4 = st.columns(4)
+    st.markdown("<div class='auto-control-help'>Auto trading-kontroller: styrer kun auto trading. Salg/exit og vanlig visning av data påvirkes ikke.</div>", unsafe_allow_html=True)
+    mc1, mc2, mc3, mc4 = st.columns([0.85, 0.85, 0.85, 1.55])
     with mc1:
-        if st.button("▶️ Start", key="mobile_auto_start_v1410", use_container_width=True):
+        if st.button("▶ Start", key="mobile_auto_start_v1412", use_container_width=True):
             _set_auto_state("START")
     with mc2:
-        if st.button("⏸ Pause", key="mobile_auto_pause_v1410", use_container_width=True):
+        if st.button("⏸ Pause", key="mobile_auto_pause_v1412", use_container_width=True):
             _set_auto_state("PAUSE")
     with mc3:
-        if st.button("⛔ Stopp", key="mobile_auto_stop_v1410", use_container_width=True):
+        if st.button("⛔ Stopp", key="mobile_auto_stop_v1412", use_container_width=True):
             _set_auto_state("STOPP")
     with mc4:
-        if st.button("🚨 Nødstopp", key="mobile_auto_emergency_v1410", use_container_width=True):
+        if st.button("🚨 Nødstopp Auto trading", key="mobile_auto_emergency_v1412", use_container_width=True):
             _set_auto_state("NØDSTOPP")
-    vc1, vc2 = st.columns(2)
+
+    st.markdown("<div class='system-control-help'>System/drift: Full stopp og Start systemet igjen styrer bakgrunnssøk/cron og generell drift, ikke bare Auto trading.</div>", unsafe_allow_html=True)
+    vc1, vc2 = st.columns([1, 1])
     with vc1:
-        if st.button("⛔ Full stopp / ferie", key="mobile_full_stop_v1410", use_container_width=True):
+        if st.button("⛔ Full stopp / ferie", key="mobile_full_stop_v1412", use_container_width=True):
             activate_full_stop()
             st.rerun()
     with vc2:
-        if st.button("▶️ Start systemet igjen", key="mobile_resume_system_v1410", use_container_width=True):
+        if st.button("▶ Start systemet igjen", key="mobile_resume_system_v1412", use_container_width=True):
             deactivate_full_stop()
             st.rerun()
-    st.markdown("<div class='mobile-control-center-note'>Sidebaren finnes fortsatt på PC. På mobil er denne menyen reserve/hurtigtilgang til kritiske kontroller.</div>", unsafe_allow_html=True)
 
-_tq1, _tq2, _tq3, _tq4, _tq5 = st.columns([1, 1, 1, 1.15, 1.15])
+# Kompakt auto trading-kontrollrad på hovedsiden. Systemknapper vises i Kontrollsenter, ikke blandet her.
+st.markdown("<div class='auto-control-help'>Auto trading: ▶ Start · ⏸ Pause · ⛔ Stopp · 🚨 Nødstopp. Full stopp/ferie ligger i Kontrollsenter.</div>", unsafe_allow_html=True)
+_tq1, _tq2, _tq3, _tq4, _tq_spacer = st.columns([0.72, 0.72, 0.72, 1.45, 3.2])
 with _tq1:
-    if st.button("▶️ Start auto", key="auto_start_top_v147", use_container_width=True):
+    if st.button("▶ Start", key="auto_start_top_v1412", use_container_width=True):
         _set_auto_state("START")
 with _tq2:
-    if st.button("⏸ Pause auto", key="auto_pause_top_v147", use_container_width=True):
+    if st.button("⏸ Pause", key="auto_pause_top_v1412", use_container_width=True):
         _set_auto_state("PAUSE")
 with _tq3:
-    if st.button("⛔ Stopp auto", key="auto_stop_top_v147", use_container_width=True):
+    if st.button("⛔ Stopp", key="auto_stop_top_v1412", use_container_width=True):
         _set_auto_state("STOPP")
 with _tq4:
+    if st.button("🚨 Nødstopp Auto trading", key="auto_emergency_top_v1412", use_container_width=True):
+        _set_auto_state("NØDSTOPP")
+
+_uc1, _uc2, _uc3 = st.columns([1.35, 1.45, 3.2])
+with _uc1:
     _top_toggle_auto_update = st.checkbox(
         "Auto-oppdater ved endringer",
         value=_top_chart_auto,
@@ -4849,7 +4959,7 @@ with _tq4:
         _save_setting_patch(chart_auto_update_enabled=bool(_top_toggle_auto_update))
         st.session_state.pop("sidebar_chart_auto_update_v147", None)
         st.rerun()
-with _tq5:
+with _uc2:
     if not _top_chart_auto:
         if st.button("🔄 Oppdater / bruk endringer", key="top_apply_changes_v147", use_container_width=True):
             st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
@@ -4937,6 +5047,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 if auto_watchlist_alerts or manual_watchlist_scan:
     if not pushover_enabled:
         st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
@@ -4953,13 +5064,19 @@ if auto_watchlist_alerts or manual_watchlist_scan:
 
 st.caption("Velg panel. Bare valgt panel beregnes tungt, slik at skjulte faner ikke starter nye analyser.")
 st.markdown("<div class='panel-radio-label'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
+_panel_options_v1412 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"]
+if "active_main_panel_v148" not in st.session_state:
+    st.session_state["active_main_panel_v148"] = st.session_state.get("active_main_panel_persist_v1412", "🇺🇸 USA")
+if st.session_state.get("active_main_panel_v148") not in _panel_options_v1412:
+    st.session_state["active_main_panel_v148"] = "🇺🇸 USA"
 active_panel = st.radio(
     "Aktivt hovedpanel",
-    ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"],
+    _panel_options_v1412,
     horizontal=True,
     label_visibility="collapsed",
     key="active_main_panel_v148",
 )
+st.session_state["active_main_panel_persist_v1412"] = active_panel
 
 if active_panel == "🇺🇸 USA":
     us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False)

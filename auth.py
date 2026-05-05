@@ -264,24 +264,29 @@ def require_login():
 def render_user_admin(current_user):
     st.sidebar.markdown("---")
     st.sidebar.subheader("👤 Bruker")
-    st.sidebar.caption(f"Innlogget: {current_user.get('username')} ({current_user.get('role')})")
+    username = current_user.get('username')
+    role = current_user.get('role')
+    st.sidebar.markdown(
+        f"<div class='auth-compact-line'>Innlogget: <b>{username}</b> ({role})</div>",
+        unsafe_allow_html=True,
+    )
     try:
         _login_at = st.session_state.get("auth_logged_in_at", "-")
         _last_at = st.session_state.get("auth_last_activity_at", "-")
         _expires_at = st.session_state.get("auth_expires_at", "-")
         _remember = "På" if st.session_state.get("auth_remember_me") else "Av"
-        st.sidebar.markdown(
-            f"""
-            <div class='control-center-status auth-session-status'>
-                <b>Innlogging</b><br>
-                Innlogget siden: <b>{_login_at}</b><br>
-                Siste aktivitet: <b>{_last_at}</b><br>
-                Utløper: <b>{_expires_at}</b><br>
-                Husk meg: <b>{_remember}</b>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.sidebar.expander("Sesjonsinfo", expanded=False):
+            st.markdown(
+                f"""
+                <div class='auth-session-details'>
+                    Innlogget siden: <b>{_login_at}</b><br>
+                    Siste aktivitet: <b>{_last_at}</b><br>
+                    Utløper: <b>{_expires_at}</b><br>
+                    Husk meg: <b>{_remember}</b>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     except Exception:
         pass
 
