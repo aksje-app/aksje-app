@@ -210,6 +210,27 @@ def _set_update_reason(reason: str):
     st.session_state["last_update_started_at_v148"] = _now_short()
 
 
+def _global_apply_requested_v161():
+    """V16.1: én sentral global oppdateringsknapp styrer lagring/bruk av endringer."""
+    return bool(st.session_state.get("global_apply_all_changes_v161", False))
+
+
+def _mark_pending_global_change_v161():
+    """Lett statusflagg. Widget-rerun er greit, men tung jobb skal vente på global knapp."""
+    st.session_state["pending_manual_changes_v16"] = True
+
+
+def _request_global_apply_v161():
+    """Kalles av global knapp. Alle arbeidsflater kan lese dette flagget samme run."""
+    st.session_state["global_apply_all_changes_v161"] = True
+    st.session_state["heavy_update_allowed_v148"] = True
+    st.session_state["pending_manual_changes_v16"] = False
+
+
+def _finish_global_apply_v161():
+    st.session_state["global_apply_all_changes_v161"] = False
+
+
 def _last_update_label():
     reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
     at = st.session_state.get("last_update_started_at_v148", "-")
@@ -255,7 +276,7 @@ def _manual_update_mode_enabled(settings=None):
 
     Streamlit vil fortsatt rerende skjermen når widgets endres, men i manuell
     modus skal appen ikke gjøre tung datahenting/analyse før bruker trykker
-    Oppdater / bruk endringer.
+    Oppdater / bruk alle endringer.
     """
     _s = settings or load_settings()
     return not bool((_s or {}).get("chart_auto_update_enabled", False))
@@ -290,7 +311,7 @@ def cached_score_stock_manual(ticker, use_news=False, force=False):
     """score_stock med manuell-modus cache.
 
     Når Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
-    hentes ikke data før bruker trykker Oppdater / bruk endringer.
+    hentes ikke data før bruker trykker Oppdater / bruk alle endringer.
     """
     ticker = normalize_user_ticker(ticker)
     key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news))}"
@@ -346,7 +367,7 @@ def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_
     """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
 
     Draft-verdier kan endres fritt; aktiv rangering oppdateres først via
-    Oppdater / bruk endringer, Auto-oppdater eller manuell scan.
+    Oppdater / bruk alle endringer, Auto-oppdater eller manuell scan.
     """
     safe_tickers = list(tickers or [])
     fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch))
@@ -2573,7 +2594,7 @@ def render_live_market_banner():
     if not _heavy_update_allowed():
         banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
         if not banner_cards:
-            st.caption("📡 Ticker-banner bruker manuell modus. Trykk Oppdater / bruk endringer for å hente nye bannerdata.")
+            st.caption("📡 Ticker-banner bruker manuell modus. Trykk Oppdater / bruk alle endringer for å hente nye bannerdata.")
             return
     else:
         banner_cards = fetch_live_banner_snapshot(banner_items)
@@ -2835,7 +2856,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
                 help="Kommaseparert liste, f.eks. VOLV-B.ST, ERIC-B.ST.",
             )
 
-        submitted = st.form_submit_button("💾 Lagre ticker-banner", use_container_width=True)
+        submitted = _global_apply_requested_v161()
 
     if submitted:
         new_visible = []
@@ -2860,8 +2881,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
             },
         })
         save_settings(settings)
-        st.success("Ticker-banner lagret.")
-        st.rerun()
+        st.success("Ticker-banner oppdatert via global knapp ✅")
 
 
 def render_banner_sidebar_controls(expanded=False):
@@ -2886,9 +2906,9 @@ def render_banner_main_controls():
             visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
         visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
 
-        st.caption("Endringer i ticker-banner lagres her. Kontrollene ligger under banneret, ikke i venstremenyen.")
+        st.caption("Endringer i ticker-banner lagres via den globale knappen «Oppdater / bruk alle endringer».")
 
-        with st.form("banner_settings_form_v1582_main", clear_on_submit=False):
+        with st.container():
             c_enable, c_speed, c_refresh = st.columns(3)
             with c_enable:
                 live_banner_enabled = st.checkbox(
@@ -2948,7 +2968,7 @@ def render_banner_main_controls():
                     key="banner_v1582_se_tickers",
                 )
 
-            submitted = st.form_submit_button("💾 Lagre ticker-banner", use_container_width=True)
+            submitted = _global_apply_requested_v161()
 
         if submitted:
             new_visible = []
@@ -2973,8 +2993,7 @@ def render_banner_main_controls():
                 },
             })
             save_settings(settings)
-            st.success("Ticker-banner lagret.")
-            st.rerun()
+            st.success("Ticker-banner oppdatert via global knapp ✅")
 
 
 def render_system_admin_workspace():
@@ -2993,7 +3012,7 @@ def render_system_admin_workspace():
             st.success("Status: Aktiv ✅")
         st.caption(_cron_status.get("reason", ""))
 
-        with st.form("system_admin_cron_form_v157", clear_on_submit=False):
+        with st.container():
             c1, c2, c3 = st.columns(3)
             with c1:
                 _cron_enabled = st.checkbox("Bakgrunnssøk aktiv", value=bool(_cron_settings.get("background_scanning_enabled", True)), key="main_cron_background_enabled_v157")
@@ -3001,7 +3020,7 @@ def render_system_admin_workspace():
                 _cron_interval = st.number_input("Søkintervall minutter", min_value=1, max_value=1440, value=int(_cron_settings.get("scan_interval_minutes", 15)), step=1, key="main_cron_scan_interval_v157")
             with c3:
                 _pause_choice = st.selectbox("Pause søk", ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"], key="main_cron_pause_choice_v157")
-            _save_cron = st.form_submit_button("💾 Lagre søk/cron", use_container_width=True)
+            _save_cron = _global_apply_requested_v161()
         if _save_cron:
             _new_settings = load_settings()
             _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
@@ -3017,8 +3036,7 @@ def render_system_admin_workspace():
                 pause_until(rest_of_day=True)
             elif _pause_choice == "Ingen pause":
                 clear_pause()
-            st.success("Søk/cron lagret ✅")
-            st.rerun()
+            st.success("Søk/cron oppdatert via global knapp ✅")
 
         s1, s2, s3, s4 = st.columns([1, 1, 1, 2.2])
         with s1:
@@ -3070,7 +3088,7 @@ def render_analysis_universe_workspace():
             st.checkbox("Bruk nyheter/sentiment", value=bool(st.session_state.get("use_news_main_v157", True)), key="use_news_main_v157")
             st.checkbox("Bruk Signal Intelligence", value=bool(st.session_state.get("use_signal_intelligence_main_v157", True)), key="use_signal_intelligence_main_v157")
             st.text_input("Søk ticker manuelt", value=str(st.session_state.get("search_main_v157", "")), placeholder="F.eks. AAPL, EQNR.OL", key="search_main_v157")
-        st.caption("Endringer følger Auto-oppdater-regelen: er Auto-oppdater av, brukes de først når du trykker Oppdater / bruk endringer.")
+        st.caption("Endringer følger Auto-oppdater-regelen: er Auto-oppdater av, brukes de først når du trykker Oppdater / bruk alle endringer.")
 
 def render_decision_explanation(decision):
     try:
@@ -4138,7 +4156,7 @@ def render_analysis(results, label):
 
     if not item:
         if _manual_update_mode_enabled():
-            st.info("Manuell modus er aktiv og det finnes ingen lagret analyse for valgt ticker. Trykk Oppdater / bruk endringer for å hente data.")
+            st.info("Manuell modus er aktiv og det finnes ingen lagret analyse for valgt ticker. Trykk Oppdater / bruk alle endringer for å hente data.")
         else:
             st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. AAPL, EQNR.OL eller ABB.ST.")
         return
@@ -4730,7 +4748,7 @@ def _apply_trading_rule_preset_v159(name: str, values: dict):
             st.session_state[widget_key] = preset[rule_key]
 
     save_rules(preset)
-    st.session_state["rules_preset_notice_v159"] = f"{name} er lagt inn. Trykk Lagre trading-regler hvis du justerer videre."
+    st.session_state["rules_preset_notice_v159"] = f"{name} er lagt inn. Trykk «Oppdater / bruk alle endringer» når du er klar."
     st.rerun()
 
 
@@ -4739,7 +4757,7 @@ def render_trading_rules_workspace():
     """Hovedområde for trading-regler. Erstatter lange Kjøp/Hold/Salg-menyer i venstresiden."""
     _rules = load_rules()
     with st.expander("📊 Trading-regler", expanded=False):
-        st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer lagres først når du trykker Lagre trading-regler.")
+        st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer brukes først når du trykker «Oppdater / bruk alle endringer».")
         p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
         with p1:
             if st.button("↩️ Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
@@ -4795,7 +4813,7 @@ def render_trading_rules_workspace():
         if st.session_state.get("rules_preset_notice_v159"):
             st.success(st.session_state.pop("rules_preset_notice_v159"))
 
-        with st.form("main_trading_rules_workspace_v156", clear_on_submit=False):
+        with st.container():
             buy_col, hold_col, sell_col = st.columns(3)
             with buy_col:
                 st.markdown("#### 📈 Kjøp")
@@ -4831,14 +4849,15 @@ def render_trading_rules_workspace():
                     key="main_rules_ignore_small_v156",
                 )
                 st.caption("Anbefalt: Av som standard. Hvis aktivert: 0.5–1.0 %. Stop-loss og andre risikoutganger har alltid prioritet.")
-            save_rules_btn = st.form_submit_button("💾 Lagre trading-regler", use_container_width=True)
+            save_rules_btn = _global_apply_requested_v161()
         if save_rules_btn:
             saved_db = save_rules(_rules)
             if saved_db:
                 st.success("Trading-regler lagret i database ✅")
             else:
                 st.warning("Trading-regler lagret lokalt. DATABASE_URL mangler eller DB feilet.")
-            st.rerun()
+            if not _global_apply_requested_v161():
+                st.rerun()
 
 
 def render_auto_trading_workspace():
@@ -4847,7 +4866,7 @@ def render_auto_trading_workspace():
     _markets_settings = _settings.get("markets", {}) or {}
     with st.expander("⚙️ Auto trading-oppsett", expanded=False):
         st.caption("Samlet arbeidsflate for Auto trading. Full stopp / ferie og nødstopp overstyrer alltid disse innstillingene.")
-        with st.form("main_auto_trading_workspace_v155", clear_on_submit=False):
+        with st.container():
             drift_col, buy_col, risk_col, safe_col = st.columns(4)
             with drift_col:
                 st.markdown("#### Drift")
@@ -4946,8 +4965,8 @@ def render_auto_trading_workspace():
                     key="main_auto_push_v155",
                 )
                 st.caption("Full stopp / ferie og nødstopp har alltid høyest prioritet.")
-            save_auto_btn = st.form_submit_button("💾 Lagre auto-innstillinger", use_container_width=True)
-            reset_auto_btn = st.form_submit_button("↩️ Standard auto-innstillinger", use_container_width=True)
+            save_auto_btn = _global_apply_requested_v161()
+            reset_auto_btn = st.button("↩️ Standard auto-innstillinger", key="main_auto_reset_defaults_v161", use_container_width=True)
         if save_auto_btn:
             _current = load_settings()
             _current.update({
@@ -4975,8 +4994,7 @@ def render_auto_trading_workspace():
                 save_rules(_r)
             except Exception:
                 pass
-            st.success("Auto-innstillinger lagret ✅")
-            st.rerun()
+            st.success("Auto-innstillinger oppdatert via global knapp ✅")
         if reset_auto_btn:
             reset_settings()
             st.success("Auto-innstillinger tilbakestilt ✅")
@@ -5040,14 +5058,13 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     key="main_watchlist_scan_limit_v156",
                 )
                 _manual_scan = st.button("Scan watchlist nå", key="main_scan_watchlist_now_v156")
-                if st.button("💾 Lagre watchlist-innstillinger", key="main_save_watchlist_settings_v156"):
+                if _global_apply_requested_v161():
                     _save = load_settings()
                     _save["use_dynamic_watchlist_from_market"] = bool(_use_dynamic)
                     _save["auto_watchlist_alerts_refresh"] = bool(_auto_scan)
                     _save["watchlist_scan_limit"] = int(_scan_limit)
                     save_settings(_save)
-                    st.success("Watchlist-innstillinger lagret ✅")
-                    st.rerun()
+                    st.success("Watchlist-innstillinger oppdatert via global knapp ✅")
 
         with alert_tab:
             st.markdown(
@@ -5094,7 +5111,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
 
             b1, b2, b3 = st.columns([1, 0.7, 0.7])
             with b1:
-                if st.button("💾 Lagre varselkontroll", key="main_save_alert_control_v156", use_container_width=True):
+                if _global_apply_requested_v161():
                     _merged = load_settings()
                     _merged["pushover_enabled"] = bool(_pushover_setting_on)
                     _merged["notify_paper_trades"] = bool(_notify_trades)
@@ -5102,8 +5119,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     _merged["notify_high_confidence_only"] = bool(_high_conf_only)
                     _merged["notify_min_confidence"] = int(_min_alert_conf)
                     save_settings(_merged)
-                    st.success("Varselkontroll lagret ✅")
-                    st.rerun()
+                    st.success("Varselkontroll oppdatert via global knapp ✅")
             with b2:
                 if st.button("Test", key="main_alert_send_test_v156", disabled=not _pushover_env_ok, use_container_width=True):
                     ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
@@ -5460,7 +5476,7 @@ search = str(st.session_state.get("search_main_v157", "") or "").strip().upper()
 
 # V14.8 / Oppgave 70 og 72:
 # Menyer skriver først til draft. Tunge analyser bruker aktive verdier til bruker trykker
-# Oppdater / bruk endringer, med mindre Auto-oppdater er PÅ.
+# Oppdater / bruk alle endringer, med mindre Auto-oppdater er PÅ.
 _draft_analysis_controls_v148 = {
     "selected_market_category": selected_market_category,
     "mode": mode,
@@ -5475,11 +5491,8 @@ if "active_analysis_controls_v148" not in st.session_state:
     st.session_state["heavy_update_allowed_v148"] = True
     _set_update_reason("Oppstart / første aktive innstillinger")
 
-# Auto-oppdater = draft blir aktivt med en gang. Av = behold sist aktive til bruker trykker Oppdater.
-if bool(load_settings().get("chart_auto_update_enabled", False)):
-    st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
-    st.session_state["heavy_update_allowed_v148"] = True
-    _set_update_reason("Auto-oppdater ved endringer")
+# V16.1: Auto-oppdater er fjernet fra normal arbeidsflyt.
+# Draft blir først aktivt når global knapp "Oppdater / bruk alle endringer" trykkes.
 
 _active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
 _pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
@@ -5500,6 +5513,13 @@ watchlist_tickers = globals().get("watchlist_tickers", [])
 
 # V14.7 / Oppgave 64-66: kompakt toppheader med viktig status og hurtigkontroller.
 _top_settings = load_settings()
+# V16.1 / Oppgave 124-125: Manuell modus er standard. Auto-oppdater skjules som avansert og er av.
+if bool(_top_settings.get("chart_auto_update_enabled", False)):
+    _top_settings["chart_auto_update_enabled"] = False
+    try:
+        save_settings(_top_settings)
+    except Exception:
+        pass
 _top_cron = cron_status_text()
 _top_auto_state, _top_auto_color = _auto_state(_top_settings)
 _top_full_stop = bool(_top_cron.get("vacation_mode"))
@@ -5584,7 +5604,7 @@ st.markdown(
 
 # V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
-_top_chart_auto = bool(_top_settings.get("chart_auto_update_enabled", False))
+_top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 st.markdown(
     f"""
     <div class="top-app-header v152-top-clean">
@@ -5604,7 +5624,7 @@ st.markdown(
             <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
             <span class='mini-status-chip {_top_paper_color}'>Paper: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
-            <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Auto-oppdater: <b>{'PÅ' if _top_chart_auto else 'AV'}</b></span>
+            <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Manuell: <b>PÅ</b></span>
         </div>
         <div class='v15-status-block'>
             <div class='v15-status-title'>Børsstatus</div>
@@ -5678,33 +5698,28 @@ if st.session_state.get("auto_control_notice_v153"):
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
-_uc1, _uc2, _uc3 = st.columns([1.15, 1.25, 5.6])
+_uc1, _uc2, _uc3 = st.columns([1.7, 1.8, 4.8])
 with _uc1:
-    _top_toggle_auto_update = st.checkbox(
-        "Auto-oppdater ved endringer",
-        value=_top_chart_auto,
-        key="top_chart_auto_update_v147",
-        help="Av = graf/indikator-endringer brukes først når du trykker Oppdater / bruk endringer.",
-    )
-    if bool(_top_toggle_auto_update) != _top_chart_auto:
-        _save_setting_patch(chart_auto_update_enabled=bool(_top_toggle_auto_update))
-        st.session_state.pop("sidebar_chart_auto_update_v147", None)
-        st.rerun()
+    st.markdown("<span class='mini-status-chip red'>Manuell oppdatering: <b>PÅ</b></span>", unsafe_allow_html=True)
+    st.caption("Endringer lagres som ventende til global oppdatering kjøres.")
 with _uc2:
-    if not _top_chart_auto:
-        if st.button("🔄 Oppdater / bruk endringer", key="top_apply_changes_v147", use_container_width=True):
-            st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
-            st.session_state["heavy_update_allowed_v148"] = True
-            _clear_pending_manual_change()
-            _set_update_reason("Oppdater-knapp / bruk endringer")
-            st.rerun()
+    if st.button("🔄 Oppdater / bruk alle endringer", key="top_apply_all_changes_v161", use_container_width=True):
+        st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+        st.session_state["heavy_update_allowed_v148"] = True
+        _clear_pending_manual_change()
+        _request_global_apply_v161()
+        _set_update_reason("Global oppdateringsknapp / bruk alle endringer")
+        st.success("Oppdaterer og bruker alle ventende endringer …")
+with _uc3:
+    if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
+        st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater / bruk alle endringer</b>.</div>", unsafe_allow_html=True)
     else:
-        st.caption("Auto-oppdatering på")
+        st.caption("Én global oppdateringsknapp styrer hele appen.")
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
 if not _top_chart_auto:
     if _pending_analysis_changes_v148 or bool(st.session_state.get("pending_manual_changes_v16", False)):
-        st.markdown("<div class='pending-changes-box'>⚠️ Manuell modus: endringer venter. Ingen tung datahenting/graf/rangering kjøres før du trykker Oppdater / bruk endringer.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='pending-changes-box'>⚠️ Manuell modus: endringer venter. Ingen tung datahenting/graf/rangering kjøres før du trykker Oppdater / bruk alle endringer.</div>", unsafe_allow_html=True)
     else:
         st.caption("Manuell modus aktiv: widget-endringer rerendrer skjermen, men tung analyse bruker sist godkjente data.")
 
@@ -5761,7 +5776,7 @@ st.markdown(
 
 _watchlist_scan_allowed_v16 = bool(manual_watchlist_scan) or (bool(auto_watchlist_alerts) and _heavy_update_allowed())
 if auto_watchlist_alerts and (not _watchlist_scan_allowed_v16):
-    st.caption("Watchlist auto-scan er klar, men manuell modus er aktiv. Scan kjøres først ved Oppdater / bruk endringer eller Scan watchlist nå.")
+    st.caption("Watchlist auto-scan er klar, men manuell modus er aktiv. Scan kjøres først ved Oppdater / bruk alle endringer eller Scan watchlist nå.")
 if _watchlist_scan_allowed_v16:
     if not pushover_enabled:
         st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
@@ -5913,6 +5928,7 @@ elif active_panel == "🧪 Paper Trading":
 
 # Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.
 st.session_state["heavy_update_allowed_v148"] = False
+_finish_global_apply_v161()
 
 
 def add_rsi_current_box(fig, rsi):
