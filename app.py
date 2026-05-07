@@ -67,6 +67,137 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 st.markdown("""
 <style>
+/* v18.3 POLISH: spacing, chips, global button, job indicator */
+:root {
+    --v18-bg-card: rgba(15, 23, 42, .72);
+    --v18-border: rgba(148, 163, 184, .22);
+    --v18-text-soft: rgba(226, 232, 240, .78);
+}
+.block-container {
+    padding-top: 1.0rem !important;
+}
+.top-app-header {
+    margin-bottom: .35rem !important;
+}
+.status-card, .status-box, .metric-card {
+    align-items: center !important;
+}
+.mini-status-chip {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: .28rem !important;
+    min-height: 1.75rem !important;
+    padding: .30rem .62rem !important;
+    border-radius: 999px !important;
+    font-weight: 800 !important;
+    line-height: 1.05 !important;
+    white-space: nowrap !important;
+}
+.mini-status-chip.green {
+    border-color: rgba(34,197,94,.48) !important;
+    background: rgba(22,101,52,.24) !important;
+    color: #bbf7d0 !important;
+}
+.mini-status-chip.red {
+    border-color: rgba(239,68,68,.48) !important;
+    background: rgba(127,29,29,.26) !important;
+    color: #fecaca !important;
+}
+.mini-status-chip.yellow {
+    border-color: rgba(245,158,11,.55) !important;
+    background: rgba(120,53,15,.28) !important;
+    color: #fde68a !important;
+}
+.mini-status-chip.green::before,
+.mini-status-chip.red::before,
+.mini-status-chip.yellow::before {
+    content: "";
+    width: .58rem;
+    height: .58rem;
+    border-radius: 999px;
+    display: inline-block;
+    flex: 0 0 auto;
+}
+.mini-status-chip.green::before { background:#22c55e; box-shadow:0 0 9px rgba(34,197,94,.65); }
+.mini-status-chip.red::before { background:#ef4444; box-shadow:0 0 9px rgba(239,68,68,.65); }
+.mini-status-chip.yellow::before { background:#f59e0b; box-shadow:0 0 9px rgba(245,158,11,.60); }
+
+.v18-section-title {
+    font-size: 1.28rem !important;
+    font-weight: 900 !important;
+    margin: .75rem 0 .45rem 0 !important;
+}
+.v18-global-note {
+    margin: .20rem 0 .45rem 0 !important;
+    color: var(--v18-text-soft) !important;
+}
+button[kind="primary"] {
+    background: linear-gradient(180deg, #18bff6 0%, #0879bd 100%) !important;
+    border: 1px solid #7dd3fc !important;
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    min-height: 2.8rem !important;
+    border-radius: .72rem !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 8px 20px rgba(0,0,0,.30) !important;
+}
+button[kind="primary"] p {
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+}
+
+/* Tydelig jobbindikator */
+.v183-job-panel {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    border: 1px solid rgba(245,158,11,.55);
+    background: linear-gradient(90deg, rgba(120,53,15,.34), rgba(30,41,59,.35));
+    color: #fde68a;
+    border-radius: 12px;
+    padding: .74rem .95rem;
+    margin: .65rem 0 .75rem 0;
+    font-weight: 900;
+}
+.v183-job-spinner {
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 999px;
+    border: 3px solid rgba(253,230,138,.28);
+    border-top-color: #fbbf24;
+    border-right-color: #38bdf8;
+    animation: v183spin .75s linear infinite;
+    flex: 0 0 auto;
+}
+.v183-job-sub {
+    display:block;
+    color: rgba(253,230,138,.72);
+    font-size: .82rem;
+    font-weight: 700;
+    margin-top: .12rem;
+}
+@keyframes v183spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Expandere/rullegardiner */
+details > summary {
+    cursor: pointer !important;
+}
+details > summary::after {
+    content: "  · klikk for å åpne/lukke";
+    color: rgba(203,213,225,.62);
+    font-size: .78rem;
+    font-weight: 700;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+st.markdown("""
+<style>
 /* v18.2: tydelig global oppdateringsknapp */
 button[kind="primary"] {
     background: linear-gradient(180deg, #16b8f3 0%, #087fbd 100%) !important;
@@ -170,6 +301,37 @@ if UI_AUTO_REFRESH_ENABLED:
 
 
 # --- V14.7 helpers: stabilitet, kontrollsenter og status ---
+
+
+def _v183_job_active() -> bool:
+    """Best-effort UI job state for global update/heavy work indicators."""
+    try:
+        return bool(
+            st.session_state.get("global_update_running")
+            or st.session_state.get("job_running")
+            or st.session_state.get("heavy_update_allowed_v148")
+            or st.session_state.get("global_apply_requested_v161")
+            or st.session_state.get("pending_global_apply_v161")
+        )
+    except Exception:
+        return False
+
+
+def _v183_render_job_indicator(context: str = "Oppdaterer appen") -> None:
+    """Render a visible animated job indicator in the global update area."""
+    st.markdown(
+        f"""
+        <div class="v183-job-panel">
+          <span class="v183-job-spinner"></span>
+          <span>
+            Jobb kjører: {context}
+            <span class="v183-job-sub">Henter/oppdaterer data, rangeringer, banner og analyser …</span>
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def _save_setting_patch(**updates):
     _s = load_settings()
     _s.update(updates)
@@ -5836,23 +5998,28 @@ if st.session_state.get("auto_control_notice_v153"):
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
 
-_global_update_clicked_v181 = st.button(
+if _v183_job_active():
+    _v183_render_job_indicator("global oppdatering / tung analyse")
+
+_global_update_clicked_v183 = st.button(
     "🌐 Oppdater hele appen",
-    key="top_apply_all_changes_v181",
+    key="top_apply_all_changes_v183",
     use_container_width=True,
     type="primary",
     help="Lagrer endringer og oppdaterer hele appen.",
 )
 
-if _global_update_clicked_v181:
-    with st.spinner("Oppdaterer hele appen …"):
+if _global_update_clicked_v183:
+    with st.spinner("Starter global oppdatering …"):
         pass
+    st.session_state["global_update_running"] = True
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
     st.session_state["heavy_update_allowed_v148"] = True
     _clear_pending_manual_change()
     _request_global_apply_v161()
     _set_update_reason("Global oppdatering / Oppdater hele appen")
     st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
+    _v183_render_job_indicator("global oppdatering startet")
 
 if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
     st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
