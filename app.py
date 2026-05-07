@@ -5667,23 +5667,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-st.markdown("""
-<style>
-.block-container {
-    padding-top: 0.15rem !important;
-}
-.top-app-header {
-    margin-top: 0 !important;
-    padding-top: 0 !important;
-}
-div[data-testid="stButton"] > button {
-    min-width: 190px !important;
-    white-space: nowrap !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
@@ -5748,7 +5731,7 @@ elif _top_emergency_stop:
         "<div class='v153-control-note warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
         unsafe_allow_html=True,
     )
-_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.34, 0.34, 0.36, 0.45, 0.78, 1.25, 6.35], gap="small")
+_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.95, 0.95, 0.95, 1.15, 1.35, 2.05, 4.60], gap="small")
 with _tq1:
     if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
         _set_auto_state("START")
@@ -5781,9 +5764,9 @@ if st.session_state.get("auto_control_notice_v153"):
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
 st.markdown("### Global oppdatering:")
-_uc1, _uc2 = st.columns([2.4, 5.8], gap="medium")
+_uc1, _uc2 = st.columns([2.60, 5.40], gap="medium")
 with _uc1:
-    if st.button("🌐 Oppdater hele appen", key="top_apply_all_changes_v175", use_container_width=True, help="Lagrer endringer og oppdaterer hele appen"):
+    if st.button("🌐 Oppdater hele appen", key="top_apply_all_changes_v177", use_container_width=True, help="Lagrer endringer og oppdaterer hele appen"):
         with st.spinner("Oppdaterer hele appen …"):
             pass
         st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
@@ -5792,12 +5775,12 @@ with _uc1:
         _request_global_apply_v161()
         _set_update_reason("Global oppdatering / Oppdater hele appen")
         st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
-    st.caption("Én trykkbar global knapp lagrer endringer og oppdaterer hele appen.")
+    st.caption("Trykk for å lagre endringer og oppdatere hele appen.")
 with _uc2:
     if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
         st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='pending-changes-box'>✅ Ingen ventende endringer. Global oppdatering er klar.</div>", unsafe_allow_html=True)
+        st.info("✅ Ingen ventende endringer. Global oppdatering er klar.")
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
 if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
