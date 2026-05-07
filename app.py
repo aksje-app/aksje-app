@@ -17,6 +17,64 @@ import html
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
+
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 0.35rem !important;
+}
+header[data-testid="stHeader"] {
+    height: 0rem !important;
+}
+[data-testid="stToolbar"] {
+    display: none !important;
+}
+.job-spinner-dot {
+    display: inline-block;
+    width: 0.85rem;
+    height: 0.85rem;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: #4da3ff;
+    border-radius: 50%;
+    animation: jobspin 0.8s linear infinite;
+    margin-right: 0.45rem;
+    vertical-align: -0.12rem;
+}
+@keyframes jobspin {
+    to { transform: rotate(360deg); }
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("### Global oppdatering:")
+global_btn_col, global_msg_col = st.columns([1, 2], gap="large")
+
+with global_btn_col:
+    global_update_clicked = st.button(
+        "🌐 Oppdater hele appen",
+        key="global_update_button_v174",
+        use_container_width=True,
+        type="primary",
+        help="Lagrer endringer og oppdaterer hele appen."
+    )
+    st.caption("Lagrer endringer og oppdaterer hele appen.")
+
+with global_msg_col:
+    st.warning("⚠️ Endringer venter – trykk Oppdater hele appen.")
+    if st.session_state.get("global_update_running", False) or st.session_state.get("job_running", False):
+        st.markdown(
+            '<span class="job-spinner-dot"></span> Jobb kjører / oppdaterer appen ...',
+            unsafe_allow_html=True,
+        )
+
+if global_update_clicked:
+    st.session_state["pending_changes"] = False
+    st.session_state["global_update_running"] = True
+    st.rerun()
+
+
+
+
 try:
     import yfinance as yf
 except Exception:
@@ -5431,8 +5489,8 @@ except Exception:
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
     """V17: midlertidige forklaringsbokser er fjernet fra venstremenyen."""
-    st.sidebar.markdown("### 🧭 Hurtignavigasjon")
-    st.sidebar.caption("Arbeidsflater ligger i hovedområdet.")
+    pass  # removed obsolete sidebar text
+    pass  # removed obsolete sidebar text
 
 
 render_sidebar_structure_v2()
@@ -5519,7 +5577,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 # V15.8: ingen duplisert arbeidsflate-info i venstremenyen.
-st.sidebar.markdown("### 🎨 Visning")
+pass  # removed obsolete sidebar text
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
 # V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
@@ -5766,7 +5824,6 @@ if st.session_state.get("auto_control_notice_v153"):
 _uc1, _uc2, _uc3 = st.columns([1.7, 1.8, 4.8])
 with _uc1:
     st.markdown("<span class='mini-status-chip green'>Global oppdatering: <b>KLAR</b></span>", unsafe_allow_html=True)
-    st.caption("Lagrer endringer og oppdaterer hele appen.")
 with _uc2:
     if st.button("🔄 Oppdater hele appen", key="top_apply_all_changes_v161", use_container_width=True, help="Lagrer endringer og oppdaterer hele appen"):
         with st.spinner("Oppdaterer hele appen …"):
