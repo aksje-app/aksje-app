@@ -67,6 +67,43 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 st.markdown("""
 <style>
+/* v18.4: blå global-knapp mer lik Start-knappen + høyreplassert jobbindikator */
+button[kind="primary"] {
+    background: linear-gradient(180deg, #20c8ff 0%, #0794d6 52%, #0878bd 100%) !important;
+    border: 1px solid #5ddcff !important;
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    min-height: 2.55rem !important;
+    border-radius: .58rem !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 5px 14px rgba(0,0,0,.28) !important;
+}
+button[kind="primary"]:hover {
+    filter: brightness(1.08) !important;
+    border-color: #a5f3fc !important;
+}
+button[kind="primary"] p {
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+}
+.v183-job-panel {
+    justify-content: flex-start;
+    max-width: 620px;
+    margin: .10rem 0 .55rem auto !important;
+    padding: .62rem .85rem !important;
+}
+.v183-job-spinner {
+    width: 1.05rem !important;
+    height: 1.05rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+st.markdown("""
+<style>
 /* v18.3 POLISH: spacing, chips, global button, job indicator */
 :root {
     --v18-bg-card: rgba(15, 23, 42, .72);
@@ -304,14 +341,13 @@ if UI_AUTO_REFRESH_ENABLED:
 
 
 def _v183_job_active() -> bool:
-    """Best-effort UI job state for global update/heavy work indicators."""
+    """Strict UI job state: show spinner only when a real visible job flag is active."""
     try:
         return bool(
             st.session_state.get("global_update_running")
             or st.session_state.get("job_running")
-            or st.session_state.get("heavy_update_allowed_v148")
-            or st.session_state.get("global_apply_requested_v161")
-            or st.session_state.get("pending_global_apply_v161")
+            or st.session_state.get("scanner_running")
+            or st.session_state.get("analysis_running")
         )
     except Exception:
         return False
@@ -5998,18 +6034,21 @@ if st.session_state.get("auto_control_notice_v153"):
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
 
-if _v183_job_active():
-    _v183_render_job_indicator("global oppdatering / tung analyse")
+_gbtn_col, _gjob_col = st.columns([2.4, 3.6], gap="large")
+with _gbtn_col:
+    _global_update_clicked_v184 = st.button(
+        "🌐 Oppdater hele appen",
+        key="top_apply_all_changes_v184",
+        use_container_width=True,
+        type="primary",
+        help="Lagrer endringer og oppdaterer hele appen.",
+    )
 
-_global_update_clicked_v183 = st.button(
-    "🌐 Oppdater hele appen",
-    key="top_apply_all_changes_v183",
-    use_container_width=True,
-    type="primary",
-    help="Lagrer endringer og oppdaterer hele appen.",
-)
+with _gjob_col:
+    if _v183_job_active():
+        _v183_render_job_indicator("global oppdatering / analyse")
 
-if _global_update_clicked_v183:
+if _global_update_clicked_v184:
     with st.spinner("Starter global oppdatering …"):
         pass
     st.session_state["global_update_running"] = True
@@ -6020,6 +6059,7 @@ if _global_update_clicked_v183:
     _set_update_reason("Global oppdatering / Oppdater hele appen")
     st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
     _v183_render_job_indicator("global oppdatering startet")
+    st.session_state["global_update_running"] = False
 
 if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
     st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
