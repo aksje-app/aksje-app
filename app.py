@@ -17,64 +17,6 @@ import html
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
-
-st.markdown("""
-<style>
-.block-container {
-    padding-top: 0.35rem !important;
-}
-header[data-testid="stHeader"] {
-    height: 0rem !important;
-}
-[data-testid="stToolbar"] {
-    display: none !important;
-}
-.job-spinner-dot {
-    display: inline-block;
-    width: 0.85rem;
-    height: 0.85rem;
-    border: 2px solid rgba(255,255,255,0.25);
-    border-top-color: #4da3ff;
-    border-radius: 50%;
-    animation: jobspin 0.8s linear infinite;
-    margin-right: 0.45rem;
-    vertical-align: -0.12rem;
-}
-@keyframes jobspin {
-    to { transform: rotate(360deg); }
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("### Global oppdatering:")
-global_btn_col, global_msg_col = st.columns([1, 2], gap="large")
-
-with global_btn_col:
-    global_update_clicked = st.button(
-        "🌐 Oppdater hele appen",
-        key="global_update_button_v174",
-        use_container_width=True,
-        type="primary",
-        help="Lagrer endringer og oppdaterer hele appen."
-    )
-    st.caption("Lagrer endringer og oppdaterer hele appen.")
-
-with global_msg_col:
-    st.warning("⚠️ Endringer venter – trykk Oppdater hele appen.")
-    if st.session_state.get("global_update_running", False) or st.session_state.get("job_running", False):
-        st.markdown(
-            '<span class="job-spinner-dot"></span> Jobb kjører / oppdaterer appen ...',
-            unsafe_allow_html=True,
-        )
-
-if global_update_clicked:
-    st.session_state["pending_changes"] = False
-    st.session_state["global_update_running"] = True
-    st.rerun()
-
-
-
-
 try:
     import yfinance as yf
 except Exception:
@@ -5489,8 +5431,8 @@ except Exception:
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
     """V17: midlertidige forklaringsbokser er fjernet fra venstremenyen."""
-    pass  # removed obsolete sidebar text
-    pass  # removed obsolete sidebar text
+    st.sidebar.markdown("### 🧭 Hurtignavigasjon")
+    st.sidebar.caption("Arbeidsflater ligger i hovedområdet.")
 
 
 render_sidebar_structure_v2()
@@ -5577,7 +5519,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 # V15.8: ingen duplisert arbeidsflate-info i venstremenyen.
-pass  # removed obsolete sidebar text
+st.sidebar.markdown("### 🎨 Visning")
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
 # V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
@@ -5725,6 +5667,23 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 0.15rem !important;
+}
+.top-app-header {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+div[data-testid="stButton"] > button {
+    min-width: 190px !important;
+    white-space: nowrap !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
@@ -5821,11 +5780,10 @@ if st.session_state.get("auto_control_notice_v153"):
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
-_uc1, _uc2, _uc3 = st.columns([1.7, 1.8, 4.8])
+st.markdown("### Global oppdatering:")
+_uc1, _uc2 = st.columns([2.4, 5.8], gap="medium")
 with _uc1:
-    st.markdown("<span class='mini-status-chip green'>Global oppdatering: <b>KLAR</b></span>", unsafe_allow_html=True)
-with _uc2:
-    if st.button("🔄 Oppdater hele appen", key="top_apply_all_changes_v161", use_container_width=True, help="Lagrer endringer og oppdaterer hele appen"):
+    if st.button("🌐 Oppdater hele appen", key="top_apply_all_changes_v175", use_container_width=True, help="Lagrer endringer og oppdaterer hele appen"):
         with st.spinner("Oppdaterer hele appen …"):
             pass
         st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
@@ -5834,11 +5792,12 @@ with _uc2:
         _request_global_apply_v161()
         _set_update_reason("Global oppdatering / Oppdater hele appen")
         st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
-with _uc3:
+    st.caption("Én trykkbar global knapp lagrer endringer og oppdaterer hele appen.")
+with _uc2:
     if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
         st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
     else:
-        st.caption("Én global oppdateringsknapp styrer hele appen.")
+        st.markdown("<div class='pending-changes-box'>✅ Ingen ventende endringer. Global oppdatering er klar.</div>", unsafe_allow_html=True)
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
 if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
