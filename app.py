@@ -20,15 +20,27 @@ from streamlit_autorefresh import st_autorefresh
 
 st.markdown("""
 <style>
-/* v17.8: synlig global knapp uten å gjøre andre knapper smale */
-div[data-testid="stButton"] > button {
-    min-height: 2.35rem;
+/* v17.9: fysisk synlig global oppdateringsknapp */
+div[data-testid="stForm"] button[kind="secondaryFormSubmit"] {
+    min-width: 240px !important;
+    min-height: 42px !important;
+    padding: 0.55rem 1.1rem !important;
+    border-radius: 0.65rem !important;
+    background: linear-gradient(180deg, #17aeea 0%, #0786c9 100%) !important;
+    border: 1px solid #55d7ff !important;
+    color: white !important;
+    font-weight: 800 !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 6px 14px rgba(0,0,0,0.25) !important;
 }
-div[data-testid="stButton"] > button p {
-    white-space: nowrap;
+div[data-testid="stForm"] button[kind="secondaryFormSubmit"] p {
+    white-space: nowrap !important;
+    color: white !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+
 
 
 
@@ -5446,8 +5458,8 @@ except Exception:
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
     """V17: midlertidige forklaringsbokser er fjernet fra venstremenyen."""
-    st.sidebar.markdown("### 🧭 Hurtignavigasjon")
-    st.sidebar.caption("Arbeidsflater ligger i hovedområdet.")
+    # v17.9 removed obsolete sidebar text
+    # v17.9 removed obsolete sidebar text
 
 
 render_sidebar_structure_v2()
@@ -5534,7 +5546,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 # V15.8: ingen duplisert arbeidsflate-info i venstremenyen.
-st.sidebar.markdown("### 🎨 Visning")
+# v17.9 removed obsolete sidebar text
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
 # V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
@@ -5779,14 +5791,17 @@ if st.session_state.get("auto_control_notice_v153"):
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
 st.markdown("### Global oppdatering:")
-with st.container():
-    _global_clicked = st.button(
+
+# v17.9: Bruk form_submit_button i egen form for å tvinge synlig fysisk knapp.
+# Ikke bruk usynlig markdown/anker/status-chip her.
+with st.form("global_update_form_v179", clear_on_submit=False):
+    _global_clicked = st.form_submit_button(
         "🌐 Oppdater hele appen",
-        key="top_apply_all_changes_v178",
         use_container_width=False,
         help="Lagrer endringer og oppdaterer hele appen."
     )
-    st.caption("Trykk knappen for å lagre endringer og oppdatere hele appen.")
+
+st.caption("Trykk knappen for å lagre endringer og oppdatere hele appen.")
 
 if _global_clicked:
     with st.spinner("Oppdaterer hele appen …"):
