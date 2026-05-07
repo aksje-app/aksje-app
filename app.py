@@ -67,6 +67,48 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 st.markdown("""
 <style>
+/* v18.2: tydelig global oppdateringsknapp */
+button[kind="primary"] {
+    background: linear-gradient(180deg, #16b8f3 0%, #087fbd 100%) !important;
+    border: 1px solid #7dd3fc !important;
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    min-height: 2.75rem !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 7px 18px rgba(0,0,0,0.28) !important;
+}
+button[kind="primary"] p {
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+}
+/* Små røde/grønne/gule markører på toppstatus-chipene */
+.mini-status-chip.green::before,
+.mini-status-chip.red::before,
+.mini-status-chip.yellow::before {
+    content: "";
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+    margin-right: 0.25rem;
+    vertical-align: -0.02rem;
+}
+.mini-status-chip.green::before { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.6); }
+.mini-status-chip.red::before { background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.6); }
+.mini-status-chip.yellow::before { background:#f59e0b; box-shadow:0 0 8px rgba(245,158,11,.55); }
+.mini-status-chip.yellow {
+    border-color: rgba(245,158,11,0.50) !important;
+    background: rgba(120,53,15,0.24) !important;
+    color: #fde68a !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+st.markdown("""
+<style>
 /* v18.1: reparerer sidebar-kontrast og global knapp uten å blokkere klikk */
 section[data-testid="stSidebar"] {
     background: #070d1d !important;
@@ -5454,30 +5496,8 @@ def render_strategy_backtest(tickers, label):
 
 st.sidebar.title("⚙️ Innstillinger")
 render_user_admin(current_user)
-try:
-    _cc_settings = load_settings()
-    _cc_cron = cron_status_text()
-    _cc_auto_state, _cc_auto_color = _auto_state(_cc_settings)
-    _cc_full_stop = bool(_cc_cron.get("vacation_mode"))
-    _cc_paper_label, _cc_paper_color = _paper_state(_cc_full_stop)
-    _cc_chart_auto = bool(_cc_settings.get("chart_auto_update_enabled", False))
-    _cc_periodic = bool(_cc_settings.get("ui_auto_refresh_enabled", False))
-    st.sidebar.markdown(
-        f"""
-        <div class='control-center-status'>
-            <b>Kontrollsenter</b><br>
-            <span class='status-dot {_cc_auto_color}'></span>Auto trading: <b>{_cc_auto_state}</b><br>
-            <span class='status-dot {_cc_paper_color}'></span>Paper trading: <b>{_cc_paper_label}</b><br>
-            <span class='status-dot {'red' if _cc_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _cc_full_stop else 'NEI'}</b><br>
-            <span class='status-dot {'green' if _cc_chart_auto else 'red'}'></span>Auto-oppdater endringer: <b>{'PÅ' if _cc_chart_auto else 'AV'}</b><br>
-            Siste scan: <b>{_fmt_dt_short(_cc_cron.get('last_scan_at'))}</b>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.sidebar.caption("Auto-oppdater styres nå kun i toppkontrollen ved Auto trading-knappene.")
-except Exception:
-    pass
+# v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
+# Statusinformasjon vises i toppkortene.
 
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
@@ -5739,7 +5759,7 @@ st.markdown(
             <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
             <span class='mini-status-chip {_top_paper_color}'>Paper: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
-            <span class='mini-status-chip {'green' if _top_chart_auto else 'red'}'>Manuell: <b>PÅ</b></span>
+            <span class='mini-status-chip yellow'>Manuell: <b>PÅ</b></span>
         </div>
         <div class='v15-status-block'>
             <div class='v15-status-title'>Børsstatus</div>
