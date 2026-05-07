@@ -17,33 +17,6 @@ import html
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
-
-st.markdown("""
-<style>
-/* v17.9: fysisk synlig global oppdateringsknapp */
-div[data-testid="stForm"] button[kind="secondaryFormSubmit"] {
-    min-width: 240px !important;
-    min-height: 42px !important;
-    padding: 0.55rem 1.1rem !important;
-    border-radius: 0.65rem !important;
-    background: linear-gradient(180deg, #17aeea 0%, #0786c9 100%) !important;
-    border: 1px solid #55d7ff !important;
-    color: white !important;
-    font-weight: 800 !important;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 6px 14px rgba(0,0,0,0.25) !important;
-}
-div[data-testid="stForm"] button[kind="secondaryFormSubmit"] p {
-    white-space: nowrap !important;
-    color: white !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
-
-
-
 try:
     import yfinance as yf
 except Exception:
@@ -89,7 +62,47 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
+
+
+st.markdown("""
+<style>
+/* v18.0 SERIOUS: ingen bred knapp-CSS som ødelegger auto-knappene */
+.v18-section-title {
+    font-size: 1.35rem;
+    font-weight: 900;
+    color: #f8fafc;
+    margin: 1.0rem 0 0.65rem 0;
+}
+.v18-global-card {
+    border: 1px solid rgba(34,197,94,0.52);
+    background: rgba(6,78,59,0.30);
+    border-radius: 14px;
+    padding: 0.85rem 1rem;
+    margin: 0.4rem 0 0.75rem 0;
+}
+.v18-status-dot {
+    display: inline-block;
+    width: 0.68rem;
+    height: 0.68rem;
+    border-radius: 999px;
+    margin-right: 0.42rem;
+    vertical-align: 0.02rem;
+}
+.v18-status-dot.green { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.15); }
+.v18-status-dot.red { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.15); }
+.v18-status-dot.yellow { background:#f59e0b; box-shadow:0 0 0 3px rgba(245,158,11,.16); }
+details > summary { cursor: pointer !important; }
+details > summary::after {
+    content: "  · klikk for å åpne/lukke";
+    color: rgba(203,213,225,.62);
+    font-size: .78rem;
+    font-weight: 700;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 
 current_user = require_login()
 
@@ -2252,16 +2265,10 @@ st.markdown(
 
 # V14.5 / Oppgave 44: Global visningsmodus.
 # Kompakt gjør status-/analysebokser lavere uten å fjerne informasjon.
-APP_VIEW_MODE = st.sidebar.radio(
-    "Visningsmodus",
-    ["Kompakt", "Normal", "Full"],
-    index=0,
-    horizontal=True,
-    key="global_view_mode_v145",
-    help="Kompakt sparer plass. Normal bruker standard. Full viser større kort og mer luft.",
-)
+APP_VIEW_MODE = st.session_state.get("app_view_mode", "Kompakt")
+if APP_VIEW_MODE not in ["Kompakt", "Normal", "Full"]:
+    APP_VIEW_MODE = "Kompakt"
 st.session_state["app_view_mode"] = APP_VIEW_MODE
-st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv visning: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
     st.markdown(
@@ -5428,38 +5435,13 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-st.sidebar.title("⚙️ Innstillinger")
-render_user_admin(current_user)
-try:
-    _cc_settings = load_settings()
-    _cc_cron = cron_status_text()
-    _cc_auto_state, _cc_auto_color = _auto_state(_cc_settings)
-    _cc_full_stop = bool(_cc_cron.get("vacation_mode"))
-    _cc_paper_label, _cc_paper_color = _paper_state(_cc_full_stop)
-    _cc_chart_auto = bool(_cc_settings.get("chart_auto_update_enabled", False))
-    _cc_periodic = bool(_cc_settings.get("ui_auto_refresh_enabled", False))
-    st.sidebar.markdown(
-        f"""
-        <div class='control-center-status'>
-            <b>Kontrollsenter</b><br>
-            <span class='status-dot {_cc_auto_color}'></span>Auto trading: <b>{_cc_auto_state}</b><br>
-            <span class='status-dot {_cc_paper_color}'></span>Paper trading: <b>{_cc_paper_label}</b><br>
-            <span class='status-dot {'red' if _cc_full_stop else 'green'}'></span>Full stopp/ferie: <b>{'JA' if _cc_full_stop else 'NEI'}</b><br>
-            <span class='status-dot {'green' if _cc_chart_auto else 'red'}'></span>Auto-oppdater endringer: <b>{'PÅ' if _cc_chart_auto else 'AV'}</b><br>
-            Siste scan: <b>{_fmt_dt_short(_cc_cron.get('last_scan_at'))}</b>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.sidebar.caption("Auto-oppdater styres nå kun i toppkontrollen ved Auto trading-knappene.")
-except Exception:
-    pass
+# v18.0: Venstresidens dupliserte Kontrollsenter/Innstillinger/Bruker-panel er fjernet.
+# Toppstatus er hovedkilde for statusinformasjon.
 
 # --- Sidebar Structure v2 ---
 def render_sidebar_structure_v2():
-    """V17: midlertidige forklaringsbokser er fjernet fra venstremenyen."""
-    # v17.9 removed obsolete sidebar text
-    # v17.9 removed obsolete sidebar text
+    """v18.0: Venstremenyens Hurtignavigasjon er fjernet."""
+    return None
 
 
 render_sidebar_structure_v2()
@@ -5546,7 +5528,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 # V15.8: ingen duplisert arbeidsflate-info i venstremenyen.
-# v17.9 removed obsolete sidebar text
+# v18.0 removed sidebar Visning heading
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
 # V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
@@ -5790,20 +5772,19 @@ if st.session_state.get("auto_control_notice_v153"):
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
-st.markdown("### Global oppdatering:")
+st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='v18-global-card'><span class='v18-status-dot green'></span><b>Klar:</b> Trykk knappen under for å lagre endringer og oppdatere hele appen.</div>",
+    unsafe_allow_html=True,
+)
 
-# v17.9: Bruk form_submit_button i egen form for å tvinge synlig fysisk knapp.
-# Ikke bruk usynlig markdown/anker/status-chip her.
-with st.form("global_update_form_v179", clear_on_submit=False):
-    _global_clicked = st.form_submit_button(
-        "🌐 Oppdater hele appen",
-        use_container_width=False,
-        help="Lagrer endringer og oppdaterer hele appen."
-    )
-
-st.caption("Trykk knappen for å lagre endringer og oppdatere hele appen.")
-
-if _global_clicked:
+if st.button(
+    "🌐 OPPDATER HELE APPEN",
+    key="top_apply_all_changes_v18",
+    use_container_width=True,
+    type="primary",
+    help="Lagrer endringer og oppdaterer hele appen.",
+):
     with st.spinner("Oppdaterer hele appen …"):
         pass
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
@@ -5814,7 +5795,7 @@ if _global_clicked:
     st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
 
 if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
-    st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>OPPDATER HELE APPEN</b>.</div>", unsafe_allow_html=True)
 else:
     st.info("✅ Ingen ventende endringer. Global oppdatering er klar.")
 
