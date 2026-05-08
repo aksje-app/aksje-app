@@ -62,39 +62,49 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
 
 st.markdown("""
 <style>
-/* v18.4: blå global-knapp mer lik Start-knappen + høyreplassert jobbindikator */
+/* v18.2.2: global-knappen skal fremstå som samme blå knappetype som Start-knappen */
 button[kind="primary"] {
-    background: linear-gradient(180deg, #20c8ff 0%, #0794d6 52%, #0878bd 100%) !important;
-    border: 1px solid #5ddcff !important;
+    background: linear-gradient(180deg, #19c7f3 0%, #0798d6 55%, #0576b8 100%) !important;
+    border: 1px solid #63ddff !important;
     color: #ffffff !important;
     font-weight: 900 !important;
-    min-height: 2.55rem !important;
-    border-radius: .58rem !important;
-    box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 5px 14px rgba(0,0,0,.28) !important;
+    font-size: 0.95rem !important;
+    min-height: 2.75rem !important;
+    padding: 0.55rem 1.15rem !important;
+    border-radius: 0.62rem !important;
+    opacity: 1 !important;
+    filter: none !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 6px 16px rgba(0,0,0,.32) !important;
+}
+button[kind="primary"] * {
+    color: #ffffff !important;
+    opacity: 1 !important;
+    font-weight: 900 !important;
+}
+button[kind="primary"] p {
+    color: #ffffff !important;
+    opacity: 1 !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
 }
 button[kind="primary"]:hover {
-    filter: brightness(1.08) !important;
+    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 55%, #0284c7 100%) !important;
     border-color: #a5f3fc !important;
+    filter: brightness(1.04) !important;
 }
-button[kind="primary"] p {
-    color: #ffffff !important;
-    font-weight: 900 !important;
-    white-space: nowrap !important;
+button[kind="primary"]:active {
+    transform: translateY(1px);
 }
-.v183-job-panel {
-    justify-content: flex-start;
-    max-width: 620px;
-    margin: .10rem 0 .55rem auto !important;
-    padding: .62rem .85rem !important;
-}
-.v183-job-spinner {
-    width: 1.05rem !important;
-    height: 1.05rem !important;
+/* Behold Streamlit sin sidebar-toggle synlig. Åpne/lukke håndteres av Streamlit. */
+button[title="Close sidebar"],
+button[title="Open sidebar"] {
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -102,133 +112,6 @@ button[kind="primary"] p {
 
 
 
-st.markdown("""
-<style>
-/* v18.3 POLISH: spacing, chips, global button, job indicator */
-:root {
-    --v18-bg-card: rgba(15, 23, 42, .72);
-    --v18-border: rgba(148, 163, 184, .22);
-    --v18-text-soft: rgba(226, 232, 240, .78);
-}
-.block-container {
-    padding-top: 1.0rem !important;
-}
-.top-app-header {
-    margin-bottom: .35rem !important;
-}
-.status-card, .status-box, .metric-card {
-    align-items: center !important;
-}
-.mini-status-chip {
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: .28rem !important;
-    min-height: 1.75rem !important;
-    padding: .30rem .62rem !important;
-    border-radius: 999px !important;
-    font-weight: 800 !important;
-    line-height: 1.05 !important;
-    white-space: nowrap !important;
-}
-.mini-status-chip.green {
-    border-color: rgba(34,197,94,.48) !important;
-    background: rgba(22,101,52,.24) !important;
-    color: #bbf7d0 !important;
-}
-.mini-status-chip.red {
-    border-color: rgba(239,68,68,.48) !important;
-    background: rgba(127,29,29,.26) !important;
-    color: #fecaca !important;
-}
-.mini-status-chip.yellow {
-    border-color: rgba(245,158,11,.55) !important;
-    background: rgba(120,53,15,.28) !important;
-    color: #fde68a !important;
-}
-.mini-status-chip.green::before,
-.mini-status-chip.red::before,
-.mini-status-chip.yellow::before {
-    content: "";
-    width: .58rem;
-    height: .58rem;
-    border-radius: 999px;
-    display: inline-block;
-    flex: 0 0 auto;
-}
-.mini-status-chip.green::before { background:#22c55e; box-shadow:0 0 9px rgba(34,197,94,.65); }
-.mini-status-chip.red::before { background:#ef4444; box-shadow:0 0 9px rgba(239,68,68,.65); }
-.mini-status-chip.yellow::before { background:#f59e0b; box-shadow:0 0 9px rgba(245,158,11,.60); }
-
-.v18-section-title {
-    font-size: 1.28rem !important;
-    font-weight: 900 !important;
-    margin: .75rem 0 .45rem 0 !important;
-}
-.v18-global-note {
-    margin: .20rem 0 .45rem 0 !important;
-    color: var(--v18-text-soft) !important;
-}
-button[kind="primary"] {
-    background: linear-gradient(180deg, #18bff6 0%, #0879bd 100%) !important;
-    border: 1px solid #7dd3fc !important;
-    color: #ffffff !important;
-    font-weight: 900 !important;
-    min-height: 2.8rem !important;
-    border-radius: .72rem !important;
-    box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 8px 20px rgba(0,0,0,.30) !important;
-}
-button[kind="primary"] p {
-    color: #ffffff !important;
-    font-weight: 900 !important;
-    white-space: nowrap !important;
-}
-
-/* Tydelig jobbindikator */
-.v183-job-panel {
-    display: flex;
-    align-items: center;
-    gap: .75rem;
-    border: 1px solid rgba(245,158,11,.55);
-    background: linear-gradient(90deg, rgba(120,53,15,.34), rgba(30,41,59,.35));
-    color: #fde68a;
-    border-radius: 12px;
-    padding: .74rem .95rem;
-    margin: .65rem 0 .75rem 0;
-    font-weight: 900;
-}
-.v183-job-spinner {
-    width: 1.15rem;
-    height: 1.15rem;
-    border-radius: 999px;
-    border: 3px solid rgba(253,230,138,.28);
-    border-top-color: #fbbf24;
-    border-right-color: #38bdf8;
-    animation: v183spin .75s linear infinite;
-    flex: 0 0 auto;
-}
-.v183-job-sub {
-    display:block;
-    color: rgba(253,230,138,.72);
-    font-size: .82rem;
-    font-weight: 700;
-    margin-top: .12rem;
-}
-@keyframes v183spin {
-    to { transform: rotate(360deg); }
-}
-
-/* Expandere/rullegardiner */
-details > summary {
-    cursor: pointer !important;
-}
-details > summary::after {
-    content: "  · klikk for å åpne/lukke";
-    color: rgba(203,213,225,.62);
-    font-size: .78rem;
-    font-weight: 700;
-}
-</style>
-""", unsafe_allow_html=True)
 
 
 
@@ -338,36 +221,6 @@ if UI_AUTO_REFRESH_ENABLED:
 
 
 # --- V14.7 helpers: stabilitet, kontrollsenter og status ---
-
-
-def _v183_job_active() -> bool:
-    """Strict UI job state: show spinner only when a real visible job flag is active."""
-    try:
-        return bool(
-            st.session_state.get("global_update_running")
-            or st.session_state.get("job_running")
-            or st.session_state.get("scanner_running")
-            or st.session_state.get("analysis_running")
-        )
-    except Exception:
-        return False
-
-
-def _v183_render_job_indicator(context: str = "Oppdaterer appen") -> None:
-    """Render a visible animated job indicator in the global update area."""
-    st.markdown(
-        f"""
-        <div class="v183-job-panel">
-          <span class="v183-job-spinner"></span>
-          <span>
-            Jobb kjører: {context}
-            <span class="v183-job-sub">Henter/oppdaterer data, rangeringer, banner og analyser …</span>
-          </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 def _save_setting_patch(**updates):
     _s = load_settings()
     _s.update(updates)
@@ -6034,37 +5887,111 @@ if st.session_state.get("auto_control_notice_v153"):
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
 
-_gbtn_col, _gjob_col = st.columns([2.4, 3.6], gap="large")
-with _gbtn_col:
-    _global_update_clicked_v184 = st.button(
-        "🌐 Oppdater hele appen",
-        key="top_apply_all_changes_v184",
+with st.form("global_update_form_v1825", clear_on_submit=False):
+    _global_update_clicked_v1825 = st.form_submit_button(
+        "🌐 OPPDATER HELE APPEN",
         use_container_width=True,
-        type="primary",
         help="Lagrer endringer og oppdaterer hele appen.",
     )
 
-with _gjob_col:
-    if _v183_job_active():
-        _v183_render_job_indicator("global oppdatering / analyse")
-
-if _global_update_clicked_v184:
-    with st.spinner("Starter global oppdatering …"):
+if _global_update_clicked_v1825:
+    with st.spinner("Oppdaterer hele appen …"):
         pass
-    st.session_state["global_update_running"] = True
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
     st.session_state["heavy_update_allowed_v148"] = True
     _clear_pending_manual_change()
     _request_global_apply_v161()
     _set_update_reason("Global oppdatering / Oppdater hele appen")
     st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
-    _v183_render_job_indicator("global oppdatering startet")
-    st.session_state["global_update_running"] = False
 
 if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
     st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
 else:
     st.info("✅ Ingen ventende endringer. Global oppdatering er klar.")
+
+
+# v18.2.5: endelig visuell fix, sent i appen slik at gammel CSS ikke overstyrer.
+st.markdown("""
+<style>
+@media (min-width: 901px) {
+    .main .block-container,
+    [data-testid="stAppViewContainer"] .block-container,
+    .block-container {
+        padding-top: 0rem !important;
+        transform: translateY(-4.1rem) !important;
+    }
+    [data-testid="stHeader"],
+    header[data-testid="stHeader"] {
+        height: 0px !important;
+        min-height: 0px !important;
+        background: transparent !important;
+    }
+    .top-app-title {
+        font-size: 1.18rem !important;
+        line-height: 1.12 !important;
+        font-weight: 950 !important;
+    }
+    section[data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: 235px !important;
+        min-width: 235px !important;
+        transform: translateX(0) !important;
+        margin-left: 0 !important;
+    }
+}
+
+/* Global-knappen er nå form_submit_button, ikke stButton, så gamle kompaktregler treffer den ikke. */
+div[data-testid="stForm"] button,
+div[data-testid="stFormSubmitButton"] button,
+form button {
+    width: 100% !important;
+    min-width: 360px !important;
+    min-height: 3.05rem !important;
+    padding: 0.72rem 1.25rem !important;
+    border-radius: 0.78rem !important;
+    background: linear-gradient(180deg, #19c7f3 0%, #0798d6 52%, #0576b8 100%) !important;
+    border: 1px solid #67e8f9 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+    filter: none !important;
+    font-size: 1.0rem !important;
+    font-weight: 950 !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 7px 18px rgba(0,0,0,.33) !important;
+}
+
+div[data-testid="stForm"] button *,
+div[data-testid="stFormSubmitButton"] button *,
+form button * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+    font-weight: 950 !important;
+    font-size: 1.0rem !important;
+    white-space: nowrap !important;
+}
+
+div[data-testid="stForm"] button:hover,
+div[data-testid="stFormSubmitButton"] button:hover,
+form button:hover {
+    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 52%, #0284c7 100%) !important;
+    border-color: #a5f3fc !important;
+}
+
+[data-testid="collapsedControl"],
+button[title="Open sidebar"],
+button[title="Close sidebar"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 999999 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
 if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
