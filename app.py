@@ -67,41 +67,6 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 st.markdown("""
 <style>
-/* v18.2.3: desktop sidebar synlig + løft hovedinnhold */
-.block-container {
-    padding-top: 0.35rem !important;
-}
-[data-testid="stHeader"] {
-    height: 0.4rem !important;
-    min-height: 0.4rem !important;
-}
-header[data-testid="stHeader"] {
-    background: transparent !important;
-}
-.top-app-header,
-[data-testid="stMarkdownContainer"] h1,
-[data-testid="stMarkdownContainer"] h2 {
-    margin-top: 0 !important;
-}
-.top-app-header {
-    font-size: 1.08rem !important;
-    font-weight: 900 !important;
-    line-height: 1.15 !important;
-}
-button[title="Open sidebar"],
-button[title="Close sidebar"] {
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
-
-st.markdown("""
-<style>
 /* v18.2.2: global-knappen skal fremstå som samme blå knappetype som Start-knappen */
 button[kind="primary"] {
     background: linear-gradient(180deg, #19c7f3 0%, #0798d6 55%, #0576b8 100%) !important;
@@ -5944,6 +5909,98 @@ if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysi
     st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
 else:
     st.info("✅ Ingen ventende endringer. Global oppdatering er klar.")
+
+
+# v18.2.4: FINAL visual overrides, placed late so old CSS cannot override it.
+st.markdown("""
+<style>
+@media (min-width: 1000px) {
+    [data-testid="stAppViewContainer"] .main .block-container,
+    .main .block-container,
+    .block-container {
+        padding-top: 0rem !important;
+        margin-top: -5.25rem !important;
+    }
+    .top-app-header {
+        margin-top: 0 !important;
+        margin-bottom: 0.40rem !important;
+        padding-top: 0 !important;
+    }
+    .top-app-title {
+        font-size: 1.18rem !important;
+        line-height: 1.12 !important;
+        font-weight: 950 !important;
+    }
+}
+
+/* Global-knappen: overstyrer gamle .stButton-regler som gjorde den liten/svak */
+div[data-testid="stButton"] > button[kind="primary"],
+.stButton > button[kind="primary"],
+button[kind="primary"] {
+    width: 100% !important;
+    min-width: 320px !important;
+    min-height: 3.05rem !important;
+    padding: 0.72rem 1.25rem !important;
+    border-radius: 0.78rem !important;
+    background: linear-gradient(180deg, #19c7f3 0%, #0798d6 52%, #0576b8 100%) !important;
+    border: 1px solid #67e8f9 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+    filter: none !important;
+    font-size: 1.0rem !important;
+    font-weight: 950 !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 7px 18px rgba(0,0,0,.33) !important;
+}
+
+div[data-testid="stButton"] > button[kind="primary"] *,
+.stButton > button[kind="primary"] *,
+button[kind="primary"] * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+    font-weight: 950 !important;
+    font-size: 1.0rem !important;
+    white-space: nowrap !important;
+}
+
+div[data-testid="stButton"] > button[kind="primary"]:hover,
+.stButton > button[kind="primary"]:hover,
+button[kind="primary"]:hover {
+    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 52%, #0284c7 100%) !important;
+    border-color: #a5f3fc !important;
+}
+
+/* Gjør Streamlit sin åpne/lukke-sidebar-knapp synlig på desktop når menyen er skjult */
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 999999 !important;
+    position: fixed !important;
+    top: 0.65rem !important;
+    left: 0.65rem !important;
+    width: 2.2rem !important;
+    height: 2.2rem !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: linear-gradient(180deg, #19c7f3 0%, #0878bd 100%) !important;
+    border: 1px solid #67e8f9 !important;
+    border-radius: 999px !important;
+    box-shadow: 0 8px 20px rgba(0,0,0,.35) !important;
+}
+
+button[title="Open sidebar"],
+button[title="Close sidebar"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
 if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
