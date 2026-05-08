@@ -62,7 +62,7 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
 
 st.markdown("""
@@ -5887,15 +5887,14 @@ if st.session_state.get("auto_control_notice_v153"):
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
 
-_global_update_clicked_v181 = st.button(
-    "🌐 OPPDATER HELE APPEN",
-    key="top_apply_all_changes_v181",
-    use_container_width=True,
-    type="primary",
-    help="Lagrer endringer og oppdaterer hele appen.",
-)
+with st.form("global_update_form_v1825", clear_on_submit=False):
+    _global_update_clicked_v1825 = st.form_submit_button(
+        "🌐 OPPDATER HELE APPEN",
+        use_container_width=True,
+        help="Lagrer endringer og oppdaterer hele appen.",
+    )
 
-if _global_update_clicked_v181:
+if _global_update_clicked_v1825:
     with st.spinner("Oppdaterer hele appen …"):
         pass
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
@@ -5909,6 +5908,90 @@ if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysi
     st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
 else:
     st.info("✅ Ingen ventende endringer. Global oppdatering er klar.")
+
+
+# v18.2.5: endelig visuell fix, sent i appen slik at gammel CSS ikke overstyrer.
+st.markdown("""
+<style>
+@media (min-width: 901px) {
+    .main .block-container,
+    [data-testid="stAppViewContainer"] .block-container,
+    .block-container {
+        padding-top: 0rem !important;
+        transform: translateY(-4.1rem) !important;
+    }
+    [data-testid="stHeader"],
+    header[data-testid="stHeader"] {
+        height: 0px !important;
+        min-height: 0px !important;
+        background: transparent !important;
+    }
+    .top-app-title {
+        font-size: 1.18rem !important;
+        line-height: 1.12 !important;
+        font-weight: 950 !important;
+    }
+    section[data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: 235px !important;
+        min-width: 235px !important;
+        transform: translateX(0) !important;
+        margin-left: 0 !important;
+    }
+}
+
+/* Global-knappen er nå form_submit_button, ikke stButton, så gamle kompaktregler treffer den ikke. */
+div[data-testid="stForm"] button,
+div[data-testid="stFormSubmitButton"] button,
+form button {
+    width: 100% !important;
+    min-width: 360px !important;
+    min-height: 3.05rem !important;
+    padding: 0.72rem 1.25rem !important;
+    border-radius: 0.78rem !important;
+    background: linear-gradient(180deg, #19c7f3 0%, #0798d6 52%, #0576b8 100%) !important;
+    border: 1px solid #67e8f9 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+    filter: none !important;
+    font-size: 1.0rem !important;
+    font-weight: 950 !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 7px 18px rgba(0,0,0,.33) !important;
+}
+
+div[data-testid="stForm"] button *,
+div[data-testid="stFormSubmitButton"] button *,
+form button * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+    font-weight: 950 !important;
+    font-size: 1.0rem !important;
+    white-space: nowrap !important;
+}
+
+div[data-testid="stForm"] button:hover,
+div[data-testid="stFormSubmitButton"] button:hover,
+form button:hover {
+    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 52%, #0284c7 100%) !important;
+    border-color: #a5f3fc !important;
+}
+
+[data-testid="collapsedControl"],
+button[title="Open sidebar"],
+button[title="Close sidebar"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 999999 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
 if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
