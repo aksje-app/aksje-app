@@ -67,57 +67,6 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 st.markdown("""
 <style>
-/* v18.2.2: global-knappen skal fremstå som samme blå knappetype som Start-knappen */
-button[kind="primary"] {
-    background: linear-gradient(180deg, #19c7f3 0%, #0798d6 55%, #0576b8 100%) !important;
-    border: 1px solid #63ddff !important;
-    color: #ffffff !important;
-    font-weight: 900 !important;
-    font-size: 0.95rem !important;
-    min-height: 2.75rem !important;
-    padding: 0.55rem 1.15rem !important;
-    border-radius: 0.62rem !important;
-    opacity: 1 !important;
-    filter: none !important;
-    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 6px 16px rgba(0,0,0,.32) !important;
-}
-button[kind="primary"] * {
-    color: #ffffff !important;
-    opacity: 1 !important;
-    font-weight: 900 !important;
-}
-button[kind="primary"] p {
-    color: #ffffff !important;
-    opacity: 1 !important;
-    font-weight: 900 !important;
-    white-space: nowrap !important;
-}
-button[kind="primary"]:hover {
-    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 55%, #0284c7 100%) !important;
-    border-color: #a5f3fc !important;
-    filter: brightness(1.04) !important;
-}
-button[kind="primary"]:active {
-    transform: translateY(1px);
-}
-/* Behold Streamlit sin sidebar-toggle synlig. Åpne/lukke håndteres av Streamlit. */
-button[title="Close sidebar"],
-button[title="Open sidebar"] {
-    opacity: 1 !important;
-    visibility: visible !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
-
-
-
-
-
-st.markdown("""
-<style>
 /* v18.2: tydelig global oppdateringsknapp */
 button[kind="primary"] {
     background: linear-gradient(180deg, #16b8f3 0%, #087fbd 100%) !important;
@@ -223,7 +172,7 @@ if UI_AUTO_REFRESH_ENABLED:
 # --- V14.7 helpers: stabilitet, kontrollsenter og status ---
 
 
-def _format_nok_no_decimals_v1826(value, suffix: str = " kr") -> str:
+def _format_nok_no_decimals_v1827(value, suffix: str = " kr") -> str:
     """Format NOK consistently with comma thousands and no decimals."""
     try:
         return f"{float(value):,.0f}{suffix}"
@@ -231,8 +180,8 @@ def _format_nok_no_decimals_v1826(value, suffix: str = " kr") -> str:
         return f"0{suffix}"
 
 
-def _format_number_no_decimals_v1826(value) -> str:
-    """Format plain number consistently with comma thousands and no decimals."""
+def _format_number_no_decimals_v1827(value) -> str:
+    """Format plain numbers consistently with comma thousands and no decimals."""
     try:
         return f"{float(value):,.0f}"
     except Exception:
@@ -887,20 +836,8 @@ st.markdown("""
    Kontrollsenter som funksjonell fallback. */
 [data-testid="stSidebar"] * { box-sizing: border-box; }
 @media (max-width: 900px) {
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        z-index: 1000000 !important;
-        position: fixed !important;
-        top: 0.55rem !important;
-        left: 0.55rem !important;
-        background: rgba(14,165,233,0.96) !important;
-        border: 1px solid rgba(125,211,252,0.70) !important;
-        border-radius: 12px !important;
-        box-shadow: 0 8px 20px rgba(14,165,233,0.25) !important;
-    }
-    section[data-testid="stSidebar"] {
+    
+section[data-testid="stSidebar"] {
         background: #020617 !important;
         border-right: 1px solid rgba(148,163,184,0.28) !important;
         max-width: min(88vw, 340px) !important;
@@ -4767,7 +4704,7 @@ def render_analysis(results, label):
         stats = strategy_stats(equity, trades)
 
         s1, s2, s3, s4 = st.columns(4)
-        s1.metric("Sluttverdi", _format_nok_no_decimals_v1826(value))
+        s1.metric("Sluttverdi", f"{value:,.0f} kr")
         s2.metric("Total avkastning", f"{stats['total_return']}%")
         s3.metric("Max drawdown", f"{stats['max_drawdown']}%")
         s4.metric("Win rate", f"{stats['win_rate']}%")
@@ -5386,8 +5323,8 @@ def render_paper_trading_dashboard():
     _paper_rules = load_rules()
     if APP_VIEW_MODE == "Full":
         p1, p2, p3, p4 = st.columns(4)
-        p1.metric("Cash", _format_nok_no_decimals_v1826(portfolio.get('cash', 0)))
-        p2.metric("Porteføljeverdi", _format_nok_no_decimals_v1826(total_value))
+        p1.metric("Cash", _format_nok_no_decimals_v1827(portfolio.get('cash', 0)))
+        p2.metric("Porteføljeverdi", _format_nok_no_decimals_v1827(total_value))
         p3.metric("Total avkastning", f"{stats['total_return_pct']}%")
         p4.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
 
@@ -5398,8 +5335,8 @@ def render_paper_trading_dashboard():
         r4.metric("Lukkede trades", stats["closed_trades"])
     else:
         render_compact_stat_grid([
-            ("Cash", _format_nok_no_decimals_v1826(portfolio.get('cash', 0))),
-            ("Porteføljeverdi", _format_nok_no_decimals_v1826(total_value)),
+            ("Cash", _format_nok_no_decimals_v1827(portfolio.get('cash', 0))),
+            ("Porteføljeverdi", _format_nok_no_decimals_v1827(total_value)),
             ("Total avkastning", f"{stats['total_return_pct']}%"),
             ("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}"),
             ("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%"),
@@ -5905,7 +5842,7 @@ st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_al
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
 
 _global_update_clicked_v181 = st.button(
-    "🌐 OPPDATER HELE APPEN",
+    "🌐 Oppdater hele appen",
     key="top_apply_all_changes_v181",
     use_container_width=True,
     type="primary",
