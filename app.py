@@ -67,17 +67,19 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 
 st.markdown("""
 <style>
-/* v18.2.1: gjør global oppdateringsknapp like tydelig blå som Start-knappen */
+/* v18.2.2: global-knappen skal fremstå som samme blå knappetype som Start-knappen */
 button[kind="primary"] {
-    background: linear-gradient(180deg, #20c8ff 0%, #0799dd 52%, #0878bd 100%) !important;
-    border: 1px solid #6ee7ff !important;
+    background: linear-gradient(180deg, #19c7f3 0%, #0798d6 55%, #0576b8 100%) !important;
+    border: 1px solid #63ddff !important;
     color: #ffffff !important;
     font-weight: 900 !important;
-    min-height: 2.55rem !important;
-    border-radius: 0.58rem !important;
+    font-size: 0.95rem !important;
+    min-height: 2.75rem !important;
+    padding: 0.55rem 1.15rem !important;
+    border-radius: 0.62rem !important;
     opacity: 1 !important;
     filter: none !important;
-    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 5px 14px rgba(0,0,0,.30) !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 6px 16px rgba(0,0,0,.32) !important;
 }
 button[kind="primary"] * {
     color: #ffffff !important;
@@ -91,17 +93,25 @@ button[kind="primary"] p {
     white-space: nowrap !important;
 }
 button[kind="primary"]:hover {
-    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 52%, #0284c7 100%) !important;
+    background: linear-gradient(180deg, #38d5ff 0%, #0ea5e9 55%, #0284c7 100%) !important;
     border-color: #a5f3fc !important;
+    filter: brightness(1.04) !important;
 }
-button[kind="primary"]:disabled,
-button[kind="primary"][disabled] {
+button[kind="primary"]:active {
+    transform: translateY(1px);
+}
+/* Behold Streamlit sin sidebar-toggle synlig. Åpne/lukke håndteres av Streamlit. */
+button[title="Close sidebar"],
+button[title="Open sidebar"] {
     opacity: 1 !important;
-    background: linear-gradient(180deg, #20c8ff 0%, #0799dd 52%, #0878bd 100%) !important;
-    color: #ffffff !important;
+    visibility: visible !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+
+
 
 
 
@@ -5878,7 +5888,7 @@ st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_al
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
 
 _global_update_clicked_v181 = st.button(
-    "🌐 Oppdater hele appen",
+    "🌐 OPPDATER HELE APPEN",
     key="top_apply_all_changes_v181",
     use_container_width=True,
     type="primary",
