@@ -62,7 +62,42 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+
+
+st.markdown("""
+<style>
+/* v18.2.3: desktop sidebar synlig + løft hovedinnhold */
+.block-container {
+    padding-top: 0.35rem !important;
+}
+[data-testid="stHeader"] {
+    height: 0.4rem !important;
+    min-height: 0.4rem !important;
+}
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+.top-app-header,
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2 {
+    margin-top: 0 !important;
+}
+.top-app-header {
+    font-size: 1.08rem !important;
+    font-weight: 900 !important;
+    line-height: 1.15 !important;
+}
+button[title="Open sidebar"],
+button[title="Close sidebar"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 
 
 st.markdown("""
