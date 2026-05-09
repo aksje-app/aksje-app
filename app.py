@@ -3,6 +3,7 @@ from ui_components import market_pulse, top_movers
 import os
 import re
 import streamlit as st
+from forecast_ui import render_forecast_section
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
@@ -6113,3 +6114,11 @@ def add_rsi_current_box(fig, rsi):
     except:
         pass
     return fig
+
+
+# v18.3.1 Bygg 2: isolert prognosegraf-seksjon. Ingen auto-trading-kobling.
+try:
+    render_forecast_section()
+except Exception as _forecast_ui_error:
+    st.warning(f"Prognosemodul kunne ikke vises: {_forecast_ui_error}")
+
