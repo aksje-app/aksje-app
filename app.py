@@ -3,6 +3,7 @@ from ui_components import market_pulse, top_movers
 import os
 import re
 import streamlit as st
+from ai_control_center import render_ai_control_center
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from ai_heatmap_ui import render_ai_heatmaps
 from forecast_backtest_ui import render_backtest_learning_panel
@@ -73,56 +74,45 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.3.12: Felles varselsenter. Ingen auto-trading-kobling.
+# v18.4.6: Samlet AI Kontrollsenter / Layout Cleanup. Ingen auto-trading-kobling.
 try:
-    render_common_alert_center(location="top")
-except Exception as _common_alert_error:
-    st.caption(f"Varselsenter kunne ikke vises: {_common_alert_error}")
+    render_ai_control_center()
+except Exception as _ai_control_center_error:
+    st.caption(f"AI Kontrollsenter kunne ikke vises: {_ai_control_center_error}")
 
 
-# v18.3.13: AI Market Intelligence Center. Ingen auto-trading-kobling.
-try:
-    render_market_intelligence_center()
-except Exception as _market_intel_error:
-    st.caption(f"AI Market Intelligence Center kunne ikke vises: {_market_intel_error}")
-
-
-# v18.4.1: Daily AI Market Report. Ingen auto-trading-kobling.
-try:
-    render_daily_ai_market_report()
-except Exception as _daily_report_error:
-    st.caption(f"Daily AI Market Report kunne ikke vises: {_daily_report_error}")
-
-
-# v18.4.3: AI Heatmaps & Risk Visualization. Ingen auto-trading-kobling.
-try:
-    render_ai_heatmaps()
-except Exception as _heatmap_error:
-    st.caption(f"AI Heatmaps kunne ikke vises: {_heatmap_error}")
+st.markdown("""
+<style>
+/* v18.4.6 layout cleanup */
+.block-container { padding-top: 1.0rem !important; }
+div[data-testid="stExpander"] { margin-bottom: .35rem; }
+</style>
+""", unsafe_allow_html=True)
 
 
 
-# v18.4.2: Ekte backtest-læring. Ingen auto-trading-kobling.
-try:
-    render_backtest_learning_panel()
-except Exception as _backtest_learning_error:
-    st.caption(f"Backtest-læring kunne ikke vises: {_backtest_learning_error}")
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
+
+
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
+
+
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
+
+
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
+
+
+
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
 
 
 
 
-# v18.4.0: Automatisk markedsregime-deteksjon. Ingen auto-trading-kobling.
-try:
-    render_market_regime_widget()
-except Exception as _regime_error:
-    st.caption(f"Markedsregime kunne ikke vises: {_regime_error}")
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
 
 
-# v18.4.4: Makro/renter/breadth. Ingen auto-trading-kobling.
-try:
-    render_macro_rates_breadth_panel()
-except Exception as _macro_error:
-    st.caption(f"Makro/renter/breadth kunne ikke vises: {_macro_error}")
+# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
 
 
 

@@ -108,7 +108,8 @@ def render_macro_rates_breadth_panel() -> None:
         m5.metric("Samlet", f"{result.combined_score}/100", result.risk_level)
 
         st.write(result.explanation)
-        st.json(result.components)
+        with st.expander("Avanserte komponenter", expanded=False):
+            st.json(result.components)
 
         if errors:
             st.caption("Noen proxyer manglet: " + " | ".join(errors[:4]))
