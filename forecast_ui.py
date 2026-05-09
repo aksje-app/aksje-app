@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 
 import streamlit as st
 
-from forecast_engine import SUPPORTED_HORIZONS, build_forecast
+from forecast_engine import SUPPORTED_HORIZONS, build_forecast, build_all_horizons
 
 
 def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[float], Optional[str]]:
@@ -187,6 +187,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             return
 
         s = result.summary
+        st.markdown("### 📈 Scenario-resultat")
         k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Nå", _format_price(s.current_price))
         k2.metric("Base", _format_price(s.base_price), _format_pct(s.base_pct))
@@ -207,6 +208,41 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+        st.markdown("### 📊 Sammenligning av horisonter")
+
+        try:
+            all_results = build_all_horizons(
+                ticker,
+                prices,
+                ai_score=float(ai_score),
+                sentiment_score=float(sentiment),
+            )
+
+            horizon_rows = []
+            horizon_names = {
+                "1d": "1 dag",
+                "1w": "1 uke",
+                "1m": "1 måned",
+                "3m": "3 måneder",
+                "6m": "6 måneder",
+            }
+
+            for h, data in all_results.items():
+                s2 = data["summary"]
+                horizon_rows.append({
+                    "Horisont": horizon_names.get(h, h),
+                    "Base %": f"{s2['base_pct']:+.2f}%",
+                    "Bull %": f"{s2['bull_pct']:+.2f}%",
+                    "Bear %": f"{s2['bear_pct']:+.2f}%",
+                    "Confidence": f"{s2['confidence']}%",
+                    "Risiko": s2["risk"],
+                })
+
+            st.dataframe(horizon_rows, use_container_width=True, hide_index=True)
+        except Exception as _forecast_compare_error:
+            st.warning(f"Kunne ikke bygge horisont-tabell: {_forecast_compare_error}")
 
         if result.warnings:
             st.warning(" ".join(result.warnings))
