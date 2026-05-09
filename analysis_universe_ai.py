@@ -1,7 +1,7 @@
 """
 analysis_universe_ai.py
 
-v18.5.3: Analyseunivers som AI-modul.
+v18.5.6: Analyseunivers som AI-modul med tydelig resultatfelt for valg.
 
 Dette er et workspace-/arkitekturlag for Analyseunivers. Modulen samler valg for
 enkeltaksje, marked, multi-marked, top picks, watchlist, paper trading og
@@ -15,6 +15,7 @@ Modulen skal derfor ikke late som at den gjør autonom AI-utvelgelse.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -33,6 +34,7 @@ except Exception:  # pragma: no cover - allows pure helper tests without Streaml
 
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
+AI_UNIVERSE_MODULE_VERSION = "v18.5.6"
 
 WORKSPACE_MODES = [
     "Enkeltaksje",
@@ -336,6 +338,268 @@ def _candidate_dataframe(candidates: Sequence[UniverseCandidate]) -> pd.DataFram
     return pd.DataFrame([c.as_dict() for c in candidates])
 
 
+def _count_ranked_items(latest_rankings: Mapping[str, Any], prefix: Optional[str] = None) -> int:
+    total = 0
+    for key, rows in (latest_rankings or {}).items():
+        if prefix and not str(key).startswith(prefix):
+            continue
+        if isinstance(rows, Sequence) and not isinstance(rows, (str, bytes)):
+            total += len(rows)
+    return total
+
+
+def _rank_source_summary(latest_rankings: Mapping[str, Any], max_items: int = 5) -> str:
+    parts: List[str] = []
+    for key, rows in (latest_rankings or {}).items():
+        if isinstance(rows, Sequence) and not isinstance(rows, (str, bytes)):
+            parts.append(f"{key}: {len(rows)}")
+    if not parts:
+        return "Ingen rangerte lister i cache"
+    return ", ".join(parts[:max_items]) + (" …" if len(parts) > max_items else "")
+
+
+def _safe_join(values: Sequence[Any], empty: str = "Ikke valgt") -> str:
+    clean = [str(v) for v in values if str(v or "").strip()]
+    return ", ".join(clean) if clean else empty
+
+
+def build_universe_live_status(
+    session_state: Mapping[str, Any],
+    config: Mapping[str, Any],
+    candidates: Sequence[UniverseCandidate],
+    preview: Sequence[UniverseCandidate],
+) -> List[Dict[str, str]]:
+    """Build the live information shown in the status field.
+
+    This is intentionally based on existing session/cache data only. It makes
+    the module status useful without pretending that the future AI universe
+    picker is already active.
+    """
+    latest_rankings = session_state.get("latest_rankings_v148", {}) or {}
+    watchlist = session_state.get("latest_watchlist_tickers_v156", []) or []
+    paper_count = len([c for c in candidates if c.source == "Paper trading"])
+    top_pick_count = _count_ranked_items(latest_rankings, prefix="TopPicks")
+    pending = bool(session_state.get("pending_manual_changes_v16", False))
+    update_reason = str(session_state.get("last_update_started_by_v148", "Oppstart / cache") or "Oppstart / cache")
+    update_at = str(session_state.get("last_update_started_at_v148", "-") or "-")
+    manual_ticker = _normalize_ticker(config.get("manual_ticker") or session_state.get("search_main_v157", ""))
+
+    rows = [
+        {
+            "label": "Modulversjon",
+            "value": AI_UNIVERSE_MODULE_VERSION,
+            "detail": "Live statusfelt aktivt. Roadmap vises separat under detaljstatus.",
+            "kind": "ok",
+        },
+        {
+            "label": "Workspace-modus",
+            "value": str(config.get("mode") or "Markedvalg"),
+            "detail": "Valgt arbeidsmodus for Analyseuniverset.",
+            "kind": "ok",
+        },
+        {
+            "label": "Marked/kilder",
+            "value": _safe_join(config.get("scopes") or []),
+            "detail": "Disse kildene brukes i preview-filteret. Full multi-market AI-motor er fortsatt planlagt.",
+            "kind": "preview",
+        },
+        {
+            "label": "Manuell ticker",
+            "value": manual_ticker or "Ingen",
+            "detail": "Manuell ticker fungerer som overstyring/enkeltaksje når den er satt.",
+            "kind": "ok" if manual_ticker else "neutral",
+        },
+        {
+            "label": "Kandidater funnet",
+            "value": f"{len(candidates)} totalt / {len(preview)} etter filter",
+            "detail": "Basert på eksisterende rangeringer, watchlist og paper-posisjoner i session/cache.",
+            "kind": "ok" if candidates else "warn",
+        },
+        {
+            "label": "Watchlist",
+            "value": f"{len(watchlist)} tickere",
+            "detail": ", ".join([_normalize_ticker(x) for x in list(watchlist)[:8]]) or "Ingen watchlist-data registrert ennå.",
+            "kind": "ok" if watchlist else "warn",
+        },
+        {
+            "label": "Top Picks",
+            "value": f"{top_pick_count} kandidater",
+            "detail": "Leses fra TopPicks_* i siste rangering/cache.",
+            "kind": "ok" if top_pick_count else "warn",
+        },
+        {
+            "label": "Paper trading",
+            "value": f"{paper_count} åpne posisjoner",
+            "detail": "Kun visning/preview. Modulen starter ikke automatisk handel.",
+            "kind": "ok" if paper_count else "neutral",
+        },
+        {
+            "label": "Aktive filtre",
+            "value": f"Risiko ≤ {config.get('max_risk', 'Middels')} · score ≥ {float(config.get('min_top_pick_score', 0) or 0):.1f} · strength ≥ {float(config.get('min_strength', 0) or 0):.0f}",
+            "detail": f"Sektor: {_safe_join(config.get('sectors') or ['Alle sektorer'])}",
+            "kind": "preview",
+        },
+        {
+            "label": "Datagrunnlag",
+            "value": f"{_count_ranked_items(latest_rankings)} rangerte rader",
+            "detail": _rank_source_summary(latest_rankings),
+            "kind": "ok" if latest_rankings else "warn",
+        },
+        {
+            "label": "Siste tunge oppdatering",
+            "value": update_at,
+            "detail": update_reason,
+            "kind": "neutral",
+        },
+        {
+            "label": "Ventende endringer",
+            "value": "Ja" if pending else "Nei",
+            "detail": str(session_state.get("pending_manual_changes_reason_v16", "Ingen ventende endringer") or "Ingen ventende endringer"),
+            "kind": "warn" if pending else "ok",
+        },
+    ]
+    return rows
+
+
+def build_universe_selection_summary(
+    config: Mapping[str, Any],
+    candidates: Sequence[UniverseCandidate],
+    preview: Sequence[UniverseCandidate],
+    saved: bool = False,
+) -> List[Dict[str, str]]:
+    """Build a visible summary of the choices made in the form.
+
+    This answers the practical UI question: the form choices are not a hidden
+    result. They become a selected universe setup, and the available existing
+    candidates are shown as a preview underneath.
+    """
+    manual_ticker = _normalize_ticker(config.get("manual_ticker"))
+    saved_text = "Lagret som ventende" if saved else "Forhåndsvisning – ikke lagret"
+    selected_sectors = config.get("sectors") or ["Alle sektorer"]
+    scopes = config.get("scopes") or []
+    mode = str(config.get("mode") or "Markedvalg")
+
+    return [
+        {
+            "label": "Valgt modus",
+            "value": mode,
+            "detail": "Dette styrer hvilken del av Analyseuniverset oppsettet gjelder.",
+            "kind": "ok",
+        },
+        {
+            "label": "Valgte kilder",
+            "value": _safe_join(scopes),
+            "detail": "Brukes til å avgrense preview og sendes videre som ventende analyseoppsett.",
+            "kind": "preview",
+        },
+        {
+            "label": "Enkeltaksje",
+            "value": manual_ticker or "Ikke satt",
+            "detail": "Når ticker er satt, fungerer den som manuell overstyring.",
+            "kind": "ok" if manual_ticker else "neutral",
+        },
+        {
+            "label": "Filtervalg",
+            "value": f"Risiko ≤ {config.get('max_risk', 'Middels')}",
+            "detail": f"Score ≥ {float(config.get('min_top_pick_score', 0) or 0):.1f} · Strength ≥ {float(config.get('min_strength', 0) or 0):.0f} · Sektor: {_safe_join(selected_sectors)}",
+            "kind": "preview",
+        },
+        {
+            "label": "Resultat nå",
+            "value": f"{len(preview)} av {len(candidates)} kandidater matcher",
+            "detail": "Vises i tabellen ‘Preview av eksisterende kandidater’ under. Hvis tallet er 0, mangler cache/session-data eller filtrene er for strenge.",
+            "kind": "ok" if preview else "warn",
+        },
+        {
+            "label": "Lagringsstatus",
+            "value": saved_text,
+            "detail": "Knappen lagrer valgene som ventende. Tung scan/oppdatering må fortsatt startes med appens vanlige oppdateringsknapp.",
+            "kind": "ok" if saved else "neutral",
+        },
+    ]
+
+
+def _render_selection_summary_panel(rows: Sequence[Mapping[str, str]]) -> None:
+    cards: List[str] = []
+    for row in rows:
+        kind = escape(str(row.get("kind", "neutral") or "neutral"))
+        label = escape(str(row.get("label", "")))
+        value = escape(str(row.get("value", "")))
+        detail = escape(str(row.get("detail", "")))
+        cards.append(
+            f"""
+            <div class="ai-universe-choice-card {kind}">
+                <div class="ai-universe-choice-label">{label}</div>
+                <div class="ai-universe-choice-value">{value}</div>
+                <div class="ai-universe-choice-detail">{detail}</div>
+            </div>
+            """
+        )
+    st.markdown('<div class="ai-universe-choice-grid">' + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+
+def _render_live_status_panel(rows: Sequence[Mapping[str, str]]) -> None:
+    cards: List[str] = []
+    for row in rows:
+        kind = escape(str(row.get("kind", "neutral") or "neutral"))
+        label = escape(str(row.get("label", "")))
+        value = escape(str(row.get("value", "")))
+        detail = escape(str(row.get("detail", "")))
+        cards.append(
+            f"""
+            <div class="ai-universe-live-card {kind}">
+                <div class="ai-universe-live-label">{label}</div>
+                <div class="ai-universe-live-value">{value}</div>
+                <div class="ai-universe-live-detail">{detail}</div>
+            </div>
+            """
+        )
+    st.markdown('<div class="ai-universe-live-grid">' + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+
+def _status_badge_class(status: str) -> str:
+    normalized = str(status or "").strip().lower()
+    if "ui" in normalized:
+        return "ui"
+    if "delvis" in normalized:
+        return "partial"
+    if "arkitektur" in normalized:
+        return "arch"
+    if "preview" in normalized:
+        return "preview"
+    if "planlagt" in normalized:
+        return "planned"
+    return ""
+
+
+def _render_feature_status_panel() -> None:
+    """Render status as dark cards instead of Streamlit dataframe.
+
+    The app normally runs in dark mode. A native dataframe can render with a
+    bright white background in some Streamlit themes, which made the status
+    section look empty. These cards make the architecture/roadmap status
+    visible regardless of dataframe styling.
+    """
+    cards: List[str] = []
+    for name, status, comment in FEATURE_STATUS_ROWS:
+        badge_class = _status_badge_class(status)
+        cards.append(
+            f'''
+            <div class="ai-universe-status-card">
+                <div class="ai-universe-status-head">
+                    <span class="ai-universe-status-name">{escape(str(name))}</span>
+                    <span class="ai-universe-status-badge {badge_class}">{escape(str(status))}</span>
+                </div>
+                <div class="ai-universe-status-text">{escape(str(comment))}</div>
+            </div>
+            '''
+        )
+    st.markdown(
+        '<div class="ai-universe-status-grid">' + "".join(cards) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _inject_ai_universe_css() -> None:
     st.markdown(
         """
@@ -374,7 +638,137 @@ def _inject_ai_universe_css() -> None:
             color: #e2e8f0;
         }
         .ai-universe-pill.plan { border-color: rgba(250,204,21,.55); color:#fde68a; }
+        .ai-universe-choice-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+            gap: .52rem;
+            margin: .45rem 0 .95rem 0;
+        }
+        .ai-universe-choice-card {
+            border: 1px solid rgba(56,189,248,.42);
+            background: linear-gradient(180deg, rgba(8,47,73,.50), rgba(15,23,42,.86));
+            border-radius: 16px;
+            padding: .68rem .75rem;
+            min-height: 108px;
+            box-shadow: 0 10px 24px rgba(0,0,0,.18);
+        }
+        .ai-universe-choice-card.ok { border-color: rgba(34,197,94,.54); }
+        .ai-universe-choice-card.warn { border-color: rgba(250,204,21,.62); background: linear-gradient(180deg, rgba(66,52,8,.48), rgba(15,23,42,.84)); }
+        .ai-universe-choice-card.preview { border-color: rgba(56,189,248,.58); }
+        .ai-universe-choice-label {
+            color:#bae6fd;
+            font-size:.70rem;
+            text-transform: uppercase;
+            letter-spacing:.04em;
+            font-weight: 950;
+            margin-bottom:.16rem;
+        }
+        .ai-universe-choice-value {
+            color:#f8fafc;
+            font-size:1rem;
+            font-weight: 950;
+            line-height:1.15;
+            margin-bottom:.25rem;
+        }
+        .ai-universe-choice-detail {
+            color:#cbd5e1;
+            font-size:.74rem;
+            line-height:1.32;
+            overflow-wrap:anywhere;
+        }
+        .ai-universe-live-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: .52rem;
+            margin: .45rem 0 .85rem 0;
+        }
+        .ai-universe-live-card {
+            border: 1px solid rgba(148,163,184,.26);
+            background: linear-gradient(180deg, rgba(15,23,42,.92), rgba(2,6,23,.80));
+            border-radius: 15px;
+            padding: .64rem .72rem;
+            min-height: 104px;
+            box-shadow: 0 10px 24px rgba(0,0,0,.18);
+        }
+        .ai-universe-live-card.ok { border-color: rgba(34,197,94,.50); }
+        .ai-universe-live-card.warn { border-color: rgba(250,204,21,.58); background: linear-gradient(180deg, rgba(66,52,8,.42), rgba(15,23,42,.82)); }
+        .ai-universe-live-card.preview { border-color: rgba(56,189,248,.48); }
+        .ai-universe-live-label {
+            color:#94a3b8;
+            font-size:.70rem;
+            text-transform: uppercase;
+            letter-spacing:.04em;
+            font-weight: 950;
+            margin-bottom:.16rem;
+        }
+        .ai-universe-live-value {
+            color:#f8fafc;
+            font-size:.98rem;
+            font-weight: 950;
+            line-height:1.15;
+            margin-bottom:.25rem;
+        }
+        .ai-universe-live-detail {
+            color:#cbd5e1;
+            font-size:.74rem;
+            line-height:1.32;
+            overflow-wrap:anywhere;
+        }
         .ai-universe-pill.ok { border-color: rgba(34,197,94,.50); color:#bbf7d0; }
+        .ai-universe-status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: .5rem;
+            margin: .5rem 0 .75rem 0;
+        }
+        .ai-universe-status-card {
+            border: 1px solid rgba(148,163,184,.22);
+            background: rgba(15, 23, 42, .72);
+            border-radius: 14px;
+            padding: .62rem .68rem;
+            min-height: 92px;
+        }
+        .ai-universe-status-head {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:.45rem;
+            margin-bottom:.32rem;
+        }
+        .ai-universe-status-name {
+            font-weight: 900;
+            color: #f8fafc;
+            font-size: .86rem;
+        }
+        .ai-universe-status-badge {
+            border-radius: 999px;
+            padding: .15rem .42rem;
+            font-size: .65rem;
+            font-weight: 900;
+            white-space: nowrap;
+            border: 1px solid rgba(148,163,184,.30);
+            color:#e2e8f0;
+        }
+        .ai-universe-status-badge.ui { border-color: rgba(34,197,94,.52); color:#bbf7d0; }
+        .ai-universe-status-badge.partial { border-color: rgba(56,189,248,.52); color:#bae6fd; }
+        .ai-universe-status-badge.arch { border-color: rgba(167,139,250,.52); color:#ddd6fe; }
+        .ai-universe-status-badge.preview { border-color: rgba(250,204,21,.55); color:#fde68a; }
+        .ai-universe-status-badge.planned { border-color: rgba(248,113,113,.52); color:#fecaca; }
+        .ai-universe-status-text {
+            color:#cbd5e1;
+            font-size:.75rem;
+            line-height:1.33;
+        }
+        .ai-universe-empty-note {
+            border: 1px dashed rgba(250,204,21,.45);
+            background: rgba(250,204,21,.08);
+            border-radius: 12px;
+            padding: .62rem .75rem;
+            color: #fde68a;
+            font-size: .78rem;
+            font-weight: 780;
+            margin-top: .25rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -514,20 +908,21 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
             submitted = st.form_submit_button("💾 Lagre Analyseunivers AI-oppsett som ventende", use_container_width=True)
 
+        config = {
+            "mode": mode,
+            "scopes": scopes,
+            "manual_ticker": _normalize_ticker(manual_ticker),
+            "max_count": int(max_count),
+            "min_top_pick_score": float(min_top_pick_score),
+            "use_news": bool(use_news),
+            "use_signal_intelligence": bool(use_signal_intelligence),
+            "max_risk": max_risk,
+            "sectors": sectors,
+            "min_strength": float(min_strength),
+            "status": "architecture_started_not_fully_implemented",
+        }
+
         if submitted:
-            config = {
-                "mode": mode,
-                "scopes": scopes,
-                "manual_ticker": _normalize_ticker(manual_ticker),
-                "max_count": int(max_count),
-                "min_top_pick_score": float(min_top_pick_score),
-                "use_news": bool(use_news),
-                "use_signal_intelligence": bool(use_signal_intelligence),
-                "max_risk": max_risk,
-                "sectors": sectors,
-                "min_strength": float(min_strength),
-                "status": "architecture_started_not_fully_implemented",
-            }
             st.session_state[AI_UNIVERSE_STATE_KEY] = config
 
             # Sync to the existing app controls. Heavy work still waits for the
@@ -549,18 +944,30 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
             _set_pending_change("Analyseunivers AI-modul endret")
             st.success("Analyseunivers AI-oppsett er lagret som ventende. Trykk Oppdater hele appen når du vil bruke det i tunge analyser.")
-        else:
-            config = st.session_state.get(AI_UNIVERSE_STATE_KEY, current)
 
         if mode == "Smart AI-utvalg (planlagt)":
             st.warning("Smart AI-utvalg er lagt inn som modulvalg, men den ekte AI-universe-picker-motoren er ikke ferdig implementert ennå.")
 
-        st.markdown("#### Status for Analyseunivers-modulen")
-        st.dataframe(_feature_status_dataframe(), use_container_width=True, hide_index=True)
-
         candidates = collect_universe_candidates(st.session_state, limit=max_count)
         preview = filter_universe_candidates(candidates, scopes, sectors, max_risk, min_top_pick_score, min_strength)
         st.session_state[AI_UNIVERSE_PREVIEW_KEY] = [c.as_dict() for c in preview]
+
+        st.markdown("#### Resultat av valgene i skjemaet")
+        _render_selection_summary_panel(build_universe_selection_summary(config, candidates, preview, saved=bool(submitted)))
+        st.caption(
+            "Dette er det direkte resultatet av valgene i skjemaet. Selve kandidatlisten ligger i "
+            "‘Preview av eksisterende kandidater’ lenger ned."
+        )
+
+        st.markdown("#### Status for Analyseunivers-modulen")
+        _render_live_status_panel(build_universe_live_status(st.session_state, config, candidates, preview))
+        st.caption(
+            "Dette feltet viser nå faktiske opplysninger fra session/cache og valgte filtre. "
+            "Roadmap/delstatus ligger i detaljfeltet under."
+        )
+
+        with st.expander("Vis roadmap / detaljstatus for funksjonene", expanded=False):
+            _render_feature_status_panel()
 
         st.markdown("#### Preview av eksisterende kandidater")
         if preview:
@@ -570,7 +977,12 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 "Den kjører ikke en ny AI-scan."
             )
         else:
-            st.caption("Ingen eksisterende kandidater i cache/session for valgt scope ennå. Kjør vanlig markedspanel eller Top Picks for å fylle preview-data.")
+            st.markdown(
+                '<div class="ai-universe-empty-note">Ingen eksisterende kandidater i cache/session for valgt scope ennå. '
+                'Kjør vanlig markedspanel eller Top Picks for å fylle preview-data. Dette betyr ikke at modulen feiler; '
+                'det betyr bare at AI-universet ikke har noe eksisterende datagrunnlag å forhåndsvise.</div>',
+                unsafe_allow_html=True,
+            )
 
         return dict(config or {})
 
