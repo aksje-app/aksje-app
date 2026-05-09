@@ -91,6 +91,11 @@ def build_daily_market_report() -> Dict[str, Any]:
         regime_confidence = None
 
     counts = alert_summary.get("counts", {})
+    try:
+        macro_payload = st.session_state.get("macro_rates_breadth_result_v1844")
+    except Exception:
+        macro_payload = None
+
     return {
         "date": _today_key(),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -117,6 +122,7 @@ def build_daily_market_report() -> Dict[str, Any]:
             "inside_band_accuracy": learning.get("global", {}).get("inside_band_accuracy"),
             "avg_abs_error_pct": learning.get("global", {}).get("avg_abs_error_pct"),
         },
+        "macro": macro_payload if isinstance(macro_payload, dict) else {},
     }
 
 
@@ -162,8 +168,10 @@ def render_daily_ai_market_report() -> None:
         regime = report.get("regime", {})
         alerts = report.get("alerts", {})
         learning = report.get("learning", {})
+        macro = report.get("macro", {})
+        macro_txt = f" Makro: **{macro.get('label')}** ({macro.get('combined_score')}/100)." if macro else ""
         st.write(
-            f"Marked: **{regime.get('label', 'Ukjent')}**. "
+            f"Marked: **{regime.get('label', 'Ukjent')}**." + macro_txt + " "
             f"Varsler: **{alerts.get('red', 0)} røde**, **{alerts.get('yellow', 0)} gule**, **{alerts.get('green', 0)} grønne**. "
             f"Læringsgrunnlag: **{learning.get('samples', 0)}** evaluerte punkter."
         )
