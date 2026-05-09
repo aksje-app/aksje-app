@@ -80,7 +80,6 @@ try:
     inject_workspace_css()
     render_workspace_title()
     render_sticky_topbar()
-    render_ai_control_center()
 except Exception as _workspace_error:
     st.caption(f"Professional Trading Workspace kunne ikke vises: {_workspace_error}")
 
@@ -1193,7 +1192,7 @@ div[data-testid="stAlert"] {
 }
 .info-card-sub {
     color: #cbd5e1 !important;
-    font-size: 0.98rem;
+    font-size: 0.80rem;
     line-height: 1.45;
     margin-top: 8px;
 }
@@ -1246,7 +1245,7 @@ div[data-testid="stAlert"] {
 }
 .info-mini-sub {
     color: #cbd5e1 !important;
-    font-size: 0.98rem;
+    font-size: 0.80rem;
     line-height: 1.45;
 }
 .info-mini-small {
@@ -1505,7 +1504,7 @@ div[role="option"][aria-selected="true"] {
     border-top: 1px solid rgba(148,163,184,0.15);
 }
 .alert-status-pill {
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 8px 9px;
     margin: 6px 0;
     border: 1px solid rgba(148,163,184,0.22);
@@ -1747,7 +1746,7 @@ div[role="tooltip"] *,
     background: rgba(15,23,42,0.88);
     border: 1px solid rgba(148,163,184,0.38);
     border-radius: 14px;
-    padding: 10px 12px;
+    padding: 7px 9px;
     margin: 8px 0 8px 0;
 }
 .trading-engine-pill {
@@ -1906,7 +1905,7 @@ div[role="tooltip"] *,
     background: rgba(15,23,42,0.72);
     border: 1px solid rgba(148,163,184,0.32);
     border-radius: 14px;
-    padding: 10px 12px;
+    padding: 7px 9px;
     margin: 6px 0 10px 0;
 }
 
@@ -2782,35 +2781,35 @@ def render_live_market_banner():
     .ticker-tape-wrap {
         width: 100%;
         overflow: hidden;
-        margin: 0.55rem 0 1.10rem 0;
+        margin: 0.22rem 0 0.28rem 0;
         padding: 0;
         border-top: 1px solid rgba(15,23,42,0.10);
         border-bottom: 1px solid rgba(15,23,42,0.14);
         background: #f8fafc;
-        border-radius: 10px;
-        min-height: 102px;
+        border-radius: 12px;
+        min-height: 76px;
         box-shadow: inset 0 0 0 1px rgba(15,23,42,0.03);
     }
     .ticker-tape-track {
         display: flex;
         align-items: stretch;
         width: max-content;
-        gap: 16px;
+        gap: 10px;
         white-space: nowrap;
         animation: tickerTapeScroll __SPEED__s linear infinite;
-        padding: 10px 12px;
+        padding: 7px 9px;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
         animation-play-state: paused;
     }
     .ticker-tape-item {
         display: inline-grid;
-        grid-template-columns: 146px 112px;
+        grid-template-columns: 132px 96px;
         align-items: center;
-        gap: 12px;
-        min-width: 274px;
-        height: 80px;
-        padding: 8px 14px;
+        gap: 8px;
+        min-width: 236px;
+        height: 58px;
+        padding: 6px 10px;
         border-radius: 0;
         background: #ffffff;
         border-right: 1px solid rgba(15,23,42,0.10);
@@ -2822,7 +2821,7 @@ def render_live_market_banner():
         line-height: 1.02;
     }
     .ticker-market {
-        font-size: 0.68rem;
+        font-size: 0.56rem;
         font-weight: 800;
         letter-spacing: 0.04em;
         text-transform: uppercase;
@@ -2830,7 +2829,7 @@ def render_live_market_banner():
         margin-bottom: 2px;
     }
     .ticker-title {
-        font-size: 1.02rem;
+        font-size: 0.82rem;
         font-weight: 900;
         color: #2563eb;
         overflow: hidden;
@@ -2839,13 +2838,13 @@ def render_live_market_banner():
         margin-bottom: 4px;
     }
     .ticker-price {
-        font-size: 1.12rem;
+        font-size: 0.94rem;
         font-weight: 900;
         color: #1f2937;
         margin-top: 0;
     }
     .ticker-change {
-        font-size: 0.98rem;
+        font-size: 0.80rem;
         font-weight: 950;
         margin-top: 5px;
     }
@@ -2858,8 +2857,8 @@ def render_live_market_banner():
     }
     .ticker-spark svg {
         display: block;
-        width: 112px;
-        height: 42px;
+        width: 94px;
+        height: 30px;
     }
     @keyframes tickerTapeScroll {
         from { transform: translateX(0); }
@@ -2884,7 +2883,7 @@ def render_live_market_banner():
             border-radius: 8px;
         }
         .ticker-tape-track {
-            gap: 12px;
+            gap: 8px;
             padding: 8px 8px;
         }
         .ticker-tape-item {
@@ -2909,8 +2908,7 @@ def render_live_market_banner():
 
     st.markdown(banner_html, unsafe_allow_html=True)
     st.caption(
-        f"📡 Ticker-banner: {len(banner_cards)} kort · hastighet {speed_seconds}s · "
-        f"data oppdateres ca. hver {refresh_minutes}. min. Lavere hastighetstall = raskere rulling."
+        f"📡 Banner: {len(banner_cards)} kort · {speed_seconds}s · data ca. hver {refresh_minutes}. min."
     )
 
 
@@ -5787,6 +5785,15 @@ st.markdown(
 # V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
+
+# v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
+try:
+    render_live_market_banner()
+    render_banner_main_controls()
+    render_ai_control_center()
+except Exception as _top_banner_workspace_error:
+    st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
+
 st.caption("v18.5.0: gammel duplikat-tittel er fjernet; hovedtittel ligger øverst.")
 
 # V15 / kontrollsenterstatus: ingen duplisert mobil-hurtigmeny i hovedbildet.
@@ -5913,8 +5920,7 @@ if 'top_picks' in locals():
     top_movers(top_picks)
 
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
-render_live_market_banner()
-render_banner_main_controls()
+# v18.5.1: ticker-banner moved to top workspace.
 render_system_admin_workspace()
 
 if search.strip():

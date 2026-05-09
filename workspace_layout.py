@@ -34,14 +34,14 @@ def inject_workspace_css() -> None:
         }
 
         div[data-testid="stVerticalBlock"] {
-            gap: 0.22rem !important;
+            gap: 0.18rem !important;
         }
 
         .ptw-app-title {
             display:flex;
             align-items:center;
             gap:.55rem;
-            margin:.10rem 0 .28rem 0;
+            margin:.06rem 0 .18rem 0;
             padding:.20rem .2rem .30rem .2rem;
             border-bottom:1px solid rgba(120,150,190,.28);
             font-size:1.25rem;
@@ -109,7 +109,7 @@ def inject_workspace_css() -> None:
             background: linear-gradient(180deg, rgba(17, 30, 54, .95), rgba(10, 20, 38, .92));
             border-radius: 16px;
             padding: .50rem .70rem;
-            margin: .15rem 0 .22rem 0;
+            margin: .10rem 0 .16rem 0;
         }
 
         .ptw-control-title {
