@@ -626,15 +626,24 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
 
         mc1, mc2 = st.columns([1.3, 1.0])
         with mc1:
+            auto_regime = st.session_state.get("auto_market_regime_v1840", "neutral")
+            regime_options = ["neutral", "bull", "bear", "volatile"]
+            default_regime_index = regime_options.index(auto_regime) if auto_regime in regime_options else 0
             market_regime = st.selectbox(
                 "Markedsregime",
-                options=["neutral", "bull", "bear", "volatile"],
+                options=regime_options,
                 format_func=lambda x: {"neutral": "Nøytral", "bull": "Bull", "bear": "Bear", "volatile": "Høy volatilitet"}.get(x, x),
-                index=0,
+                index=default_regime_index,
                 key="forecast_market_regime_v1835",
+                help="Velges automatisk hvis markedsregime-widgeten er kjørt.",
             )
         with mc2:
-            event_risk = st.checkbox("Hendelsesrisiko nær?", value=False, key="forecast_event_risk_v1835")
+            event_risk = st.checkbox(
+                "Hendelsesrisiko nær?",
+                value=bool(st.session_state.get("auto_event_risk_v1840", False)),
+                key="forecast_event_risk_v1835",
+                help="Kan settes automatisk ved Stress/Panic-regime.",
+            )
 
         st.caption(f"Valgt prognose: {ticker or 'ingen ticker'} · horisont {horizon} · historikk {period} · regime {market_regime}")
         run = st.button("Lag prognosegraf", key="forecast_run_v1831", use_container_width=True)
@@ -799,6 +808,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             try:
                 recent_log = load_forecast_log(limit=10)
                 recent_alerts = load_alerts(limit=10)
+                st.caption("Varslene sendes også til felles varselsenter øverst i appen.")
                 st.write(f"Loggede prognoser: {len(recent_log)} siste viste")
                 if recent_alerts:
                     st.write("Siste varsler:")

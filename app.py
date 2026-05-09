@@ -3,6 +3,10 @@ from ui_components import market_pulse, top_movers
 import os
 import re
 import streamlit as st
+from daily_ai_market_report import render_daily_ai_market_report
+from market_regime_ui import render_market_regime_widget
+from alert_center import render_common_alert_center
+from market_intelligence_center import render_market_intelligence_center
 from forecast_ui import render_forecast_section
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
@@ -64,6 +68,38 @@ from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+
+
+# v18.3.12: Felles varselsenter. Ingen auto-trading-kobling.
+try:
+    render_common_alert_center(location="top")
+except Exception as _common_alert_error:
+    st.caption(f"Varselsenter kunne ikke vises: {_common_alert_error}")
+
+
+# v18.3.13: AI Market Intelligence Center. Ingen auto-trading-kobling.
+try:
+    render_market_intelligence_center()
+except Exception as _market_intel_error:
+    st.caption(f"AI Market Intelligence Center kunne ikke vises: {_market_intel_error}")
+
+
+# v18.4.1: Daily AI Market Report. Ingen auto-trading-kobling.
+try:
+    render_daily_ai_market_report()
+except Exception as _daily_report_error:
+    st.caption(f"Daily AI Market Report kunne ikke vises: {_daily_report_error}")
+
+
+
+# v18.4.0: Automatisk markedsregime-deteksjon. Ingen auto-trading-kobling.
+try:
+    render_market_regime_widget()
+except Exception as _regime_error:
+    st.caption(f"Markedsregime kunne ikke vises: {_regime_error}")
+
+
+
 
 
 st.markdown("""
