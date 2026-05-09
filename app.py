@@ -4873,12 +4873,8 @@ def render_analysis(results, label):
             _strategy_default_tickers.append(_t)
     if selected and selected not in _strategy_default_tickers:
         _strategy_default_tickers.insert(0, selected)
-    render_strategy_test_pro(
-        selected,
-        _strategy_default_tickers,
-        load_rules(),
-        key_prefix=f"strategy_pro_{label}_{selected}".replace(" ", "_").replace("/", "_").replace(".", "_"),
-    )
+    # v18.5.2: Legacy strategy-test Pro disabled; moved to AI Kontrollsenter -> Testing & Learning.
+    st.caption("🧪 Strategi-test er flyttet til AI Kontrollsenter → Testing & Learning.")
 
     parts = item.get("score_parts", {})
     with st.expander("🧠 Score-forklaring", expanded=False):
@@ -6116,7 +6112,8 @@ elif active_panel == "🧪 Backtesting":
     else:
         bt_tickers = get_swedish_tickers(limit=max_count)
 
-    render_strategy_backtest(bt_tickers, bt_market)
+# v18.5.2: Legacy strategy render disabled; moved to AI Kontrollsenter -> Testing & Learning.
+    st.caption("🧪 Strategi-test er flyttet til AI Kontrollsenter → Testing & Learning.")
 
 elif active_panel == "🧪 Paper Trading":
     render_paper_trading_dashboard()

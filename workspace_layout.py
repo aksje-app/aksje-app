@@ -16,6 +16,7 @@ from daily_ai_market_report import render_daily_ai_market_report
 from market_intelligence_center import render_market_intelligence_center
 from ai_heatmap_ui import render_ai_heatmaps
 from forecast_backtest_ui import render_backtest_learning_panel
+from strategy_testing_workspace import render_strategy_testing_workspace
 from market_regime_ui import render_market_regime_widget
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from forecast_ui import render_forecast_section
@@ -235,6 +236,7 @@ def render_ai_control_center() -> None:
             render_ai_heatmaps()
         with tabs[5]:
             st.info("Strategi-test, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her. Legacy strategi-test nede i appen er deaktivert for å redusere duplikater.")
+            render_strategy_testing_workspace()
             render_backtest_learning_panel()
         with tabs[6]:
             render_market_regime_widget()
