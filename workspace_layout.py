@@ -28,13 +28,13 @@ def inject_workspace_css() -> None:
         <style>
         /* v18.4.7 professional workspace */
         .block-container {
-            padding-top: 0.20rem !important;
+            padding-top: 0.15rem !important;
             padding-bottom: 1.5rem !important;
             max-width: 98vw !important;
         }
 
         div[data-testid="stVerticalBlock"] {
-            gap: 0.25rem !important;
+            gap: 0.22rem !important;
         }
 
         .ptw-app-title {
@@ -58,7 +58,7 @@ def inject_workspace_css() -> None:
             justify-content: space-between;
             align-items: center;
             gap: .6rem;
-            padding: .55rem .75rem;
+            padding: .50rem .70rem;
             margin: 0 0 .45rem 0;
             background: rgba(8, 16, 34, .96);
             border: 1px solid rgba(95, 122, 170, .38);
@@ -108,8 +108,8 @@ def inject_workspace_css() -> None:
             border: 1px solid rgba(95, 122, 170, .35);
             background: linear-gradient(180deg, rgba(17, 30, 54, .95), rgba(10, 20, 38, .92));
             border-radius: 16px;
-            padding: .55rem .75rem;
-            margin: .2rem 0 .25rem 0;
+            padding: .50rem .70rem;
+            margin: .15rem 0 .22rem 0;
         }
 
         .ptw-control-title {
@@ -216,7 +216,7 @@ def render_ai_control_center() -> None:
             "📈 Daily Report",
             "🧠 Intelligence",
             "📊 Heatmaps",
-            "🧪 Backtest",
+            "🧪 Testing & Learning",
             "🌍 Regime",
             "🌐 Makro/renter",
         ]
@@ -234,6 +234,7 @@ def render_ai_control_center() -> None:
         with tabs[4]:
             render_ai_heatmaps()
         with tabs[5]:
+            st.info("Strategi-test, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her. Legacy strategi-test nede i appen er deaktivert for å redusere duplikater.")
             render_backtest_learning_panel()
         with tabs[6]:
             render_market_regime_widget()

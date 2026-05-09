@@ -4730,7 +4730,7 @@ def render_analysis(results, label):
     render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
     render_graph_explanation("rsi")
 
-    st.markdown("#### 🧪 Strategi-test (historisk simulering)")
+    st.caption("🧪 Strategi-test er flyttet til AI Kontrollsenter → Testing & Learning.")
 
     if st.button(f"Kjør strategi-test for {selected}", key=f"strategy_{label}_{selected}"):
 
@@ -5787,14 +5787,7 @@ st.markdown(
 # V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
-st.markdown(
-    f"""
-    <div class="top-app-header v152-top-clean">
-        <div class="top-app-title">📊 Market Overview – 📈 AI Aksje Analyzer Pro</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.caption("v18.5.0: gammel duplikat-tittel er fjernet; hovedtittel ligger øverst.")
 
 # V15 / kontrollsenterstatus: ingen duplisert mobil-hurtigmeny i hovedbildet.
 # PC får en kompakt horisontal statusstrip som bruker høyreplassen ved Driftstatus.
