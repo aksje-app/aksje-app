@@ -19,7 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import streamlit as st
 
 from forecast_engine import SUPPORTED_HORIZONS, build_forecast, build_all_horizons
-from forecast_store import build_and_store_all_horizons, compute_alerts, load_alerts, load_forecast_log, load_latest_forecast, save_alerts
+from forecast_store import build_and_store_all_horizons, compute_alerts, compute_intelligent_alerts, get_forecast_vs_actual_series, load_alerts, load_forecast_log, load_latest_forecast, save_alerts, summarize_alerts
+from forecast_portfolio import build_portfolio_forecast, normalize_holdings
 
 
 def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[float], Optional[str]]:
@@ -263,18 +264,123 @@ def _render_quick_candidates_panel(limit: int = 12) -> Optional[str]:
     return selected
 
 
+
+def _strength_color(score: int) -> str:
+    try:
+        score = int(score)
+    except Exception:
+        score = 50
+    if score >= 80:
+        return "#22c55e"
+    if score >= 65:
+        return "#84cc16"
+    if score >= 50:
+        return "#f59e0b"
+    if score >= 35:
+        return "#fb7185"
+    return "#ef4444"
+
+
 def _render_forecast_result_cards(summary) -> None:
     """Build 5: tydeligere tallkort for valgt horisont."""
     st.markdown("### 📈 Scenario-resultat")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     c1.metric("Nå", _format_price(summary.current_price))
     c2.metric("Base kurs", _format_price(summary.base_price), _format_pct(summary.base_pct))
     c3.metric("Bull kurs", _format_price(summary.bull_price), _format_pct(summary.bull_pct))
     c4.metric("Bear kurs", _format_price(summary.bear_price), _format_pct(summary.bear_pct))
     c5.metric("Confidence", f"{summary.confidence}%")
     c6.metric("Risiko", summary.risk)
+    c7.metric("Strength", f"{summary.forecast_strength}/100", summary.forecast_strength_label)
+
+    st.markdown(
+        f"""
+        <div style="border:1px solid rgba(148,163,184,.25);border-radius:12px;padding:.65rem .9rem;margin:.35rem 0 .65rem 0;">
+          <b>Forecast Strength Score:</b>
+          <span style="color:{_strength_color(summary.forecast_strength)};font-weight:900;">
+            {summary.forecast_strength}/100 · {summary.forecast_strength_label}
+          </span><br>
+          <span style="opacity:.82;">Kombinerer base-scenario, bull/bear-forhold, confidence, risiko, volatilitet, regime, AI-score og sentiment.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
+
+
+
+def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
+    """Render forecast vs actual chart."""
+    try:
+        import plotly.graph_objects as go  # type: ignore
+    except Exception:
+        st.warning("Plotly er ikke tilgjengelig. Viser data som tabell.")
+        st.dataframe(series, use_container_width=True)
+        return
+
+    x = series.get("labels", [])
+    fig = go.Figure()
+
+    upper = series.get("upper_band", [])
+    lower = series.get("lower_band", [])
+
+    fig.add_trace(go.Scatter(
+        x=x, y=upper, mode="lines", line=dict(width=0),
+        hoverinfo="skip", showlegend=False, name="Øvre bånd"
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=lower, mode="lines", fill="tonexty",
+        fillcolor="rgba(148,163,184,0.18)", line=dict(width=0),
+        hoverinfo="skip", showlegend=True, name="Usikkerhetsbånd"
+    ))
+
+    fig.add_trace(go.Scatter(x=x, y=series.get("bull", []), mode="lines", name="Bull-prognose", line=dict(width=2, dash="dot")))
+    fig.add_trace(go.Scatter(x=x, y=series.get("base", []), mode="lines", name="Base-prognose", line=dict(width=3)))
+    fig.add_trace(go.Scatter(x=x, y=series.get("bear", []), mode="lines", name="Bear-prognose", line=dict(width=2, dash="dot")))
+
+    actual = series.get("actual", [])
+    if actual:
+        fig.add_trace(go.Scatter(x=x[:len(actual)], y=actual, mode="lines+markers", name="Faktisk kurs", line=dict(width=4)))
+
+    fig.update_layout(
+        title=f"{series.get('ticker', '')} prognose vs faktisk ({series.get('horizon', '')})",
+        xaxis_title="Dato",
+        yaxis_title="Kurs",
+        height=430,
+        margin=dict(l=10, r=10, t=55, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_forecast_vs_actual_panel(ticker: str, horizon: str, current_prices: List[float]) -> None:
+    """Render panel comparing latest stored forecast against actual prices."""
+    with st.expander("🧪 Prognose vs faktisk", expanded=False):
+        st.caption("Sammenligner siste lagrede prognose med faktisk kursutvikling. Dette er grunnlaget for å lære hvor treffsikker modellen er.")
+
+        latest = load_latest_forecast(ticker)
+        if not latest:
+            st.info("Ingen lagret prognose funnet for denne tickeren ennå. Kjør en prognose først.")
+            return
+
+        try:
+            series = get_forecast_vs_actual_series(latest, current_prices, horizon)
+        except Exception as exc:
+            st.warning(f"Kunne ikke bygge prognose-vs-faktisk graf: {exc}")
+            return
+
+        _render_forecast_vs_actual_chart(series)
+
+        evaluation = series.get("evaluation")
+        if evaluation:
+            e1, e2, e3, e4 = st.columns(4)
+            e1.metric("Feil mot base", f"{evaluation['error_pct']:+.2f}%")
+            e2.metric("Faktisk avkastning", f"{evaluation['actual_return_pct']:+.2f}%")
+            e3.metric("Retning traff", "Ja" if evaluation["direction_hit"] else "Nei")
+            e4.metric("Innen bull/bear", "Ja" if evaluation["inside_bull_bear_range"] else "Nei")
+        else:
+            st.caption("Ikke nok faktisk kursdata ennå til evaluering.")
 
 def _render_plotly_chart(result) -> None:
     """Render scenario-graf. Bruker Plotly hvis tilgjengelig."""
@@ -331,6 +437,117 @@ def _render_plotly_chart(result) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
+
+
+def _portfolio_sources_from_session() -> List[Dict[str, Any]]:
+    """Find likely portfolio holdings in session state."""
+    for key in ("portfolio", "paper_portfolio", "holdings", "positions"):
+        try:
+            if key in st.session_state:
+                rows = normalize_holdings(st.session_state.get(key))
+                if rows:
+                    return rows
+        except Exception:
+            continue
+    return []
+
+
+def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
+    """Render portfolio forecast panel."""
+    with st.expander("💼 Porteføljeprognose", expanded=False):
+        st.caption("Samlet bull/base/bear-scenario for porteføljen. Bruker portefølje-data hvis de finnes, ellers kan du skrive tickere manuelt.")
+
+        found_holdings = _portfolio_sources_from_session()
+        manual = st.text_input(
+            "Manuelle tickere hvis portefølje ikke finnes",
+            value=",".join([h["ticker"] for h in found_holdings[:8]]) if found_holdings else "AAPL,MSFT,NVDA",
+            key="portfolio_forecast_manual_tickers_v1838",
+            help="Kommaseparert. Hvis verdier mangler brukes lik vekting.",
+        )
+
+        horizon = st.selectbox(
+            "Portefølje-horisont",
+            options=list(SUPPORTED_HORIZONS.keys()),
+            index=list(SUPPORTED_HORIZONS.keys()).index(default_horizon) if default_horizon in SUPPORTED_HORIZONS else 2,
+            key="portfolio_forecast_horizon_v1838",
+        )
+
+        if found_holdings:
+            holdings = found_holdings
+            st.caption(f"Fant {len(holdings)} beholdninger fra appdata.")
+        else:
+            holdings = [{"ticker": t.strip().upper()} for t in manual.split(",") if t.strip()]
+            st.caption("Bruker manuelle tickere med lik vekting.")
+
+        run_pf = st.button("Lag porteføljeprognose", key="portfolio_forecast_run_v1838", use_container_width=True)
+        if not run_pf:
+            return
+
+        price_history: Dict[str, List[float]] = {}
+        missing: List[str] = []
+        for h in holdings:
+            ticker = h.get("ticker")
+            if not ticker:
+                continue
+            prices, err = _fetch_close_prices_yfinance(ticker, period="1y")
+            if err:
+                missing.append(f"{ticker}: {err}")
+            else:
+                price_history[ticker] = prices
+
+        if not price_history:
+            st.warning("Kunne ikke hente prisdata for porteføljen.")
+            if missing:
+                st.caption(" | ".join(missing[:4]))
+            return
+
+        try:
+            result = build_portfolio_forecast(holdings, price_history, horizon=horizon)
+        except Exception as exc:
+            st.error(f"Klarte ikke bygge porteføljeprognose: {exc}")
+            return
+
+        p1, p2, p3, p4, p5, p6 = st.columns(6)
+        p1.metric("Portefølje nå", f"{result.total_current:,.0f}")
+        p2.metric("Base", f"{result.total_base:,.0f}", f"{result.base_pct:+.2f}%")
+        p3.metric("Bull", f"{result.total_bull:,.0f}", f"{result.bull_pct:+.2f}%")
+        p4.metric("Bear", f"{result.total_bear:,.0f}", f"{result.bear_pct:+.2f}%")
+        p5.metric("Confidence", f"{result.weighted_confidence}%")
+        p6.metric("Strength", f"{result.weighted_strength}/100", result.risk)
+
+        rows = []
+        for h in result.holdings:
+            rows.append({
+                "Ticker": h.ticker,
+                "Vekt": f"{h.weight*100:.1f}%",
+                "Base %": f"{h.base_pct:+.2f}%",
+                "Bull %": f"{h.bull_pct:+.2f}%",
+                "Bear %": f"{h.bear_pct:+.2f}%",
+                "Confidence": f"{h.confidence}%",
+                "Strength": f"{h.strength}/100",
+                "Risiko": h.risk,
+            })
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+        try:
+            import plotly.graph_objects as go  # type: ignore
+            labels = ["Nå", "Bear", "Base", "Bull"]
+            values = [result.total_current, result.total_bear, result.total_base, result.total_bull]
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=labels, y=values, name="Porteføljeverdi"))
+            fig.update_layout(
+                title=f"Porteføljeprognose ({horizon})",
+                yaxis_title="Verdi",
+                height=360,
+                margin=dict(l=10, r=10, t=50, b=10),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            pass
+
+        if result.warnings:
+            st.warning(" ".join(result.warnings))
+
 def render_forecast_section(default_ticker: str = "AAPL") -> None:
     """Render prognosemodul v1, Bygg 2."""
     st.markdown("## 🔮 Fremtidsscenario / Prognose")
@@ -340,6 +557,8 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
 
     with st.expander("▸ Prognosemodul v1 — klikk for å åpne/lukke", expanded=False):
         st.info("Fase 6–10: Prognosemodulen har lagring, varsler, backtest-struktur og hurtigvalg fra portefølje/watchlist/ranking og enkel cache. Ingen auto-trading-kobling er aktivert.")
+
+        _render_portfolio_forecast_panel(default_horizon="1m")
         quick_ticker = _render_candidate_picker(default_ticker)
         clicked_candidate = _render_quick_candidates_panel()
         if clicked_candidate:
@@ -440,12 +659,21 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 ai_score=float(ai_score),
                 sentiment_score=float(sentiment),
             )
-            alerts = compute_alerts(stored_payload, previous_payload)
+            basic_alerts = compute_alerts(stored_payload, previous_payload)
+            intelligent_alerts = compute_intelligent_alerts(stored_payload, previous_payload)
+            alerts = intelligent_alerts or basic_alerts
             save_alerts(alerts)
             if alerts:
-                with st.expander("Varsler fra prognosemodulen", expanded=False):
-                    for alert in alerts[:8]:
-                        st.write(f"{alert.get('level', '').upper()}: {alert.get('message')}")
+                summary_alerts = summarize_alerts(alerts)
+                with st.expander("🚨 Intelligent varsling fra prognosemodulen", expanded=False):
+                    st.write(
+                        f"Totalt: {summary_alerts['total']} · "
+                        f"Røde: {summary_alerts['counts']['red']} · "
+                        f"Gule: {summary_alerts['counts']['yellow']} · "
+                        f"Grønne: {summary_alerts['counts']['green']}"
+                    )
+                    for alert in alerts[:12]:
+                        st.write(f"{alert.get('level', '').upper()} · {alert.get('category', 'varsel')}: {alert.get('message')}")
         except Exception as _store_error:
             st.caption(f"Prognosen ble vist, men kunne ikke lagres/logges: {_store_error}")
 
@@ -453,6 +681,8 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
         _render_forecast_result_cards(s)
 
         _render_plotly_chart(result)
+
+        _render_forecast_vs_actual_panel(ticker, horizon, prices)
 
         risk_color = _risk_color(s.risk)
         st.markdown(
@@ -496,6 +726,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                     "Bull %": f"{s2['bull_pct']:+.2f}%",
                     "Bear %": f"{s2['bear_pct']:+.2f}%",
                     "Confidence": f"{s2['confidence']}%",
+                    "Strength": f"{s2.get('forecast_strength', 0)}/100",
                     "Risiko": s2["risk"],
                 })
 
@@ -523,8 +754,9 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             """
             - Bruk denne prognosen som støtte til AI-ranking, ikke som fasit.
             - Sammenlign porteføljeaksjer mot bear/base/bull.
-            - Se etter høy confidence kombinert med lav/medium risiko.
+            - Se etter høy Forecast Strength Score kombinert med høy confidence og lav/medium risiko.
             - Vent med auto-trading-kobling til prognose-backtest er på plass.
+            - Bruk intelligent varsling til å prioritere hvilke aksjer/porteføljepunkter som må sjekkes først.
             """
         )
 

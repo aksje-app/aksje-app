@@ -14,6 +14,8 @@ assert result.summary.current_price == 129
 assert len(result.points) == result.summary.days + 1
 assert result.summary.bull_price >= result.summary.base_price >= result.summary.bear_price
 assert 0 <= result.summary.confidence <= 100
+assert 0 <= result.summary.forecast_strength <= 100
+assert result.summary.forecast_strength_label
 
 all_results = build_all_horizons("TEST", prices, ai_score=68, sentiment_score=0.25)
 assert set(all_results.keys()) == {"1d", "1w", "1m", "3m", "6m"}

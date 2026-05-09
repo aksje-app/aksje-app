@@ -59,6 +59,8 @@ class ForecastSummary:
     trend_score: float
     volatility_annual: float
     explanation: str
+    forecast_strength: int
+    forecast_strength_label: str
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,79 @@ def _explanation(
     parts.append("Dette er teoretiske scenarioer, ikke en garanti for fremtidig kurs.")
     return " ".join(parts)
 
+
+
+
+def _forecast_strength_score(
+    *,
+    base_pct: float,
+    bull_pct: float,
+    bear_pct: float,
+    confidence: int,
+    risk: str,
+    vol_annual: float,
+    ai_score: Optional[float] = None,
+    sentiment_score: Optional[float] = None,
+    market_regime: str = "neutral",
+    event_risk: bool = False,
+) -> Tuple[int, str]:
+    """Combine forecast components into one practical 0-100 strength score.
+
+    Higher score means stronger forecast setup, not guaranteed return.
+    """
+    score = 50.0
+
+    # Direction/return contribution
+    score += _clamp(base_pct, -12.0, 12.0) * 1.4
+
+    # Reward/risk shape: strong bull upside and limited bear downside improves score
+    score += _clamp(bull_pct, -20.0, 25.0) * 0.45
+    score += _clamp(bear_pct, -25.0, 10.0) * 0.35  # bear_pct is usually negative
+
+    # Confidence is important but not everything
+    score += (confidence - 50.0) * 0.35
+
+    # Penalize volatility/risk
+    risk_l = (risk or "").lower()
+    if risk_l == "lav":
+        score += 7
+    elif risk_l == "medium":
+        score += 1
+    elif risk_l == "høy":
+        score -= 10
+
+    score -= _clamp(vol_annual * 18.0, 0.0, 15.0)
+
+    if ai_score is not None:
+        score += (_clamp(float(ai_score), 0.0, 100.0) - 50.0) * 0.14
+    if sentiment_score is not None:
+        score += _clamp(float(sentiment_score), -1.0, 1.0) * 5.0
+
+    regime = (market_regime or "neutral").lower()
+    if regime in ("bull", "bullish", "positiv"):
+        score += 4
+    elif regime in ("bear", "bearish", "negativ"):
+        score -= 5
+    elif regime in ("volatile", "høy volatilitet"):
+        score -= 4
+
+    if event_risk:
+        score -= 8
+
+    final = int(round(_clamp(score, 0.0, 100.0)))
+
+    if final >= 80:
+        label = "Svært sterk"
+    elif final >= 65:
+        label = "Sterk"
+    elif final >= 50:
+        label = "Nøytral/moderat"
+    elif final >= 35:
+        label = "Svak"
+    else:
+        label = "Svært svak"
+
+    return final, label
 
 def build_forecast(
     ticker: str,
@@ -272,6 +347,22 @@ def build_forecast(
             )
         )
 
+    base_pct_value = round((base_terminal / current - 1.0) * 100.0, 2)
+    bull_pct_value = round((bull_terminal / current - 1.0) * 100.0, 2)
+    bear_pct_value = round((bear_terminal / current - 1.0) * 100.0, 2)
+    strength_score, strength_label = _forecast_strength_score(
+        base_pct=base_pct_value,
+        bull_pct=bull_pct_value,
+        bear_pct=bear_pct_value,
+        confidence=confidence,
+        risk=risk,
+        vol_annual=vol_annual,
+        ai_score=ai_score,
+        sentiment_score=sentiment_score,
+        market_regime=market_regime,
+        event_risk=event_risk,
+    )
+
     summary = ForecastSummary(
         ticker=ticker.upper(),
         horizon=horizon,
@@ -280,14 +371,16 @@ def build_forecast(
         base_price=round(base_terminal, 4),
         bull_price=round(bull_terminal, 4),
         bear_price=round(bear_terminal, 4),
-        base_pct=round((base_terminal / current - 1.0) * 100.0, 2),
-        bull_pct=round((bull_terminal / current - 1.0) * 100.0, 2),
-        bear_pct=round((bear_terminal / current - 1.0) * 100.0, 2),
+        base_pct=base_pct_value,
+        bull_pct=bull_pct_value,
+        bear_pct=bear_pct_value,
         confidence=confidence,
         risk=risk,
         trend_score=round(adjusted_drift * 100.0, 4),
         volatility_annual=round(vol_annual, 4),
         explanation=_explanation(adjusted_drift, vol_annual, confidence, risk, ai_score, sentiment_score),
+        forecast_strength=strength_score,
+        forecast_strength_label=strength_label,
     )
 
     return ForecastResult(

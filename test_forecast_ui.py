@@ -42,3 +42,8 @@ from forecast_ui import _forecast_cache_key
 
 key = _forecast_cache_key("aapl", "1m", "1y", 50, 0.0)
 assert key == "forecast_v1834::AAPL::1m::1y::50::0.0"
+
+
+from forecast_ui import _strength_color
+assert _strength_color(90) == "#22c55e"
+assert _strength_color(20) == "#ef4444"

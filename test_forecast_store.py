@@ -22,3 +22,21 @@ alerts = compute_alerts(payload)
 assert isinstance(alerts, list)
 
 print("forecast_store smoke test OK")
+
+
+from forecast_store import get_forecast_vs_actual_series
+
+series = get_forecast_vs_actual_series(payload, prices[:22], "1m")
+assert series["ticker"] == "TESTX"
+assert series["horizon"] == "1m"
+assert len(series["base"]) > 0
+assert "evaluation" in series
+
+
+from forecast_store import compute_intelligent_alerts, summarize_alerts
+
+smart_alerts = compute_intelligent_alerts(payload)
+assert isinstance(smart_alerts, list)
+summary_alerts = summarize_alerts(smart_alerts)
+assert "counts" in summary_alerts
+assert "top_level" in summary_alerts

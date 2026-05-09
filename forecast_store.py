@@ -232,3 +232,267 @@ def load_alerts(limit: int = 100) -> List[Dict[str, Any]]:
         except Exception:
             continue
     return rows
+
+
+def get_forecast_vs_actual_series(
+    forecast_payload: Dict[str, Any],
+    actual_prices: Sequence[float],
+    horizon: str,
+) -> Dict[str, Any]:
+    """Build aligned forecast-vs-actual series for charting.
+
+    Returns a dict with:
+    - labels
+    - actual
+    - base
+    - bull
+    - bear
+    - lower_band
+    - upper_band
+    - evaluation if actual has terminal price
+    """
+    horizons = forecast_payload.get("horizons", {})
+    item = horizons.get(horizon)
+    if not item:
+        raise ValueError(f"Mangler horisont i forecast payload: {horizon}")
+
+    points = item.get("points", [])
+    if not points:
+        raise ValueError("Forecast mangler punkter.")
+
+    clean_actual: List[float] = []
+    for value in actual_prices:
+        try:
+            f = float(value)
+            if f > 0:
+                clean_actual.append(f)
+        except Exception:
+            continue
+
+    max_len = min(len(points), len(clean_actual)) if clean_actual else len(points)
+    labels = [p.get("date_label", str(i)) for i, p in enumerate(points[:max_len])]
+
+    result = {
+        "ticker": forecast_payload.get("ticker", "UNKNOWN"),
+        "horizon": horizon,
+        "labels": labels,
+        "actual": clean_actual[:max_len] if clean_actual else [],
+        "base": [p.get("base") for p in points[:max_len]],
+        "bull": [p.get("bull") for p in points[:max_len]],
+        "bear": [p.get("bear") for p in points[:max_len]],
+        "lower_band": [p.get("lower_band") for p in points[:max_len]],
+        "upper_band": [p.get("upper_band") for p in points[:max_len]],
+        "evaluation": None,
+    }
+
+    if clean_actual and len(clean_actual) >= 2:
+        result["evaluation"] = evaluate_forecast_accuracy(
+            forecast_payload,
+            actual_price=clean_actual[min(len(clean_actual), len(points)) - 1],
+            horizon=horizon,
+        )
+
+    return result
+
+
+def _alert_priority(level: str) -> int:
+    level = (level or "").lower()
+    if level == "red":
+        return 3
+    if level == "yellow":
+        return 2
+    if level == "green":
+        return 1
+    return 0
+
+
+def _dedupe_alerts(alerts: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    result: List[Dict[str, Any]] = []
+    for alert in alerts:
+        key = (
+            alert.get("ticker"),
+            alert.get("horizon"),
+            alert.get("level"),
+            alert.get("message"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(alert))
+    result.sort(key=lambda a: _alert_priority(a.get("level", "")), reverse=True)
+    return result
+
+
+def compute_intelligent_alerts(
+    latest_payload: Dict[str, Any],
+    previous_payload: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """More advanced forecast alerts.
+
+    Focus:
+    - confidence collapse
+    - strength collapse / improvement
+    - bear risk expansion
+    - strong opportunity
+    - high-risk false-positive protection
+    """
+    alerts: List[Dict[str, Any]] = []
+    ticker = latest_payload.get("ticker", "UNKNOWN")
+    horizons = latest_payload.get("horizons", {})
+    prev_horizons = (previous_payload or {}).get("horizons", {}) if previous_payload else {}
+
+    for horizon, item in horizons.items():
+        summary = item.get("summary", {})
+        confidence = int(summary.get("confidence", 0))
+        strength = int(summary.get("forecast_strength", 0))
+        strength_label = summary.get("forecast_strength_label", "")
+        risk = summary.get("risk", "")
+        base_pct = float(summary.get("base_pct", 0))
+        bull_pct = float(summary.get("bull_pct", 0))
+        bear_pct = float(summary.get("bear_pct", 0))
+        volatility = float(summary.get("volatility_annual", 0))
+
+        # Red warnings
+        if strength < 35 and confidence < 50:
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "red",
+                "category": "weak_forecast",
+                "message": f"Svak prognose: Strength {strength}/100 og confidence {confidence}% for {ticker} {horizon}.",
+            })
+
+        if bear_pct <= -10 and risk == "Høy":
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "red",
+                "category": "bear_risk",
+                "message": f"Økt bear-risiko: bear-scenario {bear_pct:.1f}% og høy risiko for {ticker} {horizon}.",
+            })
+
+        if volatility >= 0.70:
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "red",
+                "category": "volatility",
+                "message": f"Svært høy volatilitet ({volatility:.0%}) gjør prognosen usikker for {ticker} {horizon}.",
+            })
+
+        # Yellow warnings
+        if confidence < 45 and strength >= 55:
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "yellow",
+                "category": "low_confidence",
+                "message": f"Mulig mulighet, men lav confidence ({confidence}%) for {ticker} {horizon}.",
+            })
+
+        if base_pct > 0 and bear_pct < -7:
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "yellow",
+                "category": "asymmetric_risk",
+                "message": f"Asymmetrisk risiko: base {base_pct:+.1f}% men bear {bear_pct:.1f}% for {ticker} {horizon}.",
+            })
+
+        # Green opportunity alerts
+        if strength >= 75 and confidence >= 60 and risk != "Høy" and base_pct > 2:
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "green",
+                "category": "strong_opportunity",
+                "message": f"Sterkt scenario: Strength {strength}/100, base {base_pct:+.1f}%, confidence {confidence}% for {ticker} {horizon}.",
+            })
+
+        if bull_pct >= 12 and bear_pct > -8 and confidence >= 55:
+            alerts.append({
+                "ticker": ticker,
+                "horizon": horizon,
+                "level": "green",
+                "category": "good_reward_risk",
+                "message": f"God reward/risk: bull {bull_pct:+.1f}% og bear {bear_pct:.1f}% for {ticker} {horizon}.",
+            })
+
+        # Change alerts vs previous forecast
+        prev = prev_horizons.get(horizon, {}).get("summary", {})
+        if prev:
+            prev_conf = int(prev.get("confidence", confidence))
+            prev_strength = int(prev.get("forecast_strength", strength))
+            prev_bear = float(prev.get("bear_pct", bear_pct))
+            prev_base = float(prev.get("base_pct", base_pct))
+
+            if prev_strength - strength >= 15:
+                alerts.append({
+                    "ticker": ticker,
+                    "horizon": horizon,
+                    "level": "yellow",
+                    "category": "strength_drop",
+                    "message": f"Strength falt fra {prev_strength} til {strength} for {ticker} {horizon}.",
+                })
+
+            if strength - prev_strength >= 15:
+                alerts.append({
+                    "ticker": ticker,
+                    "horizon": horizon,
+                    "level": "green",
+                    "category": "strength_improved",
+                    "message": f"Strength økte fra {prev_strength} til {strength} for {ticker} {horizon}.",
+                })
+
+            if prev_conf - confidence >= 15:
+                alerts.append({
+                    "ticker": ticker,
+                    "horizon": horizon,
+                    "level": "yellow",
+                    "category": "confidence_drop",
+                    "message": f"Confidence falt fra {prev_conf}% til {confidence}% for {ticker} {horizon}.",
+                })
+
+            if bear_pct - prev_bear <= -5:
+                alerts.append({
+                    "ticker": ticker,
+                    "horizon": horizon,
+                    "level": "red",
+                    "category": "bear_worsened",
+                    "message": f"Bear-scenario ble svakere fra {prev_bear:+.1f}% til {bear_pct:+.1f}% for {ticker} {horizon}.",
+                })
+
+            if base_pct - prev_base >= 5 and strength >= 60:
+                alerts.append({
+                    "ticker": ticker,
+                    "horizon": horizon,
+                    "level": "green",
+                    "category": "base_improved",
+                    "message": f"Base-scenario forbedret fra {prev_base:+.1f}% til {base_pct:+.1f}% for {ticker} {horizon}.",
+                })
+
+    return _dedupe_alerts(alerts)
+
+
+def summarize_alerts(alerts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize alerts for dashboard/UI."""
+    counts = {"red": 0, "yellow": 0, "green": 0}
+    categories: Dict[str, int] = {}
+    for alert in alerts:
+        level = (alert.get("level") or "").lower()
+        if level in counts:
+            counts[level] += 1
+        cat = alert.get("category") or "other"
+        categories[cat] = categories.get(cat, 0) + 1
+    top_level = "green"
+    if counts["red"]:
+        top_level = "red"
+    elif counts["yellow"]:
+        top_level = "yellow"
+    return {
+        "counts": counts,
+        "categories": categories,
+        "top_level": top_level,
+        "total": len(alerts),
+    }
