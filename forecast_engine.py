@@ -170,6 +170,8 @@ def build_forecast(
     *,
     ai_score: Optional[float] = None,
     sentiment_score: Optional[float] = None,
+    market_regime: str = "neutral",
+    event_risk: bool = False,
     start_date: Optional[datetime] = None,
 ) -> ForecastResult:
     """Lag bull/base/bear-scenario for én aksje.
@@ -211,6 +213,14 @@ def build_forecast(
     if sentiment_score is not None:
         drift_adjust += _clamp(float(sentiment_score), -1.0, 1.0) * 0.0006
 
+    regime = (market_regime or "neutral").lower()
+    if regime in ("bull", "bullish", "positiv"):
+        drift_adjust += 0.0005
+    elif regime in ("bear", "bearish", "negativ"):
+        drift_adjust -= 0.0005
+    elif regime in ("volatile", "høy volatilitet"):
+        drift_adjust -= 0.00015
+
     adjusted_drift = drift_daily + drift_adjust
 
     if len(clean) < 90:
@@ -225,6 +235,9 @@ def build_forecast(
         ai_score=ai_score,
         sentiment_score=sentiment_score,
     )
+    if event_risk:
+        confidence = max(15, confidence - 10)
+        warnings.append("Hendelsesrisiko: earnings/makro/nyheter kan gjøre scenarioet mindre treffsikkert.")
     risk = _risk_from_vol(vol_annual)
 
     # Scenario-spread: volatilitetsskalert. Bull/bear går ca +/- 0.8 sigma fra base i v1.
@@ -292,6 +305,8 @@ def build_all_horizons(
     *,
     ai_score: Optional[float] = None,
     sentiment_score: Optional[float] = None,
+    market_regime: str = "neutral",
+    event_risk: bool = False,
 ) -> Dict[str, Dict[str, Any]]:
     """Lag prognose for alle støttede horisonter."""
     return {
@@ -301,6 +316,8 @@ def build_all_horizons(
             horizon,
             ai_score=ai_score,
             sentiment_score=sentiment_score,
+            market_regime=market_regime,
+            event_risk=event_risk,
         ).to_dict()
         for horizon in SUPPORTED_HORIZONS
     }

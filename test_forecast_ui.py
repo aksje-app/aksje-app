@@ -28,3 +28,17 @@ assert _risk_color("Lav") == "green"
 assert _risk_color("Medium") == "orange"
 assert _risk_color("Høy") == "red"
 print("forecast_ui smoke test OK")
+
+
+from forecast_ui import _extract_ticker_from_value
+
+assert _extract_ticker_from_value({"ticker": "nvda"}) == "NVDA"
+assert _extract_ticker_from_value({"symbol": "eqnr.ol"}) == "EQNR.OL"
+assert _extract_ticker_from_value("tsla") == "TSLA"
+assert _extract_ticker_from_value("this is not a ticker") is None
+
+
+from forecast_ui import _forecast_cache_key
+
+key = _forecast_cache_key("aapl", "1m", "1y", 50, 0.0)
+assert key == "forecast_v1834::AAPL::1m::1y::50::0.0"
