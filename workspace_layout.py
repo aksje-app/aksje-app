@@ -20,6 +20,7 @@ from strategy_testing_workspace import render_strategy_testing_workspace
 from market_regime_ui import render_market_regime_widget
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from forecast_ui import render_forecast_section
+from analysis_universe_ai import render_ai_analysis_universe_workspace
 
 
 def inject_workspace_css() -> None:
@@ -199,7 +200,7 @@ def render_ai_control_center() -> None:
         """
         <div class="ptw-control-header">
           <div class="ptw-control-title">🧠 AI Kontrollsenter</div>
-          <div class="ptw-control-caption">Varsler, daglig rapport, regime, makro, heatmaps og backtest samlet i ett arbeidsområde.</div>
+          <div class="ptw-control-caption">Analyseunivers, varsler, daglig rapport, regime, makro, heatmaps og backtest samlet i ett arbeidsområde.</div>
           <div class="ptw-status-line">
             <span class="ptw-pill ptw-pill-ai">🟢 Samlet AI workspace aktivt</span>
             <span class="ptw-pill">📌 Mindre scrolling</span>
@@ -212,6 +213,7 @@ def render_ai_control_center() -> None:
 
     with st.expander("› Åpne AI Kontrollsenter", expanded=False):
         tab_names = [
+            "🎯 Analyseunivers",
             "🔮 Prognose",
             "🚨 Varsler",
             "📈 Daily Report",
@@ -225,20 +227,22 @@ def render_ai_control_center() -> None:
         tabs = st.tabs(tab_names)
 
         with tabs[0]:
-            _render_forecast_workspace_tab()
+            render_ai_analysis_universe_workspace(expanded=True)
         with tabs[1]:
-            render_common_alert_center(location="workspace")
+            _render_forecast_workspace_tab()
         with tabs[2]:
-            render_daily_ai_market_report()
+            render_common_alert_center(location="workspace")
         with tabs[3]:
-            render_market_intelligence_center()
+            render_daily_ai_market_report()
         with tabs[4]:
-            render_ai_heatmaps()
+            render_market_intelligence_center()
         with tabs[5]:
+            render_ai_heatmaps()
+        with tabs[6]:
             st.info("Strategi-test, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her. Legacy strategi-test nede i appen er deaktivert for å redusere duplikater.")
             render_strategy_testing_workspace()
             render_backtest_learning_panel()
-        with tabs[6]:
-            render_market_regime_widget()
         with tabs[7]:
+            render_market_regime_widget()
+        with tabs[8]:
             render_macro_rates_breadth_panel()

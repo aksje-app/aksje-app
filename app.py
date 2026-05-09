@@ -3211,30 +3211,13 @@ def render_system_admin_workspace():
 
 
 def render_analysis_universe_workspace():
-    """Fase 3: Analyseunivers flyttet fra venstremeny til hovedområdet nær Market overview."""
-    with st.expander("🔎 Analyseunivers / Market overview-oppsett", expanded=False):
-        st.caption("Felt i denne boksen er samlet i skjema, slik at de ikke oppdaterer hele appen før du lagrer som ventende.")
-        with st.form("analysis_universe_form_v17", clear_on_submit=False):
-            a1, a2, a3 = st.columns(3)
-            with a1:
-                selected_category = st.selectbox(
-                    "Markedskategori",
-                    MARKET_CATEGORY_OPTIONS,
-                    index=MARKET_CATEGORY_OPTIONS.index(st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0])) if st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0]) in MARKET_CATEGORY_OPTIONS else 0,
-                    key="market_category_selector_v157",
-                )
-                if selected_category in {"Cryptocurrencies", "Rates", "Commodities", "Currencies"}:
-                    st.info(f"{selected_category}: full analysemodell kommer senere. Aksjeunivers brukes som fallback.")
-            with a2:
-                st.slider("Antall aksjer å analysere", 5, 200, int(st.session_state.get("max_count_main_v157", 30)), key="max_count_main_v157")
-                st.slider("Minimum score for Top Picks", 4.0, 9.0, float(st.session_state.get("min_top_pick_score_main_v157", 6.5)), 0.1, key="min_top_pick_score_main_v157")
-            with a3:
-                st.checkbox("Bruk nyheter/sentiment", value=bool(st.session_state.get("use_news_main_v157", True)), key="use_news_main_v157")
-                st.checkbox("Bruk Signal Intelligence", value=bool(st.session_state.get("use_signal_intelligence_main_v157", True)), key="use_signal_intelligence_main_v157")
-                st.text_input("Søk ticker manuelt", value=str(st.session_state.get("search_main_v157", "")), placeholder="F.eks. AAPL, EQNR.OL", key="search_main_v157")
-            if st.form_submit_button("💾 Lagre analyseunivers som ventende", use_container_width=True):
-                _mark_pending_manual_change("Analyseunivers endret")
-                st.success("Analyseunivers lagret som ventende. Trykk Oppdater hele appen når du er klar.")
+    """Legacy wrapper: Analyseunivers er nå flyttet inn i AI Kontrollsenter."""
+    try:
+        from analysis_universe_ai import render_ai_analysis_universe_workspace
+        return render_ai_analysis_universe_workspace(expanded=False)
+    except Exception as exc:
+        st.warning(f"Analyseunivers AI-modul kunne ikke vises: {exc}")
+        return None
 
 def render_decision_explanation(decision):
     try:
@@ -5339,6 +5322,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                 st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
                 st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
 
+    st.session_state["latest_watchlist_tickers_v156"] = list(_watchlist_tickers or [])
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
 
 def render_paper_trading_dashboard():
@@ -5822,7 +5806,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-render_analysis_universe_workspace()
+# v18.5.3: Analyseunivers er flyttet inn i AI Kontrollsenter som egen AI-modul.
+# Legacy standalone-seksjon er deaktivert for å unngå duplisert workspace.
 
 # V15.8: kompakt Auto trading-kontrollgruppe med tydelige sikkerhetslåser.
 # Start opphever aldri Full stopp eller Nødstopp.
