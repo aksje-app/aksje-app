@@ -39,9 +39,31 @@ def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[
         if df is None or df.empty:
             return [], f"Fant ingen prisdata for {ticker}."
         close = df["Close"]
+
+        # yfinance can return either:
+        # 1) Series of prices
+        # 2) DataFrame with ticker columns, e.g. Close["AAPL"]
+        # list(DataFrame) returns column names, so we must select the numeric column first.
+        try:
+            if hasattr(close, "columns"):
+                if ticker in close.columns:
+                    close = close[ticker]
+                elif len(close.columns) == 1:
+                    close = close.iloc[:, 0]
+                else:
+                    close = close.select_dtypes(include="number").iloc[:, 0]
+        except Exception:
+            pass
+
         if hasattr(close, "dropna"):
             close = close.dropna()
-        prices = [float(x) for x in list(close)]
+
+        prices = []
+        for x in list(close):
+            try:
+                prices.append(float(x))
+            except Exception:
+                continue
         if len(prices) < 30:
             return [], f"For lite historikk for {ticker}. Trenger minst 30 datapunkter."
         return prices, None
