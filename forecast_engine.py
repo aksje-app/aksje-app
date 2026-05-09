@@ -247,6 +247,7 @@ def build_forecast(
     sentiment_score: Optional[float] = None,
     market_regime: str = "neutral",
     event_risk: bool = False,
+    learned_confidence_adjustment: int = 0,
     start_date: Optional[datetime] = None,
 ) -> ForecastResult:
     """Lag bull/base/bear-scenario for én aksje.
@@ -313,6 +314,15 @@ def build_forecast(
     if event_risk:
         confidence = max(15, confidence - 10)
         warnings.append("Hendelsesrisiko: earnings/makro/nyheter kan gjøre scenarioet mindre treffsikkert.")
+
+    if learned_confidence_adjustment:
+        try:
+            adj = int(learned_confidence_adjustment)
+            confidence = int(_clamp(confidence + adj, 5, 95))
+            warnings.append(f"Lærende confidence-justering brukt: {adj:+d} poeng.")
+        except Exception:
+            pass
+
     risk = _risk_from_vol(vol_annual)
 
     # Scenario-spread: volatilitetsskalert. Bull/bear går ca +/- 0.8 sigma fra base i v1.
@@ -400,6 +410,7 @@ def build_all_horizons(
     sentiment_score: Optional[float] = None,
     market_regime: str = "neutral",
     event_risk: bool = False,
+    learned_confidence_adjustment: int = 0,
 ) -> Dict[str, Dict[str, Any]]:
     """Lag prognose for alle støttede horisonter."""
     return {
@@ -411,6 +422,7 @@ def build_all_horizons(
             sentiment_score=sentiment_score,
             market_regime=market_regime,
             event_risk=event_risk,
+            learned_confidence_adjustment=learned_confidence_adjustment,
         ).to_dict()
         for horizon in SUPPORTED_HORIZONS
     }

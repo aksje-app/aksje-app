@@ -21,3 +21,7 @@ all_results = build_all_horizons("TEST", prices, ai_score=68, sentiment_score=0.
 assert set(all_results.keys()) == {"1d", "1w", "1m", "3m", "6m"}
 
 print("forecast_engine smoke test OK")
+
+
+adjusted = build_forecast("TEST", prices, "1m", ai_score=68, sentiment_score=0.25, learned_confidence_adjustment=5)
+assert adjusted.summary.confidence >= result.summary.confidence

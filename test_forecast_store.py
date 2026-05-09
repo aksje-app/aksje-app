@@ -40,3 +40,18 @@ assert isinstance(smart_alerts, list)
 summary_alerts = summarize_alerts(smart_alerts)
 assert "counts" in summary_alerts
 assert "top_level" in summary_alerts
+
+
+from forecast_store import learning_confidence_adjustment, update_learning_from_evaluation, evaluate_and_learn
+
+learning_before = learning_confidence_adjustment(ticker="TESTX", horizon="1m", base_confidence=60)
+assert "adjusted_confidence" in learning_before
+
+stats_after = update_learning_from_evaluation(eval_row)
+assert "global" in stats_after
+
+learning_after = learning_confidence_adjustment(ticker="TESTX", horizon="1m", base_confidence=60)
+assert "adjustment" in learning_after
+
+learned_eval = evaluate_and_learn(payload, actual_price=145, horizon="1m")
+assert learned_eval["learning_stats_updated"] is True

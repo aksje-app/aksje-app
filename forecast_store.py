@@ -496,3 +496,160 @@ def summarize_alerts(alerts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "top_level": top_level,
         "total": len(alerts),
     }
+
+
+LEARNING_STATS = FORECAST_DIR / "forecast_learning_stats.json"
+
+
+def load_learning_stats() -> Dict[str, Any]:
+    """Load learned confidence stats."""
+    ensure_forecast_dirs()
+    if not LEARNING_STATS.exists():
+        return {"global": {}, "tickers": {}, "horizons": {}}
+    try:
+        data = json.loads(LEARNING_STATS.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {"global": {}, "tickers": {}, "horizons": {}}
+        data.setdefault("global", {})
+        data.setdefault("tickers", {})
+        data.setdefault("horizons", {})
+        return data
+    except Exception:
+        return {"global": {}, "tickers": {}, "horizons": {}}
+
+
+def save_learning_stats(stats: Dict[str, Any]) -> None:
+    ensure_forecast_dirs()
+    LEARNING_STATS.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _update_bucket(bucket: Dict[str, Any], evaluation: Dict[str, Any]) -> Dict[str, Any]:
+    count = int(bucket.get("count", 0)) + 1
+    direction_hits = int(bucket.get("direction_hits", 0)) + (1 if evaluation.get("direction_hit") else 0)
+    inside_band_hits = int(bucket.get("inside_band_hits", 0)) + (1 if evaluation.get("inside_bull_bear_range") else 0)
+    abs_error_sum = float(bucket.get("abs_error_sum", 0.0)) + abs(float(evaluation.get("error_pct", 0.0)))
+
+    bucket["count"] = count
+    bucket["direction_hits"] = direction_hits
+    bucket["inside_band_hits"] = inside_band_hits
+    bucket["abs_error_sum"] = round(abs_error_sum, 4)
+    bucket["direction_accuracy"] = round(direction_hits / count * 100.0, 2)
+    bucket["inside_band_accuracy"] = round(inside_band_hits / count * 100.0, 2)
+    bucket["avg_abs_error_pct"] = round(abs_error_sum / count, 2)
+    bucket["updated_at"] = _now_iso()
+    return bucket
+
+
+def update_learning_from_evaluation(evaluation: Dict[str, Any]) -> Dict[str, Any]:
+    """Update learning stats from one forecast evaluation."""
+    stats = load_learning_stats()
+    ticker = str(evaluation.get("ticker", "UNKNOWN")).upper()
+    horizon = str(evaluation.get("horizon", "unknown"))
+
+    stats["global"] = _update_bucket(stats.get("global", {}), evaluation)
+
+    tickers = stats.setdefault("tickers", {})
+    tickers[ticker] = _update_bucket(tickers.get(ticker, {}), evaluation)
+
+    horizons = stats.setdefault("horizons", {})
+    horizons[horizon] = _update_bucket(horizons.get(horizon, {}), evaluation)
+
+    save_learning_stats(stats)
+    return stats
+
+
+def learning_confidence_adjustment(
+    *,
+    ticker: str,
+    horizon: str,
+    base_confidence: int,
+    stats: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return adjusted confidence based on learned historical accuracy.
+
+    Conservative rule:
+    - Needs at least 5 samples before strong adjustment.
+    - Direction accuracy and avg error influence confidence.
+    - Adjustment capped to +/- 15 points.
+    """
+    stats = stats or load_learning_stats()
+    ticker = (ticker or "UNKNOWN").upper()
+    horizon = horizon or "unknown"
+
+    buckets = []
+    for bucket in [
+        stats.get("global", {}),
+        stats.get("horizons", {}).get(horizon, {}),
+        stats.get("tickers", {}).get(ticker, {}),
+    ]:
+        if bucket and int(bucket.get("count", 0)) > 0:
+            buckets.append(bucket)
+
+    if not buckets:
+        return {
+            "base_confidence": int(base_confidence),
+            "adjusted_confidence": int(base_confidence),
+            "adjustment": 0,
+            "reason": "Ingen læringshistorikk ennå.",
+            "samples": 0,
+        }
+
+    total_weight = 0.0
+    score_sum = 0.0
+    samples = 0
+
+    for bucket in buckets:
+        count = int(bucket.get("count", 0))
+        samples += count
+        weight = min(count / 10.0, 1.0)
+        direction_acc = float(bucket.get("direction_accuracy", 50.0))
+        inside_acc = float(bucket.get("inside_band_accuracy", 50.0))
+        avg_error = float(bucket.get("avg_abs_error_pct", 8.0))
+
+        # 50 is neutral. Above 60 improves, below 45 weakens.
+        quality = (direction_acc - 50.0) * 0.45 + (inside_acc - 50.0) * 0.25 - max(0.0, avg_error - 6.0) * 1.2
+        score_sum += quality * weight
+        total_weight += weight
+
+    if total_weight <= 0:
+        adjustment = 0
+    else:
+        raw_adjustment = score_sum / total_weight / 3.0
+        adjustment = int(round(max(-15.0, min(15.0, raw_adjustment))))
+
+    # Extra conservative if very few samples
+    if samples < 5:
+        adjustment = int(round(adjustment * 0.35))
+        reason = "Lite læringshistorikk, bruker svak justering."
+    elif samples < 15:
+        adjustment = int(round(adjustment * 0.65))
+        reason = "Moderat læringshistorikk, bruker forsiktig justering."
+    else:
+        reason = "Læringshistorikk brukt til confidence-justering."
+
+    adjusted = int(max(5, min(95, int(base_confidence) + adjustment)))
+
+    return {
+        "base_confidence": int(base_confidence),
+        "adjusted_confidence": adjusted,
+        "adjustment": adjustment,
+        "reason": reason,
+        "samples": samples,
+    }
+
+
+def evaluate_and_learn(
+    forecast_payload: Dict[str, Any],
+    actual_price: float,
+    horizon: str,
+) -> Dict[str, Any]:
+    """Evaluate a forecast and update learning stats in one step."""
+    evaluation = evaluate_forecast_accuracy(forecast_payload, actual_price=actual_price, horizon=horizon)
+    stats = update_learning_from_evaluation(evaluation)
+    evaluation["learning_stats_updated"] = True
+    evaluation["learning_stats"] = {
+        "global": stats.get("global", {}),
+        "ticker": stats.get("tickers", {}).get(evaluation.get("ticker", ""), {}),
+        "horizon": stats.get("horizons", {}).get(horizon, {}),
+    }
+    return evaluation

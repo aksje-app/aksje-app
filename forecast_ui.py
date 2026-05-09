@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import streamlit as st
 
 from forecast_engine import SUPPORTED_HORIZONS, build_forecast, build_all_horizons
-from forecast_store import build_and_store_all_horizons, compute_alerts, compute_intelligent_alerts, get_forecast_vs_actual_series, load_alerts, load_forecast_log, load_latest_forecast, save_alerts, summarize_alerts
+from forecast_store import build_and_store_all_horizons, compute_alerts, compute_intelligent_alerts, evaluate_and_learn, get_forecast_vs_actual_series, learning_confidence_adjustment, load_alerts, load_forecast_log, load_latest_forecast, load_learning_stats, save_alerts, summarize_alerts
 from forecast_portfolio import build_portfolio_forecast, normalize_holdings
 
 
@@ -379,6 +379,14 @@ def _render_forecast_vs_actual_panel(ticker: str, horizon: str, current_prices: 
             e2.metric("Faktisk avkastning", f"{evaluation['actual_return_pct']:+.2f}%")
             e3.metric("Retning traff", "Ja" if evaluation["direction_hit"] else "Nei")
             e4.metric("Innen bull/bear", "Ja" if evaluation["inside_bull_bear_range"] else "Nei")
+
+            if st.button("Oppdater læring fra denne evalueringen", key=f"learn_from_eval_{ticker}_{horizon}_v18310"):
+                try:
+                    learned = evaluate_and_learn(latest, actual_price=actual[-1], horizon=horizon)
+                    st.success("Lærende confidence er oppdatert.")
+                    st.json(learned.get("learning_stats", {}))
+                except Exception as _learn_error:
+                    st.warning(f"Kunne ikke oppdatere læring: {_learn_error}")
         else:
             st.caption("Ikke nok faktisk kursdata ennå til evaluering.")
 
@@ -621,6 +629,13 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
         cache_key = _forecast_cache_key(ticker, horizon, period, float(ai_score), float(sentiment))
         cached = _get_cached_forecast(cache_key)
 
+        learning_adj = learning_confidence_adjustment(
+            ticker=ticker,
+            horizon=horizon,
+            base_confidence=50,
+        )
+        learned_adjustment = int(learning_adj.get("adjustment", 0))
+
         if cached:
             st.caption("Viser cachet prognose for samme ticker/horisont/innstillinger i denne økten.")
 
@@ -635,6 +650,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                     sentiment_score=float(sentiment),
                     market_regime=market_regime,
                     event_risk=event_risk,
+                    learned_confidence_adjustment=learned_adjustment,
                 )
             else:
                 result = build_forecast(
@@ -645,6 +661,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                     sentiment_score=float(sentiment),
                     market_regime=market_regime,
                     event_risk=event_risk,
+                    learned_confidence_adjustment=learned_adjustment,
                 )
                 _set_cached_forecast(cache_key, result.to_dict())
         except Exception as exc:
@@ -679,6 +696,27 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
 
         s = result.summary
         _render_forecast_result_cards(s)
+
+        with st.expander("🧠 Lærende confidence", expanded=False):
+            try:
+                learning_info = learning_confidence_adjustment(
+                    ticker=ticker,
+                    horizon=horizon,
+                    base_confidence=s.confidence,
+                )
+                stats = load_learning_stats()
+                st.write(
+                    f"Justering: {learning_info.get('adjustment', 0):+d} poeng · "
+                    f"Samples: {learning_info.get('samples', 0)}"
+                )
+                st.caption(learning_info.get("reason", ""))
+                st.json({
+                    "global": stats.get("global", {}),
+                    "ticker": stats.get("tickers", {}).get(ticker, {}),
+                    "horizon": stats.get("horizons", {}).get(horizon, {}),
+                })
+            except Exception as _learning_error:
+                st.caption(f"Læringsinfo ikke tilgjengelig: {_learning_error}")
 
         _render_plotly_chart(result)
 
