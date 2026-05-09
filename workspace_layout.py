@@ -18,6 +18,7 @@ from ai_heatmap_ui import render_ai_heatmaps
 from forecast_backtest_ui import render_backtest_learning_panel
 from market_regime_ui import render_market_regime_widget
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
+from forecast_ui import render_forecast_section
 
 
 def inject_workspace_css() -> None:
@@ -27,13 +28,26 @@ def inject_workspace_css() -> None:
         <style>
         /* v18.4.7 professional workspace */
         .block-container {
-            padding-top: 0.35rem !important;
+            padding-top: 0.20rem !important;
             padding-bottom: 1.5rem !important;
             max-width: 98vw !important;
         }
 
         div[data-testid="stVerticalBlock"] {
-            gap: 0.45rem !important;
+            gap: 0.25rem !important;
+        }
+
+        .ptw-app-title {
+            display:flex;
+            align-items:center;
+            gap:.55rem;
+            margin:.10rem 0 .28rem 0;
+            padding:.20rem .2rem .30rem .2rem;
+            border-bottom:1px solid rgba(120,150,190,.28);
+            font-size:1.25rem;
+            line-height:1.15;
+            font-weight:950;
+            color:#f4f8ff;
         }
 
         .ptw-sticky-topbar {
@@ -94,8 +108,8 @@ def inject_workspace_css() -> None:
             border: 1px solid rgba(95, 122, 170, .35);
             background: linear-gradient(180deg, rgba(17, 30, 54, .95), rgba(10, 20, 38, .92));
             border-radius: 16px;
-            padding: .7rem .85rem;
-            margin: .3rem 0 .45rem 0;
+            padding: .55rem .75rem;
+            margin: .2rem 0 .25rem 0;
         }
 
         .ptw-control-title {
@@ -153,6 +167,18 @@ def inject_workspace_css() -> None:
     )
 
 
+def render_workspace_title() -> None:
+    """Render app title at the very top of the workspace."""
+    st.markdown(
+        """
+        <div class="ptw-app-title">
+          <span>📊 Market Overview – 📈 AI Aksje Analyzer Pro</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_ai_control_center() -> None:
     """One compact AI control center with tabs instead of many stacked expanders."""
     st.markdown(
@@ -172,6 +198,7 @@ def render_ai_control_center() -> None:
 
     with st.expander("› Åpne AI Kontrollsenter", expanded=False):
         tab_names = [
+            "🔮 Prognose",
             "🚨 Varsler",
             "📈 Daily Report",
             "🧠 Intelligence",
@@ -184,16 +211,21 @@ def render_ai_control_center() -> None:
         tabs = st.tabs(tab_names)
 
         with tabs[0]:
-            render_common_alert_center(location="workspace")
+            try:
+                render_forecast_section()
+            except TypeError:
+                render_forecast_section(default_ticker="AAPL")
         with tabs[1]:
-            render_daily_ai_market_report()
+            render_common_alert_center(location="workspace")
         with tabs[2]:
-            render_market_intelligence_center()
+            render_daily_ai_market_report()
         with tabs[3]:
-            render_ai_heatmaps()
+            render_market_intelligence_center()
         with tabs[4]:
-            render_backtest_learning_panel()
+            render_ai_heatmaps()
         with tabs[5]:
-            render_market_regime_widget()
+            render_backtest_learning_panel()
         with tabs[6]:
+            render_market_regime_widget()
+        with tabs[7]:
             render_macro_rates_breadth_panel()

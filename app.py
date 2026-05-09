@@ -4,7 +4,7 @@ import os
 import re
 import streamlit as st
 from sticky_topbar import render_sticky_topbar
-from workspace_layout import inject_workspace_css, render_ai_control_center
+from workspace_layout import inject_workspace_css, render_workspace_title, render_ai_control_center
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from ai_heatmap_ui import render_ai_heatmaps
 from forecast_backtest_ui import render_backtest_learning_panel
@@ -78,6 +78,7 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 # v18.4.7: Professional Trading Workspace. Ingen auto-trading-kobling.
 try:
     inject_workspace_css()
+    render_workspace_title()
     render_sticky_topbar()
     render_ai_control_center()
 except Exception as _workspace_error:

@@ -67,13 +67,23 @@ def render_backtest_learning_panel() -> None:
         tickers = _tickers_from_forecast_log(limit=500)
         c1, c2 = st.columns([2, 1])
         with c1:
-            selected = st.multiselect(
-                "Tickere å evaluere",
-                options=tickers,
-                default=tickers[:10],
-                key="backtest_learning_tickers_v1842",
-                help="Hentes fra lagrede prognoser.",
-            )
+            if tickers:
+                selected = st.multiselect(
+                    "Tickere å evaluere",
+                    options=tickers,
+                    default=tickers[:10],
+                    key="backtest_learning_tickers_v1842",
+                    help="Hentes fra lagrede prognoser.",
+                )
+            else:
+                st.info("Ingen lagrede prognoser funnet ennå. Lag prognoser først, eller bruk manuell ticker-fallback.")
+                manual_raw = st.text_input(
+                    "Manuelle tickere",
+                    value="AAPL,NVDA,MSFT",
+                    key="backtest_learning_manual_tickers_v1848",
+                    help="Kommaseparert fallback når prognoseloggen er tom.",
+                )
+                selected = [x.strip().upper() for x in manual_raw.split(",") if x.strip()]
         with c2:
             max_eval = st.number_input("Maks evalueringer", min_value=1, max_value=500, value=100, step=10, key="backtest_learning_max_v1842")
 
