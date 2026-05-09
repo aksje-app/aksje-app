@@ -6157,9 +6157,5 @@ def add_rsi_current_box(fig, rsi):
     return fig
 
 
-# v18.3.1 Bygg 2: isolert prognosegraf-seksjon. Ingen auto-trading-kobling.
-try:
-    render_forecast_section()
-except Exception as _forecast_ui_error:
-    st.warning(f"Prognosemodul kunne ikke vises: {_forecast_ui_error}")
+# v18.4.9: Legacy forecast section removed. Forecast lives in AI Kontrollsenter.
 

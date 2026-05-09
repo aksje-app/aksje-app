@@ -179,6 +179,19 @@ def render_workspace_title() -> None:
     )
 
 
+def _render_forecast_workspace_tab() -> None:
+    """Render forecast inside AI Control Center only."""
+    try:
+        st.session_state["forecast_render_context_v1849"] = "ai_control_center"
+        render_forecast_section()
+    except TypeError:
+        render_forecast_section(default_ticker="AAPL")
+    except Exception as exc:
+        st.warning(f"Prognosemodul kunne ikke vises i AI Kontrollsenter: {exc}")
+    finally:
+        st.session_state["forecast_render_context_v1849"] = "normal"
+
+
 def render_ai_control_center() -> None:
     """One compact AI control center with tabs instead of many stacked expanders."""
     st.markdown(
@@ -211,10 +224,7 @@ def render_ai_control_center() -> None:
         tabs = st.tabs(tab_names)
 
         with tabs[0]:
-            try:
-                render_forecast_section()
-            except TypeError:
-                render_forecast_section(default_ticker="AAPL")
+            _render_forecast_workspace_tab()
         with tabs[1]:
             render_common_alert_center(location="workspace")
         with tabs[2]:

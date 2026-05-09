@@ -491,7 +491,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
         manual = st.text_input(
             "Manuelle tickere hvis portefølje ikke finnes",
             value=",".join([h["ticker"] for h in found_holdings[:8]]) if found_holdings else "AAPL,MSFT,NVDA",
-            key="portfolio_forecast_manual_tickers_v1838",
+            key=f"portfolio_forecast_manual_tickers_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
             help="Kommaseparert. Hvis verdier mangler brukes lik vekting.",
         )
 
@@ -499,7 +499,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
             "Portefølje-horisont",
             options=list(SUPPORTED_HORIZONS.keys()),
             index=list(SUPPORTED_HORIZONS.keys()).index(default_horizon) if default_horizon in SUPPORTED_HORIZONS else 2,
-            key="portfolio_forecast_horizon_v1838",
+            key=f"portfolio_forecast_horizon_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
         )
 
         if found_holdings:
@@ -509,7 +509,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
             holdings = [{"ticker": t.strip().upper()} for t in manual.split(",") if t.strip()]
             st.caption("Bruker manuelle tickere med lik vekting.")
 
-        run_pf = st.button("Lag porteføljeprognose", key="portfolio_forecast_run_v1838", use_container_width=True)
+        run_pf = st.button("Lag porteføljeprognose", key=f"portfolio_forecast_run_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}", use_container_width=True)
         if not run_pf:
             return
 
@@ -611,7 +611,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 options=list(SUPPORTED_HORIZONS.keys()),
                 format_func=lambda x: horizon_labels.get(x, x),
                 index=2,
-                key="forecast_horizon_v1831",
+                key=f"forecast_horizon_v1831_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
             )
         with c3:
             period = st.selectbox(
@@ -621,8 +621,8 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 key="forecast_history_period_v1831",
             )
 
-        ai_score = st.slider("AI-score-justering", 0, 100, 50, 1, key="forecast_ai_score_v1831")
-        sentiment = st.slider("Sentiment-justering", -1.0, 1.0, 0.0, 0.05, key="forecast_sentiment_v1831")
+        ai_score = st.slider("AI-score-justering", 0, 100, 50, 1, key=f"forecast_ai_score_v1831_{st.session_state.get('forecast_render_context_v1849', 'normal')}")
+        sentiment = st.slider("Sentiment-justering", -1.0, 1.0, 0.0, 0.05, key=f"forecast_sentiment_v1831_{st.session_state.get('forecast_render_context_v1849', 'normal')}")
 
         mc1, mc2 = st.columns([1.3, 1.0])
         with mc1:
@@ -634,14 +634,14 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 options=regime_options,
                 format_func=lambda x: {"neutral": "Nøytral", "bull": "Bull", "bear": "Bear", "volatile": "Høy volatilitet"}.get(x, x),
                 index=default_regime_index,
-                key="forecast_market_regime_v1835",
+                key=f"forecast_market_regime_v1835_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
                 help="Velges automatisk hvis markedsregime-widgeten er kjørt.",
             )
         with mc2:
             event_risk = st.checkbox(
                 "Hendelsesrisiko nær?",
                 value=bool(st.session_state.get("auto_event_risk_v1840", False)),
-                key="forecast_event_risk_v1835",
+                key=f"forecast_event_risk_v1835_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
                 help="Kan settes automatisk ved Stress/Panic-regime.",
             )
 
