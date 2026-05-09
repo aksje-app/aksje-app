@@ -3,7 +3,8 @@ from ui_components import market_pulse, top_movers
 import os
 import re
 import streamlit as st
-from ai_control_center import render_ai_control_center
+from sticky_topbar import render_sticky_topbar
+from workspace_layout import inject_workspace_css, render_ai_control_center
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from ai_heatmap_ui import render_ai_heatmaps
 from forecast_backtest_ui import render_backtest_learning_panel
@@ -74,45 +75,31 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.4.6: Samlet AI Kontrollsenter / Layout Cleanup. Ingen auto-trading-kobling.
+# v18.4.7: Professional Trading Workspace. Ingen auto-trading-kobling.
 try:
+    inject_workspace_css()
+    render_sticky_topbar()
     render_ai_control_center()
-except Exception as _ai_control_center_error:
-    st.caption(f"AI Kontrollsenter kunne ikke vises: {_ai_control_center_error}")
-
-
-st.markdown("""
-<style>
-/* v18.4.6 layout cleanup */
-.block-container { padding-top: 1.0rem !important; }
-div[data-testid="stExpander"] { margin-bottom: .35rem; }
-</style>
-""", unsafe_allow_html=True)
-
-
-
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
-
-
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
-
-
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
-
-
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
-
-
-
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
+except Exception as _workspace_error:
+    st.caption(f"Professional Trading Workspace kunne ikke vises: {_workspace_error}")
 
 
 
 
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
 
 
-# v18.4.6: tidligere separat AI-toppmodul er flyttet inn i AI Kontrollsenter.
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

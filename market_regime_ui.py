@@ -102,5 +102,5 @@ def render_market_regime_widget() -> None:
         m5.metric("VIX", f"{result.vix_level}" if result.vix_level is not None else "N/A")
 
         st.write(result.explanation)
-        with st.expander("Avanserte komponenter", expanded=False):
+        with st.expander('Avansert detaljdata', expanded=False):
             st.json(result.components)

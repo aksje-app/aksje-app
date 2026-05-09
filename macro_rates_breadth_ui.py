@@ -108,7 +108,7 @@ def render_macro_rates_breadth_panel() -> None:
         m5.metric("Samlet", f"{result.combined_score}/100", result.risk_level)
 
         st.write(result.explanation)
-        with st.expander("Avanserte komponenter", expanded=False):
+        with st.expander('Avansert detaljdata', expanded=False):
             st.json(result.components)
 
         if errors:
