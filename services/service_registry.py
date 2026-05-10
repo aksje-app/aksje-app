@@ -27,3 +27,9 @@ _registry = ServiceRegistry()
 
 def get_service_registry() -> ServiceRegistry:
     return _registry
+
+def get_service_registry():
+    return _registry
+
+def build_service_registry():
+    return get_service_registry()
