@@ -10,6 +10,7 @@ Ingen auto-trading-kobling.
 from __future__ import annotations
 
 import streamlit as st
+from ai_service_bridge import render_service_workspace
 
 from alert_center import render_common_alert_center
 from daily_ai_market_report import render_daily_ai_market_report
@@ -222,6 +223,7 @@ def render_ai_control_center() -> None:
             "🧪 Testing & Learning",
             "🌍 Regime",
             "🌐 Makro/renter",
+            "🧩 Services",
         ]
 
         tabs = st.tabs(tab_names)

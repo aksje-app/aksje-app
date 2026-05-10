@@ -1,15 +1,14 @@
 """
 analysis_universe_ai.py
 
-v18.5.6: Analyseunivers som AI-modul med tydelig resultatfelt for valg.
+v18.5.10: Analyseunivers koblet til felles datamodell og service-lag.
 
 Dette er et workspace-/arkitekturlag for Analyseunivers. Modulen samler valg for
 enkeltaksje, marked, multi-marked, top picks, watchlist, paper trading og
 portefølje i AI Kontrollsenter.
 
-Viktig: ekte AI-universe-picker, intelligent filtrering og komplett
-sammenslått workspace-motor er eksplisitt markert som planlagt / ikke ferdig.
-Modulen skal derfor ikke late som at den gjør autonom AI-utvelgelse.
+Smart AI-utvalg kjører nå via services/universe_service.py og felles modeller i core_models.py.
+Top Picks og Watchlist-handlinger går via egne services, ikke direkte UI-mutering.
 """
 
 from __future__ import annotations
@@ -19,6 +18,9 @@ from html import escape
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
+
+from services.service_registry import build_service_registry
+from services.universe_service import SMART_RESULT_KEY as AI_UNIVERSE_SMART_RESULT_KEY_V1859
 
 try:
     import streamlit as st
@@ -34,7 +36,9 @@ except Exception:  # pragma: no cover - allows pure helper tests without Streaml
 
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
-AI_UNIVERSE_MODULE_VERSION = "v18.5.6"
+AI_UNIVERSE_MODULE_VERSION = "v18.5.10"
+AI_UNIVERSE_SMART_RESULT_KEY = AI_UNIVERSE_SMART_RESULT_KEY_V1859
+AI_UNIVERSE_SMART_RESULT_LEGACY_KEY = "ai_analysis_universe_smart_result_v1858"
 
 WORKSPACE_MODES = [
     "Enkeltaksje",
@@ -44,10 +48,10 @@ WORKSPACE_MODES = [
     "Watchlist",
     "Paper trading",
     "Portefølje",
-    "Smart AI-utvalg (planlagt)",
+    "Smart AI-utvalg",
 ]
 
-MARKET_SCOPES = ["USA", "Norge", "Sverige", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje"]
+MARKET_SCOPES = ["USA", "Norge", "Sverige", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Smart AI-utvalg"]
 
 SECTOR_OPTIONS = [
     "Alle sektorer",
@@ -66,15 +70,15 @@ SECTOR_OPTIONS = [
 FEATURE_STATUS_ROWS = [
     ("Enkeltaksje", "UI-koblet", "Manuell ticker kan fortsatt brukes som overstyring."),
     ("Markedvalg", "UI-koblet", "Bruker eksisterende markedskategori og appens aktive univers."),
-    ("Multi-marked", "Arkitektur", "Kan lagres som scope, men full multi-market-motor er ikke ferdig."),
-    ("Top Picks", "UI-koblet", "Leser eksisterende Top Picks når de finnes i session/cache."),
-    ("Watchlist", "Delvis", "Kan vise siste kjente watchlist, men egen AI-watchlistvelger er ikke ferdig."),
+    ("Multi-marked", "Operativ Fase 1", "Kan kjøre flere marked i samme Smart AI-scan via valgt scope."),
+    ("Top Picks", "Service-koblet", "Smart AI-resultater kan lagres via TopPicksService."),
+    ("Watchlist", "Service-koblet", "Smart AI-resultater kan lagres via WatchlistService."),
     ("Paper trading", "Delvis", "Kan lese åpne paper-posisjoner; ingen automatisk handel startes her."),
-    ("Portefølje", "Planlagt", "Porteføljeunivers er markert, men samlet porteføljemotor gjenstår."),
-    ("Smart AI-utvalg", "Planlagt", "Ekte AI-universe-picker er ikke implementert ennå."),
-    ("Risikofiltrering", "Preview", "Viser enkelt filter basert på eksisterende score/drawdown-felt."),
-    ("Sektorfiltrering", "Preview", "Bruker grove ticker-/metadata-hint. Ikke full sektormodell."),
-    ("Momentum/strength-filter", "Preview", "Bruker eksisterende score/momentum/strength når tilgjengelig."),
+    ("Portefølje", "Service-klargjort", "PortfolioService finnes som felles grensesnitt; full portefølje-UI kobles videre i neste fase."),
+    ("Smart AI-utvalg", "Operativ Fase 2", "Kjører via UniverseService med felles datamodell, score, filter og rangering."),
+    ("Risikofiltrering", "Operativ Fase 1", "Bruker beregnet risiko fra volatilitet/drawdown eller eksisterende risk_score."),
+    ("Sektorfiltrering", "Operativ Fase 1", "Bruker sektor fra analysedata eller transparent ticker-fallback."),
+    ("Momentum/strength-filter", "Operativ Fase 1", "Beregner strength fra score_parts/avkastning eller eksisterende strength-felt."),
 ]
 
 
@@ -213,10 +217,17 @@ def _iter_ranked_sources(latest_rankings: Mapping[str, Any]) -> Iterable[Univers
 
 def _load_paper_positions() -> List[UniverseCandidate]:
     try:
-        from paper_store import load_portfolio
+        import paper_store
 
-        portfolio = load_portfolio() or {}
-        positions = portfolio.get("positions", {}) or {}
+        # Viewing Analyseunivers should not create a local runtime file.
+        # paper_store.load_portfolio() creates paper_portfolio.json when the
+        # local fallback file is missing, so skip the read until there is an
+        # existing local file or an active Postgres store.
+        if not paper_store.using_postgres() and not paper_store.STORE_FILE.exists():
+            positions = {}
+        else:
+            portfolio = paper_store.load_portfolio() or {}
+            positions = portfolio.get("positions", {}) or {}
     except Exception:
         positions = {}
 
@@ -311,6 +322,8 @@ def filter_universe_candidates(
                 allowed = True
             if "Portefølje" in selected_scopes and source in {"Portefølje", "Paper trading"}:
                 allowed = True
+            if "Smart AI-utvalg" in selected_scopes and source in {"SmartAI", "Smart AI"}:
+                allowed = True
             if not allowed:
                 continue
 
@@ -336,6 +349,104 @@ def _feature_status_dataframe() -> pd.DataFrame:
 
 def _candidate_dataframe(candidates: Sequence[UniverseCandidate]) -> pd.DataFrame:
     return pd.DataFrame([c.as_dict() for c in candidates])
+
+
+def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
+    rows = []
+    for row in result.get("candidates", []) or []:
+        if not isinstance(row, Mapping):
+            continue
+        rows.append(
+            {
+                "Rank": row.get("rank"),
+                "Ticker": row.get("ticker"),
+                "Navn": row.get("name"),
+                "Marked": row.get("market"),
+                "Sektor": row.get("sector"),
+                "AI-score": row.get("ai_score"),
+                "Smart-score": row.get("smart_score"),
+                "Strength": row.get("strength"),
+                "Risiko": row.get("risk"),
+                "1m %": row.get("ret_1m_pct"),
+                "3m %": row.get("ret_3m_pct"),
+                "Forklaring": row.get("reason"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _existing_tickers_by_scope_from_state(session_state: Mapping[str, Any]) -> Dict[str, List[str]]:
+    out: Dict[str, List[str]] = {}
+    latest_rankings = session_state.get("latest_rankings_v148", {}) or {}
+    for source, rows in latest_rankings.items():
+        tickers: List[str] = []
+        if isinstance(rows, Sequence) and not isinstance(rows, (str, bytes)):
+            for row in rows:
+                if isinstance(row, Mapping):
+                    ticker = _normalize_ticker(row.get("ticker") or row.get("symbol"))
+                    if ticker:
+                        tickers.append(ticker)
+        if tickers:
+            out[str(source)] = tickers
+            if str(source).startswith("TopPicks"):
+                out.setdefault("Top Picks", []).extend(tickers)
+            if str(source).startswith("SmartAI") or str(source).startswith("Smart AI"):
+                out.setdefault("Smart AI-utvalg", []).extend(tickers)
+    watchlist = [_normalize_ticker(x) for x in (session_state.get("latest_watchlist_tickers_v156", []) or [])]
+    if watchlist:
+        out["Watchlist"] = [x for x in watchlist if x]
+    return out
+
+
+def _store_smart_result_in_rankings(result: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    services = build_service_registry(st.session_state)
+    ranked_rows = services.universe.store_result_as_rankings(result)
+    return ranked_rows
+
+
+def _smart_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str]]:
+    if not result:
+        return [
+            {
+                "label": "Smart AI-utvalg",
+                "value": "Ikke kjørt ennå",
+                "detail": "Trykk ‘Kjør Smart AI-utvalg nå’ for å score, filtrere og rangere valgt univers.",
+                "kind": "neutral",
+            }
+        ]
+    errors = result.get("errors", []) or []
+    return [
+        {
+            "label": "Smart AI-status",
+            "value": str(result.get("status", "ukjent")),
+            "detail": str(result.get("generated_at", "-")),
+            "kind": "ok" if result.get("status") == "ok" else "warn",
+        },
+        {
+            "label": "Univers",
+            "value": f"{result.get('universe_size', 0)} tickere",
+            "detail": f"Scannet: {result.get('scanned', 0)} · Scorede: {result.get('raw_candidates', 0)}",
+            "kind": "preview",
+        },
+        {
+            "label": "Matcher filtre",
+            "value": f"{result.get('matched_candidates', 0)} kandidater",
+            "detail": str((result.get("summary") or {}).get("text", "")),
+            "kind": "ok" if result.get("matched_candidates", 0) else "warn",
+        },
+        {
+            "label": "Top Picks fra Smart AI",
+            "value": _safe_join(result.get("top_tickers", []) or [], empty="Ingen"),
+            "detail": "Disse kan sendes direkte til appens Top Picks eller watchlist.",
+            "kind": "ok" if result.get("top_tickers") else "neutral",
+        },
+        {
+            "label": "Feil/skip",
+            "value": str(len(errors)),
+            "detail": "Enkelte tickere kan mangle analysedata fra datakilde uten at hele kjøringen feiler.",
+            "kind": "warn" if errors else "ok",
+        },
+    ]
 
 
 def _count_ranked_items(latest_rankings: Mapping[str, Any], prefix: Optional[str] = None) -> int:
@@ -376,6 +487,7 @@ def build_universe_live_status(
     picker is already active.
     """
     latest_rankings = session_state.get("latest_rankings_v148", {}) or {}
+    smart_result = session_state.get(AI_UNIVERSE_SMART_RESULT_KEY, {}) or session_state.get(AI_UNIVERSE_SMART_RESULT_LEGACY_KEY, {}) or {}
     watchlist = session_state.get("latest_watchlist_tickers_v156", []) or []
     paper_count = len([c for c in candidates if c.source == "Paper trading"])
     top_pick_count = _count_ranked_items(latest_rankings, prefix="TopPicks")
@@ -444,6 +556,12 @@ def build_universe_live_status(
             "value": f"{_count_ranked_items(latest_rankings)} rangerte rader",
             "detail": _rank_source_summary(latest_rankings),
             "kind": "ok" if latest_rankings else "warn",
+        },
+        {
+            "label": "Smart AI-kjøring",
+            "value": f"{smart_result.get('matched_candidates', 0)} kandidater" if smart_result else "Ikke kjørt",
+            "detail": str(smart_result.get("generated_at", "Trykk ‘Kjør Smart AI-utvalg nå’ for å lage ekte kandidater.")),
+            "kind": "ok" if smart_result.get("matched_candidates", 0) else "neutral",
         },
         {
             "label": "Siste tunge oppdatering",
@@ -559,6 +677,8 @@ def _render_live_status_panel(rows: Sequence[Mapping[str, str]]) -> None:
 
 def _status_badge_class(status: str) -> str:
     normalized = str(status or "").strip().lower()
+    if "operativ" in normalized:
+        return "ui"
     if "ui" in normalized:
         return "ui"
     if "delvis" in normalized:
@@ -781,8 +901,15 @@ def _set_pending_change(reason: str) -> None:
 
 
 def _default_config() -> Dict[str, Any]:
+    mode = st.session_state.get("ai_universe_mode_draft_v1853", "Markedvalg")
+    if mode == "Smart AI-utvalg (planlagt)":
+        mode = "Smart AI-utvalg"
+        try:
+            st.session_state["ai_universe_mode_draft_v1853"] = mode
+        except Exception:
+            pass
     return {
-        "mode": st.session_state.get("ai_universe_mode_draft_v1853", "Markedvalg"),
+        "mode": mode,
         "scopes": st.session_state.get("ai_universe_scopes_draft_v1853", ["USA"]),
         "manual_ticker": st.session_state.get("search_main_v157", ""),
         "max_count": int(st.session_state.get("max_count_main_v157", 30) or 30),
@@ -809,8 +936,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         <div class="ai-universe-card">
             <div class="ai-universe-title">🎯 Analyseunivers som AI-modul</div>
             <div class="ai-universe-sub">
-                Arkitekturen er påbegynt og samlet i AI Kontrollsenter. Den smarte AI-universmodulen er fortsatt planlagt:
-                ekte AI-universe-picker, intelligent risikofiltrering og full sammenslått workspace-motor er ikke ferdig implementert ennå.
+                Arkitekturen er nå koblet til en første operativ Smart AI-motor: valgt univers kan kjøres, scores,
+                risikofiltreres, momentumfiltreres og rangeres. Portefølje-/workspace-automatisering bygges videre i neste fase.
             </div>
             <div class="ai-universe-pill-row">
                 <span class="ai-universe-pill ok">UI-workspace aktivt</span>
@@ -820,7 +947,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 <span class="ai-universe-pill">Top Picks</span>
                 <span class="ai-universe-pill">Watchlist</span>
                 <span class="ai-universe-pill">Paper trading</span>
-                <span class="ai-universe-pill plan">Smart AI-utvalg: planlagt</span>
+                <span class="ai-universe-pill ok">Smart AI-utvalg: service-koblet Fase 2</span>
             </div>
         </div>
         """,
@@ -829,8 +956,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
     with st.expander("Konfigurer Analyseunivers AI-modul", expanded=expanded):
         st.info(
-            "Denne modulen lagrer og viser valgt analyseunivers. Den starter ikke skjulte scans, "
-            "og den later ikke som at AI-utvalget er ferdig før motoren faktisk er implementert."
+            "Denne modulen lagrer og viser valgt analyseunivers. Smart AI-utvalg kjører kun når du trykker "
+            "på kjør-knappen, og bruker valgte marked, score-, risiko-, sektor- og momentumfiltre."
         )
 
         with st.form("ai_analysis_universe_form_v1853", clear_on_submit=False):
@@ -847,7 +974,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     MARKET_SCOPES,
                     default=[x for x in current["scopes"] if x in MARKET_SCOPES] or ["USA"],
                     key="ai_universe_scopes_draft_v1853",
-                    help="Multi-marked kan lagres her, men full AI-motor for sammenslått analyse kommer senere.",
+                    help="Velg ett eller flere marked/kilder. Smart AI-utvalg kan kjøre multi-marked i fase 1.",
                 )
                 manual_ticker = st.text_input(
                     "Manuell ticker / enkeltaksje",
@@ -878,7 +1005,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     float(current["min_strength"]),
                     5.0,
                     key="ai_universe_min_strength_v1853",
-                    help="Preview-filter basert på eksisterende score/strength-felt. Ikke full AI-strengthmodell ennå.",
+                    help="Operativt filter. Smart AI-motoren beregner strength fra score_parts/avkastning eller eksisterende strength.",
                 )
             with c3:
                 max_risk = st.selectbox(
@@ -886,14 +1013,14 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     ["Lav", "Middels", "Høy", "Ukjent"],
                     index=["Lav", "Middels", "Høy", "Ukjent"].index(current["max_risk"]) if current["max_risk"] in ["Lav", "Middels", "Høy", "Ukjent"] else 1,
                     key="ai_universe_max_risk_v1853",
-                    help="Preview-filter. Risiko tolkes fra eksisterende score/drawdown når det finnes.",
+                    help="Operativt filter. Risiko beregnes fra volatilitet/drawdown eller eksisterende risk_score.",
                 )
                 sectors = st.multiselect(
                     "Sektorfilter",
                     SECTOR_OPTIONS,
                     default=[x for x in current["sectors"] if x in SECTOR_OPTIONS] or ["Alle sektorer"],
                     key="ai_universe_sectors_v1853",
-                    help="Grov sektormapping/fallback. Full sektormodell er ikke ferdig.",
+                    help="Bruker sektor fra analysedata når mulig, ellers transparent ticker-fallback.",
                 )
                 use_news = st.checkbox(
                     "Bruk nyheter/sentiment",
@@ -919,7 +1046,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             "max_risk": max_risk,
             "sectors": sectors,
             "min_strength": float(min_strength),
-            "status": "architecture_started_not_fully_implemented",
+            "status": "smart_ai_universe_phase1_operational",
         }
 
         if submitted:
@@ -943,10 +1070,51 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 st.session_state["market_category_selector_v157"] = "US Markets"
 
             _set_pending_change("Analyseunivers AI-modul endret")
-            st.success("Analyseunivers AI-oppsett er lagret som ventende. Trykk Oppdater hele appen når du vil bruke det i tunge analyser.")
+            st.success("Analyseunivers AI-oppsett er lagret. Smart AI-utvalg kan kjøres direkte med knappen under.")
 
-        if mode == "Smart AI-utvalg (planlagt)":
-            st.warning("Smart AI-utvalg er lagt inn som modulvalg, men den ekte AI-universe-picker-motoren er ikke ferdig implementert ennå.")
+        st.markdown("#### Smart AI-utvalg")
+        st.caption(
+            "Operativ Fase 2: knappen bygger ticker-univers fra valgte kilder og kjører via "
+            "UniverseService + felles datamodell før resultatet sendes videre til Top Picks/Watchlist-services."
+        )
+        run_col, info_col = st.columns([1, 2])
+        with run_col:
+            run_smart = st.button("🚀 Kjør Smart AI-utvalg nå", key="run_smart_ai_universe_v1859", use_container_width=True)
+        with info_col:
+            st.info("Kjøringen går via UniverseService og felles datamodell. Den skriver ikke runtime-data til GitHub/prosjektfiler.")
+
+        if run_smart:
+            services = build_service_registry(st.session_state)
+            existing_scope_tickers = _existing_tickers_by_scope_from_state(st.session_state)
+            with st.spinner("Kjører Smart AI-utvalg via UniverseService: henter data, scorer, filtrerer og rangerer..."):
+                service_result = services.universe.run_smart_universe(config, existing_tickers_by_scope=existing_scope_tickers)
+                result = service_result.data.get("result", {})
+            ranked_rows = services.universe.store_result_as_rankings(result)
+            if ranked_rows:
+                st.success(f"Smart AI-utvalg ferdig: {len(ranked_rows)} kandidater matcher filtrene.")
+            else:
+                st.warning("Smart AI-utvalg ble kjørt, men ingen kandidater matchet filtrene eller datakilden returnerte ikke score.")
+
+        smart_result = st.session_state.get(AI_UNIVERSE_SMART_RESULT_KEY, {}) or st.session_state.get(AI_UNIVERSE_SMART_RESULT_LEGACY_KEY, {}) or {}
+        _render_selection_summary_panel(_smart_result_summary_rows(smart_result))
+        if smart_result and smart_result.get("candidates"):
+            st.dataframe(_smart_result_dataframe(smart_result), use_container_width=True, hide_index=True)
+            action_a, action_b = st.columns(2)
+            with action_a:
+                if st.button("⭐ Bruk Smart AI-resultat som Top Picks", key="smart_ai_to_top_picks_v1859", use_container_width=True):
+                    services = build_service_registry(st.session_state)
+                    service_result = services.top_picks.save_from_universe_result(smart_result, limit=10, list_name="TopPicks_SmartAI")
+                    _set_pending_change("Smart AI-resultat sendt til Top Picks")
+                    st.success(service_result.message or "Smart AI-resultatet er lagt inn som TopPicks_SmartAI.")
+            with action_b:
+                if st.button("🔔 Bruk Smart AI-resultat som watchlist", key="smart_ai_to_watchlist_v1859", use_container_width=True):
+                    services = build_service_registry(st.session_state)
+                    service_result = services.watchlist.set_from_candidates(smart_result, limit=int(max_count or 30))
+                    _set_pending_change("Smart AI-resultat sendt til watchlist")
+                    st.success(service_result.message or "Smart AI-resultatet er lagt inn som watchlist.")
+            if smart_result.get("errors"):
+                with st.expander("Vis tickere som ble hoppet over / feilet", expanded=False):
+                    st.dataframe(pd.DataFrame(smart_result.get("errors", [])), use_container_width=True, hide_index=True)
 
         candidates = collect_universe_candidates(st.session_state, limit=max_count)
         preview = filter_universe_candidates(candidates, scopes, sectors, max_risk, min_top_pick_score, min_strength)

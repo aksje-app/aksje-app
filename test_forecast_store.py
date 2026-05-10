@@ -1,9 +1,20 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import forecast_store
 from forecast_store import (
     build_and_store_all_horizons,
     compute_alerts,
     evaluate_forecast_accuracy,
     load_latest_forecast,
 )
+
+_temp_dir = TemporaryDirectory()
+forecast_store.DATA_DIR = Path(_temp_dir.name) / "data"
+forecast_store.FORECAST_DIR = forecast_store.DATA_DIR / "forecasts"
+forecast_store.FORECAST_LOG = forecast_store.FORECAST_DIR / "forecast_log.jsonl"
+forecast_store.FORECAST_ALERTS = forecast_store.FORECAST_DIR / "forecast_alerts.jsonl"
+forecast_store.LEARNING_STATS = forecast_store.FORECAST_DIR / "forecast_learning_stats.json"
 
 prices = [100 + i * 0.5 for i in range(80)]
 payload = build_and_store_all_horizons("TESTX", prices, ai_score=65, sentiment_score=0.2)

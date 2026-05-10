@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: smart-ai-trading-app
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: PUSHOVER_APP_TOKEN
+        sync: false
+      - key: PUSHOVER_USER_KEY
+        sync: false
+      - key: PAPER_TRADING_ENABLED
+        value: "true"
+      - key: SCANNER_MAX_TICKERS
+        value: "30"
+      - key: SCAN_SLEEP_SECONDS
+        value: "0.5"
