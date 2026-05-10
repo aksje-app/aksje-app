@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.5.20 Professional Trading Workspace.
+v18.5.21 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -29,7 +29,7 @@ def inject_workspace_css() -> None:
     st.markdown(
         """
         <style>
-        /* v18.5.20 professional workspace */
+        /* v18.5.21 professional workspace */
         .block-container {
             padding-top: 0.15rem !important;
             padding-bottom: 1.5rem !important;
@@ -166,7 +166,7 @@ def inject_workspace_css() -> None:
         }
 
 
-        /* v18.5.20: keep Streamlit inputs/selects dark, including focus/active states. */
+        /* v18.5.21: keep Streamlit inputs/selects dark, including focus/active states. */
         div[data-testid="stTextInput"] input,
         div[data-testid="stNumberInput"] input,
         div[data-testid="stTextArea"] textarea,
@@ -214,6 +214,33 @@ def inject_workspace_css() -> None:
         div[data-baseweb="menu"] li:hover,
         ul[role="listbox"] li:hover {
             background-color: rgba(14, 165, 233, .28) !important;
+        }
+
+
+        /* v18.5.21: Chrome/Edge autofill can force white boxes over dark inputs. */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        textarea:-webkit-autofill,
+        textarea:-webkit-autofill:hover,
+        textarea:-webkit-autofill:focus,
+        select:-webkit-autofill,
+        select:-webkit-autofill:hover,
+        select:-webkit-autofill:focus {
+            -webkit-text-fill-color: #f8fafc !important;
+            -webkit-box-shadow: 0 0 0px 1000px #0f172a inset !important;
+            box-shadow: 0 0 0px 1000px #0f172a inset !important;
+            caret-color: #7dd3fc !important;
+            border-color: rgba(56, 189, 248, .85) !important;
+        }
+
+        /* v18.5.21: safety net for old Streamlit dataframe boxes that still render in some tabs. */
+        div[data-testid="stDataFrame"],
+        div[data-testid="stDataFrame"] > div,
+        div[data-testid="stDataFrame"] iframe {
+            background: #020617 !important;
+            border-color: rgba(56, 189, 248, .22) !important;
+            border-radius: 12px !important;
         }
         </style>
         """,

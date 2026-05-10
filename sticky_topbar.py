@@ -1,7 +1,7 @@
 """
 sticky_topbar.py
 
-v18.5.20 Professional Trading Workspace
+v18.5.21 Professional Trading Workspace
 Sticky topbar / AI status bar.
 
 Ingen auto-trading-kobling.

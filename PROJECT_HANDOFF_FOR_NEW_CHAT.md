@@ -1,4 +1,4 @@
-# Project handoff – v18.5.20 UI Version + Smart Universe Cleanup
+# Project handoff – v18.5.21 Hard White Box Removal + Active Mode Chips
 
 Focus for this release:
 
@@ -17,8 +17,8 @@ Validation:
 
 Next recommended steps:
 
-1. Deploy v18.5.20 to Render with clear build cache.
+1. Deploy v18.5.21 to Render with clear build cache.
 2. Hard-refresh browser / test incognito.
-3. Confirm sticky topbar says `Professional Trading Workspace v18.5.20`.
+3. Confirm sticky topbar says `Professional Trading Workspace v18.5.21`.
 4. Confirm Analyseunivers/Smart Universe no longer shows large white empty boxes.
 5. Continue with event-risk/prognose hardening and legacy cleanup.

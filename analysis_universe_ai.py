@@ -449,36 +449,57 @@ def _render_dark_table(
     max_rows: int = 25,
     max_height_px: int = 320,
 ) -> None:
-    """Render a dark, compact table instead of Streamlit's light dataframe."""
+    """Render rows as compact dark cards, not a native/table dataframe.
+
+    v18.5.21 hard-fix: several browsers/Streamlit builds kept painting table
+    bodies as huge white rectangles even after v18.5.20 CSS. This renderer does
+    not use native dataframe widget and does not use ``<table>``. It emits only small
+    inline-styled div grids whose height follows the number of visible rows.
+    """
     if df is None or df.empty:
-        st.markdown(f'<div class="ai-universe-empty-note">{escape(empty_message)}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="ai-universe-empty-note" style="border:1px dashed rgba(250,204,21,.45);background:rgba(250,204,21,.08);border-radius:12px;padding:.55rem .70rem;color:#fde68a;font-size:.78rem;font-weight:780;margin:.25rem 0 .45rem 0;">{escape(empty_message)}</div>',
+            unsafe_allow_html=True,
+        )
         return
 
     visible = df.head(max_rows).copy()
     columns = [str(c) for c in visible.columns]
-    header_html = "".join(f"<th>{escape(col)}</th>" for col in columns)
-    row_html: List[str] = []
+    col_count = max(1, len(columns))
+    min_width = max(760, min(1800, 128 * col_count))
+    # No fixed blank body: just enough height for the rows that exist, capped.
+    row_count = max(1, len(visible.index))
+    dynamic_height = min(int(max_height_px), 44 + row_count * 36)
+    grid = f"repeat({col_count}, minmax(92px, 1fr))"
+
+    header_cells = "".join(
+        f'<div style="padding:.33rem .42rem;color:#bae6fd;font-size:.68rem;font-weight:950;text-transform:uppercase;letter-spacing:.025em;white-space:nowrap;border-right:1px solid rgba(125,211,252,.13);">{escape(col)}</div>'
+        for col in columns
+    )
+
+    rows_html: List[str] = []
     for _, row in visible.iterrows():
         cells = "".join(
-            f"<td>{escape(_format_table_cell(row.get(col)))}</td>"
+            f'<div style="padding:.32rem .42rem;color:#e5edf8;font-size:.74rem;font-weight:720;line-height:1.22;overflow-wrap:anywhere;border-right:1px solid rgba(148,163,184,.10);">{escape(_format_table_cell(row.get(col)))}</div>'
             for col in visible.columns
         )
-        row_html.append(f"<tr>{cells}</tr>")
+        rows_html.append(
+            f'<div class="ai-universe-row-grid" style="display:grid;grid-template-columns:{grid};min-width:{min_width}px;background:rgba(15,23,42,.86);border-top:1px solid rgba(148,163,184,.13);">{cells}</div>'
+        )
 
     overflow_note = ""
     total_rows = len(df.index)
     if total_rows > len(visible.index):
         overflow_note = (
-            f'<div class="ai-universe-table-note">Viser {len(visible.index)} av {total_rows} rader. '
+            f'<div style="color:#cbd5e1;font-size:.72rem;margin:-.12rem 0 .48rem .15rem;opacity:.88;">Viser {len(visible.index)} av {total_rows} rader. '
             'Bruk filtre eller Top Picks for å korte ned listen.</div>'
         )
 
     html = (
-        f'<div class="ai-universe-table-wrap" style="max-height:{int(max_height_px)}px">'
-        '<table class="ai-universe-table">'
-        f'<thead><tr>{header_html}</tr></thead>'
-        f'<tbody>{"".join(row_html)}</tbody>'
-        '</table></div>'
+        f'<div class="ai-universe-no-white-box" style="width:100%;max-height:{dynamic_height}px;overflow:auto;border:1px solid rgba(34,197,94,.45);border-radius:12px;background:#020617;margin:.28rem 0 .50rem 0;box-shadow:none;">'
+        f'<div class="ai-universe-row-grid ai-universe-row-head" style="display:grid;grid-template-columns:{grid};min-width:{min_width}px;background:rgba(8,47,73,.98);position:sticky;top:0;z-index:2;border-bottom:1px solid rgba(125,211,252,.26);">{header_cells}</div>'
+        f'{"".join(rows_html)}'
+        '</div>'
         f'{overflow_note}'
     )
     st.markdown(html, unsafe_allow_html=True)
@@ -1049,6 +1070,7 @@ def _inject_ai_universe_css() -> None:
             overflow-wrap:anywhere;
         }
         .ai-universe-pill.ok { border-color: rgba(34,197,94,.50); color:#bbf7d0; }
+        .ai-universe-pill.active { background: rgba(16,185,129,.18); box-shadow: 0 0 0 1px rgba(34,197,94,.18) inset; }
         .ai-universe-status-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -1152,6 +1174,15 @@ def _inject_ai_universe_css() -> None:
             margin: -.20rem 0 .55rem .15rem;
             opacity: .88;
         }
+        .ai-universe-no-white-box,
+        .ai-universe-no-white-box * {
+            box-sizing: border-box !important;
+            background-clip: padding-box !important;
+        }
+        .ai-universe-row-grid {
+            color: #e5edf8 !important;
+            min-height: 0 !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1195,6 +1226,13 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
     _inject_ai_universe_css()
     current = _default_config()
 
+    active_mode = str(current.get("mode") or "Markedvalg")
+    mode_pills = []
+    for pill_mode in ["Enkeltaksje", "Markedvalg", "Multi-marked", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Manuell liste"]:
+        pill_class = "ai-universe-pill ok active" if pill_mode == active_mode else "ai-universe-pill"
+        mode_pills.append(f'<span class="{pill_class}">{escape(pill_mode)}</span>')
+    mode_pills_html = "".join(mode_pills)
+
     st.markdown(
         f"""
         <div class="ai-universe-card">
@@ -1205,12 +1243,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             </div>
             <div class="ai-universe-pill-row">
                 <span class="ai-universe-pill ok">UI-workspace aktivt</span>
-                <span class="ai-universe-pill">Enkeltaksje</span>
-                <span class="ai-universe-pill">Markedvalg</span>
-                <span class="ai-universe-pill">Multi-marked</span>
-                <span class="ai-universe-pill">Top Picks</span>
-                <span class="ai-universe-pill">Watchlist</span>
-                <span class="ai-universe-pill">Paper trading</span>
+                {mode_pills_html}
                 <span class="ai-universe-pill ok">Smart AI-utvalg: service-koblet Fase 2</span>
                 <span class="ai-universe-pill ok">{AI_UNIVERSE_MODULE_VERSION}</span>
             </div>
