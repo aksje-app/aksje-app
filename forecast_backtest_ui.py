@@ -14,7 +14,7 @@ from forecast_backtest_engine import run_backtest_learning_batch, summarize_back
 from forecast_store import load_forecast_log
 
 
-def _fetch_prices(ticker: str, period: str = "1y") -> Tuple[List[float], Optional[str]]:
+def _fetch_prices(ticker: str, period: str = "1y") -> Tuple[List[Dict[str, float]], Optional[str]]:
     try:
         import yfinance as yf  # type: ignore
     except Exception:
@@ -38,9 +38,10 @@ def _fetch_prices(ticker: str, period: str = "1y") -> Tuple[List[float], Optiona
             close = close.dropna()
 
         prices = []
-        for x in list(close):
+        for idx, x in zip(list(close.index), list(close)):
             try:
-                prices.append(float(x))
+                day = idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10]
+                prices.append({"date": day, "close": float(x)})
             except Exception:
                 continue
 
@@ -116,6 +117,10 @@ def render_backtest_learning_panel() -> None:
                     rows.append({
                         "Ticker": e.get("ticker"),
                         "Horisont": e.get("horizon"),
+                        "Prognosedato": e.get("forecast_date"),
+                        "Måldato": e.get("target_date"),
+                        "Faktisk dato": e.get("actual_date"),
+                        "Dato-presis": "Ja" if e.get("date_precision") else "Legacy",
                         "Feil %": e.get("error_pct"),
                         "Retning traff": "Ja" if e.get("direction_hit") else "Nei",
                         "Innen bull/bear": "Ja" if e.get("inside_bull_bear_range") else "Nei",

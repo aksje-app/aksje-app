@@ -10,6 +10,7 @@ except Exception:  # pragma: no cover
     pd = None  # type: ignore
 
 from forecast_store import load_learning_stats
+from score_explanation_store import capture_score_explanations, score_explanations_for_ui
 from strategy_engine import optimize_strategy, run_strategy, strategy_stats
 from strategy_test_pro import render_strategy_test_pro
 
@@ -65,8 +66,15 @@ def _collect_known_tickers(default: str = "AAPL", limit: int = 12) -> List[str]:
 
 
 def _score_rows_for_ticker(ticker: str) -> List[Dict[str, Any]]:
+    """Return live + persisted score explanations for a ticker.
+
+    v18.5.16: score explanation is no longer only session-state based.
+    Any live Smart AI/ranking rows found in the current session are captured to
+    StorageService, and the table also loads the persisted explanation history.
+    """
     ticker = ticker.upper()
     rows: List[Dict[str, Any]] = []
+    raw_rows_to_capture: List[Dict[str, Any]] = []
     try:
         rankings = st.session_state.get("latest_rankings_v148", {}) or {}
         if isinstance(rankings, Mapping):
@@ -78,31 +86,72 @@ def _score_rows_for_ticker(ticker: str) -> List[Dict[str, Any]]:
                         continue
                     if str(item.get("ticker") or item.get("symbol") or "").upper() != ticker:
                         continue
-                    rows.append({
+                    ui_row = {
                         "Kilde": source,
                         "Ticker": ticker,
                         "AI-score": item.get("ai_score", item.get("score")),
                         "Smart-score": item.get("smart_score"),
                         "Strength": item.get("strength"),
                         "Risiko": item.get("risk"),
+                        "Confidence": item.get("confidence"),
+                        "Anbefaling": item.get("action") or item.get("recommendation"),
                         "Forklaring": item.get("reason") or item.get("note") or "-",
-                    })
+                    }
+                    rows.append(ui_row)
+                    raw_rows_to_capture.append(dict(item, source=source))
         smart = st.session_state.get("smart_universe_result") or st.session_state.get("ai_analysis_universe_smart_result_v1859") or {}
         if isinstance(smart, Mapping):
             for item in smart.get("candidates", []) or []:
                 if isinstance(item, Mapping) and str(item.get("ticker", "")).upper() == ticker:
-                    rows.append({
+                    ui_row = {
                         "Kilde": "Smart AI-univers",
                         "Ticker": ticker,
                         "AI-score": item.get("ai_score"),
                         "Smart-score": item.get("smart_score"),
                         "Strength": item.get("strength"),
                         "Risiko": item.get("risk"),
+                        "Confidence": item.get("confidence"),
+                        "Anbefaling": item.get("action") or item.get("recommendation"),
                         "Forklaring": item.get("reason") or "-",
-                    })
+                    }
+                    rows.append(ui_row)
+                    raw_rows_to_capture.append(dict(item, source="Smart AI-univers"))
     except Exception:
         pass
-    return rows
+
+    try:
+        if raw_rows_to_capture:
+            capture_score_explanations(
+                raw_rows_to_capture,
+                source="AI Kontrollsenter",
+                context={"origin": "Testing & Learning", "ticker": ticker},
+            )
+    except Exception:
+        pass
+
+    try:
+        persisted = score_explanations_for_ui(ticker, limit=20)
+    except Exception:
+        persisted = []
+
+    # Merge live and persisted rows without repeating identical explanations.
+    merged: List[Dict[str, Any]] = []
+    seen = set()
+    for row in rows + persisted:
+        key = (
+            str(row.get("Kilde")),
+            str(row.get("Ticker")),
+            str(row.get("AI-score")),
+            str(row.get("Smart-score")),
+            str(row.get("Strength")),
+            str(row.get("Risiko")),
+            str(row.get("Forklaring")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    return merged
 
 
 def _render_basic_strategy_test(ticker: str) -> bool:

@@ -162,8 +162,17 @@ def evaluate_forecast_accuracy(
     forecast_payload: Dict[str, Any],
     actual_price: float,
     horizon: str,
+    *,
+    forecast_date: Optional[str] = None,
+    target_date: Optional[str] = None,
+    actual_date: Optional[str] = None,
+    date_precision: bool = False,
 ) -> Dict[str, Any]:
-    """Compare forecast against an actual price for one horizon."""
+    """Compare forecast against an actual price for one horizon.
+
+    v18.5.16 adds optional date metadata so learning can document exactly
+    which forecast date, target date and actual trading date were evaluated.
+    """
     ticker = forecast_payload.get("ticker", "UNKNOWN")
     horizons = forecast_payload.get("horizons", {})
     item = horizons.get(horizon)
@@ -187,7 +196,7 @@ def evaluate_forecast_accuracy(
     direction_hit = (actual_return_pct >= 0 and base_return_pct >= 0) or (actual_return_pct < 0 and base_return_pct < 0)
     inside_band = min(bear_price, bull_price) <= actual <= max(bear_price, bull_price)
 
-    return {
+    evaluation = {
         "ticker": ticker,
         "horizon": horizon,
         "actual_price": round(actual, 4),
@@ -198,7 +207,15 @@ def evaluate_forecast_accuracy(
         "direction_hit": bool(direction_hit),
         "inside_bull_bear_range": bool(inside_band),
         "evaluated_at": _now_iso(),
+        "date_precision": bool(date_precision),
     }
+    if forecast_date:
+        evaluation["forecast_date"] = forecast_date
+    if target_date:
+        evaluation["target_date"] = target_date
+    if actual_date:
+        evaluation["actual_date"] = actual_date
+    return evaluation
 
 
 def compute_alerts(
@@ -758,9 +775,22 @@ def evaluate_and_learn(
     forecast_payload: Dict[str, Any],
     actual_price: float,
     horizon: str,
+    *,
+    forecast_date: Optional[str] = None,
+    target_date: Optional[str] = None,
+    actual_date: Optional[str] = None,
+    date_precision: bool = False,
 ) -> Dict[str, Any]:
     """Evaluate a forecast and update learning stats in one step."""
-    evaluation = evaluate_forecast_accuracy(forecast_payload, actual_price=actual_price, horizon=horizon)
+    evaluation = evaluate_forecast_accuracy(
+        forecast_payload,
+        actual_price=actual_price,
+        horizon=horizon,
+        forecast_date=forecast_date,
+        target_date=target_date,
+        actual_date=actual_date,
+        date_precision=date_precision,
+    )
     stats = update_learning_from_evaluation(evaluation)
     evaluation["learning_stats_updated"] = True
     evaluation["learning_stats"] = {
