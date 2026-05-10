@@ -18,10 +18,11 @@ import html
 import itertools
 import json
 import math
+import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -45,6 +46,43 @@ PERIOD_MAP = {
 LOG_FILE = Path("strategy_test_logs.json")
 PROFILE_FILE = Path("strategy_profiles.json")
 MAX_DISPLAY_ROWS = 25
+
+
+
+def _render_pro_progress_step(holder: Any, progress: Any, *, step: int, total: int, text: str) -> None:
+    pct = min(1.0, max(0.0, step / max(1, total)))
+    holder.markdown(
+        f'<div style="display:flex;align-items:center;gap:.65rem;border:1px solid rgba(56,189,248,.45);background:linear-gradient(180deg,rgba(8,47,73,.55),rgba(15,23,42,.90));border-radius:14px;padding:.62rem .75rem;margin:.35rem 0 .45rem 0;color:#e5edf8;">'
+        '<style>@keyframes proSpin{to{transform:rotate(360deg)}}</style>'
+        '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:proSpin .8s linear infinite;flex:0 0 auto;"></span>'
+        '<span style="font-weight:950;color:#f8fafc;">Strategi-test Pro</span>'
+        f'<span style="color:#bae6fd;font-weight:900;">{step}/{total}</span>'
+        f'<span style="color:#cbd5e1;font-weight:750;">{html.escape(str(text))}</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        progress.progress(pct)
+    except Exception:
+        pass
+    try:
+        time.sleep(0.05)
+    except Exception:
+        pass
+
+
+def _finish_pro_progress(holder: Any, progress: Any, text: str, ok: bool = True) -> None:
+    border = "rgba(34,197,94,.58)" if ok else "rgba(250,204,21,.62)"
+    color = "#bbf7d0" if ok else "#fde68a"
+    holder.markdown(
+        f'<div style="border:1px solid {border};background:rgba(15,23,42,.88);border-radius:14px;padding:.55rem .72rem;margin:.35rem 0 .45rem 0;color:{color};font-weight:900;">✅ Strategi-test Pro: {html.escape(str(text))}</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        progress.empty()
+    except Exception:
+        pass
+
 
 TEST_TYPE_OPTIONS = [
     "Gjeldende regler",
@@ -1204,6 +1242,10 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         if not run_btn:
             return
 
+        progress_holder = st.empty()
+        progress_bar = st.progress(0.0)
+        _render_pro_progress_step(progress_holder, progress_bar, step=1, total=4, text="Henter kursdata for valgte tickere")
+
         raw_tickers_active = st.session_state.get(f"{key_prefix}_tickers", raw_tickers)
         tickers = _parse_ticker_text(raw_tickers_active, default_list)
         if not tickers:
@@ -1213,8 +1255,9 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             st.info("Maks 20 tickere testes samtidig i denne versjonen for å holde appen rask.")
 
         period = PERIOD_MAP.get(period_label, "1y")
-        with st.spinner(f"Henter historikk og tester {len(tickers)} ticker(e)..."):
+        with st.spinner(f"Strategi-test Pro kjører: henter historikk og tester {len(tickers)} ticker(e)..."):
             histories = fetch_strategy_histories(tuple(tickers), period)
+        _render_pro_progress_step(progress_holder, progress_bar, step=2, total=4, text="Scorer regelsett og bygger kombinasjoner")
 
         missing = [t for t in tickers if t not in histories]
         if missing:
@@ -1242,6 +1285,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         rules = base
         run_note = ""
         phase = "slutt"
+        _render_pro_progress_step(progress_holder, progress_bar, step=3, total=4, text="Filtrerer risiko, momentum og validering")
 
         if test_type == "Gjeldende regler":
             st.info("Tester gjeldende regelsett uten optimalisering.")
@@ -1300,6 +1344,8 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         per_ticker = result.get("per_ticker")
         summary = result.get("summary", {}) or {}
         validation_payload = run_validation_check(histories, rules, float(start_cash), validation_method, int(applied_train_share)) if validation_active else {}
+        _render_pro_progress_step(progress_holder, progress_bar, step=4, total=4, text="Rangerer og lagrer resultat")
+        _finish_pro_progress(progress_holder, progress_bar, "ferdig", ok=True)
 
         if validation_payload:
             st.markdown("#### In-sample / out-of-sample-validering")

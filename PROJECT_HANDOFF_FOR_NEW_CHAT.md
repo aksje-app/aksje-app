@@ -1,24 +1,27 @@
-# Project handoff – v18.5.21 Hard White Box Removal + Active Mode Chips
+# Project handoff – v18.5.22 Strict Universe Mode + Progress UI
 
 Focus for this release:
 
-- Single app version source via `app_version.py`.
-- Sticky topbar shows the real running version from `APP_VERSION`.
-- Removed old hardcoded `v18.4.7` version text from the visible UI path.
-- Smart Universe Picker and Smart AI result tables now render as compact dark HTML tables instead of native Streamlit dataframe boxes that could appear as huge white empty areas.
-- Empty result panels now show compact dark/yellow notes instead of blank dataframe containers.
-- Table height is content-sized with max-height scrolling.
-- Input, textarea, select and multiselect focus/active states are forced to dark styling to avoid white ticker boxes.
+- Smart Universe Picker modes are now strict source-of-truth for Smart AI scans.
+- `Enkeltaksje` scans only the selected manual ticker, with no market fallback.
+- `Manuell liste`, `Top Picks`, `Watchlist`, `Paper trading`, and `Portefølje` scan only their own selected source.
+- `Markedvalg` and `Multi-marked` use market scopes only and do not silently prepend stale manual tickers.
+- Remaining Analyseunivers result/status panels use inline dark compact rows to avoid large white empty Streamlit/native panels.
+- Added visible progress/spinner UI for:
+  - Smart AI-utvalg
+  - Strategi-test
+  - Strategi-test Pro / optimalisering
+- Version source updated to `v18.5.22` via `app_version.py`.
 
 Validation:
 
 - `python -m compileall .`
-- `pytest -q`
+- `pytest -q` → 18 passed
 
-Next recommended steps:
+Recommended deploy:
 
-1. Deploy v18.5.21 to Render with clear build cache.
-2. Hard-refresh browser / test incognito.
-3. Confirm sticky topbar says `Professional Trading Workspace v18.5.21`.
-4. Confirm Analyseunivers/Smart Universe no longer shows large white empty boxes.
-5. Continue with event-risk/prognose hardening and legacy cleanup.
+1. Upload all files to GitHub `main`.
+2. Render → Manual Deploy → Clear build cache & deploy.
+3. Confirm topbar says `Professional Trading Workspace v18.5.22`.
+4. Test `Workspace-modus = Enkeltaksje`, ticker `AAPL`, then run Smart AI-utvalg. Result should scan and show only AAPL.
+5. Confirm no large white blank panels appear in Analyseunivers.

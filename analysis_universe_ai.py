@@ -14,6 +14,7 @@ Top Picks og Watchlist-handlinger går via egne services, ikke direkte UI-muteri
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from html import escape
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -504,6 +505,46 @@ def _render_dark_table(
     )
     st.markdown(html, unsafe_allow_html=True)
 
+
+
+def _render_progress_step(holder: Any, progress: Any, *, title: str, step: int, total: int, text: str) -> None:
+    """Show a visible dark progress row with spinner. Safe for old Streamlit."""
+    pct = min(1.0, max(0.0, step / max(1, total)))
+    safe_title = escape(title)
+    safe_text = escape(text)
+    html = (
+        '<div style="display:flex;align-items:center;gap:.65rem;border:1px solid rgba(56,189,248,.45);background:linear-gradient(180deg,rgba(8,47,73,.55),rgba(15,23,42,.90));border-radius:14px;padding:.62rem .75rem;margin:.35rem 0 .45rem 0;color:#e5edf8;">'
+        '<style>@keyframes aiSpin{to{transform:rotate(360deg)}}</style>'
+        '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:aiSpin .8s linear infinite;flex:0 0 auto;"></span>'
+        f'<span style="font-weight:950;color:#f8fafc;">{safe_title}</span>'
+        f'<span style="color:#bae6fd;font-weight:900;">{step}/{total}</span>'
+        f'<span style="color:#cbd5e1;font-weight:750;">{safe_text}</span>'
+        '</div>'
+    )
+    holder.markdown(html, unsafe_allow_html=True)
+    try:
+        progress.progress(pct)
+    except Exception:
+        pass
+    try:
+        time.sleep(0.05)
+    except Exception:
+        pass
+
+
+def _finish_progress(holder: Any, progress: Any, *, title: str, text: str, ok: bool = True) -> None:
+    border = "rgba(34,197,94,.58)" if ok else "rgba(250,204,21,.62)"
+    color = "#bbf7d0" if ok else "#fde68a"
+    holder.markdown(
+        f'<div style="border:1px solid {border};background:rgba(15,23,42,.88);border-radius:14px;padding:.55rem .72rem;margin:.35rem 0 .45rem 0;color:{color};font-weight:900;">✅ {escape(title)}: {escape(text)}</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        progress.empty()
+    except Exception:
+        pass
+
+
 def _existing_tickers_by_scope_from_state(session_state: Mapping[str, Any]) -> Dict[str, List[str]]:
     out: Dict[str, List[str]] = {}
     latest_rankings = session_state.get("latest_rankings_v148", {}) or {}
@@ -817,39 +858,55 @@ def build_universe_selection_summary(
 
 
 def _render_compact_status_rows(rows: Sequence[Mapping[str, str]], *, variant: str) -> None:
-    """Render compact dark rows instead of large card grids.
+    """Render compact dark rows with inline CSS only.
 
-    Some Streamlit/theme combinations rendered the old auto-fit card grid as
-    oversized white/empty rectangles in AI Kontrollsenter. A simple vertical
-    row list is more robust, takes far less space and always shows the actual
-    value/detail text.
+    v18.5.22 final white-box fix: do not rely on external CSS classes for the
+    default result/status panels. Every visible row gets inline dark styling and
+    the panel height is bounded by real content. This avoids Streamlit/browser
+    theme fallbacks that have produced large white empty rectangles.
     """
     if not rows:
-        st.caption("Ingen resultater ennå.")
+        st.markdown(
+            '<div style="border:1px dashed rgba(250,204,21,.45);background:rgba(250,204,21,.08);border-radius:10px;padding:.45rem .6rem;color:#fde68a;font-size:.76rem;font-weight:800;margin:.25rem 0 .45rem 0;">Ingen resultater ennå.</div>',
+            unsafe_allow_html=True,
+        )
         return
 
+    def border_for(kind: str) -> str:
+        if kind == "ok":
+            return "rgba(34,197,94,.54)"
+        if kind == "warn":
+            return "rgba(250,204,21,.60)"
+        if kind == "preview":
+            return "rgba(56,189,248,.50)"
+        return "rgba(148,163,184,.30)"
+
     row_html: List[str] = []
-    for row in rows:
-        kind = escape(str(row.get("kind", "neutral") or "neutral"))
+    for row in list(rows)[:12]:
+        kind = str(row.get("kind", "neutral") or "neutral")
         label = escape(str(row.get("label", "")))
         value = escape(str(row.get("value", "")))
         detail = escape(str(row.get("detail", "")))
-        detail_html = f'<span class="ai-universe-compact-detail">{detail}</span>' if detail else ""
+        border = border_for(kind)
+        detail_html = (
+            f'<span style="color:#cbd5e1;font-size:.72rem;line-height:1.28;overflow-wrap:anywhere;">{detail}</span>'
+            if detail
+            else ""
+        )
         row_html.append(
-            f"""
-            <div class="ai-universe-compact-row {kind}">
-                <span class="ai-universe-compact-label">{label}</span>
-                <span class="ai-universe-compact-value">{value}</span>
-                {detail_html}
-            </div>
-            """
+            f'<div style="display:grid;grid-template-columns:minmax(110px,170px) minmax(110px,210px) 1fr;gap:.55rem;align-items:center;border:1px solid {border};background:linear-gradient(180deg,rgba(8,47,73,.40),rgba(15,23,42,.86));border-radius:12px;padding:.42rem .55rem;min-height:0;margin:.26rem 0;box-shadow:none;">'
+            f'<span style="color:#bae6fd;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;font-weight:950;white-space:nowrap;">{label}</span>'
+            f'<span style="color:#f8fafc;font-size:.84rem;font-weight:950;line-height:1.2;overflow-wrap:anywhere;">{value}</span>'
+            f'{detail_html}'
+            f'</div>'
         )
 
     st.markdown(
-        f'<div class="ai-universe-compact-panel {escape(variant)}">' + "".join(row_html) + "</div>",
+        f'<div data-ai-universe-panel="{escape(variant)}" style="display:flex;flex-direction:column;gap:.05rem;margin:.25rem 0 .55rem 0;width:100%;max-width:100%;height:auto;min-height:0;background:transparent;">'
+        + "".join(row_html)
+        + "</div>",
         unsafe_allow_html=True,
     )
-
 
 def _render_selection_summary_panel(rows: Sequence[Mapping[str, str]]) -> None:
     _render_compact_status_rows(rows, variant="selection")
@@ -1183,6 +1240,21 @@ def _inject_ai_universe_css() -> None:
             color: #e5edf8 !important;
             min-height: 0 !important;
         }
+
+        /* v18.5.22 hard guard against leftover native Streamlit white panels. */
+        div[data-testid="stDataFrame"] > div,
+        div[data-testid="stDataFrame"] iframe,
+        div[data-testid="stDataFrame"] [class*="stDataFrame"] {
+            background: #020617 !important;
+            color: #e5edf8 !important;
+            max-height: 340px !important;
+            min-height: 0 !important;
+        }
+        .ai-universe-no-white-box {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: 340px !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1446,14 +1518,24 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         if run_smart:
             services = build_service_registry(st.session_state)
+            progress_holder = st.empty()
+            progress_bar = st.progress(0.0)
+            _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=1, total=4, text="Henter ticker-univers fra valgt Workspace-modus")
             existing_scope_tickers = _existing_tickers_by_scope_from_state(st.session_state)
-            with st.spinner("Kjører Smart AI-utvalg via UniverseService: henter data, scorer, filtrerer og rangerer..."):
+            _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=2, total=4, text="Henter kursdata og scorer kandidater")
+            with st.spinner("Smart AI-utvalg kjører: henter data, scorer, filtrerer og rangerer..."):
                 service_result = services.universe.run_smart_universe(config, existing_tickers_by_scope=existing_scope_tickers)
                 result = service_result.data.get("result", {})
-            ranked_rows = services.universe.store_result_as_rankings(result)
+            _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=3, total=4, text="Filtrerer risiko, score, sektor og momentum")
+            ranked_rows = result.get("ranked_rows") if isinstance(result, Mapping) else None
+            if not ranked_rows:
+                ranked_rows = services.universe.store_result_as_rankings(result)
+            _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=4, total=4, text="Rangerer og lagrer resultat kompakt")
             if ranked_rows:
+                _finish_progress(progress_holder, progress_bar, title="Smart AI-utvalg ferdig", text=f"{len(ranked_rows)} kandidater matcher filtrene.", ok=True)
                 st.success(f"Smart AI-utvalg ferdig: {len(ranked_rows)} kandidater matcher filtrene.")
             else:
+                _finish_progress(progress_holder, progress_bar, title="Smart AI-utvalg ferdig", text="Ingen kandidater matchet filtrene.", ok=False)
                 st.warning("Smart AI-utvalg ble kjørt, men ingen kandidater matchet filtrene eller datakilden returnerte ikke score.")
 
         smart_result = st.session_state.get(AI_UNIVERSE_SMART_RESULT_KEY, {}) or st.session_state.get(AI_UNIVERSE_SMART_RESULT_LEGACY_KEY, {}) or {}

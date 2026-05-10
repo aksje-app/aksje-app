@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 from datetime import datetime, timezone
+import time
 
 import streamlit as st
 
@@ -14,6 +15,43 @@ from forecast_store import load_learning_stats
 from score_explanation_store import capture_score_explanations, score_explanations_for_ui
 from strategy_engine import optimize_strategy, run_strategy, strategy_stats
 from strategy_test_pro import render_strategy_test_pro
+
+
+
+
+def _render_tl_progress_step(holder: Any, progress: Any, *, title: str, step: int, total: int, text: str) -> None:
+    pct = min(1.0, max(0.0, step / max(1, total)))
+    holder.markdown(
+        f'<div style="display:flex;align-items:center;gap:.65rem;border:1px solid rgba(56,189,248,.45);background:linear-gradient(180deg,rgba(8,47,73,.55),rgba(15,23,42,.90));border-radius:14px;padding:.62rem .75rem;margin:.35rem 0 .45rem 0;color:#e5edf8;">'
+        '<style>@keyframes tlSpin{to{transform:rotate(360deg)}}</style>'
+        '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:tlSpin .8s linear infinite;flex:0 0 auto;"></span>'
+        f'<span style="font-weight:950;color:#f8fafc;">{title}</span>'
+        f'<span style="color:#bae6fd;font-weight:900;">{step}/{total}</span>'
+        f'<span style="color:#cbd5e1;font-weight:750;">{text}</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        progress.progress(pct)
+    except Exception:
+        pass
+    try:
+        time.sleep(0.05)
+    except Exception:
+        pass
+
+
+def _finish_tl_progress(holder: Any, progress: Any, *, title: str, text: str, ok: bool = True) -> None:
+    border = "rgba(34,197,94,.58)" if ok else "rgba(250,204,21,.62)"
+    color = "#bbf7d0" if ok else "#fde68a"
+    holder.markdown(
+        f'<div style="border:1px solid {border};background:rgba(15,23,42,.88);border-radius:14px;padding:.55rem .72rem;margin:.35rem 0 .45rem 0;color:{color};font-weight:900;">✅ {title}: {text}</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        progress.empty()
+    except Exception:
+        pass
 
 
 def _normalise_history_frame(df: Any, ticker: str):
@@ -284,8 +322,16 @@ def _render_basic_strategy_test(ticker: str) -> bool:
 
     result_key = _strategy_result_key()
     if run:
-        with st.spinner(f"Kjører strategi-test for {ticker} ({period}) ..."):
-            st.session_state[result_key] = _run_basic_strategy_test(ticker, period)
+        progress_holder = st.empty()
+        progress_bar = st.progress(0.0)
+        _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=1, total=4, text="Henter kursdata")
+        with st.spinner(f"Strategi-test kjører for {ticker} ({period}) ..."):
+            _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=2, total=4, text="Kjører baseline-regler")
+            result = _run_basic_strategy_test(ticker, period)
+        _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=3, total=4, text="Beregner statistikk og drawdown")
+        st.session_state[result_key] = result
+        _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=4, total=4, text="Lagrer resultat i session")
+        _finish_tl_progress(progress_holder, progress_bar, title="Strategi-test ferdig", text=f"{ticker} ({period})", ok=bool(result.get("ok")))
 
     result = st.session_state.get(result_key)
     if result:

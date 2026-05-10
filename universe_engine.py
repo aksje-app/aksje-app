@@ -371,6 +371,52 @@ def resolve_universe_tickers(
     return _round_robin(source_lists, max_count)
 
 
+
+
+def resolve_strict_universe_tickers(
+    config: Mapping[str, Any],
+    existing_tickers_by_scope: Optional[Mapping[str, Sequence[str]]] = None,
+) -> Tuple[List[str], str]:
+    """Resolve tickers with workspace mode as the source of truth.
+
+    v18.5.22: Smart Universe Picker is strict. If the user chooses
+    Enkeltaksje, Smart AI must scan only that ticker. If the user chooses
+    Watchlist/Top Picks/Paper/Portefølje/Manuell liste, the scan must not
+    silently fall back to market candidates or prepend old manual tickers.
+    """
+    mode = str(config.get("mode") or "Markedvalg").strip()
+    max_count = max(1, min(int(config.get("max_count", 30) or 30), 250))
+    scopes = [str(x) for x in (config.get("scopes") or []) if str(x or "").strip()]
+    manual = normalize_ticker(config.get("manual_ticker"))
+    manual_list = parse_ticker_list(config.get("manual_list") or config.get("manual_tickers") or config.get("tickers"))
+
+    def from_scope(name: str) -> List[str]:
+        return _tickers_from_existing_scope(name, existing_tickers_by_scope)[:max_count]
+
+    if mode == "Enkeltaksje":
+        return (_dedupe_keep_order([manual])[:1], "Enkeltaksje")
+    if mode == "Manuell liste" or "Manuell liste" in scopes:
+        return (manual_list[:max_count], "Manuell liste")
+    if mode == "Top Picks":
+        return (from_scope("Top Picks"), "Top Picks")
+    if mode == "Watchlist":
+        return (from_scope("Watchlist"), "Watchlist")
+    if mode == "Paper trading":
+        return (from_scope("Paper trading"), "Paper trading")
+    if mode == "Portefølje":
+        return (from_scope("Portefølje"), "Portefølje")
+    if mode == "Smart AI-utvalg":
+        return (from_scope("Smart AI-utvalg"), "Smart AI-utvalg")
+
+    market_scopes = [scope for scope in scopes if scope in {"USA", "Norge", "Sverige", "Alle"}]
+    if mode == "Multi-marked":
+        return (resolve_universe_tickers(market_scopes or ["USA", "Norge", "Sverige"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Multi-marked")
+
+    # Markedvalg is market-only. Manual ticker is intentionally ignored here;
+    # Enkeltaksje is the only mode that should scan a manual single ticker.
+    return (resolve_universe_tickers(market_scopes or ["USA"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Markedvalg")
+
+
 def filter_smart_candidates(
     candidates: Sequence[SmartUniverseCandidate],
     sectors: Sequence[str],
@@ -436,23 +482,13 @@ def run_smart_ai_universe(
     score_provider = score_provider or _default_score_provider
     max_count = max(1, min(int(config.get("max_count", 30) or 30), 250))
     scopes = list(config.get("scopes") or ["USA"])
-    manual_ticker = str(config.get("manual_ticker") or "")
-    manual_list = parse_ticker_list(config.get("manual_list") or config.get("manual_tickers") or config.get("tickers"))
     use_news = bool(config.get("use_news", False))
     max_risk = str(config.get("max_risk") or "Middels")
     sectors = list(config.get("sectors") or ["Alle sektorer"])
     min_score = float(config.get("min_top_pick_score", 0) or 0)
     min_strength = float(config.get("min_strength", 0) or 0)
 
-    if manual_list and (str(config.get("mode") or "") == "Manuell liste" or "Manuell liste" in scopes):
-        tickers = manual_list[:max_count]
-    else:
-        tickers = resolve_universe_tickers(
-            scopes=scopes,
-            max_count=max_count,
-            manual_ticker=manual_ticker,
-            existing_tickers_by_scope=existing_tickers_by_scope,
-        )
+    tickers, strict_source = resolve_strict_universe_tickers(config, existing_tickers_by_scope=existing_tickers_by_scope)
 
     raw_candidates: List[SmartUniverseCandidate] = []
     errors: List[Dict[str, str]] = []
@@ -476,7 +512,8 @@ def run_smart_ai_universe(
     status = "ok" if ranked else ("empty_after_filter" if raw_candidates else "empty")
 
     return {
-        "version": "v18.5.10",
+        "version": "v18.5.22",
+        "strict_source": strict_source,
         "status": status,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "config": dict(config),
@@ -491,6 +528,7 @@ def run_smart_ai_universe(
         "errors": errors[:25],
         "summary": {
             "text": f"{len(ranked)} av {len(raw_candidates)} scorede kandidater matcher filtrene.",
+            "strict_source": strict_source,
             "filters": {
                 "max_risk": max_risk,
                 "min_score": min_score,

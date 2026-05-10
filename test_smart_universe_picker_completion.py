@@ -82,3 +82,45 @@ def test_smart_ai_engine_uses_manual_list_when_mode_is_manual_list():
 
     assert result["scanned"] == 2
     assert {row["ticker"] for row in result["candidates"]} == {"AAPL", "NVDA"}
+
+
+def test_smart_ai_engine_respects_single_stock_strict_mode():
+    result = run_smart_ai_universe(
+        {
+            "mode": "Enkeltaksje",
+            "scopes": ["USA"],
+            "manual_ticker": "aapl",
+            "max_count": 30,
+            "max_risk": "Ukjent",
+            "min_top_pick_score": 0,
+            "min_strength": 0,
+        },
+        existing_tickers_by_scope={"USA": ["AAPL", "MSFT", "NVDA"]},
+        score_provider=fake_score_provider,
+    )
+
+    assert result["strict_source"] == "Enkeltaksje"
+    assert result["universe_size"] == 1
+    assert result["scanned"] == 1
+    assert [row["ticker"] for row in result["candidates"]] == ["AAPL"]
+
+
+def test_smart_ai_engine_respects_watchlist_strict_mode_without_market_fallback():
+    result = run_smart_ai_universe(
+        {
+            "mode": "Watchlist",
+            "scopes": ["USA"],
+            "manual_ticker": "AAPL",
+            "max_count": 30,
+            "max_risk": "Ukjent",
+            "min_top_pick_score": 0,
+            "min_strength": 0,
+        },
+        existing_tickers_by_scope={"Watchlist": ["MSFT"], "USA": ["AAPL", "NVDA"]},
+        score_provider=fake_score_provider,
+    )
+
+    assert result["strict_source"] == "Watchlist"
+    assert result["universe_size"] == 1
+    assert result["scanned"] == 1
+    assert [row["ticker"] for row in result["candidates"]] == ["MSFT"]
