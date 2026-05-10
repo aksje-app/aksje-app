@@ -41,7 +41,7 @@ except Exception:  # pragma: no cover - allows pure helper tests without Streaml
 
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
-AI_UNIVERSE_MODULE_VERSION = "v18.5.17"
+AI_UNIVERSE_MODULE_VERSION = "v18.5.19"
 AI_UNIVERSE_SMART_RESULT_KEY = AI_UNIVERSE_SMART_RESULT_KEY_V1859
 AI_UNIVERSE_SMART_RESULT_LEGACY_KEY = "ai_analysis_universe_smart_result_v1858"
 
@@ -731,42 +731,47 @@ def build_universe_selection_summary(
     ]
 
 
-def _render_selection_summary_panel(rows: Sequence[Mapping[str, str]]) -> None:
-    cards: List[str] = []
+def _render_compact_status_rows(rows: Sequence[Mapping[str, str]], *, variant: str) -> None:
+    """Render compact dark rows instead of large card grids.
+
+    Some Streamlit/theme combinations rendered the old auto-fit card grid as
+    oversized white/empty rectangles in AI Kontrollsenter. A simple vertical
+    row list is more robust, takes far less space and always shows the actual
+    value/detail text.
+    """
+    if not rows:
+        st.caption("Ingen resultater ennå.")
+        return
+
+    row_html: List[str] = []
     for row in rows:
         kind = escape(str(row.get("kind", "neutral") or "neutral"))
         label = escape(str(row.get("label", "")))
         value = escape(str(row.get("value", "")))
         detail = escape(str(row.get("detail", "")))
-        cards.append(
+        detail_html = f'<span class="ai-universe-compact-detail">{detail}</span>' if detail else ""
+        row_html.append(
             f"""
-            <div class="ai-universe-choice-card {kind}">
-                <div class="ai-universe-choice-label">{label}</div>
-                <div class="ai-universe-choice-value">{value}</div>
-                <div class="ai-universe-choice-detail">{detail}</div>
+            <div class="ai-universe-compact-row {kind}">
+                <span class="ai-universe-compact-label">{label}</span>
+                <span class="ai-universe-compact-value">{value}</span>
+                {detail_html}
             </div>
             """
         )
-    st.markdown('<div class="ai-universe-choice-grid">' + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div class="ai-universe-compact-panel {escape(variant)}">' + "".join(row_html) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_selection_summary_panel(rows: Sequence[Mapping[str, str]]) -> None:
+    _render_compact_status_rows(rows, variant="selection")
 
 
 def _render_live_status_panel(rows: Sequence[Mapping[str, str]]) -> None:
-    cards: List[str] = []
-    for row in rows:
-        kind = escape(str(row.get("kind", "neutral") or "neutral"))
-        label = escape(str(row.get("label", "")))
-        value = escape(str(row.get("value", "")))
-        detail = escape(str(row.get("detail", "")))
-        cards.append(
-            f"""
-            <div class="ai-universe-live-card {kind}">
-                <div class="ai-universe-live-label">{label}</div>
-                <div class="ai-universe-live-value">{value}</div>
-                <div class="ai-universe-live-detail">{detail}</div>
-            </div>
-            """
-        )
-    st.markdown('<div class="ai-universe-live-grid">' + "".join(cards) + "</div>", unsafe_allow_html=True)
+    _render_compact_status_rows(rows, variant="live")
 
 
 def _status_badge_class(status: str) -> str:
@@ -852,6 +857,57 @@ def _inject_ai_universe_css() -> None:
             color: #e2e8f0;
         }
         .ai-universe-pill.plan { border-color: rgba(250,204,21,.55); color:#fde68a; }
+        .ai-universe-compact-panel {
+            display: flex;
+            flex-direction: column;
+            gap: .38rem;
+            margin: .35rem 0 .70rem 0;
+            width: 100%;
+            max-width: 100%;
+        }
+        .ai-universe-compact-row {
+            display: grid;
+            grid-template-columns: minmax(120px, 180px) minmax(110px, 210px) 1fr;
+            gap: .55rem;
+            align-items: center;
+            border: 1px solid rgba(56,189,248,.34);
+            background: linear-gradient(180deg, rgba(8,47,73,.40), rgba(15,23,42,.78));
+            border-radius: 12px;
+            padding: .46rem .58rem;
+            min-height: 0;
+            box-shadow: none;
+        }
+        .ai-universe-compact-row.ok { border-color: rgba(34,197,94,.50); }
+        .ai-universe-compact-row.warn { border-color: rgba(250,204,21,.58); background: linear-gradient(180deg, rgba(66,52,8,.38), rgba(15,23,42,.80)); }
+        .ai-universe-compact-row.preview { border-color: rgba(56,189,248,.50); }
+        .ai-universe-compact-label {
+            color:#bae6fd !important;
+            font-size:.68rem;
+            text-transform: uppercase;
+            letter-spacing:.04em;
+            font-weight: 950;
+            white-space: nowrap;
+        }
+        .ai-universe-compact-value {
+            color:#f8fafc !important;
+            font-size:.84rem;
+            font-weight: 950;
+            line-height:1.2;
+            overflow-wrap:anywhere;
+        }
+        .ai-universe-compact-detail {
+            color:#cbd5e1 !important;
+            font-size:.72rem;
+            line-height:1.28;
+            overflow-wrap:anywhere;
+        }
+        @media (max-width: 900px) {
+            .ai-universe-compact-row {
+                grid-template-columns: 1fr;
+                gap: .14rem;
+                align-items: start;
+            }
+        }
         .ai-universe-choice-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
@@ -863,7 +919,7 @@ def _inject_ai_universe_css() -> None:
             background: linear-gradient(180deg, rgba(8,47,73,.50), rgba(15,23,42,.86));
             border-radius: 16px;
             padding: .68rem .75rem;
-            min-height: 108px;
+            min-height: 0;
             box-shadow: 0 10px 24px rgba(0,0,0,.18);
         }
         .ai-universe-choice-card.ok { border-color: rgba(34,197,94,.54); }
@@ -901,7 +957,7 @@ def _inject_ai_universe_css() -> None:
             background: linear-gradient(180deg, rgba(15,23,42,.92), rgba(2,6,23,.80));
             border-radius: 15px;
             padding: .64rem .72rem;
-            min-height: 104px;
+            min-height: 0;
             box-shadow: 0 10px 24px rgba(0,0,0,.18);
         }
         .ai-universe-live-card.ok { border-color: rgba(34,197,94,.50); }
@@ -940,7 +996,7 @@ def _inject_ai_universe_css() -> None:
             background: rgba(15, 23, 42, .72);
             border-radius: 14px;
             padding: .62rem .68rem;
-            min-height: 92px;
+            min-height: 0;
         }
         .ai-universe-status-head {
             display:flex;
