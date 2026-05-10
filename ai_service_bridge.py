@@ -9,10 +9,16 @@ from __future__ import annotations
 import streamlit as st
 
 from core_models import UniverseRequest
-from services.service_registry import get_service_registry
+try:
+    from services.service_registry import get_service_registry
+except ModuleNotFoundError as _svc_exc:
+    get_service_registry = None
+    _SERVICE_IMPORT_ERROR = _svc_exc
 
 
 def render_service_migration_status() -> None:
+    if globals().get('_SERVICE_IMPORT_ERROR') is not None:
+        st.warning('Service-laget mangler: ' + str(_SERVICE_IMPORT_ERROR)); return
     reg = get_service_registry()
     st.markdown("### 🧩 Service Layer Status")
     checks = [

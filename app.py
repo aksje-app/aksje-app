@@ -1,3 +1,10 @@
+# v18.5.12 Render import-path guard
+import os as _render_os
+import sys as _render_sys
+_render_root = _render_os.path.dirname(_render_os.path.abspath(__file__))
+if _render_root not in _render_sys.path:
+    _render_sys.path.insert(0, _render_root)
+
 # BANNER_SAFE_PRO_V7
 from ui_components import market_pulse, top_movers
 import os
