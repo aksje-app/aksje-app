@@ -254,6 +254,21 @@ class UniverseService:
         latest_rankings["Smart AI"] = rows
         self.state.set("latest_rankings_v148", latest_rankings)
         self.storage.write_json("latest_rankings_v148.json", latest_rankings)
+
+        # v18.5.16: Persist score explanations so Testing & Learning can show
+        # the explanation after a Render/session restart, not only immediately
+        # after the scan.
+        try:
+            from score_explanation_store import capture_score_explanations
+
+            capture_score_explanations(
+                rows,
+                source="Smart AI",
+                context={"origin": "UniverseService.store_result_as_rankings"},
+                storage=self.storage,
+            )
+        except Exception:
+            pass
         return rows
 
 
