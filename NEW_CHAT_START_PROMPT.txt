@@ -1,0 +1,4 @@
+Fortsett AI Aksje Analyzer Pro fra v18.5.14.
+Les PROJECT_HANDOFF_FOR_NEW_CHAT.md først.
+Ikke lag zip før jeg sier GO.
+Neste åpne oppgaver: hendelsesrisiko, prognosegraf tidslogikk, Smart Universe Picker, legacy cleanup, manual, service-omkobling og persistent storage.
