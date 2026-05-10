@@ -1,43 +1,24 @@
-# Project handoff – v18.5.17 Smart Universe Picker Completion
+# Project handoff – v18.5.18 Testing & Learning UI State Fix
 
-Status:
+Context:
 - v18.5.16 completed Testing & Learning hardening.
-- v18.5.17 completes Smart Universe Picker as the central stock-selection layer.
+- v18.5.17 completed Smart Universe Picker as the central stock-selection layer.
+- v18.5.18 fixes a real UI issue where clicking "Kjør enkel strategi-test" could appear to do nothing because Streamlit reruns/tabs/expanders could hide the one-run button state.
 
-What changed in v18.5.17:
-1. Smart Universe Picker can now resolve and persist these sources as one shared active universe:
-   - Enkeltaksje
-   - Top Picks
-   - Watchlist
-   - Portefølje
-   - Paper trading
-   - Markedvalg
-   - Multi-marked
-   - Manuell liste
-   - Smart AI-utvalg / latest Smart AI result
-2. New active universe state/storage keys:
-   - `smart_universe_picker_active_v18517`
-   - `smart_universe_picker_tickers_v18517`
-   - `active_universe.json`
-   - `smart_universe_picker_active.json`
-   - ranking key: `Smart Universe Picker`
-3. `services/universe_service.py` now has:
-   - `resolve_picker(config)`
-   - `save_active_universe(config)`
-   - `load_active_universe()`
-   - storage-aware source recovery for watchlist/top picks/active universe.
-4. `analysis_universe_ai.py` UI now has a real Smart Universe Picker section:
-   - Shows resolved ticker list before heavy scan.
-   - Button to set result as active stock universe.
-   - Buttons to send picker result to Watchlist or Top Picks.
-   - Manual ticker list textarea.
-5. `app.py` Interactive Analysis can now use `Smart Universe Picker` as an aksjekilde.
-   - If active rows lack full price history, it fetches the selected ticker analysis instead of failing.
-6. `universe_engine.py` Smart AI scan now respects `manual_list` when mode/scope is `Manuell liste`.
+What changed in v18.5.18:
+- Basic strategy-test result is now stored in `st.session_state["tl_basic_strategy_result_v18518"]`.
+- The result is rendered after reruns, tab switches, and expander reopen.
+- Added spinner, success/error state, timestamp, metrics, chart and optimisation from the persisted payload.
+- Normalised yfinance history frames so MultiIndex `Close` data works with StrategyEngine.
+- Removed duplicate Score-forklaring status row.
+- Added tests for yfinance MultiIndex Close normalisation and the renderable strategy-test payload.
 
-Validation:
-- `python -m compileall .` passes.
-- `pytest -q` passes: 12 tests.
+Verification:
+- `python -m compileall .` OK.
+- `pytest -q` OK: 14 passed.
 
-Remaining recommended next phase:
-- v18.5.18: Prognosegraf/event-risk smoke hardening on Render and cleanup of duplicated legacy sections after confirming AI Kontrollsenter owns the workflows.
+Recommended next steps:
+1. Deploy v18.5.18 to Render.
+2. Smoke-test AI Kontrollsenter → Testing & Learning → Kjør enkel strategi-test.
+3. Continue with event-risk/prognose hardening.
+4. Do legacy cleanup only after AI Kontrollsenter workflows are confirmed live.

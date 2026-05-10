@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional
+from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -15,6 +16,50 @@ from strategy_engine import optimize_strategy, run_strategy, strategy_stats
 from strategy_test_pro import render_strategy_test_pro
 
 
+def _normalise_history_frame(df: Any, ticker: str):
+    """Return a StrategyEngine-compatible OHLC frame.
+
+    yfinance can return either normal columns or MultiIndex columns depending on
+    version/download parameters. The simple strategy test only needs Close, but
+    StrategyEngine expects a plain ``Close`` column.
+    """
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return None
+    if pd is None:
+        return df
+    out = df.copy()
+    try:
+        # Single-ticker downloads may still come back as MultiIndex in newer
+        # yfinance versions: (Price, Ticker) or (Ticker, Price).
+        if getattr(out.columns, "nlevels", 1) > 1:
+            close_col = None
+            ticker_upper = str(ticker or "").upper()
+            for col in out.columns:
+                parts = [str(part) for part in (col if isinstance(col, tuple) else (col,))]
+                if "Close" in parts and (ticker_upper in [p.upper() for p in parts] or close_col is None):
+                    close_col = col
+                    if ticker_upper in [p.upper() for p in parts]:
+                        break
+            if close_col is not None:
+                close = out[close_col]
+                out = pd.DataFrame({"Close": close})
+            else:
+                out.columns = ["_".join(str(part) for part in col if str(part)) for col in out.columns]
+        if "Close" not in out.columns:
+            for col in out.columns:
+                if str(col).lower().endswith("close") or str(col).lower().startswith("close"):
+                    out = out.rename(columns={col: "Close"})
+                    break
+        if "Close" not in out.columns:
+            return None
+        out = out.copy()
+        out["Close"] = pd.to_numeric(out["Close"], errors="coerce")
+        out = out.dropna(subset=["Close"])
+        return out
+    except Exception:
+        return None
+
+
 def _fetch_history(ticker: str, period: str = "1y"):
     try:
         import yfinance as yf  # type: ignore
@@ -22,13 +67,88 @@ def _fetch_history(ticker: str, period: str = "1y"):
         return None, "yfinance er ikke tilgjengelig."
     try:
         df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
+        df = _normalise_history_frame(df, ticker)
         if df is None or df.empty:
-            return None, f"Fant ingen historikk for {ticker}."
-        if "Close" not in df and hasattr(df, "columns"):
-            return None, f"Mangler Close-kolonne for {ticker}."
+            return None, f"Fant ingen brukbar historikk/Close-data for {ticker}."
         return df, None
     except Exception as exc:
         return None, f"Klarte ikke hente historikk: {exc}"
+
+
+def _strategy_result_key() -> str:
+    return "tl_basic_strategy_result_v18518"
+
+
+def _run_basic_strategy_test(ticker: str, period: str) -> Dict[str, Any]:
+    df, error = _fetch_history(ticker, period=period)
+    if error:
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "period": period,
+            "error": error,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+
+    value, trades, equity = run_strategy(df)
+    stats = strategy_stats(equity, trades)
+    result: Dict[str, Any] = {
+        "ok": True,
+        "ticker": ticker,
+        "period": period,
+        "value": value,
+        "trades": trades,
+        "equity": equity,
+        "stats": stats,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    try:
+        result["optimization"] = optimize_strategy(df)
+    except Exception as exc:
+        result["optimization_error"] = str(exc)
+    return result
+
+
+def _render_basic_strategy_result(result: Mapping[str, Any]) -> bool:
+    if not result:
+        return False
+    ticker = str(result.get("ticker") or "-").upper()
+    period = str(result.get("period") or "-")
+    created_at = str(result.get("created_at") or "")
+    if not result.get("ok"):
+        st.warning(str(result.get("error") or "Strategi-test feilet."))
+        return False
+
+    st.success(f"Strategi-test kjørt for {ticker} ({period}).")
+    if created_at:
+        st.caption(f"Sist kjørt: {created_at}")
+    stats = result.get("stats") if isinstance(result.get("stats"), Mapping) else {}
+    value = float(result.get("value") or 0)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Sluttverdi", f"{value:,.0f}")
+    m2.metric("Total avkastning", f"{stats.get('total_return_pct', 0):+.2f}%")
+    m3.metric("Maks drawdown", f"{stats.get('max_drawdown_pct', 0):+.2f}%")
+    m4.metric("Trefferate", f"{stats.get('win_rate', 0):.1f}%")
+
+    equity = result.get("equity")
+    if pd is not None and equity is not None and hasattr(equity, "empty") and not equity.empty:
+        try:
+            import plotly.graph_objects as go  # type: ignore
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=equity["date"], y=equity["value"], mode="lines", name="Strategi/equity"))
+            fig.update_layout(title=f"{ticker} strategi/equity", height=330, margin=dict(l=10, r=10, t=45, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            st.dataframe(equity.tail(60), use_container_width=True)
+
+    opt = result.get("optimization")
+    if opt is not None and hasattr(opt, "empty") and not opt.empty:
+        st.markdown("#### Strategi-optimalisering")
+        st.dataframe(opt, use_container_width=True, hide_index=True)
+    elif result.get("optimization_error"):
+        st.caption(f"Optimalisering ikke tilgjengelig: {result.get('optimization_error')}")
+    return True
 
 
 def _collect_known_tickers(default: str = "AAPL", limit: int = 12) -> List[str]:
@@ -161,39 +281,17 @@ def _render_basic_strategy_test(ticker: str) -> bool:
         period = st.selectbox("Historikk", ["6mo", "1y", "2y", "5y"], index=1, key="tl_strategy_period_v18515")
     with c2:
         run = st.button("Kjør enkel strategi-test", key="tl_strategy_run_v18515", use_container_width=True)
-    if not run:
-        st.caption("Kjører en enkel buy-and-hold/equity baseline via StrategyEngine når du trykker på knappen.")
-        return True
 
-    df, error = _fetch_history(ticker, period=period)
-    if error:
-        st.warning(error)
-        return False
-    value, trades, equity = run_strategy(df)
-    stats = strategy_stats(equity, trades)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Sluttverdi", f"{value:,.0f}")
-    m2.metric("Total avkastning", f"{stats.get('total_return_pct', 0):+.2f}%")
-    m3.metric("Maks drawdown", f"{stats.get('max_drawdown_pct', 0):+.2f}%")
-    m4.metric("Trefferate", f"{stats.get('win_rate', 0):.1f}%")
+    result_key = _strategy_result_key()
+    if run:
+        with st.spinner(f"Kjører strategi-test for {ticker} ({period}) ..."):
+            st.session_state[result_key] = _run_basic_strategy_test(ticker, period)
 
-    if pd is not None and equity is not None and not equity.empty:
-        try:
-            import plotly.graph_objects as go  # type: ignore
+    result = st.session_state.get(result_key)
+    if result:
+        return _render_basic_strategy_result(result)
 
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=equity["date"], y=equity["value"], mode="lines", name="Strategi/equity"))
-            fig.update_layout(title=f"{ticker} strategi/equity", height=330, margin=dict(l=10, r=10, t=45, b=10))
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception:
-            st.dataframe(equity.tail(60), use_container_width=True)
-
-    try:
-        opt = optimize_strategy(df)
-        st.markdown("#### Strategi-optimalisering")
-        st.dataframe(opt, use_container_width=True, hide_index=True)
-    except Exception as exc:
-        st.caption(f"Optimalisering ikke tilgjengelig: {exc}")
+    st.caption("Kjører en enkel buy-and-hold/equity baseline via StrategyEngine når du trykker på knappen.")
     return True
 
 

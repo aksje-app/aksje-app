@@ -1,1 +1,1 @@
-Continue from v18.5.17 Smart Universe Picker Completion. Focus next on Render smoke-test, event-risk/prognose hardening, then legacy cleanup after confirming AI Kontrollsenter workflows are live.
+Continue from v18.5.18 Testing & Learning UI State Fix. The basic strategy-test button now persists its result in session_state and normalises yfinance MultiIndex Close data. Next focus: Render smoke-test, then event-risk/prognose hardening and legacy cleanup after confirming AI Kontrollsenter workflows are live.
