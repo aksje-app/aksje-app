@@ -1,135 +1,102 @@
-"""
-services/universe_service.py
-
-Unified universe service for Smart AI / Top Picks / Watchlist / Portfolio / Paper / Forecast.
-"""
-
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+from dataclasses import dataclass, field
+from typing import Any, List
 
-from core_models import StockCandidate, UniverseRequest, UniverseResult, ServiceResult
-from services.state_service import get_state_service
+SMART_RESULT_KEY = "smart_universe_result"
+AI_UNIVERSE_SMART_RESULT_KEY = SMART_RESULT_KEY
+TOP_PICKS_RESULT_KEY = "top_picks_result"
+WATCHLIST_RESULT_KEY = "watchlist_result"
+
+try:
+    from core_models import ServiceResult, UniverseRequest, UniverseResult, StockCandidate
+except Exception:
+    @dataclass
+    class ServiceResult:
+        ok: bool
+        data: Any = None
+        error: str | None = None
+
+    @dataclass
+    class UniverseRequest:
+        mode: str = "market"
+        market: str = "all"
+        tickers: List[str] = field(default_factory=list)
+        limit: int = 10
+
+    @dataclass
+    class StockCandidate:
+        ticker: str
+        market: str = ""
+        score: float = 0
+        source: str = ""
+
+    @dataclass
+    class UniverseResult:
+        candidates: List[StockCandidate] = field(default_factory=list)
+        source: str = ""
 
 
-DEFAULT_US = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "AVGO", "PLTR"]
-DEFAULT_NORWAY = ["EQNR.OL", "DNB.OL", "TEL.OL", "MOWI.OL", "ORK.OL", "AKRBP.OL", "NHY.OL", "KOG.OL"]
-DEFAULT_SWEDEN = ["VOLV-B.ST", "ERIC-B.ST", "INVE-B.ST", "ATCO-A.ST", "SEB-A.ST", "HM-B.ST"]
-DEFAULT_DENMARK = ["NOVO-B.CO", "MAERSK-B.CO", "DSV.CO", "VWS.CO", "CARL-B.CO"]
+DEFAULTS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO"]
 
 
-def _clean_ticker(value: Any) -> str:
-    s = str(value or "").strip().upper()
-    if not s or len(s) > 32:
-        return ""
-    if not all(ch.isalnum() or ch in ".-_/" for ch in s):
-        return ""
-    return s
+def _extract_tickers(value):
+    out = []
 
-
-def _extract_tickers(value: Any) -> List[str]:
-    out: List[str] = []
-    def add(v: Any) -> None:
+    def add(v):
         if v is None:
             return
         if isinstance(v, str):
-            # comma separated or single
-            parts = [p.strip() for p in v.split(",")] if "," in v else [v]
-            for part in parts:
-                t = _clean_ticker(part)
+            for p in v.split(","):
+                t = p.strip().upper()
                 if t and t not in out:
                     out.append(t)
         elif isinstance(v, dict):
-            for key in ("ticker", "symbol", "Ticker", "Symbol"):
-                if key in v:
-                    add(v.get(key))
-            # dict of ticker -> data
             for k, val in v.items():
                 add(k)
-                if isinstance(val, (dict, list)):
+                if isinstance(val, (dict, list, tuple, set)):
                     add(val)
         elif isinstance(v, (list, tuple, set)):
-            for item in v:
-                add(item)
+            for i in v:
+                add(i)
+
     add(value)
     return out
 
 
 class UniverseService:
-    def __init__(self, state_service=None):
-        self.state = state_service or get_state_service()
-
-    def defaults_for_market(self, market: str = "all") -> List[str]:
-        m = (market or "all").lower()
-        if m in ("us", "usa", "nasdaq", "nyse"):
-            return DEFAULT_US
-        if m in ("norway", "norge", "oslo", "ol"):
-            return DEFAULT_NORWAY
-        if m in ("sweden", "sverige", "stockholm", "st"):
-            return DEFAULT_SWEDEN
-        if m in ("denmark", "danmark", "copenhagen", "co"):
-            return DEFAULT_DENMARK
-        return DEFAULT_US + DEFAULT_NORWAY + DEFAULT_SWEDEN + DEFAULT_DENMARK
-
-    def from_state_sources(self, sources: Sequence[str]) -> List[str]:
-        tickers: List[str] = []
-        for key in sources:
-            for t in _extract_tickers(self.state.get(key)):
-                if t not in tickers:
-                    tickers.append(t)
-        return tickers
-
-    def resolve(self, request: UniverseRequest | Dict[str, Any] | None = None) -> ServiceResult:
+    def resolve(self, request=None):
         if request is None:
-            request = UniverseRequest(mode="all")
+            request = UniverseRequest()
         if isinstance(request, dict):
             request = UniverseRequest(**{k: v for k, v in request.items() if k in UniverseRequest.__dataclass_fields__})
 
-        mode = (request.mode or "manual").lower()
-        tickers: List[str] = []
-
-        if mode == "manual":
-            tickers = [_clean_ticker(t) for t in request.tickers]
-        elif mode in ("watchlist", "watch"):
-            tickers = self.from_state_sources(["watchlist", "watchlist_items"])
-        elif mode in ("top_picks", "top picks", "smart_ai", "smart"):
-            tickers = self.from_state_sources(["top_picks", "ai_ranking", "smart_ai_candidates"])
-            if not tickers:
-                tickers = self.defaults_for_market(request.market)
-        elif mode in ("paper", "paper_trading"):
-            tickers = self.from_state_sources(["paper_portfolio", "paper_positions", "paper_trading_positions"])
-        elif mode in ("portfolio", "holdings", "positions"):
-            tickers = self.from_state_sources(["portfolio", "holdings", "positions"])
-        elif mode in ("market", "all"):
-            tickers = self.defaults_for_market(request.market)
-        else:
-            tickers = self.from_state_sources([mode]) or self.defaults_for_market(request.market)
-
-        # fallback
-        tickers = [t for t in tickers if t]
+        tickers = list(getattr(request, "tickers", []) or [])
         if not tickers:
-            tickers = self.defaults_for_market(request.market)
+            tickers = DEFAULTS
 
-        seen = set()
-        candidates = []
-        for i, ticker in enumerate(tickers):
-            if ticker in seen:
-                continue
-            seen.add(ticker)
-            if len(candidates) >= int(request.limit or 10):
-                break
-            candidates.append(StockCandidate(
-                ticker=ticker,
-                market=request.market,
-                score=max(0.0, 100.0 - i),
-                source=mode,
-            ))
+        limit = int(getattr(request, "limit", 10) or 10)
+        mode = getattr(request, "mode", "market")
+        market = getattr(request, "market", "all")
 
+        candidates = [
+            StockCandidate(ticker=str(t).upper(), market=market, score=100 - i, source=mode)
+            for i, t in enumerate(tickers[:limit])
+        ]
         return ServiceResult(ok=True, data=UniverseResult(candidates=candidates, source=mode))
 
+    def get_universe(self, request=None):
+        return self.resolve(request)
 
-_default_universe_service = UniverseService()
+    def smart_universe(self, market="all", limit=10):
+        return self.resolve(UniverseRequest(mode="smart_ai", market=market, limit=limit))
+
+    def top_picks(self, market="all", limit=10):
+        return self.resolve(UniverseRequest(mode="top_picks", market=market, limit=limit))
 
 
-def get_universe_service() -> UniverseService:
-    return _default_universe_service
+_default = UniverseService()
+
+
+def get_universe_service():
+    return _default

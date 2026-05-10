@@ -1,1 +1,1 @@
-"""Service layer for AI Aksje Analyzer Pro."""
+"""Services package for AI Aksje Analyzer Pro."""
