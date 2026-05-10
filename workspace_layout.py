@@ -236,7 +236,7 @@ def inject_workspace_css() -> None:
 
 
 
-        /* v18.5.24: hard input visibility guard for Chrome/Edge autofill and Streamlit BaseWeb wrappers. */
+        /* v18.5.25: hard input visibility guard for Chrome/Edge autofill and Streamlit BaseWeb wrappers. */
         div[data-testid="stTextInput"],
         div[data-testid="stTextInput"] > div,
         div[data-testid="stTextInput"] > div > div,

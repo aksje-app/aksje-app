@@ -1254,7 +1254,7 @@ def _inject_ai_universe_css() -> None:
         }
 
 
-        /* v18.5.24: local hard guard for the manual ticker field. Chrome/Edge autofill can paint the BaseWeb wrapper white. */
+        /* v18.5.25: local hard guard for the manual ticker field. Chrome/Edge autofill can paint the BaseWeb wrapper white. */
         div[data-testid="stTextInput"],
         div[data-testid="stTextInput"] > div,
         div[data-testid="stTextInput"] > div > div,
@@ -1401,7 +1401,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen. Valgt modus-chip oppdateres omgående før lagring."
         )
 
-        # v18.5.24: no form wrapper here. Streamlit forms buffer widget changes until submit,
+        # v18.5.25: no form wrapper here. Streamlit forms buffer widget changes until submit,
         # which made the active mode chips stale. Normal widgets rerun immediately so
         # the green chip follows Workspace-modus before the user saves or runs.
         with st.container():
@@ -1519,7 +1519,11 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             st.session_state["use_news_main_v157"] = bool(use_news)
             st.session_state["use_signal_intelligence_main_v157"] = bool(use_signal_intelligence)
             st.session_state["search_main_v157"] = _normalize_ticker(manual_ticker)
-            st.session_state["ai_universe_manual_list_draft_v18517"] = str(manual_list_text or "")
+            # v18.5.25: Do not assign to ai_universe_manual_list_draft_v18517 after
+            # its st.text_area widget has been instantiated in this run. Streamlit
+            # raises if a widget key is mutated post-instantiation. Keep a separate
+            # non-widget sync key for services/status panels instead.
+            st.session_state["ai_universe_manual_list_saved_v18525"] = str(manual_list_text or "")
 
             if "Alle" in scopes:
                 st.session_state["market_category_selector_v157"] = "All Markets"

@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_ai_universe_mode_chips_are_live_not_form_buffered():
     src = Path("analysis_universe_ai.py").read_text(encoding="utf-8")
-    assert "v18.5.24: no form wrapper here" in src
+    assert "v18.5.25: no form wrapper here" in src
     assert "with st.form(\"ai_analysis_universe_form_v1853\"" not in src
     assert "Valgt nå:" in src
     assert "Sist lagret:" in src
@@ -27,7 +27,7 @@ def test_progress_uses_rerun_pending_state_and_visible_progress_boxes():
 
 def test_banner_layout_has_extra_height_and_bottom_margin():
     app = Path("app.py").read_text(encoding="utf-8")
-    assert "v18.5.24: stop banner text from being clipped" in app
+    assert "v18.5.25: stop banner text from being clipped" in app
     assert "min-height: 92px" in app
     assert "margin: 0.36rem 0 0.72rem 0" in app
     assert "aria-label='Ticker-banner'" in app

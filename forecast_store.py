@@ -338,21 +338,24 @@ def get_forecast_vs_actual_series(
     actual_prices: Sequence[float],
     horizon: str,
 ) -> Dict[str, Any]:
-    """Build forecast-vs-actual series with a clean time split.
+    """Build forecast-vs-actual series with a hard historical/future split.
 
-    The previous version aligned historical actual prices directly onto future
-    forecast labels. This made the green actual-price line continue into the
-    future. v18.5.15 separates:
-    - historical actual prices before today
-    - today/current price
-    - future forecast points only after today
+    v18.5.25 makes the split explicit for the chart layer:
+    - actual_history_x / actual_history: historical prices through today only
+    - forecast_x / base/bull/bear bands: today plus future forecast only
+    - today_label / today_index: chart marker for the split
+
+    The legacy padded keys (labels, actual, base, bull, bear, lower_band,
+    upper_band) are kept for compatibility, but the actual series is always
+    padded with None after today. This prevents any "faktisk kurs" line from
+    extending into future forecast dates.
     """
     horizons = forecast_payload.get("horizons", {})
     item = horizons.get(horizon)
     if not item:
         raise ValueError(f"Mangler horisont i forecast payload: {horizon}")
 
-    points = item.get("points", [])
+    points = list(item.get("points", []) or [])
     if not points:
         raise ValueError("Forecast mangler punkter.")
 
@@ -368,18 +371,28 @@ def get_forecast_vs_actual_series(
     today_label = str(points[0].get("date_label") or "I dag")
     history_window = min(max(len(clean_actual) - 1, 0), 60)
     history_values = clean_actual[-(history_window + 1):] if clean_actual else []
-    history_labels = [f"T-{i}" for i in range(history_window, 0, -1)]
 
-    future_points = list(points[1:])
+    # Labels before today are intentionally generic because this helper receives
+    # a price sequence, not the original trading dates. Forecast dates keep their
+    # actual future date labels from the forecast engine.
+    pre_today_labels = [f"T-{i}" for i in range(history_window, 0, -1)]
+    actual_x = pre_today_labels + ([today_label] if history_values else [])
+    actual_history = history_values
+
+    future_points = points[1:]
     future_labels = [str(p.get("date_label", f"+{idx}")) for idx, p in enumerate(future_points, start=1)]
-    labels = history_labels + [today_label] + future_labels
+    forecast_x = [today_label] + future_labels
+    labels = pre_today_labels + forecast_x
+
+    def point_values(field: str) -> List[Any]:
+        return [p.get(field) for p in points]
 
     def projected(field: str) -> List[Any]:
-        return [None] * history_window + [p.get(field) for p in points]
+        return [None] * history_window + point_values(field)
 
-    actual_series: List[Any] = []
+    actual_padded: List[Any] = []
     if history_values:
-        actual_series = history_values + [None] * len(future_points)
+        actual_padded = history_values + [None] * len(future_points)
 
     result = {
         "ticker": forecast_payload.get("ticker", "UNKNOWN"),
@@ -388,7 +401,25 @@ def get_forecast_vs_actual_series(
         "today_label": today_label,
         "today_index": history_window,
         "future_start_index": history_window + 1,
-        "actual": actual_series,
+        "actual_cutoff_index": history_window,
+        "actual_has_future_values": any(v is not None for v in actual_padded[history_window + 1:]),
+        "actual_history_x": actual_x,
+        "actual_history": actual_history,
+        "forecast_x": forecast_x,
+        "forecast_start_label": today_label,
+        "forecast_future_labels": future_labels,
+        "forecast_base": point_values("base"),
+        "forecast_bull": point_values("bull"),
+        "forecast_bear": point_values("bear"),
+        "forecast_lower_band": point_values("lower_band"),
+        "forecast_upper_band": point_values("upper_band"),
+        "series_sections": {
+            "actual_history": "Faktisk historikk stopper ved dagens dato.",
+            "today": "Dagens dato er overgangen mellom historikk og prognose.",
+            "forecast_future": "Fremtidig prognose vises separat etter dagens dato.",
+        },
+        # Backwards-compatible padded series for older callers/tests.
+        "actual": actual_padded,
         "base": projected("base"),
         "bull": projected("bull"),
         "bear": projected("bear"),
@@ -407,7 +438,6 @@ def get_forecast_vs_actual_series(
         )
 
     return result
-
 
 def _alert_priority(level: str) -> int:
     level = (level or "").lower()

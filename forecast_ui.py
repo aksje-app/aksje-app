@@ -337,60 +337,116 @@ def _render_forecast_result_cards(summary) -> None:
 
 
 def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
-    """Render forecast vs actual chart."""
+    """Render forecast vs actual chart with explicit actual/today/future split."""
     try:
         import plotly.graph_objects as go  # type: ignore
     except Exception:
-        st.warning("Plotly er ikke tilgjengelig. Viser data som tabell.")
-        st.dataframe(series, use_container_width=True)
+        st.warning("Plotly er ikke tilgjengelig. Viser data som kompakte rader.")
+        st.json({
+            "ticker": series.get("ticker"),
+            "horizon": series.get("horizon"),
+            "today_label": series.get("today_label"),
+            "actual_points": len(series.get("actual_history") or []),
+            "forecast_points": len(series.get("forecast_x") or []),
+        })
         return
 
-    x = series.get("labels", [])
+    x_full = list(series.get("labels", []) or [])
+    actual_x = list(series.get("actual_history_x") or [])
+    actual_y = list(series.get("actual_history") or [])
+    forecast_x = list(series.get("forecast_x") or [])
+
+    # Prefer v18.5.25 split-series. Fall back to legacy padded arrays if an old
+    # stored payload/caller reaches the UI.
+    base_y = list(series.get("forecast_base") or [])
+    bull_y = list(series.get("forecast_bull") or [])
+    bear_y = list(series.get("forecast_bear") or [])
+    upper_y = list(series.get("forecast_upper_band") or [])
+    lower_y = list(series.get("forecast_lower_band") or [])
+    if not forecast_x or not base_y:
+        forecast_x = x_full
+        base_y = list(series.get("base") or [])
+        bull_y = list(series.get("bull") or [])
+        bear_y = list(series.get("bear") or [])
+        upper_y = list(series.get("upper_band") or [])
+        lower_y = list(series.get("lower_band") or [])
+    if not actual_x and series.get("actual"):
+        actual_padded = list(series.get("actual") or [])
+        actual_pairs = [(x, y) for x, y in zip(x_full, actual_padded) if y is not None]
+        actual_x = [p[0] for p in actual_pairs]
+        actual_y = [p[1] for p in actual_pairs]
+
     fig = go.Figure()
 
-    upper = series.get("upper_band", [])
-    lower = series.get("lower_band", [])
+    if forecast_x and upper_y and lower_y:
+        fig.add_trace(go.Scatter(
+            x=forecast_x,
+            y=upper_y,
+            mode="lines",
+            line=dict(width=0),
+            hoverinfo="skip",
+            showlegend=False,
+            name="Øvre bånd",
+        ))
+        fig.add_trace(go.Scatter(
+            x=forecast_x,
+            y=lower_y,
+            mode="lines",
+            fill="tonexty",
+            fillcolor="rgba(148,163,184,0.18)",
+            line=dict(width=0),
+            hoverinfo="skip",
+            showlegend=True,
+            name="Usikkerhetsbånd fremtid",
+        ))
 
-    fig.add_trace(go.Scatter(
-        x=x, y=upper, mode="lines", line=dict(width=0),
-        hoverinfo="skip", showlegend=False, name="Øvre bånd"
-    ))
-    fig.add_trace(go.Scatter(
-        x=x, y=lower, mode="lines", fill="tonexty",
-        fillcolor="rgba(148,163,184,0.18)", line=dict(width=0),
-        hoverinfo="skip", showlegend=True, name="Usikkerhetsbånd"
-    ))
+    if bull_y:
+        fig.add_trace(go.Scatter(x=forecast_x, y=bull_y, mode="lines", name="Bull-prognose", line=dict(width=2, dash="dot")))
+    if base_y:
+        fig.add_trace(go.Scatter(x=forecast_x, y=base_y, mode="lines", name="Base-prognose", line=dict(width=3)))
+    if bear_y:
+        fig.add_trace(go.Scatter(x=forecast_x, y=bear_y, mode="lines", name="Bear-prognose", line=dict(width=2, dash="dot")))
 
-    fig.add_trace(go.Scatter(x=x, y=series.get("bull", []), mode="lines", name="Bull-prognose", line=dict(width=2, dash="dot")))
-    fig.add_trace(go.Scatter(x=x, y=series.get("base", []), mode="lines", name="Base-prognose", line=dict(width=3)))
-    fig.add_trace(go.Scatter(x=x, y=series.get("bear", []), mode="lines", name="Bear-prognose", line=dict(width=2, dash="dot")))
-
-    actual = series.get("actual", [])
-    if actual:
-        fig.add_trace(go.Scatter(x=x, y=actual, mode="lines+markers", name="Faktisk historikk", line=dict(width=4)))
+    if actual_x and actual_y:
+        fig.add_trace(go.Scatter(
+            x=actual_x,
+            y=actual_y,
+            mode="lines+markers",
+            name="Faktisk historikk til i dag",
+            line=dict(width=4),
+            hovertemplate="Faktisk kurs<br>%{x}: %{y:.2f}<extra></extra>",
+        ))
 
     today_label = series.get("today_label")
-    if today_label in x:
-        all_values = []
-        for key in ["actual", "base", "bull", "bear", "lower_band", "upper_band"]:
-            for value in series.get(key, []) or []:
-                try:
-                    if value is not None:
-                        all_values.append(float(value))
-                except Exception:
-                    pass
-        if all_values:
-            fig.add_trace(go.Scatter(
-                x=[today_label, today_label],
-                y=[min(all_values), max(all_values)],
-                mode="lines",
-                name="I dag",
-                line=dict(width=2, dash="dash"),
-            ))
+    all_values: List[float] = []
+    for values in [actual_y, base_y, bull_y, bear_y, lower_y, upper_y]:
+        for value in values or []:
+            try:
+                if value is not None:
+                    all_values.append(float(value))
+            except Exception:
+                pass
+
+    if today_label and all_values:
+        fig.add_trace(go.Scatter(
+            x=[today_label, today_label],
+            y=[min(all_values), max(all_values)],
+            mode="lines",
+            name="I dag",
+            line=dict(width=2, dash="dash"),
+            hovertemplate="I dag / prognosestart<extra></extra>",
+        ))
+        fig.add_annotation(
+            x=today_label,
+            y=max(all_values),
+            text="I dag",
+            showarrow=False,
+            yshift=12,
+        )
 
     fig.update_layout(
         title=f"{series.get('ticker', '')} prognose vs faktisk ({series.get('horizon', '')})",
-        xaxis_title="Historikk → I dag → Fremtidig prognose",
+        xaxis_title="Faktisk historikk | I dag | Fremtidig prognose",
         yaxis_title="Kurs",
         height=430,
         margin=dict(l=10, r=10, t=55, b=10),
@@ -398,6 +454,16 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    st.markdown(
+        """
+        <div style="display:flex;flex-wrap:wrap;gap:.45rem;margin:.35rem 0 .1rem 0;">
+          <span style="border:1px solid rgba(96,165,250,.35);background:rgba(15,23,42,.70);border-radius:999px;padding:.22rem .52rem;color:#bfdbfe;font-size:.75rem;font-weight:850;">Faktisk historikk stopper ved I dag</span>
+          <span style="border:1px solid rgba(250,204,21,.35);background:rgba(66,32,6,.45);border-radius:999px;padding:.22rem .52rem;color:#fde68a;font-size:.75rem;font-weight:850;">I dag = skillelinje</span>
+          <span style="border:1px solid rgba(34,197,94,.35);background:rgba(6,78,59,.40);border-radius:999px;padding:.22rem .52rem;color:#bbf7d0;font-size:.75rem;font-weight:850;">Bull/base/bear = fremtidig prognose</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def _render_forecast_vs_actual_panel(ticker: str, horizon: str, current_prices: List[float]) -> None:
     """Render panel comparing latest stored forecast against actual prices."""

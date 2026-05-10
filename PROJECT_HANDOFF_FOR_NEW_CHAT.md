@@ -1,27 +1,37 @@
-# Project handoff – v18.5.24 UI Polish + Live Progress
+# Project handoff – v18.5.25 Session State Fix + Forecast Chart
 
-Focus for this release:
+## What changed
 
-- Smart Universe Picker modes are now strict source-of-truth for Smart AI scans.
-- `Enkeltaksje` scans only the selected manual ticker, with no market fallback.
-- `Manuell liste`, `Top Picks`, `Watchlist`, `Paper trading`, and `Portefølje` scan only their own selected source.
-- `Markedvalg` and `Multi-marked` use market scopes only and do not silently prepend stale manual tickers.
-- Remaining Analyseunivers result/status panels use inline dark compact rows to avoid large white empty Streamlit/native panels.
-- Added visible progress/spinner UI for:
-  - Smart AI-utvalg
-  - Strategi-test
-  - Strategi-test Pro / optimalisering
-- Version source updated to `v18.5.24` via `app_version.py`.
+- Fixed a Streamlit runtime crash in Analyseunivers / Smart Universe Picker:
+  - `st.session_state.ai_universe_manual_list_draft_v18517` is no longer modified after its `st.text_area` widget is instantiated.
+  - A separate non-widget key `ai_universe_manual_list_saved_v18525` is used for saved/sync state.
+- Updated the app version source to `v18.5.25` in `app_version.py`.
+- Forecast-vs-actual chart data is now explicitly split:
+  - `actual_history_x` / `actual_history` stops at today's marker.
+  - `forecast_x` starts at today and continues into future forecast dates.
+  - legacy padded `actual` values after `future_start_index` are forced to `None`.
+  - chart legend/status text clarifies actual history, today marker, and future bull/base/bear forecast.
+- Added tests for the session-state hotfix and forecast actual/future split.
+- Runtime data has been removed from the package; only `.gitkeep` remains in `data/`, `data/forecasts/`, and `data/services/`.
 
-Validation:
+## Verification
 
-- `python -m compileall .`
-- `pytest -q` → 18 passed
+```bash
+python -m compileall .
+pytest -q
+# 24 passed
+```
 
-Recommended deploy:
+## Deploy note
 
-1. Upload all files to GitHub `main`.
-2. Render → Manual Deploy → Clear build cache & deploy.
-3. Confirm topbar says `Professional Trading Workspace v18.5.24`.
-4. Test `Workspace-modus = Enkeltaksje`, ticker `AAPL`, then run Smart AI-utvalg. Result should scan and show only AAPL.
-5. Confirm no large white blank panels appear in Analyseunivers.
+After uploading to GitHub main, run Render:
+
+```text
+Manual Deploy → Clear build cache & deploy
+```
+
+Header should show:
+
+```text
+Professional Trading Workspace v18.5.25
+```

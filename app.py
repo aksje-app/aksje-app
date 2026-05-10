@@ -82,7 +82,7 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.5.24: Professional Trading Workspace. Ingen auto-trading-kobling.
+# v18.5.25: Professional Trading Workspace. Ingen auto-trading-kobling.
 try:
     inject_workspace_css()
     render_workspace_title()
@@ -2927,7 +2927,7 @@ def render_live_market_banner():
         .ticker-change { font-size: 0.78rem; margin-top: 4px; }
         .ticker-spark svg { width: 86px; height: 34px; }
     }
-    /* v18.5.24: stop banner text from being clipped under the tape. */
+    /* v18.5.25: stop banner text from being clipped under the tape. */
     .ticker-tape-wrap + div, .ticker-tape-wrap + p { margin-top: .35rem !important; }
     .ticker-tape-item, .ticker-info, .ticker-change { overflow: visible !important; }
     </style>
