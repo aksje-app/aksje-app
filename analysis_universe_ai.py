@@ -20,7 +20,12 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from services.service_registry import build_service_registry
-from services.universe_service import SMART_RESULT_KEY as AI_UNIVERSE_SMART_RESULT_KEY_V1859
+from services.universe_service import (
+    ACTIVE_UNIVERSE_KEY,
+    ACTIVE_UNIVERSE_RANKING_KEY,
+    ACTIVE_UNIVERSE_TICKERS_KEY,
+    SMART_RESULT_KEY as AI_UNIVERSE_SMART_RESULT_KEY_V1859,
+)
 
 try:
     import streamlit as st
@@ -36,7 +41,7 @@ except Exception:  # pragma: no cover - allows pure helper tests without Streaml
 
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
-AI_UNIVERSE_MODULE_VERSION = "v18.5.10"
+AI_UNIVERSE_MODULE_VERSION = "v18.5.17"
 AI_UNIVERSE_SMART_RESULT_KEY = AI_UNIVERSE_SMART_RESULT_KEY_V1859
 AI_UNIVERSE_SMART_RESULT_LEGACY_KEY = "ai_analysis_universe_smart_result_v1858"
 
@@ -48,10 +53,11 @@ WORKSPACE_MODES = [
     "Watchlist",
     "Paper trading",
     "Portefølje",
+    "Manuell liste",
     "Smart AI-utvalg",
 ]
 
-MARKET_SCOPES = ["USA", "Norge", "Sverige", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Smart AI-utvalg"]
+MARKET_SCOPES = ["USA", "Norge", "Sverige", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Manuell liste", "Smart AI-utvalg"]
 
 SECTOR_OPTIONS = [
     "Alle sektorer",
@@ -68,17 +74,19 @@ SECTOR_OPTIONS = [
 ]
 
 FEATURE_STATUS_ROWS = [
-    ("Enkeltaksje", "UI-koblet", "Manuell ticker kan fortsatt brukes som overstyring."),
-    ("Markedvalg", "UI-koblet", "Bruker eksisterende markedskategori og appens aktive univers."),
-    ("Multi-marked", "Operativ Fase 1", "Kan kjøre flere marked i samme Smart AI-scan via valgt scope."),
-    ("Top Picks", "Service-koblet", "Smart AI-resultater kan lagres via TopPicksService."),
-    ("Watchlist", "Service-koblet", "Smart AI-resultater kan lagres via WatchlistService."),
-    ("Paper trading", "Delvis", "Kan lese åpne paper-posisjoner; ingen automatisk handel startes her."),
-    ("Portefølje", "Service-klargjort", "PortfolioService finnes som felles grensesnitt; full portefølje-UI kobles videre i neste fase."),
-    ("Smart AI-utvalg", "Operativ Fase 2", "Kjører via UniverseService med felles datamodell, score, filter og rangering."),
-    ("Risikofiltrering", "Operativ Fase 1", "Bruker beregnet risiko fra volatilitet/drawdown eller eksisterende risk_score."),
-    ("Sektorfiltrering", "Operativ Fase 1", "Bruker sektor fra analysedata eller transparent ticker-fallback."),
-    ("Momentum/strength-filter", "Operativ Fase 1", "Beregner strength fra score_parts/avkastning eller eksisterende strength-felt."),
+    ("Enkeltaksje", "Operativ", "Manuell ticker løses til aktivt aksjeunivers uten fallback."),
+    ("Markedvalg", "Operativ", "USA/Norge/Sverige/Alle løses via UniverseService og kan settes som aktivt univers."),
+    ("Multi-marked", "Operativ", "Flere markeder kan blandes i samme picker-resultat med round-robin/deduplisering."),
+    ("Top Picks", "Operativ", "Lagrede Top Picks kan brukes som univers og persisteres videre."),
+    ("Watchlist", "Operativ", "Watchlist leses fra session/storage og kan bli aktivt univers."),
+    ("Paper trading", "Operativ", "Åpne paper-posisjoner kan brukes som univers uten å starte handel."),
+    ("Portefølje", "Operativ", "Portefølje/holdings kan brukes som univers via service-laget."),
+    ("Manuell liste", "Operativ", "Flere tickere kan limes inn og lagres som aktivt univers."),
+    ("Smart AI-utvalg", "Operativ", "Siste Smart AI-resultat kan brukes som univers, og ny scan kan fortsatt kjøres eksplisitt."),
+    ("Aktivt aksjeunivers", "Operativ", "Smart Universe Picker lagrer felles tickerliste for Interaktiv analyse, Testing & Learning og videre moduler."),
+    ("Risikofiltrering", "Operativ", "Bruker beregnet risiko fra volatilitet/drawdown eller eksisterende risk_score."),
+    ("Sektorfiltrering", "Operativ", "Bruker sektor fra analysedata eller transparent ticker-fallback."),
+    ("Momentum/strength-filter", "Operativ", "Beregner strength fra score_parts/avkastning eller eksisterende strength-felt."),
 ]
 
 
@@ -115,6 +123,21 @@ def _safe_float(value: Any) -> Optional[float]:
 
 def _normalize_ticker(value: Any) -> str:
     return str(value or "").strip().upper().replace(" ", "")
+
+
+def _parse_manual_ticker_list(value: Any) -> List[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    raw_parts = []
+    for part in text.replace(";", ",").replace("|", ",").replace("/", ",").replace("\n", ",").split(","):
+        raw_parts.extend(part.split())
+    out: List[str] = []
+    for part in raw_parts:
+        ticker = _normalize_ticker(part)
+        if ticker and ticker not in out:
+            out.append(ticker)
+    return out
 
 
 def infer_sector_from_ticker(ticker: str, item: Optional[Mapping[str, Any]] = None) -> str:
@@ -285,6 +308,25 @@ def collect_universe_candidates(session_state: Mapping[str, Any], limit: int = 2
             candidates.append(candidate)
             seen.add(key)
 
+    active = session_state.get(ACTIVE_UNIVERSE_KEY, {}) or session_state.get("active_universe", {}) or {}
+    if isinstance(active, Mapping):
+        for raw in active.get("rows", []) or active.get("tickers", []) or []:
+            if isinstance(raw, Mapping):
+                ticker = _normalize_ticker(raw.get("ticker") or raw.get("symbol"))
+                score = _safe_float(raw.get("score", raw.get("ai_score")))
+                strength = _safe_float(raw.get("strength"))
+                risk = str(raw.get("risk") or "Ukjent")
+                sector = infer_sector_from_ticker(ticker, raw)
+            else:
+                ticker = _normalize_ticker(raw)
+                score = strength = None
+                risk = "Ukjent"
+                sector = infer_sector_from_ticker(ticker)
+            key = (ticker, ACTIVE_UNIVERSE_RANKING_KEY)
+            if ticker and key not in seen:
+                candidates.append(UniverseCandidate(ticker=ticker, source=ACTIVE_UNIVERSE_RANKING_KEY, score=score, strength=strength, risk=risk, sector=sector, note="Aktivt aksjeunivers"))
+                seen.add(key)
+
     return candidates[: max(1, int(limit or 250))]
 
 
@@ -323,6 +365,8 @@ def filter_universe_candidates(
             if "Portefølje" in selected_scopes and source in {"Portefølje", "Paper trading"}:
                 allowed = True
             if "Smart AI-utvalg" in selected_scopes and source in {"SmartAI", "Smart AI"}:
+                allowed = True
+            if "Smart Universe Picker" in selected_scopes and source == ACTIVE_UNIVERSE_RANKING_KEY:
                 allowed = True
             if not allowed:
                 continue
@@ -402,6 +446,41 @@ def _store_smart_result_in_rankings(result: Mapping[str, Any]) -> List[Dict[str,
     services = build_service_registry(st.session_state)
     ranked_rows = services.universe.store_result_as_rankings(result)
     return ranked_rows
+
+
+def _picker_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str]]:
+    if not result:
+        return [
+            {
+                "label": "Picker-status",
+                "value": "Tom",
+                "detail": "Velg kilde eller manuell liste for å bygge et aktivt aksjeunivers.",
+                "kind": "warn",
+            }
+        ]
+    tickers = result.get("tickers") or [row.get("ticker") for row in result.get("candidates", []) if isinstance(row, Mapping) and row.get("ticker")]
+    source = str(result.get("source") or (result.get("summary") or {}).get("source") or "Smart Universe Picker")
+    reason = str(result.get("picker_reason") or (result.get("summary") or {}).get("reason") or "")
+    return [
+        {
+            "label": "Picker-kilde",
+            "value": source,
+            "detail": reason or "Valgt kilde er løst til en felles tickerliste.",
+            "kind": "ok" if tickers else "warn",
+        },
+        {
+            "label": "Tickerliste",
+            "value": f"{len(tickers)} tickere",
+            "detail": _safe_join(tickers[:12], empty="Ingen") + (" …" if len(tickers) > 12 else ""),
+            "kind": "ok" if tickers else "warn",
+        },
+        {
+            "label": "Dataflyt",
+            "value": "Kan aktiveres",
+            "detail": "Resultatet kan settes som aktivt aksjeunivers og sendes til Watchlist/Top Picks.",
+            "kind": "preview",
+        },
+    ]
 
 
 def _smart_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str]]:
@@ -495,6 +574,8 @@ def build_universe_live_status(
     update_reason = str(session_state.get("last_update_started_by_v148", "Oppstart / cache") or "Oppstart / cache")
     update_at = str(session_state.get("last_update_started_at_v148", "-") or "-")
     manual_ticker = _normalize_ticker(config.get("manual_ticker") or session_state.get("search_main_v157", ""))
+    active_universe = session_state.get(ACTIVE_UNIVERSE_KEY, {}) or session_state.get("active_universe", {}) or {}
+    active_tickers = active_universe.get("tickers", []) if isinstance(active_universe, Mapping) else []
 
     rows = [
         {
@@ -512,7 +593,7 @@ def build_universe_live_status(
         {
             "label": "Marked/kilder",
             "value": _safe_join(config.get("scopes") or []),
-            "detail": "Disse kildene brukes i preview-filteret. Full multi-market AI-motor er fortsatt planlagt.",
+            "detail": "Disse kildene løses nå av Smart Universe Picker og kan settes som aktivt univers.",
             "kind": "preview",
         },
         {
@@ -522,9 +603,15 @@ def build_universe_live_status(
             "kind": "ok" if manual_ticker else "neutral",
         },
         {
+            "label": "Aktivt aksjeunivers",
+            "value": f"{len(active_tickers)} tickere" if active_tickers else "Ikke satt",
+            "detail": (_safe_join(active_tickers[:10], empty="Trykk ‘Bruk som aktivt aksjeunivers’") + (" …" if len(active_tickers) > 10 else "")),
+            "kind": "ok" if active_tickers else "warn",
+        },
+        {
             "label": "Kandidater funnet",
             "value": f"{len(candidates)} totalt / {len(preview)} etter filter",
-            "detail": "Basert på eksisterende rangeringer, watchlist og paper-posisjoner i session/cache.",
+            "detail": "Basert på rangeringer, watchlist, paper/portefølje og aktivt picker-univers.",
             "kind": "ok" if candidates else "warn",
         },
         {
@@ -592,6 +679,7 @@ def build_universe_selection_summary(
     candidates are shown as a preview underneath.
     """
     manual_ticker = _normalize_ticker(config.get("manual_ticker"))
+    manual_tickers = list(config.get("manual_tickers") or _parse_manual_ticker_list(config.get("manual_list")))
     saved_text = "Lagret som ventende" if saved else "Forhåndsvisning – ikke lagret"
     selected_sectors = config.get("sectors") or ["Alle sektorer"]
     scopes = config.get("scopes") or []
@@ -613,8 +701,14 @@ def build_universe_selection_summary(
         {
             "label": "Enkeltaksje",
             "value": manual_ticker or "Ikke satt",
-            "detail": "Når ticker er satt, fungerer den som manuell overstyring.",
+            "detail": "Når modus er Enkeltaksje, blir denne ett-tickerlisten aktiv.",
             "kind": "ok" if manual_ticker else "neutral",
+        },
+        {
+            "label": "Manuell liste",
+            "value": f"{len(manual_tickers)} tickere" if manual_tickers else "Ikke satt",
+            "detail": _safe_join(manual_tickers[:10], empty="Brukes når modus er Manuell liste") + (" …" if len(manual_tickers) > 10 else ""),
+            "kind": "ok" if manual_tickers else "neutral",
         },
         {
             "label": "Filtervalg",
@@ -631,7 +725,7 @@ def build_universe_selection_summary(
         {
             "label": "Lagringsstatus",
             "value": saved_text,
-            "detail": "Knappen lagrer valgene som ventende. Tung scan/oppdatering må fortsatt startes med appens vanlige oppdateringsknapp.",
+            "detail": "Knappen lagrer valgene. ‘Bruk som aktivt aksjeunivers’ gjør listen til felles valgkjerne for appen.",
             "kind": "ok" if saved else "neutral",
         },
     ]
@@ -912,6 +1006,7 @@ def _default_config() -> Dict[str, Any]:
         "mode": mode,
         "scopes": st.session_state.get("ai_universe_scopes_draft_v1853", ["USA"]),
         "manual_ticker": st.session_state.get("search_main_v157", ""),
+        "manual_list": st.session_state.get("ai_universe_manual_list_draft_v18517", ""),
         "max_count": int(st.session_state.get("max_count_main_v157", 30) or 30),
         "min_top_pick_score": float(st.session_state.get("min_top_pick_score_main_v157", 6.5) or 6.5),
         "use_news": bool(st.session_state.get("use_news_main_v157", True)),
@@ -956,8 +1051,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
     with st.expander("Konfigurer Analyseunivers AI-modul", expanded=expanded):
         st.info(
-            "Denne modulen lagrer og viser valgt analyseunivers. Smart AI-utvalg kjører kun når du trykker "
-            "på kjør-knappen, og bruker valgte marked, score-, risiko-, sektor- og momentumfiltre."
+            "Denne modulen er nå Smart Universe Picker: den velger og lagrer appens aktive aksjeunivers. "
+            "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen."
         )
 
         with st.form("ai_analysis_universe_form_v1853", clear_on_submit=False):
@@ -981,6 +1076,14 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     value=str(current["manual_ticker"] or ""),
                     placeholder="F.eks. AAPL, EQNR.OL eller ABB.ST",
                     key="ai_universe_manual_ticker_draft_v1853",
+                )
+                manual_list_text = st.text_area(
+                    "Manuell liste",
+                    value=str(current.get("manual_list") or ""),
+                    placeholder="AAPL, MSFT, NVDA\nEQNR.OL, DNB.OL",
+                    key="ai_universe_manual_list_draft_v18517",
+                    help="Brukes når modus er Manuell liste. Du kan skille tickere med komma, mellomrom eller linjeskift.",
+                    height=86,
                 )
             with c2:
                 max_count = st.slider(
@@ -1039,6 +1142,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             "mode": mode,
             "scopes": scopes,
             "manual_ticker": _normalize_ticker(manual_ticker),
+            "manual_list": manual_list_text,
+            "manual_tickers": _parse_manual_ticker_list(manual_list_text),
             "max_count": int(max_count),
             "min_top_pick_score": float(min_top_pick_score),
             "use_news": bool(use_news),
@@ -1059,6 +1164,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             st.session_state["use_news_main_v157"] = bool(use_news)
             st.session_state["use_signal_intelligence_main_v157"] = bool(use_signal_intelligence)
             st.session_state["search_main_v157"] = _normalize_ticker(manual_ticker)
+            st.session_state["ai_universe_manual_list_draft_v18517"] = str(manual_list_text or "")
 
             if "Alle" in scopes:
                 st.session_state["market_category_selector_v157"] = "All Markets"
@@ -1070,7 +1176,59 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 st.session_state["market_category_selector_v157"] = "US Markets"
 
             _set_pending_change("Analyseunivers AI-modul endret")
-            st.success("Analyseunivers AI-oppsett er lagret. Smart AI-utvalg kan kjøres direkte med knappen under.")
+            st.success("Analyseunivers-oppsett er lagret. Bruk knappen under for å gjøre det til aktivt aksjeunivers.")
+
+        services = build_service_registry(st.session_state)
+        picker_result_service = services.universe.resolve_picker(config)
+        picker_result = picker_result_service.data.get("result", {}) if picker_result_service.ok else {}
+
+        st.markdown("#### Smart Universe Picker")
+        st.caption(
+            "Dette er kjernen for valg av aksjer. Den løser valgt kilde til én felles tickerliste uten å starte tung analyse."
+        )
+        _render_selection_summary_panel(_picker_result_summary_rows(picker_result))
+        if picker_result.get("candidates"):
+            st.dataframe(_smart_result_dataframe(picker_result), use_container_width=True, hide_index=True)
+        else:
+            st.markdown(
+                '<div class="ai-universe-empty-note">Picker-resultatet er tomt. Velg en kilde med data, skriv enkeltaksje, eller lim inn en manuell liste.</div>',
+                unsafe_allow_html=True,
+            )
+
+        picker_a, picker_b, picker_c = st.columns(3)
+        with picker_a:
+            if st.button("🎯 Bruk som aktivt aksjeunivers", key="use_smart_universe_picker_active_v18517", use_container_width=True):
+                service_result = services.universe.save_active_universe(config)
+                payload = service_result.data or {}
+                tickers = payload.get("tickers", []) if isinstance(payload, Mapping) else []
+                if tickers:
+                    st.session_state["search_main_v157"] = tickers[0]
+                    st.session_state["active_analysis_controls_v148"] = {
+                        **dict(st.session_state.get("active_analysis_controls_v148", {})),
+                        "search": tickers[0],
+                        "max_count": int(max_count),
+                        "use_news": bool(use_news),
+                        "use_signal_intelligence": bool(use_signal_intelligence),
+                    }
+                _set_pending_change("Smart Universe Picker satt som aktivt aksjeunivers")
+                st.success(service_result.message or "Smart Universe Picker er satt som aktivt aksjeunivers.")
+        with picker_b:
+            if st.button("🔔 Send aktivt valg til watchlist", key="smart_universe_picker_to_watchlist_v18517", use_container_width=True):
+                service_result = services.watchlist.set_from_candidates(picker_result, limit=int(max_count or 30))
+                _set_pending_change("Smart Universe Picker sendt til watchlist")
+                st.success(service_result.message or "Picker-resultatet er lagt inn som watchlist.")
+        with picker_c:
+            if st.button("⭐ Send aktivt valg til Top Picks", key="smart_universe_picker_to_top_picks_v18517", use_container_width=True):
+                service_result = services.top_picks.save_from_universe_result(picker_result, limit=min(10, int(max_count or 10)), list_name="TopPicks_Picker")
+                _set_pending_change("Smart Universe Picker sendt til Top Picks")
+                st.success(service_result.message or "Picker-resultatet er lagret som TopPicks_Picker.")
+
+        active_universe = services.universe.load_active_universe().data or {}
+        if active_universe.get("tickers"):
+            st.caption(
+                f"Aktivt aksjeunivers nå: {active_universe.get('source', 'Smart Universe Picker')} · "
+                f"{len(active_universe.get('tickers', []))} tickere · første: {active_universe.get('tickers', ['-'])[0]}"
+            )
 
         st.markdown("#### Smart AI-utvalg")
         st.caption(

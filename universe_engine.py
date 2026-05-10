@@ -70,6 +70,30 @@ def normalize_ticker(value: Any) -> str:
     return str(value or "").strip().upper().replace(" ", "")
 
 
+def parse_ticker_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts: List[str] = []
+        for part in value.replace(";", ",").replace("|", ",").replace("/", ",").replace("\n", ",").split(","):
+            parts.extend(part.split())
+        return _dedupe_keep_order(parts)
+    if isinstance(value, Mapping):
+        out: List[str] = []
+        ticker = normalize_ticker(value.get("ticker") or value.get("symbol"))
+        if ticker:
+            out.append(ticker)
+        for item in value.values():
+            out.extend(parse_ticker_list(item))
+        return _dedupe_keep_order(out)
+    if isinstance(value, (list, tuple, set)):
+        out: List[str] = []
+        for item in value:
+            out.extend(parse_ticker_list(item))
+        return _dedupe_keep_order(out)
+    return _dedupe_keep_order([value])
+
+
 def _dedupe_keep_order(values: Iterable[str]) -> List[str]:
     out: List[str] = []
     seen: set[str] = set()
@@ -413,18 +437,22 @@ def run_smart_ai_universe(
     max_count = max(1, min(int(config.get("max_count", 30) or 30), 250))
     scopes = list(config.get("scopes") or ["USA"])
     manual_ticker = str(config.get("manual_ticker") or "")
+    manual_list = parse_ticker_list(config.get("manual_list") or config.get("manual_tickers") or config.get("tickers"))
     use_news = bool(config.get("use_news", False))
     max_risk = str(config.get("max_risk") or "Middels")
     sectors = list(config.get("sectors") or ["Alle sektorer"])
     min_score = float(config.get("min_top_pick_score", 0) or 0)
     min_strength = float(config.get("min_strength", 0) or 0)
 
-    tickers = resolve_universe_tickers(
-        scopes=scopes,
-        max_count=max_count,
-        manual_ticker=manual_ticker,
-        existing_tickers_by_scope=existing_tickers_by_scope,
-    )
+    if manual_list and (str(config.get("mode") or "") == "Manuell liste" or "Manuell liste" in scopes):
+        tickers = manual_list[:max_count]
+    else:
+        tickers = resolve_universe_tickers(
+            scopes=scopes,
+            max_count=max_count,
+            manual_ticker=manual_ticker,
+            existing_tickers_by_scope=existing_tickers_by_scope,
+        )
 
     raw_candidates: List[SmartUniverseCandidate] = []
     errors: List[Dict[str, str]] = []

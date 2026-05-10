@@ -580,6 +580,17 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
     if source_label == "Aktuell liste":
         return _dedupe_ranked_items(fallback_results)
 
+    if source_label == "Smart Universe Picker":
+        active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+        rows = []
+        if isinstance(active, dict):
+            rows = list(active.get("rows") or [])
+            if not rows:
+                rows = [{"ticker": t, "source": "Smart Universe Picker"} for t in active.get("tickers", []) or []]
+        if not rows:
+            rows = latest.get("Smart Universe Picker") or []
+        return _dedupe_ranked_items(rows)
+
     if source_label == "Dynamisk watchlist / best rangerte":
         merged = []
         for key in ["Dynamisk watchlist / best rangerte", "USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
@@ -621,6 +632,14 @@ def _source_tickers_for_interactive(source_label, max_fallback=30):
         limit = max_fallback
     limit = max(5, min(limit, 200))
 
+    if source_label == "Smart Universe Picker":
+        active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+        if isinstance(active, dict):
+            tickers = list(active.get("tickers") or [])
+            if tickers:
+                return tickers[:limit]
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        return [normalize_user_ticker(r.get("ticker")) for r in latest.get("Smart Universe Picker", []) if isinstance(r, dict) and r.get("ticker")][:limit]
     if source_label == "USA":
         return list(globals().get("tickers_us") or get_sp500_tickers(limit=limit))
     if source_label == "Norge":
@@ -662,6 +681,8 @@ def _build_interactive_source_ranking_now(source_label):
         key = "TopPicks_Alle"
     elif source_label == "Dynamisk watchlist / best rangerte":
         key = "Dynamisk watchlist / best rangerte"
+    elif source_label == "Smart Universe Picker":
+        key = "Smart Universe Picker"
     else:
         key = source_label
     latest = st.session_state.setdefault("latest_rankings_v148", {})
@@ -4241,7 +4262,7 @@ def render_analysis(results, label):
     # uten å starte en ny scan/rangering bare fordi menyen åpnes.
     source_choice = st.selectbox(
         "Aksjekilde",
-        ["Aktuell liste", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige"],
+        ["Aktuell liste", "Smart Universe Picker", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige"],
         index=0,
         key=f"analysis_source_{label}_v148",
         help="Bruker siste lagrede/godkjente rangering. Manuell ticker overstyrer alltid listen.",
@@ -4346,9 +4367,15 @@ def render_analysis(results, label):
         return
 
     item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
-    if item is None:
+    if item is None or not isinstance(item, dict) or "hist" not in item:
         with st.spinner(f"Henter analyse for {selected}..."):
-            item = cached_score_stock_manual(selected, use_news=False)
+            fetched_item = cached_score_stock_manual(selected, use_news=False)
+        if fetched_item:
+            merged_item = dict(fetched_item)
+            if isinstance(item, dict):
+                merged_item.update({k: v for k, v in item.items() if v not in (None, "")})
+                merged_item.setdefault("hist", fetched_item.get("hist"))
+            item = merged_item
 
     if not item:
         if _manual_update_mode_enabled():

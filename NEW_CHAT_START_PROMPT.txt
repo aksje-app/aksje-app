@@ -1,3 +1,1 @@
-Fortsett AI Aksje Analyzer Pro fra v18.5.16 Testing & Learning Completion.
-Les PROJECT_HANDOFF_FOR_NEW_CHAT.md først.
-Neste fokus: Render smoke-test med dependencies/DATABASE_URL, manuell UI-verifisering av AI Kontrollsenter, deretter legacy cleanup og manual.
+Continue from v18.5.17 Smart Universe Picker Completion. Focus next on Render smoke-test, event-risk/prognose hardening, then legacy cleanup after confirming AI Kontrollsenter workflows are live.
