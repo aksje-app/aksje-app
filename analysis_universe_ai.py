@@ -42,6 +42,18 @@ except Exception:  # pragma: no cover - allows pure helper tests without Streaml
     st = _StreamlitUnavailable()
 
 
+def _safe_rerun() -> None:
+    """Request a rerun on both new and older Streamlit versions."""
+    try:
+        st.rerun()
+    except AttributeError:  # pragma: no cover
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
 AI_UNIVERSE_MODULE_VERSION = get_app_version()
@@ -497,7 +509,7 @@ def _render_dark_table(
         )
 
     html = (
-        f'<div class="ai-universe-no-white-box" style="width:100%;max-height:{dynamic_height}px;overflow:auto;border:1px solid rgba(34,197,94,.45);border-radius:12px;background:#020617;margin:.28rem 0 .50rem 0;box-shadow:none;">'
+        f'<div class="ai-universe-no-white-box" style="width:100%;max-height:{dynamic_height}px;overflow:auto;border:1px solid rgba(56,189,248,.28);border-radius:12px;background:#020617;margin:.28rem 0 .50rem 0;box-shadow:none;">'
         f'<div class="ai-universe-row-grid ai-universe-row-head" style="display:grid;grid-template-columns:{grid};min-width:{min_width}px;background:rgba(8,47,73,.98);position:sticky;top:0;z-index:2;border-bottom:1px solid rgba(125,211,252,.26);">{header_cells}</div>'
         f'{"".join(rows_html)}'
         '</div>'
@@ -508,12 +520,12 @@ def _render_dark_table(
 
 
 def _render_progress_step(holder: Any, progress: Any, *, title: str, step: int, total: int, text: str) -> None:
-    """Show a visible dark progress row with spinner. Safe for old Streamlit."""
+    """Show a very visible dark progress row with spinner. Safe for old Streamlit."""
     pct = min(1.0, max(0.0, step / max(1, total)))
     safe_title = escape(title)
     safe_text = escape(text)
     html = (
-        '<div style="display:flex;align-items:center;gap:.65rem;border:1px solid rgba(56,189,248,.45);background:linear-gradient(180deg,rgba(8,47,73,.55),rgba(15,23,42,.90));border-radius:14px;padding:.62rem .75rem;margin:.35rem 0 .45rem 0;color:#e5edf8;">'
+        '<div style="position:relative;z-index:50;display:flex;align-items:center;gap:.75rem;border:2px solid rgba(56,189,248,.75);background:linear-gradient(180deg,rgba(7,89,133,.72),rgba(15,23,42,.96));border-radius:16px;padding:.86rem .95rem;margin:.45rem 0 .60rem 0;color:#e5edf8;box-shadow:0 12px 28px rgba(14,165,233,.18);">'
         '<style>@keyframes aiSpin{to{transform:rotate(360deg)}}</style>'
         '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:aiSpin .8s linear infinite;flex:0 0 auto;"></span>'
         f'<span style="font-weight:950;color:#f8fafc;">{safe_title}</span>'
@@ -527,7 +539,7 @@ def _render_progress_step(holder: Any, progress: Any, *, title: str, step: int, 
     except Exception:
         pass
     try:
-        time.sleep(0.05)
+        time.sleep(0.22)
     except Exception:
         pass
 
@@ -874,7 +886,7 @@ def _render_compact_status_rows(rows: Sequence[Mapping[str, str]], *, variant: s
 
     def border_for(kind: str) -> str:
         if kind == "ok":
-            return "rgba(34,197,94,.54)"
+            return "rgba(34,197,94,.30)"
         if kind == "warn":
             return "rgba(250,204,21,.60)"
         if kind == "preview":
@@ -1019,7 +1031,7 @@ def _inject_ai_universe_css() -> None:
             min-height: 0;
             box-shadow: none;
         }
-        .ai-universe-compact-row.ok { border-color: rgba(34,197,94,.50); }
+        .ai-universe-compact-row.ok { border-color: rgba(34,197,94,.36); }
         .ai-universe-compact-row.warn { border-color: rgba(250,204,21,.58); background: linear-gradient(180deg, rgba(66,52,8,.38), rgba(15,23,42,.80)); }
         .ai-universe-compact-row.preview { border-color: rgba(56,189,248,.50); }
         .ai-universe-compact-label {
@@ -1064,7 +1076,7 @@ def _inject_ai_universe_css() -> None:
             min-height: 0;
             box-shadow: 0 10px 24px rgba(0,0,0,.18);
         }
-        .ai-universe-choice-card.ok { border-color: rgba(34,197,94,.54); }
+        .ai-universe-choice-card.ok { border-color: rgba(34,197,94,.36); }
         .ai-universe-choice-card.warn { border-color: rgba(250,204,21,.62); background: linear-gradient(180deg, rgba(66,52,8,.48), rgba(15,23,42,.84)); }
         .ai-universe-choice-card.preview { border-color: rgba(56,189,248,.58); }
         .ai-universe-choice-label {
@@ -1102,7 +1114,7 @@ def _inject_ai_universe_css() -> None:
             min-height: 0;
             box-shadow: 0 10px 24px rgba(0,0,0,.18);
         }
-        .ai-universe-live-card.ok { border-color: rgba(34,197,94,.50); }
+        .ai-universe-live-card.ok { border-color: rgba(34,197,94,.36); }
         .ai-universe-live-card.warn { border-color: rgba(250,204,21,.58); background: linear-gradient(180deg, rgba(66,52,8,.42), rgba(15,23,42,.82)); }
         .ai-universe-live-card.preview { border-color: rgba(56,189,248,.48); }
         .ai-universe-live-label {
@@ -1126,7 +1138,7 @@ def _inject_ai_universe_css() -> None:
             line-height:1.32;
             overflow-wrap:anywhere;
         }
-        .ai-universe-pill.ok { border-color: rgba(34,197,94,.50); color:#bbf7d0; }
+        .ai-universe-pill.ok { border-color: rgba(34,197,94,.36); color:#bbf7d0; }
         .ai-universe-pill.active { background: rgba(16,185,129,.18); box-shadow: 0 0 0 1px rgba(34,197,94,.18) inset; }
         .ai-universe-status-grid {
             display: grid;
@@ -1162,7 +1174,7 @@ def _inject_ai_universe_css() -> None:
             border: 1px solid rgba(148,163,184,.30);
             color:#e2e8f0;
         }
-        .ai-universe-status-badge.ui { border-color: rgba(34,197,94,.52); color:#bbf7d0; }
+        .ai-universe-status-badge.ui { border-color: rgba(34,197,94,.38); color:#bbf7d0; }
         .ai-universe-status-badge.partial { border-color: rgba(56,189,248,.52); color:#bae6fd; }
         .ai-universe-status-badge.arch { border-color: rgba(167,139,250,.52); color:#ddd6fe; }
         .ai-universe-status-badge.preview { border-color: rgba(250,204,21,.55); color:#fde68a; }
@@ -1241,6 +1253,55 @@ def _inject_ai_universe_css() -> None:
             min-height: 0 !important;
         }
 
+
+        /* v18.5.24: local hard guard for the manual ticker field. Chrome/Edge autofill can paint the BaseWeb wrapper white. */
+        div[data-testid="stTextInput"],
+        div[data-testid="stTextInput"] > div,
+        div[data-testid="stTextInput"] > div > div,
+        div[data-baseweb="input"],
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="base-input"],
+        div[data-baseweb="base-input"] > div {
+            background: #0f172a !important;
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
+            opacity: 1 !important;
+            border-color: rgba(125, 211, 252, .50) !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stTextInput"]:focus-within,
+        div[data-baseweb="input"]:focus-within,
+        div[data-baseweb="input"]:focus-within > div,
+        div[data-baseweb="base-input"]:focus-within,
+        div[data-baseweb="base-input"]:focus-within > div {
+            background: #0b1220 !important;
+            background-color: #0b1220 !important;
+            border-color: rgba(56, 189, 248, .96) !important;
+            box-shadow: 0 0 0 1px rgba(56, 189, 248, .45) !important;
+        }
+        div[data-testid="stTextInput"] input,
+        div[data-baseweb="input"] input,
+        div[data-baseweb="base-input"] input {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
+            caret-color: #7dd3fc !important;
+            font-weight: 900 !important;
+            text-shadow: none !important;
+        }
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+            -webkit-text-fill-color: #f8fafc !important;
+            caret-color: #7dd3fc !important;
+            box-shadow: 0 0 0 1000px #0f172a inset !important;
+            -webkit-box-shadow: 0 0 0 1000px #0f172a inset !important;
+            transition: background-color 999999s ease-in-out 0s, color 999999s ease-in-out 0s !important;
+        }
+
         /* v18.5.22 hard guard against leftover native Streamlit white panels. */
         div[data-testid="stDataFrame"] > div,
         div[data-testid="stDataFrame"] iframe,
@@ -1277,7 +1338,7 @@ def _default_config() -> Dict[str, Any]:
     return {
         "mode": mode,
         "scopes": st.session_state.get("ai_universe_scopes_draft_v1853", ["USA"]),
-        "manual_ticker": st.session_state.get("search_main_v157", ""),
+        "manual_ticker": st.session_state.get("ai_universe_manual_ticker_draft_v18523", st.session_state.get("search_main_v157", "")),
         "manual_list": st.session_state.get("ai_universe_manual_list_draft_v18517", ""),
         "max_count": int(st.session_state.get("max_count_main_v157", 30) or 30),
         "min_top_pick_score": float(st.session_state.get("min_top_pick_score_main_v157", 6.5) or 6.5),
@@ -1324,13 +1385,26 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         unsafe_allow_html=True,
     )
 
+    saved_config = st.session_state.get(AI_UNIVERSE_STATE_KEY, {}) if isinstance(st.session_state.get(AI_UNIVERSE_STATE_KEY, {}), Mapping) else {}
+    saved_mode = str(saved_config.get("mode") or "ikke lagret")
+    st.markdown(
+        f'<div style="display:flex;flex-wrap:wrap;gap:.45rem;align-items:center;margin:.35rem 0 .55rem 0;">'
+        f'<span style="border:1px solid rgba(56,189,248,.38);background:rgba(8,47,73,.40);border-radius:999px;padding:.24rem .55rem;color:#bae6fd;font-size:.76rem;font-weight:900;">Valgt nå: {escape(active_mode)}</span>'
+        f'<span style="border:1px solid rgba(148,163,184,.25);background:rgba(15,23,42,.72);border-radius:999px;padding:.24rem .55rem;color:#cbd5e1;font-size:.76rem;font-weight:850;">Sist lagret: {escape(saved_mode)}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     with st.expander("Konfigurer Analyseunivers AI-modul", expanded=expanded):
         st.info(
             "Denne modulen er nå Smart Universe Picker: den velger og lagrer appens aktive aksjeunivers. "
-            "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen."
+            "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen. Valgt modus-chip oppdateres omgående før lagring."
         )
 
-        with st.form("ai_analysis_universe_form_v1853", clear_on_submit=False):
+        # v18.5.24: no form wrapper here. Streamlit forms buffer widget changes until submit,
+        # which made the active mode chips stale. Normal widgets rerun immediately so
+        # the green chip follows Workspace-modus before the user saves or runs.
+        with st.container():
             c1, c2, c3 = st.columns(3)
             with c1:
                 mode = st.selectbox(
@@ -1350,8 +1424,14 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     "Manuell ticker / enkeltaksje",
                     value=str(current["manual_ticker"] or ""),
                     placeholder="F.eks. AAPL, EQNR.OL eller ABB.ST",
-                    key="ai_universe_manual_ticker_draft_v1853",
+                    key="ai_universe_manual_ticker_draft_v18523",
                 )
+                _manual_ticker_preview = _normalize_ticker(manual_ticker)
+                if mode == "Enkeltaksje":
+                    st.markdown(
+                        f'<div style="display:inline-flex;align-items:center;gap:.35rem;margin:.12rem 0 .35rem 0;padding:.28rem .55rem;border-radius:999px;border:1px solid rgba(34,197,94,.50);background:rgba(16,65,52,.62);color:#bbf7d0;font-weight:950;font-size:.78rem;">Aktiv ticker: {escape(_manual_ticker_preview or "ingen")}</div>',
+                        unsafe_allow_html=True,
+                    )
                 manual_list_text = st.text_area(
                     "Manuell liste",
                     value=str(current.get("manual_list") or ""),
@@ -1411,7 +1491,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     key="ai_universe_use_signal_intelligence_draft_v1853",
                 )
 
-            submitted = st.form_submit_button("💾 Lagre Analyseunivers AI-oppsett som ventende", use_container_width=True)
+            submitted = st.button("💾 Lagre Analyseunivers AI-oppsett som ventende", key="ai_analysis_universe_save_v18524", use_container_width=True)
 
         config = {
             "mode": mode,
@@ -1516,16 +1596,23 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         with info_col:
             st.info("Kjøringen går via UniverseService og felles datamodell. Den skriver ikke runtime-data til GitHub/prosjektfiler.")
 
+        run_pending_key = "ai_universe_smart_run_pending_v18524"
         if run_smart:
+            st.session_state[run_pending_key] = True
+            _safe_rerun()
+
+        if bool(st.session_state.pop(run_pending_key, False)):
             services = build_service_registry(st.session_state)
             progress_holder = st.empty()
-            progress_bar = st.progress(0.0)
+            try:
+                progress_bar = st.progress(0.0, text="Starter Smart AI-utvalg …")
+            except TypeError:
+                progress_bar = st.progress(0.0)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=1, total=4, text="Henter ticker-univers fra valgt Workspace-modus")
             existing_scope_tickers = _existing_tickers_by_scope_from_state(st.session_state)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=2, total=4, text="Henter kursdata og scorer kandidater")
-            with st.spinner("Smart AI-utvalg kjører: henter data, scorer, filtrerer og rangerer..."):
-                service_result = services.universe.run_smart_universe(config, existing_tickers_by_scope=existing_scope_tickers)
-                result = service_result.data.get("result", {})
+            service_result = services.universe.run_smart_universe(config, existing_tickers_by_scope=existing_scope_tickers)
+            result = service_result.data.get("result", {})
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=3, total=4, text="Filtrerer risiko, score, sektor og momentum")
             ranked_rows = result.get("ranked_rows") if isinstance(result, Mapping) else None
             if not ranked_rows:

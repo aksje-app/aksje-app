@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.22"
-APP_VERSION_NAME = "Strict Universe Mode + Progress UI"
+APP_VERSION = "v18.5.24"
+APP_VERSION_NAME = "UI Polish + Live Progress"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 

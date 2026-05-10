@@ -1,4 +1,4 @@
-# Project handoff – v18.5.22 Strict Universe Mode + Progress UI
+# Project handoff – v18.5.24 UI Polish + Live Progress
 
 Focus for this release:
 
@@ -11,7 +11,7 @@ Focus for this release:
   - Smart AI-utvalg
   - Strategi-test
   - Strategi-test Pro / optimalisering
-- Version source updated to `v18.5.22` via `app_version.py`.
+- Version source updated to `v18.5.24` via `app_version.py`.
 
 Validation:
 
@@ -22,6 +22,6 @@ Recommended deploy:
 
 1. Upload all files to GitHub `main`.
 2. Render → Manual Deploy → Clear build cache & deploy.
-3. Confirm topbar says `Professional Trading Workspace v18.5.22`.
+3. Confirm topbar says `Professional Trading Workspace v18.5.24`.
 4. Test `Workspace-modus = Enkeltaksje`, ticker `AAPL`, then run Smart AI-utvalg. Result should scan and show only AAPL.
 5. Confirm no large white blank panels appear in Analyseunivers.

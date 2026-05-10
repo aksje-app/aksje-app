@@ -82,7 +82,7 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.5.22: Professional Trading Workspace. Ingen auto-trading-kobling.
+# v18.5.24: Professional Trading Workspace. Ingen auto-trading-kobling.
 try:
     inject_workspace_css()
     render_workspace_title()
@@ -1220,7 +1220,7 @@ div[data-testid="stAlert"] {
 }
 .info-card-sub {
     color: #cbd5e1 !important;
-    font-size: 0.80rem;
+    font-size: 0.78rem;
     line-height: 1.45;
     margin-top: 8px;
 }
@@ -1273,7 +1273,7 @@ div[data-testid="stAlert"] {
 }
 .info-mini-sub {
     color: #cbd5e1 !important;
-    font-size: 0.80rem;
+    font-size: 0.78rem;
     line-height: 1.45;
 }
 .info-mini-small {
@@ -1774,7 +1774,7 @@ div[role="tooltip"] *,
     background: rgba(15,23,42,0.88);
     border: 1px solid rgba(148,163,184,0.38);
     border-radius: 14px;
-    padding: 7px 9px;
+    padding: 10px 11px;
     margin: 8px 0 8px 0;
 }
 .trading-engine-pill {
@@ -1933,7 +1933,7 @@ div[role="tooltip"] *,
     background: rgba(15,23,42,0.72);
     border: 1px solid rgba(148,163,184,0.32);
     border-radius: 14px;
-    padding: 7px 9px;
+    padding: 10px 11px;
     margin: 6px 0 10px 0;
 }
 
@@ -2809,13 +2809,13 @@ def render_live_market_banner():
     .ticker-tape-wrap {
         width: 100%;
         overflow: hidden;
-        margin: 0.22rem 0 0.28rem 0;
+        margin: 0.36rem 0 0.72rem 0;
         padding: 0;
         border-top: 1px solid rgba(15,23,42,0.10);
         border-bottom: 1px solid rgba(15,23,42,0.14);
         background: #f8fafc;
         border-radius: 12px;
-        min-height: 76px;
+        min-height: 92px;
         box-shadow: inset 0 0 0 1px rgba(15,23,42,0.03);
     }
     .ticker-tape-track {
@@ -2825,7 +2825,7 @@ def render_live_market_banner():
         gap: 10px;
         white-space: nowrap;
         animation: tickerTapeScroll __SPEED__s linear infinite;
-        padding: 7px 9px;
+        padding: 10px 11px;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
         animation-play-state: paused;
@@ -2836,8 +2836,8 @@ def render_live_market_banner():
         align-items: center;
         gap: 8px;
         min-width: 236px;
-        height: 58px;
-        padding: 6px 10px;
+        height: 70px;
+        padding: 8px 11px;
         border-radius: 0;
         background: #ffffff;
         border-right: 1px solid rgba(15,23,42,0.10);
@@ -2846,7 +2846,7 @@ def render_live_market_banner():
         display: flex;
         flex-direction: column;
         justify-content: center;
-        line-height: 1.02;
+        line-height: 1.12;
     }
     .ticker-market {
         font-size: 0.56rem;
@@ -2866,15 +2866,15 @@ def render_live_market_banner():
         margin-bottom: 4px;
     }
     .ticker-price {
-        font-size: 0.94rem;
+        font-size: 0.90rem;
         font-weight: 900;
         color: #1f2937;
         margin-top: 0;
     }
     .ticker-change {
-        font-size: 0.80rem;
+        font-size: 0.78rem;
         font-weight: 950;
-        margin-top: 5px;
+        margin-top: 3px;
     }
     .ticker-change.pos { color: #059669; }
     .ticker-change.neg { color: #dc2626; }
@@ -2886,7 +2886,7 @@ def render_live_market_banner():
     .ticker-spark svg {
         display: block;
         width: 94px;
-        height: 30px;
+        height: 34px;
     }
     @keyframes tickerTapeScroll {
         from { transform: translateX(0); }
@@ -2925,10 +2925,13 @@ def render_live_market_banner():
         .ticker-title { font-size: 0.82rem; margin-bottom: 3px; }
         .ticker-price { font-size: 0.92rem; }
         .ticker-change { font-size: 0.78rem; margin-top: 4px; }
-        .ticker-spark svg { width: 86px; height: 30px; }
+        .ticker-spark svg { width: 86px; height: 34px; }
     }
+    /* v18.5.24: stop banner text from being clipped under the tape. */
+    .ticker-tape-wrap + div, .ticker-tape-wrap + p { margin-top: .35rem !important; }
+    .ticker-tape-item, .ticker-info, .ticker-change { overflow: visible !important; }
     </style>
-    <div class='ticker-tape-wrap'>
+    <div class='ticker-tape-wrap' aria-label='Ticker-banner'>
         <div class='ticker-tape-track'>__CARDS____CARDS__</div>
     </div>
     """
@@ -5595,7 +5598,7 @@ st.sidebar.markdown(
         color: #cbd5e1;
         font-size: 0.78rem;
         line-height: 1.35;
-        padding: 7px 9px;
+        padding: 10px 11px;
         border-radius: 11px;
         background: rgba(2,6,23,0.32);
         border: 1px solid rgba(148,163,184,0.16);
@@ -5745,7 +5748,7 @@ st.markdown("""
     .v153-control-note{
         max-width: 100%;
         font-size: 0.82rem;
-        padding: 7px 9px;
+        padding: 10px 11px;
     }
 }
 </style>

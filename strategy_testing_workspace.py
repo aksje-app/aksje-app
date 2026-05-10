@@ -17,12 +17,23 @@ from strategy_engine import optimize_strategy, run_strategy, strategy_stats
 from strategy_test_pro import render_strategy_test_pro
 
 
+def _safe_rerun() -> None:
+    try:
+        st.rerun()
+    except AttributeError:  # pragma: no cover
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 
 
 def _render_tl_progress_step(holder: Any, progress: Any, *, title: str, step: int, total: int, text: str) -> None:
     pct = min(1.0, max(0.0, step / max(1, total)))
     holder.markdown(
-        f'<div style="display:flex;align-items:center;gap:.65rem;border:1px solid rgba(56,189,248,.45);background:linear-gradient(180deg,rgba(8,47,73,.55),rgba(15,23,42,.90));border-radius:14px;padding:.62rem .75rem;margin:.35rem 0 .45rem 0;color:#e5edf8;">'
+        f'<div style="position:relative;z-index:50;display:flex;align-items:center;gap:.75rem;border:2px solid rgba(56,189,248,.75);background:linear-gradient(180deg,rgba(7,89,133,.72),rgba(15,23,42,.96));border-radius:16px;padding:.86rem .95rem;margin:.45rem 0 .60rem 0;color:#e5edf8;box-shadow:0 12px 28px rgba(14,165,233,.18);">'
         '<style>@keyframes tlSpin{to{transform:rotate(360deg)}}</style>'
         '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:tlSpin .8s linear infinite;flex:0 0 auto;"></span>'
         f'<span style="font-weight:950;color:#f8fafc;">{title}</span>'
@@ -36,7 +47,7 @@ def _render_tl_progress_step(holder: Any, progress: Any, *, title: str, step: in
     except Exception:
         pass
     try:
-        time.sleep(0.05)
+        time.sleep(0.22)
     except Exception:
         pass
 
@@ -321,17 +332,27 @@ def _render_basic_strategy_test(ticker: str) -> bool:
         run = st.button("Kjør enkel strategi-test", key="tl_strategy_run_v18515", use_container_width=True)
 
     result_key = _strategy_result_key()
+    pending_key = "tl_basic_strategy_run_pending_v18524"
     if run:
+        st.session_state[pending_key] = {"ticker": ticker, "period": period}
+        _safe_rerun()
+
+    pending_run = st.session_state.pop(pending_key, None)
+    if pending_run:
+        run_ticker = str(pending_run.get("ticker") or ticker) if isinstance(pending_run, Mapping) else ticker
+        run_period = str(pending_run.get("period") or period) if isinstance(pending_run, Mapping) else period
         progress_holder = st.empty()
-        progress_bar = st.progress(0.0)
+        try:
+            progress_bar = st.progress(0.0, text="Starter Strategi-test …")
+        except TypeError:
+            progress_bar = st.progress(0.0)
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=1, total=4, text="Henter kursdata")
-        with st.spinner(f"Strategi-test kjører for {ticker} ({period}) ..."):
-            _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=2, total=4, text="Kjører baseline-regler")
-            result = _run_basic_strategy_test(ticker, period)
+        _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=2, total=4, text="Kjører baseline-regler")
+        result = _run_basic_strategy_test(run_ticker, run_period)
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=3, total=4, text="Beregner statistikk og drawdown")
         st.session_state[result_key] = result
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=4, total=4, text="Lagrer resultat i session")
-        _finish_tl_progress(progress_holder, progress_bar, title="Strategi-test ferdig", text=f"{ticker} ({period})", ok=bool(result.get("ok")))
+        _finish_tl_progress(progress_holder, progress_bar, title="Strategi-test ferdig", text=f"{run_ticker} ({run_period})", ok=bool(result.get("ok")))
 
     result = st.session_state.get(result_key)
     if result:

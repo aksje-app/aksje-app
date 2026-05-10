@@ -234,6 +234,71 @@ def inject_workspace_css() -> None:
             border-color: rgba(56, 189, 248, .85) !important;
         }
 
+
+
+        /* v18.5.24: hard input visibility guard for Chrome/Edge autofill and Streamlit BaseWeb wrappers. */
+        div[data-testid="stTextInput"],
+        div[data-testid="stTextInput"] > div,
+        div[data-testid="stTextInput"] > div > div,
+        div[data-baseweb="input"],
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="input"] input,
+        div[data-baseweb="base-input"],
+        div[data-baseweb="base-input"] > div,
+        div[data-baseweb="base-input"] input {
+            background: #0f172a !important;
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
+            opacity: 1 !important;
+            border-color: rgba(125, 211, 252, .50) !important;
+            box-shadow: none !important;
+        }
+
+        div[data-testid="stTextInput"]:focus-within,
+        div[data-testid="stTextInput"]:focus-within > div,
+        div[data-testid="stTextInput"]:focus-within > div > div,
+        div[data-baseweb="input"]:focus-within,
+        div[data-baseweb="input"]:focus-within > div,
+        div[data-baseweb="base-input"]:focus-within,
+        div[data-baseweb="base-input"]:focus-within > div {
+            background: #0b1220 !important;
+            background-color: #0b1220 !important;
+            border-color: rgba(56, 189, 248, .96) !important;
+            box-shadow: 0 0 0 1px rgba(56, 189, 248, .45) !important;
+        }
+
+        div[data-testid="stTextInput"] input,
+        div[data-baseweb="input"] input,
+        div[data-baseweb="base-input"] input {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
+            caret-color: #7dd3fc !important;
+            font-weight: 900 !important;
+            text-shadow: none !important;
+        }
+
+        div[data-testid="stTextInput"] input::placeholder,
+        div[data-baseweb="input"] input::placeholder,
+        div[data-baseweb="base-input"] input::placeholder {
+            color: rgba(203, 213, 225, .72) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, .72) !important;
+            opacity: 1 !important;
+        }
+
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+            -webkit-text-fill-color: #f8fafc !important;
+            caret-color: #7dd3fc !important;
+            box-shadow: 0 0 0 1000px #0f172a inset !important;
+            -webkit-box-shadow: 0 0 0 1000px #0f172a inset !important;
+            transition: background-color 999999s ease-in-out 0s, color 999999s ease-in-out 0s !important;
+        }
+
         /* v18.5.21: safety net for old Streamlit dataframe boxes that still render in some tabs. */
         div[data-testid="stDataFrame"],
         div[data-testid="stDataFrame"] > div,

@@ -379,7 +379,7 @@ def resolve_strict_universe_tickers(
 ) -> Tuple[List[str], str]:
     """Resolve tickers with workspace mode as the source of truth.
 
-    v18.5.22: Smart Universe Picker is strict. If the user chooses
+    v18.5.24: Smart Universe Picker is strict. If the user chooses
     Enkeltaksje, Smart AI must scan only that ticker. If the user chooses
     Watchlist/Top Picks/Paper/Portefølje/Manuell liste, the scan must not
     silently fall back to market candidates or prepend old manual tickers.
@@ -512,7 +512,7 @@ def run_smart_ai_universe(
     status = "ok" if ranked else ("empty_after_filter" if raw_candidates else "empty")
 
     return {
-        "version": "v18.5.22",
+        "version": "v18.5.24",
         "strict_source": strict_source,
         "status": status,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
