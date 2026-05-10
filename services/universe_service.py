@@ -5,6 +5,7 @@ import re
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from core_models import ServiceResult, StockCandidate, UniverseRequest, UniverseResult, normalize_ticker
+from app_version import get_app_version
 from services.state_service import get_state_service
 from services.storage_service import get_storage_service
 
@@ -324,7 +325,7 @@ class UniverseService:
         tickers = list(result.get("tickers") or _extract_tickers(result.get("candidates") or []))
         rows = _candidate_dict_rows([StockCandidate.from_mapping(row, source=str(result.get("source") or ACTIVE_UNIVERSE_RANKING_KEY)) for row in result.get("candidates", []) if isinstance(row, Mapping)])
         payload = {
-            "version": "v18.5.19",
+            "version": get_app_version(),
             "source": result.get("source") or "Smart Universe Picker",
             "picker_reason": result.get("picker_reason") or "",
             "tickers": tickers,
