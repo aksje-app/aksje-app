@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+import re
+
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from core_models import ServiceResult, StockCandidate, UniverseRequest, UniverseResult, normalize_ticker
 from services.state_service import get_state_service
@@ -11,6 +13,9 @@ AI_UNIVERSE_SMART_RESULT_KEY = SMART_RESULT_KEY
 AI_UNIVERSE_SMART_RESULT_LEGACY_KEY = "ai_analysis_universe_smart_result_v1859"
 TOP_PICKS_RESULT_KEY = "top_picks_result"
 WATCHLIST_RESULT_KEY = "watchlist_result"
+ACTIVE_UNIVERSE_KEY = "smart_universe_picker_active_v18517"
+ACTIVE_UNIVERSE_TICKERS_KEY = "smart_universe_picker_tickers_v18517"
+ACTIVE_UNIVERSE_RANKING_KEY = "Smart Universe Picker"
 
 DEFAULTS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO"]
 ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
@@ -65,6 +70,50 @@ def _extract_tickers(value: Any) -> List[str]:
     return out
 
 
+
+def _split_ticker_text(value: Any) -> List[str]:
+    """Parse a manual ticker list from textarea/string/list/dicts."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = re.split(r"[\s,;|/]+", value.strip())
+        return _dedupe_tickers(parts)
+    return _extract_tickers(value)
+
+
+def _dedupe_tickers(values: Iterable[Any]) -> List[str]:
+    out: List[str] = []
+    for value in values or []:
+        ticker = normalize_ticker(value)
+        if ticker and ticker not in out:
+            out.append(ticker)
+    return out
+
+
+def _candidate_rows_from_tickers(tickers: Sequence[str], source: str, reason: str = "") -> List[StockCandidate]:
+    rows: List[StockCandidate] = []
+    for idx, ticker in enumerate(_dedupe_tickers(tickers), start=1):
+        rows.append(
+            StockCandidate(
+                ticker=ticker,
+                name=ticker,
+                source=source,
+                rank=idx,
+                market="",
+                reason=reason or f"Valgt fra {source}",
+            )
+        )
+    return rows
+
+
+def _candidate_dict_rows(candidates: Sequence[StockCandidate]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        row = candidate.as_dict()
+        row.setdefault("score", row.get("ai_score"))
+        rows.append(row)
+    return rows
+
 def _candidate_sort_key(candidate: StockCandidate):
     smart = candidate.smart_score if candidate.smart_score is not None else -1
     ai = candidate.ai_score if candidate.ai_score is not None else -1
@@ -116,6 +165,33 @@ class UniverseService:
         except Exception:
             pass
 
+        # Render/session state can be lost between deploys. Pull persisted
+        # picker-related data back into source maps when available.
+        stored_watchlist = _extract_tickers(self.storage.read_json("watchlist.json", default=[]))
+        if stored_watchlist:
+            out.setdefault("Watchlist", []).extend(stored_watchlist)
+
+        stored_rankings = self.storage.read_json("latest_rankings_v148.json", default={}) or {}
+        if isinstance(stored_rankings, Mapping):
+            for source, rows in stored_rankings.items():
+                tickers = _extract_tickers(rows)
+                if tickers:
+                    out.setdefault(str(source), []).extend(tickers)
+                    if str(source).startswith("TopPicks") or str(source) == "Top Picks":
+                        out.setdefault("Top Picks", []).extend(tickers)
+                    if str(source) in {"SmartAI", "Smart AI", ACTIVE_UNIVERSE_RANKING_KEY}:
+                        out.setdefault("Smart AI-utvalg", []).extend(tickers)
+
+        stored_top = self.storage.read_json("top_picks_result.json", default={}) or {}
+        top_tickers = _extract_tickers(stored_top)
+        if top_tickers:
+            out.setdefault("Top Picks", []).extend(top_tickers)
+
+        active = self.storage.read_json("active_universe.json", default={}) or self.storage.read_json("smart_universe_picker_active.json", default={}) or {}
+        active_tickers = _extract_tickers(active.get("tickers") if isinstance(active, Mapping) else active)
+        if active_tickers:
+            out.setdefault(ACTIVE_UNIVERSE_RANKING_KEY, []).extend(active_tickers)
+
         for key, vals in list(out.items()):
             deduped: List[str] = []
             for ticker in vals:
@@ -134,13 +210,159 @@ class UniverseService:
             return UniverseRequest.from_config(request)
         return UniverseRequest().normalized()
 
+    def existing_tickers_by_scope(self) -> Dict[str, List[str]]:
+        """Public snapshot for the Smart Universe Picker UI/tests."""
+        return self._state_existing_tickers_by_scope()
+
+    def _manual_list_from_config(self, config: Mapping[str, Any]) -> List[str]:
+        metadata = config.get("metadata") if isinstance(config.get("metadata"), Mapping) else {}
+        return _split_ticker_text(
+            config.get("manual_list")
+            or config.get("tickers")
+            or metadata.get("manual_list")
+            or metadata.get("tickers")
+        )
+
+    def _source_tickers_for_picker(self, config: Mapping[str, Any]) -> Tuple[List[str], str, str]:
+        """Resolve every supported picker mode to a ticker list.
+
+        The picker is intentionally deterministic and does not run a heavy
+        Smart AI scan. It chooses the universe; the user explicitly starts scan
+        / analysis afterwards.
+        """
+        mode = str(config.get("mode") or "Markedvalg").strip()
+        scopes = [str(x) for x in (config.get("scopes") or []) if str(x or "").strip()]
+        max_count = max(1, min(int(config.get("max_count") or 30), 250))
+        existing = self._state_existing_tickers_by_scope()
+        manual_ticker = normalize_ticker(config.get("manual_ticker"))
+        manual_list = self._manual_list_from_config(config)
+
+        if mode == "Enkeltaksje":
+            return (_dedupe_tickers([manual_ticker]), "Enkeltaksje", "Én manuell ticker valgt")
+
+        if mode == "Manuell liste" or "Manuell liste" in scopes:
+            return (manual_list[:max_count], "Manuell liste", "Manuell tickerliste valgt")
+
+        if mode == "Top Picks":
+            return (existing.get("Top Picks", [])[:max_count], "Top Picks", "Lagrede Top Picks brukt som univers")
+
+        if mode == "Watchlist":
+            return (existing.get("Watchlist", [])[:max_count], "Watchlist", "Lagret watchlist brukt som univers")
+
+        if mode == "Paper trading":
+            return (existing.get("Paper trading", [])[:max_count], "Paper trading", "Åpne paper-posisjoner brukt som univers")
+
+        if mode == "Portefølje":
+            return (existing.get("Portefølje", [])[:max_count], "Portefølje", "Portefølje/holdings brukt som univers")
+
+        if mode == "Smart AI-utvalg":
+            smart = self.state.get(SMART_RESULT_KEY, None) or self.storage.read_json("smart_universe_result.json", default={}) or {}
+            smart_tickers = _extract_tickers((smart or {}).get("candidates") if isinstance(smart, Mapping) else smart)
+            if smart_tickers:
+                return (smart_tickers[:max_count], "Smart AI-utvalg", "Siste Smart AI-resultat brukt som univers")
+            return (existing.get("Smart AI-utvalg", [])[:max_count], "Smart AI-utvalg", "Siste Smart AI-rangering brukt som univers")
+
+        # Markedvalg and Multi-marked both use selected scopes. Markedvalg often
+        # has one market; Multi-marked can have several. Existing scopes such as
+        # Watchlist/Top Picks can be mixed in deliberately.
+        if not scopes:
+            scopes = ["USA"]
+        try:
+            from universe_engine import resolve_universe_tickers
+
+            tickers = resolve_universe_tickers(
+                scopes=scopes,
+                max_count=max_count,
+                manual_ticker=manual_ticker if mode in {"Markedvalg", "Multi-marked"} else "",
+                existing_tickers_by_scope=existing,
+            )
+        except Exception:
+            tickers = _dedupe_tickers([manual_ticker] + DEFAULTS)[:max_count]
+
+        source = "Multi-marked" if mode == "Multi-marked" or len(scopes) > 1 else "Marked"
+        return (tickers[:max_count], source, f"Kilder: {', '.join(scopes)}")
+
+    def resolve_picker(self, config: Mapping[str, Any]) -> ServiceResult:
+        """Resolve the Smart Universe Picker without running a heavy scan."""
+        try:
+            req = self._request_from_any(config)
+            normalized = req.as_dict()
+            # Preserve manual list from UI because UniverseRequest.metadata keeps it
+            # but .as_dict() does not expose it at top level.
+            if isinstance(config, Mapping) and config.get("manual_list") is not None:
+                normalized["manual_list"] = config.get("manual_list")
+            tickers, source, reason = self._source_tickers_for_picker(normalized)
+            max_count = max(1, min(int(normalized.get("max_count") or 30), 250))
+            candidates = _candidate_rows_from_tickers(tickers[:max_count], source=source, reason=reason)
+            result = UniverseResult(
+                request=req,
+                candidates=candidates,
+                top_picks=candidates[: min(10, len(candidates))],
+                status="ok" if candidates else "empty",
+                universe_size=len(tickers),
+                scanned=0,
+                raw_candidates=len(candidates),
+                summary={
+                    "text": f"{len(candidates)} tickere valgt fra Smart Universe Picker.",
+                    "source": source,
+                    "reason": reason,
+                },
+            ).as_dict()
+            result["tickers"] = [candidate.ticker for candidate in candidates]
+            result["source"] = source
+            result["picker_reason"] = reason
+            return _ok({"result": result, "tickers": result["tickers"], "source": source}, status=result["status"])
+        except Exception as exc:
+            return _fail(f"Smart Universe Picker feilet: {exc}")
+
+    def save_active_universe(self, config: Mapping[str, Any]) -> ServiceResult:
+        """Persist the picker result as the app's active stock-selection core."""
+        resolved = self.resolve_picker(config)
+        if not resolved.ok:
+            return resolved
+        result = resolved.data.get("result") or {}
+        tickers = list(result.get("tickers") or _extract_tickers(result.get("candidates") or []))
+        rows = _candidate_dict_rows([StockCandidate.from_mapping(row, source=str(result.get("source") or ACTIVE_UNIVERSE_RANKING_KEY)) for row in result.get("candidates", []) if isinstance(row, Mapping)])
+        payload = {
+            "version": "v18.5.17",
+            "source": result.get("source") or "Smart Universe Picker",
+            "picker_reason": result.get("picker_reason") or "",
+            "tickers": tickers,
+            "rows": rows,
+            "config": dict(config or {}),
+            "generated_at": result.get("generated_at"),
+            "matched_candidates": len(tickers),
+        }
+        self.state.set(ACTIVE_UNIVERSE_KEY, payload)
+        self.state.set(ACTIVE_UNIVERSE_TICKERS_KEY, tickers)
+        self.state.set("active_universe", payload)
+        self.state.set("active_universe_tickers", tickers)
+        self.storage.write_json("active_universe.json", payload)
+        self.storage.write_json("smart_universe_picker_active.json", payload)
+
+        latest_rankings = self.state.get("latest_rankings_v148", {}) or {}
+        if not isinstance(latest_rankings, dict):
+            latest_rankings = {}
+        latest_rankings[ACTIVE_UNIVERSE_RANKING_KEY] = rows
+        self.state.set("latest_rankings_v148", latest_rankings)
+        self.storage.write_json("latest_rankings_v148.json", latest_rankings)
+        return _ok(payload, message=f"{len(tickers)} tickere satt som aktivt aksjeunivers.", status="ok" if tickers else "empty")
+
+    def load_active_universe(self) -> ServiceResult:
+        payload = self.state.get(ACTIVE_UNIVERSE_KEY, None) or self.state.get("active_universe", None)
+        if not payload:
+            payload = self.storage.read_json("active_universe.json", default={}) or self.storage.read_json("smart_universe_picker_active.json", default={}) or {}
+        return _ok(payload or {}, status="ok" if payload else "empty")
+
     def resolve(self, request: Any = None) -> ServiceResult:
         """Resolve a picker request into shared StockCandidate rows without running a scan."""
         try:
             req = self._request_from_any(request)
             config = req.as_dict()
+            if isinstance(request, Mapping) and request.get("manual_list") is not None:
+                config["manual_list"] = request.get("manual_list")
             existing = self._state_existing_tickers_by_scope()
-            manual_list = config.get("metadata", {}).get("manual_list") or config.get("metadata", {}).get("tickers")
+            manual_list = config.get("manual_list") or config.get("metadata", {}).get("manual_list") or config.get("metadata", {}).get("tickers")
 
             if manual_list:
                 tickers = _extract_tickers(manual_list)
