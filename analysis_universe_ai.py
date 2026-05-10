@@ -19,6 +19,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 
+from app_version import get_app_version
+
 from services.service_registry import build_service_registry
 from services.universe_service import (
     ACTIVE_UNIVERSE_KEY,
@@ -41,7 +43,7 @@ except Exception:  # pragma: no cover - allows pure helper tests without Streaml
 
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
-AI_UNIVERSE_MODULE_VERSION = "v18.5.19"
+AI_UNIVERSE_MODULE_VERSION = get_app_version()
 AI_UNIVERSE_SMART_RESULT_KEY = AI_UNIVERSE_SMART_RESULT_KEY_V1859
 AI_UNIVERSE_SMART_RESULT_LEGACY_KEY = "ai_analysis_universe_smart_result_v1858"
 
@@ -418,6 +420,68 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
         )
     return pd.DataFrame(rows)
 
+
+
+
+def _format_table_cell(value: Any) -> str:
+    """Format values for compact HTML tables without showing Python None/nan."""
+    try:
+        if value is None:
+            return ""
+        if isinstance(value, float) and pd.isna(value):
+            return ""
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        text = str(value)
+        if text.lower() in {"none", "nan", "nat"}:
+            return ""
+        return text
+    except Exception:
+        return str(value or "")
+
+
+def _render_dark_table(
+    df: pd.DataFrame,
+    *,
+    empty_message: str = "Ingen rader å vise ennå.",
+    max_rows: int = 25,
+    max_height_px: int = 320,
+) -> None:
+    """Render a dark, compact table instead of Streamlit's light dataframe."""
+    if df is None or df.empty:
+        st.markdown(f'<div class="ai-universe-empty-note">{escape(empty_message)}</div>', unsafe_allow_html=True)
+        return
+
+    visible = df.head(max_rows).copy()
+    columns = [str(c) for c in visible.columns]
+    header_html = "".join(f"<th>{escape(col)}</th>" for col in columns)
+    row_html: List[str] = []
+    for _, row in visible.iterrows():
+        cells = "".join(
+            f"<td>{escape(_format_table_cell(row.get(col)))}</td>"
+            for col in visible.columns
+        )
+        row_html.append(f"<tr>{cells}</tr>")
+
+    overflow_note = ""
+    total_rows = len(df.index)
+    if total_rows > len(visible.index):
+        overflow_note = (
+            f'<div class="ai-universe-table-note">Viser {len(visible.index)} av {total_rows} rader. '
+            'Bruk filtre eller Top Picks for å korte ned listen.</div>'
+        )
+
+    html = (
+        f'<div class="ai-universe-table-wrap" style="max-height:{int(max_height_px)}px">'
+        '<table class="ai-universe-table">'
+        f'<thead><tr>{header_html}</tr></thead>'
+        f'<tbody>{"".join(row_html)}</tbody>'
+        '</table></div>'
+        f'{overflow_note}'
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 def _existing_tickers_by_scope_from_state(session_state: Mapping[str, Any]) -> Dict[str, List[str]]:
     out: Dict[str, List[str]] = {}
@@ -1039,6 +1103,55 @@ def _inject_ai_universe_css() -> None:
             font-weight: 780;
             margin-top: .25rem;
         }
+
+        .ai-universe-table-wrap {
+            width: 100%;
+            overflow: auto;
+            border: 1px solid rgba(34,197,94,.42);
+            border-radius: 12px;
+            background: rgba(2, 6, 23, .92);
+            margin: .32rem 0 .58rem 0;
+            box-shadow: none;
+        }
+        .ai-universe-table {
+            width: 100%;
+            border-collapse: collapse;
+            color: #e5edf8;
+            font-size: .76rem;
+            line-height: 1.25;
+            min-width: 900px;
+        }
+        .ai-universe-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: rgba(8, 47, 73, .98);
+            color: #bae6fd;
+            text-align: left;
+            font-weight: 950;
+            letter-spacing: .02em;
+            border-bottom: 1px solid rgba(125,211,252,.30);
+            padding: .40rem .46rem;
+            white-space: nowrap;
+        }
+        .ai-universe-table tbody td {
+            background: rgba(15, 23, 42, .72);
+            border-bottom: 1px solid rgba(148,163,184,.16);
+            color: #e5edf8;
+            padding: .34rem .46rem;
+            vertical-align: top;
+            max-width: 380px;
+            overflow-wrap: anywhere;
+        }
+        .ai-universe-table tbody tr:nth-child(even) td {
+            background: rgba(11, 21, 39, .76);
+        }
+        .ai-universe-table-note {
+            color: #cbd5e1;
+            font-size: .72rem;
+            margin: -.20rem 0 .55rem .15rem;
+            opacity: .88;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1083,11 +1196,11 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
     current = _default_config()
 
     st.markdown(
-        """
+        f"""
         <div class="ai-universe-card">
             <div class="ai-universe-title">🎯 Analyseunivers som AI-modul</div>
             <div class="ai-universe-sub">
-                Arkitekturen er nå koblet til en første operativ Smart AI-motor: valgt univers kan kjøres, scores,
+                Arkitekturen er nå koblet til en operativ Smart AI-motor: valgt univers kan kjøres, scores,
                 risikofiltreres, momentumfiltreres og rangeres. Portefølje-/workspace-automatisering bygges videre i neste fase.
             </div>
             <div class="ai-universe-pill-row">
@@ -1099,6 +1212,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 <span class="ai-universe-pill">Watchlist</span>
                 <span class="ai-universe-pill">Paper trading</span>
                 <span class="ai-universe-pill ok">Smart AI-utvalg: service-koblet Fase 2</span>
+                <span class="ai-universe-pill ok">{AI_UNIVERSE_MODULE_VERSION}</span>
             </div>
         </div>
         """,
@@ -1244,7 +1358,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         )
         _render_selection_summary_panel(_picker_result_summary_rows(picker_result))
         if picker_result.get("candidates"):
-            st.dataframe(_smart_result_dataframe(picker_result), use_container_width=True, hide_index=True)
+            _render_dark_table(_smart_result_dataframe(picker_result), empty_message="Picker-resultatet er tomt.", max_rows=30, max_height_px=260)
         else:
             st.markdown(
                 '<div class="ai-universe-empty-note">Picker-resultatet er tomt. Velg en kilde med data, skriv enkeltaksje, eller lim inn en manuell liste.</div>',
@@ -1312,7 +1426,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         smart_result = st.session_state.get(AI_UNIVERSE_SMART_RESULT_KEY, {}) or st.session_state.get(AI_UNIVERSE_SMART_RESULT_LEGACY_KEY, {}) or {}
         _render_selection_summary_panel(_smart_result_summary_rows(smart_result))
         if smart_result and smart_result.get("candidates"):
-            st.dataframe(_smart_result_dataframe(smart_result), use_container_width=True, hide_index=True)
+            _render_dark_table(_smart_result_dataframe(smart_result), empty_message="Smart AI-resultatet er tomt.", max_rows=30, max_height_px=280)
             action_a, action_b = st.columns(2)
             with action_a:
                 if st.button("⭐ Bruk Smart AI-resultat som Top Picks", key="smart_ai_to_top_picks_v1859", use_container_width=True):
@@ -1328,7 +1442,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     st.success(service_result.message or "Smart AI-resultatet er lagt inn som watchlist.")
             if smart_result.get("errors"):
                 with st.expander("Vis tickere som ble hoppet over / feilet", expanded=False):
-                    st.dataframe(pd.DataFrame(smart_result.get("errors", [])), use_container_width=True, hide_index=True)
+                    _render_dark_table(pd.DataFrame(smart_result.get("errors", [])), empty_message="Ingen feilede tickere.", max_rows=25, max_height_px=260)
 
         candidates = collect_universe_candidates(st.session_state, limit=max_count)
         preview = filter_universe_candidates(candidates, scopes, sectors, max_risk, min_top_pick_score, min_strength)
@@ -1353,7 +1467,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         st.markdown("#### Preview av eksisterende kandidater")
         if preview:
-            st.dataframe(_candidate_dataframe(preview[:50]), use_container_width=True, hide_index=True)
+            _render_dark_table(_candidate_dataframe(preview[:50]), empty_message="Ingen eksisterende kandidater å forhåndsvise.", max_rows=50, max_height_px=300)
             st.caption(
                 "Preview bruker bare eksisterende rangeringer, watchlist og paper-posisjoner som allerede finnes i appen. "
                 "Den kjører ikke en ny AI-scan."

@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.4.7 Professional Trading Workspace.
+v18.5.20 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -29,7 +29,7 @@ def inject_workspace_css() -> None:
     st.markdown(
         """
         <style>
-        /* v18.4.7 professional workspace */
+        /* v18.5.20 professional workspace */
         .block-container {
             padding-top: 0.15rem !important;
             padding-bottom: 1.5rem !important;
@@ -163,6 +163,57 @@ def inject_workspace_css() -> None:
             border: 1px solid rgba(100, 130, 170, .25);
             border-radius: 12px;
             padding: .45rem .6rem;
+        }
+
+
+        /* v18.5.20: keep Streamlit inputs/selects dark, including focus/active states. */
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stTextArea"] textarea,
+        div[data-baseweb="input"] input,
+        div[data-baseweb="textarea"] textarea {
+            background-color: rgba(15, 23, 42, .92) !important;
+            color: #f8fafc !important;
+            caret-color: #7dd3fc !important;
+            border-color: rgba(125, 211, 252, .42) !important;
+            box-shadow: none !important;
+        }
+
+        div[data-testid="stTextInput"] input:focus,
+        div[data-testid="stNumberInput"] input:focus,
+        div[data-testid="stTextArea"] textarea:focus,
+        div[data-baseweb="input"] input:focus,
+        div[data-baseweb="textarea"] textarea:focus {
+            background-color: rgba(15, 23, 42, .98) !important;
+            color: #ffffff !important;
+            border-color: rgba(56, 189, 248, .85) !important;
+            box-shadow: 0 0 0 1px rgba(56, 189, 248, .38) !important;
+        }
+
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="select"] div[role="button"],
+        div[data-baseweb="select"] input {
+            background-color: rgba(15, 23, 42, .92) !important;
+            color: #f8fafc !important;
+            border-color: rgba(125, 211, 252, .34) !important;
+        }
+
+        div[data-baseweb="popover"],
+        div[data-baseweb="menu"],
+        ul[role="listbox"] {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+
+        div[data-baseweb="menu"] li,
+        ul[role="listbox"] li {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+
+        div[data-baseweb="menu"] li:hover,
+        ul[role="listbox"] li:hover {
+            background-color: rgba(14, 165, 233, .28) !important;
         }
         </style>
         """,

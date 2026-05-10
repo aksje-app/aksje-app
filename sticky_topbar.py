@@ -1,7 +1,7 @@
 """
 sticky_topbar.py
 
-v18.4.7 Professional Trading Workspace
+v18.5.20 Professional Trading Workspace
 Sticky topbar / AI status bar.
 
 Ingen auto-trading-kobling.
@@ -15,6 +15,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import summarize_alerts, load_learning_stats
+from app_version import get_app_version
 
 
 def _safe_get_session(key: str, default: Any = None) -> Any:
@@ -88,7 +89,7 @@ def render_sticky_topbar() -> None:
             <span class="ptw-pill">🧠 Learning: {samples}</span>
           </div>
           <div class="ptw-topbar-right">
-            <span class="ptw-subtle">Professional Trading Workspace v18.4.7</span>
+            <span class="ptw-subtle">Professional Trading Workspace {get_app_version()}</span>
           </div>
         </div>
         """,

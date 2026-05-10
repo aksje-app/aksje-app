@@ -82,7 +82,7 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.4.7: Professional Trading Workspace. Ingen auto-trading-kobling.
+# v18.5.20: Professional Trading Workspace. Ingen auto-trading-kobling.
 try:
     inject_workspace_css()
     render_workspace_title()

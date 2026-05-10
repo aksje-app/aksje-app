@@ -1,24 +1,24 @@
-# Project handoff – v18.5.19 Smart Universe UI Compaction
+# Project handoff – v18.5.20 UI Version + Smart Universe Cleanup
 
-Context:
-- v18.5.16 completed Testing & Learning hardening.
-- v18.5.17 completed Smart Universe Picker as the central stock-selection layer.
-- v18.5.19 fixes a real UI issue where clicking "Kjør enkel strategi-test" could appear to do nothing because Streamlit reruns/tabs/expanders could hide the one-run button state.
+Focus for this release:
 
-What changed in v18.5.19:
-- Basic strategy-test result is now stored in `st.session_state["tl_basic_strategy_result_v18518"]`.
-- The result is rendered after reruns, tab switches, and expander reopen.
-- Added spinner, success/error state, timestamp, metrics, chart and optimisation from the persisted payload.
-- Normalised yfinance history frames so MultiIndex `Close` data works with StrategyEngine.
-- Removed duplicate Score-forklaring status row.
-- Added tests for yfinance MultiIndex Close normalisation and the renderable strategy-test payload.
+- Single app version source via `app_version.py`.
+- Sticky topbar shows the real running version from `APP_VERSION`.
+- Removed old hardcoded `v18.4.7` version text from the visible UI path.
+- Smart Universe Picker and Smart AI result tables now render as compact dark HTML tables instead of native Streamlit dataframe boxes that could appear as huge white empty areas.
+- Empty result panels now show compact dark/yellow notes instead of blank dataframe containers.
+- Table height is content-sized with max-height scrolling.
+- Input, textarea, select and multiselect focus/active states are forced to dark styling to avoid white ticker boxes.
 
-Verification:
-- `python -m compileall .` OK.
-- `pytest -q` OK: 14 passed.
+Validation:
 
-Recommended next steps:
-1. Deploy v18.5.19 to Render.
-2. Smoke-test AI Kontrollsenter → Testing & Learning → Kjør enkel strategi-test.
-3. Continue with event-risk/prognose hardening.
-4. Do legacy cleanup only after AI Kontrollsenter workflows are confirmed live.
+- `python -m compileall .`
+- `pytest -q`
+
+Next recommended steps:
+
+1. Deploy v18.5.20 to Render with clear build cache.
+2. Hard-refresh browser / test incognito.
+3. Confirm sticky topbar says `Professional Trading Workspace v18.5.20`.
+4. Confirm Analyseunivers/Smart Universe no longer shows large white empty boxes.
+5. Continue with event-risk/prognose hardening and legacy cleanup.
