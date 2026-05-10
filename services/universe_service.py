@@ -324,7 +324,7 @@ class UniverseService:
         tickers = list(result.get("tickers") or _extract_tickers(result.get("candidates") or []))
         rows = _candidate_dict_rows([StockCandidate.from_mapping(row, source=str(result.get("source") or ACTIVE_UNIVERSE_RANKING_KEY)) for row in result.get("candidates", []) if isinstance(row, Mapping)])
         payload = {
-            "version": "v18.5.17",
+            "version": "v18.5.19",
             "source": result.get("source") or "Smart Universe Picker",
             "picker_reason": result.get("picker_reason") or "",
             "tickers": tickers,
