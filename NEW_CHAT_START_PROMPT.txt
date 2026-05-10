@@ -1,4 +1,3 @@
-Fortsett AI Aksje Analyzer Pro fra v18.5.14.
+Fortsett AI Aksje Analyzer Pro fra v18.5.15 Stability + Testing & Learning Real Integration.
 Les PROJECT_HANDOFF_FOR_NEW_CHAT.md først.
-Ikke lag zip før jeg sier GO.
-Neste åpne oppgaver: hendelsesrisiko, prognosegraf tidslogikk, Smart Universe Picker, legacy cleanup, manual, service-omkobling og persistent storage.
+Neste fokus: Render smoke-test med dependencies/DATABASE_URL, manuell UI-verifisering av AI Kontrollsenter, deretter legacy cleanup og manual.

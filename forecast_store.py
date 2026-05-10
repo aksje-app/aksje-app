@@ -19,13 +19,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from forecast_engine import build_all_horizons
+from forecast_engine import build_all_horizons, SUPPORTED_HORIZONS
 
 
 DATA_DIR = Path("data")
 FORECAST_DIR = DATA_DIR / "forecasts"
 FORECAST_LOG = FORECAST_DIR / "forecast_log.jsonl"
 FORECAST_ALERTS = FORECAST_DIR / "forecast_alerts.jsonl"
+
+
+def _service_storage():
+    try:
+        from services.storage_service import get_storage_service
+
+        return get_storage_service()
+    except Exception:
+        return None
+
+
+def _storage_name(name: str) -> str:
+    return f"forecasts/{name}"
 
 
 def _now_iso() -> str:
@@ -47,6 +60,14 @@ def save_forecast_result(ticker: str, payload: Dict[str, Any]) -> Path:
     payload = dict(payload)
     payload["saved_at"] = _now_iso()
 
+    storage = _service_storage()
+    if storage is not None:
+        try:
+            storage.write_json(_storage_name(f"{ticker_safe}_latest.json"), payload)
+            storage.append_jsonl(_storage_name("forecast_log.jsonl"), payload)
+        except Exception:
+            pass
+
     latest_path = FORECAST_DIR / f"{ticker_safe}_latest.json"
     latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -58,7 +79,17 @@ def save_forecast_result(ticker: str, payload: Dict[str, Any]) -> Path:
 
 def load_latest_forecast(ticker: str) -> Optional[Dict[str, Any]]:
     ensure_forecast_dirs()
-    path = FORECAST_DIR / f"{_safe_ticker(ticker)}_latest.json"
+    ticker_safe = _safe_ticker(ticker)
+    storage = _service_storage()
+    if storage is not None:
+        try:
+            stored = storage.read_json(_storage_name(f"{ticker_safe}_latest.json"), default=None)
+            if isinstance(stored, dict):
+                return stored
+        except Exception:
+            pass
+
+    path = FORECAST_DIR / f"{ticker_safe}_latest.json"
     if not path.exists():
         return None
     try:
@@ -69,6 +100,15 @@ def load_latest_forecast(ticker: str) -> Optional[Dict[str, Any]]:
 
 def load_forecast_log(limit: int = 200) -> List[Dict[str, Any]]:
     ensure_forecast_dirs()
+    storage = _service_storage()
+    if storage is not None:
+        try:
+            stored_rows = storage.read_jsonl(_storage_name("forecast_log.jsonl"), limit=limit)
+            if stored_rows:
+                return stored_rows
+        except Exception:
+            pass
+
     if not FORECAST_LOG.exists():
         return []
     rows: List[Dict[str, Any]] = []
@@ -90,14 +130,28 @@ def build_and_store_all_horizons(
     *,
     ai_score: Optional[float] = None,
     sentiment_score: Optional[float] = None,
+    market_regime: str = "neutral",
+    event_risk: bool = False,
+    learned_confidence_adjustment: int = 0,
 ) -> Dict[str, Any]:
     """Build all horizon forecasts and persist them."""
-    result = build_all_horizons(ticker, prices, ai_score=ai_score, sentiment_score=sentiment_score)
+    result = build_all_horizons(
+        ticker,
+        prices,
+        ai_score=ai_score,
+        sentiment_score=sentiment_score,
+        market_regime=market_regime,
+        event_risk=event_risk,
+        learned_confidence_adjustment=learned_confidence_adjustment,
+    )
     payload = {
         "ticker": ticker.upper(),
         "generated_at": _now_iso(),
         "ai_score": ai_score,
         "sentiment_score": sentiment_score,
+        "market_regime": market_regime,
+        "event_risk": bool(event_risk),
+        "learned_confidence_adjustment": int(learned_confidence_adjustment or 0),
         "horizons": result,
     }
     save_forecast_result(ticker, payload)
@@ -214,15 +268,30 @@ def save_alerts(alerts: Sequence[Dict[str, Any]]) -> None:
     if not alerts:
         return
     ensure_forecast_dirs()
+    storage = _service_storage()
     with FORECAST_ALERTS.open("a", encoding="utf-8") as f:
         for alert in alerts:
             row = dict(alert)
             row["created_at"] = _now_iso()
+            if storage is not None:
+                try:
+                    storage.append_jsonl(_storage_name("forecast_alerts.jsonl"), row)
+                except Exception:
+                    pass
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def load_alerts(limit: int = 100) -> List[Dict[str, Any]]:
     ensure_forecast_dirs()
+    storage = _service_storage()
+    if storage is not None:
+        try:
+            stored_rows = storage.read_jsonl(_storage_name("forecast_alerts.jsonl"), limit=limit)
+            if stored_rows:
+                return stored_rows
+        except Exception:
+            pass
+
     if not FORECAST_ALERTS.exists():
         return []
     rows: List[Dict[str, Any]] = []
@@ -234,22 +303,32 @@ def load_alerts(limit: int = 100) -> List[Dict[str, Any]]:
     return rows
 
 
+def _forecast_age_days(payload: Dict[str, Any]) -> Optional[int]:
+    raw = payload.get("saved_at") or payload.get("generated_at")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0, (datetime.now(timezone.utc) - dt).days)
+    except Exception:
+        return None
+
+
 def get_forecast_vs_actual_series(
     forecast_payload: Dict[str, Any],
     actual_prices: Sequence[float],
     horizon: str,
 ) -> Dict[str, Any]:
-    """Build aligned forecast-vs-actual series for charting.
+    """Build forecast-vs-actual series with a clean time split.
 
-    Returns a dict with:
-    - labels
-    - actual
-    - base
-    - bull
-    - bear
-    - lower_band
-    - upper_band
-    - evaluation if actual has terminal price
+    The previous version aligned historical actual prices directly onto future
+    forecast labels. This made the green actual-price line continue into the
+    future. v18.5.15 separates:
+    - historical actual prices before today
+    - today/current price
+    - future forecast points only after today
     """
     horizons = forecast_payload.get("horizons", {})
     item = horizons.get(horizon)
@@ -269,26 +348,44 @@ def get_forecast_vs_actual_series(
         except Exception:
             continue
 
-    max_len = min(len(points), len(clean_actual)) if clean_actual else len(points)
-    labels = [p.get("date_label", str(i)) for i, p in enumerate(points[:max_len])]
+    today_label = str(points[0].get("date_label") or "I dag")
+    history_window = min(max(len(clean_actual) - 1, 0), 60)
+    history_values = clean_actual[-(history_window + 1):] if clean_actual else []
+    history_labels = [f"T-{i}" for i in range(history_window, 0, -1)]
+
+    future_points = list(points[1:])
+    future_labels = [str(p.get("date_label", f"+{idx}")) for idx, p in enumerate(future_points, start=1)]
+    labels = history_labels + [today_label] + future_labels
+
+    def projected(field: str) -> List[Any]:
+        return [None] * history_window + [p.get(field) for p in points]
+
+    actual_series: List[Any] = []
+    if history_values:
+        actual_series = history_values + [None] * len(future_points)
 
     result = {
         "ticker": forecast_payload.get("ticker", "UNKNOWN"),
         "horizon": horizon,
         "labels": labels,
-        "actual": clean_actual[:max_len] if clean_actual else [],
-        "base": [p.get("base") for p in points[:max_len]],
-        "bull": [p.get("bull") for p in points[:max_len]],
-        "bear": [p.get("bear") for p in points[:max_len]],
-        "lower_band": [p.get("lower_band") for p in points[:max_len]],
-        "upper_band": [p.get("upper_band") for p in points[:max_len]],
+        "today_label": today_label,
+        "today_index": history_window,
+        "future_start_index": history_window + 1,
+        "actual": actual_series,
+        "base": projected("base"),
+        "bull": projected("bull"),
+        "bear": projected("bear"),
+        "lower_band": projected("lower_band"),
+        "upper_band": projected("upper_band"),
         "evaluation": None,
     }
 
-    if clean_actual and len(clean_actual) >= 2:
+    age = _forecast_age_days(forecast_payload)
+    horizon_days = int(SUPPORTED_HORIZONS.get(horizon, 999999))
+    if clean_actual and age is not None and age >= horizon_days:
         result["evaluation"] = evaluate_forecast_accuracy(
             forecast_payload,
-            actual_price=clean_actual[min(len(clean_actual), len(points)) - 1],
+            actual_price=clean_actual[-1],
             horizon=horizon,
         )
 
@@ -504,22 +601,41 @@ LEARNING_STATS = FORECAST_DIR / "forecast_learning_stats.json"
 def load_learning_stats() -> Dict[str, Any]:
     """Load learned confidence stats."""
     ensure_forecast_dirs()
+    empty = {"global": {}, "tickers": {}, "horizons": {}}
+    storage = _service_storage()
+    if storage is not None:
+        try:
+            stored = storage.read_json(_storage_name("forecast_learning_stats.json"), default=None)
+            if isinstance(stored, dict):
+                stored.setdefault("global", {})
+                stored.setdefault("tickers", {})
+                stored.setdefault("horizons", {})
+                return stored
+        except Exception:
+            pass
+
     if not LEARNING_STATS.exists():
-        return {"global": {}, "tickers": {}, "horizons": {}}
+        return empty
     try:
         data = json.loads(LEARNING_STATS.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
-            return {"global": {}, "tickers": {}, "horizons": {}}
+            return empty
         data.setdefault("global", {})
         data.setdefault("tickers", {})
         data.setdefault("horizons", {})
         return data
     except Exception:
-        return {"global": {}, "tickers": {}, "horizons": {}}
+        return empty
 
 
 def save_learning_stats(stats: Dict[str, Any]) -> None:
     ensure_forecast_dirs()
+    storage = _service_storage()
+    if storage is not None:
+        try:
+            storage.write_json(_storage_name("forecast_learning_stats.json"), stats)
+        except Exception:
+            pass
     LEARNING_STATS.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

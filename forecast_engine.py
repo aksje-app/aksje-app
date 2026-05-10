@@ -16,7 +16,7 @@ Viktig:
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import exp, log, sqrt
 from statistics import mean, pstdev
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -334,7 +334,7 @@ def build_forecast(
     # Usikkerhetsbånd litt bredere enn bull/bear.
     band_sigma = 1.25
 
-    start = start_date or datetime.utcnow()
+    start = start_date or datetime.now(timezone.utc)
     points: List[ForecastPoint] = []
     for step in range(0, days + 1):
         frac = step / days if days else 1.0
@@ -395,7 +395,7 @@ def build_forecast(
 
     return ForecastResult(
         ticker=ticker.upper(),
-        generated_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         summary=summary,
         points=points,
         warnings=warnings,

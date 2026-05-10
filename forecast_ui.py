@@ -21,6 +21,7 @@ import streamlit as st
 from forecast_engine import SUPPORTED_HORIZONS, build_forecast, build_all_horizons
 from forecast_store import build_and_store_all_horizons, compute_alerts, compute_intelligent_alerts, evaluate_and_learn, get_forecast_vs_actual_series, learning_confidence_adjustment, load_alerts, load_forecast_log, load_latest_forecast, load_learning_stats, save_alerts, summarize_alerts
 from forecast_portfolio import build_portfolio_forecast, normalize_holdings
+from event_risk_engine import detect_event_risk
 
 
 def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[float], Optional[str]]:
@@ -247,8 +248,11 @@ def _candidate_source_label(ticker: str) -> str:
     return "Appdata"
 
 
-def _forecast_cache_key(ticker: str, horizon: str, period: str, ai_score: float, sentiment: float) -> str:
-    return f"forecast_v1834::{ticker.upper()}::{horizon}::{period}::{int(ai_score)}::{round(float(sentiment), 2)}"
+def _forecast_cache_key(ticker: str, horizon: str, period: str, ai_score: float, sentiment: float, market_regime: str = "neutral", event_risk: bool = False) -> str:
+    base = f"forecast_v1834::{ticker.upper()}::{horizon}::{period}::{int(ai_score)}::{round(float(sentiment), 2)}"
+    if str(market_regime or "neutral") == "neutral" and not event_risk:
+        return base
+    return f"forecast_v18515::{ticker.upper()}::{horizon}::{period}::{int(ai_score)}::{round(float(sentiment), 2)}::{market_regime}::{int(bool(event_risk))}"
 
 
 def _get_cached_forecast(cache_key: str):
@@ -363,11 +367,30 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
 
     actual = series.get("actual", [])
     if actual:
-        fig.add_trace(go.Scatter(x=x[:len(actual)], y=actual, mode="lines+markers", name="Faktisk kurs", line=dict(width=4)))
+        fig.add_trace(go.Scatter(x=x, y=actual, mode="lines+markers", name="Faktisk historikk", line=dict(width=4)))
+
+    today_label = series.get("today_label")
+    if today_label in x:
+        all_values = []
+        for key in ["actual", "base", "bull", "bear", "lower_band", "upper_band"]:
+            for value in series.get(key, []) or []:
+                try:
+                    if value is not None:
+                        all_values.append(float(value))
+                except Exception:
+                    pass
+        if all_values:
+            fig.add_trace(go.Scatter(
+                x=[today_label, today_label],
+                y=[min(all_values), max(all_values)],
+                mode="lines",
+                name="I dag",
+                line=dict(width=2, dash="dash"),
+            ))
 
     fig.update_layout(
         title=f"{series.get('ticker', '')} prognose vs faktisk ({series.get('horizon', '')})",
-        xaxis_title="Dato",
+        xaxis_title="Historikk → I dag → Fremtidig prognose",
         yaxis_title="Kurs",
         height=430,
         margin=dict(l=10, r=10, t=55, b=10),
@@ -404,9 +427,13 @@ def _render_forecast_vs_actual_panel(ticker: str, horizon: str, current_prices: 
 
             if st.button("Oppdater læring fra denne evalueringen", key=f"learn_from_eval_{ticker}_{horizon}_v18310"):
                 try:
-                    learned = evaluate_and_learn(latest, actual_price=actual[-1], horizon=horizon)
-                    st.success("Lærende confidence er oppdatert.")
-                    st.json(learned.get("learning_stats", {}))
+                    actual_values = [v for v in (series.get("actual", []) or []) if v is not None]
+                    if not actual_values:
+                        st.warning("Ingen faktisk terminalkurs tilgjengelig for læring ennå.")
+                    else:
+                        learned = evaluate_and_learn(latest, actual_price=actual_values[-1], horizon=horizon)
+                        st.success("Lærende confidence er oppdatert.")
+                        st.json(learned.get("learning_stats", {}))
                 except Exception as _learn_error:
                     st.warning(f"Kunne ikke oppdatere læring: {_learn_error}")
         else:
@@ -657,8 +684,8 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             st.warning(error)
             return
 
-        cache_key = _forecast_cache_key(ticker, horizon, period, float(ai_score), float(sentiment))
-        cached = _get_cached_forecast(cache_key)
+        event_info = detect_event_risk(ticker, prices, horizon=horizon, include_news=True)
+        effective_event_risk = bool(event_risk or event_info.get("is_event_risk"))
 
         learning_adj = learning_confidence_adjustment(
             ticker=ticker,
@@ -666,34 +693,48 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             base_confidence=50,
         )
         learned_adjustment = int(learning_adj.get("adjustment", 0))
+        event_adjustment = int(event_info.get("confidence_adjustment", 0) or 0)
+        combined_confidence_adjustment = max(-25, min(20, learned_adjustment + event_adjustment))
+
+        cache_key = _forecast_cache_key(ticker, horizon, period, float(ai_score), float(sentiment), market_regime, effective_event_risk)
+        cached = _get_cached_forecast(cache_key)
+
+        with st.expander("⚠️ Hendelsesrisiko / confidence-justering", expanded=effective_event_risk):
+            if event_info.get("alerts"):
+                for alert in event_info.get("alerts", [])[:8]:
+                    st.write(f"{str(alert.get('level', '')).upper()} · {alert.get('category', 'event')}: {alert.get('message')}")
+            elif event_risk:
+                st.warning("Manuell hendelsesrisiko er slått på.")
+            else:
+                st.success("Ingen konkrete hendelsesrisiko-signaler funnet med tilgjengelige datakilder.")
+            st.caption(
+                f"Læring: {learned_adjustment:+d} poeng · Hendelser: {event_adjustment:+d} poeng · "
+                f"Kombinert confidence-justering: {combined_confidence_adjustment:+d} poeng."
+            )
+            diagnostics = event_info.get("diagnostics", {}) or {}
+            unavailable = []
+            for source_name in ["earnings", "news"]:
+                src = diagnostics.get(source_name, {}) or {}
+                if src.get("available") is False and src.get("error"):
+                    unavailable.append(f"{source_name}: {src.get('error')}")
+            if unavailable:
+                st.caption("Datakilder ikke aktive: " + " | ".join(unavailable[:3]))
 
         if cached:
             st.caption("Viser cachet prognose for samme ticker/horisont/innstillinger i denne økten.")
 
         try:
-            if cached:
-                # Bygg resultat på nytt for grafobjekter, men bruk cache som bevis på at samme analyse er kjørt før.
-                result = build_forecast(
-                    ticker,
-                    prices,
-                    horizon,
-                    ai_score=float(ai_score),
-                    sentiment_score=float(sentiment),
-                    market_regime=market_regime,
-                    event_risk=event_risk,
-                    learned_confidence_adjustment=learned_adjustment,
-                )
-            else:
-                result = build_forecast(
-                    ticker,
-                    prices,
-                    horizon,
-                    ai_score=float(ai_score),
-                    sentiment_score=float(sentiment),
-                    market_regime=market_regime,
-                    event_risk=event_risk,
-                    learned_confidence_adjustment=learned_adjustment,
-                )
+            result = build_forecast(
+                ticker,
+                prices,
+                horizon,
+                ai_score=float(ai_score),
+                sentiment_score=float(sentiment),
+                market_regime=market_regime,
+                event_risk=effective_event_risk,
+                learned_confidence_adjustment=combined_confidence_adjustment,
+            )
+            if not cached:
                 _set_cached_forecast(cache_key, result.to_dict())
         except Exception as exc:
             st.error(f"Klarte ikke lage prognose: {exc}")
@@ -706,10 +747,14 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 prices,
                 ai_score=float(ai_score),
                 sentiment_score=float(sentiment),
+                market_regime=market_regime,
+                event_risk=effective_event_risk,
+                learned_confidence_adjustment=combined_confidence_adjustment,
             )
             basic_alerts = compute_alerts(stored_payload, previous_payload)
             intelligent_alerts = compute_intelligent_alerts(stored_payload, previous_payload)
-            alerts = intelligent_alerts or basic_alerts
+            event_alerts = list(event_info.get("alerts", []) or [])
+            alerts = event_alerts + (intelligent_alerts or basic_alerts)
             save_alerts(alerts)
             if alerts:
                 summary_alerts = summarize_alerts(alerts)

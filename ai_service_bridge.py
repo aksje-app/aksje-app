@@ -1,25 +1,44 @@
 """
 ai_service_bridge.py
 
-v18.5.11 UI bridge for service migration status and Smart Universe Picker.
+v18.5.15 UI bridge for service migration status and Smart Universe Picker.
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
-from core_models import UniverseRequest
 try:
-    from services.service_registry import get_service_registry
-except ModuleNotFoundError as _svc_exc:
-    get_service_registry = None
+    from services.service_registry import build_service_registry, get_service_registry
+except ModuleNotFoundError as _svc_exc:  # pragma: no cover
+    build_service_registry = None  # type: ignore
+    get_service_registry = None  # type: ignore
     _SERVICE_IMPORT_ERROR = _svc_exc
 
 
+PICKER_MODES = {
+    "Enkeltaksje": ["Manuell liste"],
+    "Top Picks": ["Top Picks"],
+    "Watchlist": ["Watchlist"],
+    "Portefølje": ["Portefølje"],
+    "Paper trading": ["Paper trading"],
+    "Marked": ["USA"],
+    "Multi-marked": ["USA", "Norge", "Sverige"],
+    "Manuell liste": ["Manuell liste"],
+}
+
+
+def _registry():
+    if build_service_registry is not None:
+        return build_service_registry(st.session_state)
+    return get_service_registry()  # type: ignore[misc]
+
+
 def render_service_migration_status() -> None:
-    if globals().get('_SERVICE_IMPORT_ERROR') is not None:
-        st.warning('Service-laget mangler: ' + str(_SERVICE_IMPORT_ERROR)); return
-    reg = get_service_registry()
+    if globals().get("_SERVICE_IMPORT_ERROR") is not None:
+        st.warning("Service-laget mangler: " + str(_SERVICE_IMPORT_ERROR))
+        return
+    reg = _registry()
     st.markdown("### 🧩 Service Layer Status")
     checks = [
         ("UniverseService", reg.universe is not None),
@@ -36,55 +55,70 @@ def render_service_migration_status() -> None:
 
 
 def render_smart_universe_picker() -> None:
-    reg = get_service_registry()
+    reg = _registry()
     st.markdown("### 🎯 Smart Universe Picker")
-    st.caption("Felles valg av aksjeunivers via services. Brukes av Smart AI, Top Picks, Watchlist, Forecast, Paper og Portfolio.")
+    st.caption(
+        "Felles universvalg for enkeltaksje, Top Picks, Watchlist, portefølje, paper trading, marked, multi-marked og manuell liste."
+    )
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns([1.4, 1.4, 1.0])
     with c1:
         mode = st.selectbox(
             "Kilde",
-            ["top_picks", "watchlist", "paper_trading", "portfolio", "market", "manual"],
-            index=0,
-            key="service_universe_mode_v18511",
+            list(PICKER_MODES.keys()),
+            index=5,
+            key="service_universe_mode_v18515",
         )
     with c2:
         market = st.selectbox(
-            "Marked",
-            ["all", "usa", "norway", "sweden", "denmark"],
+            "Marked / scope",
+            ["USA", "Norge", "Sverige", "Alle"],
             index=0,
-            key="service_universe_market_v18511",
+            key="service_universe_market_v18515",
+            disabled=mode not in {"Marked"},
         )
     with c3:
-        limit = st.number_input("Antall", min_value=1, max_value=50, value=10, step=1, key="service_universe_limit_v18511")
+        limit = st.number_input("Antall", min_value=1, max_value=250, value=30, step=1, key="service_universe_limit_v18515")
 
-    manual = ""
-    if mode == "manual":
-        manual = st.text_input("Manuelle tickere", value="AAPL,NVDA,MSFT", key="service_universe_manual_v18511")
+    manual_raw = ""
+    if mode in {"Enkeltaksje", "Manuell liste"}:
+        default_manual = "AAPL" if mode == "Enkeltaksje" else "AAPL,NVDA,MSFT"
+        manual_raw = st.text_input("Ticker(e)", value=default_manual, key="service_universe_manual_v18515")
 
-    request = UniverseRequest(
-        mode=mode,
-        market=market,
-        tickers=[x.strip().upper() for x in manual.split(",") if x.strip()],
-        limit=int(limit),
-    )
-    result = reg.universe.resolve(request)
+    scopes = PICKER_MODES.get(mode, ["USA"])
+    if mode == "Marked":
+        scopes = [market]
+    elif mode == "Enkeltaksje":
+        scopes = ["Manuell liste"]
+        manual_raw = manual_raw.split(",")[0] if manual_raw else "AAPL"
+
+    config = {
+        "mode": f"Smart Universe Picker: {mode}",
+        "scopes": scopes,
+        "manual_ticker": manual_raw if mode == "Enkeltaksje" else "",
+        "max_count": int(limit),
+        "metadata": {"manual_list": manual_raw if mode == "Manuell liste" else []},
+    }
+    result = reg.universe.resolve(config)
     if not result.ok:
-        st.warning(result.error or "Klarte ikke hente univers.")
+        st.warning(result.message or "Klarte ikke hente univers.")
         return
 
-    candidates = result.data.candidates
+    universe = result.data
+    candidates = getattr(universe, "candidates", []) or []
     rows = [
         {
+            "Rank": c.rank,
             "Ticker": c.ticker,
-            "Market": c.market,
-            "Score": round(c.score, 2),
-            "Source": c.source,
+            "Kilde": c.source,
+            "Forklaring": c.reason,
         }
         for c in candidates
     ]
     st.dataframe(rows, use_container_width=True, hide_index=True)
-    st.session_state["smart_universe_candidates_v18511"] = [c.ticker for c in candidates]
+    st.session_state["smart_universe_candidates_v18515"] = [c.ticker for c in candidates]
+
+    st.caption("Valgt univers er nå tilgjengelig for moduler som henter `smart_universe_candidates_v18515`.")
 
 
 def render_service_workspace() -> None:
