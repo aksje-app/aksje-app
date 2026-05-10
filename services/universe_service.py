@@ -362,23 +362,7 @@ class UniverseService:
             config = req.as_dict()
             if isinstance(request, Mapping) and request.get("manual_list") is not None:
                 config["manual_list"] = request.get("manual_list")
-            existing = self._state_existing_tickers_by_scope()
-            manual_list = config.get("manual_list") or config.get("metadata", {}).get("manual_list") or config.get("metadata", {}).get("tickers")
-
-            if manual_list:
-                tickers = _extract_tickers(manual_list)
-            else:
-                try:
-                    from universe_engine import resolve_universe_tickers
-
-                    tickers = resolve_universe_tickers(
-                        scopes=config.get("scopes") or ["USA"],
-                        max_count=int(config.get("max_count") or 30),
-                        manual_ticker=str(config.get("manual_ticker") or ""),
-                        existing_tickers_by_scope=existing,
-                    )
-                except Exception:
-                    tickers = _extract_tickers(config.get("manual_ticker")) or DEFAULTS[: int(config.get("max_count") or 10)]
+            tickers, source, _reason = self._source_tickers_for_picker(config)
 
             max_count = max(1, min(int(config.get("max_count") or 30), 250))
             candidates: List[StockCandidate] = []
@@ -387,7 +371,7 @@ class UniverseService:
                     StockCandidate(
                         ticker=ticker,
                         name=ticker,
-                        source=str(config.get("mode") or "Smart Universe Picker"),
+                        source=source,
                         rank=idx,
                         market="",
                         reason="Valgt via Smart Universe Picker",
