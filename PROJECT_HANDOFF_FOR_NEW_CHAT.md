@@ -1,4 +1,4 @@
-# Project handoff – v18.5.26 Final Empty Panel Removal + Visible Progress
+# Project handoff – v18.5.27 Forecast Chart Separation
 
 ## What changed
 
@@ -16,7 +16,7 @@
 - Kept previous v18.5.25 hotfixes:
   - No mutation of `st.session_state.ai_universe_manual_list_draft_v18517` after widget instantiation.
   - Forecast chart split: actual history stops at today; future forecast is separate; no actual future values.
-- Updated the app version source to `v18.5.26` in `app_version.py`.
+- Updated the app version source to `v18.5.27` in `app_version.py`.
 - Runtime data has been removed from the package; only `.gitkeep` remains in `data/`, `data/forecasts/`, and `data/services/`.
 
 ## Verification
@@ -38,5 +38,5 @@ Manual Deploy → Clear build cache & deploy
 Header should show:
 
 ```text
-Professional Trading Workspace v18.5.26
+Professional Trading Workspace v18.5.27
 ```

@@ -59,14 +59,35 @@ def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[
         if hasattr(close, "dropna"):
             close = close.dropna()
 
+        raw_dates = []
+        try:
+            raw_dates = list(getattr(close, "index", []) or [])
+        except Exception:
+            raw_dates = []
+
         prices = []
-        for x in list(close):
+        price_dates = []
+        for idx, x in enumerate(list(close)):
             try:
                 prices.append(float(x))
+                if idx < len(raw_dates):
+                    d = raw_dates[idx]
+                    if hasattr(d, "strftime"):
+                        price_dates.append(d.strftime("%Y-%m-%d"))
+                    else:
+                        price_dates.append(str(d)[:10])
             except Exception:
                 continue
         if len(prices) < 30:
             return [], f"For lite historikk for {ticker}. Trenger minst 30 datapunkter."
+
+        # v18.5.27: keep actual trading dates available for the forecast-vs-actual
+        # split chart without changing the public return shape used elsewhere.
+        try:
+            st.session_state[f"forecast_price_dates_latest_{ticker}"] = price_dates
+            st.session_state[f"forecast_price_dates_{ticker}_{period}"] = price_dates
+        except Exception:
+            pass
         return prices, None
     except Exception as exc:
         return [], f"Klarte ikke hente prisdata for {ticker}: {exc}"
@@ -341,14 +362,16 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
     try:
         import plotly.graph_objects as go  # type: ignore
     except Exception:
-        st.warning("Plotly er ikke tilgjengelig. Viser data som kompakte rader.")
-        st.json({
-            "ticker": series.get("ticker"),
-            "horizon": series.get("horizon"),
-            "today_label": series.get("today_label"),
-            "actual_points": len(series.get("actual_history") or []),
-            "forecast_points": len(series.get("forecast_x") or []),
-        })
+        st.warning("Plotly er ikke tilgjengelig. Viser kompakt status i stedet for graf.")
+        st.markdown(
+            f"""
+            <div style="border:1px solid rgba(56,189,248,.25);background:rgba(15,23,42,.88);border-radius:12px;padding:.7rem .9rem;color:#dbeafe;">
+              <b>{series.get('ticker', '')}</b> · {series.get('horizon', '')}<br>
+              Faktiskpunkter: {len(series.get('actual_history') or [])} · Prognosepunkter: {len(series.get('forecast_x') or [])} · I dag: {series.get('today_label', 'I dag')}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
     x_full = list(series.get("labels", []) or [])
@@ -356,7 +379,7 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
     actual_y = list(series.get("actual_history") or [])
     forecast_x = list(series.get("forecast_x") or [])
 
-    # Prefer v18.5.26 split-series. Fall back to legacy padded arrays if an old
+    # Prefer v18.5.27 split-series. Fall back to legacy padded arrays if an old
     # stored payload/caller reaches the UI.
     base_y = list(series.get("forecast_base") or [])
     bull_y = list(series.get("forecast_bull") or [])
@@ -375,6 +398,12 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
         actual_pairs = [(x, y) for x, y in zip(x_full, actual_padded) if y is not None]
         actual_x = [p[0] for p in actual_pairs]
         actual_y = [p[1] for p in actual_pairs]
+
+    if not actual_x or not actual_y:
+        st.warning("Historikk mangler: kan ikke tegne faktisk kurs. Kjør med gyldig historikk først.")
+    if not forecast_x or not base_y:
+        st.info("Ingen prognosepunkter tilgjengelig ennå.")
+        return
 
     fig = go.Figure()
 
@@ -401,18 +430,18 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
         ))
 
     if bull_y:
-        fig.add_trace(go.Scatter(x=forecast_x, y=bull_y, mode="lines", name="Bull-prognose", line=dict(width=2, dash="dot")))
+        fig.add_trace(go.Scatter(x=forecast_x, y=bull_y, mode="lines", name="Bull scenario", line=dict(width=2, dash="dot")))
     if base_y:
-        fig.add_trace(go.Scatter(x=forecast_x, y=base_y, mode="lines", name="Base-prognose", line=dict(width=3)))
+        fig.add_trace(go.Scatter(x=forecast_x, y=base_y, mode="lines", name="Base prognose", line=dict(width=3)))
     if bear_y:
-        fig.add_trace(go.Scatter(x=forecast_x, y=bear_y, mode="lines", name="Bear-prognose", line=dict(width=2, dash="dot")))
+        fig.add_trace(go.Scatter(x=forecast_x, y=bear_y, mode="lines", name="Bear scenario", line=dict(width=2, dash="dot")))
 
     if actual_x and actual_y:
         fig.add_trace(go.Scatter(
             x=actual_x,
             y=actual_y,
             mode="lines+markers",
-            name="Faktisk historikk til i dag",
+            name="Faktisk kurs",
             line=dict(width=4),
             hovertemplate="Faktisk kurs<br>%{x}: %{y:.2f}<extra></extra>",
         ))
@@ -445,7 +474,7 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
         )
 
     fig.update_layout(
-        title=f"{series.get('ticker', '')} prognose vs faktisk ({series.get('horizon', '')})",
+        title=f"{series.get('ticker', '')} faktisk historikk vs fremtidig prognose ({series.get('horizon', '')})",
         xaxis_title="Faktisk historikk | I dag | Fremtidig prognose",
         yaxis_title="Kurs",
         height=430,
@@ -457,9 +486,9 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
     st.markdown(
         """
         <div style="display:flex;flex-wrap:wrap;gap:.45rem;margin:.35rem 0 .1rem 0;">
-          <span style="border:1px solid rgba(96,165,250,.35);background:rgba(15,23,42,.70);border-radius:999px;padding:.22rem .52rem;color:#bfdbfe;font-size:.75rem;font-weight:850;">Faktisk historikk stopper ved I dag</span>
-          <span style="border:1px solid rgba(250,204,21,.35);background:rgba(66,32,6,.45);border-radius:999px;padding:.22rem .52rem;color:#fde68a;font-size:.75rem;font-weight:850;">I dag = skillelinje</span>
-          <span style="border:1px solid rgba(34,197,94,.35);background:rgba(6,78,59,.40);border-radius:999px;padding:.22rem .52rem;color:#bbf7d0;font-size:.75rem;font-weight:850;">Bull/base/bear = fremtidig prognose</span>
+          <span style="border:1px solid rgba(96,165,250,.35);background:rgba(15,23,42,.70);border-radius:999px;padding:.22rem .52rem;color:#bfdbfe;font-size:.75rem;font-weight:850;">Faktisk historikk</span>
+          <span style="border:1px solid rgba(250,204,21,.35);background:rgba(66,32,6,.45);border-radius:999px;padding:.22rem .52rem;color:#fde68a;font-size:.75rem;font-weight:850;">I dag</span>
+          <span style="border:1px solid rgba(34,197,94,.35);background:rgba(6,78,59,.40);border-radius:999px;padding:.22rem .52rem;color:#bbf7d0;font-size:.75rem;font-weight:850;">Fremtidig prognose</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -476,7 +505,8 @@ def _render_forecast_vs_actual_panel(ticker: str, horizon: str, current_prices: 
             return
 
         try:
-            series = get_forecast_vs_actual_series(latest, current_prices, horizon)
+            actual_dates = st.session_state.get(f"forecast_price_dates_latest_{ticker}", [])
+            series = get_forecast_vs_actual_series(latest, current_prices, horizon, actual_dates=actual_dates)
         except Exception as exc:
             st.warning(f"Kunne ikke bygge prognose-vs-faktisk graf: {exc}")
             return
