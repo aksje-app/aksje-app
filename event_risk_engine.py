@@ -233,3 +233,40 @@ def detect_event_risk(
         "alerts": alerts,
         "diagnostics": diagnostics,
     }
+
+
+def summarize_event_risk(event_info: Dict[str, Any]) -> str:
+    """Return a compact human-readable event-risk summary for UI/storage."""
+    alerts = list((event_info or {}).get("alerts", []) or [])
+    if not alerts:
+        return "Ingen konkret hendelsesrisiko funnet med tilgjengelige datakilder."
+    red = sum(1 for a in alerts if a.get("level") == "red")
+    yellow = sum(1 for a in alerts if a.get("level") == "yellow")
+    first = alerts[0].get("message") or alerts[0].get("category") or "Hendelsesrisiko nær"
+    return f"Hendelsesrisiko nær: {red} røde / {yellow} gule signaler. {first}"
+
+
+def event_risk_confidence_breakdown(
+    *,
+    base_confidence: int,
+    event_info: Dict[str, Any],
+    learning_adjustment: int = 0,
+) -> Dict[str, Any]:
+    """Explain how event-risk and learning adjust confidence.
+
+    This helper is side-effect free so it can be used by UI and tests. The
+    forecast engine still performs the final clamp when building the forecast.
+    """
+    base = int(base_confidence or 0)
+    event_adj = int((event_info or {}).get("confidence_adjustment") or 0)
+    learn_adj = int(learning_adjustment or 0)
+    adjusted = max(5, min(95, base + event_adj + learn_adj))
+    return {
+        "base_confidence": base,
+        "event_adjustment": event_adj,
+        "learning_adjustment": learn_adj,
+        "total_adjustment": adjusted - base,
+        "adjusted_confidence": adjusted,
+        "event_risk": bool((event_info or {}).get("is_event_risk")),
+        "event_summary": summarize_event_risk(event_info or {}),
+    }

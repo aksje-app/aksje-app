@@ -1,42 +1,42 @@
-# Project handoff – v18.5.27 Forecast Chart Separation
+# Project handoff – v18.5.28 Event Risk Alerts + Confidence Adjustment
+
+## Status
+This package continues from v18.5.27 and completes point 5: **Varsler / hendelsesrisiko**.
 
 ## What changed
-
-- Added a final Analyseunivers empty-panel cleanup:
-  - Replaced the roadmap/detailstatus Streamlit expander with a normal toggle to avoid the large white null-data panel seen in Render.
-  - Added stronger dark CSS guards for `stDataFrame`, `stTable`, and expander/container regions.
-  - Kept Smart Universe result/status rendering as compact dark inline rows.
-- Added a more visible Smart AI run progress panel:
-  - Persistent progress state key: `ai_universe_visible_progress_v18526`.
-  - Shows a large dark progress panel with animated spinner, progress bar, and 1/4–4/4 step text.
-  - Keeps a finished compact status visible after rerun.
-- Strengthened visible progress for Testing & Learning:
-  - Strategy-test progress panel is larger and slower enough to paint visibly.
-  - Strategy-test Pro progress panel is larger and slower enough to paint visibly.
-- Kept previous v18.5.25 hotfixes:
-  - No mutation of `st.session_state.ai_universe_manual_list_draft_v18517` after widget instantiation.
-  - Forecast chart split: actual history stops at today; future forecast is separate; no actual future values.
-- Updated the app version source to `v18.5.27` in `app_version.py`.
-- Runtime data has been removed from the package; only `.gitkeep` remains in `data/`, `data/forecasts/`, and `data/services/`.
+- Updated single source of truth in `app_version.py` to `v18.5.28`.
+- Strengthened `event_risk_engine.py`:
+  - earnings risk via `earnings.get_earnings` / `FINNHUB_API_KEY`
+  - macro events via `MACRO_EVENT_CALENDAR_JSON`
+  - realized volatility and large recent move detection
+  - news-risk keyword detection via `news.get_news` / `NEWSAPI_KEY`
+  - compact event-risk summary helper
+  - explicit confidence-breakdown helper
+- Updated `forecast_engine.py`:
+  - forecast summaries now include base confidence, event adjustment, learning adjustment, total adjustment, event-risk flag and event-risk summary
+  - avoids hidden double-penalty when event-risk engine already supplies a confidence adjustment
+- Updated `forecast_store.py`:
+  - forecast payloads persist event-risk details/diagnostics
+  - event-risk alerts are replayed into intelligent/common alert stream
+- Updated `forecast_ui.py`:
+  - “Hendelsesrisiko nær?” is now backed by concrete detection when data is available
+  - shows event-risk alerts and confidence breakdown
+  - passes event adjustment and learning adjustment separately
+  - persists event-risk alerts via the existing alert log / StorageService path
 
 ## Verification
-
 ```bash
 python -m compileall .
 pytest -q
-# 26 passed
+# 32 passed
 ```
 
-## Deploy note
-
-After uploading to GitHub main, run Render:
-
+## Expected UI marker
 ```text
-Manual Deploy → Clear build cache & deploy
+Professional Trading Workspace v18.5.28
 ```
 
-Header should show:
-
-```text
-Professional Trading Workspace v18.5.27
-```
+## Notes
+- Runtime data is excluded from the package. `data/`, `data/forecasts/`, and `data/services/` contain only `.gitkeep`.
+- Alerts/storage still use `StorageService`/Postgres first with local fallback.
+- Next planned work after Render smoke-test: point 6 persistent storage hardening, then point 7 legacy cleanup.

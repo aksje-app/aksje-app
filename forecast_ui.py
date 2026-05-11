@@ -16,12 +16,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+import html
 import streamlit as st
 
 from forecast_engine import SUPPORTED_HORIZONS, build_forecast, build_all_horizons
 from forecast_store import build_and_store_all_horizons, compute_alerts, compute_intelligent_alerts, evaluate_and_learn, get_forecast_vs_actual_series, learning_confidence_adjustment, load_alerts, load_forecast_log, load_latest_forecast, load_learning_stats, save_alerts, summarize_alerts
 from forecast_portfolio import build_portfolio_forecast, normalize_holdings
-from event_risk_engine import detect_event_risk
+from event_risk_engine import detect_event_risk, summarize_event_risk, event_risk_confidence_breakdown
 
 
 def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[float], Optional[str]]:
@@ -340,6 +341,12 @@ def _render_forecast_result_cards(summary) -> None:
     c6.metric("Risiko", summary.risk)
     c7.metric("Strength", f"{summary.forecast_strength}/100", summary.forecast_strength_label)
 
+    event_adj = int(getattr(summary, "confidence_adjustment_event", 0) or 0)
+    learn_adj = int(getattr(summary, "confidence_adjustment_learning", 0) or 0)
+    base_conf = int(getattr(summary, "confidence_base", summary.confidence) or summary.confidence)
+    event_summary = html.escape(str(getattr(summary, "event_risk_summary", "") or "Ingen konkret hendelsesrisiko funnet."))
+    event_badge = "⚠️ Hendelsesrisiko nær" if bool(getattr(summary, "event_risk", False)) else "✅ Ingen konkret hendelsesrisiko"
+
     st.markdown(
         f"""
         <div style="border:1px solid rgba(148,163,184,.25);border-radius:12px;padding:.65rem .9rem;margin:.35rem 0 .65rem 0;">
@@ -347,7 +354,9 @@ def _render_forecast_result_cards(summary) -> None:
           <span style="color:{_strength_color(summary.forecast_strength)};font-weight:900;">
             {summary.forecast_strength}/100 · {summary.forecast_strength_label}
           </span><br>
-          <span style="opacity:.82;">Kombinerer base-scenario, bull/bear-forhold, confidence, risiko, volatilitet, regime, AI-score og sentiment.</span>
+          <span style="opacity:.82;">Kombinerer base-scenario, bull/bear-forhold, confidence, risiko, volatilitet, regime, AI-score og sentiment.</span><br>
+          <span style="opacity:.92;"><b>{event_badge}</b> · Base confidence {base_conf}% · Hendelse {event_adj:+d} · Læring {learn_adj:+d} · Justert {summary.confidence}%</span><br>
+          <span style="opacity:.78;">{event_summary}</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -781,7 +790,22 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             return
 
         event_info = detect_event_risk(ticker, prices, horizon=horizon, include_news=True)
-        effective_event_risk = bool(event_risk or event_info.get("is_event_risk"))
+        if event_risk and not event_info.get("is_event_risk"):
+            event_info = dict(event_info)
+            event_info["is_event_risk"] = True
+            event_info["confidence_adjustment"] = int(event_info.get("confidence_adjustment") or -10)
+            event_info.setdefault("alerts", [])
+            event_info["alerts"] = list(event_info.get("alerts", []) or []) + [{
+                "ticker": ticker.upper(),
+                "horizon": horizon,
+                "level": "yellow",
+                "category": "manual_event_risk",
+                "source": "Hendelsesrisiko",
+                "message": "Manuell hendelsesrisiko er slått på for denne prognosen.",
+            }]
+
+        effective_event_risk = bool(event_info.get("is_event_risk"))
+        event_summary = summarize_event_risk(event_info)
 
         learning_adj = learning_confidence_adjustment(
             ticker=ticker,
@@ -790,22 +814,27 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
         )
         learned_adjustment = int(learning_adj.get("adjustment", 0))
         event_adjustment = int(event_info.get("confidence_adjustment", 0) or 0)
-        combined_confidence_adjustment = max(-25, min(20, learned_adjustment + event_adjustment))
+        confidence_breakdown = event_risk_confidence_breakdown(
+            base_confidence=50,
+            event_info=event_info,
+            learning_adjustment=learned_adjustment,
+        )
 
         cache_key = _forecast_cache_key(ticker, horizon, period, float(ai_score), float(sentiment), market_regime, effective_event_risk)
         cached = _get_cached_forecast(cache_key)
 
         with st.expander("⚠️ Hendelsesrisiko / confidence-justering", expanded=effective_event_risk):
             if event_info.get("alerts"):
+                st.warning(event_summary)
                 for alert in event_info.get("alerts", [])[:8]:
                     st.write(f"{str(alert.get('level', '')).upper()} · {alert.get('category', 'event')}: {alert.get('message')}")
-            elif event_risk:
-                st.warning("Manuell hendelsesrisiko er slått på.")
             else:
                 st.success("Ingen konkrete hendelsesrisiko-signaler funnet med tilgjengelige datakilder.")
             st.caption(
-                f"Læring: {learned_adjustment:+d} poeng · Hendelser: {event_adjustment:+d} poeng · "
-                f"Kombinert confidence-justering: {combined_confidence_adjustment:+d} poeng."
+                f"Base confidence: {confidence_breakdown.get('base_confidence')}% · "
+                f"Hendelser: {event_adjustment:+d} poeng · "
+                f"Læring: {learned_adjustment:+d} poeng · "
+                f"Justert ca.: {confidence_breakdown.get('adjusted_confidence')}%."
             )
             diagnostics = event_info.get("diagnostics", {}) or {}
             unavailable = []
@@ -828,7 +857,9 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 sentiment_score=float(sentiment),
                 market_regime=market_regime,
                 event_risk=effective_event_risk,
-                learned_confidence_adjustment=combined_confidence_adjustment,
+                learned_confidence_adjustment=learned_adjustment,
+                event_confidence_adjustment=event_adjustment,
+                event_risk_summary=event_summary,
             )
             if not cached:
                 _set_cached_forecast(cache_key, result.to_dict())
@@ -845,11 +876,18 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 sentiment_score=float(sentiment),
                 market_regime=market_regime,
                 event_risk=effective_event_risk,
-                learned_confidence_adjustment=combined_confidence_adjustment,
+                learned_confidence_adjustment=learned_adjustment,
+                event_confidence_adjustment=event_adjustment,
+                event_risk_summary=event_summary,
+                event_risk_details=event_info,
             )
             basic_alerts = compute_alerts(stored_payload, previous_payload)
             intelligent_alerts = compute_intelligent_alerts(stored_payload, previous_payload)
-            event_alerts = list(event_info.get("alerts", []) or [])
+            event_alerts = []
+            for _alert in list(event_info.get("alerts", []) or []):
+                _row = dict(_alert)
+                _row.setdefault("source", "Hendelsesrisiko")
+                event_alerts.append(_row)
             alerts = event_alerts + (intelligent_alerts or basic_alerts)
             save_alerts(alerts)
             if alerts:
@@ -916,7 +954,9 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 ai_score=float(ai_score),
                 sentiment_score=float(sentiment),
                 market_regime=market_regime,
-                event_risk=event_risk,
+                event_risk=effective_event_risk,
+                event_confidence_adjustment=event_adjustment,
+                event_risk_summary=event_summary,
             )
 
             horizon_rows = []

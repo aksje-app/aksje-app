@@ -61,6 +61,13 @@ class ForecastSummary:
     explanation: str
     forecast_strength: int
     forecast_strength_label: str
+    # v18.5.28: explicit confidence breakdown for event-risk and learning.
+    confidence_base: int = 0
+    confidence_adjustment_event: int = 0
+    confidence_adjustment_learning: int = 0
+    confidence_adjustment_total: int = 0
+    event_risk: bool = False
+    event_risk_summary: str = "Ingen konkret hendelsesrisiko funnet."
 
 
 @dataclass(frozen=True)
@@ -248,6 +255,8 @@ def build_forecast(
     market_regime: str = "neutral",
     event_risk: bool = False,
     learned_confidence_adjustment: int = 0,
+    event_confidence_adjustment: int = 0,
+    event_risk_summary: str = "",
     start_date: Optional[datetime] = None,
 ) -> ForecastResult:
     """Lag bull/base/bear-scenario for én aksje.
@@ -304,24 +313,38 @@ def build_forecast(
     if vol_annual > 0.65:
         warnings.append("Høy volatilitet: scenarioene har stor usikkerhet.")
 
-    confidence = _confidence_score(
+    confidence_base = _confidence_score(
         sample_size=len(clean),
         vol_annual=vol_annual,
         trend_strength=adjusted_drift,
         ai_score=ai_score,
         sentiment_score=sentiment_score,
     )
-    if event_risk:
-        confidence = max(15, confidence - 10)
-        warnings.append("Hendelsesrisiko: earnings/makro/nyheter kan gjøre scenarioet mindre treffsikkert.")
+    confidence = confidence_base
 
+    event_adj = 0
+    if event_risk:
+        try:
+            event_adj = int(event_confidence_adjustment or 0)
+        except Exception:
+            event_adj = 0
+        # Manual checkbox fallback: if no concrete engine adjustment was supplied,
+        # keep the old conservative -10 behaviour. Engine-detected event risk passes
+        # its own adjustment so we do not double-penalize.
+        if event_adj == 0:
+            event_adj = -10
+        confidence = int(_clamp(confidence + event_adj, 5, 95))
+        summary_text = event_risk_summary or "Hendelsesrisiko: earnings/makro/nyheter/volatilitet kan gjøre scenarioet mindre treffsikkert."
+        warnings.append(summary_text)
+
+    learned_adj = 0
     if learned_confidence_adjustment:
         try:
-            adj = int(learned_confidence_adjustment)
-            confidence = int(_clamp(confidence + adj, 5, 95))
-            warnings.append(f"Lærende confidence-justering brukt: {adj:+d} poeng.")
+            learned_adj = int(learned_confidence_adjustment)
+            confidence = int(_clamp(confidence + learned_adj, 5, 95))
+            warnings.append(f"Lærende confidence-justering brukt: {learned_adj:+d} poeng.")
         except Exception:
-            pass
+            learned_adj = 0
 
     risk = _risk_from_vol(vol_annual)
 
@@ -391,6 +414,12 @@ def build_forecast(
         explanation=_explanation(adjusted_drift, vol_annual, confidence, risk, ai_score, sentiment_score),
         forecast_strength=strength_score,
         forecast_strength_label=strength_label,
+        confidence_base=confidence_base,
+        confidence_adjustment_event=event_adj,
+        confidence_adjustment_learning=learned_adj,
+        confidence_adjustment_total=int(confidence - confidence_base),
+        event_risk=bool(event_risk),
+        event_risk_summary=event_risk_summary or ("Hendelsesrisiko nær" if event_risk else "Ingen konkret hendelsesrisiko funnet."),
     )
 
     return ForecastResult(
@@ -411,6 +440,8 @@ def build_all_horizons(
     market_regime: str = "neutral",
     event_risk: bool = False,
     learned_confidence_adjustment: int = 0,
+    event_confidence_adjustment: int = 0,
+    event_risk_summary: str = "",
 ) -> Dict[str, Dict[str, Any]]:
     """Lag prognose for alle støttede horisonter."""
     return {
@@ -423,6 +454,8 @@ def build_all_horizons(
             market_regime=market_regime,
             event_risk=event_risk,
             learned_confidence_adjustment=learned_confidence_adjustment,
+            event_confidence_adjustment=event_confidence_adjustment,
+            event_risk_summary=event_risk_summary,
         ).to_dict()
         for horizon in SUPPORTED_HORIZONS
     }

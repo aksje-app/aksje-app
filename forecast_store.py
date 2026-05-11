@@ -133,6 +133,9 @@ def build_and_store_all_horizons(
     market_regime: str = "neutral",
     event_risk: bool = False,
     learned_confidence_adjustment: int = 0,
+    event_confidence_adjustment: int = 0,
+    event_risk_summary: str = "",
+    event_risk_details: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build all horizon forecasts and persist them."""
     result = build_all_horizons(
@@ -143,6 +146,8 @@ def build_and_store_all_horizons(
         market_regime=market_regime,
         event_risk=event_risk,
         learned_confidence_adjustment=learned_confidence_adjustment,
+        event_confidence_adjustment=event_confidence_adjustment,
+        event_risk_summary=event_risk_summary,
     )
     payload = {
         "ticker": ticker.upper(),
@@ -151,7 +156,11 @@ def build_and_store_all_horizons(
         "sentiment_score": sentiment_score,
         "market_regime": market_regime,
         "event_risk": bool(event_risk),
+        "event_risk_summary": event_risk_summary or ("Hendelsesrisiko nær" if event_risk else "Ingen konkret hendelsesrisiko funnet."),
+        "event_confidence_adjustment": int(event_confidence_adjustment or 0),
         "learned_confidence_adjustment": int(learned_confidence_adjustment or 0),
+        "confidence_adjustment_total": int((event_confidence_adjustment or 0) + (learned_confidence_adjustment or 0)),
+        "event_risk_details": event_risk_details or {},
         "horizons": result,
     }
     save_forecast_result(ticker, payload)
@@ -553,6 +562,21 @@ def compute_intelligent_alerts(
     ticker = latest_payload.get("ticker", "UNKNOWN")
     horizons = latest_payload.get("horizons", {})
     prev_horizons = (previous_payload or {}).get("horizons", {}) if previous_payload else {}
+
+    # v18.5.28: carry concrete event-risk alerts into the common alert stream
+    # even when this function is called outside forecast_ui.
+    event_details = latest_payload.get("event_risk_details") or {}
+    if isinstance(event_details, dict):
+        for raw_alert in list(event_details.get("alerts", []) or []):
+            if not isinstance(raw_alert, dict):
+                continue
+            row = dict(raw_alert)
+            row.setdefault("ticker", ticker)
+            row.setdefault("horizon", "")
+            row.setdefault("level", "yellow")
+            row.setdefault("category", "event_risk")
+            row.setdefault("source", "Hendelsesrisiko")
+            alerts.append(row)
 
     for horizon, item in horizons.items():
         summary = item.get("summary", {})

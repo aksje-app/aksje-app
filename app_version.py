@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.27"
-APP_VERSION_NAME = "Forecast Chart Separation"
+APP_VERSION = "v18.5.28"
+APP_VERSION_NAME = "Event Risk Alerts + Confidence Adjustment"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 
