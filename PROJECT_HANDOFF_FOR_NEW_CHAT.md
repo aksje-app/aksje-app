@@ -1,4 +1,4 @@
-# Project handoff – v18.5.31 Header Navigation + Global Busy Indicator
+# Project handoff – v18.5.33 Sidebar Cleanup + Header Busy Hardfix
 
 ## Completed
 - Active main-panel selector moved to the header area above the ticker/banner strip.
@@ -9,7 +9,7 @@
 - Legacy cleanup from v18.5.30 remains intact.
 
 ## Smoke test
-Header should show `Professional Trading Workspace v18.5.31`.
+Header should show `Professional Trading Workspace v18.5.33`.
 
 ## Deploy
 Upload to GitHub main, then Render → Manual Deploy → Clear build cache & deploy.

@@ -359,40 +359,56 @@ def require_login():
 
 
 def render_user_admin(current_user):
+    """Compact sidebar user/session administration.
+
+    v18.5.33 keeps the sidebar short: only the logged-in user, logout and a
+    closed admin expander are visible by default.  It intentionally avoids
+    st.dataframe in the sidebar, because Streamlit's dataframe container can
+    create large empty/white boxes in narrow sidebars.
+    """
     st.sidebar.markdown("---")
-    st.sidebar.subheader("👤 Bruker")
-    username = current_user.get('username')
-    role = current_user.get('role')
+    username = str(current_user.get("username", "-"))
+    role = str(current_user.get("role", "user"))
+    remember_on = bool(st.session_state.get("auth_remember_me"))
+    remember_cls = "on" if remember_on else "off"
+    remember_txt = "På" if remember_on else "Av"
     st.sidebar.markdown(
-        f"<div class='auth-compact-line'>Innlogget: <b>{username}</b> ({role})</div>",
+        f"""
+        <div class="auth-sidebar-card">
+            <div class="auth-sidebar-title">👤 Bruker</div>
+            <div class="auth-sidebar-user"><b>{username}</b> <span>{role}</span></div>
+            <div class="auth-remember-chip {remember_cls}">● Husk meg: <b>{remember_txt}</b></div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
-    # v18.5.32: detaljert sesjonsboks er fjernet fra sidebar.
-    # Én ryddig Bruker/sesjon-status vises nå i toppstatuslinjen, med grønn/rød Husk meg-chip.
 
-    if st.sidebar.button("Logg ut", key="auth_logout_btn"):
+    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=True):
         _logout()
 
     if current_user.get("role") != "admin":
         return
 
-    with st.sidebar.expander("🔐 Brukere", expanded=False):
+    with st.sidebar.expander("🔐 Administrer brukere", expanded=False):
         users = list_users()
-
         if users:
-            df = pd.DataFrame(users)
-            st.dataframe(
-                df[["username", "role", "active"]],
-                hide_index=True,
-                use_container_width=True,
-            )
+            rows = []
+            for u in users:
+                active_cls = "on" if bool(u.get("active", True)) else "off"
+                rows.append(
+                    f"<div class='auth-user-row'>"
+                    f"<span><b>{u.get('username','-')}</b> · {u.get('role','user')}</span>"
+                    f"<span class='auth-dot {active_cls}'></span>"
+                    f"</div>"
+                )
+            st.markdown("<div class='auth-user-list'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
 
-        st.markdown("**Legg til bruker**")
+        st.markdown("<div class='auth-mini-heading'>Legg til</div>", unsafe_allow_html=True)
         with st.form("add_user_form"):
-            new_username = st.text_input("Nytt brukernavn")
-            new_password = st.text_input("Passord", type="password")
+            new_username = st.text_input("Brukernavn", label_visibility="visible")
+            new_password = st.text_input("Passord", type="password", label_visibility="visible")
             new_role = st.selectbox("Rolle", ["user", "admin"], index=0)
-            add_submitted = st.form_submit_button("Legg til")
+            add_submitted = st.form_submit_button("Legg til", use_container_width=True)
 
         if add_submitted:
             ok, msg = create_user(new_username, new_password, role=new_role, active=True)
@@ -402,30 +418,26 @@ def render_user_admin(current_user):
             else:
                 st.error(msg)
 
-        st.markdown("**Endre / fjern bruker**")
+        st.markdown("<div class='auth-mini-heading'>Endre</div>", unsafe_allow_html=True)
         usernames = [u["username"] for u in users]
         if usernames:
-            selected = st.selectbox("Velg bruker", usernames, key="manage_user_select")
-            selected_data = next((u for u in users if u["username"] == selected), None)
+            selected = st.selectbox("Velg", usernames, key="manage_user_select")
+            selected_data = next((u for u in users if u["username"] == selected), {})
 
-            col_a, col_b = st.columns(2)
-            with col_a:
-                new_active = st.checkbox(
-                    "Aktiv",
-                    value=bool(selected_data.get("active", True)),
-                    key=f"user_active_{selected}",
-                )
-            with col_b:
-                new_role = st.selectbox(
-                    "Rolle",
-                    ["user", "admin"],
-                    index=1 if selected_data.get("role") == "admin" else 0,
-                    key=f"user_role_{selected}",
-                )
+            new_active = st.checkbox(
+                "Aktiv",
+                value=bool(selected_data.get("active", True)),
+                key=f"user_active_{selected}",
+            )
+            new_role = st.selectbox(
+                "Rolle",
+                ["user", "admin"],
+                index=1 if selected_data.get("role") == "admin" else 0,
+                key=f"user_role_{selected}",
+            )
+            new_pw = st.text_input("Nytt passord", type="password", key=f"user_pw_{selected}")
 
-            new_pw = st.text_input("Nytt passord (valgfritt)", type="password", key=f"user_pw_{selected}")
-
-            if st.button("Lagre bruker", key=f"save_user_{selected}"):
+            if st.button("Lagre", key=f"save_user_{selected}", use_container_width=True):
                 ok, msg = update_user(selected, role=new_role, active=new_active, password=new_pw or None)
                 if ok:
                     st.success(msg)
@@ -434,7 +446,7 @@ def render_user_admin(current_user):
                     st.error(msg)
 
             if selected != current_user.get("username"):
-                if st.button("Slett bruker", key=f"delete_user_{selected}"):
+                if st.button("Slett", key=f"delete_user_{selected}", use_container_width=True):
                     ok, msg = delete_user(selected)
                     if ok:
                         st.success(msg)
@@ -442,4 +454,4 @@ def render_user_admin(current_user):
                     else:
                         st.error(msg)
             else:
-                st.caption("Du kan ikke slette brukeren du er innlogget med.")
+                st.caption("Kan ikke slette innlogget bruker.")

@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.5.32 Professional Trading Workspace.
+v18.5.33 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -80,11 +80,13 @@ def inject_workspace_css() -> None:
 
         .ptw-topbar-right {
             white-space: nowrap;
-            opacity: .95;
-            font-size: .78rem;
+            opacity: .98;
+            font-size: .76rem;
             display:flex;
             align-items:center;
-            gap:.42rem;
+            justify-content:flex-end;
+            gap:.55rem;
+            min-width: fit-content;
         }
 
         .ptw-pill-busy {
@@ -171,18 +173,18 @@ def inject_workspace_css() -> None:
         }
 
 
-        /* v18.5.32: consolidated top status/navigation. */
+        /* v18.5.33: explicit busy slot in the top-right header, no overlap. */
         .ptw-global-busy-fixed {
-            position: fixed;
-            top: .42rem;
-            right: .80rem;
+            position: static;
+            display: inline-flex;
+            align-items:center;
             z-index: 2500;
             pointer-events: none;
         }
         .ptw-global-busy-fixed .ptw-pill {
-            font-size: .86rem;
-            padding: .38rem .75rem;
-            box-shadow: 0 0 18px rgba(14, 165, 233, .22), 0 8px 22px rgba(0,0,0,.28);
+            font-size: .82rem;
+            padding: .34rem .66rem;
+            box-shadow: 0 0 18px rgba(14, 165, 233, .18), 0 8px 18px rgba(0,0,0,.22);
         }
         .ptw-market-chip {
             font-weight: 850;
@@ -241,10 +243,73 @@ def inject_workspace_css() -> None:
             min-width: 0 !important;
             margin: .28rem 0 .20rem 0 !important;
         }
+        .v18532-top-controls + .v153-control-note,
+        .v153-control-note.warning {
+            font-size: .72rem !important;
+            line-height: 1.18 !important;
+            padding: .30rem .55rem !important;
+            margin: .16rem 0 .16rem 0 !important;
+            max-width: 68rem !important;
+        }
+        .v153-control-note.warning b { font-weight: 950 !important; }
+        section[data-testid="stSidebar"] {
+            font-size: .82rem !important;
+        }
+        section[data-testid="stSidebar"] .block-container {
+            padding-top: .65rem !important;
+            padding-left: .75rem !important;
+            padding-right: .75rem !important;
+        }
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3 {
+            font-size: .92rem !important;
+            line-height: 1.1 !important;
+            margin: .28rem 0 .32rem 0 !important;
+        }
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] .stMarkdown {
+            font-size: .76rem !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stExpander"] details {
+            border-radius: 12px !important;
+            background: rgba(8,16,34,.70) !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+        section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+        section[data-testid="stSidebar"] [data-baseweb="select"] > div {
+            min-height: 32px !important;
+            font-size: .76rem !important;
+        }
+        .auth-sidebar-card {
+            border: 1px solid rgba(95,122,170,.34);
+            background: rgba(8,16,34,.70);
+            border-radius: 12px;
+            padding: .48rem .55rem;
+            margin: .20rem 0 .42rem 0;
+        }
+        .auth-sidebar-title { font-size:.80rem; font-weight:950; color:#f8fafc; margin-bottom:.25rem; }
+        .auth-sidebar-user { display:flex; justify-content:space-between; gap:.35rem; font-size:.78rem; color:#e2e8f0; }
+        .auth-sidebar-user span { color:#94a3b8; font-size:.70rem; font-weight:850; }
+        .auth-remember-chip {
+            display:inline-flex; align-items:center; gap:.25rem;
+            border-radius:999px; padding:.18rem .42rem; margin-top:.35rem;
+            font-size:.72rem; font-weight:900;
+            border:1px solid rgba(148,163,184,.28);
+        }
+        .auth-remember-chip.on { color:#bbf7d0; background:rgba(22,101,52,.22); border-color:rgba(34,197,94,.45); }
+        .auth-remember-chip.off { color:#fecaca; background:rgba(127,29,29,.22); border-color:rgba(239,68,68,.45); }
+        .auth-mini-heading { font-size:.74rem; color:#cbd5e1; font-weight:950; margin:.55rem 0 .18rem 0; }
+        .auth-user-list { display:flex; flex-direction:column; gap:.20rem; margin:.18rem 0 .35rem 0; }
+        .auth-user-row { display:flex; justify-content:space-between; align-items:center; gap:.35rem; padding:.24rem .38rem; border:1px solid rgba(148,163,184,.18); border-radius:9px; background:rgba(15,23,42,.66); font-size:.70rem; }
+        .auth-dot { width:.52rem; height:.52rem; border-radius:999px; display:inline-block; background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.35); }
+        .auth-dot.on { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.35); }
+
         @media (max-width: 900px) {
-            .ptw-global-busy-fixed { top: .25rem; right: .35rem; }
-            .ptw-global-busy-fixed .ptw-pill { font-size: .74rem; padding: .32rem .52rem; }
-            .ptw-sticky-topbar { padding-right: 5.5rem !important; }
+            .ptw-sticky-topbar { align-items:flex-start; flex-direction:column; }
+            .ptw-topbar-right { width:100%; justify-content:space-between; }
+            .ptw-global-busy-fixed .ptw-pill { font-size: .74rem; padding: .30rem .50rem; }
         }
 
         .ptw-subtle {
