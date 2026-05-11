@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.5.33 Professional Trading Workspace.
+v18.5.34 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -173,7 +173,7 @@ def inject_workspace_css() -> None:
         }
 
 
-        /* v18.5.33: explicit busy slot in the top-right header, no overlap. */
+        /* v18.5.34: explicit busy slot in the top-right header, no overlap. */
         .ptw-global-busy-fixed {
             position: static;
             display: inline-flex;
@@ -305,6 +305,115 @@ def inject_workspace_css() -> None:
         .auth-user-row { display:flex; justify-content:space-between; align-items:center; gap:.35rem; padding:.24rem .38rem; border:1px solid rgba(148,163,184,.18); border-radius:9px; background:rgba(15,23,42,.66); font-size:.70rem; }
         .auth-dot { width:.52rem; height:.52rem; border-radius:999px; display:inline-block; background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.35); }
         .auth-dot.on { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.35); }
+
+
+
+        /* v18.5.34: hard header layout and real busy spinner visibility. */
+        .ptw-sticky-topbar {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            align-items: center !important;
+            column-gap: .85rem !important;
+            overflow: visible !important;
+        }
+        .ptw-topbar-left {
+            min-width: 0 !important;
+            overflow: hidden !important;
+            padding-right: .25rem !important;
+        }
+        .ptw-topbar-right {
+            flex: 0 0 auto !important;
+            min-width: 310px !important;
+            max-width: 45vw !important;
+            justify-content: flex-end !important;
+            gap: .45rem !important;
+            overflow: visible !important;
+        }
+        .ptw-version-chip {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            color: rgba(229,237,255,.70);
+            font-size: .74rem;
+            font-weight: 850;
+            white-space: nowrap;
+        }
+        .ptw-global-busy-fixed {
+            position: relative !important;
+            flex: 0 0 auto !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: flex-end !important;
+            z-index: 3200 !important;
+            pointer-events: none !important;
+        }
+        .ptw-global-busy-fixed .ptw-pill {
+            min-width: 76px !important;
+            justify-content: center !important;
+            font-size: .80rem !important;
+            padding: .34rem .64rem !important;
+            line-height: 1 !important;
+        }
+        .ptw-busy-running {
+            min-width: 142px !important;
+            animation: ptw-busy-glow 1.25s ease-in-out infinite alternate;
+        }
+        .ptw-busy-spinner {
+            width: .86rem !important;
+            height: .86rem !important;
+            border: 2px solid rgba(226,232,240,.35) !important;
+            border-top-color: #67e8f9 !important;
+            border-right-color: #22d3ee !important;
+            border-radius: 999px !important;
+            display:inline-block !important;
+            flex: 0 0 auto !important;
+            animation: ptw-spin .65s linear infinite !important;
+        }
+        @keyframes ptw-busy-glow {
+            from { box-shadow: 0 0 8px rgba(56,189,248,.20), 0 8px 18px rgba(0,0,0,.22); }
+            to { box-shadow: 0 0 20px rgba(56,189,248,.42), 0 8px 18px rgba(0,0,0,.22); }
+        }
+        .v18534-trading-control-stack {
+            border: 1px solid rgba(95, 122, 170, .28);
+            background: rgba(10, 20, 38, .68);
+            border-radius: 14px;
+            padding: .36rem .52rem .42rem .52rem;
+            margin: .06rem 0 .24rem 0;
+        }
+        .v18534-trading-help {
+            font-size: .70rem !important;
+            line-height: 1.15 !important;
+            color: rgba(226,232,240,.76) !important;
+            font-weight: 750 !important;
+            margin: 0 0 .18rem 0 !important;
+        }
+        .v18534-trading-warning {
+            display:block !important;
+            width: min(100%, 78rem) !important;
+            max-width: 78rem !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+            font-size: .68rem !important;
+            line-height: 1.18 !important;
+            font-weight: 850 !important;
+            padding: .26rem .48rem !important;
+            margin: .16rem 0 .48rem 0 !important;
+            border-radius: 9px !important;
+            background: rgba(255, 193, 7, 0.13) !important;
+            border: 1px solid rgba(255, 193, 7, 0.38) !important;
+            color: #ffe08a !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+        }
+        .v18534-control-button-gap {
+            height: .16rem !important;
+        }
+        @media (max-width: 1100px) {
+            .ptw-sticky-topbar { grid-template-columns: 1fr !important; row-gap: .35rem !important; }
+            .ptw-topbar-right { width:100% !important; max-width:100% !important; min-width:0 !important; justify-content:space-between !important; }
+            .ptw-version-chip { font-size:.70rem !important; }
+        }
 
         @media (max-width: 900px) {
             .ptw-sticky-topbar { align-items:flex-start; flex-direction:column; }

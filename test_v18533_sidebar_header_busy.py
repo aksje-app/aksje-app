@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_v18533_version_label():
-    assert 'APP_VERSION = "v18.5.33"' in Path('app_version.py').read_text()
+    assert 'APP_VERSION = "v18.5.34"' in Path('app_version.py').read_text()
 
 
 def test_sidebar_admin_is_compact_without_dataframe():
@@ -25,5 +25,5 @@ def test_busy_chip_is_inline_no_top_right_overlap():
 
 def test_control_warning_is_compact():
     app = Path('app.py').read_text()
-    assert 'font-size: 0.74rem' in app
+    assert 'v18534-trading-warning' in app
     assert 'Trading-kontroll:' in app

@@ -1,7 +1,7 @@
 """
 sticky_topbar.py
 
-v18.5.33 Professional Trading Workspace
+v18.5.34 Professional Trading Workspace
 Sticky topbar / AI status bar with consolidated market status.
 
 Ingen auto-trading-kobling.
@@ -112,8 +112,8 @@ def render_sticky_topbar() -> None:
             {_market_status_chips_html()}
           </div>
           <div class="ptw-topbar-right">
-            <span class="ptw-subtle">Professional Trading Workspace {get_app_version()}</span>
-            <div class="ptw-global-busy-fixed">{global_busy_chip_html()}</div>
+            <span class="ptw-version-chip">Professional Trading Workspace {get_app_version()}</span>
+            <div class="ptw-global-busy-fixed" aria-live="polite">{global_busy_chip_html()}</div>
           </div>
         </div>
         """,

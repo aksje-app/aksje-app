@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.33"
-APP_VERSION_NAME = "Sidebar Cleanup + Header Busy Hardfix"
+APP_VERSION = "v18.5.34"
+APP_VERSION_NAME = "Header Layout + Real Busy Spinner Fix"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 

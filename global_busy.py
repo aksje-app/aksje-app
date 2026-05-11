@@ -1,6 +1,6 @@
 """Global busy/run indicator helpers.
 
-v18.5.33 keeps one fixed top-right app status chip.  Streamlit reruns the app
+v18.5.34 keeps one fixed top-right app status chip.  Streamlit reruns the app
 on many widget changes; these helpers keep a small, consistent status that can
 be shown in the sticky topbar and updated by modules that start real work.
 """
@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 import streamlit as st
 
-BUSY_STATE_KEY = "global_busy_state_v18533"
+BUSY_STATE_KEY = "global_busy_state_v18534"
 DEFAULT_IDLE_LABEL = "Klar"
 
 
@@ -108,9 +108,9 @@ def global_busy_chip_html() -> str:
     safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
     if running:
         return (
-            f'<span class="ptw-pill ptw-pill-busy" title="{safe_title}">'
+            f'<span class="ptw-pill ptw-pill-busy ptw-busy-running" title="{safe_title}">'
             f'<span class="ptw-busy-spinner" aria-hidden="true"></span>'
-            f'<span><b>Jobber</b>{step_txt}<span class="ptw-busy-sep"> · </span>{label}</span>'
+            f'<span class="ptw-busy-copy"><b>Jobber...</b>{step_txt}<span class="ptw-busy-sep"> · </span>{label}</span>'
             f'</span>'
         )
     return f'<span class="ptw-pill ptw-pill-ready" title="{safe_title}">✅ <b>{label}</b></span>'

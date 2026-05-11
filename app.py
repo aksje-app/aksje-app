@@ -5720,7 +5720,7 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
-# v18.5.33: samlet toppstatus og tradingkontroller rett under global topbar.
+# v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
     <div class='v18532-header-status'>
@@ -5741,28 +5741,29 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.8 / v18.5.33: kompakt Auto trading-kontrollgruppe flyttet opp.
+# V15.8 / v18.5.34: kompakt Auto trading-kontrollgruppe flyttet opp.
 # Start opphever aldri Full stopp eller Nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
 st.markdown(
-    "<div class='v18532-top-controls'>"
-    "<div class='v18532-trading-control-note'><b>Trading-kontroll:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
+    "<div class='v18534-trading-control-stack'>"
+    "<div class='v18534-trading-help'><b>Trading-kontroll:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
     "Sikkerhetslåser oppheves med egne knapper.</div>"
     "</div>",
     unsafe_allow_html=True,
 )
 if bool(_top_full_stop):
     st.markdown(
-        "<div class='v153-control-note warning'>⛔ Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
+        "<div class='v18534-trading-warning'>⛔ Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
         "Bruk <b>Gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
         unsafe_allow_html=True,
     )
 elif _top_emergency_stop:
     st.markdown(
-        "<div class='v153-control-note warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
+        "<div class='v18534-trading-warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
         unsafe_allow_html=True,
     )
+st.markdown("<div class='v18534-control-button-gap'></div>", unsafe_allow_html=True)
 _tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.95, 1.05, 1.05, 1.25, 1.55, 2.10, 3.70], gap="small")
 with _tq1:
     if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
@@ -5795,7 +5796,7 @@ if st.session_state.get("auto_control_notice_v153"):
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
-# v18.5.33: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
+# v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
@@ -5806,7 +5807,7 @@ try:
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 
-# v18.5.33: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
 
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)

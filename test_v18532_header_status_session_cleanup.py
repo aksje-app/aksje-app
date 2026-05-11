@@ -4,7 +4,7 @@ from pathlib import Path
 def test_header_status_consolidation_and_old_boxes_removed():
     source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
     assert "v18532-header-status" in source
-    assert "v18532-top-controls" in source
+    assert "v18534-trading-control-stack" in source
     assert "Trading-kontroll" in source
     assert "active_panel = _render_active_main_panel_selector_v18531()" in source
     header = source.index("v18532-header-status")

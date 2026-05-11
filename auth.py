@@ -361,7 +361,7 @@ def require_login():
 def render_user_admin(current_user):
     """Compact sidebar user/session administration.
 
-    v18.5.33 keeps the sidebar short: only the logged-in user, logout and a
+    v18.5.34 keeps the sidebar short: only the logged-in user, logout and a
     closed admin expander are visible by default.  It intentionally avoids
     st.dataframe in the sidebar, because Streamlit's dataframe container can
     create large empty/white boxes in narrow sidebars.
