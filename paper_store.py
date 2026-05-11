@@ -8,8 +8,28 @@ except Exception:
     psycopg2 = None
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-STORE_FILE = Path("paper_portfolio.json")
+STORE_FILE = Path("paper_portfolio.json")  # legacy fallback only; new runtime storage uses StorageService.
+STORAGE_KEY = "paper_trading/portfolio.json"
 DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": []}
+
+
+def _storage():
+    try:
+        from services.storage_service import get_storage_service
+
+        return get_storage_service()
+    except Exception:
+        return None
+
+
+def _merge_portfolio(data):
+    out = json.loads(json.dumps(DEFAULT_PORTFOLIO))
+    if isinstance(data, dict):
+        out.update(data)
+        out.setdefault("cash", 100000.0)
+        out.setdefault("positions", {})
+        out.setdefault("trades", [])
+    return out
 
 def using_postgres():
     return bool(DATABASE_URL) and psycopg2 is not None
@@ -119,122 +139,160 @@ def init_store():
         return False
 
 def _load_json():
-    if not STORE_FILE.exists():
-        save_portfolio(DEFAULT_PORTFOLIO.copy())
-        return DEFAULT_PORTFOLIO.copy()
-    try:
-        with open(STORE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = DEFAULT_PORTFOLIO.copy()
-    data.setdefault("cash", 100000.0)
-    data.setdefault("positions", {})
-    data.setdefault("trades", [])
-    return data
+    storage = _storage()
+    if storage is not None:
+        data = storage.read_json(STORAGE_KEY, default=None)
+        if isinstance(data, dict):
+            return _merge_portfolio(data)
+
+    # One-time legacy migration from old root file if it exists locally.
+    if STORE_FILE.exists():
+        try:
+            data = json.loads(STORE_FILE.read_text(encoding="utf-8"))
+            merged = _merge_portfolio(data)
+            if storage is not None:
+                storage.write_json(STORAGE_KEY, merged)
+            return merged
+        except Exception:
+            pass
+
+    default = _merge_portfolio({})
+    if storage is not None:
+        storage.write_json(STORAGE_KEY, default)
+    return default
 
 def _save_json(portfolio):
+    storage = _storage()
+    if storage is not None:
+        storage.write_json(STORAGE_KEY, _merge_portfolio(portfolio))
+        return
+    # Last-resort dev fallback only. Render should have StorageService available.
     with open(STORE_FILE, "w", encoding="utf-8") as f:
-        json.dump(portfolio, f, indent=2, ensure_ascii=False)
+        json.dump(_merge_portfolio(portfolio), f, indent=2, ensure_ascii=False)
 
 def load_portfolio():
     if not using_postgres():
         return _load_json()
 
-    init_db()
-    conn = get_conn()
-    cur = conn.cursor()
+    try:
+        init_db()
+        conn = get_conn()
+        cur = conn.cursor()
 
-    cur.execute("SELECT cash FROM paper_state WHERE id=1")
-    row = cur.fetchone()
-    cash = float(row[0]) if row else 100000.0
+        cur.execute("SELECT cash FROM paper_state WHERE id=1")
+        row = cur.fetchone()
+        cash = float(row[0]) if row else 100000.0
 
-    cur.execute("""
-        SELECT ticker, shares, COALESCE(entry_price, avg_price) AS entry_price,
-               last_price, stop_loss, take_profit, trailing_stop,
-               highest_price, confidence, reason, opened_at
-        FROM paper_positions
-        ORDER BY ticker
-    """)
-    positions = {}
-    for r in cur.fetchall():
-        entry = float(r[2] or r[3] or 0)
-        last = float(r[3] or entry)
-        positions[r[0]] = {
-            "ticker": r[0],
-            "shares": float(r[1] or 0),
-            "entry_price": entry,
-            "last_price": last,
-            "stop_loss": float(r[4] or 0),
-            "take_profit": float(r[5] or 0),
-            "trailing_stop": float(r[6] or 0),
-            "highest_price": float(r[7] or last),
-            "confidence": int(r[8] or 0),
-            "reason": r[9] or "",
-            "opened_at": r[10] or "",
-        }
+        cur.execute("""
+            SELECT ticker, shares, COALESCE(entry_price, avg_price) AS entry_price,
+                   last_price, stop_loss, take_profit, trailing_stop,
+                   highest_price, confidence, reason, opened_at
+            FROM paper_positions
+            ORDER BY ticker
+        """)
+        positions = {}
+        for r in cur.fetchall():
+            entry = float(r[2] or r[3] or 0)
+            last = float(r[3] or entry)
+            positions[r[0]] = {
+                "ticker": r[0],
+                "shares": float(r[1] or 0),
+                "entry_price": entry,
+                "last_price": last,
+                "stop_loss": float(r[4] or 0),
+                "take_profit": float(r[5] or 0),
+                "trailing_stop": float(r[6] or 0),
+                "highest_price": float(r[7] or last),
+                "confidence": int(r[8] or 0),
+                "reason": r[9] or "",
+                "opened_at": r[10] or "",
+            }
 
-    cur.execute("""
-        SELECT time, type, ticker, price, shares, amount, confidence, pnl_pct, reason
-        FROM paper_trades
-        ORDER BY id DESC
-        LIMIT 300
-    """)
-    trades = []
-    for r in cur.fetchall():
-        trades.append({
-            "time": r[0],
-            "type": r[1],
-            "ticker": r[2],
-            "price": float(r[3]),
-            "shares": float(r[4]),
-            "amount": float(r[5]),
-            "confidence": int(r[6] or 0),
-            "pnl_pct": None if r[7] is None else float(r[7]),
-            "reason": r[8] or "",
-        })
+        cur.execute("""
+            SELECT time, type, ticker, price, shares, amount, confidence, pnl_pct, reason
+            FROM paper_trades
+            ORDER BY id DESC
+            LIMIT 300
+        """)
+        trades = []
+        for r in cur.fetchall():
+            trades.append({
+                "time": r[0],
+                "type": r[1],
+                "ticker": r[2],
+                "price": float(r[3]),
+                "shares": float(r[4]),
+                "amount": float(r[5]),
+                "confidence": int(r[6] or 0),
+                "pnl_pct": None if r[7] is None else float(r[7]),
+                "reason": r[8] or "",
+            })
 
-    conn.close()
-    return {"cash": cash, "positions": positions, "trades": trades}
+        conn.close()
+        portfolio = _merge_portfolio({"cash": cash, "positions": positions, "trades": trades})
+        storage = _storage()
+        if storage is not None:
+            try:
+                storage.write_json(STORAGE_KEY, portfolio)
+            except Exception:
+                pass
+        return portfolio
+    except Exception as e:
+        print(f"paper_portfolio load DB fallback: {e}")
+        return _load_json()
 
 def save_portfolio(portfolio):
+    portfolio = _merge_portfolio(portfolio)
     if not using_postgres():
         _save_json(portfolio)
-        return
+        return False
 
-    init_db()
-    conn = get_conn()
-    cur = conn.cursor()
+    try:
+        init_db()
+        conn = get_conn()
+        cur = conn.cursor()
 
-    cur.execute(
-        "UPDATE paper_state SET cash=%s, updated_at=%s WHERE id=1",
-        (float(portfolio.get("cash", 0)), datetime.now().isoformat(timespec="seconds")),
-    )
+        cur.execute(
+            "UPDATE paper_state SET cash=%s, updated_at=%s WHERE id=1",
+            (float(portfolio.get("cash", 0)), datetime.now().isoformat(timespec="seconds")),
+        )
 
-    cur.execute("DELETE FROM paper_positions")
-    for ticker, pos in portfolio.get("positions", {}).items():
-        entry = float(pos.get("entry_price", 0))
-        cur.execute("""
-            INSERT INTO paper_positions
-            (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
-             trailing_stop, highest_price, confidence, reason, opened_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (
-            ticker,
-            float(pos.get("shares", 0)),
-            entry,
-            entry,
-            float(pos.get("last_price", 0)),
-            float(pos.get("stop_loss", 0)),
-            float(pos.get("take_profit", 0)),
-            float(pos.get("trailing_stop", 0)),
-            float(pos.get("highest_price", pos.get("last_price", 0))),
-            int(pos.get("confidence", 0)),
-            pos.get("reason", ""),
-            pos.get("opened_at", ""),
-        ))
+        cur.execute("DELETE FROM paper_positions")
+        for ticker, pos in portfolio.get("positions", {}).items():
+            entry = float(pos.get("entry_price", 0))
+            cur.execute("""
+                INSERT INTO paper_positions
+                (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
+                 trailing_stop, highest_price, confidence, reason, opened_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                ticker,
+                float(pos.get("shares", 0)),
+                entry,
+                entry,
+                float(pos.get("last_price", 0)),
+                float(pos.get("stop_loss", 0)),
+                float(pos.get("take_profit", 0)),
+                float(pos.get("trailing_stop", 0)),
+                float(pos.get("highest_price", pos.get("last_price", 0))),
+                int(pos.get("confidence", 0)),
+                pos.get("reason", ""),
+                pos.get("opened_at", ""),
+            ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+        storage = _storage()
+        if storage is not None:
+            try:
+                storage.write_json(STORAGE_KEY, portfolio)
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        print(f"paper_portfolio save DB fallback: {e}")
+        _save_json(portfolio)
+        return False
 
 def add_trade(portfolio, trade):
     trade["time"] = datetime.now().isoformat(timespec="seconds")
@@ -289,7 +347,11 @@ def reset_portfolio(start_cash=100000.0):
     return p
 
 def storage_status():
-    return "Postgres/DATABASE_URL ✅" if using_postgres() else "Lokal JSON fallback ⚠️"
+    try:
+        from services.storage_service import storage_status_label
+        return storage_status_label()
+    except Exception:
+        return "Postgres/DATABASE_URL ✅" if using_postgres() else "Lokal JSON fallback ⚠️"
 
 def force_schema_fix():
     return init_db()

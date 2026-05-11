@@ -22,6 +22,7 @@ from market_regime_ui import render_market_regime_widget
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from forecast_ui import render_forecast_section
 from analysis_universe_ai import render_ai_analysis_universe_workspace
+from persistent_storage_status import compact_storage_status_rows, storage_status_snapshot
 
 
 def inject_workspace_css() -> None:
@@ -338,6 +339,31 @@ def _render_forecast_workspace_tab() -> None:
         st.session_state["forecast_render_context_v1849"] = "normal"
 
 
+def _render_storage_services_status() -> None:
+    """Render service/storage health inside AI Kontrollsenter."""
+    st.subheader("🧩 Services / persistent storage")
+    snap = storage_status_snapshot()
+    backend = str(snap.get("backend", "unknown"))
+    persistent = bool(snap.get("persistent"))
+    ok = bool(snap.get("ok", True))
+    if persistent and ok:
+        st.success("Storage: Postgres aktiv ✅ Runtime-data lagres robust utenfor Render-filsystemet.")
+    elif ok:
+        st.warning("Storage: lokal fallback ⚠️ OK for dev/test. På Render bør DATABASE_URL/Postgres være aktiv.")
+    else:
+        st.error(str(snap.get("message", "Storage-feil")))
+    st.caption(str(snap.get("message", "")))
+    st.caption(f"Backend: {backend} · Persistent: {'ja' if persistent else 'nei/fallback'}")
+    rows = compact_storage_status_rows()
+    if rows:
+        st.dataframe(rows, use_container_width=True, hide_index=True, height=min(420, 42 + len(rows) * 34))
+    try:
+        render_service_workspace()
+    except Exception as exc:
+        st.caption(f"Service workspace kunne ikke vises: {exc}")
+
+
+
 def render_ai_control_center() -> None:
     """One compact AI control center with tabs instead of many stacked expanders."""
     st.markdown(
@@ -391,3 +417,5 @@ def render_ai_control_center() -> None:
             render_market_regime_widget()
         with tabs[8]:
             render_macro_rates_breadth_panel()
+        with tabs[9]:
+            _render_storage_services_status()

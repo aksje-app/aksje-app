@@ -28,7 +28,16 @@ DEFAULT_RULES = {
     "rsi_must_fall": True,
 }
 
-LOCAL_RULES_FILE = "trading_rules.json"
+LOCAL_RULES_FILE = "trading_rules.json"  # legacy fallback only
+STORAGE_KEY = "settings/trading_rules.json"
+
+
+def _storage():
+    try:
+        from services.storage_service import get_storage_service
+        return get_storage_service()
+    except Exception:
+        return None
 
 
 def _load_from_db():
@@ -89,10 +98,23 @@ def load_rules():
     if db_rules:
         rules.update(db_rules)
         return rules
+
+    storage = _storage()
+    if storage is not None:
+        stored = storage.read_json(STORAGE_KEY, default=None)
+        if isinstance(stored, dict):
+            rules.update(stored)
+            return rules
+
+    # One-time legacy migration from old root file if present locally.
     if os.path.exists(LOCAL_RULES_FILE):
         try:
             with open(LOCAL_RULES_FILE, "r", encoding="utf-8") as f:
-                rules.update(json.load(f))
+                legacy = json.load(f)
+            if isinstance(legacy, dict):
+                rules.update(legacy)
+                if storage is not None:
+                    storage.write_json(STORAGE_KEY, rules)
         except Exception:
             pass
     return rules
@@ -102,12 +124,27 @@ def save_rules(rules):
     clean = DEFAULT_RULES.copy()
     clean.update(rules)
     saved_db = _save_to_db(clean)
+    if saved_db:
+        try:
+            storage = _storage()
+            if storage is not None:
+                storage.write_json(STORAGE_KEY, clean)
+        except Exception:
+            pass
+        return True
+    storage = _storage()
+    if storage is not None:
+        try:
+            storage.write_json(STORAGE_KEY, clean)
+            return False
+        except Exception:
+            pass
     try:
         with open(LOCAL_RULES_FILE, "w", encoding="utf-8") as f:
             json.dump(clean, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
-    return saved_db
+    return False
 
 
 def calc_stop_take(entry_price, rules=None):

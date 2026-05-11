@@ -43,8 +43,10 @@ PERIOD_MAP = {
     "Maks": "max",
 }
 
-LOG_FILE = Path("strategy_test_logs.json")
-PROFILE_FILE = Path("strategy_profiles.json")
+LOG_FILE = Path("strategy_test_logs.json")  # legacy fallback only
+PROFILE_FILE = Path("strategy_profiles.json")  # legacy fallback only
+LOG_STORAGE_KEY = "strategy_testing/logs.json"
+PROFILE_STORAGE_KEY = "strategy_testing/profiles.json"
 MAX_DISPLAY_ROWS = 25
 
 
@@ -93,6 +95,23 @@ def _finish_pro_progress(holder: Any, progress: Any, text: str, ok: bool = True)
         progress.empty()
     except Exception:
         pass
+
+
+def _storage():
+    try:
+        from services.storage_service import get_storage_service
+        return get_storage_service()
+    except Exception:
+        return None
+
+
+def _storage_key_for_path(path: Path) -> str:
+    name = str(path.name)
+    if name == LOG_FILE.name:
+        return LOG_STORAGE_KEY
+    if name == PROFILE_FILE.name:
+        return PROFILE_STORAGE_KEY
+    return f"strategy_testing/{name}"
 
 
 TEST_TYPE_OPTIONS = [
@@ -807,20 +826,38 @@ def refine_candidates_from_top(top_df: pd.DataFrame, base: RuleSet, max_candidat
 # Logg, profiler og PDF
 # -------------------------------------------------------------------
 def _load_json_list(path: Path) -> List[dict]:
+    storage = _storage()
+    if storage is not None:
+        data = storage.read_json(_storage_key_for_path(path), default=None)
+        if isinstance(data, list):
+            return [dict(r) for r in data if isinstance(r, dict)]
+
+    # One-time legacy migration from old root file if present locally.
     try:
         if path.exists():
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data if isinstance(data, list) else []
+                rows = data if isinstance(data, list) else []
+            if storage is not None and rows:
+                storage.write_json(_storage_key_for_path(path), rows[-250:])
+            return [dict(r) for r in rows if isinstance(r, dict)]
     except Exception:
         pass
     return []
 
 
 def _save_json_list(path: Path, rows: List[dict]) -> None:
+    rows = [dict(r) for r in rows[-250:] if isinstance(r, dict)]
+    storage = _storage()
+    if storage is not None:
+        try:
+            storage.write_json(_storage_key_for_path(path), rows)
+            return
+        except Exception:
+            pass
     try:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(rows[-250:], f, indent=2, ensure_ascii=False, default=str)
+            json.dump(rows, f, indent=2, ensure_ascii=False, default=str)
     except Exception:
         pass
 

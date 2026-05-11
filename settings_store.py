@@ -9,7 +9,8 @@ except Exception:
     psycopg2 = None
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-SETTINGS_FILE = Path("app_settings.json")
+SETTINGS_FILE = Path("app_settings.json")  # legacy fallback only
+STORAGE_KEY = "settings/app_settings.json"
 
 DEFAULT_SETTINGS = {
     "auto_trading_enabled": False,
@@ -48,6 +49,14 @@ DEFAULT_SETTINGS = {
         "Sverige": "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST"
     }
 }
+
+
+def _storage():
+    try:
+        from services.storage_service import get_storage_service
+        return get_storage_service()
+    except Exception:
+        return None
 
 def using_postgres():
     return bool(DATABASE_URL) and psycopg2 is not None
@@ -93,9 +102,20 @@ def load_settings():
                 return _merge(json.loads(row[0]))
         except Exception as e:
             print(f"load_settings DB fallback: {e}")
+    storage = _storage()
+    if storage is not None:
+        stored = storage.read_json(STORAGE_KEY, default=None)
+        if isinstance(stored, dict):
+            return _merge(stored)
+
+    # One-time legacy migration from old root file if present locally.
     if SETTINGS_FILE.exists():
         try:
-            return _merge(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+            legacy = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+            merged = _merge(legacy)
+            if storage is not None:
+                storage.write_json(STORAGE_KEY, merged)
+            return merged
         except Exception:
             pass
     return _merge({})
@@ -117,6 +137,14 @@ def save_settings(settings):
             return True
         except Exception as e:
             print(f"save_settings DB fallback: {e}")
+    storage = _storage()
+    if storage is not None:
+        try:
+            storage.write_json(STORAGE_KEY, settings)
+            return False
+        except Exception:
+            pass
+    # Last-resort local dev fallback only.
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
     return False
 

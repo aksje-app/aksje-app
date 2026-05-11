@@ -8,7 +8,16 @@ except Exception:
     pytz = None
 from datetime import timezone
 
-LOCAL_ALERT_FILE = "alert_state.json"
+LOCAL_ALERT_FILE = "alert_state.json"  # legacy fallback only
+STORAGE_KEY = "alerts/signal_state.json"
+
+
+def _storage():
+    try:
+        from services.storage_service import get_storage_service
+        return get_storage_service()
+    except Exception:
+        return None
 
 
 def _now_oslo():
@@ -49,16 +58,34 @@ def _db_ready():
 
 
 def _load_local():
-    if not os.path.exists(LOCAL_ALERT_FILE):
-        return {}
-    try:
-        with open(LOCAL_ALERT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    storage = _storage()
+    if storage is not None:
+        data = storage.read_json(STORAGE_KEY, default=None)
+        if isinstance(data, dict):
+            return data
+
+    # One-time legacy migration from old root file if it exists locally.
+    if os.path.exists(LOCAL_ALERT_FILE):
+        try:
+            with open(LOCAL_ALERT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                if storage is not None:
+                    storage.write_json(STORAGE_KEY, data)
+                return data
+        except Exception:
+            pass
+    return {}
 
 
 def _save_local(data):
+    storage = _storage()
+    if storage is not None:
+        try:
+            storage.write_json(STORAGE_KEY, data if isinstance(data, dict) else {})
+            return
+        except Exception:
+            pass
     try:
         with open(LOCAL_ALERT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)

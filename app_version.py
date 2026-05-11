@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.28"
-APP_VERSION_NAME = "Event Risk Alerts + Confidence Adjustment"
+APP_VERSION = "v18.5.29"
+APP_VERSION_NAME = "Persistent Storage Hardening"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 
