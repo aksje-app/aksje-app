@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.5.34 Professional Trading Workspace.
+v18.5.35 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -10,6 +10,7 @@ Ingen auto-trading-kobling.
 from __future__ import annotations
 
 import streamlit as st
+from typing import Callable, Iterable, Optional, Sequence, Tuple
 from ai_service_bridge import render_service_workspace
 
 from alert_center import render_common_alert_center
@@ -171,6 +172,44 @@ def inject_workspace_css() -> None:
             border-color: rgba(34, 197, 94, .55);
             background: rgba(16, 65, 52, .72);
         }
+
+        /* v18.5.35: lazy control center panel selector. */
+        .ptw-lazy-panel-note {
+            font-size: .78rem;
+            color: rgba(226,232,240,.78);
+            margin: .10rem 0 .35rem 0;
+        }
+        .ptw-control-panel-shell {
+            border: 1px solid rgba(56,189,248,.18);
+            background: rgba(8,16,34,.52);
+            border-radius: 14px;
+            padding: .46rem .54rem .55rem .54rem;
+            margin-top: .38rem;
+        }
+        .ptw-control-panel-title {
+            font-size: .86rem;
+            font-weight: 950;
+            color: #f8fafc;
+            margin-bottom: .25rem;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] {
+            gap: .36rem .42rem !important;
+        }
+        div[data-testid="stRadio"] label {
+            border: 1px solid rgba(56,189,248,.35) !important;
+            background: linear-gradient(180deg, rgba(14,165,233,.26), rgba(2,132,199,.18)) !important;
+            border-radius: 999px !important;
+            padding: .23rem .58rem !important;
+            margin: 0 .10rem .18rem 0 !important;
+            color: #e0f2fe !important;
+            font-weight: 900 !important;
+        }
+        div[data-testid="stRadio"] label:has(input:checked) {
+            border-color: rgba(34,197,94,.72) !important;
+            background: linear-gradient(180deg, rgba(22,163,74,.45), rgba(21,128,61,.26)) !important;
+            box-shadow: 0 0 16px rgba(34,197,94,.16) !important;
+        }
+
 
 
         /* v18.5.34: explicit busy slot in the top-right header, no overlap. */
@@ -682,17 +721,31 @@ def _render_storage_services_status() -> None:
 
 
 
-def render_ai_control_center() -> None:
-    """One compact AI control center with tabs instead of many stacked expanders."""
+def _run_control_panel(label: str, renderer: Callable[[], None]) -> None:
+    """Render exactly one control-center panel and keep failures local."""
+    st.markdown(
+        f"<div class='ptw-control-panel-shell'><div class='ptw-control-panel-title'>{label}</div>",
+        unsafe_allow_html=True,
+    )
+    try:
+        renderer()
+    except Exception as exc:
+        st.warning(f"Panelet kunne ikke vises: {exc}")
+    finally:
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> None:
+    """Lazy AI control center. Only the selected panel is rendered/executed."""
     st.markdown(
         """
         <div class="ptw-control-header">
           <div class="ptw-control-title">🧠 AI Kontrollsenter</div>
-          <div class="ptw-control-caption">Analyseunivers, varsler, daglig rapport, regime, makro, heatmaps og backtest samlet i ett arbeidsområde.</div>
+          <div class="ptw-control-caption">Analyseunivers, prognose, varsler, nyheter, analyse, system/admin og tjenester samlet i ett arbeidsområde.</div>
           <div class="ptw-status-line">
             <span class="ptw-pill ptw-pill-ai">🟢 Samlet AI workspace aktivt</span>
-            <span class="ptw-pill">📌 Mindre scrolling</span>
-            <span class="ptw-pill">📊 Stabile grafer</span>
+            <span class="ptw-pill">🧩 Lazy panels</span>
+            <span class="ptw-pill">Ingen skjulte analyser</span>
           </div>
         </div>
         """,
@@ -700,40 +753,37 @@ def render_ai_control_center() -> None:
     )
 
     with st.expander("› Åpne AI Kontrollsenter", expanded=False):
-        tab_names = [
-            "🎯 Analyseunivers",
-            "🔮 Prognose",
-            "🚨 Varsler",
-            "📈 Daily Report",
-            "🧠 Intelligence",
-            "📊 Heatmaps",
-            "🧪 Testing & Learning",
-            "🌍 Regime",
-            "🌐 Makro/renter",
-            "🧩 Services",
+        base_panels: list[Tuple[str, Callable[[], None]]] = [
+            ("🎯 Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
+            ("🔮 Prognose", _render_forecast_workspace_tab),
+            ("🚨 Varsler", lambda: render_common_alert_center(location="workspace")),
+            ("📈 Daily Report", render_daily_ai_market_report),
+            ("🧠 Intelligence", render_market_intelligence_center),
+            ("📊 Heatmaps", render_ai_heatmaps),
+            ("🧪 Testing & Learning", lambda: (
+                st.info("Strategi-test, Strategi-test Pro, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her."),
+                render_strategy_testing_workspace(),
+                render_backtest_learning_panel(),
+            )),
+            ("🌍 Regime", render_market_regime_widget),
+            ("🌐 Makro/renter", render_macro_rates_breadth_panel),
+            ("🧩 Services", _render_storage_services_status),
         ]
+        panels = base_panels + list(extra_panels or [])
+        labels = [label for label, _renderer in panels]
+        active_label = st.radio(
+            "Velg Kontrollsenter-panel",
+            labels,
+            index=0,
+            horizontal=True,
+            key="ai_control_center_active_panel_v18535",
+            help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
+        )
+        st.markdown(
+            "<div class='ptw-lazy-panel-note'>Kun valgt panel åpnes og kjøres. Bytt panel når du trenger funksjonen.</div>",
+            unsafe_allow_html=True,
+        )
+        renderer = dict(panels).get(active_label)
+        if renderer:
+            _run_control_panel(active_label, renderer)
 
-        tabs = st.tabs(tab_names)
-
-        with tabs[0]:
-            render_ai_analysis_universe_workspace(expanded=True)
-        with tabs[1]:
-            _render_forecast_workspace_tab()
-        with tabs[2]:
-            render_common_alert_center(location="workspace")
-        with tabs[3]:
-            render_daily_ai_market_report()
-        with tabs[4]:
-            render_market_intelligence_center()
-        with tabs[5]:
-            render_ai_heatmaps()
-        with tabs[6]:
-            st.info("Strategi-test, Strategi-test Pro, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her. Legacy backtesting/strategi-knapper er ryddet ut av hovedvisningen.")
-            render_strategy_testing_workspace()
-            render_backtest_learning_panel()
-        with tabs[7]:
-            render_market_regime_widget()
-        with tabs[8]:
-            render_macro_rates_breadth_panel()
-        with tabs[9]:
-            _render_storage_services_status()
