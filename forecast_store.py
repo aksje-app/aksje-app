@@ -340,7 +340,7 @@ def get_forecast_vs_actual_series(
 ) -> Dict[str, Any]:
     """Build forecast-vs-actual series with a hard historical/future split.
 
-    v18.5.25 makes the split explicit for the chart layer:
+    v18.5.26 makes the split explicit for the chart layer:
     - actual_history_x / actual_history: historical prices through today only
     - forecast_x / base/bull/bear bands: today plus future forecast only
     - today_label / today_index: chart marker for the split

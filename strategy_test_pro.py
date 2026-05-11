@@ -63,9 +63,9 @@ def _safe_rerun() -> None:
 def _render_pro_progress_step(holder: Any, progress: Any, *, step: int, total: int, text: str) -> None:
     pct = min(1.0, max(0.0, step / max(1, total)))
     holder.markdown(
-        f'<div style="position:relative;z-index:50;display:flex;align-items:center;gap:.75rem;border:2px solid rgba(56,189,248,.75);background:linear-gradient(180deg,rgba(7,89,133,.72),rgba(15,23,42,.96));border-radius:16px;padding:.86rem .95rem;margin:.45rem 0 .60rem 0;color:#e5edf8;box-shadow:0 12px 28px rgba(14,165,233,.18);">'
+        f'<div style="position:relative;z-index:50;display:flex;align-items:center;gap:.75rem;border:2px solid rgba(56,189,248,.82);background:linear-gradient(180deg,rgba(7,89,133,.80),rgba(15,23,42,.98));border-radius:18px;padding:.92rem 1rem;margin:.55rem 0 .75rem 0;color:#e5edf8;box-shadow:0 14px 32px rgba(14,165,233,.26);">'
         '<style>@keyframes proSpin{to{transform:rotate(360deg)}}</style>'
-        '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:proSpin .8s linear infinite;flex:0 0 auto;"></span>'
+        '<span style="width:21px;height:21px;border:4px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:proSpin .72s linear infinite;flex:0 0 auto;"></span>'
         '<span style="font-weight:950;color:#f8fafc;">Strategi-test Pro</span>'
         f'<span style="color:#bae6fd;font-weight:900;">{step}/{total}</span>'
         f'<span style="color:#cbd5e1;font-weight:750;">{html.escape(str(text))}</span>'
@@ -73,11 +73,11 @@ def _render_pro_progress_step(holder: Any, progress: Any, *, step: int, total: i
         unsafe_allow_html=True,
     )
     try:
-        progress.progress(pct)
+        progress.progress(pct, text=f"{step}/{total} {text}")
     except Exception:
         pass
     try:
-        time.sleep(0.22)
+        time.sleep(0.55)
     except Exception:
         pass
 

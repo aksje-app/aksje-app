@@ -356,7 +356,7 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
     actual_y = list(series.get("actual_history") or [])
     forecast_x = list(series.get("forecast_x") or [])
 
-    # Prefer v18.5.25 split-series. Fall back to legacy padded arrays if an old
+    # Prefer v18.5.26 split-series. Fall back to legacy padded arrays if an old
     # stored payload/caller reaches the UI.
     base_y = list(series.get("forecast_base") or [])
     bull_y = list(series.get("forecast_bull") or [])

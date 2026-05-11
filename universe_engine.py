@@ -381,7 +381,7 @@ def resolve_strict_universe_tickers(
 ) -> Tuple[List[str], str]:
     """Resolve tickers with workspace mode as the source of truth.
 
-    v18.5.25: Smart Universe Picker is strict. If the user chooses
+    v18.5.26: Smart Universe Picker is strict. If the user chooses
     Enkeltaksje, Smart AI must scan only that ticker. If the user chooses
     Watchlist/Top Picks/Paper/Portefølje/Manuell liste, the scan must not
     silently fall back to market candidates or prepend old manual tickers.

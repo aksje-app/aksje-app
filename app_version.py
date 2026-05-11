@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.25"
-APP_VERSION_NAME = "Session State Fix + Forecast Chart"
+APP_VERSION = "v18.5.26"
+APP_VERSION_NAME = "Final Empty Panel Removal + Visible Progress"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 

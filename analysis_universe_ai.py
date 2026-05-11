@@ -519,36 +519,93 @@ def _render_dark_table(
 
 
 
-def _render_progress_step(holder: Any, progress: Any, *, title: str, step: int, total: int, text: str) -> None:
-    """Show a very visible dark progress row with spinner. Safe for old Streamlit."""
-    pct = min(1.0, max(0.0, step / max(1, total)))
-    safe_title = escape(title)
-    safe_text = escape(text)
-    html = (
-        '<div style="position:relative;z-index:50;display:flex;align-items:center;gap:.75rem;border:2px solid rgba(56,189,248,.75);background:linear-gradient(180deg,rgba(7,89,133,.72),rgba(15,23,42,.96));border-radius:16px;padding:.86rem .95rem;margin:.45rem 0 .60rem 0;color:#e5edf8;box-shadow:0 12px 28px rgba(14,165,233,.18);">'
-        '<style>@keyframes aiSpin{to{transform:rotate(360deg)}}</style>'
-        '<span style="width:16px;height:16px;border:3px solid rgba(125,211,252,.25);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:aiSpin .8s linear infinite;flex:0 0 auto;"></span>'
-        f'<span style="font-weight:950;color:#f8fafc;">{safe_title}</span>'
-        f'<span style="color:#bae6fd;font-weight:900;">{step}/{total}</span>'
-        f'<span style="color:#cbd5e1;font-weight:750;">{safe_text}</span>'
+AI_UNIVERSE_VISIBLE_PROGRESS_KEY = "ai_universe_visible_progress_v18526"
+
+
+def _progress_panel_html(*, title: str, step: int, total: int, text: str, running: bool = True, ok: bool = True) -> str:
+    pct = min(100, max(0, int(round((step / max(1, total)) * 100))))
+    border = "rgba(56,189,248,.82)" if running else ("rgba(34,197,94,.60)" if ok else "rgba(250,204,21,.62)")
+    glow = "rgba(14,165,233,.26)" if running else "rgba(34,197,94,.14)"
+    icon = (
+        '<span style="width:21px;height:21px;border:4px solid rgba(125,211,252,.24);border-top-color:#38bdf8;border-radius:999px;display:inline-block;animation:aiUniverseSpin .72s linear infinite;flex:0 0 auto;"></span>'
+        if running
+        else ("<span style='color:#bbf7d0;font-size:1.1rem;font-weight:950;'>✅</span>" if ok else "<span style='color:#fde68a;font-size:1.1rem;font-weight:950;'>⚠️</span>")
+    )
+    return (
+        '<style>@keyframes aiUniverseSpin{to{transform:rotate(360deg)}}</style>'
+        f'<div class="ai-universe-visible-progress" style="position:relative;z-index:80;border:2px solid {border};background:linear-gradient(180deg,rgba(7,89,133,.78),rgba(15,23,42,.98));border-radius:18px;padding:.86rem .95rem;margin:.55rem 0 .75rem 0;color:#e5edf8;box-shadow:0 14px 32px {glow};">'
+        '<div style="display:flex;align-items:center;gap:.78rem;margin-bottom:.58rem;">'
+        f'{icon}'
+        f'<span style="font-weight:1000;color:#f8fafc;font-size:1rem;">{escape(title)}</span>'
+        f'<span style="color:#bae6fd;font-weight:950;border:1px solid rgba(125,211,252,.35);background:rgba(8,47,73,.58);border-radius:999px;padding:.15rem .50rem;">{step}/{total}</span>'
+        f'<span style="color:#cbd5e1;font-weight:820;">{escape(text)}</span>'
+        '</div>'
+        '<div style="height:11px;width:100%;border-radius:999px;background:rgba(15,23,42,.95);overflow:hidden;border:1px solid rgba(148,163,184,.22);">'
+        f'<div style="height:100%;width:{pct}%;background:linear-gradient(90deg,#06b6d4,#38bdf8,#22c55e);border-radius:999px;transition:width .28s ease;"></div>'
+        '</div>'
         '</div>'
     )
-    holder.markdown(html, unsafe_allow_html=True)
+
+
+def _render_progress_snapshot() -> None:
+    payload = st.session_state.get(AI_UNIVERSE_VISIBLE_PROGRESS_KEY)
+    if not isinstance(payload, Mapping):
+        return
+    st.markdown(
+        _progress_panel_html(
+            title=str(payload.get("title") or "Smart AI-utvalg"),
+            step=int(payload.get("step") or 1),
+            total=int(payload.get("total") or 4),
+            text=str(payload.get("text") or "Klar"),
+            running=bool(payload.get("running", False)),
+            ok=bool(payload.get("ok", True)),
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_progress_step(holder: Any, progress: Any, *, title: str, step: int, total: int, text: str) -> None:
+    """Show a sticky-looking, very visible run panel with spinner and progress bar."""
+    pct = min(1.0, max(0.0, step / max(1, total)))
+    st.session_state[AI_UNIVERSE_VISIBLE_PROGRESS_KEY] = {
+        "title": f"🔄 Kjører {title}",
+        "step": int(step),
+        "total": int(total),
+        "text": text,
+        "running": True,
+        "ok": True,
+    }
+    holder.markdown(
+        _progress_panel_html(title=f"🔄 Kjører {title}", step=step, total=total, text=text, running=True, ok=True),
+        unsafe_allow_html=True,
+    )
     try:
-        progress.progress(pct)
+        progress.progress(pct, text=f"{step}/{total} {text}")
+    except TypeError:
+        try:
+            progress.progress(pct)
+        except Exception:
+            pass
     except Exception:
         pass
     try:
-        time.sleep(0.22)
+        # Give Streamlit/browser time to paint the status before the next blocking step.
+        time.sleep(0.55)
     except Exception:
         pass
 
 
 def _finish_progress(holder: Any, progress: Any, *, title: str, text: str, ok: bool = True) -> None:
-    border = "rgba(34,197,94,.58)" if ok else "rgba(250,204,21,.62)"
-    color = "#bbf7d0" if ok else "#fde68a"
+    st.session_state[AI_UNIVERSE_VISIBLE_PROGRESS_KEY] = {
+        "title": title,
+        "step": 4,
+        "total": 4,
+        "text": text,
+        "running": False,
+        "ok": bool(ok),
+    }
     holder.markdown(
-        f'<div style="border:1px solid {border};background:rgba(15,23,42,.88);border-radius:14px;padding:.55rem .72rem;margin:.35rem 0 .45rem 0;color:{color};font-weight:900;">✅ {escape(title)}: {escape(text)}</div>',
+        _progress_panel_html(title=title, step=4, total=4, text=text, running=False, ok=ok),
         unsafe_allow_html=True,
     )
     try:
@@ -1254,7 +1311,7 @@ def _inject_ai_universe_css() -> None:
         }
 
 
-        /* v18.5.25: local hard guard for the manual ticker field. Chrome/Edge autofill can paint the BaseWeb wrapper white. */
+        /* v18.5.26: local hard guard for the manual ticker field. Chrome/Edge autofill can paint the BaseWeb wrapper white. */
         div[data-testid="stTextInput"],
         div[data-testid="stTextInput"] > div,
         div[data-testid="stTextInput"] > div > div,
@@ -1315,6 +1372,35 @@ def _inject_ai_universe_css() -> None:
             height: auto !important;
             min-height: 0 !important;
             max-height: 340px !important;
+        }
+        /* v18.5.26 final null-panel guard: no empty white expander/dataframe regions in Analyseunivers. */
+        div[data-testid="stExpander"],
+        div[data-testid="stExpander"] details,
+        div[data-testid="stExpander"] div[role="region"],
+        div[data-testid="stExpander"] [data-testid="stVerticalBlock"],
+        div[data-testid="stExpander"] [data-testid="stElementContainer"] {
+            background: #020617 !important;
+            background-color: #020617 !important;
+            color: #e5edf8 !important;
+        }
+        div[data-testid="stDataFrame"],
+        div[data-testid="stDataFrame"] > div,
+        div[data-testid="stDataFrame"] iframe,
+        div[data-testid="stDataFrame"] [class*="stDataFrame"],
+        div[data-testid="stTable"],
+        div[data-testid="stTable"] * {
+            background: #020617 !important;
+            background-color: #020617 !important;
+            color: #e5edf8 !important;
+            min-height: 0 !important;
+        }
+        div[data-testid="stDataFrame"] iframe {
+            max-height: 280px !important;
+            border: 1px solid rgba(56,189,248,.24) !important;
+            border-radius: 12px !important;
+        }
+        .ai-universe-visible-progress {
+            background-color: #0f172a !important;
         }
         </style>
         """,
@@ -1401,7 +1487,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen. Valgt modus-chip oppdateres omgående før lagring."
         )
 
-        # v18.5.25: no form wrapper here. Streamlit forms buffer widget changes until submit,
+        # v18.5.26: no form wrapper here. Streamlit forms buffer widget changes until submit,
         # which made the active mode chips stale. Normal widgets rerun immediately so
         # the green chip follows Workspace-modus before the user saves or runs.
         with st.container():
@@ -1519,7 +1605,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             st.session_state["use_news_main_v157"] = bool(use_news)
             st.session_state["use_signal_intelligence_main_v157"] = bool(use_signal_intelligence)
             st.session_state["search_main_v157"] = _normalize_ticker(manual_ticker)
-            # v18.5.25: Do not assign to ai_universe_manual_list_draft_v18517 after
+            # v18.5.26: Do not assign to ai_universe_manual_list_draft_v18517 after
             # its st.text_area widget has been instantiated in this run. Streamlit
             # raises if a widget key is mutated post-instantiation. Keep a separate
             # non-widget sync key for services/status panels instead.
@@ -1600,6 +1686,11 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         with info_col:
             st.info("Kjøringen går via UniverseService og felles datamodell. Den skriver ikke runtime-data til GitHub/prosjektfiler.")
 
+        # v18.5.26: Keep a visible progress panel in the module, not only a transient spinner.
+        # This makes the run state visible even after Streamlit reruns or if the browser misses
+        # the native spinner paint during a blocking data fetch.
+        _render_progress_snapshot()
+
         run_pending_key = "ai_universe_smart_run_pending_v18524"
         if run_smart:
             st.session_state[run_pending_key] = True
@@ -1668,7 +1759,12 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             "Roadmap/delstatus ligger i detaljfeltet under."
         )
 
-        with st.expander("Vis roadmap / detaljstatus for funksjonene", expanded=False):
+        # v18.5.26: Use a normal toggle instead of an expander here. On some
+        # Streamlit/browser combinations the empty expander region painted as a
+        # large white null-data panel. A toggle plus dark inline cards avoids
+        # native empty containers entirely.
+        show_roadmap = st.checkbox("Vis roadmap / detaljstatus for funksjonene", value=False, key="ai_universe_show_roadmap_v18526")
+        if show_roadmap:
             _render_feature_status_panel()
 
         st.markdown("#### Preview av eksisterende kandidater")
