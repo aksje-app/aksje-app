@@ -3228,9 +3228,10 @@ def render_banner_main_controls():
             st.success("Ticker-banner lagret som ventende endringer ✅")
 
 
-def render_system_admin_workspace():
-    """Fase 3: Cron/bakgrunnssøk og systemdrift ut av venstremenyen og inn i hovedområdet."""
-    with st.expander("🛠 System / admin · Bakgrunnssøk / Cron", expanded=False):
+def render_system_admin_workspace(expanded=False):
+    """Fase 3: Cron/bakgrunnssøk og systemdrift samlet i Kontrollsenter."""
+    with st.expander("🛠 System / admin · Bakgrunnssøk / Cron", expanded=bool(expanded)):
+
         st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjøp. Start auto opphever ikke sikkerhetslåser.")
         _cron_settings = load_settings()
         _cron_status = cron_status_text()
@@ -5796,6 +5797,126 @@ if st.session_state.get("auto_control_notice_v153"):
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
+
+
+# v18.5.35: ekstra lazy-paneler i AI Kontrollsenter.
+def render_news_control_center_v18535(default_ticker: str = ""):
+    """Manual NewsAPI workspace. It never fetches news before the user presses the button."""
+    st.subheader("📰 Nyheter")
+    st.caption("Live NewsAPI brukes bare når du trykker knappen. Automatiske kall holdes av som standard.")
+    default_ticker = normalize_user_ticker(default_ticker or search or "AAPL")
+    ticker = st.text_input("Ticker", value=default_ticker, key="cc_news_ticker_v18535")
+    limit = st.slider("Antall nyheter", 3, 10, 6, 1, key="cc_news_limit_v18535")
+    if st.button("Hent nyheter manuelt", key="cc_news_fetch_v18535", type="primary"):
+        clean = normalize_user_ticker(ticker).replace(".OL", "")
+        if not clean:
+            st.warning("Skriv inn en ticker først.")
+            return
+        with st.spinner(f"Henter nyheter for {clean}..."):
+            articles, error = get_news(clean, limit=int(limit), source="manual", force=True)
+        if error:
+            st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
+        elif not articles:
+            st.info("Ingen relevante nyheter funnet.")
+        else:
+            st.success(f"Fant {len(articles)} nyheter for {clean}.")
+            st.metric("Nyhets-sentiment", simple_finance_sentiment(articles))
+            for article in articles:
+                st.markdown(
+                    f"- **{article.get('title','Uten tittel')}**  \n"
+                    f"  <span class='small'>{article.get('source','')} · {article.get('published','')}</span>",
+                    unsafe_allow_html=True,
+                )
+    else:
+        st.info("Ingen nyhetskall kjøres før du trykker knappen.")
+
+
+def render_interactive_technical_control_center_v18535():
+    """Manual single-ticker analysis panel for interactive/technical/trading-engine views."""
+    st.subheader("📊 Interaktiv / teknisk analyse")
+    st.caption("Panelet henter ikke data før du trykker Kjør analyse. Teknisk analyse og Trading engine vises i samme aksjekort.")
+    default_ticker = normalize_user_ticker(search or "AAPL")
+    ticker = st.text_input("Ticker for analyse", value=default_ticker, key="cc_interactive_ticker_v18535")
+    run = st.button("Kjør interaktiv analyse", key="cc_interactive_run_v18535", type="primary")
+    if run:
+        clean = normalize_user_ticker(ticker)
+        if not clean:
+            st.warning("Skriv inn én ticker først.")
+            return
+        with st.spinner(f"Henter analyse for {clean}..."):
+            item = cached_score_stock_manual(clean, use_news=False)
+        if not item:
+            st.warning("Fant ikke data for valgt ticker.")
+            return
+        st.session_state["cc_interactive_last_result_v18535"] = [item]
+        st.success(f"Analyse klar for {clean}.")
+    rows = st.session_state.get("cc_interactive_last_result_v18535") or []
+    if rows:
+        render_analysis(rows, "Kontrollsenter")
+    else:
+        st.info("Kjør en analyse for å åpne teknisk analyse, Trading engine og nyhetspanel for valgt ticker.")
+
+
+def render_market_ranking_control_center_v18535():
+    """On-demand market ranking panel. No market scan runs before the button is pressed."""
+    st.subheader("🏆 Marked / rangering")
+    st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
+    market = st.selectbox("Marked", ["USA", "Norge", "Sverige"], key="cc_ranking_market_v18535")
+    limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
+    source_tickers = []
+    if market == "USA":
+        source_tickers = get_sp500_tickers(limit=int(limit))
+    elif market == "Norge":
+        source_tickers = get_norwegian_tickers(limit=int(limit))
+    elif market == "Sverige":
+        source_tickers = get_swedish_tickers(limit=int(limit))
+    storage_key = f"Kontrollsenter_{market}"
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary"):
+        with st.spinner(f"Rangerer {market}..."):
+            ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False)
+        latest[storage_key] = ranked or []
+        st.success(f"Rangering ferdig: {len(ranked or [])} kandidater.")
+    rows = latest.get(storage_key, []) or []
+    if rows:
+        render_ranking(rows, f"🏆 {market} rangering")
+    else:
+        st.info("Ingen lagret rangering for dette panelet ennå.")
+
+
+def render_watchlist_signals_control_center_v18535():
+    """Watchlist and signal settings in the control center only."""
+    st.subheader("🔔 Watchlist / signaler")
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    dynamic: list[str] = []
+    for rows in latest.values():
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict):
+                    t = normalize_user_ticker(row.get("ticker"))
+                    if t and t not in dynamic:
+                        dynamic.append(t)
+                if len(dynamic) >= 30:
+                    break
+        if len(dynamic) >= 30:
+            break
+    if dynamic:
+        st.caption(f"Dynamiske kandidater fra siste rangering: {len(dynamic)}")
+    else:
+        st.caption("Ingen dynamiske kandidater i cache ennå. Kjør rangering eller Smart AI først.")
+    render_watchlist_alerts_workspace(dynamic, pushover_enabled_runtime=pushover_enabled)
+
+
+def control_center_extra_panels_v18535():
+    return [
+        ("📰 Nyheter", render_news_control_center_v18535),
+        ("📊 Interaktiv analyse", render_interactive_technical_control_center_v18535),
+        ("🏆 Marked/rangering", render_market_ranking_control_center_v18535),
+        ("🔔 Watchlist/signaler", render_watchlist_signals_control_center_v18535),
+        ("🛠 System/admin", lambda: render_system_admin_workspace(expanded=True)),
+    ]
+
+
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
 
@@ -5803,7 +5924,7 @@ active_panel = _render_active_main_panel_selector_v18531()
 try:
     render_live_market_banner()
     render_banner_main_controls()
-    render_ai_control_center()
+    render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 
@@ -5852,9 +5973,8 @@ if 'top_picks' in locals():
     market_pulse(top_picks)
     top_movers(top_picks)
 
-st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting.")
-# v18.5.1: ticker-banner moved to top workspace.
-render_system_admin_workspace()
+st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting. System/admin er flyttet til AI Kontrollsenter.")
+# v18.5.35: System/admin renderes kun i valgt Kontrollsenter-panel.
 
 if search.strip():
     tickers_us = [search.strip().upper()]
@@ -5869,51 +5989,13 @@ else:
 
 dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
 
-# V15.6 / Fase 2: Watchlist og varselkontroll er flyttet fra venstremenyen til hovedområdet.
-watchlist_tickers, auto_watchlist_alerts, watchlist_scan_limit, manual_watchlist_scan = render_watchlist_alerts_workspace(
-    dynamic_watchlist,
-    pushover_enabled_runtime=pushover_enabled,
-)
-
-# V14.7 / Oppgave 58, 63 og 66: kompakt watchlist-/scanstatus høyt oppe.
-_watch_count = len(watchlist_tickers or [])
-_watch_status = "PÅ" if bool(auto_watchlist_alerts) else "AV"
-_watch_push = "PÅ" if bool(pushover_enabled) else "AV"
-_watch_scan = _fmt_dt_short(cron_status_text().get("last_scan_at"))
-st.markdown(
-    f"""
-    <div class="watchlist-compact">
-        <div class="watchlist-row">
-            <div class="watchlist-title">🔔 Watchlist signaler</div>
-            <div class="watchlist-meta">
-                <span class="top-chip">Tickere: <b>{_watch_count}</b></span>
-                <span class="top-chip {'green' if auto_watchlist_alerts else 'red'}">Auto-scan: <b>{_watch_status}</b></span>
-                <span class="top-chip {'green' if pushover_enabled else 'red'}">Varsler: <b>{_watch_push}</b></span>
-                <span class="top-chip">Siste scan: <b>{_watch_scan}</b></span>
-            </div>
-        </div>
-        {"<div class='watchlist-empty'>Watchlist tom – legg til tickere i venstre panel eller bruk dynamisk watchlist.</div>" if _watch_count == 0 else ""}
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-_watchlist_scan_allowed_v16 = bool(manual_watchlist_scan) or (bool(auto_watchlist_alerts) and _heavy_update_allowed())
-if auto_watchlist_alerts and (not _watchlist_scan_allowed_v16):
-    st.caption("Watchlist auto-scan er klar, men manuell modus er aktiv. Scan kjøres først ved Oppdater hele appen eller Scan watchlist nå.")
-if _watchlist_scan_allowed_v16:
-    if not pushover_enabled:
-        st.warning("Pushover er ikke aktivert, så appen kan ikke sende mobilvarsler.")
-    elif not watchlist_tickers:
-        st.info("Watchlist er tom. Legg inn minst én ticker, eller slå på dynamisk watchlist.")
-    else:
-        with st.spinner("Scanner watchlist..."):
-            watch_results = scan_watchlist_and_alert(watchlist_tickers[:watchlist_scan_limit])
-        if watch_results:
-            st.dataframe(pd.DataFrame(watch_results), use_container_width=True)
-            st.caption("Varsel sendes bare når et tidligere registrert signal endrer seg til BUY eller SELL / AVOID.")
-        else:
-            st.info("Ingen nye watchlist-signaler akkurat nå.")
+# v18.5.35: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
+# Hovedsiden viser ikke lenger egen watchlist-boks eller scanner skjult; panel/kall kjøres bare når brukeren åpner
+# Kontrollsenter -> Watchlist/signaler og trykker egen knapp.
+watchlist_tickers = list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
+auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
+watchlist_scan_limit = int(_alert_runtime_settings.get("watchlist_scan_limit", 30) or 30)
+manual_watchlist_scan = False
 
 # v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
 

@@ -10,7 +10,7 @@ def test_header_status_consolidation_and_old_boxes_removed():
     header = source.index("v18532-header-status")
     banner = source.index("render_live_market_banner()", header)
     assert header < banner
-    after_banner = source[source.index("render_ai_control_center()") : source.index("Global oppdatering")]
+    after_banner = source[source.index("render_ai_control_center(extra_panels=control_center_extra_panels_v18535())") : source.index("Global oppdatering")]
     assert "v15-desktop-status-strip" not in after_banner
     assert "<div class='v15-status-title'>Driftstatus</div>" not in source
     assert "<div class='v15-status-title'>Børsstatus</div>" not in source

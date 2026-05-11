@@ -1,15 +1,9 @@
-# Project handoff – v18.5.34 Header Layout + Real Busy Spinner Fix
+# Project handoff – v18.5.35 Control Center Consolidation + Lazy Panels
 
-## Completed
-- Active main-panel selector moved to the header area above the ticker/banner strip.
-- Sticky topbar now includes a global busy chip with spinner/ready state.
-- Smart AI, strategy-test and strategy-test Pro update the shared busy status while running.
-- NewsAPI calls are guarded: manual button calls can fetch live data; automatic scoring/event-risk calls use cache unless NEWSAPI_ALLOW_AUTO_CALLS=true.
-- Forecast event-risk has its own “Bruk nyheter i hendelsesrisiko” toggle, off by default.
-- Legacy cleanup from v18.5.30 remains intact.
+Header should show `Professional Trading Workspace v18.5.35`.
 
-## Smoke test
-Header should show `Professional Trading Workspace v18.5.34`.
-
-## Deploy
-Upload to GitHub main, then Render → Manual Deploy → Clear build cache & deploy.
+Key changes:
+- AI Kontrollsenter uses lazy panel selection instead of `st.tabs`, so hidden panels do not render/start heavy work.
+- Added Kontrollsenter panels: News, Interactive/Technical analysis, Market/ranking, Watchlist/signals, System/Admin.
+- Removed the old standalone System/Admin and Watchlist/signals sections from the main page.
+- Runtime data is excluded; only `.gitkeep` remains in runtime folders.
