@@ -2086,31 +2086,6 @@ div[role="tooltip"] *,
     font-size:0.72rem;
     line-height:1.35;
 }
-.sidebar-section-title {
-    color:#e5e7eb !important;
-    font-size:.90rem !important;
-    font-weight:950 !important;
-    margin:.35rem 0 .45rem 0 !important;
-}
-.auth-sidebar-card {
-    border:1px solid rgba(95,122,170,.34);
-    background:rgba(8,16,34,.70);
-    border-radius:12px;
-    padding:.48rem .55rem;
-    margin:.18rem 0 .42rem 0;
-}
-.auth-sidebar-title { font-size:.80rem; font-weight:950; color:#f8fafc; margin-bottom:.25rem; }
-.auth-sidebar-user { display:flex; justify-content:space-between; gap:.35rem; font-size:.78rem; color:#e2e8f0; }
-.auth-sidebar-user span { color:#94a3b8; font-size:.70rem; font-weight:850; }
-.auth-remember-chip { display:inline-flex; align-items:center; gap:.25rem; border-radius:999px; padding:.18rem .42rem; margin-top:.35rem; font-size:.72rem; font-weight:900; border:1px solid rgba(148,163,184,.28); }
-.auth-remember-chip.on { color:#bbf7d0; background:rgba(22,101,52,.22); border-color:rgba(34,197,94,.45); }
-.auth-remember-chip.off { color:#fecaca; background:rgba(127,29,29,.22); border-color:rgba(239,68,68,.45); }
-.auth-mini-heading { font-size:.74rem; color:#cbd5e1; font-weight:950; margin:.55rem 0 .18rem 0; }
-.auth-user-list { display:flex; flex-direction:column; gap:.20rem; margin:.18rem 0 .35rem 0; }
-.auth-user-row { display:flex; justify-content:space-between; align-items:center; gap:.35rem; padding:.24rem .38rem; border:1px solid rgba(148,163,184,.18); border-radius:9px; background:rgba(15,23,42,.66); font-size:.70rem; }
-.auth-dot { width:.52rem; height:.52rem; border-radius:999px; display:inline-block; background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.35); }
-.auth-dot.on { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.35); }
-
 section[data-testid="stSidebar"] .stButton > button {
     min-height:32px !important;
     padding:0.24rem 0.50rem !important;
@@ -2453,15 +2428,15 @@ st.markdown(
 # V14.5 / Oppgave 44: Global visningsmodus.
 # Kompakt gjør status-/analysebokser lavere uten å fjerne informasjon.
 APP_VIEW_MODE = st.sidebar.radio(
-    "Visning",
+    "Visningsmodus",
     ["Kompakt", "Normal", "Full"],
     index=0,
     horizontal=True,
     key="global_view_mode_v145",
-    help="Velg hvor kompakt appen skal vises.",
+    help="Kompakt sparer plass. Normal bruker standard. Full viser større kort og mer luft.",
 )
 st.session_state["app_view_mode"] = APP_VIEW_MODE
-st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv visning: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
     st.markdown(
@@ -5473,7 +5448,7 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-st.sidebar.markdown("<div class='sidebar-section-title'>⚙️ Innstillinger</div>", unsafe_allow_html=True)
+st.sidebar.title("⚙️ Innstillinger")
 render_user_admin(current_user)
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
@@ -5645,13 +5620,13 @@ st.markdown("""
     display:block;
     align-items:center;
     width:100%;
-    max-width: 1100px;
-    padding: 4px 8px;
-    margin: 3px 0 3px 0;
-    border-radius: 10px;
-    font-size: 0.74rem;
-    font-weight: 800;
-    line-height: 1.18;
+    max-width: 980px;
+    padding: 7px 11px;
+    margin: 6px 0 4px 0;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.25;
     white-space: normal;
     word-break: normal;
     overflow-wrap: normal;
@@ -5664,8 +5639,8 @@ st.markdown("""
 @media (max-width: 700px){
     .v153-control-note{
         max-width: 100%;
-        font-size: 0.74rem;
-        padding: 6px 8px;
+        font-size: 0.82rem;
+        padding: 10px 11px;
     }
 }
 </style>
@@ -5720,7 +5695,7 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
-# v18.5.33: samlet toppstatus og tradingkontroller rett under global topbar.
+# v18.5.32: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
     <div class='v18532-header-status'>
@@ -5741,7 +5716,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.8 / v18.5.33: kompakt Auto trading-kontrollgruppe flyttet opp.
+# V15.8 / v18.5.32: kompakt Auto trading-kontrollgruppe flyttet opp.
 # Start opphever aldri Full stopp eller Nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
@@ -5795,7 +5770,7 @@ if st.session_state.get("auto_control_notice_v153"):
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
-# v18.5.33: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
+# v18.5.32: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
@@ -5806,7 +5781,7 @@ try:
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 
-# v18.5.33: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# v18.5.32: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
 
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
