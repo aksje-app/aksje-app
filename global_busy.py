@@ -1,6 +1,6 @@
 """Global busy/run indicator helpers.
 
-v18.5.31 adds a single top-right app status chip.  Streamlit reruns the app
+v18.5.32 keeps one fixed top-right app status chip.  Streamlit reruns the app
 on many widget changes; these helpers keep a small, consistent status that can
 be shown in the sticky topbar and updated by modules that start real work.
 """
@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 import streamlit as st
 
-BUSY_STATE_KEY = "global_busy_state_v18531"
+BUSY_STATE_KEY = "global_busy_state_v18532"
 DEFAULT_IDLE_LABEL = "Klar"
 
 

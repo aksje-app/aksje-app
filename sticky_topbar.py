@@ -1,8 +1,8 @@
 """
 sticky_topbar.py
 
-v18.5.21 Professional Trading Workspace
-Sticky topbar / AI status bar.
+v18.5.32 Professional Trading Workspace
+Sticky topbar / AI status bar with consolidated market status.
 
 Ingen auto-trading-kobling.
 """
@@ -17,6 +17,8 @@ from alert_center import collect_common_alerts
 from forecast_store import summarize_alerts, load_learning_stats
 from app_version import get_app_version
 from global_busy import global_busy_chip_html
+from market_hours import market_statuses
+import html
 
 
 def _safe_get_session(key: str, default: Any = None) -> Any:
@@ -62,6 +64,25 @@ def _learning_samples() -> int:
         return 0
 
 
+
+def _market_status_chips_html() -> str:
+    """Return compact market-open chips for the global header line."""
+    try:
+        statuses = market_statuses()
+    except Exception:
+        statuses = {}
+    chips: list[str] = []
+    for key, status in (statuses or {}).items():
+        name = str(status.get("name", key))
+        short = {"USA": "USA", "Norge": "Norge", "Sverige": "Sverige"}.get(name, name)
+        is_open = bool(status.get("is_open"))
+        cls = "ptw-market-open" if is_open else "ptw-market-closed"
+        txt = "Åpent" if is_open else "Stengt"
+        chips.append(f'<span class="ptw-pill ptw-market-chip {cls}">● {html.escape(short)}: {txt}</span>')
+    if not chips:
+        chips.append('<span class="ptw-pill ptw-market-chip ptw-market-unknown">● Børsstatus: ukjent</span>')
+    return "".join(chips)
+
 def render_sticky_topbar() -> None:
     """Render compact sticky AI/control status bar."""
     alerts = _alert_summary()
@@ -88,9 +109,10 @@ def render_sticky_topbar() -> None:
             <span class="ptw-pill">🌍 {regime}</span>
             <span class="ptw-pill">🌐 {macro}</span>
             <span class="ptw-pill">🧠 Learning: {samples}</span>
+            {_market_status_chips_html()}
           </div>
           <div class="ptw-topbar-right">
-            {global_busy_chip_html()}
+            <div class="ptw-global-busy-fixed">{global_busy_chip_html()}</div>
             <span class="ptw-subtle">Professional Trading Workspace {get_app_version()}</span>
           </div>
         </div>

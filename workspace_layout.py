@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.5.31 Professional Trading Workspace.
+v18.5.32 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -168,6 +168,83 @@ def inject_workspace_css() -> None:
         .ptw-pill-ai {
             border-color: rgba(34, 197, 94, .55);
             background: rgba(16, 65, 52, .72);
+        }
+
+
+        /* v18.5.32: consolidated top status/navigation. */
+        .ptw-global-busy-fixed {
+            position: fixed;
+            top: .42rem;
+            right: .80rem;
+            z-index: 2500;
+            pointer-events: none;
+        }
+        .ptw-global-busy-fixed .ptw-pill {
+            font-size: .86rem;
+            padding: .38rem .75rem;
+            box-shadow: 0 0 18px rgba(14, 165, 233, .22), 0 8px 22px rgba(0,0,0,.28);
+        }
+        .ptw-market-chip {
+            font-weight: 850;
+        }
+        .ptw-market-open {
+            border-color: rgba(34,197,94,.54) !important;
+            background: rgba(16,65,52,.62) !important;
+            color: #dcfce7 !important;
+        }
+        .ptw-market-closed {
+            border-color: rgba(239,68,68,.52) !important;
+            background: rgba(86,22,36,.55) !important;
+            color: #fecaca !important;
+        }
+        .ptw-market-unknown {
+            border-color: rgba(245,158,11,.48) !important;
+            background: rgba(120,53,15,.35) !important;
+            color: #fde68a !important;
+        }
+        .v18532-header-status {
+            border: 1px solid rgba(95, 122, 170, .30);
+            background: rgba(8, 16, 34, .78);
+            border-radius: 14px;
+            padding: .42rem .58rem;
+            margin: .06rem 0 .30rem 0;
+        }
+        .v18532-status-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: .25rem .42rem;
+        }
+        .v18532-status-label {
+            color: rgba(226,232,240,.78);
+            font-size: .72rem;
+            font-weight: 950;
+            letter-spacing: .03em;
+            text-transform: uppercase;
+            margin-right: .15rem;
+        }
+        .v18532-trading-control-note {
+            font-size: .76rem;
+            color: rgba(226,232,240,.82);
+            margin: .18rem 0 .18rem 0;
+            font-weight: 750;
+        }
+        .v18532-top-controls {
+            border: 1px solid rgba(95, 122, 170, .28);
+            background: rgba(10, 20, 38, .68);
+            border-radius: 14px;
+            padding: .38rem .56rem .30rem .56rem;
+            margin: .06rem 0 .38rem 0;
+        }
+        .v18532-top-controls .v153-control-note {
+            max-width: none !important;
+            min-width: 0 !important;
+            margin: .28rem 0 .20rem 0 !important;
+        }
+        @media (max-width: 900px) {
+            .ptw-global-busy-fixed { top: .25rem; right: .35rem; }
+            .ptw-global-busy-fixed .ptw-pill { font-size: .74rem; padding: .32rem .52rem; }
+            .ptw-sticky-topbar { padding-right: 5.5rem !important; }
         }
 
         .ptw-subtle {

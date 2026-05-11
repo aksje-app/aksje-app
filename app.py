@@ -5695,39 +5695,19 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
-# v18.5.31: Hovedpanelvelger er flyttet til toppområdet rett over ticker-banneret.
-active_panel = _render_active_main_panel_selector_v18531()
-
-# v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
-try:
-    render_live_market_banner()
-    render_banner_main_controls()
-    render_ai_control_center()
-except Exception as _top_banner_workspace_error:
-    st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
-
-# V15 / kontrollsenterstatus: ingen duplisert mobil-hurtigmeny i hovedbildet.
-# PC får en kompakt horisontal statusstrip som bruker høyreplassen ved Driftstatus.
+# v18.5.32: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
-    <div class='v15-desktop-status-strip'>
-        <div class='v15-status-block'>
-            <div class='v15-status-title'>Driftstatus</div>
+    <div class='v18532-header-status'>
+        <div class='v18532-status-row'>
+            <span class='v18532-status-label'>Drift</span>
             <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
             <span class='mini-status-chip {_top_paper_color}'>Paper: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
             <span class='mini-status-chip yellow'>Manuell: <b>PÅ</b></span>
-        </div>
-        <div class='v15-status-block'>
-            <div class='v15-status-title'>Børsstatus</div>
-            {_market_status_chips_html()}
-        </div>
-        <div class='v15-status-block'>
-            <div class='v15-status-title'>Bruker / sesjon</div>
+            <span class='v18532-status-label'>Sesjon</span>
             {_session_status_html(current_user)}
-        </div>
-        <div class='v15-status-block'>
-            <div class='v15-status-title'>Siste oppdatering</div>
+            <span class='v18532-status-label'>Oppdatert</span>
             <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
             <span class='mini-status-chip'>Tung: <b>{html.escape(_last_update_label())}</b></span>
         </div>
@@ -5736,16 +5716,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# v18.5.3: Analyseunivers er flyttet inn i AI Kontrollsenter som egen AI-modul.
-# Legacy standalone-seksjon er deaktivert for å unngå duplisert workspace.
-
-# V15.8: kompakt Auto trading-kontrollgruppe med tydelige sikkerhetslåser.
+# V15.8 / v18.5.32: kompakt Auto trading-kontrollgruppe flyttet opp.
 # Start opphever aldri Full stopp eller Nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
 st.markdown(
-    "<div class='v15-inline-help'><b>Auto trading:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
-    "Sikkerhetslåser oppheves med egne knapper.</div>",
+    "<div class='v18532-top-controls'>"
+    "<div class='v18532-trading-control-note'><b>Trading-kontroll:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
+    "Sikkerhetslåser oppheves med egne knapper.</div>"
+    "</div>",
     unsafe_allow_html=True,
 )
 if bool(_top_full_stop):
@@ -5790,6 +5769,20 @@ if st.session_state.get("auto_control_notice_v153"):
     _prefix = "✅" if _level == "success" else ("⚠️" if _level == "warning" else "ℹ️")
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
+
+# v18.5.32: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
+active_panel = _render_active_main_panel_selector_v18531()
+
+# v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
+try:
+    render_live_market_banner()
+    render_banner_main_controls()
+    render_ai_control_center()
+except Exception as _top_banner_workspace_error:
+    st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
+
+# v18.5.32: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
 
 st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)

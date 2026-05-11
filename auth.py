@@ -367,25 +367,8 @@ def render_user_admin(current_user):
         f"<div class='auth-compact-line'>Innlogget: <b>{username}</b> ({role})</div>",
         unsafe_allow_html=True,
     )
-    try:
-        _login_at = st.session_state.get("auth_logged_in_at", "-")
-        _last_at = st.session_state.get("auth_last_activity_at", "-")
-        _expires_at = st.session_state.get("auth_expires_at", "-")
-        _remember = "På" if st.session_state.get("auth_remember_me") else "Av"
-        with st.sidebar.expander("Sesjonsinfo", expanded=False):
-            st.markdown(
-                f"""
-                <div class='auth-session-details'>
-                    Innlogget siden: <b>{_login_at}</b><br>
-                    Siste aktivitet: <b>{_last_at}</b><br>
-                    Utløper: <b>{_expires_at}</b><br>
-                    Husk meg: <b>{_remember}</b>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        pass
+    # v18.5.32: detaljert sesjonsboks er fjernet fra sidebar.
+    # Én ryddig Bruker/sesjon-status vises nå i toppstatuslinjen, med grønn/rød Husk meg-chip.
 
     if st.sidebar.button("Logg ut", key="auth_logout_btn"):
         _logout()
