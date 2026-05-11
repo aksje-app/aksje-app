@@ -756,7 +756,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
         ai_score = st.slider("AI-score-justering", 0, 100, 50, 1, key=f"forecast_ai_score_v1831_{st.session_state.get('forecast_render_context_v1849', 'normal')}")
         sentiment = st.slider("Sentiment-justering", -1.0, 1.0, 0.0, 0.05, key=f"forecast_sentiment_v1831_{st.session_state.get('forecast_render_context_v1849', 'normal')}")
 
-        mc1, mc2 = st.columns([1.3, 1.0])
+        mc1, mc2, mc3 = st.columns([1.3, 1.0, 1.15])
         with mc1:
             auto_regime = st.session_state.get("auto_market_regime_v1840", "neutral")
             regime_options = ["neutral", "bull", "bear", "volatile"]
@@ -776,8 +776,15 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                 key=f"forecast_event_risk_v1835_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
                 help="Kan settes automatisk ved Stress/Panic-regime.",
             )
+        with mc3:
+            include_news_risk = st.checkbox(
+                "Bruk nyheter i hendelsesrisiko",
+                value=False,
+                key=f"forecast_include_news_risk_v18531_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
+                help="Av som standard for å spare NewsAPI-kall. Når av brukes cache/earnings/makro/volatilitet uten live NewsAPI.",
+            )
 
-        st.caption(f"Valgt prognose: {ticker or 'ingen ticker'} · horisont {horizon} · historikk {period} · regime {market_regime}")
+        st.caption(f"Valgt prognose: {ticker or 'ingen ticker'} · horisont {horizon} · historikk {period} · regime {market_regime} · nyheter i risiko: {'på' if include_news_risk else 'av'}")
         run = st.button("Lag prognosegraf", key="forecast_run_v1831", use_container_width=True)
 
         if not run:
@@ -789,7 +796,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             st.warning(error)
             return
 
-        event_info = detect_event_risk(ticker, prices, horizon=horizon, include_news=True)
+        event_info = detect_event_risk(ticker, prices, horizon=horizon, include_news=bool(include_news_risk))
         if event_risk and not event_info.get("is_event_risk"):
             event_info = dict(event_info)
             event_info["is_event_risk"] = True

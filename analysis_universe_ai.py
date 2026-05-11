@@ -32,7 +32,14 @@ from services.universe_service import (
 
 try:
     import streamlit as st
+    from global_busy import set_global_busy, update_global_busy, finish_global_busy
 except Exception:  # pragma: no cover - allows pure helper tests without Streamlit installed
+    def set_global_busy(*args, **kwargs):
+        return None
+    def update_global_busy(*args, **kwargs):
+        return None
+    def finish_global_busy(*args, **kwargs):
+        return None
     class _StreamlitUnavailable:
         session_state: Dict[str, Any] = {}
 
@@ -1428,7 +1435,7 @@ def _default_config() -> Dict[str, Any]:
         "manual_list": st.session_state.get("ai_universe_manual_list_draft_v18517", ""),
         "max_count": int(st.session_state.get("max_count_main_v157", 30) or 30),
         "min_top_pick_score": float(st.session_state.get("min_top_pick_score_main_v157", 6.5) or 6.5),
-        "use_news": bool(st.session_state.get("use_news_main_v157", True)),
+        "use_news": bool(st.session_state.get("use_news_main_v157", False)),
         "use_signal_intelligence": bool(st.session_state.get("use_signal_intelligence_main_v157", True)),
         "max_risk": st.session_state.get("ai_universe_max_risk_v1853", "Middels"),
         "sectors": st.session_state.get("ai_universe_sectors_v1853", ["Alle sektorer"]),
@@ -1567,9 +1574,10 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     help="Bruker sektor fra analysedata når mulig, ellers transparent ticker-fallback.",
                 )
                 use_news = st.checkbox(
-                    "Bruk nyheter/sentiment",
+                    "Bruk nyheter/sentiment (NewsAPI)",
                     value=bool(current["use_news"]),
                     key="ai_universe_use_news_draft_v1853",
+                    help="Av som standard for å spare API-kall. Når på brukes cache først; live NewsAPI-kall krever eksplisitt tillatelse i news.py/NEWSAPI_ALLOW_AUTO_CALLS.",
                 )
                 use_signal_intelligence = st.checkbox(
                     "Bruk Signal Intelligence",
@@ -1682,7 +1690,13 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         )
         run_col, info_col = st.columns([1, 2])
         with run_col:
-            run_smart = st.button("🚀 Kjør Smart AI-utvalg nå", key="run_smart_ai_universe_v1859", use_container_width=True)
+            run_smart = st.button(
+                "🚀 Kjør Smart AI-utvalg nå",
+                key="run_smart_ai_universe_v1859",
+                use_container_width=True,
+                on_click=set_global_busy,
+                kwargs={"label": "Kjører Smart AI-utvalg", "detail": "Forbereder valgt ticker-univers", "step": 1, "total": 4},
+            )
         with info_col:
             st.info("Kjøringen går via UniverseService og felles datamodell. Den skriver ikke runtime-data til GitHub/prosjektfiler.")
 
@@ -1703,21 +1717,27 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 progress_bar = st.progress(0.0, text="Starter Smart AI-utvalg …")
             except TypeError:
                 progress_bar = st.progress(0.0)
+            update_global_busy("Kjører Smart AI-utvalg", "Henter ticker-univers fra valgt Workspace-modus", step=1, total=4)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=1, total=4, text="Henter ticker-univers fra valgt Workspace-modus")
             existing_scope_tickers = _existing_tickers_by_scope_from_state(st.session_state)
+            update_global_busy("Kjører Smart AI-utvalg", "Henter kursdata og scorer kandidater", step=2, total=4)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=2, total=4, text="Henter kursdata og scorer kandidater")
             service_result = services.universe.run_smart_universe(config, existing_tickers_by_scope=existing_scope_tickers)
             result = service_result.data.get("result", {})
+            update_global_busy("Kjører Smart AI-utvalg", "Filtrerer risiko, score, sektor og momentum", step=3, total=4)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=3, total=4, text="Filtrerer risiko, score, sektor og momentum")
             ranked_rows = result.get("ranked_rows") if isinstance(result, Mapping) else None
             if not ranked_rows:
                 ranked_rows = services.universe.store_result_as_rankings(result)
+            update_global_busy("Kjører Smart AI-utvalg", "Rangerer og lagrer resultat kompakt", step=4, total=4)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=4, total=4, text="Rangerer og lagrer resultat kompakt")
             if ranked_rows:
                 _finish_progress(progress_holder, progress_bar, title="Smart AI-utvalg ferdig", text=f"{len(ranked_rows)} kandidater matcher filtrene.", ok=True)
+                finish_global_busy("Klar", f"Smart AI-utvalg ferdig: {len(ranked_rows)} kandidater")
                 st.success(f"Smart AI-utvalg ferdig: {len(ranked_rows)} kandidater matcher filtrene.")
             else:
                 _finish_progress(progress_holder, progress_bar, title="Smart AI-utvalg ferdig", text="Ingen kandidater matchet filtrene.", ok=False)
+                finish_global_busy("Klar", "Smart AI-utvalg ferdig uten kandidater")
                 st.warning("Smart AI-utvalg ble kjørt, men ingen kandidater matchet filtrene eller datakilden returnerte ikke score.")
 
         smart_result = st.session_state.get(AI_UNIVERSE_SMART_RESULT_KEY, {}) or st.session_state.get(AI_UNIVERSE_SMART_RESULT_LEGACY_KEY, {}) or {}

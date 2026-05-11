@@ -58,7 +58,7 @@ def test_universe_service_runs_engine_and_stores_shared_result():
 
     assert service_result.status == "ok"
     result = service_result.data["result"]
-    assert result["version"] == "v18.5.29"
+    assert result["version"] == "v18.5.31"
     assert result["matched_candidates"] == 2
     assert "ai_analysis_universe_smart_result_v1859" in session_state
     assert "SmartAI" in session_state["latest_rankings_v148"]

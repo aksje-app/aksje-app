@@ -27,6 +27,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from global_busy import set_global_busy, update_global_busy, finish_global_busy
 
 try:
     import yfinance as yf
@@ -1260,7 +1261,14 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         cancel_key = f"{key_prefix}_cancel_requested"
         run_col, cancel_col = st.columns([1.0, 1.0])
         with run_col:
-            run_btn = st.button("🧪 Kjør Strategi-test Pro for " + (", ".join(tickers_preview[:3]) if tickers_preview else "valgte tickere"), type="primary", use_container_width=False, key=f"{key_prefix}_run")
+            run_btn = st.button(
+                "🧪 Kjør Strategi-test Pro for " + (", ".join(tickers_preview[:3]) if tickers_preview else "valgte tickere"),
+                type="primary",
+                use_container_width=False,
+                key=f"{key_prefix}_run",
+                on_click=set_global_busy,
+                kwargs={"label": "Kjører Strategi-test Pro", "detail": "Forbereder historikk", "step": 1, "total": 4},
+            )
         with cancel_col:
             if st.button("⏹️ Avbryt test", use_container_width=False, key=f"{key_prefix}_cancel_btn"):
                 st.session_state[cancel_key] = True
@@ -1299,6 +1307,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             progress_bar = st.progress(0.0, text="Starter Strategi-test Pro …")
         except TypeError:
             progress_bar = st.progress(0.0)
+        update_global_busy("Kjører Strategi-test Pro", "Henter kursdata for valgte tickere", step=1, total=4)
         _render_pro_progress_step(progress_holder, progress_bar, step=1, total=4, text="Henter kursdata for valgte tickere")
 
         raw_tickers_active = st.session_state.get(f"{key_prefix}_tickers", raw_tickers)
@@ -1311,6 +1320,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
 
         period = PERIOD_MAP.get(period_label, "1y")
         histories = fetch_strategy_histories(tuple(tickers), period)
+        update_global_busy("Kjører Strategi-test Pro", "Scorer regelsett og bygger kombinasjoner", step=2, total=4)
         _render_pro_progress_step(progress_holder, progress_bar, step=2, total=4, text="Scorer regelsett og bygger kombinasjoner")
 
         missing = [t for t in tickers if t not in histories]
@@ -1339,6 +1349,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         rules = base
         run_note = ""
         phase = "slutt"
+        update_global_busy("Kjører Strategi-test Pro", "Filtrerer risiko, momentum og validering", step=3, total=4)
         _render_pro_progress_step(progress_holder, progress_bar, step=3, total=4, text="Filtrerer risiko, momentum og validering")
 
         if test_type == "Gjeldende regler":
@@ -1398,8 +1409,10 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         per_ticker = result.get("per_ticker")
         summary = result.get("summary", {}) or {}
         validation_payload = run_validation_check(histories, rules, float(start_cash), validation_method, int(applied_train_share)) if validation_active else {}
+        update_global_busy("Kjører Strategi-test Pro", "Rangerer og lagrer resultat", step=4, total=4)
         _render_pro_progress_step(progress_holder, progress_bar, step=4, total=4, text="Rangerer og lagrer resultat")
         _finish_pro_progress(progress_holder, progress_bar, "ferdig", ok=True)
+        finish_global_busy("Klar", "Strategi-test Pro ferdig")
 
         if validation_payload:
             st.markdown("#### In-sample / out-of-sample-validering")

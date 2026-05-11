@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import time
 
 import streamlit as st
+from global_busy import set_global_busy, update_global_busy, finish_global_busy
 
 try:
     import pandas as pd  # type: ignore
@@ -329,7 +330,13 @@ def _render_basic_strategy_test(ticker: str) -> bool:
     with c1:
         period = st.selectbox("Historikk", ["6mo", "1y", "2y", "5y"], index=1, key="tl_strategy_period_v18515")
     with c2:
-        run = st.button("Kjør enkel strategi-test", key="tl_strategy_run_v18515", use_container_width=True)
+        run = st.button(
+            "Kjør enkel strategi-test",
+            key="tl_strategy_run_v18515",
+            use_container_width=True,
+            on_click=set_global_busy,
+            kwargs={"label": "Kjører strategi-test", "detail": "Forbereder kursdata", "step": 1, "total": 4},
+        )
 
     result_key = _strategy_result_key()
     pending_key = "tl_basic_strategy_run_pending_v18524"
@@ -346,13 +353,18 @@ def _render_basic_strategy_test(ticker: str) -> bool:
             progress_bar = st.progress(0.0, text="Starter Strategi-test …")
         except TypeError:
             progress_bar = st.progress(0.0)
+        update_global_busy("Kjører strategi-test", "Henter kursdata", step=1, total=4)
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=1, total=4, text="Henter kursdata")
+        update_global_busy("Kjører strategi-test", "Kjører baseline-regler", step=2, total=4)
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=2, total=4, text="Kjører baseline-regler")
         result = _run_basic_strategy_test(run_ticker, run_period)
+        update_global_busy("Kjører strategi-test", "Beregner statistikk og drawdown", step=3, total=4)
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=3, total=4, text="Beregner statistikk og drawdown")
         st.session_state[result_key] = result
+        update_global_busy("Kjører strategi-test", "Lagrer resultat", step=4, total=4)
         _render_tl_progress_step(progress_holder, progress_bar, title="Strategi-test", step=4, total=4, text="Lagrer resultat i session")
         _finish_tl_progress(progress_holder, progress_bar, title="Strategi-test ferdig", text=f"{run_ticker} ({run_period})", ok=bool(result.get("ok")))
+        finish_global_busy("Klar", f"Strategi-test ferdig: {run_ticker} ({run_period})")
 
     result = st.session_state.get(result_key)
     if result:

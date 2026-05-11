@@ -138,7 +138,7 @@ def score_stock(ticker, use_news=True):
     if not metrics:
         return None
 
-    articles, news_error = get_news(ticker.replace(".OL", ""), limit=6) if use_news else ([], None)
+    articles, news_error = get_news(ticker.replace(".OL", ""), limit=6, source="score_stock") if use_news else ([], None)
     sentiment = simple_finance_sentiment(articles)
 
     info = get_info(ticker)

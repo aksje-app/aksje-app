@@ -1,7 +1,7 @@
 """
 workspace_layout.py
 
-v18.5.21 Professional Trading Workspace.
+v18.5.31 Professional Trading Workspace.
 Samler AI-moduler i ett kontrollsenter og reduserer vertikal luft.
 
 Ingen auto-trading-kobling.
@@ -80,8 +80,75 @@ def inject_workspace_css() -> None:
 
         .ptw-topbar-right {
             white-space: nowrap;
-            opacity: .72;
+            opacity: .95;
             font-size: .78rem;
+            display:flex;
+            align-items:center;
+            gap:.42rem;
+        }
+
+        .ptw-pill-busy {
+            border-color: rgba(56, 189, 248, .72) !important;
+            background: rgba(7, 89, 133, .72) !important;
+            box-shadow: 0 0 18px rgba(56, 189, 248, .24);
+        }
+
+        .ptw-pill-ready {
+            border-color: rgba(34, 197, 94, .52) !important;
+            background: rgba(16, 65, 52, .55) !important;
+        }
+
+        .ptw-busy-spinner {
+            width: .72rem;
+            height: .72rem;
+            border: 2px solid rgba(226, 232, 240, .35);
+            border-top-color: #67e8f9;
+            border-radius: 999px;
+            display:inline-block;
+            animation: ptw-spin .8s linear infinite;
+        }
+
+        @keyframes ptw-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .ptw-main-panel-nav {
+            border: 1px solid rgba(95, 122, 170, .34);
+            background: rgba(8, 16, 34, .80);
+            border-radius: 14px;
+            padding: .45rem .65rem .18rem .65rem;
+            margin: .05rem 0 .42rem 0;
+        }
+
+        .ptw-main-panel-nav-title {
+            font-size: .72rem;
+            font-weight: 900;
+            color: rgba(226, 232, 240, .78);
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: .12rem;
+        }
+
+        .ptw-main-panel-nav div[role="radiogroup"] {
+            display:flex;
+            flex-wrap:wrap;
+            gap:.38rem .55rem;
+            align-items:center;
+        }
+
+        .ptw-main-panel-nav label {
+            border: 1px solid rgba(120,150,190,.34) !important;
+            background: rgba(15, 23, 42, .82) !important;
+            border-radius: 999px !important;
+            padding: .22rem .52rem !important;
+            margin: 0 !important;
+        }
+
+        .ptw-main-panel-nav label:has(input:checked) {
+            border-color: rgba(34,197,94,.72) !important;
+            background: rgba(16, 65, 52, .74) !important;
+            box-shadow: 0 0 14px rgba(34,197,94,.14);
         }
 
         .ptw-pill {
@@ -410,7 +477,7 @@ def render_ai_control_center() -> None:
         with tabs[5]:
             render_ai_heatmaps()
         with tabs[6]:
-            st.info("Strategi-test, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her. Legacy strategi-test nede i appen er deaktivert for å redusere duplikater.")
+            st.info("Strategi-test, Strategi-test Pro, prognose-vs-faktisk, scoreforklaring og backtest-læring er samlet her. Legacy backtesting/strategi-knapper er ryddet ut av hovedvisningen.")
             render_strategy_testing_workspace()
             render_backtest_learning_panel()
         with tabs[7]:

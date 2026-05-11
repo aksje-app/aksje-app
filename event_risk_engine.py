@@ -114,7 +114,7 @@ def _news_signal(ticker: str, limit: int = 8) -> Dict[str, Any]:
     try:
         from news import get_news
 
-        articles, error = get_news(ticker, limit=limit)
+        articles, error = get_news(ticker, limit=limit, source="event_risk")
     except Exception as exc:
         return {"available": False, "error": str(exc), "keyword_hits": 0}
 

@@ -78,11 +78,12 @@ from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
+from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.5.26: Professional Trading Workspace. Ingen auto-trading-kobling.
+# v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
 try:
     inject_workspace_css()
     render_workspace_title()
@@ -393,6 +394,40 @@ def _last_update_label():
     reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
     at = st.session_state.get("last_update_started_at_v148", "-")
     return f"{reason} · {at}"
+
+
+_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
+
+
+def _on_active_panel_change_v18531():
+    mark_choice_update("Oppdaterer hovedpanel")
+
+
+def _render_active_main_panel_selector_v18531():
+    """Top-level panel selector placed in the header area above the ticker banner."""
+    saved = (
+        st.session_state.get("active_main_panel_radio_v15")
+        or st.session_state.get("active_main_panel_persist_v15")
+        or st.session_state.get("active_main_panel_persist_v1412")
+        or "🇺🇸 USA"
+    )
+    if saved not in _PANEL_OPTIONS_V18531:
+        saved = "🇺🇸 USA"
+    st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
+    active = st.radio(
+        "Aktivt hovedpanel",
+        _PANEL_OPTIONS_V18531,
+        index=_PANEL_OPTIONS_V18531.index(saved),
+        horizontal=True,
+        key="active_main_panel_radio_v15",
+        label_visibility="collapsed",
+        on_change=_on_active_panel_change_v18531,
+        help="Bare valgt panel beregnes tungt. Widget-reruns oppdaterer valg, men skjulte paneler skal ikke starte nye analyser.",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.session_state["active_main_panel_persist_v15"] = active
+    st.session_state["active_main_panel_persist_v1412"] = active
+    return active
 
 
 def _market_status_chips_html():
@@ -4748,153 +4783,10 @@ def render_analysis(results, label):
     render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
     render_graph_explanation("rsi")
 
-    st.caption("🧪 Strategi-test er flyttet til AI Kontrollsenter → Testing & Learning.")
-
-    if st.button(f"Kjør strategi-test for {selected}", key=f"strategy_{label}_{selected}"):
-
-        df_strategy = item["hist"].copy()
-
-        # Legg til indikatorer
-        df_strategy["rsi"] = calculate_rsi(df_strategy)
-        macd_strategy, signal_strategy, _ = calculate_macd(df_strategy)
-        df_strategy["macd"] = macd_strategy
-        df_strategy["macd_signal"] = signal_strategy
-
-        value, trades, equity = run_strategy(df_strategy)
-        stats = strategy_stats(equity, trades)
-
-        s1, s2, s3, s4 = st.columns(4)
-        s1.metric("Sluttverdi", f"{value:,.0f} kr")
-        s2.metric("Total avkastning", f"{stats['total_return']}%")
-        s3.metric("Max drawdown", f"{stats['max_drawdown']}%")
-        s4.metric("Win rate", f"{stats['win_rate']}%")
-
-        s5, s6, s7 = st.columns(3)
-        s5.metric("Antall trades", stats["num_trades"])
-        s6.metric("Avg win/loss", f"{stats['avg_win']}% / {stats['avg_loss']}%")
-        s7.metric("Profit factor", stats["profit_factor"])
-
-        # HOTFIX v14.1 / Oppgave 38:
-        # equity kan være en pandas DataFrame. Da kan den ikke sjekkes med `if equity`,
-        # fordi pandas ikke vet om hele tabellen skal tolkes som True/False.
-        if equity is not None and not (hasattr(equity, "empty") and equity.empty):
-            eq_df = pd.DataFrame(equity, columns=["date", "value"])
-
-            fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(
-                x=eq_df["date"],
-                y=eq_df["value"],
-                mode="lines",
-                name="Portefølje"
-            ))
-
-            # Marker BUY/SELL punkter på grafen
-            if trades:
-                buy_x = [t["date"] for t in trades if t["type"] == "BUY"]
-                buy_y = [t["value"] for t in trades if t["type"] == "BUY"]
-                sell_x = [t["date"] for t in trades if t["type"] == "SELL"]
-                sell_y = [t["value"] for t in trades if t["type"] == "SELL"]
-
-                if buy_x:
-                    fig_eq.add_trace(go.Scatter(
-                        x=buy_x,
-                        y=buy_y,
-                        mode="markers",
-                        name="BUY",
-                        marker=dict(size=10, symbol="triangle-up")
-                    ))
-
-                if sell_x:
-                    fig_eq.add_trace(go.Scatter(
-                        x=sell_x,
-                        y=sell_y,
-                        mode="markers",
-                        name="SELL",
-                        marker=dict(size=10, symbol="triangle-down")
-                    ))
-
-            fig_eq.update_layout(
-                title="📈 Strategi utvikling (equity curve)",
-                template="plotly_dark",
-                height=420,
-                paper_bgcolor="#0b111c",
-                plot_bgcolor="#0b111c",
-            )
-
-            render_interactive_chart(fig_eq, use_container_width=True, key=f"equity_chart_{label}_{selected}")
-            render_graph_explanation("equity")
-
-        st.markdown("#### Siste trades")
-        if trades:
-            st.dataframe(pd.DataFrame(trades[-20:]), use_container_width=True)
-        else:
-            st.info("Ingen trades ble trigget med disse reglene.")
-
-        st.markdown("#### ⚙️ Strategi-optimalisering")
-        st.caption("Tester flere RSI/MACD-varianter og rangerer dem etter avkastning, risiko og win-rate.")
-
-        opt_df = optimize_strategy(df_strategy)
-
-        if opt_df.empty:
-            st.warning("Klarte ikke å optimalisere strategien.")
-        else:
-            st.dataframe(opt_df.head(10), use_container_width=True)
-
-            # HOTFIX v14.2 / Oppgave 39:
-            # Optimaliseringsresultater har hatt to ulike formater i appen:
-            # 1) bredt format: buy_rsi, sell_rsi, use_macd, total_return, max_drawdown
-            # 2) langt format: parameter, value, score
-            # Appen skal ikke krasje hvis enkelte nøkler mangler.
-            def _best_get(row, *keys, default="N/A"):
-                for key in keys:
-                    try:
-                        if key in row.index and pd.notna(row.get(key)):
-                            return row.get(key)
-                    except Exception:
-                        pass
-                return default
-
-            if {"parameter", "value"}.issubset(set(opt_df.columns)):
-                try:
-                    _opt_sorted = opt_df.sort_values("score", ascending=False) if "score" in opt_df.columns else opt_df
-                except Exception:
-                    _opt_sorted = opt_df
-                _top = _opt_sorted.iloc[0]
-                _parts = []
-                for _, _row in opt_df.head(10).iterrows():
-                    _param = _best_get(_row, "parameter", "Parameter")
-                    _value = _best_get(_row, "value", "Verdi")
-                    if _param != "N/A":
-                        _parts.append(f"{_param}: {_value}")
-                _score_txt = ""
-                _score = _best_get(_top, "score", "Score", default=None)
-                if _score is not None:
-                    _score_txt = f" | Beste score: {_score}"
-                st.success("Beste variant: " + " | ".join(_parts[:6]) + _score_txt)
-            else:
-                best = opt_df.iloc[0]
-                buy_rsi = _best_get(best, "buy_rsi", "max_buy_rsi", "Maks RSI for kjøp", "RSI kjøp")
-                sell_rsi = _best_get(best, "sell_rsi", "rsi_exit", "RSI exit", "RSI salg")
-                use_macd = _best_get(best, "use_macd", "MACD", default="N/A")
-                total_return = _best_get(best, "total_return", "total_return_pct", "Avkastning %")
-                max_drawdown = _best_get(best, "max_drawdown", "max_drawdown_pct", "Max drawdown %", "Max DD %")
-                st.success(
-                    f"Beste variant: BUY RSI < {buy_rsi}, "
-                    f"SELL RSI > {sell_rsi}, "
-                    f"MACD: {use_macd} | "
-                    f"Return: {total_return}% | "
-                    f"Max DD: {max_drawdown}%"
-                )
-
-    _strategy_default_tickers = []
-    for _r in (results or [])[:10]:
-        _t = _r.get("ticker") if isinstance(_r, dict) else None
-        if _t and _t not in _strategy_default_tickers:
-            _strategy_default_tickers.append(_t)
-    if selected and selected not in _strategy_default_tickers:
-        _strategy_default_tickers.insert(0, selected)
-    # v18.5.2: Legacy strategy-test Pro disabled; moved to AI Kontrollsenter -> Testing & Learning.
-    st.caption("🧪 Strategi-test er flyttet til AI Kontrollsenter → Testing & Learning.")
+    # v18.5.30 Legacy cleanup: standalone strategy testing and strategy
+    # optimization were removed from per-ticker analysis cards. Use
+    # AI Kontrollsenter -> Testing & Learning as the single source for
+    # Strategi-test, Strategi-test Pro and learning history.
 
     parts = item.get("score_parts", {})
     with st.expander("🧠 Score-forklaring", expanded=False):
@@ -4917,7 +4809,7 @@ def render_analysis(results, label):
     if not use_news:
         st.info("Nyheter/sentiment er slått av i sidepanelet.")
     elif st.button(f"Hent nyheter for {selected}", key=f"news_btn_{label}_{selected}"):
-        articles, error = get_news(selected.replace(".OL", ""), limit=6)
+        articles, error = get_news(selected.replace(".OL", ""), limit=6, source="manual", force=True)
 
         if error:
             st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
@@ -5803,6 +5695,9 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
+# v18.5.31: Hovedpanelvelger er flyttet til toppområdet rett over ticker-banneret.
+active_panel = _render_active_main_panel_selector_v18531()
+
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 try:
     render_live_market_banner()
@@ -5810,8 +5705,6 @@ try:
     render_ai_control_center()
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
-
-st.caption("v18.5.0: gammel duplikat-tittel er fjernet; hovedtittel ligger øverst.")
 
 # V15 / kontrollsenterstatus: ingen duplisert mobil-hurtigmeny i hovedbildet.
 # PC får en kompakt horisontal statusstrip som bruker høyreplassen ved Driftstatus.
@@ -5907,6 +5800,8 @@ _global_update_clicked_v181 = st.button(
     use_container_width=True,
     type="primary",
     help="Lagrer endringer og oppdaterer hele appen.",
+    on_click=set_global_busy,
+    kwargs={"label": "Oppdaterer hele appen", "detail": "Lagrer valg og starter tung oppdatering"},
 )
 
 if _global_update_clicked_v181:
@@ -5917,6 +5812,7 @@ if _global_update_clicked_v181:
     _clear_pending_manual_change()
     _request_global_apply_v161()
     _set_update_reason("Global oppdatering / Oppdater hele appen")
+    finish_global_busy("Klar", "Global oppdatering er startet og valgene er lagret.")
     st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
 
 if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
@@ -6000,23 +5896,7 @@ if _watchlist_scan_allowed_v16:
         else:
             st.info("Ingen nye watchlist-signaler akkurat nå.")
 
-st.caption("Velg panel. Bare valgt panel beregnes tungt, slik at skjulte faner ikke starter nye analyser.")
-st.markdown("<div class='panel-radio-label'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
-_panel_options_v1412 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Backtesting", "🧪 Paper Trading"]
-_saved_panel_v15 = st.session_state.get("active_main_panel_persist_v15") or st.session_state.get("active_main_panel_persist_v1412") or "🇺🇸 USA"
-if _saved_panel_v15 not in _panel_options_v1412:
-    _saved_panel_v15 = "🇺🇸 USA"
-_panel_index_v15 = _panel_options_v1412.index(_saved_panel_v15)
-active_panel = st.radio(
-    "Aktivt hovedpanel",
-    _panel_options_v1412,
-    index=_panel_index_v15,
-    horizontal=True,
-    label_visibility="collapsed",
-    key="active_main_panel_radio_v15",
-)
-st.session_state["active_main_panel_persist_v15"] = active_panel
-st.session_state["active_main_panel_persist_v1412"] = active_panel
+# v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
 
 if active_panel == "🇺🇸 USA":
     us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False)
@@ -6124,18 +6004,6 @@ elif active_panel == "⭐ Top Picks":
 
 elif active_panel == "🚀 IPO":
     render_ipo()
-
-elif active_panel == "🧪 Backtesting":
-    bt_market = st.radio("Backtest-marked", ["USA", "Norge", "Sverige"], horizontal=True)
-    if bt_market == "USA":
-        bt_tickers = tickers_us
-    elif bt_market == "Norge":
-        bt_tickers = get_norwegian_tickers(limit=max_count)
-    else:
-        bt_tickers = get_swedish_tickers(limit=max_count)
-
-# v18.5.2: Legacy strategy render disabled; moved to AI Kontrollsenter -> Testing & Learning.
-    st.caption("🧪 Strategi-test er flyttet til AI Kontrollsenter → Testing & Learning.")
 
 elif active_panel == "🧪 Paper Trading":
     render_paper_trading_dashboard()

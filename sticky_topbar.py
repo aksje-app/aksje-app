@@ -16,6 +16,7 @@ import streamlit as st
 from alert_center import collect_common_alerts
 from forecast_store import summarize_alerts, load_learning_stats
 from app_version import get_app_version
+from global_busy import global_busy_chip_html
 
 
 def _safe_get_session(key: str, default: Any = None) -> Any:
@@ -89,6 +90,7 @@ def render_sticky_topbar() -> None:
             <span class="ptw-pill">🧠 Learning: {samples}</span>
           </div>
           <div class="ptw-topbar-right">
+            {global_busy_chip_html()}
             <span class="ptw-subtle">Professional Trading Workspace {get_app_version()}</span>
           </div>
         </div>
