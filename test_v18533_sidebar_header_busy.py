@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_v18533_version_label():
-    assert 'APP_VERSION = "v18.5.36"' in Path('app_version.py').read_text()
+    assert 'APP_VERSION = "v18.5.37"' in Path('app_version.py').read_text()
 
 
 def test_sidebar_admin_is_compact_without_dataframe():

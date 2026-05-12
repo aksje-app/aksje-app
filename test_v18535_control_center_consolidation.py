@@ -8,7 +8,7 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.5.36"' in version
+assert 'APP_VERSION = "v18.5.37"' in version
 assert "def render_ai_control_center(extra_panels" in layout
 assert "st.tabs(" not in layout
 assert "ai_control_center_active_panel_v18535" in layout

@@ -6,7 +6,7 @@ def test_app_version_is_single_source_for_topbar_and_universe_service():
     sticky = Path("sticky_topbar.py").read_text(encoding="utf-8")
     universe_service = Path("services/universe_service.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.5.36"' in version
+    assert 'APP_VERSION = "v18.5.37"' in version
     assert "get_app_version()" in sticky
     assert "get_app_version()" in universe_service
     assert "Professional Trading Workspace v18.4.7" not in sticky
