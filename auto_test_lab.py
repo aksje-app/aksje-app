@@ -1,10 +1,10 @@
 """
 auto_test_lab.py
 
-v18.5.37 Auto Test Lab Progress + Safe Run Controls.
+v18.5.43 Auto Test Lab Progress + Fund Mode.
 
 Pure helper layer for testing many tickers against the app's existing signal
-stack without forcing the user to type one ticker for each module.
+stack without forcing the user to type one ticker/fund for each module.
 
 The module is intentionally side-effect free:
 - no Streamlit dependency
@@ -748,3 +748,109 @@ def run_auto_test_lab(
             "total_tests": total_tests,
         },
     }
+
+
+# v18.5.43: Fund / ETF mode for Auto Test Lab -------------------------------
+
+def estimate_auto_lab_fund_run(
+    symbols: Sequence[str],
+    *,
+    test_mode: str = "Normal",
+    include_benchmark: bool = True,
+    fetch_costs: bool = True,
+) -> Dict[str, Any]:
+    """Estimate Auto Test Lab scope for Fond / ETF mode.
+
+    This wrapper keeps the Auto Test Lab UI generic while reusing the dedicated
+    fund engine. It performs no network calls.
+    """
+    try:
+        from fund_etf_analyzer import estimate_fund_etf_run
+        estimate = dict(estimate_fund_etf_run(
+            symbols,
+            test_mode=test_mode,
+            include_benchmark=include_benchmark,
+            fetch_costs=fetch_costs,
+        ))
+    except Exception:
+        clean = []
+        seen = set()
+        for raw in symbols or []:
+            sym = normalize_ticker(raw)
+            if sym and sym not in seen:
+                clean.append(sym)
+                seen.add(sym)
+        tests = ["Fondstype", "Kostnad", "Avkastning", "Risiko", "Datakvalitet"]
+        estimate = {
+            "mode": test_mode,
+            "funds": len(clean),
+            "tests": tests,
+            "tests_per_fund": len(tests),
+            "total_tests": len(clean) * len(tests),
+            "price_calls": len(clean),
+            "metadata_calls": len(clean) if fetch_costs else 0,
+            "benchmark_calls": 1 if include_benchmark and clean else 0,
+            "load_label": "Ukjent",
+        }
+    estimate["lab_mode"] = "Fond / ETF"
+    estimate["asset_type"] = "fund_etf"
+    estimate["items_label"] = "fond/ETF"
+    return estimate
+
+
+def run_auto_test_lab_fund_mode(
+    symbols: Sequence[str],
+    *,
+    data_provider: Callable[[str], Optional[Mapping[str, Any]]],
+    benchmark_provider: Optional[Callable[[str], Optional[Mapping[str, Any]]]] = None,
+    benchmark_symbol: str = "SPY",
+    fund_type: str = "Alle",
+    objective: str = "Balansert",
+    test_mode: str = "Normal",
+    progress_callback: Optional[ProgressCallback] = None,
+    should_stop: Optional[StopCallback] = None,
+    max_funds: int = 40,
+    selection_info: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run Auto Test Lab in Fond / ETF mode.
+
+    It delegates fund-specific calculations to ``fund_etf_analyzer`` but returns
+    an Auto-Test-Lab-shaped payload so the UI can render stocks and funds from
+    the same control center.
+    """
+    from fund_etf_analyzer import run_fund_etf_lab
+
+    result = dict(run_fund_etf_lab(
+        symbols,
+        data_provider=data_provider,
+        benchmark_provider=benchmark_provider,
+        benchmark_symbol=benchmark_symbol,
+        fund_type=fund_type,
+        objective=objective,
+        test_mode=test_mode,
+        progress_callback=progress_callback,
+        should_stop=should_stop,
+        max_funds=max_funds,
+        selection_info=selection_info,
+    ))
+    ranked = list(result.get("ranked") or [])
+    core_satellite = dict(result.get("core_satellite") or {})
+    comparator = dict(result.get("comparator") or {})
+    dq_summary = dict(result.get("decision_quality_summary") or {})
+    result["lab_mode"] = "Fond / ETF"
+    result["asset_type"] = "fund_etf"
+    result["best_funds"] = ranked[:10]
+    result["best_index_etf"] = list(result.get("index_candidates") or [])[:10]
+    result["active_funds_with_evidence"] = list(result.get("active_candidates") or [])[:10]
+    result["requires_more_evidence"] = list(result.get("needs_proof") or [])[:15]
+    result["best_core_satellite"] = core_satellite.get("portfolio") or []
+    result["fund_comparator"] = comparator
+    result["fund_decision_quality_summary"] = dq_summary
+    summary = dict(result.get("summary") or {})
+    summary.setdefault("text", f"Auto Test Lab Fondmodus analyserte {summary.get('analyzed', len(ranked))} fond/ETF-er.")
+    summary["best_symbol"] = summary.get("best_symbol") or (ranked[0].get("symbol") if ranked else None)
+    summary["best_quality"] = summary.get("best_quality") or (ranked[0].get("decision_quality") if ranked else None)
+    summary["core_satellite_positions"] = len(core_satellite.get("portfolio") or [])
+    summary["comparator_count"] = comparator.get("count", len(ranked))
+    result["summary"] = summary
+    return result

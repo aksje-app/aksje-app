@@ -1,11 +1,29 @@
-# Project handoff – v18.5.38 Fund / ETF Analyzer v1 + Progress
+# Project handoff – v18.5.45 Paper Trading Funds + ETF Support
 
-Header should show `Professional Trading Workspace v18.5.38`.
+Header should show `Professional Trading Workspace v18.5.45`.
 
-Key update: Kontrollsenter has a new lazy `🏦 Fond / ETF-analyse` panel. It analyses funds and ETFs only when the user presses the run button. It supports Indeksfond / Aktivt fond / ETF / Alle, manual fund/ETF ticker lists, Rask/Normal/Grundig test modes, benchmark comparison, cost/risk/return/max drawdown metrics, a fund-specific Decision Quality score and visible per-fund/per-test progress.
+## New in v18.5.45
 
-The fund module is intentionally separate from stock scoring: index funds/ETFs are treated as potential low-cost foundation holdings, while active funds must show enough benchmark/value evidence to justify costs.
+- Paper Trading now supports simulated fund/ETF purchases in addition to stocks.
+- Added amount-based paper buy for:
+  - ETF
+  - Indeksfond
+  - Aktivt fond
+  - Fond
+- Added partial/all sell support for paper fund/ETF positions.
+- Added optional manual price/NAV entry and yfinance fetch button where available.
+- Added simulated monthly savings-plan records for funds/ETF.
+- Paper positions and trades now carry `asset_type`, `units_label`, `currency`, `nav_date`, and order metadata.
+- Portfolio analysis now reads Paper Trading positions with correct asset type instead of treating all paper positions as stocks.
+- No real broker trading is active.
 
-Runtime data stays out of GitHub; keep only `.gitkeep` in `data/`, `data/forecasts/` and `data/services/`.
+## Storage
 
-Current focus: v18.5.38 Fund / ETF Analyzer v1 + Progress.
+- Runtime data is not included in GitHub/zip.
+- `data/`, `data/forecasts/`, and `data/services/` should contain only `.gitkeep`.
+- Persistent runtime storage should go through `StorageService` / Postgres where configured.
+
+## Verification
+
+- `python -m compileall .`
+- `pytest -q` → 87 passed

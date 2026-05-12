@@ -10,7 +10,7 @@ except Exception:
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STORE_FILE = Path("paper_portfolio.json")  # legacy fallback only; new runtime storage uses StorageService.
 STORAGE_KEY = "paper_trading/portfolio.json"
-DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": []}
+DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": [], "fund_savings_plans": []}
 
 
 def _storage():
@@ -29,6 +29,7 @@ def _merge_portfolio(data):
         out.setdefault("cash", 100000.0)
         out.setdefault("positions", {})
         out.setdefault("trades", [])
+        out.setdefault("fund_savings_plans", [])
     return out
 
 def using_postgres():
@@ -94,9 +95,18 @@ def init_db():
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS opened_at TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_time TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_signal TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS asset_type TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS units_label TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS currency TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS nav_date TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS purchase_mode TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS confidence INTEGER;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS asset_type TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS currency TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS nav_date TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS order_kind TEXT;",
     ]
     for q in migrations:
         cur.execute(q)
@@ -186,7 +196,12 @@ def load_portfolio():
         cur.execute("""
             SELECT ticker, shares, COALESCE(entry_price, avg_price) AS entry_price,
                    last_price, stop_loss, take_profit, trailing_stop,
-                   highest_price, confidence, reason, opened_at
+                   highest_price, confidence, reason, opened_at,
+                   COALESCE(asset_type, 'Aksje') AS asset_type,
+                   COALESCE(units_label, 'shares') AS units_label,
+                   COALESCE(currency, '') AS currency,
+                   COALESCE(nav_date, '') AS nav_date,
+                   COALESCE(purchase_mode, '') AS purchase_mode
             FROM paper_positions
             ORDER BY ticker
         """)
@@ -206,10 +221,19 @@ def load_portfolio():
                 "confidence": int(r[8] or 0),
                 "reason": r[9] or "",
                 "opened_at": r[10] or "",
+                "asset_type": r[11] or "Aksje",
+                "units_label": r[12] or "shares",
+                "currency": r[13] or "",
+                "nav_date": r[14] or "",
+                "purchase_mode": r[15] or "",
             }
 
         cur.execute("""
-            SELECT time, type, ticker, price, shares, amount, confidence, pnl_pct, reason
+            SELECT time, type, ticker, price, shares, amount, confidence, pnl_pct, reason,
+                   COALESCE(asset_type, '') AS asset_type,
+                   COALESCE(currency, '') AS currency,
+                   COALESCE(nav_date, '') AS nav_date,
+                   COALESCE(order_kind, '') AS order_kind
             FROM paper_trades
             ORDER BY id DESC
             LIMIT 300
@@ -226,6 +250,10 @@ def load_portfolio():
                 "confidence": int(r[6] or 0),
                 "pnl_pct": None if r[7] is None else float(r[7]),
                 "reason": r[8] or "",
+                "asset_type": r[9] or "",
+                "currency": r[10] or "",
+                "nav_date": r[11] or "",
+                "order_kind": r[12] or "",
             })
 
         conn.close()
@@ -263,8 +291,8 @@ def save_portfolio(portfolio):
             cur.execute("""
                 INSERT INTO paper_positions
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
-                 trailing_stop, highest_price, confidence, reason, opened_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 trailing_stop, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 ticker,
                 float(pos.get("shares", 0)),
@@ -278,6 +306,11 @@ def save_portfolio(portfolio):
                 int(pos.get("confidence", 0)),
                 pos.get("reason", ""),
                 pos.get("opened_at", ""),
+                pos.get("asset_type", "Aksje"),
+                pos.get("units_label", "shares"),
+                pos.get("currency", ""),
+                pos.get("nav_date", ""),
+                pos.get("purchase_mode", ""),
             ))
 
         conn.commit()
@@ -308,8 +341,8 @@ def add_trade(portfolio, trade):
 
         cur.execute("""
             INSERT INTO paper_trades
-            (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason, asset_type, currency, nav_date, order_kind)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             next_id,
             trade["time"],
@@ -321,6 +354,10 @@ def add_trade(portfolio, trade):
             int(trade.get("confidence", 0) or 0),
             trade.get("pnl_pct"),
             trade.get("reason", ""),
+            trade.get("asset_type", ""),
+            trade.get("currency", ""),
+            trade.get("nav_date", ""),
+            trade.get("order_kind", ""),
         ))
         conn.commit()
         conn.close()
@@ -329,7 +366,7 @@ def add_trade(portfolio, trade):
         save_portfolio(portfolio)
 
 def reset_portfolio(start_cash=100000.0):
-    p = {"cash": float(start_cash), "positions": {}, "trades": []}
+    p = {"cash": float(start_cash), "positions": {}, "trades": [], "fund_savings_plans": []}
     if using_postgres():
         init_db()
         conn = get_conn()

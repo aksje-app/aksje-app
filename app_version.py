@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.38"
-APP_VERSION_NAME = "Fund / ETF Analyzer v1 + Progress"
+APP_VERSION = "v18.5.45"
+APP_VERSION_NAME = "Paper Trading Funds + ETF Support"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 

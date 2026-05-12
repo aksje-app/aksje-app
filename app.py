@@ -48,7 +48,7 @@ from market_selector import auto_rank_market, build_top_picks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
-from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell
+from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 from strategy_test_pro import render_strategy_test_pro
 from signal_engine import calculate_signal_intelligence
@@ -5391,6 +5391,105 @@ def render_paper_trading_dashboard():
     render_auto_trading_workspace()
     render_trading_rules_workspace()
 
+    st.markdown("#### 🏦 Simulert kjøp av fond / ETF")
+    st.caption("Fond/ETF handles som paper trading med beløp. ETF-er bruker siste pris, mens vanlige fond kan bruke NAV/manuell pris. Ekte handel er ikke aktivert.")
+    with st.container():
+        f1, f2, f3, f4 = st.columns([1.0, 1.0, 1.0, 0.9])
+        with f1:
+            fund_symbol = st.text_input("Fond/ETF-symbol", value=st.session_state.get("paper_fund_symbol_v18545", "VOO"), key="paper_fund_symbol_v18545").strip().upper()
+        with f2:
+            fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Fond"], key="paper_fund_type_v18545")
+        with f3:
+            fund_amount = st.number_input("Beløp", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
+        with f4:
+            fund_currency = st.selectbox("Valuta", ["NOK", "USD", "EUR", "SEK"], key="paper_fund_currency_v18545")
+
+        pf1, pf2, pf3 = st.columns([1.0, 1.0, 0.9])
+        with pf1:
+            default_price = float(st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
+            fund_price = st.number_input("Pris / NAV", min_value=0.0, max_value=1_000_000.0, value=default_price, step=0.01, key="paper_fund_price_input_v18545")
+        with pf2:
+            purchase_mode = st.selectbox("Kjøpstype", ["Engangskjøp", "Månedlig spareplan"], key="paper_fund_purchase_mode_v18545")
+        with pf3:
+            if st.button("Hent pris/NAV", key="paper_fund_fetch_price_v18545", use_container_width=True):
+                if yf is None:
+                    st.warning("yfinance er ikke tilgjengelig i miljøet.")
+                elif not fund_symbol:
+                    st.warning("Skriv inn symbol først.")
+                else:
+                    try:
+                        hist = yf.Ticker(fund_symbol).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+                        if hist is not None and not hist.empty and "Close" in hist:
+                            latest_price = float(hist["Close"].dropna().iloc[-1])
+                            st.session_state["paper_fund_price_v18545"] = latest_price
+                            st.success(f"Hentet {fund_symbol}: {latest_price:.4f}")
+                            st.rerun()
+                        else:
+                            st.warning("Fant ikke pris/NAV. Skriv inn manuelt.")
+                    except Exception as exc:
+                        st.warning(f"Kunne ikke hente pris/NAV: {exc}")
+
+        ba, bb = st.columns([1.0, 1.0])
+        with ba:
+            if st.button("🟢 Paper-kjøp fond/ETF", key="paper_fund_buy_v18545", type="primary", use_container_width=True):
+                price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
+                ok, msg = paper_buy_instrument(
+                    fund_symbol,
+                    price_to_use,
+                    float(fund_amount or 0),
+                    asset_type=fund_asset_type,
+                    confidence=75,
+                    reason=f"UI paper {fund_asset_type}: {purchase_mode}",
+                    currency=fund_currency,
+                    nav_date=datetime.now().date().isoformat(),
+                    purchase_mode=purchase_mode,
+                )
+                st.success(msg) if ok else st.error(msg)
+                if ok:
+                    st.rerun()
+        with bb:
+            fund_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) in {"ETF", "Fond", "Indeksfond", "Aktivt fond"}}
+            sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
+            sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v18545")
+            sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
+            if st.button("🔴 Paper-selg fond/ETF", key="paper_fund_sell_v18545", use_container_width=True, disabled=(sell_symbol == "Ingen")):
+                price_to_use = float(sell_price or (fund_positions.get(sell_symbol, {}) or {}).get("last_price", 0.0) or 0.0)
+                ok, msg = paper_sell_instrument(
+                    sell_symbol,
+                    price_to_use,
+                    sell_amount=None if int(sell_amount or 0) <= 0 else float(sell_amount),
+                    reason="UI paper fond/ETF-salg",
+                    currency=fund_currency,
+                    nav_date=datetime.now().date().isoformat(),
+                )
+                st.success(msg) if ok else st.error(msg)
+                if ok:
+                    st.rerun()
+
+        if purchase_mode == "Månedlig spareplan":
+            if st.button("💾 Lagre spareplan som simulering", key="paper_fund_save_plan_v18545", use_container_width=True):
+                plan = {
+                    "symbol": fund_symbol,
+                    "asset_type": fund_asset_type,
+                    "monthly_amount": float(fund_amount or 0),
+                    "currency": fund_currency,
+                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                    "status": "Simulert",
+                }
+                portfolio.setdefault("fund_savings_plans", []).append(plan)
+                save_portfolio(portfolio)
+                st.success("Spareplan lagret som simulering ✅")
+                st.rerun()
+
+        plans = list(portfolio.get("fund_savings_plans") or [])
+        if plans:
+            st.markdown("<div class='ptw-control-panel-title'>Simulerte spareplaner</div>", unsafe_allow_html=True)
+            for plan in plans[-5:]:
+                st.markdown(
+                    f"<div class='v18-dark-row'><b>{html.escape(str(plan.get('symbol','-')))}</b> · {html.escape(str(plan.get('asset_type','Fond')))} · {float(plan.get('monthly_amount') or 0):,.0f} {html.escape(str(plan.get('currency','NOK')))} / mnd · {html.escape(str(plan.get('status','Simulert')))}</div>",
+                    unsafe_allow_html=True,
+                )
+
     st.markdown("#### Posisjoner")
     positions = portfolio.get("positions", {})
     if positions:
@@ -5403,10 +5502,13 @@ def render_paper_trading_dashboard():
             pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
             rows.append({
                 "ticker": ticker,
-                "shares": round(shares, 4),
-                "avg_price": round(avg_price, 2),
-                "last_price": round(last_price, 2),
+                "type": pos.get("asset_type", "Aksje"),
+                "units": round(shares, 4),
+                "unit_label": pos.get("units_label", "shares"),
+                "avg_price": round(avg_price, 4),
+                "last_price": round(last_price, 4),
                 "value": round(value, 2),
+                "currency": pos.get("currency", ""),
                 "pnl_pct": round(pnl_pct, 2),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
@@ -6066,9 +6168,20 @@ def _render_auto_lab_combination_rows_v18536(rows, limit=6):
 
 
 def render_auto_test_lab_control_center_v18536():
-    """On-demand research lab for testing many tickers against the decision stack."""
+    """On-demand research lab for testing many tickers/funds against the decision stack."""
     st.subheader("🔬 Auto Test Lab")
-    st.caption("Velg univers én gang. Panelet tester kandidater mot score, momentum, risiko, event-risk, learning og datakvalitet når du trykker Kjør.")
+    st.caption("Velg én modus og ett univers. Panelet tester kandidater automatisk når du trykker Kjør; skjulte moduser starter ingen tunge jobber.")
+
+    lab_mode = st.radio(
+        "Auto Test Lab-modus",
+        ["Aksjer", "Fond / ETF"],
+        horizontal=True,
+        key="auto_lab_mode_v18543",
+        help="Fond / ETF-modus bruker fondsmotoren: kostnad, benchmark, aktiv merverdi, grunnmur/satellitt og Fond Decision Quality.",
+    )
+    if lab_mode == "Fond / ETF":
+        render_auto_test_lab_fund_mode_v18543()
+        return
 
     col_a, col_b, col_c, col_d = st.columns([1.25, 1.0, 0.9, 0.9])
     with col_a:
@@ -6242,7 +6355,7 @@ def render_auto_test_lab_control_center_v18536():
         st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
 
 
-# v18.5.38: Fond / ETF Analyzer v1 + Progress.
+# v18.5.43: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
 def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limit=8):
     import html as _html
     rows = list(rows or [])[: int(limit or 8)]
@@ -6285,12 +6398,313 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
         )
 
 
+def _render_fund_comparator_v18539(comparator, title="Fond vs fond-sammenligning"):
+    import html as _html
+    comp = dict(comparator or {})
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not comp or not comp.get("rows"):
+        st.markdown("<div class='v18-dark-row'>Ingen sammenligning ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
+        return
+    leaders = comp.get("leaders") or {}
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;'>
+          <span class='v18-status-chip green'>Billigst: {_html.escape(str(leaders.get('billigst') or '-'))}</span>
+          <span class='v18-status-chip green'>Best kvalitet: {_html.escape(str(leaders.get('best_kvalitet') or '-'))}</span>
+          <span class='v18-status-chip yellow'>Best etter kostnad: {_html.escape(str(leaders.get('best_etter_kostnad') or '-'))}</span>
+          <span class='v18-status-chip yellow'>Best risikojustert: {_html.escape(str(leaders.get('best_risikojustert') or '-'))}</span>
+          <span class='v18-status-chip green'>Best grunnmur: {_html.escape(str(leaders.get('best_grunnmur') or '-'))}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    rows = list(comp.get("rows") or [])[:10]
+    for r in rows:
+        symbol = _html.escape(str(r.get("symbol") or "-"))
+        ftype = _html.escape(str(r.get("fund_type") or "-"))
+        quality = r.get("decision_quality", "-")
+        fee = "ukjent" if r.get("expense_ratio_pct") is None else f"{r.get('expense_ratio_pct')}%"
+        ret = "ukjent" if r.get("period_return_pct") is None else f"{r.get('period_return_pct')}%"
+        vol = "ukjent" if r.get("volatility_pct") is None else f"{r.get('volatility_pct')}%"
+        dd = "ukjent" if r.get("max_drawdown_pct") is None else f"{r.get('max_drawdown_pct')}%"
+        excess = "ukjent" if r.get("excess_return_pct") is None else f"{r.get('excess_return_pct')}%"
+        evidence = str(r.get("active_evidence_status") or "-")
+        cls = "green" if evidence == "Godkjent" else ("yellow" if evidence in {"Usikker", "Ikke relevant"} else "red")
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.18rem 0;padding:.36rem .5rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;'>
+                <b>{symbol}</b><span>{ftype}</span><span>Kvalitet <b>{quality}</b></span><span>Kostnad {fee}</span><span>Avkastning {ret}</span><span>Vol {vol}</span><span>DD {dd}</span><span>Mot bench {excess}</span><span class='v18-status-chip {cls}'>Aktiv bevis: {_html.escape(evidence)}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"):
+    import html as _html
+    active = [dict(r) for r in (rows or []) if dict(r).get("fund_type") == "Aktivt fond"]
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not active:
+        st.markdown("<div class='v18-dark-row'>Ingen aktive fond i denne kjøringen.</div>", unsafe_allow_html=True)
+        return
+    for row in active[:8]:
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        status = str(row.get("active_evidence_status") or "Mangler data")
+        score = row.get("active_evidence_score")
+        msg = _html.escape(str(row.get("active_evidence_message") or ""))
+        excess = row.get("excess_return_pct")
+        fee = row.get("expense_ratio_pct")
+        cls = "green" if status == "Godkjent" else ("yellow" if status == "Usikker" else "red")
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='border-color:rgba(245,158,11,.35);'>
+              <div style='display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;'>
+                <b>{symbol}</b>
+                <span class='v18-status-chip {cls}'>{_html.escape(status)} · {score if score is not None else '-'}/100</span>
+              </div>
+              <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.18rem;'>Meravkastning mot benchmark: {excess if excess is not None else 'ukjent'}% · Kostnad: {fee if fee is not None else 'ukjent'}%</div>
+              <div style='font-size:.76rem;color:rgba(254,226,226,.86);margin-top:.18rem;'>{msg}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+
+
+def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality"):
+    """Render hardened Fund Decision Quality without dataframes/white boxes."""
+    import html as _html
+    dq = dict(summary or {})
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not dq or not dq.get("rows"):
+        st.markdown("<div class='v18-dark-row'>Ingen Fond Decision Quality ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
+        return
+    avg = dq.get("average_quality")
+    best = _html.escape(str(dq.get("best_symbol") or "-"))
+    grade_counts = dq.get("grade_counts") or {}
+    role_counts = dq.get("role_counts") or {}
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(59,130,246,.45);'>
+          <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+            <b>Fond Decision Quality</b>
+            <span class='v18-status-chip green'>Snitt {avg if avg is not None else '-'}/100</span>
+            <span class='v18-status-chip green'>Best: {best}</span>
+            <span class='v18-status-chip yellow'>Høy: {_html.escape(str(grade_counts.get('Høy', 0)))}</span>
+            <span class='v18-status-chip yellow'>Middels: {_html.escape(str(grade_counts.get('Middels', 0)))}</span>
+            <span class='v18-status-chip red'>Lav: {_html.escape(str(grade_counts.get('Lav', 0)))}</span>
+            <span class='v18-status-chip green'>Grunnmur: {_html.escape(str(role_counts.get('Grunnmur', 0)))}</span>
+            <span class='v18-status-chip yellow'>Satellitt: {_html.escape(str(role_counts.get('Satellitt', 0)))}</span>
+          </div>
+          <div style='font-size:.77rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>Score er herdet med kostnadseffekt over tid, rolleegnethet, aktiv merverdi, risiko og datakvalitet.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for row in list(dq.get("rows") or [])[:8]:
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        ftype = _html.escape(str(row.get("fund_type") or "-"))
+        quality = row.get("decision_quality", "-")
+        grade = str(row.get("grade") or "-")
+        decision = _html.escape(str(row.get("decision") or "-"))
+        role = _html.escape(str(row.get("recommended_role") or "-"))
+        cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
+        comps = row.get("component_scores") or {}
+        role_scores = row.get("role_scores") or {}
+        drivers = "; ".join(str(x) for x in (row.get("drivers") or [])[:2])
+        cautions = "; ".join(str(x) for x in (row.get("cautions") or [])[:2])
+        why = "; ".join(str(x) for x in (row.get("why_not_100") or [])[:2])
+        cost = comps.get("cost", "-")
+        risk = comps.get("risk", "-")
+        bench = comps.get("benchmark", "-")
+        data_q = comps.get("data", "-")
+        cost_impact = comps.get("cost_impact", "-")
+        core_score = role_scores.get("grunnmur_score", "-")
+        sat_score = role_scores.get("satellitt_score", "-")
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.22rem 0;padding:.44rem .55rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+                <b>{symbol}</b>
+                <span>{ftype}</span>
+                <span class='v18-status-chip {cls}'>{_html.escape(grade)} · {quality}/100</span>
+                <span class='v18-status-chip yellow'>Rolle: {role}</span>
+                <span>{decision}</span>
+              </div>
+              <div style='font-size:.75rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>Kostnad {cost} · Kostnadstid {cost_impact} · Risiko {risk} · Benchmark {bench} · Data {data_q}</div>
+              <div style='font-size:.75rem;color:rgba(226,232,240,.82);margin-top:.10rem;'>Grunnmur-score {core_score} · Satellitt-score {sat_score}</div>
+              <div style='font-size:.74rem;color:rgba(209,250,229,.86);margin-top:.10rem;'>+ {_html.escape(drivers or 'Ingen tydelig hoveddriver')}</div>
+              <div style='font-size:.74rem;color:rgba(254,226,226,.86);margin-top:.10rem;'>⚠ {_html.escape(cautions or why or 'Ingen store røde flagg')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    warnings = list(dq.get("warnings") or [])
+    if warnings:
+        st.markdown(
+            "<div class='v18-dark-row' style='border-color:rgba(245,158,11,.38);'><b>Merk:</b> "
+            + _html.escape(" ".join(str(x) for x in warnings[:3]))
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-forslag"):
+    import html as _html
+    cs = dict(core_satellite or {})
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not cs or not cs.get("allocation"):
+        warnings = cs.get("warnings") or ["Kjør Fond / ETF-analyse først."]
+        st.markdown(
+            f"<div class='v18-dark-row'>Ingen allokering foreslått ennå. {_html.escape(' '.join(str(x) for x in warnings[:2]))}</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    profile = _html.escape(str(cs.get("profile") or "Balansert"))
+    avg_q = cs.get("average_quality")
+    core_pct = cs.get("target_core_pct", "-")
+    sat_pct = cs.get("target_satellite_pct", "-")
+    summary = _html.escape(str(cs.get("summary") or ""))
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(34,197,94,.42);'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <b>Porteføljeforslag: {profile}</b>
+            <span class='v18-status-chip green'>Grunnmur {core_pct}%</span>
+            <span class='v18-status-chip yellow'>Satellitter {sat_pct}%</span>
+            <span class='v18-status-chip green'>Kvalitet {avg_q if avg_q is not None else '-'}/100</span>
+          </div>
+          <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>{summary}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for row in list(cs.get("allocation") or [])[:10]:
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        role = _html.escape(str(row.get("role") or "-"))
+        role_cls = "green" if role == "Grunnmur" else "yellow"
+        weight = row.get("weight_pct", 0)
+        quality = row.get("decision_quality", "-")
+        ftype = _html.escape(str(row.get("fund_type") or "-"))
+        reason = _html.escape(str(row.get("reason") or ""))
+        cost = "ukjent" if row.get("expense_ratio_pct") is None else f"{row.get('expense_ratio_pct')}%"
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.2rem 0;padding:.42rem .55rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;'>
+                <b>{symbol}</b>
+                <span class='v18-status-chip {role_cls}'>{role}</span>
+                <span>Vekt <b>{weight}%</b></span>
+                <span>Kvalitet <b>{quality}</b></span>
+                <span>{ftype}</span>
+                <span>Kostnad {cost}</span>
+              </div>
+              <div style='font-size:.76rem;color:rgba(191,219,254,.86);margin-top:.16rem;'>{reason}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    warnings = list(cs.get("warnings") or [])
+    needs = list(cs.get("needs_proof") or [])
+    avoid = list(cs.get("avoid") or [])
+    if warnings:
+        st.markdown(
+            "<div class='v18-dark-row' style='border-color:rgba(245,158,11,.38);'>" +
+            "<b>Merk:</b> " + _html.escape(" ".join(str(x) for x in warnings[:3])) +
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    if needs or avoid:
+        with st.expander("Kandidater uten plass i forslaget", expanded=False):
+            for row in needs[:8]:
+                st.caption(f"{row.get('symbol')}: Krever mer bevis · {row.get('reason')}")
+            for row in avoid[:8]:
+                st.caption(f"{row.get('symbol')}: Unngå · {row.get('reason')}")
+
+
+
+def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
+    """Render compact cost-impact cards without large white dataframes."""
+    import html as _html
+    from fund_etf_analyzer import build_fund_cost_impact
+
+    rows = list((result or {}).get("ranked") or [])
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns([1.0, 1.0, 1.0, 0.9])
+    with c1:
+        start_amount = st.number_input("Startbeløp", min_value=0, max_value=100_000_000, value=100_000, step=10_000, key="fund_cost_start_v18541")
+    with c2:
+        monthly_saving = st.number_input("Månedlig sparing", min_value=0, max_value=2_000_000, value=2_000, step=500, key="fund_cost_monthly_v18541")
+    with c3:
+        annual_return = st.number_input("Avkastning før kostnad %", min_value=-20.0, max_value=30.0, value=7.0, step=0.25, key="fund_cost_return_v18541")
+    with c4:
+        years = st.selectbox("Horisont", [10, 20, 30], index=1, key="fund_cost_years_v18541")
+
+    impact = build_fund_cost_impact(
+        rows,
+        start_amount=float(start_amount or 0),
+        monthly_saving=float(monthly_saving or 0),
+        annual_return_pct=float(annual_return or 0),
+        years=int(years or 20),
+        include_standard_levels=True,
+    )
+    summary = impact.get("summary") or {}
+    diff = summary.get("difference_best_worst")
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(59,130,246,.48);'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <b>Kostnadseffekt over {int(impact.get('years') or years)} år</b>
+            <span class='v18-status-chip green'>Baseline: {impact.get('baseline_fee_pct')}%</span>
+            <span class='v18-status-chip yellow'>Forskjell billigst/dyrest: {diff:,.0f} kr</span>
+          </div>
+          <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.18rem;'>
+            Start {float(start_amount or 0):,.0f} kr · Månedlig {float(monthly_saving or 0):,.0f} kr · Forventet avkastning før kostnad {float(annual_return or 0):.2f}%.
+            Dette er en enkel illustrasjon, ikke en garanti for fremtidig avkastning.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    for row in list(impact.get("rows") or [])[:12]:
+        label = _html.escape(str(row.get("label") or "-"))
+        fee = row.get("expense_ratio_pct")
+        ending = float(row.get("ending_value") or 0.0)
+        vs_base = float(row.get("vs_baseline") or 0.0)
+        drag = float(row.get("cost_drag_vs_no_fee") or 0.0)
+        cls = "green" if vs_base >= -1 else ("yellow" if abs(vs_base) < 50_000 else "red")
+        sign = "+" if vs_base >= 0 else ""
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.18rem 0;padding:.42rem .55rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+                <b>{label}</b>
+                <span class='v18-status-chip {cls}'>Kostnad {fee}%</span>
+                <span>Sluttverdi <b>{ending:,.0f} kr</b></span>
+                <span>Mot baseline <b>{sign}{vs_base:,.0f} kr</b></span>
+                <span>Tapt mot 0% kostnad <b>{drag:,.0f} kr</b></span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Kjør Fond / ETF-analyse for å bruke faktiske fondskostnader. Referansenivåene over viser likevel kostnadseffekten.</div>", unsafe_allow_html=True)
+
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
     st.subheader("🏦 Fond / ETF-analyse")
-    st.caption("Analyser indeksfond, aktive fond og ETF-er når du trykker Kjør. Panelet henter ikke fonddata skjult.")
+    st.caption("Analyser indeksfond, aktive fond og ETF-er når du trykker Kjør. v18.5.43 herder Fond Decision Quality med kostnad, risiko, benchmark, rolle og aktiv merverdi.")
 
-    col_a, col_b, col_c, col_d = st.columns([1.0, 1.05, 0.9, 0.9])
+    from fund_etf_analyzer import fund_selection_sources
+    col_src, col_a, col_b, col_c, col_d = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
+    with col_src:
+        selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-kilder velger fond fra et transparent start-univers. Manuell liste bruker dine tickere i rekkefølge.")
     with col_a:
         fund_type = st.selectbox("Fondstype", ["Alle", "Indeksfond", "Aktivt fond", "ETF"], key="fund_lab_type_v18538")
     with col_b:
@@ -6317,14 +6731,17 @@ def render_fund_etf_control_center_v18538():
     with c3:
         store_result = st.checkbox("Lagre resultat", value=True, key="fund_lab_store_result_v18538")
 
-    from fund_etf_analyzer import parse_fund_list, estimate_fund_etf_run
-    symbols = parse_fund_list(manual_text)[: int(max_funds or 8)]
+    from fund_etf_analyzer import parse_fund_list, estimate_fund_etf_run, select_fund_candidates
+    manual_symbols = parse_fund_list(manual_text)
+    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8))
+    symbols = list(selection.get("symbols") or [])
     budget = estimate_fund_etf_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
     tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
     st.markdown(
         f"""
         <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
           <span><b>Planlagt fondanalyse:</b> {int(budget.get('funds', len(symbols)) or 0)} fond · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip green'>Kilde: {html.escape(str(selection.get('source') or selection_source))}</span>
           <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
           <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
         </div>
@@ -6334,9 +6751,12 @@ def render_fund_etf_control_center_v18538():
     )
 
     if symbols:
-        st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: <b>{html.escape(', '.join(symbols[:12]))}</b></div>", unsafe_allow_html=True)
+        reasons = []
+        for item in list(selection.get("selected") or [])[:12]:
+            reasons.append(f"<b>{html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({html.escape(str(item.get('bucket') or '-'))}: {html.escape(str(item.get('reason') or 'valgt'))})</span>")
+        st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet. Legg inn en liste før kjøring.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet. Velg auto-kilde eller legg inn en liste før kjøring.</div>", unsafe_allow_html=True)
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
@@ -6441,6 +6861,7 @@ def render_fund_etf_control_center_v18538():
             progress_callback=_progress_callback,
             should_stop=_should_stop,
             max_funds=int(max_funds or 8),
+            selection_info=selection,
         )
         result["period"] = period
         result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -6472,7 +6893,12 @@ def render_fund_etf_control_center_v18538():
         if result.get("interrupted"):
             st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er foreløpige.")
         _render_fund_etf_rows_v18538(result.get("ranked"), title="Beste fond / ETF-kandidater", limit=8)
+        _render_fund_comparator_v18539(result.get("comparator"), title="Fond vs fond-sammenligning")
+        _render_fund_decision_quality_v18542(result.get("decision_quality_summary"), title="Fond Decision Quality")
+        _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
+        _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
         _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Beste indeksfond / ETF-kandidater", limit=5)
+        _render_active_evidence_v18539(result.get("ranked"), title="Aktivt fond må bevise merverdi")
         _render_fund_etf_rows_v18538(result.get("active_candidates"), title="Aktive fond som kan vurderes", limit=5)
         needs = result.get("needs_proof") or []
         errors = result.get("errors") or []
@@ -6485,10 +6911,515 @@ def render_fund_etf_control_center_v18538():
     else:
         st.info("Ingen Fond / ETF-resultat ennå. Legg inn fond/ETF-er og trykk Kjør.")
 
+
+
+# v18.5.43: Auto Test Lab Fund Mode.
+def render_auto_test_lab_fund_mode_v18543():
+    """Run the fund/ETF engine from Auto Test Lab, with progress and safe controls."""
+    import html as _html
+    st.markdown("<div class='v18-dark-row'><b>Fondmodus:</b> Auto Test Lab tester fond/ETF-er mot kostnad, benchmark, aktiv merverdi, grunnmur/satellitt og Fond Decision Quality.</div>", unsafe_allow_html=True)
+
+    from fund_etf_analyzer import fund_selection_sources, parse_fund_list, select_fund_candidates
+    from auto_test_lab import estimate_auto_lab_fund_run
+
+    col_src, col_type, col_obj, col_mode, col_max = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
+    with col_src:
+        selection_source = st.selectbox(
+            "Utvalgskilde",
+            fund_selection_sources(),
+            key="auto_lab_fund_source_v18543",
+            help="Auto-kilder velger fond/ETF-er fra et transparent start-univers. Manuell liste bruker dine symboler i rekkefølge.",
+        )
+    with col_type:
+        fund_type = st.selectbox("Fondstype", ["Alle", "Indeksfond", "Aktivt fond", "ETF"], key="auto_lab_fund_type_v18543")
+    with col_obj:
+        objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="auto_lab_fund_objective_v18543")
+    with col_mode:
+        test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_fund_test_mode_v18543")
+    with col_max:
+        max_funds = st.slider("Maks fond", 1, 40, 8, 1, key="auto_lab_fund_limit_v18543")
+
+    col_bench, col_period = st.columns([1.0, 1.0])
+    with col_bench:
+        benchmark_symbol = st.text_input(
+            "Benchmark",
+            value="SPY",
+            key="auto_lab_fund_benchmark_v18543",
+            help="Yahoo-symbol for benchmark, f.eks. SPY, VTI, ACWI, ^GSPC.",
+        ).strip().upper()
+    with col_period:
+        period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="auto_lab_fund_period_v18543")
+
+    default_list = "SPY, VOO, VTI, QQQ, ACWI"
+    manual_text = st.text_area(
+        "Fond/ETF-liste",
+        value=default_list,
+        height=72,
+        key="auto_lab_fund_manual_v18543",
+        help="Bruk tickere der Yahoo Finance har data. Auto-kilder brukes når Utvalgskilde ikke er Manuell liste.",
+    )
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
+    with c1:
+        include_benchmark = st.checkbox("Benchmark-sjekk", value=True, key="auto_lab_fund_include_benchmark_v18543")
+    with c2:
+        fetch_costs = st.checkbox("Prøv å hente kostnader", value=True, key="auto_lab_fund_fetch_costs_v18543")
+    with c3:
+        store_result = st.checkbox("Lagre Auto Test Lab-resultat", value=True, key="auto_lab_fund_store_result_v18543")
+
+    manual_symbols = parse_fund_list(manual_text)
+    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8))
+    symbols = list(selection.get("symbols") or [])
+    budget = estimate_auto_lab_fund_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
+    tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
+
+    load_cls = "red" if budget.get("load_label") == "Høy" else ("yellow" if budget.get("load_label") == "Medium" else "green")
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
+          <span><b>Planlagt fondmodus:</b> {int(budget.get('funds', len(symbols)) or 0)} fond/ETF · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip green'>Auto Test Lab: Fond / ETF</span>
+          <span class='v18-status-chip {load_cls}'>Databudsjett: {_html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
+        </div>
+        <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {_html.escape(tests_text or 'Ingen')}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if symbols:
+        reasons = []
+        for item in list(selection.get("selected") or [])[:12]:
+            reasons.append(f"<b>{_html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({_html.escape(str(item.get('bucket') or '-'))}: {_html.escape(str(item.get('reason') or 'valgt'))})</span>")
+        st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet. Velg auto-kilde eller legg inn en liste før kjøring.</div>", unsafe_allow_html=True)
+
+    run_col, stop_col = st.columns([2.2, 1.0])
+    with run_col:
+        run_clicked = st.button(
+            "🏦 Kjør Auto Test Lab – Fondmodus",
+            key="auto_lab_fund_run_v18543",
+            type="primary",
+            use_container_width=True,
+            on_click=set_global_busy,
+            kwargs={"label": "Kjører Auto Test Lab Fondmodus", "detail": "Tester fond/ETF mot kostnad, benchmark og beslutningskvalitet"},
+        )
+    with stop_col:
+        if st.button("⏹ Stopp/avbryt", key="auto_lab_fund_stop_v18543", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
+            st.session_state["auto_lab_fund_stop_requested_v18543"] = True
+            st.warning("Stopp er bedt om. Fondmodus stopper ved neste trygge kontrollpunkt.")
+
+    if run_clicked:
+        st.session_state["auto_lab_fund_stop_requested_v18543"] = False
+        if not symbols:
+            st.warning("Ingen fond/ETF-er å teste.")
+            finish_global_busy("Klar", "Auto Test Lab Fondmodus manglet symboler.")
+            return
+        if yf is None:
+            st.error("yfinance er ikke tilgjengelig i miljøet. Legg yfinance i requirements/deploy før fonddata kan hentes.")
+            finish_global_busy("Klar", "Auto Test Lab Fondmodus stoppet: yfinance mangler.")
+            return
+
+        from auto_test_lab import run_auto_test_lab_fund_mode
+        from services.storage_service import get_storage_service
+        from datetime import datetime, timezone
+
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter Auto Test Lab Fondmodus")
+        update_global_busy("Kjører Auto Test Lab Fondmodus", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+
+        def _download_symbol(symbol):
+            info = {}
+            hist = None
+            try:
+                t = yf.Ticker(symbol)
+                if fetch_costs:
+                    try:
+                        info = dict(getattr(t, "info", {}) or {})
+                    except Exception:
+                        info = {}
+                try:
+                    hist = t.history(period=period, auto_adjust=True)
+                except Exception:
+                    hist = None
+            except Exception:
+                info = {}
+                hist = None
+            closes = []
+            if hist is not None:
+                try:
+                    if hasattr(hist, "columns") and "Close" in hist.columns:
+                        closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                except Exception:
+                    closes = []
+            return {
+                "symbol": symbol,
+                "name": info.get("longName") or info.get("shortName") or symbol,
+                "longName": info.get("longName") or info.get("shortName") or symbol,
+                "quoteType": info.get("quoteType") or info.get("typeDisp"),
+                "category": info.get("category"),
+                "fundFamily": info.get("fundFamily"),
+                "expenseRatio": info.get("annualReportExpenseRatio") or info.get("expenseRatio") or info.get("netExpenseRatio"),
+                "prices": closes,
+            }
+
+        def _should_stop():
+            return bool(st.session_state.get("auto_lab_fund_stop_requested_v18543", False))
+
+        def _progress_callback(ev):
+            pct = float(ev.get("percent") or 0.0)
+            completed = int(ev.get("completed_tests") or 0)
+            total = int(ev.get("total_tests") or 0)
+            symbol = str(ev.get("symbol") or "-")
+            test_name = str(ev.get("test_name") or "Starter")
+            fund_idx = int(ev.get("fund_index") or 0)
+            fund_total = int(ev.get("fund_total") or len(symbols))
+            test_idx = int(ev.get("test_index") or 0)
+            tests_per = int(ev.get("tests_per_fund") or max(1, int(budget.get("tests_per_fund", 1) or 1)))
+            status = str(ev.get("status") or "running")
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Auto Test Lab Fondmodus", f"{symbol} · {test_name} · {pct:.0f}%", step=completed, total=total)
+            status_box.markdown(
+                f"""
+                <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
+                  <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
+                    <b>🔄 Auto Test Lab Fondmodus kjører</b>
+                    <span class='v18-status-chip yellow'>{_html.escape(status)} · {completed}/{total}</span>
+                  </div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{_html.escape(symbol)}</b> · Test nå: <b>{_html.escape(test_name)}</b></div>
+                  <div style='font-size:.78rem;color:rgba(226,232,240,.84);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        result = run_auto_test_lab_fund_mode(
+            symbols,
+            data_provider=_download_symbol,
+            benchmark_provider=_download_symbol if include_benchmark else None,
+            benchmark_symbol=benchmark_symbol or "SPY",
+            fund_type=fund_type,
+            objective=objective,
+            test_mode=test_mode,
+            progress_callback=_progress_callback,
+            should_stop=_should_stop,
+            max_funds=int(max_funds or 8),
+            selection_info=selection,
+        )
+        result["scope"] = selection_source
+        result["period"] = period
+        result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        st.session_state["auto_test_lab_last_result_fund_v18543"] = result
+        if store_result:
+            try:
+                storage = get_storage_service()
+                storage.write_json("auto_test_lab/fund_latest.json", result)
+                storage.append_jsonl("auto_test_lab/fund_history.jsonl", result)
+                result["storage_backend"] = storage.backend()
+            except Exception as exc:
+                result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        finish_global_busy("Klar", "Auto Test Lab Fondmodus ferdig." if not result.get("interrupted") else "Auto Test Lab Fondmodus avbrutt.")
+        if result.get("interrupted"):
+            st.warning(f"Auto Test Lab Fondmodus avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
+        else:
+            st.success(f"Auto Test Lab Fondmodus ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+
+    result = st.session_state.get("auto_test_lab_last_result_fund_v18543") or {}
+    if result:
+        summary = result.get("summary", {}) or {}
+        cols = st.columns(5)
+        cols[0].metric("Analyserte fond", summary.get("analyzed", 0))
+        cols[1].metric("Tester", f"{result.get('completed_tests', 0)}/{result.get('total_tests', 0)}")
+        cols[2].metric("Beste", summary.get("best_symbol") or "-")
+        cols[3].metric("Kvalitet", summary.get("best_quality") or "-")
+        cols[4].metric("Grunnmur/sat", summary.get("core_satellite_positions", 0))
+        if result.get("interrupted"):
+            st.warning("Siste Auto Test Lab Fondmodus ble avbrutt. Resultatene under er foreløpige.")
+        _render_fund_etf_rows_v18538(result.get("best_funds") or result.get("ranked"), title="Beste fond / ETF fra Auto Test Lab", limit=8)
+        _render_fund_comparator_v18539(result.get("fund_comparator") or result.get("comparator"), title="Fond vs fond-sammenligning")
+        _render_fund_decision_quality_v18542(result.get("fund_decision_quality_summary") or result.get("decision_quality_summary"), title="Fond Decision Quality")
+        _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
+        _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
+        _render_fund_etf_rows_v18538(result.get("best_index_etf") or result.get("index_candidates"), title="Beste indeksfond / ETF", limit=5)
+        _render_active_evidence_v18539(result.get("ranked"), title="Aktive fond med evidence-test")
+        needs = result.get("requires_more_evidence") or result.get("needs_proof") or []
+        errors = result.get("errors") or []
+        if needs or errors:
+            with st.expander("Krever mer bevis / mangler data / feil", expanded=False):
+                for row in needs[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('decision')} · {', '.join(row.get('reasons_caution') or [])}")
+                for row in errors[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
+    else:
+        st.info("Ingen Auto Test Lab-resultat i fondmodus ennå. Velg fondunivers og trykk Kjør.")
+
+
+
+# v18.5.44: Portfolio Analyzer - Stocks + Funds -----------------------------
+def _portfolio_analyzer_result_rows_v18544(result_key: str, row_keys: list[str], limit: int = 12):
+    """Fetch rows from a previous lab/result in session_state without triggering analysis."""
+    result = st.session_state.get(result_key) or {}
+    if not isinstance(result, dict):
+        return []
+    rows = []
+    for key in row_keys:
+        vals = result.get(key) or []
+        if isinstance(vals, list):
+            rows.extend([v for v in vals if isinstance(v, dict)])
+        if len(rows) >= limit:
+            break
+    return rows[: int(limit or 12)]
+
+
+def _paper_trading_holdings_v18544(limit: int = 20):
+    """Resolve paper trading positions as portfolio rows without price/network calls."""
+    try:
+        portfolio = load_portfolio() or {}
+        positions = portfolio.get("positions") if isinstance(portfolio, dict) else {}
+        rows = []
+        if isinstance(positions, dict):
+            for ticker, pos in positions.items():
+                if not ticker:
+                    continue
+                weight = None
+                try:
+                    shares = float((pos or {}).get("shares") or 0)
+                    price = float((pos or {}).get("last_price") or (pos or {}).get("entry_price") or 0)
+                    value = shares * price
+                    rows.append({"symbol": ticker, "asset_type": (pos or {}).get("asset_type", "Aksje"), "position_value": value, "source": "Paper trading", "metadata": {"currency": (pos or {}).get("currency", ""), "purchase_mode": (pos or {}).get("purchase_mode", "")}})
+                except Exception:
+                    rows.append({"symbol": ticker, "asset_type": (pos or {}).get("asset_type", "Aksje"), "source": "Paper trading"})
+        elif isinstance(positions, list):
+            for pos in positions:
+                if isinstance(pos, dict):
+                    ticker = pos.get("ticker") or pos.get("symbol")
+                    if ticker:
+                        rows.append({"symbol": ticker, "asset_type": (pos or {}).get("asset_type", "Aksje"), "source": "Paper trading"})
+        total_value = sum(float(r.get("position_value") or 0.0) for r in rows)
+        if total_value > 0:
+            for r in rows:
+                r["weight_pct"] = round((float(r.get("position_value") or 0.0) / total_value) * 100.0, 2)
+        return rows[: int(limit or 20)]
+    except Exception:
+        return []
+
+
+def _render_portfolio_health_rows_v18544(result):
+    import html as _html
+    res = dict(result or {})
+    summary = res.get("summary") or {}
+    grade = str(res.get("grade") or "-")
+    health = res.get("portfolio_health", "-")
+    grade_cls = "green" if str(grade).startswith("Sterk") else ("yellow" if str(grade).startswith("OK") else "red")
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(59,130,246,.48);'>
+          <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+            <b>📊 Porteføljehelse</b>
+            <span class='v18-status-chip {grade_cls}'>{_html.escape(str(grade))} · {health}/100</span>
+            <span class='v18-status-chip green'>Fond/ETF {summary.get('fund_pct', 0)}%</span>
+            <span class='v18-status-chip yellow'>Aksjer {summary.get('stock_pct', 0)}%</span>
+            <span class='v18-status-chip green'>Grunnmur {summary.get('core_pct', 0)}%</span>
+            <span class='v18-status-chip yellow'>Satellitt {summary.get('satellite_pct', 0)}%</span>
+            <span class='v18-status-chip yellow'>Tech/vekst {summary.get('tech_pct', 0)}%</span>
+          </div>
+          <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>{_html.escape(str(summary.get('text') or ''))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    metrics = [
+        ("Topp 3", f"{summary.get('top3_pct', '-')}%"),
+        ("Største posisjon", f"{summary.get('max_single_position_pct', '-')}%"),
+        ("Vektet fondskostnad", "ukjent" if summary.get("weighted_fund_expense_pct") is None else f"{summary.get('weighted_fund_expense_pct')}%"),
+        ("Vektet kvalitet", summary.get("weighted_quality") or "-"),
+    ]
+    st.markdown(
+        "<div class='v18-dark-row' style='display:flex;gap:.45rem;flex-wrap:wrap;'>" + "".join(
+            f"<span class='v18-status-chip'>{_html.escape(str(k))}: <b>{_html.escape(str(v))}</b></span>" for k, v in metrics
+        ) + "</div>",
+        unsafe_allow_html=True,
+    )
+    rows = list(res.get("holdings") or [])[:14]
+    if rows:
+        st.markdown("<div class='ptw-control-panel-title'>Posisjoner</div>", unsafe_allow_html=True)
+    for row in rows:
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        typ = _html.escape(str(row.get("asset_type") or "-"))
+        weight = row.get("weight_pct", "-")
+        role = _html.escape(str(row.get("role") or "-"))
+        sector = _html.escape(str(row.get("sector") or "-"))
+        geo = _html.escape(str(row.get("geography") or "-"))
+        q = row.get("decision_quality")
+        cost = row.get("expense_ratio_pct")
+        detail = []
+        if q is not None:
+            detail.append(f"Kvalitet {q}")
+        if cost is not None:
+            detail.append(f"Kostnad {cost}%")
+        detail_txt = " · ".join(detail) or ""
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.16rem 0;padding:.34rem .48rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.45rem;flex-wrap:wrap;align-items:center;'>
+                <b>{symbol}</b><span>{weight}%</span><span>{typ}</span><span>{role}</span><span>{sector}</span><span>{geo}</span><span>{_html.escape(detail_txt)}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    for title, key, icon in [
+        ("Styrker", "strengths", "+"),
+        ("Forbedringsforslag", "suggestions", "→"),
+        ("Advarsler", "warnings", "⚠"),
+    ]:
+        vals = list(res.get(key) or [])
+        st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+        if not vals:
+            st.markdown("<div class='v18-dark-row'>Ingen punkter.</div>", unsafe_allow_html=True)
+        for v in vals[:8]:
+            st.markdown(f"<div class='v18-dark-row'>{icon} {_html.escape(str(v))}</div>", unsafe_allow_html=True)
+
+    overlap = list(res.get("overlap_risks") or [])
+    st.markdown("<div class='ptw-control-panel-title'>Overlapprisiko</div>", unsafe_allow_html=True)
+    if not overlap:
+        st.markdown("<div class='v18-dark-row'>Ingen tydelig overlapp registrert med tilgjengelige data.</div>", unsafe_allow_html=True)
+    for r in overlap[:8]:
+        level = str(r.get("level") or "-")
+        cls = "red" if level == "Høy" else "yellow"
+        st.markdown(
+            f"""
+            <div class='v18-dark-row'>
+              <span class='v18-status-chip {cls}'>{_html.escape(level)}</span>
+              <b>{_html.escape(str(r.get('title') or 'Overlapp'))}</b> · {_html.escape(str(r.get('message') or ''))}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_mixed_portfolio_control_center_v18544():
+    """Analyze portfolio health across stocks, funds and ETFs without hidden fetches."""
+    st.subheader("📊 Porteføljeanalyse")
+    st.caption("Analyserer aksjer + fond/ETF samlet. Panelet bruker eksisterende resultater/manuell input og henter ikke nye markedsdata før du eksplisitt kjører andre moduler.")
+    from portfolio_mixed_analyzer import build_holdings_from_sources, analyze_mixed_portfolio
+
+    c1, c2, c3 = st.columns([1.1, 1.1, 1.0])
+    with c1:
+        stock_source = st.selectbox("Aksjekilde", ["Manuell", "Auto Test Lab aksjer", "Paper trading", "Siste Smart AI-resultat"], key="mixed_portfolio_stock_source_v18544")
+    with c2:
+        fund_source = st.selectbox("Fondkilde", ["Manuell", "Siste Fond / ETF-analyse", "Auto Test Lab fondmodus", "Ingen"], key="mixed_portfolio_fund_source_v18544")
+    with c3:
+        profile = st.selectbox("Profil", ["Balansert", "Lav risiko", "Lav kostnad", "Grunnmur", "Vekst"], key="mixed_portfolio_profile_v18544")
+
+    c4, c5 = st.columns([1.0, 1.0])
+    with c4:
+        stock_budget = st.slider("Aksjeandel ved auto-forslag", 0, 80, 30, 5, key="mixed_portfolio_stock_budget_v18544")
+    with c5:
+        max_rows = st.slider("Maks posisjoner", 3, 30, 12, 1, key="mixed_portfolio_max_rows_v18544")
+
+    manual_stocks = ""
+    manual_funds = ""
+    if stock_source == "Manuell":
+        manual_stocks = st.text_area("Manuelle aksjer", value="AAPL 10\nMSFT 10\nNVDA 10", height=76, key="mixed_portfolio_manual_stocks_v18544", help="Format: TICKER vekt. Hvis vekt mangler fordeles likt.")
+    if fund_source == "Manuell":
+        manual_funds = st.text_area("Manuelle fond/ETF", value="VOO 50 ETF\nQQQ 20 ETF", height=76, key="mixed_portfolio_manual_funds_v18544", help="Format: SYMBOL vekt type. Eksempel: VOO 60 ETF")
+
+    stock_rows = []
+    if stock_source == "Auto Test Lab aksjer":
+        stock_rows = _portfolio_analyzer_result_rows_v18544("auto_test_lab_last_result_v18536", ["best_single", "test_further"], limit=int(max_rows))
+    elif stock_source == "Paper trading":
+        stock_rows = _paper_trading_holdings_v18544(limit=int(max_rows))
+    elif stock_source == "Siste Smart AI-resultat":
+        try:
+            from services.universe_service import SMART_RESULT_KEY
+            smart = st.session_state.get(SMART_RESULT_KEY, {}) or st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        except Exception:
+            smart = st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        vals = []
+        if isinstance(smart, dict):
+            vals = smart.get("candidates") or smart.get("top_picks") or smart.get("top_tickers") or []
+        if vals and isinstance(vals[0], str):
+            stock_rows = [{"ticker": x, "asset_type": "Aksje", "source": "Smart AI"} for x in vals[: int(max_rows)]]
+        else:
+            stock_rows = [v for v in vals if isinstance(v, dict)][: int(max_rows)]
+
+    fund_rows = []
+    if fund_source == "Siste Fond / ETF-analyse":
+        fund_rows = _portfolio_analyzer_result_rows_v18544("fund_etf_lab_last_result_v18538", ["core_satellite.allocation", "ranked"], limit=int(max_rows))
+        if not fund_rows:
+            result = st.session_state.get("fund_etf_lab_last_result_v18538") or {}
+            fund_rows = list((result.get("core_satellite") or {}).get("allocation") or []) or list(result.get("ranked") or [])[: int(max_rows)]
+    elif fund_source == "Auto Test Lab fondmodus":
+        result = st.session_state.get("auto_test_lab_last_result_fund_v18543") or {}
+        fund_rows = list((result.get("core_satellite") or {}).get("allocation") or []) or list(result.get("ranked") or result.get("best_funds") or [])[: int(max_rows)]
+
+    auto_stock_weight = None
+    auto_fund_weight = None
+    if stock_source != "Manuell" and stock_rows:
+        auto_stock_weight = float(stock_budget) / max(1, len(stock_rows))
+    if fund_source != "Manuell" and fund_rows:
+        auto_fund_weight = float(100 - stock_budget) / max(1, len(fund_rows))
+
+    holdings_preview = build_holdings_from_sources(
+        stock_rows=stock_rows[: int(max_rows)],
+        fund_rows=fund_rows[: int(max_rows)],
+        manual_stock_text=manual_stocks,
+        manual_fund_text=manual_funds,
+        default_stock_weight_pct=auto_stock_weight,
+        default_fund_weight_pct=auto_fund_weight,
+    )
+    st.markdown(
+        f"<div class='v18-dark-row'><b>Planlagt analyse:</b> {len(holdings_preview)} posisjoner · Aksjekilde: {html.escape(stock_source)} · Fondkilde: {html.escape(fund_source)} · Profil: {html.escape(profile)}</div>",
+        unsafe_allow_html=True,
+    )
+    if holdings_preview:
+        preview = ", ".join(f"{h.get('symbol')} {h.get('weight_pct')}%" for h in holdings_preview[:8])
+        st.markdown(f"<div class='v18-dark-row' style='font-size:.78rem;'>Preview: {html.escape(preview)}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen posisjoner funnet. Bruk manuell input eller kjør Auto Test Lab / Fondanalyse først.</div>", unsafe_allow_html=True)
+
+    if st.button("📊 Kjør porteføljeanalyse", key="mixed_portfolio_run_v18544", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører porteføljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter porteføljeanalyse")
+        steps = ["Samler beholdninger", "Normaliserer vekter", "Måler grunnmur/satellitt", "Sjekker overlapp", "Lager forbedringsforslag"]
+        for idx, step in enumerate(steps, start=1):
+            pct = int(round((idx - 1) / max(1, len(steps)) * 100))
+            progress.progress(pct, text=f"{idx}/{len(steps)} {step}")
+            update_global_busy("Kjører porteføljeanalyse", f"{idx}/{len(steps)} {step}", step=idx, total=len(steps))
+            status_box.markdown(
+                f"<div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'><b>🔄 Porteføljeanalyse kjører</b><br><span style='font-size:.82rem;'>{idx}/{len(steps)} {html.escape(step)}</span></div>",
+                unsafe_allow_html=True,
+            )
+        result = analyze_mixed_portfolio(holdings_preview, profile=profile)
+        result["source"] = {"stocks": stock_source, "funds": fund_source}
+        st.session_state["mixed_portfolio_last_result_v18544"] = result
+        try:
+            from services.storage_service import get_storage_service
+            storage = get_storage_service()
+            storage.write_json("portfolio_analysis/latest.json", result)
+            storage.append_jsonl("portfolio_analysis/history.jsonl", result)
+            result["storage_backend"] = storage.backend()
+        except Exception as exc:
+            result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig")
+        finish_global_busy("Klar", "Porteføljeanalyse ferdig.")
+        st.success(f"Porteføljeanalyse ferdig: {result.get('portfolio_health', '-')}/100 · {result.get('grade', '-')}")
+
+    result = st.session_state.get("mixed_portfolio_last_result_v18544") or {}
+    if result:
+        _render_portfolio_health_rows_v18544(result)
+    else:
+        st.info("Ingen porteføljeanalyse ennå. Velg kilder eller manuell portefølje og trykk Kjør.")
+
 def control_center_extra_panels_v18535():
     return [
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
         ("🏦 Fond / ETF", render_fund_etf_control_center_v18538),
+        ("📊 Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
         ("📰 Nyheter", render_news_control_center_v18535),
         ("📊 Interaktiv analyse", render_interactive_technical_control_center_v18535),
         ("🏆 Marked/rangering", render_market_ranking_control_center_v18535),
