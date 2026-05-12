@@ -5929,7 +5929,7 @@ def render_watchlist_signals_control_center_v18535():
 
 
 
-# v18.5.36: Auto Test Lab + Decision Quality Engine.
+# v18.5.37: Auto Test Lab Progress + Safe Run Controls.
 def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
     """Resolve Auto Test Lab universe without running hidden scans."""
     from auto_test_lab import parse_ticker_list, normalize_ticker
@@ -6070,31 +6070,39 @@ def render_auto_test_lab_control_center_v18536():
     st.subheader("🔬 Auto Test Lab")
     st.caption("Velg univers én gang. Panelet tester kandidater mot score, momentum, risiko, event-risk, learning og datakvalitet når du trykker Kjør.")
 
-    col_a, col_b, col_c = st.columns([1.2, 1.0, 1.0])
+    col_a, col_b, col_c, col_d = st.columns([1.25, 1.0, 0.9, 0.9])
     with col_a:
         scope = st.selectbox(
             "Univers",
             ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Multi-marked", "Manuell liste"],
-            key="auto_lab_scope_v18536",
+            key="auto_lab_scope_v18537",
         )
     with col_b:
-        target = st.selectbox("Mål", ["Balansert", "Momentum", "Lav risiko", "Kortsiktig", "Langsiktig"], key="auto_lab_target_v18536")
+        target = st.selectbox("Mål", ["Balansert", "Momentum", "Lav risiko", "Kortsiktig", "Langsiktig"], key="auto_lab_target_v18537")
     with col_c:
-        limit = st.slider("Maks kandidater", 5, 60, 20, 5, key="auto_lab_limit_v18536")
+        test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_test_mode_v18537")
+    with col_d:
+        limit = st.slider("Maks", 5, 60, 20, 5, key="auto_lab_limit_v18537")
 
     manual_text = ""
     if scope == "Manuell liste":
-        manual_text = st.text_area("Tickere", value="AAPL, MSFT, NVDA", height=82, key="auto_lab_manual_v18536")
+        manual_text = st.text_area("Tickere", value="AAPL, MSFT, NVDA", height=82, key="auto_lab_manual_v18537")
 
     c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
     with c1:
-        include_event = st.checkbox("Hendelsesrisiko", value=True, key="auto_lab_event_v18536")
+        include_event = st.checkbox("Hendelsesrisiko", value=True, key="auto_lab_event_v18537")
     with c2:
-        use_news_for_score = st.checkbox("Nyheter i score", value=False, key="auto_lab_news_v18536", help="Av som standard for å spare NewsAPI. Manuelle nyheter ligger i Nyheter-panelet.")
+        use_news_for_score = st.checkbox("Nyheter i score", value=False, key="auto_lab_news_v18537", help="Av som standard for å spare NewsAPI. Manuelle nyheter ligger i Nyheter-panelet.")
     with c3:
-        combo_size = st.multiselect("Kombinasjoner", [2, 3, 4, 5, 6, 8], default=[3, 5], key="auto_lab_combo_sizes_v18536")
+        combo_size = st.multiselect("Kombinasjoner", [2, 3, 4, 5, 6, 8], default=[3, 5], key="auto_lab_combo_sizes_v18537")
 
     preview_tickers = _auto_lab_scope_tickers_v18536(scope, int(limit), manual_text=manual_text)
+    try:
+        from auto_test_lab import estimate_auto_lab_run
+        budget = estimate_auto_lab_run(preview_tickers, test_mode=test_mode, use_news=bool(use_news_for_score), include_event=bool(include_event))
+    except Exception:
+        budget = {"mode": test_mode, "total_tests": len(preview_tickers), "tests_per_ticker": 1, "load_label": "Ukjent", "news_calls": 0, "event_checks": 0, "tests": []}
+
     if preview_tickers:
         st.markdown(
             f"<div class='v18-dark-row'>Valgt univers: <b>{html.escape(scope)}</b> · {len(preview_tickers)} tickere · første: {html.escape(', '.join(preview_tickers[:8]))}</div>",
@@ -6103,7 +6111,29 @@ def render_auto_test_lab_control_center_v18536():
     else:
         st.markdown("<div class='v18-dark-row'>Ingen tickere funnet i valgt univers ennå. Velg et annet univers eller bruk Manuell liste.</div>", unsafe_allow_html=True)
 
-    if st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18536", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"}):
+    tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:8])
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
+          <span><b>Planlagt test:</b> {int(budget.get('tickers', len(preview_tickers)) or 0)} tickere · {int(budget.get('tests_per_ticker', 0) or 0)} tester per ticker · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>NewsAPI: {int(budget.get('news_calls', 0) or 0)} · Event: {int(budget.get('event_checks', 0) or 0)}</span>
+        </div>
+        <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {html.escape(tests_text or 'Ingen')}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    run_col, stop_col = st.columns([2.2, 1.0])
+    with run_col:
+        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
+    with stop_col:
+        if st.button("⏹ Stopp/avbryt", key="auto_lab_stop_v18537", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
+            st.session_state["auto_lab_stop_requested_v18537"] = True
+            st.warning("Stopp er bedt om. Pågående kjøring stopper ved neste trygge kontrollpunkt.")
+
+    if run_clicked:
+        st.session_state["auto_lab_stop_requested_v18537"] = False
         if not preview_tickers:
             st.warning("Ingen tickere å teste.")
             finish_global_busy("Klar", "Auto Test Lab manglet tickere.")
@@ -6111,12 +6141,13 @@ def render_auto_test_lab_control_center_v18536():
         from auto_test_lab import run_auto_test_lab
         from forecast_store import load_learning_stats
         from event_risk_engine import detect_event_risk
+        from services.storage_service import get_storage_service
+        from datetime import datetime, timezone
 
-        progress = st.progress(0, text="1/4 Henter ticker-univers")
-        update_global_busy("Kjører Auto Test Lab", "1/4 Henter ticker-univers")
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter Auto Test Lab")
+        update_global_busy("Kjører Auto Test Lab", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
         learning_stats = load_learning_stats()
-        progress.progress(25, text="2/4 Henter score og signaler")
-        update_global_busy("Kjører Auto Test Lab", "2/4 Henter score og signaler")
 
         def _score_provider(ticker, use_news):
             return cached_score_stock_manual(ticker, use_news=use_news, force=True)
@@ -6126,8 +6157,36 @@ def render_auto_test_lab_control_center_v18536():
                 return {}
             return detect_event_risk(ticker, prices, horizon="auto_lab", include_news=False)
 
-        progress.progress(55, text="3/4 Tester risiko, learning og hendelser")
-        update_global_busy("Kjører Auto Test Lab", "3/4 Tester risiko, learning og hendelser")
+        def _should_stop():
+            return bool(st.session_state.get("auto_lab_stop_requested_v18537", False))
+
+        def _progress_callback(ev):
+            pct = float(ev.get("percent") or 0.0)
+            completed = int(ev.get("completed_tests") or 0)
+            total = int(ev.get("total_tests") or 0)
+            ticker = str(ev.get("ticker") or "-")
+            test_name = str(ev.get("test_name") or "Starter")
+            ticker_idx = int(ev.get("ticker_index") or 0)
+            ticker_total = int(ev.get("ticker_total") or len(preview_tickers))
+            test_idx = int(ev.get("test_index") or 0)
+            tests_per = int(ev.get("tests_per_ticker") or max(1, int(budget.get("tests_per_ticker", 1) or 1)))
+            status = str(ev.get("status") or "running")
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Auto Test Lab", f"{ticker} · {test_name} · {pct:.0f}%", step=completed, total=total)
+            status_box.markdown(
+                f"""
+                <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
+                  <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
+                    <b>🔄 Auto Test Lab kjører</b>
+                    <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
+                  </div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Aksje: <b>{html.escape(ticker)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
+                  <div style='font-size:.78rem;color:rgba(226,232,240,.84);'>Ticker {ticker_idx}/{ticker_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         result = run_auto_test_lab(
             preview_tickers,
             score_provider=_score_provider,
@@ -6137,29 +6196,48 @@ def render_auto_test_lab_control_center_v18536():
             target=target,
             max_candidates=int(limit),
             combination_sizes=combo_size or [3, 5],
+            test_mode=test_mode,
+            progress_callback=_progress_callback,
+            should_stop=_should_stop,
         )
-        progress.progress(90, text="4/4 Rangerer og lagrer resultat i session")
-        update_global_busy("Kjører Auto Test Lab", "4/4 Rangerer og lagrer resultat")
+        result["scope"] = scope
+        result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         st.session_state["auto_test_lab_last_result_v18536"] = result
-        progress.progress(100, text="Ferdig")
-        finish_global_busy("Klar", "Auto Test Lab ferdig.")
-        st.success(f"Auto Test Lab ferdig: {result.get('analyzed', 0)} analyserte kandidater.")
+        try:
+            storage = get_storage_service()
+            storage.write_json("auto_test_lab/latest.json", result)
+            storage.append_jsonl("auto_test_lab/history.jsonl", result)
+            result["storage_backend"] = storage.backend()
+        except Exception as exc:
+            result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        finish_global_busy("Klar", "Auto Test Lab ferdig." if not result.get("interrupted") else "Auto Test Lab avbrutt.")
+        if result.get("interrupted"):
+            st.warning(f"Auto Test Lab avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
+        else:
+            st.success(f"Auto Test Lab ferdig: {result.get('analyzed', 0)} analyserte kandidater · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
 
     result = st.session_state.get("auto_test_lab_last_result_v18536") or {}
     if result:
         summary = result.get("summary", {}) or {}
-        cols = st.columns(4)
+        cols = st.columns(5)
         cols[0].metric("Analyserte", result.get("analyzed", 0))
-        cols[1].metric("Beste ticker", summary.get("best_ticker") or "-")
-        cols[2].metric("Beste kvalitet", summary.get("best_quality") or "-")
-        cols[3].metric("Kombinasjoner", summary.get("combinations", 0))
+        cols[1].metric("Tester", f"{result.get('completed_tests', 0)}/{result.get('total_tests', 0)}")
+        cols[2].metric("Beste ticker", summary.get("best_ticker") or "-")
+        cols[3].metric("Beste kvalitet", summary.get("best_quality") or "-")
+        cols[4].metric("Kombinasjoner", summary.get("combinations", 0))
+        if result.get("interrupted"):
+            st.warning("Siste Auto Test Lab ble avbrutt. Resultatene under er foreløpige.")
         _render_auto_lab_decision_rows_v18536(result.get("best_single"), title="Beste enkeltaksjer", limit=8)
         _render_auto_lab_combination_rows_v18536(result.get("combinations"), limit=6)
         rejected = result.get("rejected") or []
-        if rejected:
-            with st.expander("Vent / forkastede kandidater", expanded=False):
+        errors = result.get("errors") or []
+        if rejected or errors:
+            with st.expander("Vent / forkastede / feilede kandidater", expanded=False):
                 for row in rejected[:12]:
                     st.caption(f"{row.get('ticker')}: {row.get('reason')}")
+                for row in errors[:12]:
+                    st.caption(f"{row.get('ticker')}: {row.get('test', '-')}: {row.get('error')}")
     else:
         st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
 

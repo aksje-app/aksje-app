@@ -1,1 +1,4 @@
-Continue from v18.5.36 Auto Test Lab + Decision Quality Engine. AI Kontrollsenter now includes a lazy Auto Test Lab panel that can test a selected universe against AI-score, Smart-score, momentum, risk, event-risk, learning and data quality, then suggest best single candidates and small combinations. NewsAPI remains off by default unless explicitly selected. Header should show Professional Trading Workspace v18.5.36. Runtime data is excluded; data/, data/forecasts/ and data/services/ contain only .gitkeep.
+Continue from v18.5.37 Auto Test Lab + Decision Quality Engine. AI Kontrollsenter now includes a lazy Auto Test Lab panel that can test a selected universe against AI-score, Smart-score, momentum, risk, event-risk, learning and data quality, then suggest best single candidates and small combinations. NewsAPI remains off by default unless explicitly selected. Header should show Professional Trading Workspace v18.5.37. Runtime data is excluded; data/, data/forecasts/ and data/services/ contain only .gitkeep.
+
+
+Current focus: v18.5.37 Auto Test Lab Progress + Safe Run Controls.

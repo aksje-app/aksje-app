@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-APP_VERSION = "v18.5.36"
-APP_VERSION_NAME = "Auto Test Lab + Decision Quality Engine"
+APP_VERSION = "v18.5.37"
+APP_VERSION_NAME = "Auto Test Lab Progress + Safe Run Controls"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 

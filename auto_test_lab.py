@@ -1,7 +1,7 @@
 """
 auto_test_lab.py
 
-v18.5.36 Auto Test Lab + Decision Quality Engine.
+v18.5.37 Auto Test Lab Progress + Safe Run Controls.
 
 Pure helper layer for testing many tickers against the app's existing signal
 stack without forcing the user to type one ticker for each module.
@@ -16,6 +16,7 @@ The module is intentionally side-effect free:
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 from itertools import combinations
 import math
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -25,6 +26,8 @@ from app_version import get_app_version
 
 ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
 EventRiskProvider = Callable[[str, Sequence[float]], Optional[Mapping[str, Any]]]
+ProgressCallback = Callable[[Mapping[str, Any]], None]
+StopCallback = Callable[[], bool]
 
 
 TARGET_PROFILES = {
@@ -34,6 +37,119 @@ TARGET_PROFILES = {
     "Kortsiktig": {"score": 0.20, "smart": 0.14, "momentum": 0.26, "risk": 0.14, "event": 0.12, "learning": 0.08, "data": 0.06},
     "Langsiktig": {"score": 0.24, "smart": 0.18, "momentum": 0.12, "risk": 0.18, "event": 0.08, "learning": 0.10, "data": 0.10},
 }
+
+TEST_MODE_CONFIGS: Dict[str, Dict[str, Any]] = {
+    "Rask": {
+        "tests": ["AI-score", "Smart-score", "Momentum", "Risiko", "Datakvalitet"],
+        "description": "Rask screening uten event-risk/backtest-lignende ekstrasjekker.",
+        "api_multiplier": 1.0,
+    },
+    "Normal": {
+        "tests": ["AI-score", "Smart-score", "Momentum", "Risiko", "Learning", "Hendelsesrisiko", "Datakvalitet"],
+        "description": "Anbefalt modus med learning og hendelsesrisiko.",
+        "api_multiplier": 1.25,
+    },
+    "Grundig": {
+        "tests": ["AI-score", "Smart-score", "Momentum", "Risiko", "Learning", "Hendelsesrisiko", "Kombinasjoner", "Datakvalitet"],
+        "description": "Grundigere vurdering med kombinasjoner og ekstra kvalitetskontroll.",
+        "api_multiplier": 1.55,
+    },
+}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def get_test_mode_config(test_mode: str = "Normal") -> Dict[str, Any]:
+    """Return a safe test-mode config used by both UI and engine."""
+    mode = str(test_mode or "Normal").strip()
+    if mode not in TEST_MODE_CONFIGS:
+        mode = "Normal"
+    cfg = dict(TEST_MODE_CONFIGS[mode])
+    cfg["mode"] = mode
+    cfg["tests"] = list(cfg.get("tests") or TEST_MODE_CONFIGS["Normal"]["tests"])
+    return cfg
+
+
+def estimate_auto_lab_run(
+    tickers: Sequence[str],
+    *,
+    test_mode: str = "Normal",
+    use_news: bool = False,
+    include_event: bool = True,
+) -> Dict[str, Any]:
+    """Estimate scope/API budget before Auto Test Lab starts.
+
+    The estimate is intentionally conservative and explainable; it does not
+    perform any network calls.
+    """
+    clean = []
+    seen = set()
+    for raw in tickers or []:
+        ticker = normalize_ticker(raw)
+        if ticker and ticker not in seen:
+            clean.append(ticker)
+            seen.add(ticker)
+    cfg = get_test_mode_config(test_mode)
+    tests = [t for t in cfg["tests"] if include_event or t != "Hendelsesrisiko"]
+    total_tests = len(clean) * len(tests)
+    # One quote/history pull per ticker is expected. Event/news can add work.
+    estimated_data_calls = int(math.ceil(len(clean) * float(cfg.get("api_multiplier", 1.0))))
+    news_calls = len(clean) if use_news else 0
+    event_checks = len(clean) if include_event and "Hendelsesrisiko" in tests else 0
+    load_score = estimated_data_calls + news_calls + max(0, event_checks // 3)
+    if load_score <= 12:
+        load_label = "Lav"
+    elif load_score <= 45:
+        load_label = "Medium"
+    else:
+        load_label = "Høy"
+    return {
+        "mode": cfg["mode"],
+        "description": cfg.get("description", ""),
+        "tickers": len(clean),
+        "tests": tests,
+        "tests_per_ticker": len(tests),
+        "total_tests": total_tests,
+        "estimated_data_calls": estimated_data_calls,
+        "news_calls": news_calls,
+        "event_checks": event_checks,
+        "load_label": load_label,
+    }
+
+
+def _emit_progress(
+    callback: Optional[ProgressCallback],
+    *,
+    ticker: str = "",
+    ticker_index: int = 0,
+    ticker_total: int = 0,
+    test_name: str = "",
+    test_index: int = 0,
+    tests_per_ticker: int = 0,
+    completed_tests: int = 0,
+    total_tests: int = 0,
+    status: str = "running",
+    message: str = "",
+) -> None:
+    if callback is None:
+        return
+    pct = 0.0 if total_tests <= 0 else _clamp((completed_tests / total_tests) * 100.0, 0.0, 100.0)
+    callback({
+        "status": status,
+        "ticker": ticker,
+        "ticker_index": ticker_index,
+        "ticker_total": ticker_total,
+        "test_name": test_name,
+        "test_index": test_index,
+        "tests_per_ticker": tests_per_ticker,
+        "completed_tests": completed_tests,
+        "total_tests": total_tests,
+        "percent": round(pct, 1),
+        "message": message,
+        "updated_at": _now_iso(),
+    })
 
 
 def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -433,6 +549,9 @@ def run_auto_test_lab(
     target: str = "Balansert",
     max_candidates: int = 25,
     combination_sizes: Sequence[int] = (3, 5),
+    test_mode: str = "Normal",
+    progress_callback: Optional[ProgressCallback] = None,
+    should_stop: Optional[StopCallback] = None,
 ) -> Dict[str, Any]:
     clean_tickers: List[str] = []
     seen = set()
@@ -444,28 +563,142 @@ def run_auto_test_lab(
         if len(clean_tickers) >= max(1, int(max_candidates or 25)):
             break
 
+    cfg = get_test_mode_config(test_mode)
+    tests = list(cfg.get("tests") or TEST_MODE_CONFIGS["Normal"]["tests"])
+    if event_risk_provider is None and "Hendelsesrisiko" in tests:
+        tests = [t for t in tests if t != "Hendelsesrisiko"]
+    total_tests = len(clean_tickers) * max(1, len(tests))
+    completed_tests = 0
+    interrupted = False
+
     rows: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
     errors: List[Dict[str, str]] = []
     scanned = 0
 
-    for ticker in clean_tickers:
+    _emit_progress(
+        progress_callback,
+        ticker_total=len(clean_tickers),
+        tests_per_ticker=len(tests),
+        completed_tests=0,
+        total_tests=total_tests,
+        status="starting",
+        message="Starter Auto Test Lab",
+    )
+
+    for ticker_idx, ticker in enumerate(clean_tickers, start=1):
+        if should_stop is not None and should_stop():
+            interrupted = True
+            _emit_progress(
+                progress_callback,
+                ticker=ticker,
+                ticker_index=ticker_idx,
+                ticker_total=len(clean_tickers),
+                tests_per_ticker=len(tests),
+                completed_tests=completed_tests,
+                total_tests=total_tests,
+                status="interrupted",
+                message="Avbrutt før neste ticker.",
+            )
+            break
+
         scanned += 1
+        item: Optional[Mapping[str, Any]] = None
+        event_info = None
+        ticker_failed = False
+
+        for test_idx, test_name in enumerate(tests, start=1):
+            if should_stop is not None and should_stop():
+                interrupted = True
+                _emit_progress(
+                    progress_callback,
+                    ticker=ticker,
+                    ticker_index=ticker_idx,
+                    ticker_total=len(clean_tickers),
+                    test_name=test_name,
+                    test_index=test_idx,
+                    tests_per_ticker=len(tests),
+                    completed_tests=completed_tests,
+                    total_tests=total_tests,
+                    status="interrupted",
+                    message="Avbrutt av bruker.",
+                )
+                break
+
+            _emit_progress(
+                progress_callback,
+                ticker=ticker,
+                ticker_index=ticker_idx,
+                ticker_total=len(clean_tickers),
+                test_name=test_name,
+                test_index=test_idx,
+                tests_per_ticker=len(tests),
+                completed_tests=completed_tests,
+                total_tests=total_tests,
+                status="running",
+                message=f"{ticker}: {test_name}",
+            )
+            try:
+                if item is None:
+                    # The score provider normally performs the only heavy market-data fetch for the ticker.
+                    item = score_provider(ticker, bool(use_news))
+                    if not item:
+                        rejected.append({"ticker": ticker, "reason": "Ingen analysedata returnert"})
+                        ticker_failed = True
+                if not ticker_failed and test_name == "Hendelsesrisiko" and event_risk_provider is not None:
+                    prices = _history_close_values(item or {})
+                    event_info = event_risk_provider(ticker, prices)
+            except Exception as exc:
+                errors.append({"ticker": ticker, "test": test_name, "error": str(exc)[:180]})
+                ticker_failed = True
+            finally:
+                completed_tests += 1
+                _emit_progress(
+                    progress_callback,
+                    ticker=ticker,
+                    ticker_index=ticker_idx,
+                    ticker_total=len(clean_tickers),
+                    test_name=test_name,
+                    test_index=test_idx,
+                    tests_per_ticker=len(tests),
+                    completed_tests=completed_tests,
+                    total_tests=total_tests,
+                    status="running",
+                    message=f"Ferdig: {ticker} / {test_name}",
+                )
+
+            if ticker_failed:
+                # Count remaining tests for this ticker as skipped so total progress remains understandable.
+                remaining = len(tests) - test_idx
+                if remaining > 0:
+                    completed_tests += remaining
+                    _emit_progress(
+                        progress_callback,
+                        ticker=ticker,
+                        ticker_index=ticker_idx,
+                        ticker_total=len(clean_tickers),
+                        test_name="Hoppet over",
+                        test_index=len(tests),
+                        tests_per_ticker=len(tests),
+                        completed_tests=completed_tests,
+                        total_tests=total_tests,
+                        status="skipped",
+                        message=f"{ticker}: hopper over resten av testene.",
+                    )
+                break
+
+        if interrupted:
+            break
+        if ticker_failed or not item:
+            continue
         try:
-            item = score_provider(ticker, bool(use_news))
-            if not item:
-                rejected.append({"ticker": ticker, "reason": "Ingen analysedata returnert"})
-                continue
-            event_info = None
-            if event_risk_provider is not None:
-                prices = _history_close_values(item)
-                event_info = event_risk_provider(ticker, prices)
             decision = compute_decision_quality(item, event_info=event_info, learning_stats=learning_stats, target=target)
             row = decision.as_dict()
             row["raw_score_available"] = bool(item.get("score") is not None)
+            row["test_mode"] = cfg["mode"]
             rows.append(row)
         except Exception as exc:
-            errors.append({"ticker": ticker, "error": str(exc)[:180]})
+            errors.append({"ticker": ticker, "test": "Decision Quality", "error": str(exc)[:180]})
 
     rows.sort(key=lambda x: float(x.get("decision_quality") or 0), reverse=True)
     rejected.extend([
@@ -473,15 +706,30 @@ def run_auto_test_lab(
         for r in rows
         if str(r.get("grade")) == "Vent"
     ])
-    combinations_out = build_candidate_combinations(rows, sizes=combination_sizes)
+    combinations_out = [] if interrupted else build_candidate_combinations(rows, sizes=combination_sizes)
 
     best_single = rows[:10]
     test_further = [r for r in rows if str(r.get("grade")) in {"Høy", "Middels"}]
+    status = "interrupted" if interrupted else ("ok" if rows else "empty")
+    _emit_progress(
+        progress_callback,
+        ticker_total=len(clean_tickers),
+        tests_per_ticker=len(tests),
+        completed_tests=completed_tests,
+        total_tests=total_tests,
+        status="interrupted" if interrupted else "done",
+        message="Auto Test Lab avbrutt." if interrupted else "Auto Test Lab ferdig.",
+    )
 
     return {
         "version": get_app_version(),
-        "status": "ok" if rows else "empty",
+        "status": status,
         "target": target,
+        "test_mode": cfg["mode"],
+        "planned_tests": tests,
+        "total_tests": total_tests,
+        "completed_tests": min(completed_tests, total_tests),
+        "interrupted": interrupted,
         "use_news": bool(use_news),
         "requested_tickers": clean_tickers,
         "scanned": scanned,
@@ -492,9 +740,11 @@ def run_auto_test_lab(
         "rejected": rejected[:20],
         "errors": errors[:20],
         "summary": {
-            "text": f"Auto Test Lab analyserte {len(rows)} av {len(clean_tickers)} tickere.",
+            "text": f"Auto Test Lab analyserte {len(rows)} av {len(clean_tickers)} tickere." + (" Kjøringen ble avbrutt." if interrupted else ""),
             "best_ticker": best_single[0]["ticker"] if best_single else None,
             "best_quality": best_single[0]["decision_quality"] if best_single else None,
             "combinations": len(combinations_out),
+            "completed_tests": min(completed_tests, total_tests),
+            "total_tests": total_tests,
         },
     }
