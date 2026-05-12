@@ -1,21 +1,32 @@
-# Project handoff – v18.5.45 Paper Trading Funds + ETF Support
+# Project handoff – v18.5.46 Fixed Income and High Yield Fund Support
 
-Header should show `Professional Trading Workspace v18.5.45`.
+Header should show `Professional Trading Workspace v18.5.46`.
 
-## New in v18.5.45
+## New in v18.5.46
 
-- Paper Trading now supports simulated fund/ETF purchases in addition to stocks.
-- Added amount-based paper buy for:
-  - ETF
-  - Indeksfond
-  - Aktivt fond
-  - Fond
-- Added partial/all sell support for paper fund/ETF positions.
-- Added optional manual price/NAV entry and yfinance fetch button where available.
-- Added simulated monthly savings-plan records for funds/ETF.
-- Paper positions and trades now carry `asset_type`, `units_label`, `currency`, `nav_date`, and order metadata.
-- Portfolio analysis now reads Paper Trading positions with correct asset type instead of treating all paper positions as stocks.
-- No real broker trading is active.
+- Added fixed-income fund support to Fond / ETF-analyse:
+  - Rente-/obligasjonsfond
+  - High yield-fond
+  - Pengemarkedsfond
+  - Kombinasjonsfond
+- Added auto selection sources:
+  - Auto rente-/obligasjonsfond
+  - Auto high yield-fond
+  - Auto pengemarkedsfond
+- Added starter universes for bond, high-yield and money-market style ETFs/funds.
+- Added alias handling for `Kraft High Yield D` → `KRAFT_HIGH_YIELD_D`.
+- High yield is now treated as credit risk / `Kredittsatellitt`, not low-risk bond/core exposure.
+- Fixed-income profiles now expose duration/yield when data exists, plus warnings when key data is missing.
+- Fund comparator exposes best fixed-income and best high-yield leaders.
+- Portfolio analyzer now counts:
+  - fixed income share
+  - high yield share
+  - high yield risk warnings
+- Paper Trading fund buy/sell supports the new asset types.
+
+## Important limitation
+
+Free/Yahoo-style data may not contain NAV, duration, yield or fees for Norwegian funds such as Kraft High Yield D. The app can classify the fund and warn about missing data, but full analysis requires a real data source for NAV/fees/yield/duration.
 
 ## Storage
 
@@ -26,4 +37,4 @@ Header should show `Professional Trading Workspace v18.5.45`.
 ## Verification
 
 - `python -m compileall .`
-- `pytest -q` → 87 passed
+- `pytest -q` → 95 passed

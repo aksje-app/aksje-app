@@ -24,6 +24,23 @@ ProgressCallback = Callable[[Mapping[str, Any]], None]
 StopCallback = Callable[[], bool]
 
 
+FUND_TYPE_OPTIONS = [
+    "Alle",
+    "Indeksfond",
+    "Aktivt fond",
+    "ETF",
+    "Rente-/obligasjonsfond",
+    "High yield-fond",
+    "Pengemarkedsfond",
+    "Kombinasjonsfond",
+    "Fond",
+]
+
+FIXED_INCOME_TYPES = {"Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond"}
+DEFENSIVE_FIXED_INCOME_TYPES = {"Rente-/obligasjonsfond", "Pengemarkedsfond"}
+HIGH_YIELD_TYPES = {"High yield-fond"}
+
+
 FUND_TEST_MODE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "Rask": {
         "tests": ["Fondstype", "Kostnad", "Avkastning", "Risiko", "Datakvalitet"],
@@ -59,6 +76,9 @@ FUND_SELECTION_SOURCES = [
     "Auto indeksfond",
     "Auto ETF",
     "Auto aktive fond",
+    "Auto rente-/obligasjonsfond",
+    "Auto high yield-fond",
+    "Auto pengemarkedsfond",
     "Alle / balansert miks",
 ]
 
@@ -99,12 +119,54 @@ FUND_UNIVERSES: Dict[str, List[Dict[str, str]]] = {
         {"symbol": "DYNF", "type": "Aktivt fond", "bucket": "Aktiv faktor", "reason": "aktiv faktor/rotasjon"},
         {"symbol": "AVGV", "type": "Aktivt fond", "bucket": "Aktiv verdi", "reason": "aktiv verdifaktor-kandidat"},
     ],
+    "Rente-/obligasjonsfond": [
+        {"symbol": "BND", "type": "Rente-/obligasjonsfond", "bucket": "Bred obligasjon", "reason": "bred obligasjons-/renteeksponering"},
+        {"symbol": "AGG", "type": "Rente-/obligasjonsfond", "bucket": "US aggregate bonds", "reason": "bred obligasjonsbenchmark"},
+        {"symbol": "IEF", "type": "Rente-/obligasjonsfond", "bucket": "Mellomlang stat", "reason": "rentefølsom statsobligasjonseksponering"},
+        {"symbol": "TLT", "type": "Rente-/obligasjonsfond", "bucket": "Lang stat", "reason": "lang durasjon, høyere rentefølsomhet"},
+        {"symbol": "SHY", "type": "Rente-/obligasjonsfond", "bucket": "Kort stat", "reason": "kort durasjon, lavere rentefølsomhet"},
+        {"symbol": "BSV", "type": "Rente-/obligasjonsfond", "bucket": "Kort obligasjon", "reason": "kort obligasjonsprofil"},
+        {"symbol": "VCIT", "type": "Rente-/obligasjonsfond", "bucket": "Investment grade kreditt", "reason": "investment grade selskapsobligasjoner"},
+        {"symbol": "LQD", "type": "Rente-/obligasjonsfond", "bucket": "Investment grade kreditt", "reason": "likvid IG-kredittbenchmark"},
+    ],
+    "High yield-fond": [
+        {"symbol": "HYG", "type": "High yield-fond", "bucket": "High yield", "reason": "stor high yield ETF, kredittrisiko må vurderes"},
+        {"symbol": "JNK", "type": "High yield-fond", "bucket": "High yield", "reason": "likvid high yield-kandidat"},
+        {"symbol": "ANGL", "type": "High yield-fond", "bucket": "Fallen angels", "reason": "fallen angels/high yield-segment"},
+        {"symbol": "HYLB", "type": "High yield-fond", "bucket": "High yield lavkost", "reason": "lavkost high yield ETF-kandidat"},
+        {"symbol": "USHY", "type": "High yield-fond", "bucket": "High yield bred", "reason": "bred high yield-eksponering"},
+        {"symbol": "SJNK", "type": "High yield-fond", "bucket": "Kort high yield", "reason": "kortere high yield-profil"},
+        {"symbol": "BKLN", "type": "High yield-fond", "bucket": "Bank loans", "reason": "flytende rente/kredittsatellitt"},
+        {"symbol": "KRAFT_HIGH_YIELD_D", "type": "High yield-fond", "bucket": "Norsk high yield", "reason": "Kraft High Yield D-lignende kandidat; krever NAV/datakilde hvis Yahoo mangler"},
+    ],
+    "Pengemarkedsfond": [
+        {"symbol": "SGOV", "type": "Pengemarkedsfond", "bucket": "T-bills", "reason": "kort stat/pengemarkedsnær eksponering"},
+        {"symbol": "BIL", "type": "Pengemarkedsfond", "bucket": "T-bills", "reason": "svært kort rentepapir-eksponering"},
+        {"symbol": "SHV", "type": "Pengemarkedsfond", "bucket": "Kort stat", "reason": "kort stat/pengemarkedsprofil"},
+        {"symbol": "ICSH", "type": "Pengemarkedsfond", "bucket": "Ultra short", "reason": "ultrakort rente-ETF"},
+        {"symbol": "MINT", "type": "Pengemarkedsfond", "bucket": "Ultra short aktiv", "reason": "ultrakort aktiv renteprofil"},
+    ],
 }
+
+FUND_SYMBOL_ALIASES = {
+    "KRAFTHIGHYIELDD": "KRAFT_HIGH_YIELD_D",
+    "KRAFT-HIGH-YIELD-D": "KRAFT_HIGH_YIELD_D",
+    "KRAFT_HIGH_YIELD_D": "KRAFT_HIGH_YIELD_D",
+}
+
+FIXED_INCOME_SYMBOLS = {row["symbol"] for key in ["Rente-/obligasjonsfond", "Pengemarkedsfond"] for row in FUND_UNIVERSES.get(key, [])}
+HIGH_YIELD_SYMBOLS = {row["symbol"] for row in FUND_UNIVERSES.get("High yield-fond", [])}
+
 
 
 def fund_selection_sources() -> List[str]:
     """Return UI-safe source options for fund selection."""
     return list(FUND_SELECTION_SOURCES)
+
+
+def fund_type_options() -> List[str]:
+    """Return UI-safe fund type options including fixed income/high yield. v18.5.46."""
+    return list(FUND_TYPE_OPTIONS)
 
 
 def _dedupe_symbols(items: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -127,7 +189,10 @@ def _balanced_mix(max_funds: int) -> List[Dict[str, Any]]:
     buckets = [
         FUND_UNIVERSES["Indeksfond"],
         FUND_UNIVERSES["ETF"],
+        FUND_UNIVERSES["Rente-/obligasjonsfond"],
+        FUND_UNIVERSES["High yield-fond"],
         FUND_UNIVERSES["Aktivt fond"],
+        FUND_UNIVERSES["Pengemarkedsfond"],
     ]
     selected: List[Dict[str, Any]] = []
     seen = set()
@@ -177,6 +242,12 @@ def select_fund_candidates(
         rows = FUND_UNIVERSES["ETF"]
     elif source == "Auto aktive fond":
         rows = FUND_UNIVERSES["Aktivt fond"]
+    elif source == "Auto rente-/obligasjonsfond":
+        rows = FUND_UNIVERSES["Rente-/obligasjonsfond"]
+    elif source == "Auto high yield-fond":
+        rows = FUND_UNIVERSES["High yield-fond"]
+    elif source == "Auto pengemarkedsfond":
+        rows = FUND_UNIVERSES["Pengemarkedsfond"]
     else:
         rows = _balanced_mix(max_funds)
 
@@ -220,7 +291,8 @@ def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
 
 
 def normalize_fund_symbol(value: Any) -> str:
-    return str(value or "").strip().upper().replace(" ", "")
+    raw = str(value or "").strip().upper().replace(" ", "")
+    return FUND_SYMBOL_ALIASES.get(raw, raw)
 
 
 def parse_fund_list(value: Any) -> List[str]:
@@ -230,7 +302,13 @@ def parse_fund_list(value: Any) -> List[str]:
     out: List[str] = []
     seen = set()
     for part in raw.split(","):
-        for token in str(part).split():
+        part_text = str(part or "").strip()
+        phrase_symbol = normalize_fund_symbol(part_text)
+        if phrase_symbol in FUND_SYMBOL_ALIASES.values() and phrase_symbol not in seen:
+            out.append(phrase_symbol)
+            seen.add(phrase_symbol)
+            continue
+        for token in part_text.split():
             symbol = normalize_fund_symbol(token)
             if symbol and symbol not in seen:
                 out.append(symbol)
@@ -390,17 +468,29 @@ def _expense_ratio(data: Optional[Mapping[str, Any]]) -> Optional[float]:
 
 def classify_fund(symbol: str, declared_type: str = "Alle", data: Optional[Mapping[str, Any]] = None) -> str:
     declared = str(declared_type or "Alle")
-    if declared in {"Indeksfond", "Aktivt fond", "ETF"}:
+    if declared in set(FUND_TYPE_OPTIONS) - {"Alle"}:
         return declared
     if data:
         quote_type = str(data.get("quoteType") or data.get("type") or "").upper()
         category = str(data.get("category") or data.get("fundFamily") or "").upper()
         name = str(data.get("name") or data.get("longName") or "").upper()
+        if any(x in category or x in name for x in ["HIGH YIELD", "HY", "KREDITT", "CREDIT"]):
+            return "High yield-fond"
+        if any(x in category or x in name for x in ["MONEY MARKET", "PENGEMARKED", "ULTRA SHORT", "T-BILL"]):
+            return "Pengemarkedsfond"
+        if any(x in category or x in name for x in ["BOND", "OBLIGASJON", "RENTE", "FIXED INCOME", "TREASURY"]):
+            return "Rente-/obligasjonsfond"
+        if any(x in category or x in name for x in ["BALANCED", "KOMBINASJON", "ALLOCATION"]):
+            return "Kombinasjonsfond"
         if "ETF" in quote_type or " ETF" in name:
             return "ETF"
         if "INDEX" in category or "INDEKS" in category or "INDEX" in name or "INDEKS" in name:
             return "Indeksfond"
     s = str(symbol or "").upper()
+    if s in HIGH_YIELD_SYMBOLS or any(tag in s for tag in ["HYG", "JNK", "HY", "HIGHYIELD"]):
+        return "High yield-fond"
+    if s in FIXED_INCOME_SYMBOLS or any(tag in s for tag in ["BND", "AGG", "IEF", "TLT", "SHY", "BIL", "SGOV", "MINT"]):
+        return "Rente-/obligasjonsfond" if s not in {"BIL", "SGOV", "SHV", "ICSH", "MINT"} else "Pengemarkedsfond"
     if any(tag in s for tag in ["ETF", ".L", ".PA", ".DE"]):
         return "ETF"
     return "Fond"
@@ -412,6 +502,12 @@ def _score_cost(expense: Optional[float], fund_type: str) -> float:
     # Thresholds are stricter for index funds/ETFs, more tolerant for active funds.
     if fund_type in {"Indeksfond", "ETF"}:
         return _clamp(100.0 - (expense / 0.80) * 75.0, 10.0, 100.0)
+    if fund_type == "Pengemarkedsfond":
+        return _clamp(100.0 - (expense / 0.60) * 78.0, 8.0, 100.0)
+    if fund_type == "Rente-/obligasjonsfond":
+        return _clamp(100.0 - (expense / 0.90) * 72.0, 8.0, 100.0)
+    if fund_type == "High yield-fond":
+        return _clamp(95.0 - (expense / 1.20) * 62.0, 8.0, 100.0)
     if fund_type == "Aktivt fond":
         return _clamp(100.0 - (expense / 1.80) * 65.0, 8.0, 100.0)
     return _clamp(100.0 - (expense / 1.20) * 70.0, 8.0, 100.0)
@@ -438,6 +534,12 @@ def _score_benchmark(total_return: Optional[float], benchmark_return: Optional[f
     if fund_type == "Aktivt fond":
         # Active funds need excess return after fee drag to score high.
         return _clamp(55.0 + excess * 1.7 - fee_drag * 8.0, 5.0, 100.0)
+    if fund_type == "High yield-fond":
+        # High yield is a credit satellite; reward excess cautiously and penalize fees.
+        return _clamp(55.0 + excess * 1.15 - fee_drag * 5.5, 5.0, 100.0)
+    if fund_type in {"Rente-/obligasjonsfond", "Pengemarkedsfond"}:
+        tracking_gap = abs(excess)
+        return _clamp(90.0 - tracking_gap * 1.2 - fee_drag * 4.0, 10.0, 100.0)
     # Index/ETF should be close to benchmark, not necessarily beat it.
     tracking_gap = abs(excess)
     return _clamp(95.0 - tracking_gap * 1.4 - fee_drag * 3.0, 10.0, 100.0)
@@ -521,6 +623,76 @@ def _active_evidence_test(
     }
 
 
+
+
+def _fixed_income_profile(
+    *,
+    fund_type: str,
+    data: Optional[Mapping[str, Any]],
+    volatility: Optional[float],
+    drawdown: Optional[float],
+    expense: Optional[float],
+) -> Dict[str, Any]:
+    """Return a conservative profile for rente-, obligasjons- and high yield funds.
+
+    The goal is to avoid treating high yield as ordinary low-risk bonds. Fields
+    are best-effort: many free data sources lack yield/duration, so the profile
+    exposes missing data instead of guessing.
+    """
+    if fund_type not in FIXED_INCOME_TYPES:
+        return {"is_fixed_income": False, "category": "Ikke relevant"}
+    data = data or {}
+    duration = _safe_float(data.get("duration") or data.get("effectiveDuration") or data.get("averageDuration"), None)
+    yield_pct = _safe_float(data.get("yield") or data.get("yield_pct") or data.get("trailingAnnualDividendYield") or data.get("annualYield"), None)
+    if yield_pct is not None and 0 < yield_pct < 0.25:
+        yield_pct *= 100.0
+    credit = str(data.get("credit_quality") or data.get("creditQuality") or data.get("category") or "").upper()
+
+    if fund_type == "Pengemarkedsfond":
+        risk_level = "Lav"
+        role = "Likviditetsbuffer"
+        reason = "Kort rente-/pengemarkedsprofil; vurderes primært som kontant-/likviditetsnær plassering."
+    elif fund_type == "Rente-/obligasjonsfond":
+        if duration is not None and duration >= 7:
+            risk_level = "Middels/høy"
+            role = "Defensiv satellitt"
+            reason = "Obligasjonsfond med høyere rentefølsomhet/durasjon."
+        else:
+            risk_level = "Lav/middels"
+            role = "Defensiv komponent"
+            reason = "Rente-/obligasjonsfond; vurderes mot durasjon, rente- og kredittrisiko."
+    else:
+        risk_level = "Høy kredittrisiko"
+        role = "Kredittsatellitt"
+        reason = "High yield bør ikke behandles som trygt rentefond; kredittrisiko og drawdown må vurderes særskilt."
+
+    warnings: List[str] = []
+    if fund_type == "High yield-fond":
+        warnings.append("high yield er kredittsatellitt, ikke lavrisiko-grunnmur")
+    if duration is None and fund_type != "High yield-fond":
+        warnings.append("durasjon/rentefølsomhet mangler")
+    if yield_pct is None:
+        warnings.append("yield/løpende rente mangler")
+    if volatility is not None and volatility > (12.0 if fund_type != "High yield-fond" else 18.0):
+        warnings.append("volatilitet er høy for fondstypen")
+    if drawdown is not None and drawdown < (-10.0 if fund_type != "High yield-fond" else -18.0):
+        warnings.append("historisk drawdown er betydelig")
+    if expense is not None and expense > (0.80 if fund_type != "High yield-fond" else 1.20):
+        warnings.append("kostnaden er høy for rente-/kredittfond")
+
+    return {
+        "is_fixed_income": True,
+        "category": fund_type,
+        "risk_level": risk_level,
+        "recommended_role": role,
+        "reason": reason,
+        "duration": None if duration is None else round(duration, 2),
+        "yield_pct": None if yield_pct is None else round(yield_pct, 3),
+        "credit_quality_hint": credit or None,
+        "warnings": warnings,
+    }
+
+
 def build_fund_comparator(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """Build a compact fund-vs-fund comparison summary."""
     valid = [dict(r) for r in (rows or []) if r]
@@ -551,8 +723,12 @@ def build_fund_comparator(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     best_quality = _max_by("decision_quality")
     best_after_cost = max(valid, key=_after_cost)
     best_risk_adjusted = max(valid, key=_risk_adjusted)
-    foundation_candidates = [r for r in valid if r.get("fund_type") in {"Indeksfond", "ETF"}]
+    foundation_candidates = [r for r in valid if r.get("fund_type") in {"Indeksfond", "ETF", "Rente-/obligasjonsfond", "Pengemarkedsfond"}]
+    fixed_income_candidates = [r for r in valid if r.get("fund_type") in FIXED_INCOME_TYPES]
+    high_yield_candidates = [r for r in valid if r.get("fund_type") == "High yield-fond"]
     best_foundation = max(foundation_candidates or valid, key=lambda r: (float(r.get("fit_score") or 0), float(r.get("decision_quality") or 0)))
+    best_fixed_income = max(fixed_income_candidates, key=lambda r: float(r.get("decision_quality") or 0)) if fixed_income_candidates else None
+    best_high_yield = max(high_yield_candidates, key=lambda r: float(r.get("decision_quality") or 0)) if high_yield_candidates else None
 
     rows_out: List[Dict[str, Any]] = []
     for r in valid:
@@ -581,6 +757,8 @@ def build_fund_comparator(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
             "best_etter_kostnad": best_after_cost.get("symbol") if best_after_cost else "-",
             "best_risikojustert": best_risk_adjusted.get("symbol") if best_risk_adjusted else "-",
             "best_grunnmur": best_foundation.get("symbol") if best_foundation else "-",
+            "best_rente_obligasjon": best_fixed_income.get("symbol") if best_fixed_income else "-",
+            "best_high_yield": best_high_yield.get("symbol") if best_high_yield else "-",
         },
         "rows": rows_out,
         "active_evidence": active_evidence,
@@ -595,9 +773,10 @@ BROAD_CORE_HINTS = [
 SATELLITE_HINTS = [
     "TEKNOLOGI", "TECH", "SEKTOR", "SECTOR", "SMALL", "EMERGING", "VEKST",
     "GROWTH", "FINTECH", "INCOME", "NASDAQ", "FAKTOR", "FACTOR", "VERDI", "VALUE",
+    "HIGH YIELD", "KREDITT", "CREDIT", "BANK LOAN", "HY",
 ]
-BROAD_CORE_SYMBOLS = {"SPY", "VOO", "VTI", "VT", "ACWI", "EUNL.DE", "IUSQ.DE", "SXR8.DE", "VEA", "IEFA"}
-SATELLITE_SYMBOLS = {"QQQ", "XLK", "XLF", "XLV", "IWM", "EEM", "ARKK", "ARKW", "ARKF", "JEPI", "JEPQ", "TCAF", "DYNF", "AVGV"}
+BROAD_CORE_SYMBOLS = {"SPY", "VOO", "VTI", "VT", "ACWI", "EUNL.DE", "IUSQ.DE", "SXR8.DE", "VEA", "IEFA", "BND", "AGG", "SHY", "BSV", "SGOV", "BIL", "SHV"}
+SATELLITE_SYMBOLS = {"QQQ", "XLK", "XLF", "XLV", "IWM", "EEM", "ARKK", "ARKW", "ARKF", "JEPI", "JEPQ", "TCAF", "DYNF", "AVGV", "HYG", "JNK", "ANGL", "HYLB", "USHY", "SJNK", "BKLN", "KRAFT_HIGH_YIELD_D"}
 
 CORE_SATELLITE_PROFILES: Dict[str, Dict[str, Any]] = {
     "Lav kostnad": {"core_pct": 90, "satellite_pct": 10, "max_core": 3, "max_satellite": 2, "description": "Lav kostnad: mest mulig bred grunnmur, få satellitter."},
@@ -617,6 +796,10 @@ def _is_broad_core_candidate(row: Mapping[str, Any]) -> bool:
     symbol = str(row.get("symbol") or "").upper()
     ftype = str(row.get("fund_type") or "")
     bucket = row.get("bucket") or row.get("category") or row.get("name") or ""
+    if ftype in {"Rente-/obligasjonsfond", "Pengemarkedsfond"}:
+        return symbol in BROAD_CORE_SYMBOLS or ftype == "Pengemarkedsfond"
+    if ftype == "High yield-fond":
+        return False
     if ftype not in {"Indeksfond", "ETF"}:
         return False
     if symbol in BROAD_CORE_SYMBOLS:
@@ -631,6 +814,8 @@ def _is_satellite_candidate(row: Mapping[str, Any]) -> bool:
     ftype = str(row.get("fund_type") or "")
     bucket = row.get("bucket") or row.get("category") or row.get("name") or ""
     if symbol in SATELLITE_SYMBOLS:
+        return True
+    if ftype == "High yield-fond":
         return True
     if ftype == "Aktivt fond":
         return True
@@ -647,9 +832,13 @@ def _role_reason(row: Mapping[str, Any], role: str) -> str:
     if role == "Grunnmur":
         return "Bred/lavkost indeks- eller ETF-kandidat med egnet kvalitet som porteføljegrunnmur."
     if role == "Satellitt":
+        if ftype == "High yield-fond":
+            return "High yield/kredittsatellitt med høyere kredittrisiko; bør ikke brukes som trygg rentebase."
         if ftype == "Aktivt fond":
             return f"Aktiv kandidat med {evidence or 'ukjent'} merverdibevis; bør brukes som mindre satellitt, ikke grunnmur."
         return "Mer spisset/sektor-/temaeksponering; kan brukes som kontrollert satellitt rundt grunnmuren."
+    if role in {"Defensiv komponent", "Likviditetsbuffer", "Kredittsatellitt"}:
+        return str((row.get("fixed_income_profile") or {}).get("reason") or "Rente-/kredittfond med egen risikoprofil.")
     if role == "Krever mer bevis":
         return "Mangler sterk nok dokumentasjon, datakvalitet eller aktiv merverdi til å få plass i forslag nå."
     return "Lav kvalitet, mangelfulle data eller for svak kostnad/risiko-profil for valgt mål."
@@ -1027,12 +1216,22 @@ def _score_cost_impact(expense: Optional[float], fund_type: str) -> float:
     if fund_type in {"Indeksfond", "ETF"}:
         # 0.10-0.25% should score very highly; 1.50% should be a serious warning.
         return _clamp(100.0 - fee * 42.0, 5.0, 100.0)
+    if fund_type == "Pengemarkedsfond":
+        return _clamp(100.0 - fee * 48.0, 5.0, 100.0)
+    if fund_type == "Rente-/obligasjonsfond":
+        return _clamp(98.0 - fee * 44.0, 5.0, 100.0)
+    if fund_type == "High yield-fond":
+        return _clamp(90.0 - fee * 32.0, 5.0, 100.0)
     if fund_type == "Aktivt fond":
         return _clamp(92.0 - fee * 33.0, 5.0, 100.0)
     return _clamp(95.0 - fee * 38.0, 5.0, 100.0)
 
 
 def _score_foundation_fit(*, fund_type: str, cost_score: float, benchmark_score: float, data_score: float, risk_score: float, fit_score: float) -> float:
+    if fund_type in DEFENSIVE_FIXED_INCOME_TYPES:
+        return _clamp((risk_score * 0.30) + (cost_score * 0.24) + (data_score * 0.20) + (benchmark_score * 0.16) + (fit_score * 0.10))
+    if fund_type == "High yield-fond":
+        return _clamp((fit_score * 0.25) + (data_score * 0.25) + (risk_score * 0.20) + (cost_score * 0.15) + (benchmark_score * 0.15) - 25.0)
     if fund_type not in {"Indeksfond", "ETF"}:
         return _clamp((fit_score * 0.30) + (data_score * 0.25) + (risk_score * 0.20) + (cost_score * 0.15) + (benchmark_score * 0.10) - 18.0)
     return _clamp((cost_score * 0.30) + (benchmark_score * 0.22) + (data_score * 0.20) + (risk_score * 0.18) + (fit_score * 0.10))
@@ -1042,6 +1241,8 @@ def _score_satellite_fit(*, fund_type: str, return_score: float, risk_score: flo
     evidence = _safe_float(active_evidence.get("score"), 58.0) or 58.0
     if fund_type == "Aktivt fond":
         return _clamp((evidence * 0.45) + (return_score * 0.25) + (risk_score * 0.20) + (benchmark_score * 0.10))
+    if fund_type == "High yield-fond":
+        return _clamp((return_score * 0.28) + (risk_score * 0.30) + (benchmark_score * 0.22) + 8.0)
     return _clamp((return_score * 0.35) + (risk_score * 0.25) + (benchmark_score * 0.20) + 12.0)
 
 
@@ -1160,7 +1361,13 @@ def build_fund_decision_quality_profile(
             cautions.append("høy aktiv kostnad uten sterk nok merverdi")
             hardened = min(hardened, 54.0)
     else:
-        if foundation_score >= 70:
+        if fund_type in DEFENSIVE_FIXED_INCOME_TYPES and foundation_score >= 66:
+            drivers.append("egnet som defensiv rente-/likviditetskomponent")
+        elif fund_type == "High yield-fond":
+            cautions.append("high yield har høyere kredittrisiko enn vanlige rentefond")
+            why_not_100.append("high yield bør vurderes som kredittsatellitt")
+            hardened = min(hardened, 72.0)
+        elif foundation_score >= 70:
             drivers.append("egnet som mulig grunnmur")
 
     if data_score < 40:
@@ -1177,7 +1384,16 @@ def build_fund_decision_quality_profile(
     else:
         grade = "Lav"
 
-    if fund_type == "Aktivt fond" and (evidence_status != "Godkjent" or active_score_num < 68):
+    if fund_type == "High yield-fond":
+        decision = "Kan vurderes" if quality >= 60 and data_score >= 55 else "Vurder videre"
+        recommended_role = "Kredittsatellitt" if quality >= 55 else "Krever mer bevis"
+    elif fund_type == "Pengemarkedsfond":
+        decision = "God kandidat" if quality >= 66 else "Kan vurderes"
+        recommended_role = "Likviditetsbuffer"
+    elif fund_type == "Rente-/obligasjonsfond":
+        decision = "God kandidat" if quality >= 70 else ("Kan vurderes" if quality >= 58 else "Vurder videre")
+        recommended_role = "Defensiv komponent" if quality >= 58 else "Krever mer bevis"
+    elif fund_type == "Aktivt fond" and (evidence_status != "Godkjent" or active_score_num < 68):
         decision = "Krever mer bevis"
         recommended_role = "Krever mer bevis"
     elif quality >= 76 and foundation_score >= satellite_score and fund_type in {"Indeksfond", "ETF"}:
@@ -1247,6 +1463,13 @@ def analyze_fund_record(
     volatility = _annualized_volatility(prices)
     benchmark_volatility = _annualized_volatility(benchmark_prices)
     drawdown = _max_drawdown(prices)
+    fixed_income_profile = _fixed_income_profile(
+        fund_type=detected_type,
+        data=data,
+        volatility=volatility,
+        drawdown=drawdown,
+        expense=expense,
+    )
 
     active_evidence = _active_evidence_test(
         fund_type=detected_type,
@@ -1263,6 +1486,10 @@ def analyze_fund_record(
     benchmark_score = _score_benchmark(total_return, benchmark_return, expense, detected_type)
     data_score = _score_data_quality(prices, expense, benchmark_return)
     fit_score = 86.0 if detected_type in {"Indeksfond", "ETF"} and objective in {"Grunnmur", "Lav kostnad", "Balansert"} else 68.0
+    if detected_type in DEFENSIVE_FIXED_INCOME_TYPES:
+        fit_score = 82.0 if objective in {"Lav risiko", "Balansert", "Grunnmur"} else 72.0
+    elif detected_type == "High yield-fond":
+        fit_score = 58.0 if objective in {"Lav risiko", "Grunnmur"} else 68.0
     if detected_type == "Aktivt fond":
         evidence_score = _safe_float(active_evidence.get("score"), 35.0) or 35.0
         if benchmark_score < 55 or evidence_score < 52:
@@ -1313,6 +1540,15 @@ def analyze_fund_record(
             cautions.append("aktiv merverdi er usikker")
         else:
             cautions.append("aktiv merverdi ikke godt nok bevist")
+    elif detected_type in FIXED_INCOME_TYPES:
+        fi_warnings = list((fixed_income_profile or {}).get("warnings") or [])
+        if detected_type in DEFENSIVE_FIXED_INCOME_TYPES:
+            positives.append("rente-/likviditetskomponent med egen risikoprofil")
+        if detected_type == "High yield-fond":
+            cautions.append("high yield er kredittrisiko, ikke trygg rente")
+        for warning in fi_warnings[:2]:
+            if warning not in cautions:
+                cautions.append(warning)
     elif benchmark_score >= 70:
         positives.append("følger benchmark godt")
     if data_score < 55:
@@ -1359,6 +1595,11 @@ def analyze_fund_record(
         "active_evidence_score": active_evidence.get("score"),
         "active_evidence_message": active_evidence.get("message"),
         "active_evidence": active_evidence,
+        "fixed_income_profile": fixed_income_profile,
+        "fixed_income_risk_level": fixed_income_profile.get("risk_level") if fixed_income_profile.get("is_fixed_income") else None,
+        "fixed_income_role": fixed_income_profile.get("recommended_role") if fixed_income_profile.get("is_fixed_income") else None,
+        "duration": fixed_income_profile.get("duration") if fixed_income_profile.get("is_fixed_income") else None,
+        "yield_pct": fixed_income_profile.get("yield_pct") if fixed_income_profile.get("is_fixed_income") else None,
         "reasons_positive": positives[:4],
         "reasons_caution": cautions[:4],
         "data_points": len(prices),
@@ -1409,6 +1650,7 @@ def build_fund_decision_quality_summary(rows: Sequence[Mapping[str, Any]]) -> Di
             "drivers": profile.get("drivers") or row.get("reasons_positive") or [],
             "cautions": profile.get("cautions") or row.get("reasons_caution") or [],
             "why_not_100": row.get("why_not_100") or profile.get("why_not_100") or [],
+            "fixed_income_profile": row.get("fixed_income_profile") or {},
         })
     out_rows = sorted(out_rows, key=lambda r: _safe_float(r.get("decision_quality"), 0.0) or 0.0, reverse=True)
     warnings = []
@@ -1524,6 +1766,8 @@ def run_fund_etf_lab(
     ranked = sorted(results, key=lambda x: (float(x.get("decision_quality") or 0), float(x.get("data_quality") or 0)), reverse=True)
     index_candidates = [r for r in ranked if r.get("fund_type") in {"Indeksfond", "ETF"}]
     active_candidates = [r for r in ranked if r.get("fund_type") == "Aktivt fond"]
+    fixed_income_candidates = [r for r in ranked if r.get("fund_type") in FIXED_INCOME_TYPES]
+    high_yield_candidates = [r for r in ranked if r.get("fund_type") == "High yield-fond"]
     needs_proof = [r for r in ranked if r.get("decision") in {"Krever mer bevis", "Vent / forkast", "Mangler data"}]
     comparator = build_fund_comparator(ranked)
     decision_quality_summary = build_fund_decision_quality_summary(ranked)
@@ -1553,6 +1797,8 @@ def run_fund_etf_lab(
         "ranked": ranked,
         "index_candidates": index_candidates,
         "active_candidates": active_candidates,
+        "fixed_income_candidates": fixed_income_candidates,
+        "high_yield_candidates": high_yield_candidates,
         "needs_proof": needs_proof,
         "comparator": comparator,
         "decision_quality_summary": decision_quality_summary,

@@ -5398,7 +5398,7 @@ def render_paper_trading_dashboard():
         with f1:
             fund_symbol = st.text_input("Fond/ETF-symbol", value=st.session_state.get("paper_fund_symbol_v18545", "VOO"), key="paper_fund_symbol_v18545").strip().upper()
         with f2:
-            fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Fond"], key="paper_fund_type_v18545")
+            fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545")
         with f3:
             fund_amount = st.number_input("Beløp", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
         with f4:
@@ -5448,7 +5448,7 @@ def render_paper_trading_dashboard():
                 if ok:
                     st.rerun()
         with bb:
-            fund_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) in {"ETF", "Fond", "Indeksfond", "Aktivt fond"}}
+            fund_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) in {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}}
             sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
             sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v18545")
             sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
@@ -6699,14 +6699,14 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
     st.subheader("🏦 Fond / ETF-analyse")
-    st.caption("Analyser indeksfond, aktive fond og ETF-er når du trykker Kjør. v18.5.43 herder Fond Decision Quality med kostnad, risiko, benchmark, rolle og aktiv merverdi.")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
 
-    from fund_etf_analyzer import fund_selection_sources
+    from fund_etf_analyzer import fund_selection_sources, fund_type_options
     col_src, col_a, col_b, col_c, col_d = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
     with col_src:
         selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-kilder velger fond fra et transparent start-univers. Manuell liste bruker dine tickere i rekkefølge.")
     with col_a:
-        fund_type = st.selectbox("Fondstype", ["Alle", "Indeksfond", "Aktivt fond", "ETF"], key="fund_lab_type_v18538")
+        fund_type = st.selectbox("Fondstype", fund_type_options(), key="fund_lab_type_v18538")
     with col_b:
         objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="fund_lab_objective_v18538")
     with col_c:
@@ -6720,8 +6720,8 @@ def render_fund_etf_control_center_v18538():
     with col_period:
         period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="fund_lab_period_v18538")
 
-    default_list = "SPY, VOO, VTI, QQQ, ACWI"
-    manual_text = st.text_area("Fond/ETF-liste", value=default_list, height=76, key="fund_lab_manual_v18538", help="Bruk tickere der Yahoo Finance har data. Norske fond kan mangle ticker/data i gratis datakilder.")
+    default_list = "SPY, VOO, VTI, QQQ, ACWI, BND, HYG, SGOV"
+    manual_text = st.text_area("Fond/ETF-liste", value=default_list, height=76, key="fund_lab_manual_v18538", help="Bruk tickere der Yahoo Finance har data. For norske fond som Kraft High Yield D kan NAV-data mangle i gratis datakilder; skriv gjerne Kraft High Yield D eller KRAFT_HIGH_YIELD_D for manuell klassifisering.")
 
     c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
     with c1:
@@ -6900,6 +6900,8 @@ def render_fund_etf_control_center_v18538():
         _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Beste indeksfond / ETF-kandidater", limit=5)
         _render_active_evidence_v18539(result.get("ranked"), title="Aktivt fond må bevise merverdi")
         _render_fund_etf_rows_v18538(result.get("active_candidates"), title="Aktive fond som kan vurderes", limit=5)
+        _render_fund_etf_rows_v18538(result.get("fixed_income_candidates"), title="Rente-/obligasjonsfond og pengemarked", limit=5)
+        _render_fund_etf_rows_v18538(result.get("high_yield_candidates"), title="High yield / kredittsatellitter", limit=5)
         needs = result.get("needs_proof") or []
         errors = result.get("errors") or []
         if needs or errors:
@@ -6919,7 +6921,7 @@ def render_auto_test_lab_fund_mode_v18543():
     import html as _html
     st.markdown("<div class='v18-dark-row'><b>Fondmodus:</b> Auto Test Lab tester fond/ETF-er mot kostnad, benchmark, aktiv merverdi, grunnmur/satellitt og Fond Decision Quality.</div>", unsafe_allow_html=True)
 
-    from fund_etf_analyzer import fund_selection_sources, parse_fund_list, select_fund_candidates
+    from fund_etf_analyzer import fund_selection_sources, fund_type_options, parse_fund_list, select_fund_candidates
     from auto_test_lab import estimate_auto_lab_fund_run
 
     col_src, col_type, col_obj, col_mode, col_max = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
@@ -6931,7 +6933,7 @@ def render_auto_test_lab_fund_mode_v18543():
             help="Auto-kilder velger fond/ETF-er fra et transparent start-univers. Manuell liste bruker dine symboler i rekkefølge.",
         )
     with col_type:
-        fund_type = st.selectbox("Fondstype", ["Alle", "Indeksfond", "Aktivt fond", "ETF"], key="auto_lab_fund_type_v18543")
+        fund_type = st.selectbox("Fondstype", fund_type_options(), key="auto_lab_fund_type_v18543")
     with col_obj:
         objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="auto_lab_fund_objective_v18543")
     with col_mode:
@@ -6950,13 +6952,13 @@ def render_auto_test_lab_fund_mode_v18543():
     with col_period:
         period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="auto_lab_fund_period_v18543")
 
-    default_list = "SPY, VOO, VTI, QQQ, ACWI"
+    default_list = "SPY, VOO, VTI, QQQ, ACWI, BND, HYG, SGOV"
     manual_text = st.text_area(
         "Fond/ETF-liste",
         value=default_list,
         height=72,
         key="auto_lab_fund_manual_v18543",
-        help="Bruk tickere der Yahoo Finance har data. Auto-kilder brukes når Utvalgskilde ikke er Manuell liste.",
+        help="Bruk tickere der Yahoo Finance har data. Auto-kilder brukes når Utvalgskilde ikke er Manuell liste. Kraft High Yield D kan skrives som tekst/alias, men krever NAV-datakilde for full data.",
     )
 
     c1, c2, c3 = st.columns([1.0, 1.0, 1.2])

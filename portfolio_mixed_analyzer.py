@@ -28,12 +28,15 @@ BROAD_GLOBAL_FUNDS = {"ACWI", "VT", "IUSQ.DE", "EUNL.DE", "VEA", "IEFA"}
 TECH_FUNDS = {"QQQ", "XLK", "ARKK", "ARKW", "JEPQ"}
 EMERGING_FUNDS = {"EEM", "IEMG", "VWO"}
 ACTIVE_FUND_HINTS = {"AKTIV", "ACTIVE", "ARK", "JEP", "DYNF", "TCAF", "AVGV"}
+FIXED_INCOME_ASSET_TYPES = {"Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}
+FIXED_INCOME_SYMBOLS = {"BND", "AGG", "IEF", "TLT", "SHY", "BSV", "VCIT", "LQD", "SGOV", "BIL", "SHV", "ICSH", "MINT"}
+HIGH_YIELD_SYMBOLS = {"HYG", "JNK", "ANGL", "HYLB", "USHY", "SJNK", "BKLN", "KRAFT_HIGH_YIELD_D"}
 
 
 @dataclass
 class MixedHolding:
     symbol: str
-    asset_type: str = "Aksje"  # Aksje / Fond / ETF / Aktivt fond / Indeksfond
+    asset_type: str = "Aksje"  # Aksje / Fond / ETF / Aktivt fond / Indeksfond / rente/high yield
     weight_pct: Optional[float] = None
     name: str = ""
     role: str = ""
@@ -76,14 +79,18 @@ def normalize_symbol(value: Any) -> str:
 
 
 def _is_fund_type(asset_type: str) -> bool:
-    return str(asset_type or "").strip() in {"Fond", "ETF", "Aktivt fond", "Indeksfond"}
+    return str(asset_type or "").strip() in {"Fond", "ETF", "Aktivt fond", "Indeksfond", *FIXED_INCOME_ASSET_TYPES}
 
 
 def _infer_asset_type(symbol: str, requested_type: str = "") -> str:
     typ = str(requested_type or "").strip()
-    if typ in {"Aksje", "Fond", "ETF", "Aktivt fond", "Indeksfond"}:
+    if typ in {"Aksje", "Fond", "ETF", "Aktivt fond", "Indeksfond", *FIXED_INCOME_ASSET_TYPES}:
         return typ
     s = normalize_symbol(symbol)
+    if s in HIGH_YIELD_SYMBOLS or "HIGHYIELD" in s or "HY" in s:
+        return "High yield-fond"
+    if s in FIXED_INCOME_SYMBOLS:
+        return "Pengemarkedsfond" if s in {"SGOV", "BIL", "SHV", "ICSH", "MINT"} else "Rente-/obligasjonsfond"
     if s in TECH_FUNDS or s in BROAD_US_FUNDS or s in BROAD_GLOBAL_FUNDS or s in EMERGING_FUNDS or s in {"IWM", "EFA", "XLF", "XLV"}:
         return "ETF"
     if any(h in s for h in ACTIVE_FUND_HINTS):
@@ -100,6 +107,8 @@ def _infer_geo(symbol: str, asset_type: str, metadata: Mapping[str, Any] | None 
         return "Norge"
     if s.endswith(SWEDEN_SUFFIXES):
         return "Sverige"
+    if asset_type in FIXED_INCOME_ASSET_TYPES:
+        return "Rente/kreditt"
     if s in BROAD_GLOBAL_FUNDS or s in EMERGING_FUNDS:
         return "Global/Internasjonal"
     if s.endswith(".DE"):
@@ -118,6 +127,12 @@ def _infer_sector(symbol: str, asset_type: str, metadata: Mapping[str, Any] | No
         return "Helse"
     if s in {"XLF"}:
         return "Finans"
+    if asset_type == "High yield-fond":
+        return "High yield/kreditt"
+    if asset_type in {"Rente-/obligasjonsfond", "Pengemarkedsfond"}:
+        return "Rente/defensiv"
+    if asset_type == "Kombinasjonsfond":
+        return "Kombinasjon"
     if s in BROAD_US_FUNDS or s in BROAD_GLOBAL_FUNDS:
         return "Bredt marked"
     if s in EMERGING_FUNDS:
@@ -134,6 +149,14 @@ def _infer_role(symbol: str, asset_type: str, explicit_role: str = "", metadata:
         if meta.get(key):
             return str(meta.get(key))
     s = normalize_symbol(symbol)
+    if asset_type in {"Rente-/obligasjonsfond"}:
+        return "Defensiv komponent"
+    if asset_type == "Pengemarkedsfond":
+        return "Likviditetsbuffer"
+    if asset_type == "High yield-fond":
+        return "Kredittsatellitt"
+    if asset_type == "Kombinasjonsfond":
+        return "Kombinasjon"
     if asset_type in {"Indeksfond", "ETF", "Fond"} and (s in BROAD_US_FUNDS or s in BROAD_GLOBAL_FUNDS):
         return "Grunnmur"
     if asset_type in {"ETF", "Aktivt fond", "Fond"}:
@@ -183,6 +206,14 @@ def parse_portfolio_text(text: str, *, default_asset_type: str = "Aksje", source
                 typ = "Aktivt fond"
             elif lower in {"indeks", "index", "indeksfond"}:
                 typ = "Indeksfond"
+            elif lower in {"rente", "obligasjon", "obligasjonsfond", "bond", "bonds"}:
+                typ = "Rente-/obligasjonsfond"
+            elif lower in {"highyield", "high-yield", "kreditt", "credit", "hy"}:
+                typ = "High yield-fond"
+            elif lower in {"pengemarked", "money", "market", "cash"}:
+                typ = "Pengemarkedsfond"
+            elif lower in {"kombinasjon", "balanced", "allocation"}:
+                typ = "Kombinasjonsfond"
             else:
                 name_parts.append(part)
         rows.append({
@@ -360,6 +391,8 @@ def analyze_mixed_portfolio(
     core_pct = _sum_weight(rows, lambda r: str(r.get("role")) == "Grunnmur")
     satellite_pct = _sum_weight(rows, lambda r: str(r.get("role")) == "Satellitt")
     active_pct = _sum_weight(rows, lambda r: str(r.get("asset_type")) == "Aktivt fond")
+    fixed_income_pct = _sum_weight(rows, lambda r: str(r.get("asset_type")) in {"Rente-/obligasjonsfond", "Pengemarkedsfond"})
+    high_yield_pct = _sum_weight(rows, lambda r: str(r.get("asset_type")) == "High yield-fond")
     tech_pct = _sum_weight(rows, lambda r: str(r.get("sector")) == "Teknologi/vekst")
     broad_pct = _sum_weight(rows, lambda r: str(r.get("sector")) == "Bredt marked")
     us_global_pct = _sum_weight(rows, lambda r: str(r.get("geography")) in {"USA/Global", "Global/Internasjonal"})
@@ -406,6 +439,14 @@ def analyze_mixed_portfolio(
     else:
         warnings.append("mangler kostnadsdata for fond/ETF-er")
         score -= 3
+
+    if fixed_income_pct >= 10 and profile in {"Lav risiko", "Balansert"}:
+        score += 3
+        strengths.append("rente-/pengemarkedsandel gir defensiv ballast")
+    if high_yield_pct > 20:
+        score -= min(10.0, (high_yield_pct - 20.0) * 0.45)
+        warnings.append("high yield-andelen er høy; dette er kredittrisiko, ikke kontant/rentebase")
+        suggestions.append("Hold high yield som kredittsatellitt, ikke som hoveddelen av defensiv renteandel.")
 
     if weighted_quality is not None:
         score += (weighted_quality - 65.0) * 0.12
@@ -463,6 +504,8 @@ def analyze_mixed_portfolio(
             "core_pct": core_pct,
             "satellite_pct": satellite_pct,
             "active_pct": active_pct,
+            "fixed_income_pct": fixed_income_pct,
+            "high_yield_pct": high_yield_pct,
             "tech_pct": tech_pct,
             "broad_market_pct": broad_pct,
             "us_global_pct": us_global_pct,
