@@ -6241,9 +6241,254 @@ def render_auto_test_lab_control_center_v18536():
     else:
         st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
 
+
+# v18.5.38: Fond / ETF Analyzer v1 + Progress.
+def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limit=8):
+    import html as _html
+    rows = list(rows or [])[: int(limit or 8)]
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-kandidater å vise ennå.</div>", unsafe_allow_html=True)
+        return
+    for idx, row in enumerate(rows, start=1):
+        grade = str(row.get("grade") or "-")
+        grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        name = _html.escape(str(row.get("name") or symbol))
+        fund_type = _html.escape(str(row.get("fund_type") or "-"))
+        decision = _html.escape(str(row.get("decision") or ""))
+        quality = row.get("decision_quality", "-")
+        cost = row.get("expense_ratio_pct")
+        ret = row.get("period_return_pct")
+        dd = row.get("max_drawdown_pct")
+        excess = row.get("excess_return_pct")
+        pos = "; ".join(str(x) for x in (row.get("reasons_positive") or [])[:2])
+        caution = "; ".join(str(x) for x in (row.get("reasons_caution") or [])[:2])
+        cost_txt = "ukjent" if cost is None else f"{cost}%"
+        ret_txt = "ukjent" if ret is None else f"{ret}%"
+        dd_txt = "ukjent" if dd is None else f"{dd}%"
+        excess_txt = "ukjent" if excess is None else f"{excess}%"
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.25rem 0; padding:.46rem .56rem;'>
+              <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
+                <b>#{idx} {symbol}</b>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span>
+              </div>
+              <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>{name} · {fund_type} · {decision}</div>
+              <div style='font-size:.76rem; color:rgba(191,219,254,.86); margin-top:.18rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
+              <div style='font-size:.74rem; color:rgba(209,250,229,.86); margin-top:.18rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
+              <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_fund_etf_control_center_v18538():
+    """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
+    st.subheader("🏦 Fond / ETF-analyse")
+    st.caption("Analyser indeksfond, aktive fond og ETF-er når du trykker Kjør. Panelet henter ikke fonddata skjult.")
+
+    col_a, col_b, col_c, col_d = st.columns([1.0, 1.05, 0.9, 0.9])
+    with col_a:
+        fund_type = st.selectbox("Fondstype", ["Alle", "Indeksfond", "Aktivt fond", "ETF"], key="fund_lab_type_v18538")
+    with col_b:
+        objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="fund_lab_objective_v18538")
+    with col_c:
+        test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="fund_lab_test_mode_v18538")
+    with col_d:
+        max_funds = st.slider("Maks fond", 1, 40, 8, 1, key="fund_lab_limit_v18538")
+
+    col_bench, col_period = st.columns([1.0, 1.0])
+    with col_bench:
+        benchmark_symbol = st.text_input("Benchmark", value="SPY", key="fund_lab_benchmark_v18538", help="Yahoo-symbol for benchmark, f.eks. SPY, VTI, ACWI, ^GSPC.").strip().upper()
+    with col_period:
+        period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="fund_lab_period_v18538")
+
+    default_list = "SPY, VOO, VTI, QQQ, ACWI"
+    manual_text = st.text_area("Fond/ETF-liste", value=default_list, height=76, key="fund_lab_manual_v18538", help="Bruk tickere der Yahoo Finance har data. Norske fond kan mangle ticker/data i gratis datakilder.")
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
+    with c1:
+        include_benchmark = st.checkbox("Benchmark-sjekk", value=True, key="fund_lab_include_benchmark_v18538")
+    with c2:
+        fetch_costs = st.checkbox("Prøv å hente kostnader", value=True, key="fund_lab_fetch_costs_v18538")
+    with c3:
+        store_result = st.checkbox("Lagre resultat", value=True, key="fund_lab_store_result_v18538")
+
+    from fund_etf_analyzer import parse_fund_list, estimate_fund_etf_run
+    symbols = parse_fund_list(manual_text)[: int(max_funds or 8)]
+    budget = estimate_fund_etf_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
+    tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
+          <span><b>Planlagt fondanalyse:</b> {int(budget.get('funds', len(symbols)) or 0)} fond · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
+        </div>
+        <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {html.escape(tests_text or 'Ingen')}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if symbols:
+        st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: <b>{html.escape(', '.join(symbols[:12]))}</b></div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet. Legg inn en liste før kjøring.</div>", unsafe_allow_html=True)
+
+    run_col, stop_col = st.columns([2.2, 1.0])
+    with run_col:
+        run_clicked = st.button("🏦 Kjør Fond / ETF-analyse", key="fund_lab_run_v18538", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Fond / ETF", "detail": "Tester fond mot kostnad, risiko og benchmark"})
+    with stop_col:
+        if st.button("⏹ Stopp/avbryt", key="fund_lab_stop_v18538", use_container_width=True):
+            st.session_state["fund_lab_stop_requested_v18538"] = True
+            st.warning("Stopp er bedt om. Kjøringen stopper ved neste trygge kontrollpunkt.")
+
+    if run_clicked:
+        st.session_state["fund_lab_stop_requested_v18538"] = False
+        if not symbols:
+            st.warning("Ingen fond/ETF-er å teste.")
+            finish_global_busy("Klar", "Fond / ETF-analyse manglet symboler.")
+            return
+        if yf is None:
+            st.error("yfinance er ikke tilgjengelig i miljøet. Legg yfinance i requirements/deploy før fonddata kan hentes.")
+            finish_global_busy("Klar", "Fond / ETF-analyse stoppet: yfinance mangler.")
+            return
+
+        from fund_etf_analyzer import run_fund_etf_lab
+        from services.storage_service import get_storage_service
+        from datetime import datetime, timezone
+
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter Fond / ETF-analyse")
+        update_global_busy("Kjører Fond / ETF", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+
+        def _download_symbol(symbol):
+            info = {}
+            hist = None
+            try:
+                t = yf.Ticker(symbol)
+                if fetch_costs:
+                    try:
+                        info = dict(getattr(t, "info", {}) or {})
+                    except Exception:
+                        info = {}
+                try:
+                    hist = t.history(period=period, auto_adjust=True)
+                except Exception:
+                    hist = None
+            except Exception:
+                info = {}
+                hist = None
+            closes = []
+            if hist is not None:
+                try:
+                    if hasattr(hist, "columns") and "Close" in hist.columns:
+                        closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                except Exception:
+                    closes = []
+            return {
+                "symbol": symbol,
+                "name": info.get("longName") or info.get("shortName") or symbol,
+                "longName": info.get("longName") or info.get("shortName") or symbol,
+                "quoteType": info.get("quoteType") or info.get("typeDisp"),
+                "category": info.get("category"),
+                "fundFamily": info.get("fundFamily"),
+                "expenseRatio": info.get("annualReportExpenseRatio") or info.get("expenseRatio") or info.get("netExpenseRatio"),
+                "prices": closes,
+            }
+
+        def _should_stop():
+            return bool(st.session_state.get("fund_lab_stop_requested_v18538", False))
+
+        def _progress_callback(ev):
+            pct = float(ev.get("percent") or 0.0)
+            completed = int(ev.get("completed_tests") or 0)
+            total = int(ev.get("total_tests") or 0)
+            symbol = str(ev.get("symbol") or "-")
+            test_name = str(ev.get("test_name") or "Starter")
+            fund_idx = int(ev.get("fund_index") or 0)
+            fund_total = int(ev.get("fund_total") or len(symbols))
+            test_idx = int(ev.get("test_index") or 0)
+            tests_per = int(ev.get("tests_per_fund") or max(1, int(budget.get("tests_per_fund", 1) or 1)))
+            status = str(ev.get("status") or "running")
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Fond / ETF", f"{symbol} · {test_name} · {pct:.0f}%", step=completed, total=total)
+            status_box.markdown(
+                f"""
+                <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
+                  <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
+                    <b>🔄 Fond / ETF-analyse kjører</b>
+                    <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
+                  </div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{html.escape(symbol)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
+                  <div style='font-size:.78rem;color:rgba(226,232,240,.84);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        result = run_fund_etf_lab(
+            symbols,
+            data_provider=_download_symbol,
+            benchmark_provider=_download_symbol if include_benchmark else None,
+            benchmark_symbol=benchmark_symbol or "SPY",
+            fund_type=fund_type,
+            objective=objective,
+            test_mode=test_mode,
+            progress_callback=_progress_callback,
+            should_stop=_should_stop,
+            max_funds=int(max_funds or 8),
+        )
+        result["period"] = period
+        result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        st.session_state["fund_etf_lab_last_result_v18538"] = result
+        if store_result:
+            try:
+                storage = get_storage_service()
+                storage.write_json("fund_etf_lab/latest.json", result)
+                storage.append_jsonl("fund_etf_lab/history.jsonl", result)
+                result["storage_backend"] = storage.backend()
+            except Exception as exc:
+                result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        finish_global_busy("Klar", "Fond / ETF-analyse ferdig." if not result.get("interrupted") else "Fond / ETF-analyse avbrutt.")
+        if result.get("interrupted"):
+            st.warning(f"Fond / ETF-analyse avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
+        else:
+            st.success(f"Fond / ETF-analyse ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+
+    result = st.session_state.get("fund_etf_lab_last_result_v18538") or {}
+    if result:
+        summary = result.get("summary", {}) or {}
+        cols = st.columns(5)
+        cols[0].metric("Analyserte", summary.get("analyzed", 0))
+        cols[1].metric("Tester", f"{result.get('completed_tests', 0)}/{result.get('total_tests', 0)}")
+        cols[2].metric("Beste", summary.get("best_symbol") or "-")
+        cols[3].metric("Kvalitet", summary.get("best_quality") or "-")
+        cols[4].metric("Feil", summary.get("errors", 0))
+        if result.get("interrupted"):
+            st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er foreløpige.")
+        _render_fund_etf_rows_v18538(result.get("ranked"), title="Beste fond / ETF-kandidater", limit=8)
+        _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Beste indeksfond / ETF-kandidater", limit=5)
+        _render_fund_etf_rows_v18538(result.get("active_candidates"), title="Aktive fond som kan vurderes", limit=5)
+        needs = result.get("needs_proof") or []
+        errors = result.get("errors") or []
+        if needs or errors:
+            with st.expander("Krever mer bevis / mangler data / feil", expanded=False):
+                for row in needs[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('decision')} · {', '.join(row.get('reasons_caution') or [])}")
+                for row in errors[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
+    else:
+        st.info("Ingen Fond / ETF-resultat ennå. Legg inn fond/ETF-er og trykk Kjør.")
+
 def control_center_extra_panels_v18535():
     return [
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
+        ("🏦 Fond / ETF", render_fund_etf_control_center_v18538),
         ("📰 Nyheter", render_news_control_center_v18535),
         ("📊 Interaktiv analyse", render_interactive_technical_control_center_v18535),
         ("🏆 Marked/rangering", render_market_ranking_control_center_v18535),

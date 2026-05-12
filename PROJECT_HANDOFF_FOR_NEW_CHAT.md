@@ -1,10 +1,11 @@
-# Project handoff – v18.5.37 Auto Test Lab + Decision Quality Engine
+# Project handoff – v18.5.38 Fund / ETF Analyzer v1 + Progress
 
-Header should show `Professional Trading Workspace v18.5.37`.
+Header should show `Professional Trading Workspace v18.5.38`.
 
-Key update: Kontrollsenter has a new lazy `🔬 Auto Test Lab` panel. It resolves one selected universe, runs on explicit button press only, scores candidates through the existing score provider, applies Decision Quality, optional event-risk without NewsAPI auto-calls, learning stats and data-quality checks, then displays best single candidates, wait/no-trade candidates and small portfolio combinations.
+Key update: Kontrollsenter has a new lazy `🏦 Fond / ETF-analyse` panel. It analyses funds and ETFs only when the user presses the run button. It supports Indeksfond / Aktivt fond / ETF / Alle, manual fund/ETF ticker lists, Rask/Normal/Grundig test modes, benchmark comparison, cost/risk/return/max drawdown metrics, a fund-specific Decision Quality score and visible per-fund/per-test progress.
+
+The fund module is intentionally separate from stock scoring: index funds/ETFs are treated as potential low-cost foundation holdings, while active funds must show enough benchmark/value evidence to justify costs.
 
 Runtime data stays out of GitHub; keep only `.gitkeep` in `data/`, `data/forecasts/` and `data/services/`.
 
-
-Current focus: v18.5.37 Auto Test Lab Progress + Safe Run Controls.
+Current focus: v18.5.38 Fund / ETF Analyzer v1 + Progress.

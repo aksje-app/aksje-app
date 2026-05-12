@@ -1,6 +1,6 @@
 """Legacy cleanup registry for Professional Trading Workspace.
 
-v18.5.37 keeps AI Kontrollsenter as the single place for modules that used
+v18.5.38 keeps AI Kontrollsenter as the single place for modules that used
  to appear in multiple standalone sections. The lists below are intentionally
 small and explicit so smoke tests can verify that duplicate UI blocks stay
 removed in future packages.
@@ -29,7 +29,7 @@ AI_CONTROL_CENTER_SINGLE_SOURCES = {
 def legacy_cleanup_status() -> dict:
     """Return a compact status payload for tests and Services smoke checks."""
     return {
-        "version": "v18.5.37",
+        "version": "v18.5.38",
         "removed_main_panels": list(REMOVED_MAIN_PANELS),
         "removed_analysis_card_actions": list(REMOVED_ANALYSIS_CARD_ACTIONS),
         "single_sources": dict(AI_CONTROL_CENTER_SINGLE_SOURCES),
