@@ -216,6 +216,203 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
     return False, "Ingen trade"
 
 
+
+
+# -------------------------------------------------------------------
+# v18.5.45: Paper trading support for funds and ETFs
+# -------------------------------------------------------------------
+FUND_ASSET_TYPES = {"ETF", "Fond", "Indeksfond", "Aktivt fond"}
+
+
+def _normalize_paper_symbol(symbol):
+    return str(symbol or "").strip().upper()
+
+
+def _normalize_asset_type(asset_type):
+    text = str(asset_type or "").strip()
+    if text.lower() in {"etf", "exchange traded fund"}:
+        return "ETF"
+    if text.lower() in {"indeks", "indeksfond", "index fund"}:
+        return "Indeksfond"
+    if text.lower() in {"aktivt", "aktivt fond", "active fund"}:
+        return "Aktivt fond"
+    if text.lower() in {"fond", "fund"}:
+        return "Fond"
+    return text or "Aksje"
+
+
+def _units_label_for_asset(asset_type):
+    asset_type = _normalize_asset_type(asset_type)
+    if asset_type in FUND_ASSET_TYPES:
+        return "andeler" if asset_type != "ETF" else "units"
+    return "shares"
+
+
+def paper_buy_instrument(
+    symbol,
+    price,
+    amount,
+    asset_type="ETF",
+    confidence=0,
+    reason="Manuelt paper-kjøp",
+    currency="NOK",
+    nav_date="",
+    purchase_mode="Engangskjøp",
+):
+    """Buy a paper-trading instrument by amount.
+
+    v18.5.45: Supports ETF/fund accumulation. Unlike the legacy stock
+    paper_buy(), this function can add to an existing fund/ETF position and uses
+    a user-selected amount instead of position-size rules.
+    """
+    symbol = _normalize_paper_symbol(symbol)
+    asset_type = _normalize_asset_type(asset_type)
+    currency = str(currency or "NOK").upper()
+    try:
+        price = float(price)
+        amount = float(amount)
+    except Exception:
+        return False, "Ugyldig pris eller beløp"
+    if not symbol:
+        return False, "Mangler symbol"
+    if price <= 0:
+        return False, "Ugyldig pris/NAV"
+    if amount <= 0:
+        return False, "Beløp må være større enn 0"
+
+    portfolio = load_portfolio()
+    cash = float(portfolio.get("cash", 0) or 0)
+    if cash < amount:
+        return False, f"Ikke nok cash ({cash:.2f} tilgjengelig)"
+
+    units = amount / price
+    positions = portfolio.setdefault("positions", {})
+    existing = positions.get(symbol)
+    units_label = _units_label_for_asset(asset_type)
+    if existing:
+        old_units = float(existing.get("shares", 0) or 0)
+        old_avg = float(existing.get("entry_price", existing.get("avg_price", price)) or price)
+        new_units = old_units + units
+        new_avg = ((old_units * old_avg) + amount) / new_units if new_units else price
+        existing.update({
+            "ticker": symbol,
+            "shares": new_units,
+            "entry_price": round(new_avg, 6),
+            "avg_price": round(new_avg, 6),
+            "last_price": price,
+            "highest_price": max(float(existing.get("highest_price", price) or price), price),
+            "asset_type": asset_type,
+            "units_label": units_label,
+            "currency": currency,
+            "nav_date": nav_date or existing.get("nav_date", ""),
+            "purchase_mode": purchase_mode,
+            "confidence": int(confidence or existing.get("confidence", 0) or 0),
+            "reason": reason,
+        })
+    else:
+        sl, tp, tr = calc_levels(price, price)
+        positions[symbol] = {
+            "ticker": symbol,
+            "shares": units,
+            "entry_price": price,
+            "avg_price": price,
+            "last_price": price,
+            "highest_price": price,
+            "stop_loss": 0 if asset_type in FUND_ASSET_TYPES else sl,
+            "take_profit": 0 if asset_type in FUND_ASSET_TYPES else tp,
+            "trailing_stop": 0 if asset_type in FUND_ASSET_TYPES else tr,
+            "confidence": int(confidence or 0),
+            "reason": reason,
+            "opened_at": datetime.now().isoformat(timespec="seconds"),
+            "asset_type": asset_type,
+            "units_label": units_label,
+            "currency": currency,
+            "nav_date": nav_date,
+            "purchase_mode": purchase_mode,
+        }
+
+    portfolio["cash"] = round(cash - amount, 2)
+    add_trade(portfolio, {
+        "type": "BUY",
+        "ticker": symbol,
+        "price": round(price, 6),
+        "shares": round(units, 8),
+        "amount": round(amount, 2),
+        "confidence": int(confidence or 0),
+        "reason": reason,
+        "asset_type": asset_type,
+        "currency": currency,
+        "nav_date": nav_date,
+        "order_kind": "amount_buy",
+    })
+    notify_executed_trade("BUY", symbol, price, shares=units, amount=amount, confidence=confidence, reason=reason)
+    return True, f"KJØP {asset_type} {symbol}: {amount:.2f} {currency} @ {price:.4f}"
+
+
+def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper-salg", currency="NOK", nav_date=""):
+    """Sell all or part of a paper-trading instrument by amount.
+
+    If sell_amount is None, the whole position is sold. If sell_amount is lower
+    than current value, only a proportional number of units is sold.
+    """
+    symbol = _normalize_paper_symbol(symbol)
+    try:
+        price = float(price)
+    except Exception:
+        return False, "Ugyldig pris/NAV"
+    if not symbol:
+        return False, "Mangler symbol"
+    if price <= 0:
+        return False, "Ugyldig pris/NAV"
+
+    portfolio = load_portfolio()
+    pos = portfolio.get("positions", {}).get(symbol)
+    if not pos:
+        return False, f"Ingen posisjon i {symbol}"
+
+    units = float(pos.get("shares", 0) or 0)
+    entry = float(pos.get("entry_price", pos.get("avg_price", price)) or price)
+    current_value = units * price
+    if current_value <= 0:
+        return False, "Posisjonen har ingen verdi"
+    if sell_amount is None or float(sell_amount or 0) <= 0 or float(sell_amount or 0) >= current_value:
+        units_to_sell = units
+        amount = current_value
+        close_all = True
+    else:
+        amount = float(sell_amount)
+        units_to_sell = amount / price
+        close_all = False
+
+    pnl_pct = ((price - entry) / entry * 100) if entry else 0
+    portfolio["cash"] = round(float(portfolio.get("cash", 0) or 0) + amount, 2)
+    if close_all:
+        del portfolio["positions"][symbol]
+    else:
+        pos["shares"] = max(0.0, units - units_to_sell)
+        pos["last_price"] = price
+        pos["nav_date"] = nav_date or pos.get("nav_date", "")
+        portfolio["positions"][symbol] = pos
+
+    add_trade(portfolio, {
+        "type": "SELL",
+        "ticker": symbol,
+        "price": round(price, 6),
+        "shares": round(units_to_sell, 8),
+        "amount": round(amount, 2),
+        "confidence": int(pos.get("confidence", 0) or 0),
+        "pnl_pct": round(pnl_pct, 2),
+        "reason": reason,
+        "asset_type": pos.get("asset_type", "Aksje"),
+        "currency": currency or pos.get("currency", ""),
+        "nav_date": nav_date or pos.get("nav_date", ""),
+        "order_kind": "amount_sell" if not close_all else "sell_all",
+    })
+    notify_executed_trade("SELL", symbol, price, shares=units_to_sell, amount=amount, confidence=pos.get("confidence"), reason=reason)
+    suffix = "alt" if close_all else f"{amount:.2f} {currency}"
+    return True, f"SALG {symbol}: {suffix} @ {price:.4f} ({pnl_pct:.2f}%)"
+
+
 # -------------------------------------------------------------------
 # Pro signal tuning v1
 # Conservative rules to reduce bad BUYs:
