@@ -192,6 +192,27 @@ section[data-testid="stSidebar"] [data-testid="stIconMaterial"] {
 .v18-status-dot.green { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.15); }
 .v18-status-dot.red { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.15); }
 .v18-status-dot.yellow { background:#f59e0b; box-shadow:0 0 0 3px rgba(245,158,11,.16); }
+.v18-dark-row {
+    border: 1px solid rgba(56,189,248,.18);
+    background: rgba(8,16,34,.58);
+    color: #f8fafc;
+    border-radius: 12px;
+    padding: .42rem .54rem;
+    font-size: .82rem;
+}
+.v18-status-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: .18rem .44rem;
+    font-size: .72rem;
+    font-weight: 900;
+    border: 1px solid rgba(148,163,184,.30);
+    background: rgba(30,41,59,.74);
+}
+.v18-status-chip.green { border-color: rgba(34,197,94,.55); background: rgba(16,65,52,.70); color:#dcfce7; }
+.v18-status-chip.yellow { border-color: rgba(245,158,11,.55); background: rgba(120,53,15,.48); color:#fde68a; }
+.v18-status-chip.red { border-color: rgba(239,68,68,.55); background: rgba(86,22,36,.56); color:#fecaca; }
 details > summary {
     cursor: pointer !important;
 }
@@ -5907,8 +5928,244 @@ def render_watchlist_signals_control_center_v18535():
     render_watchlist_alerts_workspace(dynamic, pushover_enabled_runtime=pushover_enabled)
 
 
+
+# v18.5.36: Auto Test Lab + Decision Quality Engine.
+def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
+    """Resolve Auto Test Lab universe without running hidden scans."""
+    from auto_test_lab import parse_ticker_list, normalize_ticker
+    limit = max(1, min(int(limit or 25), 150))
+    scope = str(scope or "").strip()
+
+    def _dedupe(values):
+        out, seen = [], set()
+        for raw in values or []:
+            ticker = normalize_ticker(raw.get("ticker") if isinstance(raw, dict) else raw)
+            if ticker and ticker not in seen:
+                out.append(ticker)
+                seen.add(ticker)
+            if len(out) >= limit:
+                break
+        return out
+
+    if scope == "Manuell liste":
+        return _dedupe(parse_ticker_list(manual_text))
+    if scope == "USA":
+        return _dedupe(get_sp500_tickers(limit=limit))
+    if scope == "Norge":
+        return _dedupe(get_norwegian_tickers(limit=limit))
+    if scope == "Sverige":
+        return _dedupe(get_swedish_tickers(limit=limit))
+    if scope == "Multi-marked":
+        per_market = max(3, limit // 3)
+        return _dedupe(list(get_sp500_tickers(limit=per_market)) + list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market)))
+    if scope == "Aktivt Smart Universe":
+        try:
+            from services.service_registry import build_service_registry
+            services = build_service_registry(st.session_state)
+            active = services.universe.load_active_universe().data or {}
+            return _dedupe(active.get("tickers") or active.get("rows") or [])
+        except Exception:
+            active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+            if isinstance(active, dict):
+                return _dedupe(active.get("tickers") or active.get("rows") or [])
+            return []
+    if scope == "Siste Smart AI-resultat":
+        try:
+            from services.universe_service import SMART_RESULT_KEY
+            smart = st.session_state.get(SMART_RESULT_KEY, {}) or st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        except Exception:
+            smart = st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        if isinstance(smart, dict):
+            return _dedupe(smart.get("top_tickers") or smart.get("candidates") or smart.get("top_picks") or [])
+        return []
+    if scope == "Top Picks":
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        rows = []
+        for key, vals in latest.items():
+            if "Top" in str(key) or key in {"USA", "Norge", "Sverige"}:
+                rows.extend(vals or [])
+        rows = _ranked_for_display(rows)
+        return _dedupe(rows)
+    if scope == "Watchlist":
+        return _dedupe(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
+    if scope == "Paper trading":
+        try:
+            portfolio = load_portfolio() or {}
+            positions = portfolio.get("positions") if isinstance(portfolio, dict) else {}
+            if isinstance(positions, dict):
+                return _dedupe(list(positions.keys()))
+            if isinstance(positions, list):
+                return _dedupe([p.get("ticker") or p.get("symbol") for p in positions if isinstance(p, dict)])
+        except Exception:
+            return []
+    return []
+
+
+def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limit=8):
+    import html as _html
+    rows = list(rows or [])[: int(limit or 8)]
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Ingen kandidater å vise ennå.</div>", unsafe_allow_html=True)
+        return
+    for idx, row in enumerate(rows, start=1):
+        grade = str(row.get("grade") or "-")
+        grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
+        ticker = _html.escape(str(row.get("ticker") or "-"))
+        action = _html.escape(str(row.get("action") or ""))
+        quality = row.get("decision_quality", "-")
+        ai = row.get("ai_score", "-")
+        mom = row.get("momentum_score", "-")
+        risk = row.get("risk_score", "-")
+        event = row.get("event_score", "-")
+        pos = "; ".join(str(x) for x in (row.get("reasons_positive") or [])[:2])
+        caution = "; ".join(str(x) for x in (row.get("reasons_caution") or [])[:2])
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.25rem 0; padding:.46rem .56rem;'>
+              <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
+                <b>#{idx} {ticker}</b>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span>
+              </div>
+              <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>
+                {action} · AI {ai} · Momentum {mom} · Risiko {risk} · Event {event}
+              </div>
+              <div style='font-size:.74rem; color:rgba(209,250,229,.86); margin-top:.18rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
+              <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_auto_lab_combination_rows_v18536(rows, limit=6):
+    import html as _html
+    rows = list(rows or [])[: int(limit or 6)]
+    st.markdown("<div class='ptw-control-panel-title'>Beste kombinasjoner</div>", unsafe_allow_html=True)
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Ingen kombinasjoner ennå. Kjør minst 3 gode kandidater.</div>", unsafe_allow_html=True)
+        return
+    for idx, row in enumerate(rows, start=1):
+        tickers = " + ".join(row.get("tickers") or [])
+        score = row.get("combination_score", "-")
+        reason = str(row.get("reason") or "")
+        sectors = ", ".join(row.get("sectors") or [])
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.25rem 0; padding:.44rem .56rem;'>
+              <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
+                <b>#{idx} {_html.escape(tickers)}</b>
+                <span class='v18-status-chip green'>{score}/100</span>
+              </div>
+              <div style='font-size:.76rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>{_html.escape(reason)}</div>
+              <div style='font-size:.72rem; color:rgba(191,219,254,.84); margin-top:.10rem;'>Grupper: {_html.escape(sectors or 'Ukjent')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_auto_test_lab_control_center_v18536():
+    """On-demand research lab for testing many tickers against the decision stack."""
+    st.subheader("🔬 Auto Test Lab")
+    st.caption("Velg univers én gang. Panelet tester kandidater mot score, momentum, risiko, event-risk, learning og datakvalitet når du trykker Kjør.")
+
+    col_a, col_b, col_c = st.columns([1.2, 1.0, 1.0])
+    with col_a:
+        scope = st.selectbox(
+            "Univers",
+            ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Multi-marked", "Manuell liste"],
+            key="auto_lab_scope_v18536",
+        )
+    with col_b:
+        target = st.selectbox("Mål", ["Balansert", "Momentum", "Lav risiko", "Kortsiktig", "Langsiktig"], key="auto_lab_target_v18536")
+    with col_c:
+        limit = st.slider("Maks kandidater", 5, 60, 20, 5, key="auto_lab_limit_v18536")
+
+    manual_text = ""
+    if scope == "Manuell liste":
+        manual_text = st.text_area("Tickere", value="AAPL, MSFT, NVDA", height=82, key="auto_lab_manual_v18536")
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
+    with c1:
+        include_event = st.checkbox("Hendelsesrisiko", value=True, key="auto_lab_event_v18536")
+    with c2:
+        use_news_for_score = st.checkbox("Nyheter i score", value=False, key="auto_lab_news_v18536", help="Av som standard for å spare NewsAPI. Manuelle nyheter ligger i Nyheter-panelet.")
+    with c3:
+        combo_size = st.multiselect("Kombinasjoner", [2, 3, 4, 5, 6, 8], default=[3, 5], key="auto_lab_combo_sizes_v18536")
+
+    preview_tickers = _auto_lab_scope_tickers_v18536(scope, int(limit), manual_text=manual_text)
+    if preview_tickers:
+        st.markdown(
+            f"<div class='v18-dark-row'>Valgt univers: <b>{html.escape(scope)}</b> · {len(preview_tickers)} tickere · første: {html.escape(', '.join(preview_tickers[:8]))}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen tickere funnet i valgt univers ennå. Velg et annet univers eller bruk Manuell liste.</div>", unsafe_allow_html=True)
+
+    if st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18536", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"}):
+        if not preview_tickers:
+            st.warning("Ingen tickere å teste.")
+            finish_global_busy("Klar", "Auto Test Lab manglet tickere.")
+            return
+        from auto_test_lab import run_auto_test_lab
+        from forecast_store import load_learning_stats
+        from event_risk_engine import detect_event_risk
+
+        progress = st.progress(0, text="1/4 Henter ticker-univers")
+        update_global_busy("Kjører Auto Test Lab", "1/4 Henter ticker-univers")
+        learning_stats = load_learning_stats()
+        progress.progress(25, text="2/4 Henter score og signaler")
+        update_global_busy("Kjører Auto Test Lab", "2/4 Henter score og signaler")
+
+        def _score_provider(ticker, use_news):
+            return cached_score_stock_manual(ticker, use_news=use_news, force=True)
+
+        def _event_provider(ticker, prices):
+            if not include_event:
+                return {}
+            return detect_event_risk(ticker, prices, horizon="auto_lab", include_news=False)
+
+        progress.progress(55, text="3/4 Tester risiko, learning og hendelser")
+        update_global_busy("Kjører Auto Test Lab", "3/4 Tester risiko, learning og hendelser")
+        result = run_auto_test_lab(
+            preview_tickers,
+            score_provider=_score_provider,
+            event_risk_provider=_event_provider if include_event else None,
+            learning_stats=learning_stats,
+            use_news=bool(use_news_for_score),
+            target=target,
+            max_candidates=int(limit),
+            combination_sizes=combo_size or [3, 5],
+        )
+        progress.progress(90, text="4/4 Rangerer og lagrer resultat i session")
+        update_global_busy("Kjører Auto Test Lab", "4/4 Rangerer og lagrer resultat")
+        st.session_state["auto_test_lab_last_result_v18536"] = result
+        progress.progress(100, text="Ferdig")
+        finish_global_busy("Klar", "Auto Test Lab ferdig.")
+        st.success(f"Auto Test Lab ferdig: {result.get('analyzed', 0)} analyserte kandidater.")
+
+    result = st.session_state.get("auto_test_lab_last_result_v18536") or {}
+    if result:
+        summary = result.get("summary", {}) or {}
+        cols = st.columns(4)
+        cols[0].metric("Analyserte", result.get("analyzed", 0))
+        cols[1].metric("Beste ticker", summary.get("best_ticker") or "-")
+        cols[2].metric("Beste kvalitet", summary.get("best_quality") or "-")
+        cols[3].metric("Kombinasjoner", summary.get("combinations", 0))
+        _render_auto_lab_decision_rows_v18536(result.get("best_single"), title="Beste enkeltaksjer", limit=8)
+        _render_auto_lab_combination_rows_v18536(result.get("combinations"), limit=6)
+        rejected = result.get("rejected") or []
+        if rejected:
+            with st.expander("Vent / forkastede kandidater", expanded=False):
+                for row in rejected[:12]:
+                    st.caption(f"{row.get('ticker')}: {row.get('reason')}")
+    else:
+        st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
+
 def control_center_extra_panels_v18535():
     return [
+        ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
         ("📰 Nyheter", render_news_control_center_v18535),
         ("📊 Interaktiv analyse", render_interactive_technical_control_center_v18535),
         ("🏆 Marked/rangering", render_market_ranking_control_center_v18535),
