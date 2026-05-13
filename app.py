@@ -5874,6 +5874,14 @@ if "active_analysis_controls_v148" not in st.session_state:
 # Draft blir først aktivt når Global oppdatering "Oppdater hele appen" trykkes.
 
 _active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
+
+def _controls_differ(current_controls, draft_controls):
+    """Return True when analysis controls differ. Defensive fallback for patch builds."""
+    try:
+        return dict(current_controls or {}) != dict(draft_controls or {})
+    except Exception:
+        return current_controls != draft_controls
+
 _pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
 
 # Aktive verdier brukes av datahenting/rangering. Widgetverdier kan endres uten tung analyse.
