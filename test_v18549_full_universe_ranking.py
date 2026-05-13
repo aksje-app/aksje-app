@@ -3,7 +3,7 @@ from app_version import get_app_version
 
 
 def test_v18549_version():
-    assert get_app_version() == "v18.5.71"
+    assert get_app_version() == "v18.5.73"
 
 
 def test_auto_source_analyzes_full_starter_universe_not_first_max():

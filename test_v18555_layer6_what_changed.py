@@ -50,7 +50,7 @@ def _result(a_score=70, b_score=65, order=("AAA", "BBB")):
 
 
 def test_v18555_version():
-    assert get_app_version() == "v18.5.71"
+    assert get_app_version() == "v18.5.73"
 
 
 def test_first_run_stores_snapshot_and_reports_no_previous(tmp_path: Path):

@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_version_v18548():
     from app_version import get_app_version
-    assert get_app_version() == "v18.5.71"
+    assert get_app_version() == "v18.5.73"
 
 
 def test_choice_update_is_not_busy():

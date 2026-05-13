@@ -59,7 +59,7 @@ def test_run_lab_ranks_and_exposes_scenario_layer():
         return base[symbol]
 
     result = run_fund_etf_lab(["TLT", "SHY"], data_provider=provider, fund_type="Rente-/obligasjonsfond", max_funds=1)
-    assert result["version"] == "v18.5.71"
+    assert result["version"] == "v18.5.73"
     assert len(result["ranked"]) == 2
     assert all("scenario_regime_profile" in r for r in result["ranked"])
     assert all(r.get("scenario_score") is not None for r in result["ranked"])

@@ -23,7 +23,7 @@ def _prices(start=100.0, step=0.05, n=260):
 
 
 def test_version_is_18546():
-    assert get_app_version() == "v18.5.71"
+    assert get_app_version() == "v18.5.73"
 
 
 def test_fund_type_options_include_fixed_income_and_high_yield():
