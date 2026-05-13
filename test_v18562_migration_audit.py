@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_v18562_version_and_migration_docs_exist():
     import app_version
-    assert app_version.APP_VERSION == "v18.5.73"
+    assert app_version.APP_VERSION == "v18.5.74"
     assert Path("PROJECT_AUDIT_V18562.md").exists()
     assert Path("PORTFOLIO_INTELLIGENCE_ENGINE_ROADMAP.md").exists()
     assert Path("NEW_CHAT_START_PROMPT.txt").exists()

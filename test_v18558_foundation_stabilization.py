@@ -38,7 +38,7 @@ def _row():
 
 
 def test_v18558_version():
-    assert get_app_version() == "v18.5.73"
+    assert get_app_version() == "v18.5.74"
 
 
 def test_unified_intelligence_schema_contains_governance_confidence_and_flags():

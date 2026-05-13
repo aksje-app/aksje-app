@@ -24,7 +24,7 @@ def _fund(symbol, sector="Technology", holding_symbol="AAPL"):
 
 
 def test_version_is_18557():
-    assert get_app_version() == "v18.5.73"
+    assert get_app_version() == "v18.5.74"
 
 
 def test_portfolio_fit_penalizes_overlap():
@@ -54,7 +54,7 @@ def test_run_fund_lab_returns_layer8_payload():
         max_funds=2,
         selection_info={"existing_portfolio": [{"symbol": "AAPL", "weight_pct": 20, "sector": "Technology"}]},
     )
-    assert result["version"] == "v18.5.73"
+    assert result["version"] == "v18.5.74"
     assert result["portfolio_fit"]["layer"] == "Layer 8"
     assert result["ranked"][0]["portfolio_fit_score"] is not None
     assert result["summary"]["best_portfolio_fit_score"] == result["ranked"][0]["portfolio_fit_score"]

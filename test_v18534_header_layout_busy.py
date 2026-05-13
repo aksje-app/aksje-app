@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_v18534_version_and_busy_slot_are_explicit():
-    assert 'APP_VERSION = "v18.5.73"' in Path("app_version.py").read_text()
+    assert 'APP_VERSION = "v18.5.74"' in Path("app_version.py").read_text()
     sticky = Path("sticky_topbar.py").read_text()
     css = Path("workspace_layout.py").read_text()
     busy = Path("global_busy.py").read_text()
