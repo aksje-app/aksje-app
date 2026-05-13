@@ -30,7 +30,8 @@ def test_auto_fund_selection_uses_source_not_manual_order():
         max_funds=4,
     )
     assert selected["source"] == "Auto ETF"
-    assert len(selected["symbols"]) == 4
+    assert selected["display_limit"] == 4
+    assert len(selected["symbols"]) > 4
     assert "ONLYMANUAL" not in selected["symbols"]
     assert all(row.get("reason") for row in selected["selected"])
 
@@ -39,7 +40,8 @@ def test_balanced_mix_includes_active_candidate_when_room():
     selected = select_fund_candidates(source="Alle / balansert miks", fund_type="Alle", manual_symbols=[], max_funds=6)
     types = {row.get("type") for row in selected["selected"]}
     assert "Aktivt fond" in types
-    assert len(selected["symbols"]) == 6
+    assert selected["display_limit"] == 6
+    assert len(selected["symbols"]) > 6
 
 
 def test_active_fund_must_prove_evidence():

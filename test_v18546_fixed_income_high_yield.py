@@ -23,7 +23,7 @@ def _prices(start=100.0, step=0.05, n=260):
 
 
 def test_version_is_18546():
-    assert get_app_version() == "v18.5.46"
+    assert get_app_version() == "v18.5.62"
 
 
 def test_fund_type_options_include_fixed_income_and_high_yield():
@@ -40,7 +40,9 @@ def test_selection_sources_include_fixed_income_auto_sources():
     assert "Auto high yield-fond" in sources
     assert "Auto pengemarkedsfond" in sources
     selected = select_fund_candidates(source="Auto high yield-fond", fund_type="High yield-fond", max_funds=3)
-    assert selected["symbols"] == ["HYG", "JNK", "ANGL"]
+    assert selected["symbols"][:3] == ["HYG", "JNK", "ANGL"]
+    assert selected["display_limit"] == 3
+    assert len(selected["symbols"]) > 3
     assert all(row["type"] == "High yield-fond" for row in selected["selected"])
 
 

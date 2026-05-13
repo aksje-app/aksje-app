@@ -116,6 +116,32 @@ def inject_workspace_css() -> None:
             to { transform: rotate(360deg); }
         }
 
+
+
+        /* v18.5.48: Global update lives high in the app and must never dim the workspace on normal edits. */
+        .v18548-global-update-wrap {
+            border: 1px solid rgba(56,189,248,.30);
+            background: linear-gradient(180deg, rgba(8,16,34,.96), rgba(10,20,38,.88));
+            border-radius: 14px;
+            padding: .48rem .62rem .34rem .62rem;
+            margin: .10rem 0 .45rem 0;
+            box-shadow: 0 8px 20px rgba(0,0,0,.20);
+        }
+        .v18548-global-note {
+            margin: .06rem 0 .18rem 0 !important;
+            line-height: 1.28 !important;
+        }
+        .stApp, .main, section.main, div[data-testid="stAppViewContainer"], div[data-testid="stVerticalBlock"] {
+            opacity: 1 !important;
+            filter: none !important;
+        }
+        div[data-testid="stSpinner"] {
+            background: rgba(8,16,34,.88) !important;
+            border: 1px solid rgba(56,189,248,.24) !important;
+            border-radius: 12px !important;
+            padding: .45rem .65rem !important;
+        }
+
         .ptw-main-panel-nav {
             border: 1px solid rgba(95, 122, 170, .34);
             background: rgba(8, 16, 34, .80);
