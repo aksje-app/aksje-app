@@ -22,6 +22,7 @@ import math
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_version import get_app_version
+from security_metadata import resolve_security_metadata
 
 
 ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
@@ -274,20 +275,10 @@ def _smart_score(ai_score: float, strength: float, risk_score: float, sentiment:
     return round(_clamp(value), 2)
 
 
-STOCK_NAME_FALLBACKS_V18569 = {
-    "AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation", "NVDA": "NVIDIA Corporation",
-    "AMZN": "Amazon.com, Inc.", "META": "Meta Platforms, Inc.", "GOOGL": "Alphabet Inc.",
-    "AVGO": "Broadcom Inc.", "TSLA": "Tesla, Inc.", "LLY": "Eli Lilly and Company",
-    "JPM": "JPMorgan Chase & Co.", "V": "Visa Inc.", "UNH": "UnitedHealth Group Incorporated",
-}
 
-def _display_name_or_fallback_v18569(ticker, item):
-    t=str(ticker or "").strip().upper()
-    for key in ("longName", "companyName", "shortName", "displayName", "name"):
-        val=str((item or {}).get(key) or "").strip()
-        if val and val.upper().replace(" ", "") != t.replace(" ", ""):
-            return val
-    return STOCK_NAME_FALLBACKS_V18569.get(t) or t
+def _display_name_or_fallback_v18571(ticker, item):
+    return str(resolve_security_metadata(ticker, item).get("name") or normalize_ticker(ticker))
+
 
 def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str = "Smart AI") -> SmartUniverseCandidate:
     ticker = normalize_ticker(item.get("ticker") or item.get("symbol") or ticker)
@@ -297,12 +288,15 @@ def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str 
     risk = str(item.get("risk") or risk_label_from_score(risk_score))
     if risk not in RISK_ORDER:
         risk = risk_label_from_score(risk_score)
-    sector = infer_sector_from_ticker(ticker, item)
+    metadata = resolve_security_metadata(ticker, item)
+    sector = str(metadata.get("sector") or infer_sector_from_ticker(ticker, item))
+    if not risk or risk == "Ukjent":
+        risk = str(metadata.get("risk") or risk_label_from_score(risk_score))
     sentiment = _sentiment_0_to_1(item)
     return SmartUniverseCandidate(
         rank=0,
         ticker=ticker,
-        name=_display_name_or_fallback_v18569(ticker, item),
+        name=_display_name_or_fallback_v18571(ticker, item),
         market=str(item.get("market") or infer_market_from_ticker(ticker)),
         source=str(source or item.get("source") or "Smart AI"),
         sector=sector,
