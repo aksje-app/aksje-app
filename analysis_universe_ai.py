@@ -21,6 +21,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from app_version import get_app_version
+from security_metadata import resolve_security_metadata, display_label
 
 from services.service_registry import build_service_registry
 from services.universe_service import (
@@ -125,6 +126,8 @@ class UniverseCandidate:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "Ticker": self.ticker,
+            "Navn": resolve_security_metadata(self.ticker, {"ticker": self.ticker}).get("name", self.ticker),
+            "Visning": display_label(self.ticker, {"ticker": self.ticker}),
             "Kilde": self.source,
             "Score": self.score,
             "Strength": self.strength,
@@ -163,11 +166,15 @@ def _parse_manual_ticker_list(value: Any) -> List[str]:
 
 
 def infer_sector_from_ticker(ticker: str, item: Optional[Mapping[str, Any]] = None) -> str:
-    """Small, transparent fallback. Full sector model is still roadmap."""
+    """Shared metadata first; transparent pattern fallback second."""
     item = item or {}
+    meta = resolve_security_metadata(ticker, item)
+    meta_sector = str(meta.get("sector") or "").strip()
+    if meta_sector and meta_sector not in {"Unknown", "Ukjent"}:
+        return meta_sector[:48]
     for key in ("sector", "Sector", "industry", "Industry"):
         value = str(item.get(key, "") or "").strip()
-        if value:
+        if value and value not in {"Unknown", "Ukjent"}:
             return value[:32]
 
     t = _normalize_ticker(ticker)
@@ -219,7 +226,9 @@ def infer_risk_bucket(item: Mapping[str, Any]) -> str:
             return "Middels"
         return "Høy"
 
-    return "Ukjent"
+    meta = resolve_security_metadata(item.get("ticker") or item.get("symbol"), item)
+    meta_risk = str(meta.get("risk") or "").strip()
+    return meta_risk if meta_risk and meta_risk != "Ukjent" else "Ukjent"
 
 
 def infer_strength(item: Mapping[str, Any]) -> Optional[float]:
@@ -422,17 +431,18 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
     for row in result.get("candidates", []) or []:
         if not isinstance(row, Mapping):
             continue
+        meta = resolve_security_metadata(row.get("ticker") or row.get("symbol"), row)
         rows.append(
             {
                 "Rank": row.get("rank"),
-                "Ticker": row.get("ticker"),
-                "Navn": row.get("name"),
+                "Ticker": meta.get("ticker") or row.get("ticker"),
+                "Navn": meta.get("name") or row.get("name"),
                 "Marked": row.get("market"),
-                "Sektor": row.get("sector"),
+                "Sektor": meta.get("sector") or row.get("sector"),
                 "AI-score": row.get("ai_score"),
                 "Smart-score": row.get("smart_score"),
                 "Strength": row.get("strength"),
-                "Risiko": row.get("risk"),
+                "Risiko": meta.get("risk") or row.get("risk"),
                 "1m %": row.get("ret_1m_pct"),
                 "3m %": row.get("ret_3m_pct"),
                 "Forklaring": row.get("reason"),

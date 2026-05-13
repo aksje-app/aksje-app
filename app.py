@@ -4174,18 +4174,9 @@ def _weak_symbol_name_v18569(name, symbol):
 def _best_security_name_v18569(row):
     row = row or {}
     symbol = str(row.get("ticker") or row.get("symbol") or row.get("Symbol") or "").strip().upper()
-    for key in ("fund_name", "fundName", "longName", "companyName", "shortName", "displayName", "name", "Navn", "NAVN"):
-        val = str(row.get(key) or "").strip()
-        if val and not _weak_symbol_name_v18569(val, symbol):
-            return val
-    try:
-        from fund_etf_analyzer import FUND_NAME_FALLBACKS
-        val = FUND_NAME_FALLBACKS.get(symbol)
-        if val:
-            return val
-    except Exception:
-        pass
-    return STOCK_NAME_FALLBACKS_V18569.get(symbol) or ""
+    meta = resolve_security_metadata(symbol, row)
+    name = str(meta.get("name") or "").strip()
+    return "" if _weak_symbol_name_v18569(name, symbol) else name
 
 
 def _security_display_label_v18569(row_or_symbol, maybe_row=None):
@@ -4197,8 +4188,7 @@ def _security_display_label_v18569(row_or_symbol, maybe_row=None):
         symbol = str(row_or_symbol or row.get("ticker") or row.get("symbol") or "").strip().upper()
         row.setdefault("ticker", symbol)
         row.setdefault("symbol", symbol)
-    name = _best_security_name_v18569(row)
-    return f"{symbol} — {name}" if symbol and name else (symbol or name or "-")
+    return display_label(symbol, row) if symbol else "-"
 
 
 def _ranked_for_display(items):
@@ -4209,9 +4199,13 @@ def _ranked_for_display(items):
         row = dict(x)
         symbol = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
         name = _best_security_name_v18569(row)
+        meta = resolve_security_metadata(symbol, row)
+        name = str(meta.get("name") or name or "").strip()
         if name:
             row["name"] = name
             row.setdefault("longName", name)
+        row["sector"] = meta.get("sector") or row.get("sector")
+        row["risk"] = meta.get("risk") or row.get("risk")
         row["display_label"] = _security_display_label_v18569(symbol, row)
         clean.append(row)
     return sorted(clean, key=_rank_display_key)
