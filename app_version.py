@@ -1,6 +1,6 @@
-APP_VERSION = "v18.5.74"
-APP_VERSION_NAME = "UI Density Global Button Normal Removed Fix"
-APP_BUILD_ID = "v18574-ui-density-global-button-normal-removed-fix"
+APP_VERSION = "v18.5.80"
+APP_VERSION_NAME = "Global Button Paper Positions Base Fix"
+APP_BUILD_ID = "v18580-global-button-paper-positions-base-fix"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 def get_app_version():

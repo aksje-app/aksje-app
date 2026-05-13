@@ -228,6 +228,133 @@ details > summary::after {
 
 
 
+
+# v18.5.80: stable global update status/button + no overlay/dim on local widget reruns.
+st.markdown("""
+<style>
+/* Kill old floating busy chip in sticky topbar; the global status bar below is the only visible job indicator. */
+.ptw-global-busy-fixed {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.ptw-v18570-status-zone {
+    min-width: auto !important;
+}
+.ptw-topbar-right {
+    gap: .65rem !important;
+    justify-content: flex-end !important;
+}
+
+/* Stable blue global status row. */
+.v18580-global-toolbar {
+    margin: .46rem 0 .60rem 0 !important;
+    padding: 0 !important;
+    position: relative !important;
+    z-index: 5 !important;
+}
+.v18580-global-toolbar [data-testid="stHorizontalBlock"] {
+    align-items: center !important;
+}
+.v18580-global-status {
+    min-height: 42px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: .48rem !important;
+    padding: .42rem .72rem !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(56,189,248,.78) !important;
+    background: linear-gradient(180deg, rgba(7,89,133,.94), rgba(8,47,73,.92)) !important;
+    color: #ffffff !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 8px 18px rgba(2,132,199,.16) !important;
+    overflow: hidden !important;
+    opacity: 1 !important;
+    filter: none !important;
+}
+.v18580-global-status .main {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: .38rem !important;
+    min-width: 0 !important;
+    color:#fff !important;
+    font-size:.88rem !important;
+    font-weight:950 !important;
+    white-space: nowrap !important;
+}
+.v18580-global-status .sub {
+    font-size:.72rem !important;
+    opacity:.96 !important;
+    font-weight:850 !important;
+    margin-left:.45rem !important;
+    color:#e0f2fe !important;
+    white-space: nowrap !important;
+}
+.v18580-global-action .stButton > button {
+    min-height:42px !important;
+    width:100% !important;
+    min-width:205px !important;
+    background:linear-gradient(180deg,#38d5ff,#0284c7) !important;
+    color:#fff !important;
+    -webkit-text-fill-color:#fff !important;
+    border:1px solid rgba(186,230,253,.95) !important;
+    border-radius:13px !important;
+    font-weight:950 !important;
+    opacity:1 !important;
+    filter:none !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.28) !important;
+}
+.v18580-global-action .stButton > button p {
+    color:#fff !important;
+    -webkit-text-fill-color:#fff !important;
+    font-size:.88rem !important;
+    font-weight:950 !important;
+    white-space:nowrap !important;
+}
+.v18580-inline-spinner {
+    display:inline-block !important;
+    width:13px !important;
+    height:13px !important;
+    flex:0 0 13px !important;
+    border:2px solid rgba(255,255,255,.40) !important;
+    border-top-color:#fff !important;
+    border-radius:50% !important;
+    animation:v18580spin .8s linear infinite !important;
+    vertical-align:-2px !important;
+}
+@keyframes v18580spin { to { transform: rotate(360deg); } }
+
+/* Local input changes must not dim the app. */
+html body .stApp,
+html body .main,
+html body section.main,
+html body div[data-testid="stAppViewContainer"],
+html body div[data-testid="stAppViewBlockContainer"],
+html body div[data-testid="block-container"] {
+    opacity:1 !important;
+    filter:none !important;
+    transition:none !important;
+}
+html body .stApp::before,
+html body .stApp::after,
+html body div[data-testid="stAppViewContainer"]::before,
+html body div[data-testid="stAppViewContainer"]::after {
+    display:none !important;
+    opacity:0 !important;
+    pointer-events:none !important;
+}
+
+/* Paper trading overview should be visible, compact and high up. */
+.v18580-paper-section-title {
+    font-size:1.0rem !important;
+    font-weight:950 !important;
+    color:#f8fafc !important;
+    margin:.70rem 0 .28rem 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 current_user = require_login()
 
 
@@ -701,12 +828,12 @@ def _apply_global_update_v18548() -> None:
 
 
 def render_global_update_bar_v18548() -> None:
-    """Top-level global update control with stable right-side button and inline status."""
+    """v18.5.80: stable global update control. No floating overlay, no hidden/dimmed text."""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
         state_txt = "Jobber – kjører tung oppdatering"
-        state_icon = "<span class='v18572-inline-spinner'></span>"
+        state_icon = "<span class='v18580-inline-spinner'></span>"
     elif pending:
         state_txt = "Endringer venter"
         state_icon = "⚠️"
@@ -714,22 +841,22 @@ def render_global_update_bar_v18548() -> None:
         state_txt = "Klar – ingen ventende endringer"
         state_icon = "✅"
 
-    st.markdown("<div class='v18574-global-toolbar'>", unsafe_allow_html=True)
-    status_col, spacer_col, button_col = st.columns([7.0, .25, 2.0], gap="small")
+    st.markdown("<div class='v18580-global-toolbar'>", unsafe_allow_html=True)
+    status_col, button_col = st.columns([7.4, 1.8], gap="small")
     with status_col:
         st.markdown(
-            f"<div class='v18574-global-status'><span class='main'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}</span>"
+            f"<div class='v18580-global-status'><span class='main'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}</span>"
             f"<span class='sub'>Sist: {html.escape(_last_update_label())}</span></div>",
             unsafe_allow_html=True,
         )
     with button_col:
-        st.markdown("<div class='v18574-global-action'>", unsafe_allow_html=True)
+        st.markdown("<div class='v18580-global-action'>", unsafe_allow_html=True)
         clicked = st.button(
-            "🌐 Global oppdatering",
-            key="top_apply_all_changes_v18574",
+            "🔄 Global oppdatering",
+            key="top_apply_all_changes_v18580",
             use_container_width=True,
             type="primary",
-            help="Lagrer valg og kjører tung oppdatering. Lokale UI-endringer skal ikke fryse skjermen.",
+            help="Lagrer valg og kjører tung oppdatering. Vanlige UI-endringer skal ikke fryse skjermen.",
         )
         st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -738,7 +865,9 @@ def render_global_update_bar_v18548() -> None:
         set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
         _apply_global_update_v18548()
         st.success("Global oppdatering aktivert: valgene er lagret.")
-    elif pending:
+        st.rerun()
+
+    if pending and not running:
         st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
     else:
         st.caption("Manuell modus aktiv: widget-endringer oppdaterer UI lokalt; tung analyse bruker sist godkjente data.")
@@ -5707,6 +5836,53 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
 
     st.session_state["latest_watchlist_tickers_v156"] = list(_watchlist_tickers or [])
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
+
+
+def _render_paper_positions_overview_v18580(portfolio):
+    """Show open Paper Trading positions and recent trades high in the dashboard."""
+    try:
+        positions = (portfolio or {}).get("positions", {}) or {}
+    except Exception:
+        positions = {}
+
+    st.markdown("<div class='v18580-paper-section-title'>📌 Åpne Paper Trading-posisjoner</div>", unsafe_allow_html=True)
+    if positions:
+        rows = []
+        for ticker, pos in positions.items():
+            try:
+                pos = pos or {}
+                last_price = float(pos.get("last_price", pos.get("avg_price", 0)) or 0)
+                avg_price = float(pos.get("avg_price", pos.get("entry_price", 0)) or 0)
+                shares = float(pos.get("shares", pos.get("units", 0)) or 0)
+                value = shares * last_price
+                pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
+                rows.append({
+                    "Ticker": ticker,
+                    "Type": pos.get("asset_type", "Aksje"),
+                    "Antall": round(shares, 4),
+                    "Snittpris": round(avg_price, 4),
+                    "Siste pris": round(last_price, 4),
+                    "Verdi": round(value, 2),
+                    "Valuta": pos.get("currency", ""),
+                    "P/L %": round(pnl_pct, 2),
+                })
+            except Exception:
+                rows.append({"Ticker": ticker, "Type": (pos or {}).get("asset_type", "Aksje") if isinstance(pos, dict) else "Aksje"})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen åpne paper trading-posisjoner.")
+
+    trades = []
+    try:
+        trades = list((portfolio or {}).get("trades", []) or [])
+    except Exception:
+        trades = []
+    st.markdown("<div class='v18580-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
+    if trades:
+        st.dataframe(pd.DataFrame(trades[-20:]), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen handler ennå.")
+
 
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")

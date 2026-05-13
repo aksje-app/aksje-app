@@ -16,7 +16,6 @@ import streamlit as st
 from alert_center import collect_common_alerts
 from forecast_store import summarize_alerts, load_learning_stats
 from app_version import get_app_build_label, get_app_version
-from global_busy import global_busy_chip_html
 from market_hours import market_statuses
 import html
 
@@ -114,7 +113,6 @@ def render_sticky_topbar() -> None:
           </div>
           <div class="ptw-topbar-right ptw-v18570-status-zone">
             <span class="ptw-version-chip">Professional Trading Workspace {get_app_build_label()}</span>
-            <div class="ptw-global-busy-fixed" aria-live="polite">{global_busy_chip_html()}</div>
           </div>
         </div>
         """,
