@@ -417,6 +417,58 @@ def _last_update_label():
     return f"{reason} · {at}"
 
 
+
+def _apply_global_update_v18548() -> None:
+    """Apply pending UI choices without spinner/dimming overlay."""
+    try:
+        st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+    except Exception:
+        pass
+    st.session_state["heavy_update_allowed_v148"] = True
+    try:
+        _clear_pending_manual_change()
+    except Exception:
+        st.session_state["pending_analysis_changes_v148"] = False
+    _request_global_apply_v161()
+    _set_update_reason("Global oppdatering / Oppdater hele appen")
+    finish_global_busy("Klar", "Global oppdatering er aktivert. Valgene er lagret.")
+
+
+def render_global_update_bar_v18548() -> None:
+    """Single top-level Global button placed above panel selector and heavy panels."""
+    pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
+    state_cls = "yellow" if pending else "green"
+    state_txt = "Endringer venter – trykk Global oppdatering." if pending else "Klar – ingen ventende endringer."
+    st.markdown("<div class='v18548-global-update-wrap'>", unsafe_allow_html=True)
+    c1, c2 = st.columns([1.55, 1.0], gap="small")
+    with c1:
+        st.markdown(
+            f"<div class='v18-global-note v18548-global-note'><span class='v18-status-dot {state_cls}'></span>"
+            f"<b>Global oppdatering</b> · {html.escape(state_txt)}<br>"
+            f"<span>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></span></div>",
+            unsafe_allow_html=True,
+        )
+    with c2:
+        clicked = st.button(
+            "🌐 Global oppdatering",
+            key="top_apply_all_changes_v18548",
+            use_container_width=True,
+            type="primary",
+            help="Lagrer valg og tillater tung oppdatering. Vanlige endringer skal ikke fryse eller dimme skjermen.",
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+    if clicked:
+        _apply_global_update_v18548()
+        st.success("Global oppdatering aktivert: valgene er lagret, og tung analyse kjøres bare nå.")
+    if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
+        st.markdown("<div class='pending-changes-box'>⏳ Jobber: oppdaterer data/rangeringer etter Global oppdatering …</div>", unsafe_allow_html=True)
+    elif not globals().get("_top_chart_auto", False):
+        if pending:
+            st.markdown("<div class='pending-changes-box'>⚠️ Manuell modus: endringer venter. Ingen tung datahenting/graf/rangering kjøres før Global oppdatering.</div>", unsafe_allow_html=True)
+        else:
+            st.caption("Manuell modus aktiv: widget-endringer rerendrer skjermen, men tung analyse bruker sist godkjente data.")
+
+
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
 
 
@@ -6120,14 +6172,18 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
         mom = row.get("momentum_score", "-")
         risk = row.get("risk_score", "-")
         event = row.get("event_score", "-")
-        pos = "; ".join(str(x) for x in (row.get("reasons_positive") or [])[:2])
-        caution = "; ".join(str(x) for x in (row.get("reasons_caution") or [])[:2])
+        explain = row.get("explainability_profile") or {}
+        pos = "; ".join(str(x) for x in (explain.get("why_ranked_here") or row.get("reasons_positive") or [])[:2])
+        caution = "; ".join(str(x) for x in (explain.get("what_holds_it_back") or row.get("reasons_caution") or [])[:2])
+        select_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_it_selected") or [])[:2])
+        reject_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_model_reject_it") or [])[:2])
+        explain_short = _html.escape(str(explain.get("short_explanation") or row.get("explainability_summary") or ""))
         st.markdown(
             f"""
             <div class='v18-dark-row' style='margin:.25rem 0; padding:.46rem .56rem;'>
               <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
                 <b>#{idx} {ticker}</b>
-                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip green'>Intelligens {composite_score}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
               </div>
               <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>
                 {action} · AI {ai} · Momentum {mom} · Risiko {risk} · Event {event}
@@ -6356,42 +6412,132 @@ def render_auto_test_lab_control_center_v18536():
 
 
 # v18.5.43: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
-def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limit=8):
+def _fund_result_limit_key_v18547(title):
+    import re
+    return "fund_result_view_" + re.sub(r"[^a-z0-9]+", "_", str(title).lower()).strip("_")[:36] + "_v18547"
+
+def _render_fund_result_scope_v18547(result, *, default_limit=8):
     import html as _html
-    rows = list(rows or [])[: int(limit or 8)]
-    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    res = dict(result or {})
+    summary = dict(res.get("summary") or {})
+    selection = dict(res.get("selection") or {})
+    analyzed = int(summary.get("actual_analyzed") or summary.get("analyzed") or len(res.get("ranked") or []) or 0)
+    selected_max = int(summary.get("selected_max") or selection.get("display_limit") or selection.get("max_funds") or 8)
+    available = selection.get("available_in_universe") or summary.get("available_in_universe") or "-"
+    source = selection.get("source") or res.get("scope") or "-"
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='margin:.35rem 0 .55rem 0;padding:.55rem .65rem;'>
+          <div style='display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;'>
+            <span class='v18-status-chip green'>Faktisk analysert: {analyzed}</span>
+            <span class='v18-status-chip yellow'>Valgt maks: {selected_max}</span>
+            <span class='v18-status-chip yellow'>Tilgjengelig i univers: {_html.escape(str(available))}</span>
+            <span>{_html.escape(str(source))}</span>
+          </div>
+          <div style='font-size:.78rem;color:rgba(226,232,240,.82);margin-top:.25rem;'>Auto-universet er et starter-univers, ikke hele markedet. Hele starter-universet analyseres først; deretter vises valgt antall eller alle analyserte.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_what_changed_v18555(profile, title="Hva endret seg siden sist?"):
+    import html as _html
+    prof = dict(profile or {})
+    summary = str(prof.get("summary") or "Ingen endringsanalyse tilgjengelig ennå.")
+    st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='v18-dark-row' style='margin:.35rem 0 .75rem 0;padding:.62rem .70rem;line-height:1.35;'><b>Layer 6:</b> {_html.escape(summary)}</div>", unsafe_allow_html=True)
+    if not prof.get("has_previous"):
+        st.caption("Første sammenlignbare snapshot er lagret. Neste kjøring kan forklare rang-, score-, risiko- og insiderendringer.")
+        return
+    movers = list(prof.get("rank_movers") or [])[:5]
+    score_movers = list(prof.get("score_movers") or [])[:5]
+    insider = list(prof.get("insider_direction_changes") or [])[:5]
+    risk = list(prof.get("risk_flag_changes") or [])[:5]
+    with st.expander("Detaljer om endringer", expanded=False):
+        if movers:
+            st.markdown("**Rangendringer**")
+            for m in movers:
+                st.caption(f"{m.get('symbol')}: {m.get('explanation')}")
+        if score_movers:
+            st.markdown("**Scoreendringer**")
+            for m in score_movers:
+                st.caption(f"{m.get('symbol')}: {m.get('explanation')}")
+        if insider:
+            st.markdown("**Insiderretning**")
+            for m in insider:
+                st.caption(f"{m.get('symbol')}: {m.get('explanation')}")
+        if risk:
+            st.markdown("**Risikoflagg**")
+            for r in risk:
+                added = ", ".join(r.get("added") or []) or "ingen nye"
+                removed = ", ".join(r.get("removed") or []) or "ingen fjernet"
+                st.caption(f"{r.get('symbol')}: nye: {added} · fjernet: {removed}")
+
+def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limit=8, allow_view_toggle=True, empty_text=None):
+    import html as _html
+    all_rows = list(rows or [])
+    key = _fund_result_limit_key_v18547(title)
+    if allow_view_toggle and len(all_rows) > int(limit or 8):
+        mode = st.radio("Visning", [f"Topp {int(limit or 8)}", "Vis alle"], horizontal=True, key=key)
+    else:
+        mode = f"Topp {int(limit or 8)}"
+    shown_limit = len(all_rows) if mode == "Vis alle" else int(limit or 8)
+    rows = all_rows[:shown_limit]
+    suffix = f"Topp {len(rows)} av {len(all_rows)} analyserte" if len(all_rows) > len(rows) else f"{len(rows)} analyserte"
+    st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)} <span style='font-size:.78rem;opacity:.75;'>· {_html.escape(suffix)}</span></div>", unsafe_allow_html=True)
     if not rows:
-        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-kandidater å vise ennå.</div>", unsafe_allow_html=True)
+        msg = empty_text or "Ingen fond/ETF-kandidater å vise ennå. Kjør analysen eller utvid valgt fondunivers."
+        st.markdown(f"<div class='v18-dark-row' style='margin:.35rem 0 .75rem 0;padding:.62rem .70rem;line-height:1.35;'>{_html.escape(msg)}</div>", unsafe_allow_html=True)
         return
     for idx, row in enumerate(rows, start=1):
         grade = str(row.get("grade") or "-")
         grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
         symbol = _html.escape(str(row.get("symbol") or "-"))
-        name = _html.escape(str(row.get("name") or symbol))
+        raw_name = str(row.get("name") or "Navn ikke funnet")
+        name = _html.escape(raw_name if raw_name and raw_name != str(row.get("symbol") or "") else "Navn ikke funnet")
         fund_type = _html.escape(str(row.get("fund_type") or "-"))
         decision = _html.escape(str(row.get("decision") or ""))
         quality = row.get("decision_quality", "-")
+        base_score = row.get("base_score", "-")
+        composite_score = row.get("fund_intelligence_score", "-")
+        scenario_score = row.get("scenario_score", "-")
+        portfolio_fit_score = row.get("portfolio_fit_score", "-")
+        scenario_summary = _html.escape(str(row.get("scenario_summary") or ""))
+        portfolio_fit_summary = _html.escape(str(row.get("portfolio_fit_summary") or ""))
+        composite_summary = _html.escape(str(row.get("composite_summary") or ""))
+        base_summary = _html.escape(str(row.get("base_score_summary") or ""))
         cost = row.get("expense_ratio_pct")
         ret = row.get("period_return_pct")
         dd = row.get("max_drawdown_pct")
         excess = row.get("excess_return_pct")
-        pos = "; ".join(str(x) for x in (row.get("reasons_positive") or [])[:2])
-        caution = "; ".join(str(x) for x in (row.get("reasons_caution") or [])[:2])
+        explain = row.get("explainability_profile") or {}
+        pos = "; ".join(str(x) for x in (explain.get("why_ranked_here") or row.get("reasons_positive") or [])[:2])
+        caution = "; ".join(str(x) for x in (explain.get("what_holds_it_back") or row.get("reasons_caution") or [])[:2])
+        select_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_it_selected") or [])[:2])
+        reject_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_model_reject_it") or [])[:2])
+        explain_short = _html.escape(str(explain.get("short_explanation") or row.get("explainability_summary") or ""))
         cost_txt = "ukjent" if cost is None else f"{cost}%"
         ret_txt = "ukjent" if ret is None else f"{ret}%"
         dd_txt = "ukjent" if dd is None else f"{dd}%"
         excess_txt = "ukjent" if excess is None else f"{excess}%"
         st.markdown(
             f"""
-            <div class='v18-dark-row' style='margin:.25rem 0; padding:.46rem .56rem;'>
-              <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
-                <b>#{idx} {symbol}</b>
-                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span>
+            <div class='v18-dark-row' style='margin:.42rem 0; padding:.62rem .70rem; line-height:1.35;'>
+              <div style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap; align-items:flex-start;'>
+                <div>
+                  <div style='font-weight:900;font-size:.94rem;'>#{idx} {name}</div>
+                  <div style='font-size:.76rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Ticker: <b>{symbol}</b> · {fund_type}</div>
+                </div>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span><span class='v18-status-chip green'>Scenario {scenario_score}/100</span><span class='v18-status-chip green'>Portefølje-fit {portfolio_fit_score}/100</span>
               </div>
-              <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>{name} · {fund_type} · {decision}</div>
-              <div style='font-size:.76rem; color:rgba(191,219,254,.86); margin-top:.18rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
-              <div style='font-size:.74rem; color:rgba(209,250,229,.86); margin-top:.18rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
-              <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
+              <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.35rem;'>Beslutning: {decision or '-'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.80);margin-top:.16rem;'><b>Layer 5:</b> {composite_summary or 'Composite intelligence beregnet fra tilgjengelige lag'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.80);margin-top:.16rem;'><b>Layer 7:</b> {scenario_summary or 'Scenario/regime-profil beregnet fra tilgjengelige data'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.80);margin-top:.16rem;'><b>Layer 8:</b> {portfolio_fit_summary or 'Portefølje-fit vurderer overlapp, hull og diversifisering'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.78);margin-top:.16rem;'>{base_summary}</div>
+              <div style='font-size:.75rem;color:rgba(226,232,240,.86);margin-top:.22rem;'><b>Forklaring:</b> {explain_short or 'Layer 2 forklaring mangler'}</div>
+              <div style='font-size:.76rem;color:rgba(191,219,254,.86);margin-top:.25rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
+              <div style='font-size:.74rem;color:rgba(209,250,229,.86);margin-top:.25rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
+              <div style='font-size:.74rem;color:rgba(254,226,226,.86);margin-top:.18rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
+              <div style='font-size:.74rem;color:rgba(191,219,254,.82);margin-top:.18rem;'>Velges hvis: {_html.escape(select_trigger or 'bedre total score mot alternativer')}</div>
+              <div style='font-size:.74rem;color:rgba(254,226,226,.80);margin-top:.12rem;'>Forkastes hvis: {_html.escape(reject_trigger or 'risiko/kostnad forverres uten kompenserende avkastning')}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -6474,7 +6620,7 @@ def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"
 
 
 
-def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality"):
+def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunnscore"):
     """Render hardened Fund Decision Quality without dataframes/white boxes."""
     import html as _html
     dq = dict(summary or {})
@@ -6483,6 +6629,7 @@ def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality")
         st.markdown("<div class='v18-dark-row'>Ingen Fond Decision Quality ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
         return
     avg = dq.get("average_quality")
+    avg_base = dq.get("average_base_score")
     best = _html.escape(str(dq.get("best_symbol") or "-"))
     grade_counts = dq.get("grade_counts") or {}
     role_counts = dq.get("role_counts") or {}
@@ -6491,7 +6638,8 @@ def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality")
         <div class='v18-dark-row' style='border-color:rgba(59,130,246,.45);'>
           <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
             <b>Fond Decision Quality</b>
-            <span class='v18-status-chip green'>Snitt {avg if avg is not None else '-'}/100</span>
+            <span class='v18-status-chip green'>Decision Quality {avg if avg is not None else '-'}/100</span>
+            <span class='v18-status-chip yellow'>Layer 1 grunnscore {avg_base if avg_base is not None else '-'}/100</span>
             <span class='v18-status-chip green'>Best: {best}</span>
             <span class='v18-status-chip yellow'>Høy: {_html.escape(str(grade_counts.get('Høy', 0)))}</span>
             <span class='v18-status-chip yellow'>Middels: {_html.escape(str(grade_counts.get('Middels', 0)))}</span>
@@ -6499,7 +6647,7 @@ def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality")
             <span class='v18-status-chip green'>Grunnmur: {_html.escape(str(role_counts.get('Grunnmur', 0)))}</span>
             <span class='v18-status-chip yellow'>Satellitt: {_html.escape(str(role_counts.get('Satellitt', 0)))}</span>
           </div>
-          <div style='font-size:.77rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>Score er herdet med kostnadseffekt over tid, rolleegnethet, aktiv merverdi, risiko og datakvalitet.</div>
+          <div style='font-size:.77rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>Layer 1 er stabil grunnscore. Layer 2 forklarer hvorfor fondet rangeres slik, hva som må til for valg, og hva som kan få modellen til å forkaste fondet.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -6508,6 +6656,9 @@ def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality")
         symbol = _html.escape(str(row.get("symbol") or "-"))
         ftype = _html.escape(str(row.get("fund_type") or "-"))
         quality = row.get("decision_quality", "-")
+        base_score = row.get("base_score", "-")
+        base_profile = row.get("base_score_profile") or {}
+        base_summary = _html.escape(str(row.get("base_score_summary") or base_profile.get("summary") or ""))
         grade = str(row.get("grade") or "-")
         decision = _html.escape(str(row.get("decision") or "-"))
         role = _html.escape(str(row.get("recommended_role") or "-"))
@@ -6531,10 +6682,12 @@ def _render_fund_decision_quality_v18542(summary, title="Fond Decision Quality")
                 <b>{symbol}</b>
                 <span>{ftype}</span>
                 <span class='v18-status-chip {cls}'>{_html.escape(grade)} · {quality}/100</span>
+                <span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
                 <span class='v18-status-chip yellow'>Rolle: {role}</span>
                 <span>{decision}</span>
               </div>
               <div style='font-size:.75rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>Kostnad {cost} · Kostnadstid {cost_impact} · Risiko {risk} · Benchmark {bench} · Data {data_q}</div>
+              <div style='font-size:.74rem;color:rgba(226,232,240,.78);margin-top:.10rem;'>{base_summary}</div>
               <div style='font-size:.75rem;color:rgba(226,232,240,.82);margin-top:.10rem;'>Grunnmur-score {core_score} · Satellitt-score {sat_score}</div>
               <div style='font-size:.74rem;color:rgba(209,250,229,.86);margin-top:.10rem;'>+ {_html.escape(drivers or 'Ingen tydelig hoveddriver')}</div>
               <div style='font-size:.74rem;color:rgba(254,226,226,.86);margin-top:.10rem;'>⚠ {_html.escape(cautions or why or 'Ingen store røde flagg')}</div>
@@ -6892,13 +7045,16 @@ def render_fund_etf_control_center_v18538():
         cols[4].metric("Feil", summary.get("errors", 0))
         if result.get("interrupted"):
             st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er foreløpige.")
-        _render_fund_etf_rows_v18538(result.get("ranked"), title="Beste fond / ETF-kandidater", limit=8)
+        _render_fund_result_scope_v18547(result, default_limit=8)
+        _render_what_changed_v18555(result.get("what_changed_profile"))
+        display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
+        _render_fund_etf_rows_v18538(result.get("ranked"), title="Beste fond / ETF-kandidater", limit=display_limit)
         _render_fund_comparator_v18539(result.get("comparator"), title="Fond vs fond-sammenligning")
-        _render_fund_decision_quality_v18542(result.get("decision_quality_summary"), title="Fond Decision Quality")
+        _render_fund_decision_quality_v18542(result.get("decision_quality_summary"), title="Fondskvalitet og grunnscore")
         _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
         _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
-        _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Beste indeksfond / ETF-kandidater", limit=5)
-        _render_active_evidence_v18539(result.get("ranked"), title="Aktivt fond må bevise merverdi")
+        _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennå. Kjør fondanalyse først.")
+        _render_active_evidence_v18539(result.get("ranked"), title="Vurdering av aktive fond")
         _render_fund_etf_rows_v18538(result.get("active_candidates"), title="Aktive fond som kan vurderes", limit=5)
         _render_fund_etf_rows_v18538(result.get("fixed_income_candidates"), title="Rente-/obligasjonsfond og pengemarked", limit=5)
         _render_fund_etf_rows_v18538(result.get("high_yield_candidates"), title="High yield / kredittsatellitter", limit=5)
@@ -7139,13 +7295,16 @@ def render_auto_test_lab_fund_mode_v18543():
         cols[4].metric("Grunnmur/sat", summary.get("core_satellite_positions", 0))
         if result.get("interrupted"):
             st.warning("Siste Auto Test Lab Fondmodus ble avbrutt. Resultatene under er foreløpige.")
-        _render_fund_etf_rows_v18538(result.get("best_funds") or result.get("ranked"), title="Beste fond / ETF fra Auto Test Lab", limit=8)
+        _render_fund_result_scope_v18547(result, default_limit=8)
+        _render_what_changed_v18555(result.get("what_changed_profile"))
+        display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
+        _render_fund_etf_rows_v18538(result.get("ranked") or result.get("best_funds"), title="Beste fond / ETF fra Auto Test Lab", limit=display_limit)
         _render_fund_comparator_v18539(result.get("fund_comparator") or result.get("comparator"), title="Fond vs fond-sammenligning")
-        _render_fund_decision_quality_v18542(result.get("fund_decision_quality_summary") or result.get("decision_quality_summary"), title="Fond Decision Quality")
+        _render_fund_decision_quality_v18542(result.get("fund_decision_quality_summary") or result.get("decision_quality_summary"), title="Fondskvalitet og grunnscore")
         _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
         _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
-        _render_fund_etf_rows_v18538(result.get("best_index_etf") or result.get("index_candidates"), title="Beste indeksfond / ETF", limit=5)
-        _render_active_evidence_v18539(result.get("ranked"), title="Aktive fond med evidence-test")
+        _render_fund_etf_rows_v18538(result.get("index_candidates") or result.get("best_index_etf"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennå. Kjør fondanalyse først.")
+        _render_active_evidence_v18539(result.get("ranked"), title="Vurdering av aktive fond")
         needs = result.get("requires_more_evidence") or result.get("needs_proof") or []
         errors = result.get("errors") or []
         if needs or errors:
@@ -7430,6 +7589,9 @@ def control_center_extra_panels_v18535():
     ]
 
 
+# v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
+render_global_update_bar_v18548()
+
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
 
@@ -7443,44 +7605,6 @@ except Exception as _top_banner_workspace_error:
 
 # v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
-
-st.markdown("<div class='v18-section-title'>Global oppdatering</div>", unsafe_allow_html=True)
-st.markdown("<div class='v18-global-note'><span class='v18-status-dot green'></span>Klar: Trykk knappen for å lagre endringer og oppdatere hele appen.</div>", unsafe_allow_html=True)
-
-_global_update_clicked_v181 = st.button(
-    "🌐 Oppdater hele appen",
-    key="top_apply_all_changes_v181",
-    use_container_width=True,
-    type="primary",
-    help="Lagrer endringer og oppdaterer hele appen.",
-    on_click=set_global_busy,
-    kwargs={"label": "Oppdaterer hele appen", "detail": "Lagrer valg og starter tung oppdatering"},
-)
-
-if _global_update_clicked_v181:
-    with st.spinner("Oppdaterer hele appen …"):
-        pass
-    st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
-    st.session_state["heavy_update_allowed_v148"] = True
-    _clear_pending_manual_change()
-    _request_global_apply_v161()
-    _set_update_reason("Global oppdatering / Oppdater hele appen")
-    finish_global_busy("Klar", "Global oppdatering er startet og valgene er lagret.")
-    st.success("Global oppdatering startet: lagrer endringer og oppdaterer hele appen …")
-
-if st.session_state.get("pending_manual_changes_v16", False) or _pending_analysis_changes_v148:
-    st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter – trykk <b>Oppdater hele appen</b>.</div>", unsafe_allow_html=True)
-else:
-    st.info("✅ Ingen ventende endringer. Global oppdatering er klar.")
-
-st.markdown(f"<div class='update-debug-line'>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></div>", unsafe_allow_html=True)
-if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
-    st.markdown("<div class='pending-changes-box'>⏳ Jobber: henter/oppdaterer data, rangeringer, banner og analyser …</div>", unsafe_allow_html=True)
-if not _top_chart_auto:
-    if _pending_analysis_changes_v148 or bool(st.session_state.get("pending_manual_changes_v16", False)):
-        st.markdown("<div class='pending-changes-box'>⚠️ Manuell modus: endringer venter. Ingen tung datahenting/graf/rangering kjøres før du trykker Oppdater hele appen.</div>", unsafe_allow_html=True)
-    else:
-        st.caption("Manuell modus aktiv: widget-endringer rerendrer skjermen, men tung analyse bruker sist godkjente data.")
 
 if 'top_picks' in locals():
     market_pulse(top_picks)

@@ -1,17 +1,9 @@
-"""Single source of truth for the deployed app version."""
-
-from __future__ import annotations
-
-APP_VERSION = "v18.5.46"
-APP_VERSION_NAME = "Fixed Income and High Yield Fund Support"
+APP_VERSION = "v18.5.67"
+APP_VERSION_NAME = "Fund Type Adapter"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
-
 def get_app_version() -> str:
-    """Return the current app version used by UI and service metadata."""
     return APP_VERSION
 
-
-def get_build_label() -> str:
-    """Return a human-readable build label for status panels."""
+def get_app_build_label() -> str:
     return APP_BUILD_LABEL

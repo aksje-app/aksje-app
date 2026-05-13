@@ -73,8 +73,22 @@ def finish_global_busy(label: str = "Klar", detail: str = "") -> None:
 
 
 def mark_choice_update(label: str = "Oppdaterer valg") -> None:
-    """Callback-friendly helper for lightweight widget changes."""
-    set_global_busy(label=label, detail="Widgetvalg oppdatert – tung analyse venter på knapp der det er relevant.")
+    """Callback-friendly helper for lightweight widget changes.
+
+    v18.5.48: A normal widget change must not put the whole app into a
+    running/busy state. Earlier versions used ``set_global_busy`` here, which
+    made every selectbox/radio change look like a long job and could leave the
+    header in a dimmed/spinner state until the next cleanup. Keep this as an
+    idle status update only; real work calls set_global_busy/update_global_busy.
+    """
+    st.session_state[BUSY_STATE_KEY] = {
+        "running": False,
+        "label": str(label or "Valg oppdatert"),
+        "detail": "Valg endret – tung analyse venter på Global oppdatering der det er relevant.",
+        "step": None,
+        "total": None,
+        "updated_at": _now_iso(),
+    }
 
 
 def get_global_busy_snapshot(*, stale_seconds: int = 90) -> Dict[str, Any]:

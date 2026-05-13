@@ -1,3 +1,33 @@
-Continue from v18.5.46 Fixed Income and High Yield Fund Support. AI Kontrollsenter includes lazy panels, Auto Test Lab, Fond / ETF-analyse, Porteføljeanalyse, and paper trading supports simulated amount-based purchases of ETF/fund/index/active/fixed-income/high-yield/money-market instruments. Header should show Professional Trading Workspace v18.5.46. Runtime data is excluded; data/, data/forecasts/ and data/services/ contain only .gitkeep.
+Vi fortsetter prosjektet fra v18.5.62.
 
-Key status: Fund/ETF analysis now separates ordinary funds, ETFs, active funds, rente-/obligasjonsfond, high yield-fond, pengemarkedsfond and kombinasjonsfond. High yield is treated as credit risk / kredittsatellitt, not safe defensive bond exposure. Kraft High Yield D can be entered as “Kraft High Yield D” or KRAFT_HIGH_YIELD_D, but full analysis still depends on having a usable NAV/data source.
+Bruk zip-filen v1862_migration.zip som ny base. Dette er en clean/audit/migration-versjon, ikke en ny funksjonsstorm.
+
+Status:
+- Appen har fond-/ETF-analyse med fondnavn + ticker.
+- Auto-univers analyseres helt før valgt visningsgrense brukes.
+- Global-knapp/freeze-cleanup er gjort.
+- Layer 1–8 er bygget:
+  1. Base Fund Scoring
+  2. Explainable Fund Intelligence
+  3. Holdings-Aware Fund Analysis
+  4. Insider Intelligence
+  5. Composite Intelligence Score
+  6. What Changed Intelligence
+  7. Scenario & Regime Engine
+  8. Portfolio Fit Engine
+- Foundation er konsolidert i tre moduler:
+  A. Intelligence Core
+  B. Explanation & Risk Engine
+  C. Portfolio Intelligence Foundation
+
+Viktig: Før videre utvidelse mot full Portfolio Intelligence Engine må vi prioritere stabilitet, ekte datadekning, stress testing, factor/dependency graph, optimizer, backtesting, risk budgeting og audit trail.
+
+Når vi fortsetter, start med å inspisere:
+- app_version.py
+- fund_etf_analyzer.py
+- portfolio_mixed_analyzer.py
+- app.py rundt fondanalyse-UI
+- PORTFOLIO_INTELLIGENCE_ENGINE_ROADMAP.md
+- PROJECT_AUDIT_V18562.md
+
+Teststatus ved pakking: 150 passed.
