@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 import streamlit as st
 
-BUSY_STATE_KEY = "global_busy_state_v18534"
+BUSY_STATE_KEY = "global_busy_state_v18570"
 DEFAULT_IDLE_LABEL = "Klar"
 
 
@@ -114,7 +114,7 @@ def global_busy_chip_html() -> str:
     step = state.get("step")
     total = state.get("total")
     step_txt = ""
-    if step and total:
+    if step is not None and total is not None:
         step_txt = f" · {step}/{total}"
     title = f"{label}{step_txt}"
     if detail:

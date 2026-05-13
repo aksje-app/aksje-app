@@ -311,6 +311,77 @@ section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
     min-height: 30px !important;
     font-size: .74rem !important;
 }
+
+/* v18.5.70: targeted fix - version, global update placement, loading visibility and no full-page dim. */
+.v18570-global-update-row {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(210px,260px);
+    align-items:center;
+    gap:.75rem;
+    width:100%;
+}
+.v18570-global-update-status {
+    min-height:2.65rem;
+    border:1px solid rgba(56,189,248,.42);
+    background:linear-gradient(180deg,rgba(8,16,34,.98),rgba(15,23,42,.92));
+    border-radius:13px;
+    padding:.48rem .68rem;
+    color:#e5f4ff !important;
+    font-size:.82rem;
+    line-height:1.25;
+    font-weight:850;
+}
+.v18570-global-update-status b { color:#f8fafc !important; }
+.v18570-global-update-action .stButton > button {
+    min-height:2.72rem !important;
+    width:100% !important;
+    border-radius:13px !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(224,242,254,.95) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-weight:950 !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 8px 22px rgba(14,165,233,.30) !important;
+    opacity:1 !important;
+}
+.v18570-global-update-action .stButton > button p {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.94rem !important;
+    font-weight:950 !important;
+    white-space:nowrap !important;
+}
+.v18570-global-running-note {
+    margin:.22rem 0 .30rem 0;
+    border:1px solid rgba(56,189,248,.45);
+    background:rgba(8,47,73,.54);
+    border-radius:11px;
+    padding:.38rem .55rem;
+    color:#e0f2fe !important;
+    font-weight:850;
+}
+html body .stApp, html body .main, html body section.main,
+html body div[data-testid="stAppViewContainer"],
+html body div[data-testid="stAppViewBlockContainer"],
+html body div[data-testid="block-container"] {
+    opacity:1 !important;
+    filter:none !important;
+    transition:none !important;
+}
+html body .stApp::before, html body .stApp::after,
+html body div[data-testid="stAppViewContainer"]::before,
+html body div[data-testid="stAppViewContainer"]::after {
+    display:none !important;
+    opacity:0 !important;
+    pointer-events:none !important;
+}
+.ptw-v18570-status-zone { min-width: 480px !important; }
+.ptw-version-chip { color:#dbeafe !important; opacity:1 !important; }
+.ptw-global-busy-fixed { opacity:1 !important; visibility:visible !important; min-width:112px !important; }
+.ptw-busy-running { min-width:184px !important; border-color:rgba(56,189,248,.85) !important; background:rgba(8,89,133,.82) !important; }
+.ptw-busy-spinner { display:inline-block !important; opacity:1 !important; visibility:visible !important; }
+.ptw-pill-ready { opacity:1 !important; visibility:visible !important; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -520,38 +591,49 @@ def _apply_global_update_v18548() -> None:
 
 
 def render_global_update_bar_v18548() -> None:
-    """Single top-level Global button placed above panel selector and heavy panels. Legacy layout marker for tests: c1, c2 = st.columns([1.15, 1.15], gap="small")"""
+    """Top-level Global update control.
+
+    v18.5.70: keep this as the only manual trigger for heavy refresh.  The
+    button is placed in a visible two-column row; normal widget changes only set
+    a pending flag and must not start spinners, dim overlays or full refreshes.
+    Legacy layout marker for tests: c1, c2 = st.columns([1.15, 1.15], gap="small")
+    """
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
+    running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     state_cls = "yellow" if pending else "green"
     state_txt = "Endringer venter – trykk Global oppdatering." if pending else "Klar – ingen ventende endringer."
-    st.markdown("<div class='v18548-global-update-wrap'>", unsafe_allow_html=True)
-    c1, c2 = st.columns([4.8, 1.35], gap="small")
+
+    st.markdown("<div class='v18548-global-update-wrap v18570-global-update-wrap'><div class='v18570-global-update-row'>", unsafe_allow_html=True)
+    c1, c2 = st.columns([5.2, 1.15], gap="medium")
     with c1:
         st.markdown(
-            f"<div class='v18-global-note v18548-global-note'><span class='v18-status-dot {state_cls}'></span>"
+            f"<div class='v18570-global-update-status v18548-global-note'><span class='v18-status-dot {state_cls}'></span>"
             f"<b>Global oppdatering</b> · {html.escape(state_txt)}<br>"
             f"<span>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></span></div>",
             unsafe_allow_html=True,
         )
     with c2:
+        st.markdown("<div class='v18570-global-update-action'>", unsafe_allow_html=True)
         clicked = st.button(
             "🌐 Global oppdatering",
-            key="top_apply_all_changes_v18548",
+            key="top_apply_all_changes_v18570",
             use_container_width=True,
             type="primary",
             help="Lagrer valg og tillater tung oppdatering. Vanlige endringer skal ikke fryse eller dimme skjermen.",
         )
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
     if clicked:
+        set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
         _apply_global_update_v18548()
-        st.success("Global oppdatering aktivert: valgene er lagret, og tung analyse kjøres bare nå.")
-    if _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False)):
-        st.markdown("<div class='pending-changes-box'>⏳ Jobber: oppdaterer data/rangeringer etter Global oppdatering …</div>", unsafe_allow_html=True)
-    elif not globals().get("_top_chart_auto", False):
-        if pending:
-            st.markdown("<div class='pending-changes-box'>⚠️ Manuell modus: endringer venter. Ingen tung datahenting/graf/rangering kjøres før Global oppdatering.</div>", unsafe_allow_html=True)
-        else:
-            st.caption("Manuell modus aktiv: widget-endringer rerendrer skjermen, men tung analyse bruker sist godkjente data.")
+        st.success("Global oppdatering aktivert: valgene er lagret.")
+    if running:
+        st.markdown("<div class='v18570-global-running-note'>⏳ Global oppdatering kjører. Vanlige UI-endringer er fortsatt lokale.</div>", unsafe_allow_html=True)
+    elif pending:
+        st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
+    else:
+        st.caption("Manuell modus aktiv: widget-endringer oppdaterer UI lokalt; tung analyse bruker sist godkjente data.")
 
 
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
