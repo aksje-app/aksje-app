@@ -141,6 +141,20 @@ def inject_workspace_css() -> None:
             border-radius: 12px !important;
             padding: .45rem .65rem !important;
         }
+        /* v18.5.68: never let Streamlit's script-run overlay dim or block the whole app on normal widget changes. */
+        [data-testid="stAppViewBlockContainer"],
+        [data-testid="stAppViewContainer"],
+        [data-testid="stApp"],
+        .stApp,
+        .main,
+        section.main {
+            opacity: 1 !important;
+            filter: none !important;
+        }
+        [data-testid="stStatusWidget"] {
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
 
         .ptw-main-panel-nav {
             border: 1px solid rgba(95, 122, 170, .34);
@@ -413,16 +427,19 @@ def inject_workspace_css() -> None:
             pointer-events: none !important;
         }
         .ptw-global-busy-fixed .ptw-pill {
-            min-width: 76px !important;
+            min-width: 96px !important;
             justify-content: center !important;
-            font-size: .80rem !important;
-            padding: .34rem .64rem !important;
+            font-size: .82rem !important;
+            padding: .36rem .70rem !important;
             line-height: 1 !important;
+            color: #f8fafc !important;
         }
         .ptw-busy-running {
-            min-width: 142px !important;
+            min-width: 164px !important;
             animation: ptw-busy-glow 1.25s ease-in-out infinite alternate;
         }
+        .ptw-busy-copy { color:#f8fafc !important; font-weight:900 !important; }
+        .ptw-pill-ready { color:#dcfce7 !important; font-weight:900 !important; }
         .ptw-busy-spinner {
             width: .86rem !important;
             height: .86rem !important;
@@ -500,21 +517,29 @@ def inject_workspace_css() -> None:
         }
 
         .ptw-control-title {
-            font-size: 1.05rem;
-            font-weight: 900;
-            margin-bottom: .2rem;
+            font-size: 1.34rem;
+            font-weight: 950;
+            letter-spacing: -0.01em;
+            margin-bottom: .18rem;
         }
 
         .ptw-control-caption {
-            opacity: .78;
-            font-size: .82rem;
+            opacity: .72;
+            font-size: .76rem;
+            line-height: 1.22;
+            font-weight: 650;
         }
 
         .ptw-status-line {
-            margin-top: .35rem;
+            margin-top: .30rem;
             display:flex;
             flex-wrap:wrap;
-            gap:.35rem;
+            gap:.25rem;
+        }
+        .ptw-status-line .ptw-pill {
+            font-size: .68rem !important;
+            padding: .18rem .42rem !important;
+            line-height: 1.05 !important;
         }
 
         div[data-testid="stExpander"] {
