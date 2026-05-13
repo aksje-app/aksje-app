@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping
 import re
 
-APP_SECURITY_METADATA_VERSION = "v18.5.73"
+APP_SECURITY_METADATA_VERSION = "v18.5.74"
 
 _STOCKS: Dict[str, Dict[str, str]] = {
     "AAPL": {"name": "Apple Inc.", "sector": "Technology", "risk": "Lav"},

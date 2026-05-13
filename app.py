@@ -451,31 +451,46 @@ html body div[data-testid="stAppViewContainer"]::after {
 }
 @keyframes v18572spin { to { transform:rotate(360deg); } }
 
-/* v18.5.73: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
-.v18573-global-toolbar { margin:.38rem 0 .55rem 0 !important; }
-.v18573-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
-.v18573-global-status {
-    min-height:46px !important; display:flex !important; align-items:center !important;
-    gap:.45rem !important; padding:.50rem .70rem !important; border-radius:13px !important;
-    border:1px solid rgba(56,189,248,.70) !important; background:rgba(8,47,73,.72) !important;
-    color:#f8fbff !important; font-size:.88rem !important; font-weight:900 !important;
+/* v18.5.74: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
+.v18574-global-toolbar { margin:.45rem 0 .65rem 0 !important; }
+.v18574-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
+.v18574-global-status {
+    min-height:42px !important; display:flex !important; align-items:center !important;
+    gap:.48rem !important; padding:.42rem .70rem !important; border-radius:12px !important;
+    border:1px solid rgba(56,189,248,.85) !important; background:linear-gradient(180deg,rgba(7,89,133,.90),rgba(3,105,161,.78)) !important;
+    color:#ffffff !important; font-size:.86rem !important; font-weight:950 !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 8px 18px rgba(14,165,233,.22) !important;
+    white-space:normal !important; overflow:visible !important; position:relative !important; z-index:2 !important;
 }
-.v18573-global-status .sub { font-size:.72rem !important; opacity:.86 !important; font-weight:750 !important; margin-left:.35rem !important; }
-.v18573-global-action .stButton > button {
-    min-height:46px !important; min-width:235px !important; width:100% !important;
+.v18574-global-status .main { display:inline-flex !important; align-items:center !important; gap:.38rem !important; min-width:0 !important; }
+.v18574-global-status .sub { font-size:.68rem !important; opacity:.92 !important; font-weight:850 !important; margin-left:.45rem !important; color:#e0f2fe !important; }
+.v18574-global-action .stButton > button {
+    min-height:42px !important; min-width:190px !important; width:100% !important;
     background:linear-gradient(180deg,#38d5ff,#0284c7) !important; color:#fff !important;
     -webkit-text-fill-color:#fff !important; border:1px solid rgba(224,242,254,.98) !important;
-    border-radius:14px !important; font-weight:950 !important; opacity:1 !important; filter:none !important;
+    border-radius:12px !important; font-weight:950 !important; opacity:1 !important; filter:none !important;
     box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
 }
-.v18573-global-action .stButton > button p { color:#fff !important; -webkit-text-fill-color:#fff !important; font-size:.95rem !important; white-space:nowrap !important; }
-.v18534-trading-control-stack, .ptw-topbar, .top-app-status { overflow:visible !important; padding-top:.65rem !important; }
+.v18574-global-action .stButton > button p { color:#fff !important; -webkit-text-fill-color:#fff !important; font-size:.86rem !important; white-space:nowrap !important; }
+.v18534-trading-control-stack, .ptw-topbar, .top-app-status { overflow:visible !important; padding-top:1.05rem !important; }
 .v18534-trading-control-stack .stButton > button { clip-path:none !important; }
 section[data-testid="stSidebar"] { width:230px !important; min-width:230px !important; }
 section[data-testid="stSidebar"] [data-testid="stExpander"], section[data-testid="stSidebar"] [data-testid="stExpander"] details { overflow:visible !important; }
 section[data-testid="stSidebar"] summary { white-space:normal !important; line-height:1.18 !important; }
 body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-container"] { opacity:1 !important; filter:none !important; transition:none !important; }
 
+
+/* v18.5.74: readability/density balance for analysis views. */
+.v18574-readable-fund .v18-dark-row, .v18574-readable-fund { font-size:.86rem !important; line-height:1.48 !important; }
+.v18574-readable-fund b { font-size:.90rem !important; }
+.v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
+.v18574-quick-row { padding:.44rem .56rem !important; margin:.26rem 0 !important; }
+.v18574-quick-title { font-size:1.02rem !important; line-height:1.12 !important; margin:0 !important; font-weight:950 !important; }
+.v18574-quick-sub { font-size:.72rem !important; color:rgba(203,213,225,.86) !important; margin-top:.14rem !important; }
+.v18574-quick-row [data-testid="stMetric"] { min-height:52px !important; padding:.36rem .52rem !important; }
+.v18574-quick-row [data-testid="stMetricValue"] { font-size:1.02rem !important; }
+.v18574-quick-row [data-testid="stProgress"] { margin-top:.12rem !important; }
+.v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.72rem !important; line-height:1.20 !important; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -699,19 +714,19 @@ def render_global_update_bar_v18548() -> None:
         state_txt = "Klar – ingen ventende endringer"
         state_icon = "✅"
 
-    st.markdown("<div class='v18573-global-toolbar'>", unsafe_allow_html=True)
-    status_col, spacer_col, button_col = st.columns([7.6, .35, 1.9], gap="small")
+    st.markdown("<div class='v18574-global-toolbar'>", unsafe_allow_html=True)
+    status_col, spacer_col, button_col = st.columns([7.0, .25, 2.0], gap="small")
     with status_col:
         st.markdown(
-            f"<div class='v18573-global-status'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}"
+            f"<div class='v18574-global-status'><span class='main'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}</span>"
             f"<span class='sub'>Sist: {html.escape(_last_update_label())}</span></div>",
             unsafe_allow_html=True,
         )
     with button_col:
-        st.markdown("<div class='v18573-global-action'>", unsafe_allow_html=True)
+        st.markdown("<div class='v18574-global-action'>", unsafe_allow_html=True)
         clicked = st.button(
             "🌐 Global oppdatering",
-            key="top_apply_all_changes_v18573",
+            key="top_apply_all_changes_v18574",
             use_container_width=True,
             type="primary",
             help="Lagrer valg og kjører tung oppdatering. Lokale UI-endringer skal ikke fryse skjermen.",
@@ -2783,18 +2798,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.5 / Oppgave 44: Global visningsmodus.
-# Kompakt gjør status-/analysebokser lavere uten å fjerne informasjon.
+# V14.5 / v18.5.74: Global visningsmodus.
+# Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
+if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
+    st.session_state["global_view_mode_v145"] = "Full"
 APP_VIEW_MODE = st.sidebar.radio(
     "Visning",
-    ["Kompakt", "Normal", "Full"],
+    ["Kompakt", "Full"],
     index=1,
     horizontal=False,
     key="global_view_mode_v145",
-    help="Velg hvor kompakt appen skal vises.",
+    help="Kompakt gir mindre scrolling. Full viser alle detaljer.",
 )
 st.session_state["app_view_mode"] = APP_VIEW_MODE
 st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
+st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
     st.markdown(
@@ -2830,18 +2848,6 @@ if APP_VIEW_MODE == "Kompakt":
             .compact-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
             .stButton > button { min-height:40px !important; font-size:0.88rem !important; }
         }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-elif APP_VIEW_MODE == "Normal":
-    st.markdown(
-        """
-        <style>
-        .block-container { padding-top: 1.00rem !important; }
-        details > summary { min-height: 36px !important; }
-        .compact-stat-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; }
-        .ptw-control-panel-title { font-size: 1.10rem !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -4287,7 +4293,7 @@ def _security_display_label_v18569(row_or_symbol, maybe_row=None):
     return display_label(symbol, row) if symbol else "-"
 
 
-def _fund_display_label_v18573(row_or_symbol, maybe_row=None):
+def _fund_display_label_v18574(row_or_symbol, maybe_row=None):
     if isinstance(row_or_symbol, dict):
         row = row_or_symbol
         symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
@@ -4404,7 +4410,7 @@ def render_ranking(results, title):
             ("Beste handling", best_decision.get("action_now", "VENT")),
         ], columns=4)
 
-    st.markdown("### ⚡ Hurtigliste med kurs")
+    st.markdown("#### ⚡ Hurtigliste med kurs")
     st.caption("Top Picks = sterk kandidat totalt. Handling nå = teknisk timing akkurat nå.")
 
     for idx, item in enumerate(results[:15], start=1):
@@ -4423,11 +4429,11 @@ def render_ranking(results, title):
             direction_icon = "🟢" if change_pct >= 0 else "🔴"
 
         with st.container(border=True):
-            left, mid, right = st.columns([1.45, 1.0, 2.0])
+            left, mid, right = st.columns([1.15, 1.0, 2.2])
 
             with left:
-                st.markdown(f"### {direction_icon} {ticker}")
-                st.caption(f"#{idx} · {item.get('name', '')}")
+                st.markdown(f"<div class='v18574-quick-title'>{direction_icon} {ticker}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='v18574-quick-sub'>#{idx} · {item.get('name', '')}</div>", unsafe_allow_html=True)
                 render_action_chips(card_decision)
 
             with mid:
@@ -6700,7 +6706,7 @@ def render_auto_test_lab_control_center_v18536():
                     <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
                   </div>
                   <div style='font-size:.82rem;margin-top:.25rem;'>Aksje: <b>{html.escape(ticker)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
-                  <div style='font-size:.78rem;color:rgba(226,232,240,.84);'>Ticker {ticker_idx}/{ticker_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Ticker {ticker_idx}/{ticker_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -6844,7 +6850,7 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
         grade = str(row.get("grade") or "-")
         grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
         symbol = _html.escape(str(row.get("symbol") or "-"))
-        full_label = _html.escape(_fund_display_label_v18573(row))
+        full_label = _html.escape(_fund_display_label_v18574(row))
         raw_name = str(row.get("name") or "Navn ikke funnet")
         name = _html.escape(raw_name if raw_name and raw_name != str(row.get("symbol") or "") else "Navn ikke funnet")
         fund_type = _html.escape(str(row.get("fund_type") or "-"))
@@ -6874,21 +6880,21 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
         excess_txt = "ukjent" if excess is None else f"{excess}%"
         st.markdown(
             f"""
-            <div class='v18-dark-row' style='margin:.42rem 0; padding:.62rem .70rem; line-height:1.35;'>
+            <div class='v18-dark-row v18574-readable-fund' style='margin:.42rem 0; padding:.68rem .76rem; line-height:1.48;'>
               <div style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap; align-items:flex-start;'>
                 <div>
-                  <div style='font-weight:900;font-size:.94rem;'>#{idx} {full_label}</div>
-                  <div style='font-size:.76rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Type: {fund_type}</div>
+                  <div style='font-weight:950;font-size:1.00rem;'>#{idx} {full_label}</div>
+                  <div style='font-size:.82rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Type: {fund_type}</div>
                 </div>
                 <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span><span class='v18-status-chip green'>Scenario {scenario_score}/100</span><span class='v18-status-chip green'>Portefølje-fit {portfolio_fit_score}/100</span>
               </div>
-              <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.35rem;'>Beslutning: {decision or '-'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.80);margin-top:.16rem;'><b>Layer 5:</b> {composite_summary or 'Composite intelligence beregnet fra tilgjengelige lag'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.80);margin-top:.16rem;'><b>Layer 7:</b> {scenario_summary or 'Scenario/regime-profil beregnet fra tilgjengelige data'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.80);margin-top:.16rem;'><b>Layer 8:</b> {portfolio_fit_summary or 'Portefølje-fit vurderer overlapp, hull og diversifisering'}</div><div style='font-size:.74rem;color:rgba(226,232,240,.78);margin-top:.16rem;'>{base_summary}</div>
-              <div style='font-size:.75rem;color:rgba(226,232,240,.86);margin-top:.22rem;'><b>Forklaring:</b> {explain_short or 'Layer 2 forklaring mangler'}</div>
-              <div style='font-size:.76rem;color:rgba(191,219,254,.86);margin-top:.25rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
-              <div style='font-size:.74rem;color:rgba(209,250,229,.86);margin-top:.25rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
-              <div style='font-size:.74rem;color:rgba(254,226,226,.86);margin-top:.18rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
-              <div style='font-size:.74rem;color:rgba(191,219,254,.82);margin-top:.18rem;'>Velges hvis: {_html.escape(select_trigger or 'bedre total score mot alternativer')}</div>
-              <div style='font-size:.74rem;color:rgba(254,226,226,.80);margin-top:.12rem;'>Forkastes hvis: {_html.escape(reject_trigger or 'risiko/kostnad forverres uten kompenserende avkastning')}</div>
+              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.35rem;'>Beslutning: {decision or '-'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 5:</b> {composite_summary or 'Composite intelligence beregnet fra tilgjengelige lag'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 7:</b> {scenario_summary or 'Scenario/regime-profil beregnet fra tilgjengelige data'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 8:</b> {portfolio_fit_summary or 'Portefølje-fit vurderer overlapp, hull og diversifisering'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.16rem;'>{base_summary}</div>
+              <div style='font-size:.84rem;color:rgba(226,232,240,.88);margin-top:.22rem;'><b>Forklaring:</b> {explain_short or 'Layer 2 forklaring mangler'}</div>
+              <div style='font-size:.84rem;color:rgba(191,219,254,.88);margin-top:.25rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
+              <div style='font-size:.82rem;color:rgba(209,250,229,.88);margin-top:.25rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.18rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
+              <div style='font-size:.82rem;color:rgba(191,219,254,.84);margin-top:.18rem;'>Velges hvis: {_html.escape(select_trigger or 'bedre total score mot alternativer')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.84);margin-top:.12rem;'>Forkastes hvis: {_html.escape(reject_trigger or 'risiko/kostnad forverres uten kompenserende avkastning')}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -6917,7 +6923,7 @@ def _render_fund_comparator_v18539(comparator, title="Fond vs fond-sammenligning
     )
     rows = list(comp.get("rows") or [])[:10]
     for r in rows:
-        symbol = _html.escape(_fund_display_label_v18573(r))
+        symbol = _html.escape(_fund_display_label_v18574(r))
         ftype = _html.escape(str(r.get("fund_type") or "-"))
         quality = r.get("decision_quality", "-")
         fee = "ukjent" if r.get("expense_ratio_pct") is None else f"{r.get('expense_ratio_pct')}%"
@@ -6947,7 +6953,7 @@ def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"
         st.markdown("<div class='v18-dark-row'>Ingen aktive fond i denne kjøringen.</div>", unsafe_allow_html=True)
         return
     for row in active[:8]:
-        symbol = _html.escape(_fund_display_label_v18573(row))
+        symbol = _html.escape(_fund_display_label_v18574(row))
         status = str(row.get("active_evidence_status") or "Mangler data")
         score = row.get("active_evidence_score")
         msg = _html.escape(str(row.get("active_evidence_message") or ""))
@@ -6961,7 +6967,7 @@ def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"
                 <b>{symbol}</b>
                 <span class='v18-status-chip {cls}'>{_html.escape(status)} · {score if score is not None else '-'}/100</span>
               </div>
-              <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.18rem;'>Meravkastning mot benchmark: {excess if excess is not None else 'ukjent'}% · Kostnad: {fee if fee is not None else 'ukjent'}%</div>
+              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>Meravkastning mot benchmark: {excess if excess is not None else 'ukjent'}% · Kostnad: {fee if fee is not None else 'ukjent'}%</div>
               <div style='font-size:.76rem;color:rgba(254,226,226,.86);margin-top:.18rem;'>{msg}</div>
             </div>
             """,
@@ -7038,10 +7044,10 @@ def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunns
                 <span>{decision}</span>
               </div>
               <div style='font-size:.75rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>Kostnad {cost} · Kostnadstid {cost_impact} · Risiko {risk} · Benchmark {bench} · Data {data_q}</div>
-              <div style='font-size:.74rem;color:rgba(226,232,240,.78);margin-top:.10rem;'>{base_summary}</div>
+              <div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.10rem;'>{base_summary}</div>
               <div style='font-size:.75rem;color:rgba(226,232,240,.82);margin-top:.10rem;'>Grunnmur-score {core_score} · Satellitt-score {sat_score}</div>
-              <div style='font-size:.74rem;color:rgba(209,250,229,.86);margin-top:.10rem;'>+ {_html.escape(drivers or 'Ingen tydelig hoveddriver')}</div>
-              <div style='font-size:.74rem;color:rgba(254,226,226,.86);margin-top:.10rem;'>⚠ {_html.escape(cautions or why or 'Ingen store røde flagg')}</div>
+              <div style='font-size:.82rem;color:rgba(209,250,229,.88);margin-top:.10rem;'>+ {_html.escape(drivers or 'Ingen tydelig hoveddriver')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.10rem;'>⚠ {_html.escape(cautions or why or 'Ingen store røde flagg')}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -7080,7 +7086,7 @@ def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-fo
             <span class='v18-status-chip yellow'>Satellitter {sat_pct}%</span>
             <span class='v18-status-chip green'>Kvalitet {avg_q if avg_q is not None else '-'}/100</span>
           </div>
-          <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>{summary}</div>
+          <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>{summary}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -7105,7 +7111,7 @@ def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-fo
                 <span>{ftype}</span>
                 <span>Kostnad {cost}</span>
               </div>
-              <div style='font-size:.76rem;color:rgba(191,219,254,.86);margin-top:.16rem;'>{reason}</div>
+              <div style='font-size:.84rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>{reason}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -7165,7 +7171,7 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
             <span class='v18-status-chip green'>Baseline: {impact.get('baseline_fee_pct')}%</span>
             <span class='v18-status-chip yellow'>Forskjell billigst/dyrest: {diff:,.0f} kr</span>
           </div>
-          <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.18rem;'>
+          <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>
             Start {float(start_amount or 0):,.0f} kr · Månedlig {float(monthly_saving or 0):,.0f} kr · Forventet avkastning før kostnad {float(annual_return or 0):.2f}%.
             Dette er en enkel illustrasjon, ikke en garanti for fremtidig avkastning.
           </div>
@@ -7348,7 +7354,7 @@ def render_fund_etf_control_center_v18538():
                     <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
                   </div>
                   <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{html.escape(symbol)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
-                  <div style='font-size:.78rem;color:rgba(226,232,240,.84);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -7597,7 +7603,7 @@ def render_auto_test_lab_fund_mode_v18543():
                     <span class='v18-status-chip yellow'>{_html.escape(status)} · {completed}/{total}</span>
                   </div>
                   <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{_html.escape(symbol)}</b> · Test nå: <b>{_html.escape(test_name)}</b></div>
-                  <div style='font-size:.78rem;color:rgba(226,232,240,.84);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -7737,7 +7743,7 @@ def _render_portfolio_health_rows_v18544(result):
             <span class='v18-status-chip yellow'>Satellitt {summary.get('satellite_pct', 0)}%</span>
             <span class='v18-status-chip yellow'>Tech/vekst {summary.get('tech_pct', 0)}%</span>
           </div>
-          <div style='font-size:.78rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>{_html.escape(str(summary.get('text') or ''))}</div>
+          <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>{_html.escape(str(summary.get('text') or ''))}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -7758,7 +7764,7 @@ def _render_portfolio_health_rows_v18544(result):
     if rows:
         st.markdown("<div class='ptw-control-panel-title'>Posisjoner</div>", unsafe_allow_html=True)
     for row in rows:
-        symbol = _html.escape(_fund_display_label_v18573(row))
+        symbol = _html.escape(_fund_display_label_v18574(row))
         typ = _html.escape(str(row.get("asset_type") or "-"))
         weight = row.get("weight_pct", "-")
         role = _html.escape(str(row.get("role") or "-"))

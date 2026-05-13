@@ -10,7 +10,7 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
 assert "render_ai_control_center(extra_panels=control_center_extra_panels_v18535())" in app
 assert "render_sticky_topbar()" in app
-assert 'APP_VERSION = "v18.5.73"' in version
+assert 'APP_VERSION = "v18.5.74"' in version
 assert "get_app_version()" in sticky
 assert "Professional Trading Workspace {get_app_build_label()}" in sticky
 assert "v18.4.7" not in sticky
