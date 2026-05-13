@@ -1,13 +1,10 @@
-APP_VERSION = "v18.5.71"
-APP_VERSION_NAME = "Security Metadata Hydration Fix"
+APP_VERSION = "v18.5.73"
+APP_VERSION_NAME = "Fund Names And UI Layout Consolidated Fix"
+APP_BUILD_ID = "v18573-fund-names-ui-layout-fix"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
-APP_BUILD_ID = "v18571-security-metadata-hydration"
 
-def get_app_version() -> str:
+def get_app_version():
     return APP_VERSION
 
-def get_app_build_label() -> str:
+def get_app_build_label():
     return APP_BUILD_LABEL
-
-def get_app_build_id() -> str:
-    return APP_BUILD_ID

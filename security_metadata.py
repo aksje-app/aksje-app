@@ -1,6 +1,6 @@
 """Security metadata resolver.
 
-v18.5.71: One shared resolver for ticker -> display name, sector and risk.
+v18.5.72: One shared resolver for ticker -> display name, sector and risk.
 This is intentionally lightweight/offline first so picker tables do not show
 NAVN=ticker, SEKTOR=Unknown, RISIKO=Ukjent when common metadata is available.
 Live/API data can still override these fallbacks through normal row fields.
@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping
 import re
 
-APP_SECURITY_METADATA_VERSION = "v18.5.71"
+APP_SECURITY_METADATA_VERSION = "v18.5.73"
 
 _STOCKS: Dict[str, Dict[str, str]] = {
     "AAPL": {"name": "Apple Inc.", "sector": "Technology", "risk": "Lav"},
@@ -63,6 +63,19 @@ _FUNDS: Dict[str, Dict[str, str]] = {
     "SPY": {"name": "SPDR S&P 500 ETF Trust", "sector": "Broad equity", "risk": "Middels"},
     "QQQ": {"name": "Invesco QQQ Trust", "sector": "Technology growth", "risk": "Middels"},
     "ARKK": {"name": "ARK Innovation ETF", "sector": "Innovation growth", "risk": "Høy"},
+    "HYLB": {"name": "Xtrackers USD High Yield Corporate Bond ETF", "sector": "High yield credit", "risk": "Høy"},
+    "LQD": {"name": "iShares iBoxx $ Investment Grade Corporate Bond ETF", "sector": "Investment grade bonds", "risk": "Middels"},
+    "IEF": {"name": "iShares 7-10 Year Treasury Bond ETF", "sector": "Treasury bonds", "risk": "Middels"},
+    "AGG": {"name": "iShares Core U.S. Aggregate Bond ETF", "sector": "Investment grade bonds", "risk": "Middels"},
+    "BSV": {"name": "Vanguard Short-Term Bond ETF", "sector": "Investment grade bonds", "risk": "Lav"},
+    "VCIT": {"name": "Vanguard Intermediate-Term Corporate Bond ETF", "sector": "Investment grade bonds", "risk": "Middels"},
+    "KRAFT_HIGH_YIELD_D": {"name": "Kraft High Yield D", "sector": "Norwegian high yield credit", "risk": "Høy"},
+    "SGOV": {"name": "iShares 0-3 Month Treasury Bond ETF", "sector": "Money market", "risk": "Lav"},
+    "BIL": {"name": "SPDR Bloomberg 1-3 Month T-Bill ETF", "sector": "Money market", "risk": "Lav"},
+    "SHV": {"name": "iShares Short Treasury Bond ETF", "sector": "Money market", "risk": "Lav"},
+    "ICSH": {"name": "iShares Ultra Short-Term Bond ETF", "sector": "Money market", "risk": "Lav"},
+    "MINT": {"name": "PIMCO Enhanced Short Maturity Active ETF", "sector": "Money market", "risk": "Lav"},
+    "JPST": {"name": "JPMorgan Ultra-Short Income ETF", "sector": "Money market", "risk": "Lav"},
 }
 
 _BAD_NAME_VALUES = {"", "UNKNOWN", "UKJENT", "N/A", "NA", "NONE", "NULL", "-"}
@@ -127,6 +140,16 @@ def resolve_security_metadata(symbol: Any, row: Mapping[str, Any] | None = None)
         "metadata_version": APP_SECURITY_METADATA_VERSION,
     })
     return out
+
+
+def fund_display_label(symbol: Any, row: Mapping[str, Any] | None = None) -> str:
+    """Return consistent fund label: TICKER — Fund name when known."""
+    meta = resolve_security_metadata(symbol, row)
+    sym = normalize_symbol(meta.get("symbol") or symbol)
+    name = str(meta.get("name") or "").strip()
+    if sym and name and not is_weak_name(name, sym):
+        return f"{sym} — {name}"
+    return sym or name or "-"
 
 
 def display_label(symbol: Any, row: Mapping[str, Any] | None = None) -> str:

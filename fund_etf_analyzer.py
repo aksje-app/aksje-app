@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_version import get_app_version
+from security_metadata import resolve_security_metadata, fund_display_label
 
 
 FundDataProvider = Callable[[str], Optional[Mapping[str, Any]]]
@@ -220,6 +221,25 @@ def get_fund_display_name(symbol: Any, data: Optional[Mapping[str, Any]] = None)
         if val and val.upper() != sym:
             return val
     return FUND_NAME_FALLBACKS.get(sym) or "Navn ikke funnet"
+
+
+def enrich_fund_identity(row: Mapping[str, Any]) -> Dict[str, Any]:
+    """Attach consistent fund metadata without replacing fund_type with name."""
+    out = dict(row or {})
+    sym = normalize_fund_symbol(out.get("symbol") or out.get("ticker"))
+    if sym:
+        out["symbol"] = sym
+        meta = resolve_security_metadata(sym, out)
+        name = str(meta.get("name") or get_fund_display_name(sym, out) or "").strip()
+        if name and name.upper().replace(" ", "") != sym.replace(" ", ""):
+            out["name"] = name
+            out["fund_name"] = name
+            out["display_label"] = f"{sym} — {name}"
+        else:
+            out["display_label"] = sym
+        out.setdefault("sector", meta.get("sector"))
+        out.setdefault("risk", meta.get("risk"))
+    return out
 
 FIXED_INCOME_SYMBOLS = {row["symbol"] for key in ["Rente-/obligasjonsfond", "Pengemarkedsfond"] for row in FUND_UNIVERSES.get(key, [])}
 HIGH_YIELD_SYMBOLS = {row["symbol"] for row in FUND_UNIVERSES.get("High yield-fond", [])}
@@ -1690,7 +1710,7 @@ def _fixed_income_profile(
 
 def build_fund_comparator(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """Build a compact fund-vs-fund comparison summary."""
-    valid = [dict(r) for r in (rows or []) if r]
+    valid = [enrich_fund_identity(dict(r)) for r in (rows or []) if r]
     if not valid:
         return {"count": 0, "leaders": {}, "rows": [], "active_evidence": []}
 
@@ -1740,6 +1760,7 @@ def build_fund_comparator(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
             "active_evidence_status": r.get("active_evidence_status"),
             "active_evidence_score": r.get("active_evidence_score"),
             "decision": r.get("decision"),
+            "display_label": r.get("display_label") or fund_display_label(r.get("symbol"), r),
         })
 
     active = [r for r in valid if r.get("fund_type") == "Aktivt fond"]
@@ -2059,7 +2080,7 @@ def build_cost_impact_table(
         if fee is None or fee < 0:
             continue
         symbol = str(raw.get("symbol") or "").strip()
-        label = str(raw.get("label") or raw.get("name") or _format_cost_label(symbol, fee)).strip()
+        label = str(raw.get("label") or raw.get("display_label") or raw.get("name") or fund_display_label(symbol, raw) or _format_cost_label(symbol, fee)).strip()
         clean.append({
             "symbol": symbol,
             "label": label,
@@ -2113,7 +2134,7 @@ def build_cost_impact_table(
         )
         out_rows.append({
             "symbol": row.get("symbol") or "",
-            "label": row.get("label") or _format_cost_label(row.get("symbol", ""), fee),
+            "label": row.get("label") or fund_display_label(row.get("symbol", ""), row) or _format_cost_label(row.get("symbol", ""), fee),
             "expense_ratio_pct": round(fee, 3),
             "ending_value": round(ending, 2),
             "vs_baseline": round(ending - baseline_value, 2),
@@ -2617,6 +2638,7 @@ def analyze_fund_record(
         "version": get_app_version(),
         "created_at": _now_iso(),
     }
+    row = enrich_fund_identity(row)
     # Layer 3 + Layer 4 are applied before Layer 2 explanation so the plain-language
     # explanation can include holdings/insider context in later UI surfaces.
     row = apply_holdings_and_insider_adjustment(row, data)

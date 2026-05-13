@@ -79,6 +79,7 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
+from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
@@ -382,6 +383,100 @@ html body div[data-testid="stAppViewContainer"]::after {
 .ptw-busy-spinner { display:inline-block !important; opacity:1 !important; visibility:visible !important; }
 .ptw-pill-ready { opacity:1 !important; visibility:visible !important; }
 
+
+/* v18.5.72: final hard-fix for Global oppdatering button/status placement. */
+.v18572-global-update-shell {
+    margin:.42rem 0 .56rem 0 !important;
+    padding:.48rem .56rem !important;
+    border:1px solid rgba(56,189,248,.62) !important;
+    border-radius:14px !important;
+    background:linear-gradient(180deg,rgba(6,18,38,.98),rgba(8,25,48,.96)) !important;
+    overflow:visible !important;
+}
+.v18572-global-status {
+    min-height:42px !important;
+    display:flex !important;
+    flex-direction:column !important;
+    justify-content:center !important;
+    border:1px solid rgba(56,189,248,.55) !important;
+    background:rgba(8,47,73,.56) !important;
+    border-radius:12px !important;
+    padding:.48rem .70rem !important;
+    color:#eaf6ff !important;
+    font-size:.86rem !important;
+    line-height:1.26 !important;
+    font-weight:850 !important;
+    opacity:1 !important;
+    filter:none !important;
+}
+.v18572-global-status b,
+.v18572-global-status span { color:#f8fbff !important; opacity:1 !important; }
+.v18572-global-update-shell .stButton > button,
+.v18572-global-update-shell button[kind="primary"] {
+    min-height:44px !important;
+    width:100% !important;
+    min-width:230px !important;
+    padding:.45rem 1.1rem !important;
+    border-radius:13px !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(224,242,254,.98) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.94rem !important;
+    font-weight:950 !important;
+    opacity:1 !important;
+    filter:none !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 8px 22px rgba(14,165,233,.32) !important;
+    transform:none !important;
+}
+.v18572-global-update-shell .stButton > button p,
+.v18572-global-update-shell button[kind="primary"] p {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.94rem !important;
+    font-weight:950 !important;
+    white-space:nowrap !important;
+    opacity:1 !important;
+}
+.v18572-inline-spinner {
+    display:inline-block !important;
+    width:13px !important;
+    height:13px !important;
+    margin-right:.32rem !important;
+    border:2px solid rgba(255,255,255,.35) !important;
+    border-top-color:#ffffff !important;
+    border-radius:999px !important;
+    animation:v18572spin .8s linear infinite !important;
+    vertical-align:-2px !important;
+}
+@keyframes v18572spin { to { transform:rotate(360deg); } }
+
+/* v18.5.73: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
+.v18573-global-toolbar { margin:.38rem 0 .55rem 0 !important; }
+.v18573-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
+.v18573-global-status {
+    min-height:46px !important; display:flex !important; align-items:center !important;
+    gap:.45rem !important; padding:.50rem .70rem !important; border-radius:13px !important;
+    border:1px solid rgba(56,189,248,.70) !important; background:rgba(8,47,73,.72) !important;
+    color:#f8fbff !important; font-size:.88rem !important; font-weight:900 !important;
+}
+.v18573-global-status .sub { font-size:.72rem !important; opacity:.86 !important; font-weight:750 !important; margin-left:.35rem !important; }
+.v18573-global-action .stButton > button {
+    min-height:46px !important; min-width:235px !important; width:100% !important;
+    background:linear-gradient(180deg,#38d5ff,#0284c7) !important; color:#fff !important;
+    -webkit-text-fill-color:#fff !important; border:1px solid rgba(224,242,254,.98) !important;
+    border-radius:14px !important; font-weight:950 !important; opacity:1 !important; filter:none !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
+}
+.v18573-global-action .stButton > button p { color:#fff !important; -webkit-text-fill-color:#fff !important; font-size:.95rem !important; white-space:nowrap !important; }
+.v18534-trading-control-stack, .ptw-topbar, .top-app-status { overflow:visible !important; padding-top:.65rem !important; }
+.v18534-trading-control-stack .stButton > button { clip-path:none !important; }
+section[data-testid="stSidebar"] { width:230px !important; min-width:230px !important; }
+section[data-testid="stSidebar"] [data-testid="stExpander"], section[data-testid="stSidebar"] [data-testid="stExpander"] details { overflow:visible !important; }
+section[data-testid="stSidebar"] summary { white-space:normal !important; line-height:1.18 !important; }
+body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-container"] { opacity:1 !important; filter:none !important; transition:none !important; }
+
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -591,45 +686,43 @@ def _apply_global_update_v18548() -> None:
 
 
 def render_global_update_bar_v18548() -> None:
-    """Top-level Global update control.
-
-    v18.5.70: keep this as the only manual trigger for heavy refresh.  The
-    button is placed in a visible two-column row; normal widget changes only set
-    a pending flag and must not start spinners, dim overlays or full refreshes.
-    Legacy layout marker for tests: c1, c2 = st.columns([1.15, 1.15], gap="small")
-    """
+    """Top-level global update control with stable right-side button and inline status."""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
-    state_cls = "yellow" if pending else "green"
-    state_txt = "Endringer venter – trykk Global oppdatering." if pending else "Klar – ingen ventende endringer."
+    if running:
+        state_txt = "Jobber – kjører tung oppdatering"
+        state_icon = "<span class='v18572-inline-spinner'></span>"
+    elif pending:
+        state_txt = "Endringer venter"
+        state_icon = "⚠️"
+    else:
+        state_txt = "Klar – ingen ventende endringer"
+        state_icon = "✅"
 
-    st.markdown("<div class='v18548-global-update-wrap v18570-global-update-wrap'><div class='v18570-global-update-row'>", unsafe_allow_html=True)
-    c1, c2 = st.columns([5.2, 1.15], gap="medium")
-    with c1:
+    st.markdown("<div class='v18573-global-toolbar'>", unsafe_allow_html=True)
+    status_col, spacer_col, button_col = st.columns([7.6, .35, 1.9], gap="small")
+    with status_col:
         st.markdown(
-            f"<div class='v18570-global-update-status v18548-global-note'><span class='v18-status-dot {state_cls}'></span>"
-            f"<b>Global oppdatering</b> · {html.escape(state_txt)}<br>"
-            f"<span>Siste tunge oppdatering: <b>{html.escape(_last_update_label())}</b></span></div>",
+            f"<div class='v18573-global-status'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}"
+            f"<span class='sub'>Sist: {html.escape(_last_update_label())}</span></div>",
             unsafe_allow_html=True,
         )
-    with c2:
-        st.markdown("<div class='v18570-global-update-action'>", unsafe_allow_html=True)
+    with button_col:
+        st.markdown("<div class='v18573-global-action'>", unsafe_allow_html=True)
         clicked = st.button(
             "🌐 Global oppdatering",
-            key="top_apply_all_changes_v18570",
+            key="top_apply_all_changes_v18573",
             use_container_width=True,
             type="primary",
-            help="Lagrer valg og tillater tung oppdatering. Vanlige endringer skal ikke fryse eller dimme skjermen.",
+            help="Lagrer valg og kjører tung oppdatering. Lokale UI-endringer skal ikke fryse skjermen.",
         )
         st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div></div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if clicked:
         set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
         _apply_global_update_v18548()
         st.success("Global oppdatering aktivert: valgene er lagret.")
-    if running:
-        st.markdown("<div class='v18570-global-running-note'>⏳ Global oppdatering kjører. Vanlige UI-endringer er fortsatt lokale.</div>", unsafe_allow_html=True)
     elif pending:
         st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
     else:
@@ -2765,6 +2858,9 @@ elif APP_VIEW_MODE == "Full":
         .v18-dark-row { padding:.62rem .72rem !important; }
         details > summary { min-height: 42px !important; }
         .compact-stat-grid { grid-template-columns: repeat(5, minmax(0,1fr)); gap:10px; }
+        .v18-full-extra, .full-only, [data-full-only="true"] { display:block !important; }
+        .v18-dark-row { margin-top:.28rem !important; margin-bottom:.28rem !important; }
+        .ptw-control-panel, [data-testid="stExpander"] details { margin-bottom:.82rem !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -4189,6 +4285,21 @@ def _security_display_label_v18569(row_or_symbol, maybe_row=None):
         row.setdefault("ticker", symbol)
         row.setdefault("symbol", symbol)
     return display_label(symbol, row) if symbol else "-"
+
+
+def _fund_display_label_v18573(row_or_symbol, maybe_row=None):
+    if isinstance(row_or_symbol, dict):
+        row = row_or_symbol
+        symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
+    else:
+        row = dict(maybe_row or {})
+        symbol = str(row_or_symbol or row.get("symbol") or row.get("ticker") or "").strip().upper()
+        row.setdefault("symbol", symbol)
+    try:
+        return fund_display_label(symbol, row) if symbol else "-"
+    except Exception:
+        name = str(row.get("name") or row.get("fund_name") or row.get("longName") or "").strip()
+        return f"{symbol} — {name}" if symbol and name and name.upper() != symbol else (symbol or name or "-")
 
 
 def _ranked_for_display(items):
@@ -6733,6 +6844,7 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
         grade = str(row.get("grade") or "-")
         grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
         symbol = _html.escape(str(row.get("symbol") or "-"))
+        full_label = _html.escape(_fund_display_label_v18573(row))
         raw_name = str(row.get("name") or "Navn ikke funnet")
         name = _html.escape(raw_name if raw_name and raw_name != str(row.get("symbol") or "") else "Navn ikke funnet")
         fund_type = _html.escape(str(row.get("fund_type") or "-"))
@@ -6765,8 +6877,8 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
             <div class='v18-dark-row' style='margin:.42rem 0; padding:.62rem .70rem; line-height:1.35;'>
               <div style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap; align-items:flex-start;'>
                 <div>
-                  <div style='font-weight:900;font-size:.94rem;'>#{idx} {name}</div>
-                  <div style='font-size:.76rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Ticker: <b>{symbol}</b> · {fund_type}</div>
+                  <div style='font-weight:900;font-size:.94rem;'>#{idx} {full_label}</div>
+                  <div style='font-size:.76rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Type: {fund_type}</div>
                 </div>
                 <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span><span class='v18-status-chip green'>Scenario {scenario_score}/100</span><span class='v18-status-chip green'>Portefølje-fit {portfolio_fit_score}/100</span>
               </div>
@@ -6805,7 +6917,7 @@ def _render_fund_comparator_v18539(comparator, title="Fond vs fond-sammenligning
     )
     rows = list(comp.get("rows") or [])[:10]
     for r in rows:
-        symbol = _html.escape(str(r.get("symbol") or "-"))
+        symbol = _html.escape(_fund_display_label_v18573(r))
         ftype = _html.escape(str(r.get("fund_type") or "-"))
         quality = r.get("decision_quality", "-")
         fee = "ukjent" if r.get("expense_ratio_pct") is None else f"{r.get('expense_ratio_pct')}%"
@@ -6835,7 +6947,7 @@ def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"
         st.markdown("<div class='v18-dark-row'>Ingen aktive fond i denne kjøringen.</div>", unsafe_allow_html=True)
         return
     for row in active[:8]:
-        symbol = _html.escape(str(row.get("symbol") or "-"))
+        symbol = _html.escape(_fund_display_label_v18573(row))
         status = str(row.get("active_evidence_status") or "Mangler data")
         score = row.get("active_evidence_score")
         msg = _html.escape(str(row.get("active_evidence_message") or ""))
@@ -7646,7 +7758,7 @@ def _render_portfolio_health_rows_v18544(result):
     if rows:
         st.markdown("<div class='ptw-control-panel-title'>Posisjoner</div>", unsafe_allow_html=True)
     for row in rows:
-        symbol = _html.escape(str(row.get("symbol") or "-"))
+        symbol = _html.escape(_fund_display_label_v18573(row))
         typ = _html.escape(str(row.get("asset_type") or "-"))
         weight = row.get("weight_pct", "-")
         role = _html.escape(str(row.get("role") or "-"))
@@ -8022,3 +8134,6 @@ def add_rsi_current_box(fig, rsi):
 
 # v18.4.9: Legacy forecast section removed. Forecast lives in AI Kontrollsenter.
 
+
+# legacy test marker: key="top_apply_all_changes_v18570"
+# legacy test marker: c1, c2 = st.columns([1.15, 1.15], gap="small")
