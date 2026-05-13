@@ -1,5 +1,5 @@
-APP_VERSION = "v18.5.75"
-APP_VERSION_NAME = "Global Button Paper Positions Patch"
+APP_VERSION = "v18.5.76"
+APP_VERSION_NAME = "Market Category Runtime Fix"
 APP_BUILD_ID = "v18575-global-button-paper-positions-patch"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 

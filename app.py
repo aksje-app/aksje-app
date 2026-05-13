@@ -451,7 +451,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 }
 @keyframes v18572spin { to { transform:rotate(360deg); } }
 
-/* v18.5.75: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
+/* v18.5.76: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
 .v18574-global-toolbar { margin:.45rem 0 .65rem 0 !important; }
 .v18574-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
 .v18574-global-status {
@@ -480,7 +480,7 @@ section[data-testid="stSidebar"] summary { white-space:normal !important; line-h
 body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-container"] { opacity:1 !important; filter:none !important; transition:none !important; }
 
 
-/* v18.5.75: replace ghost/floating global status with fixed inline blue control. */
+/* v18.5.76: replace ghost/floating global status with fixed inline blue control. */
 .v18575-global-row {
     display:grid !important;
     grid-template-columns:minmax(0, 1fr) minmax(210px, 270px) !important;
@@ -545,7 +545,7 @@ div[data-testid="stSpinner"], div[data-testid="stStatusWidget"] { position:relat
 .v18575-paper-positions h4 { margin:.15rem 0 .35rem 0 !important; font-size:1.05rem !important; }
 
 
-/* v18.5.75: readability/density balance for analysis views. */
+/* v18.5.76: readability/density balance for analysis views. */
 .v18574-readable-fund .v18-dark-row, .v18574-readable-fund { font-size:.86rem !important; line-height:1.48 !important; }
 .v18574-readable-fund b { font-size:.90rem !important; }
 .v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
@@ -768,7 +768,7 @@ def _apply_global_update_v18548() -> None:
 def render_global_update_bar_v18548() -> None:
     """Top-level global update control.
 
-    v18.5.75: old floating/dim global indicator is replaced by one normal
+    v18.5.76: old floating/dim global indicator is replaced by one normal
     two-column row: readable blue status on the left, blue action button on
     the right. No absolute/floating spinner is used here.
     """
@@ -813,6 +813,34 @@ def render_global_update_bar_v18548() -> None:
         st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
     else:
         st.caption("Manuell modus aktiv: widget-endringer oppdaterer UI lokalt; tung analyse bruker sist godkjente data.")
+
+
+# SIDEBAR_MARKET_DROPDOWN_V1
+# BANNER_PERIOD_SYNC_FIX_V3
+# v18.5.76: restored constants required by sidebar/main market selector.
+MARKET_CATEGORY_OPTIONS = [
+    "US Markets",
+    "Europe Markets",
+    "Norway / Oslo",
+    "Sweden / Stockholm",
+    "Cryptocurrencies",
+    "Rates",
+    "Commodities",
+    "Currencies",
+    "All Markets",
+]
+
+MARKET_CATEGORY_TO_MODE = {
+    "US Markets": "USA / S&P 500",
+    "Europe Markets": "Alle",
+    "Norway / Oslo": "Norge / Oslo Børs",
+    "Sweden / Stockholm": "Sverige / Stockholm",
+    "Cryptocurrencies": "Alle",
+    "Rates": "Alle",
+    "Commodities": "Alle",
+    "Currencies": "Alle",
+    "All Markets": "Alle",
+}
 
 def render_market_category_selector():
     """
@@ -2492,7 +2520,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.5 / v18.5.75: Global visningsmodus.
+# V14.5 / v18.5.76: Global visningsmodus.
 # Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
 if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
     st.session_state["global_view_mode_v145"] = "Full"
