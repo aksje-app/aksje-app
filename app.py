@@ -1,4 +1,4 @@
-# v18.5.79 Version Import Compatibility Fix
+# v18.5.12 Render import-path guard
 import os as _render_os
 import sys as _render_sys
 _render_root = _render_os.path.dirname(_render_os.path.abspath(__file__))
@@ -81,26 +81,10 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows
 
-
-def _session_status_html(current_user=None):
-    """Render safe session/status HTML. Defensive fallback for patch builds."""
-    try:
-        user_label = str(current_user or "admin")
-    except Exception:
-        user_label = "admin"
-    return (
-        "<div class='session-status session-status--ready'>"
-        "<span class='session-status__dot'></span>"
-        f"<span>Sesjon aktiv: {user_label}</span>"
-        "</div>"
-    )
-
-
-
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.5.79 Version Import Compatibility Fix: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
+# v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
 try:
     inject_workspace_css()
     render_workspace_title()
@@ -247,7 +231,7 @@ details > summary::after {
 current_user = require_login()
 
 
-# v18.5.79 Version Import Compatibility Fix: UI polish from user screenshots: readable global button, stable no-dim reruns, compact sidebar/admin.
+# v18.5.68: UI polish from user screenshots: readable global button, stable no-dim reruns, compact sidebar/admin.
 st.markdown("""
 <style>
 /* Global oppdatering must be visible even when Streamlit places it in a narrow column. */
@@ -329,7 +313,7 @@ section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
     font-size: .74rem !important;
 }
 
-/* v18.5.79 Version Import Compatibility Fix: targeted fix - version, global update placement, loading visibility and no full-page dim. */
+/* v18.5.70: targeted fix - version, global update placement, loading visibility and no full-page dim. */
 .v18570-global-update-row {
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(210px,260px);
@@ -400,7 +384,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 .ptw-pill-ready { opacity:1 !important; visibility:visible !important; }
 
 
-/* v18.5.79 Version Import Compatibility Fix: final hard-fix for Global oppdatering button/status placement. */
+/* v18.5.72: final hard-fix for Global oppdatering button/status placement. */
 .v18572-global-update-shell {
     margin:.42rem 0 .56rem 0 !important;
     padding:.48rem .56rem !important;
@@ -467,7 +451,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 }
 @keyframes v18572spin { to { transform:rotate(360deg); } }
 
-/* v18.5.79 Version Import Compatibility Fix: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
+/* v18.5.74: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
 .v18574-global-toolbar { margin:.45rem 0 .65rem 0 !important; }
 .v18574-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
 .v18574-global-status {
@@ -496,72 +480,7 @@ section[data-testid="stSidebar"] summary { white-space:normal !important; line-h
 body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-container"] { opacity:1 !important; filter:none !important; transition:none !important; }
 
 
-/* v18.5.79 Version Import Compatibility Fix: replace ghost/floating global status with fixed inline blue control. */
-.v18575-global-row {
-    display:grid !important;
-    grid-template-columns:minmax(0, 1fr) minmax(210px, 270px) !important;
-    gap:.55rem !important;
-    align-items:center !important;
-    margin:.42rem 0 .52rem 0 !important;
-    width:100% !important;
-    overflow:visible !important;
-}
-.v18575-global-status {
-    min-height:38px !important;
-    display:flex !important;
-    align-items:center !important;
-    gap:.44rem !important;
-    padding:.34rem .62rem !important;
-    border-radius:11px !important;
-    border:1px solid rgba(56,189,248,.72) !important;
-    background:linear-gradient(180deg,rgba(5,52,85,.96),rgba(3,73,112,.86)) !important;
-    color:#ffffff !important;
-    font-size:.82rem !important;
-    font-weight:900 !important;
-    line-height:1.22 !important;
-    opacity:1 !important;
-    filter:none !important;
-    position:relative !important;
-    z-index:5 !important;
-    overflow:hidden !important;
-}
-.v18575-global-status * { color:#ffffff !important; opacity:1 !important; filter:none !important; }
-.v18575-global-status .muted { color:#dff6ff !important; font-size:.72rem !important; font-weight:800 !important; margin-left:.35rem !important; white-space:nowrap !important; }
-.v18575-global-dot {
-    width:.62rem !important;
-    height:.62rem !important;
-    border-radius:999px !important;
-    display:inline-block !important;
-    flex:0 0 auto !important;
-    background:#22c55e !important;
-    box-shadow:0 0 0 3px rgba(34,197,94,.16),0 0 10px rgba(34,197,94,.55) !important;
-}
-.v18575-global-dot.pending { background:#f59e0b !important; box-shadow:0 0 0 3px rgba(245,158,11,.16),0 0 10px rgba(245,158,11,.55) !important; }
-.v18575-global-dot.running { background:#38bdf8 !important; box-shadow:0 0 0 3px rgba(56,189,248,.16),0 0 10px rgba(56,189,248,.55) !important; }
-.v18575-global-action .stButton > button {
-    min-height:38px !important;
-    height:38px !important;
-    width:100% !important;
-    min-width:210px !important;
-    padding:.25rem .85rem !important;
-    border-radius:11px !important;
-    background:linear-gradient(180deg,#20c7ff 0%,#0284c7 100%) !important;
-    border:1px solid rgba(224,242,254,.98) !important;
-    color:#fff !important;
-    -webkit-text-fill-color:#fff !important;
-    opacity:1 !important;
-    filter:none !important;
-    box-shadow:0 0 0 1px rgba(255,255,255,.15),0 8px 20px rgba(14,165,233,.30) !important;
-}
-.v18575-global-action .stButton > button p { color:#fff !important; -webkit-text-fill-color:#fff !important; font-size:.84rem !important; font-weight:950 !important; white-space:nowrap !important; }
-/* Kill the old ghost indicator that floated over the global row in earlier patches. */
-.v18572-inline-spinner { position:static !important; margin-right:.20rem !important; vertical-align:middle !important; }
-div[data-testid="stSpinner"], div[data-testid="stStatusWidget"] { position:relative !important; z-index:1 !important; opacity:1 !important; filter:none !important; }
-.v18575-paper-positions { margin:.65rem 0 .85rem 0 !important; }
-.v18575-paper-positions h4 { margin:.15rem 0 .35rem 0 !important; font-size:1.05rem !important; }
-
-
-/* v18.5.79 Version Import Compatibility Fix: readability/density balance for analysis views. */
+/* v18.5.74: readability/density balance for analysis views. */
 .v18574-readable-fund .v18-dark-row, .v18574-readable-fund { font-size:.86rem !important; line-height:1.48 !important; }
 .v18574-readable-fund b { font-size:.90rem !important; }
 .v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
@@ -782,41 +701,35 @@ def _apply_global_update_v18548() -> None:
 
 
 def render_global_update_bar_v18548() -> None:
-    """Top-level global update control.
-
-    v18.5.79 Version Import Compatibility Fix: old floating/dim global indicator is replaced by one normal
-    two-column row: readable blue status on the left, blue action button on
-    the right. No absolute/floating spinner is used here.
-    """
+    """Top-level global update control with stable right-side button and inline status."""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
         state_txt = "Jobber – kjører tung oppdatering"
-        dot_class = "running"
+        state_icon = "<span class='v18572-inline-spinner'></span>"
     elif pending:
         state_txt = "Endringer venter"
-        dot_class = "pending"
+        state_icon = "⚠️"
     else:
         state_txt = "Klar – ingen ventende endringer"
-        dot_class = ""
+        state_icon = "✅"
 
-    st.markdown("<div class='v18575-global-row'>", unsafe_allow_html=True)
-    status_col, button_col = st.columns([7.5, 1.8], gap="small")
+    st.markdown("<div class='v18574-global-toolbar'>", unsafe_allow_html=True)
+    status_col, spacer_col, button_col = st.columns([7.0, .25, 2.0], gap="small")
     with status_col:
         st.markdown(
-            f"<div class='v18575-global-status'><span class='v18575-global-dot {dot_class}'></span>"
-            f"<b>Global oppdatering</b> · {html.escape(state_txt)}"
-            f"<span class='muted'>Sist: {html.escape(_last_update_label())}</span></div>",
+            f"<div class='v18574-global-status'><span class='main'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}</span>"
+            f"<span class='sub'>Sist: {html.escape(_last_update_label())}</span></div>",
             unsafe_allow_html=True,
         )
     with button_col:
-        st.markdown("<div class='v18575-global-action'>", unsafe_allow_html=True)
+        st.markdown("<div class='v18574-global-action'>", unsafe_allow_html=True)
         clicked = st.button(
             "🌐 Global oppdatering",
-            key="top_apply_all_changes_v18575",
+            key="top_apply_all_changes_v18574",
             use_container_width=True,
             type="primary",
-            help="Lagrer valg og kjører tung oppdatering. Lokale UI-endringer skal ikke starte tung analyse.",
+            help="Lagrer valg og kjører tung oppdatering. Lokale UI-endringer skal ikke fryse skjermen.",
         )
         st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -831,9 +744,357 @@ def render_global_update_bar_v18548() -> None:
         st.caption("Manuell modus aktiv: widget-endringer oppdaterer UI lokalt; tung analyse bruker sist godkjente data.")
 
 
+_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
+
+
+def _on_active_panel_change_v18531():
+    mark_choice_update("Oppdaterer hovedpanel")
+
+
+def _render_active_main_panel_selector_v18531():
+    """Top-level panel selector placed in the header area above the ticker banner."""
+    saved = (
+        st.session_state.get("active_main_panel_radio_v15")
+        or st.session_state.get("active_main_panel_persist_v15")
+        or st.session_state.get("active_main_panel_persist_v1412")
+        or "🇺🇸 USA"
+    )
+    if saved not in _PANEL_OPTIONS_V18531:
+        saved = "🇺🇸 USA"
+    st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
+    active = st.radio(
+        "Aktivt hovedpanel",
+        _PANEL_OPTIONS_V18531,
+        index=_PANEL_OPTIONS_V18531.index(saved),
+        horizontal=True,
+        key="active_main_panel_radio_v15",
+        label_visibility="collapsed",
+        on_change=_on_active_panel_change_v18531,
+        help="Bare valgt panel beregnes tungt. Widget-reruns oppdaterer valg, men skjulte paneler skal ikke starte nye analyser.",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.session_state["active_main_panel_persist_v15"] = active
+    st.session_state["active_main_panel_persist_v1412"] = active
+    return active
+
+
+def _market_status_chips_html():
+    """Kompakt børsstatus til Kontrollsenter/sidebar uten ekstra widget-reruns."""
+    chips = []
+    try:
+        statuses = market_statuses()
+    except Exception:
+        statuses = {}
+    for key, status in (statuses or {}).items():
+        name = status.get("name", key)
+        short = {"USA": "USA", "Norge": "Norge", "Sverige": "Sverige"}.get(name, name)
+        is_open = bool(status.get("is_open"))
+        cls = "green" if is_open else "red"
+        txt = "Åpent" if is_open else "Stengt"
+        chips.append(f"<span class='mini-status-chip {cls}'>{html.escape(str(short))}: <b>{txt}</b></span>")
+    if not chips:
+        chips.append("<span class='mini-status-chip'>Børsstatus: <b>ukjent</b></span>")
+    return "".join(chips)
+
+
+def _session_status_html(user=None):
+    username = (user or {}).get("username", "-")
+    remember = "På" if st.session_state.get("auth_remember_me") else "Av"
+    expires = _fmt_dt_short(st.session_state.get("auth_expires_at"))
+    return (
+        f"<span class='mini-status-chip'>Bruker: <b>{html.escape(str(username))}</b></span>"
+        f"<span class='mini-status-chip {'green' if remember == 'På' else 'red'}'>Husk meg: <b>{remember}</b></span>"
+        f"<span class='mini-status-chip'>Utløper: <b>{html.escape(str(expires))}</b></span>"
+    )
+
+
+def _controls_differ(a, b):
+    return {k: a.get(k) for k in sorted(a)} != {k: b.get(k) for k in sorted(b)}
+
+
+def _manual_update_mode_enabled(settings=None):
+    """True når bruker har slått AV auto-oppdatering.
+
+    Streamlit vil fortsatt rerende skjermen når widgets endres, men i manuell
+    modus skal appen ikke gjøre tung datahenting/analyse før bruker trykker
+    Oppdater hele appen.
+    """
+    _s = settings or load_settings()
+    return not bool((_s or {}).get("chart_auto_update_enabled", False))
+
+
+def _heavy_update_allowed():
+    """Én hard gate for tung datahenting/analyse.
+
+    V16: Denne skal sjekkes før alt som kan hente markedsdata, bygge ranking,
+    scanne watchlist, hente bannerdata eller gjøre ekstern analyse.
+    """
+    settings = load_settings()
+    return (not _manual_update_mode_enabled(settings)) or bool(st.session_state.get("heavy_update_allowed_v148", False))
+
+
+def _mark_pending_manual_change(reason="Endringer venter"):
+    st.session_state["pending_manual_changes_v16"] = True
+    st.session_state["pending_manual_changes_reason_v16"] = reason
+
+
+def _clear_pending_manual_change():
+    st.session_state["pending_manual_changes_v16"] = False
+    st.session_state["pending_manual_changes_reason_v16"] = ""
+
+
+def _cache_key_safe(*parts):
+    raw = "__".join(str(x) for x in parts)
+    return re.sub(r"[^A-Za-z0-9_]+", "_", raw)[:180]
+
+
+def cached_score_stock_manual(ticker, use_news=False, force=False):
+    """score_stock med manuell-modus cache.
+
+    Når Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
+    hentes ikke data før bruker trykker Oppdater hele appen.
+    """
+    ticker = normalize_user_ticker(ticker)
+    key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news))}"
+    if (not force) and (not _heavy_update_allowed()):
+        return st.session_state.get(key)
+    item = score_stock(ticker, use_news=use_news)
+    if item:
+        st.session_state[key] = item
+    return item
+
+
+def cached_timeframe_data_manual(ticker, timeframe, period, force=False):
+    ticker = normalize_user_ticker(ticker)
+    key = f"timeframe_cache_v16_{_cache_key_safe(ticker, timeframe, period)}"
+    if (not force) and (not _heavy_update_allowed()):
+        return st.session_state.get(key)
+    df = fetch_timeframe_data(ticker, timeframe, period)
+    try:
+        if df is not None and not df.empty:
+            st.session_state[key] = df.copy()
+    except Exception:
+        pass
+    return df
+
+
+def _cached_external_signal_manual(kind, ticker, fetcher, default=None):
+    ticker = normalize_user_ticker(ticker)
+    key = f"external_signal_cache_v16_{_cache_key_safe(kind, ticker)}"
+    if not _heavy_update_allowed():
+        return st.session_state.get(key, default)
+    try:
+        val = fetcher(ticker)
+        st.session_state[key] = val
+        return val
+    except Exception:
+        return st.session_state.get(key, default)
+
+
+def _rank_cache_store(label, fp, data):
+    st.session_state[f"rank_cache_v148_{label}"] = {"fp": fp, "data": data, "updated_at": _now_short()}
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    latest[label] = data or []
+
+
+def _rank_cache_get(label, fp):
+    cache = st.session_state.get(f"rank_cache_v148_{label}") or {}
+    if cache.get("fp") == fp:
+        return cache.get("data")
+    return None
+
+
+def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False):
+    """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
+
+    Draft-verdier kan endres fritt; aktiv rangering oppdateres først via
+    Oppdater hele appen, Auto-oppdater eller manuell scan.
+    """
+    safe_tickers = list(tickers or [])
+    fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch))
+    cached = _rank_cache_get(label, fp)
+    # V17 / Oppgave 133: eksplisitt manuell henting skal overstyre markedsstengt/cache-blokkering.
+    # Vanlige widget-reruns skal fortsatt ikke starte tung jobb når manuell modus er aktiv.
+    if (not force_manual_fetch) and (not _heavy_update_allowed()):
+        if cached is not None:
+            return cached
+        latest = (st.session_state.get("latest_rankings_v148") or {}).get(label)
+        if latest is not None:
+            return latest
+        # Ingen cache ennå: ikke start tung jobb ved vanlig widget-rerun.
+        return []
+    data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch)
+    data = _ranked_for_display(data)
+    _rank_cache_store(label, fp, data)
+    return data
+
+
+def _sort_ranked_items(items):
+    """Sorter etter anbefaling først, deretter score/confidence.
+
+    BUY/Kjøp nå øverst, HOLD/WAIT etterpå og SELL/AVOID nederst.
+    """
+    return _ranked_for_display(items)
+
+
+def _dedupe_ranked_items(items):
+    out, seen = [], set()
+    for item in _sort_ranked_items(items):
+        ticker = normalize_user_ticker(item.get("ticker"))
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(item)
+    return out
+
+
+def _latest_ranked_results_for_source(source_label, fallback_results=None, current_label=None):
+    """Hent dynamisk aksjeliste for Interaktiv analyse uten AAPL-fallback.
+
+    Viktig for oppgave 76/76B:
+    - USA/Norge/Sverige/Top Picks bruker siste lagrede rangering fra appen.
+    - Hvis listen mangler, faller vi bare tilbake til gjeldende resultater når
+      gjeldende panel faktisk er samme kilde.
+    - Det skal ikke stilltiende byttes til AAPL når brukeren har valgt Norge/Sverige.
+    """
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    fallback_results = fallback_results or []
+    current_label_clean = str(current_label or "").replace("TopPicks_", "Top Picks")
+
+    if source_label == "Aktuell liste":
+        return _dedupe_ranked_items(fallback_results)
+
+    if source_label == "Smart Universe Picker":
+        active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+        rows = []
+        if isinstance(active, dict):
+            rows = list(active.get("rows") or [])
+            if not rows:
+                rows = [{"ticker": t, "source": "Smart Universe Picker"} for t in active.get("tickers", []) or []]
+        if not rows:
+            rows = latest.get("Smart Universe Picker") or []
+        return _dedupe_ranked_items(rows)
+
+    if source_label == "Dynamisk watchlist / best rangerte":
+        merged = []
+        for key in ["Dynamisk watchlist / best rangerte", "USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
+            merged.extend(latest.get(key, []) or [])
+        return _dedupe_ranked_items(merged or fallback_results)
+
+    if source_label in {"USA", "Norge", "Sverige"}:
+        stored = latest.get(source_label) or []
+        if stored:
+            return _dedupe_ranked_items(stored)
+        # Bare bruk fallback hvis aktivt panel faktisk er samme marked.
+        if current_label_clean == source_label:
+            return _dedupe_ranked_items(fallback_results)
+        return []
+
+    if source_label == "Top Picks":
+        merged = []
+        for key, value in latest.items():
+            if str(key).startswith("TopPicks"):
+                merged.extend(value or [])
+        if merged:
+            return _dedupe_ranked_items(merged)
+        if str(current_label or "").startswith("TopPicks"):
+            return _dedupe_ranked_items(fallback_results)
+        return []
+
+    return _dedupe_ranked_items(fallback_results)
+
+
+def _source_tickers_for_interactive(source_label, max_fallback=30):
+    """Ticker-univers for Interaktiv analyse når lagret rangering mangler.
+
+    Brukes bare når bruker aktivt trykker på Oppdater-listen-knappen.
+    Den skal ikke trigge tung rangering automatisk ved menyvalg.
+    """
+    try:
+        limit = int(globals().get("max_count", max_fallback) or max_fallback)
+    except Exception:
+        limit = max_fallback
+    limit = max(5, min(limit, 200))
+
+    if source_label == "Smart Universe Picker":
+        active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+        if isinstance(active, dict):
+            tickers = list(active.get("tickers") or [])
+            if tickers:
+                return tickers[:limit]
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        return [normalize_user_ticker(r.get("ticker")) for r in latest.get("Smart Universe Picker", []) if isinstance(r, dict) and r.get("ticker")][:limit]
+    if source_label == "USA":
+        return list(globals().get("tickers_us") or get_sp500_tickers(limit=limit))
+    if source_label == "Norge":
+        return list(globals().get("tickers_no") or get_norwegian_tickers(limit=limit))
+    if source_label == "Sverige":
+        return list(globals().get("tickers_se") or get_swedish_tickers(limit=limit))
+    if source_label == "Dynamisk watchlist / best rangerte":
+        wl = list(globals().get("watchlist_tickers") or [])
+        if wl:
+            return wl[:limit]
+        return list(globals().get("dynamic_watchlist") or [])[:limit]
+    if source_label == "Top Picks":
+        merged = []
+        for seq in [globals().get("tickers_us"), globals().get("tickers_no"), globals().get("tickers_se")]:
+            merged.extend(list(seq or [])[: max(5, limit // 3)])
+        if not merged:
+            merged = get_all_tickers(limit_per_market=max(5, limit // 3))
+        return merged[:limit]
+    return []
+
+
+def _build_interactive_source_ranking_now(source_label):
+    """Bygg valgt kilde på eksplisitt knappetrykk og lagre i siste rangering.
+
+    Dette er hotfix v14.10 for 76/76B/78: når Norge/USA/Sverige mangler lagret
+    dynamisk rangering, skal brukeren kunne bygge den aktuelle listen uten at appen
+    faller tilbake til AAPL eller starter automatisk tung jobb.
+    """
+    tickers = _source_tickers_for_interactive(source_label)
+    if not tickers:
+        return []
+    try:
+        limit = int(globals().get("max_count", len(tickers)) or len(tickers))
+    except Exception:
+        limit = len(tickers)
+    limit = max(1, min(limit, len(tickers), 200))
+    data = auto_rank_market(tickers[:limit], max_count=limit, use_news=False, force_manual_fetch=True)
+    if source_label == "Top Picks":
+        key = "TopPicks_Alle"
+    elif source_label == "Dynamisk watchlist / best rangerte":
+        key = "Dynamisk watchlist / best rangerte"
+    elif source_label == "Smart Universe Picker":
+        key = "Smart Universe Picker"
+    else:
+        key = source_label
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    latest[key] = data or []
+    # Lagre også under normal kildenøkkel når relevant, slik at dropdownen finner listen direkte.
+    if source_label in {"USA", "Norge", "Sverige"}:
+        latest[source_label] = data or []
+    st.session_state[f"rank_cache_v148_{key}"] = {"fp": ("manual_build", tuple(tickers[:limit])), "data": data or [], "updated_at": _now_short()}
+    _set_update_reason(f"Interaktiv analyse: bygget {source_label}-liste")
+    return data or []
+
+
+def _clean_manual_ticker_input(value: str) -> str:
+    """Rydd manuell ticker. Eksempeltekst og lister skal ikke behandles som aktiv ticker."""
+    raw = str(value or "").strip()
+    examples = {"STB.OL / EQNR.OL / ABB.ST", "AAPL / EQNR.OL / ABB.ST"}
+    if raw.upper() in {x.upper() for x in examples}:
+        return ""
+    # Interaktiv analyse er for én ticker. Hvis bruker limer inn en liste, bruk første og vis info.
+    for sep in [",", ";", "/", "|"]:
+        if sep in raw:
+            raw = raw.split(sep)[0].strip()
+            break
+    return normalize_user_ticker(raw)
+
+
 # SIDEBAR_MARKET_DROPDOWN_V1
 # BANNER_PERIOD_SYNC_FIX_V3
-# v18.5.79 Version Import Compatibility Fix: restored constants required by sidebar/main market selector.
+
 MARKET_CATEGORY_OPTIONS = [
     "US Markets",
     "Europe Markets",
@@ -857,6 +1118,7 @@ MARKET_CATEGORY_TO_MODE = {
     "Currencies": "Alle",
     "All Markets": "Alle",
 }
+
 
 def render_market_category_selector():
     """
@@ -2536,7 +2798,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.5 / v18.5.79 Version Import Compatibility Fix: Global visningsmodus.
+# V14.5 / v18.5.74: Global visningsmodus.
 # Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
 if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
     st.session_state["global_view_mode_v145"] = "Full"
@@ -3084,7 +3346,7 @@ def render_live_market_banner():
         .ticker-change { font-size: 0.78rem; margin-top: 4px; }
         .ticker-spark svg { width: 86px; height: 34px; }
     }
-    /* v18.5.79 Version Import Compatibility Fix: stop banner text from being clipped under the tape. */
+    /* v18.5.26: stop banner text from being clipped under the tape. */
     .ticker-tape-wrap + div, .ticker-tape-wrap + p { margin-top: .35rem !important; }
     .ticker-tape-item, .ticker-info, .ticker-change { overflow: visible !important; }
     </style>
@@ -4975,7 +5237,7 @@ def render_analysis(results, label):
     render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
     render_graph_explanation("rsi")
 
-    # v18.5.79 Version Import Compatibility Fix: standalone strategy testing and strategy
+    # v18.5.30 Legacy cleanup: standalone strategy testing and strategy
     # optimization were removed from per-ticker analysis cards. Use
     # AI Kontrollsenter -> Testing & Learning as the single source for
     # Strategi-test, Strategi-test Pro and learning history.
@@ -5446,48 +5708,6 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
     st.session_state["latest_watchlist_tickers_v156"] = list(_watchlist_tickers or [])
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
 
-
-def render_paper_positions_overview_v18575(portfolio):
-    """Always-visible Paper Trading holdings/trade overview.
-
-    This restores the positions list that was pushed below settings after the
-    compact/full UI refactor. It is intentionally rendered near the top of the
-    Paper Trading page, before auto-trading rules and edit panels.
-    """
-    st.markdown("<div class='v18575-paper-positions'>", unsafe_allow_html=True)
-    st.markdown("#### 📌 Aktive Paper Trading-posisjoner")
-    positions = portfolio.get("positions", {}) or {}
-    if positions:
-        rows = []
-        for ticker, pos in positions.items():
-            pos = pos or {}
-            last_price = float(pos.get("last_price", pos.get("avg_price", 0)) or 0)
-            avg_price = float(pos.get("avg_price", 0) or 0)
-            shares = float(pos.get("shares", pos.get("units", 0)) or 0)
-            value = shares * last_price
-            pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
-            rows.append({
-                "Ticker": ticker,
-                "Type": pos.get("asset_type", "Aksje"),
-                "Antall/enheter": round(shares, 4),
-                "Snittpris": round(avg_price, 4),
-                "Siste pris": round(last_price, 4),
-                "Verdi": round(value, 2),
-                "Valuta": pos.get("currency", ""),
-                "P/L %": round(pnl_pct, 2),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("Ingen åpne paper trading-posisjoner.")
-
-    trades = list(portfolio.get("trades", []) or [])
-    with st.expander("📜 Handelslogg / siste 50 handler", expanded=bool(trades)):
-        if trades:
-            st.dataframe(pd.DataFrame(trades[-50:]), use_container_width=True, hide_index=True)
-        else:
-            st.info("Ingen handler ennå.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
@@ -5527,8 +5747,6 @@ def render_paper_trading_dashboard():
             ("Win rate", f"{stats['win_rate']}%"),
             ("Lukkede trades", stats["closed_trades"]),
         ], columns=4)
-
-    render_paper_positions_overview_v18575(portfolio)
 
     with st.expander("💼 Juster Paper Trading startverdier / porteføljeverdi", expanded=True):
         st.markdown("""
@@ -5679,12 +5897,44 @@ def render_paper_trading_dashboard():
                     unsafe_allow_html=True,
                 )
 
+    st.markdown("#### Posisjoner")
+    positions = portfolio.get("positions", {})
+    if positions:
+        rows = []
+        for ticker, pos in positions.items():
+            last_price = pos.get("last_price", pos.get("avg_price", 0))
+            avg_price = pos.get("avg_price", 0)
+            shares = pos.get("shares", 0)
+            value = shares * last_price
+            pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
+            rows.append({
+                "ticker": ticker,
+                "type": pos.get("asset_type", "Aksje"),
+                "units": round(shares, 4),
+                "unit_label": pos.get("units_label", "shares"),
+                "avg_price": round(avg_price, 4),
+                "last_price": round(last_price, 4),
+                "value": round(value, 2),
+                "currency": pos.get("currency", ""),
+                "pnl_pct": round(pnl_pct, 2),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    else:
+        st.info("Ingen åpne paper trading-posisjoner.")
+
     st.markdown("#### 💰 Klar for ekte trading senere")
     st.info(
         "Systemet er nå strukturert for paper trading med risikoregler. "
         "Ekte handel er IKKE aktivert. Neste steg senere er broker_adapter.py "
         "med sikker ordrelegging, maksbeløp, nødknapp og manuell godkjenning."
     )
+
+    st.markdown("#### Handelslogg")
+    trades = portfolio.get("trades", [])
+    if trades:
+        st.dataframe(pd.DataFrame(trades[-50:]), use_container_width=True)
+    else:
+        st.info("Ingen handler ennå.")
 
 def render_ipo():
     st.subheader("🚀 Nye og kommende børsnoteringer")
@@ -5890,14 +6140,6 @@ if "active_analysis_controls_v148" not in st.session_state:
 # Draft blir først aktivt når Global oppdatering "Oppdater hele appen" trykkes.
 
 _active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
-
-def _controls_differ(current_controls, draft_controls):
-    """Return True when analysis controls differ. Defensive fallback for patch builds."""
-    try:
-        return dict(current_controls or {}) != dict(draft_controls or {})
-    except Exception:
-        return current_controls != draft_controls
-
 _pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
 
 # Aktive verdier brukes av datahenting/rangering. Widgetverdier kan endres uten tung analyse.
@@ -6009,7 +6251,7 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
-# v18.5.79 Version Import Compatibility Fix: samlet toppstatus og tradingkontroller rett under global topbar.
+# v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
     <div class='v18532-header-status'>
@@ -6030,7 +6272,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.8 / v18.5.79 Version Import Compatibility Fix: kompakt Auto trading-kontrollgruppe flyttet opp.
+# V15.8 / v18.5.34: kompakt Auto trading-kontrollgruppe flyttet opp.
 # Start opphever aldri Full stopp eller Nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
@@ -6087,7 +6329,7 @@ if st.session_state.get("auto_control_notice_v153"):
 
 
 
-# v18.5.79 Version Import Compatibility Fix: ekstra lazy-paneler i AI Kontrollsenter.
+# v18.5.35: ekstra lazy-paneler i AI Kontrollsenter.
 def render_news_control_center_v18535(default_ticker: str = ""):
     """Manual NewsAPI workspace. It never fetches news before the user presses the button."""
     st.subheader("📰 Nyheter")
@@ -6196,7 +6438,7 @@ def render_watchlist_signals_control_center_v18535():
 
 
 
-# v18.5.79 Version Import Compatibility Fix: Auto Test Lab Progress + Safe Run Controls.
+# v18.5.37: Auto Test Lab Progress + Safe Run Controls.
 def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
     """Resolve Auto Test Lab universe without running hidden scans."""
     from auto_test_lab import parse_ticker_list, normalize_ticker
@@ -6525,7 +6767,7 @@ def render_auto_test_lab_control_center_v18536():
         st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
 
 
-# v18.5.79 Version Import Compatibility Fix: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
+# v18.5.43: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
 def _fund_result_limit_key_v18547(title):
     import re
     return "fund_result_view_" + re.sub(r"[^a-z0-9]+", "_", str(title).lower()).strip("_")[:36] + "_v18547"
@@ -6967,7 +7209,7 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
     st.subheader("🏦 Fond / ETF-analyse")
-    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.79 Version Import Compatibility Fix.")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
 
     from fund_etf_analyzer import fund_selection_sources, fund_type_options
     col_src, col_a, col_b, col_c, col_d = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
@@ -7186,7 +7428,7 @@ def render_fund_etf_control_center_v18538():
 
 
 
-# v18.5.79 Version Import Compatibility Fix: Auto Test Lab Fund Mode.
+# v18.5.43: Auto Test Lab Fund Mode.
 def render_auto_test_lab_fund_mode_v18543():
     """Run the fund/ETF engine from Auto Test Lab, with progress and safe controls."""
     import html as _html
@@ -7433,7 +7675,7 @@ def render_auto_test_lab_fund_mode_v18543():
 
 
 
-# v18.5.79 Version Import Compatibility Fix: Portfolio Analyzer - Stocks + Funds -----------------------------
+# v18.5.44: Portfolio Analyzer - Stocks + Funds -----------------------------
 def _portfolio_analyzer_result_rows_v18544(result_key: str, row_keys: list[str], limit: int = 12):
     """Fetch rows from a previous lab/result in session_state without triggering analysis."""
     result = st.session_state.get(result_key) or {}
@@ -7704,13 +7946,13 @@ def control_center_extra_panels_v18535():
     ]
 
 
-# v18.5.79 Version Import Compatibility Fix: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
+# v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 render_global_update_bar_v18548()
 
-# v18.5.79 Version Import Compatibility Fix: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
+# v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
 
-# v18.5.79 Version Import Compatibility Fix: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
+# v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 try:
     render_live_market_banner()
     render_banner_main_controls()
@@ -7718,7 +7960,7 @@ try:
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 
-# v18.5.79 Version Import Compatibility Fix: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
 
 if 'top_picks' in locals():
@@ -7726,7 +7968,7 @@ if 'top_picks' in locals():
     top_movers(top_picks)
 
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting. System/admin er flyttet til AI Kontrollsenter.")
-# v18.5.79 Version Import Compatibility Fix: System/admin renderes kun i valgt Kontrollsenter-panel.
+# v18.5.35: System/admin renderes kun i valgt Kontrollsenter-panel.
 
 if search.strip():
     tickers_us = [search.strip().upper()]
@@ -7741,7 +7983,7 @@ else:
 
 dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
 
-# v18.5.79 Version Import Compatibility Fix: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
+# v18.5.35: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
 # Hovedsiden viser ikke lenger egen watchlist-boks eller scanner skjult; panel/kall kjøres bare når brukeren åpner
 # Kontrollsenter -> Watchlist/signaler og trykker egen knapp.
 watchlist_tickers = list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
@@ -7749,7 +7991,7 @@ auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signa
 watchlist_scan_limit = int(_alert_runtime_settings.get("watchlist_scan_limit", 30) or 30)
 manual_watchlist_scan = False
 
-# v18.5.79 Version Import Compatibility Fix: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
+# v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
 
 if active_panel == "🇺🇸 USA":
     us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False)
