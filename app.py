@@ -1,4 +1,4 @@
-# v18.5.12 Render import-path guard
+# v18.5.78 Root Patch Runtime Fix
 import os as _render_os
 import sys as _render_sys
 _render_root = _render_os.path.dirname(_render_os.path.abspath(__file__))
@@ -81,10 +81,26 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows
 
+
+def _session_status_html(current_user=None):
+    """Render safe session/status HTML. Defensive fallback for patch builds."""
+    try:
+        user_label = str(current_user or "admin")
+    except Exception:
+        user_label = "admin"
+    return (
+        "<div class='session-status session-status--ready'>"
+        "<span class='session-status__dot'></span>"
+        f"<span>Sesjon aktiv: {user_label}</span>"
+        "</div>"
+    )
+
+
+
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
-# v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
+# v18.5.78 Root Patch Runtime Fix: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
 try:
     inject_workspace_css()
     render_workspace_title()
@@ -231,7 +247,7 @@ details > summary::after {
 current_user = require_login()
 
 
-# v18.5.68: UI polish from user screenshots: readable global button, stable no-dim reruns, compact sidebar/admin.
+# v18.5.78 Root Patch Runtime Fix: UI polish from user screenshots: readable global button, stable no-dim reruns, compact sidebar/admin.
 st.markdown("""
 <style>
 /* Global oppdatering must be visible even when Streamlit places it in a narrow column. */
@@ -313,7 +329,7 @@ section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
     font-size: .74rem !important;
 }
 
-/* v18.5.70: targeted fix - version, global update placement, loading visibility and no full-page dim. */
+/* v18.5.78 Root Patch Runtime Fix: targeted fix - version, global update placement, loading visibility and no full-page dim. */
 .v18570-global-update-row {
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(210px,260px);
@@ -384,7 +400,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 .ptw-pill-ready { opacity:1 !important; visibility:visible !important; }
 
 
-/* v18.5.72: final hard-fix for Global oppdatering button/status placement. */
+/* v18.5.78 Root Patch Runtime Fix: final hard-fix for Global oppdatering button/status placement. */
 .v18572-global-update-shell {
     margin:.42rem 0 .56rem 0 !important;
     padding:.48rem .56rem !important;
@@ -451,7 +467,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 }
 @keyframes v18572spin { to { transform:rotate(360deg); } }
 
-/* v18.5.76: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
+/* v18.5.78 Root Patch Runtime Fix: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
 .v18574-global-toolbar { margin:.45rem 0 .65rem 0 !important; }
 .v18574-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
 .v18574-global-status {
@@ -480,7 +496,7 @@ section[data-testid="stSidebar"] summary { white-space:normal !important; line-h
 body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-container"] { opacity:1 !important; filter:none !important; transition:none !important; }
 
 
-/* v18.5.76: replace ghost/floating global status with fixed inline blue control. */
+/* v18.5.78 Root Patch Runtime Fix: replace ghost/floating global status with fixed inline blue control. */
 .v18575-global-row {
     display:grid !important;
     grid-template-columns:minmax(0, 1fr) minmax(210px, 270px) !important;
@@ -545,7 +561,7 @@ div[data-testid="stSpinner"], div[data-testid="stStatusWidget"] { position:relat
 .v18575-paper-positions h4 { margin:.15rem 0 .35rem 0 !important; font-size:1.05rem !important; }
 
 
-/* v18.5.76: readability/density balance for analysis views. */
+/* v18.5.78 Root Patch Runtime Fix: readability/density balance for analysis views. */
 .v18574-readable-fund .v18-dark-row, .v18574-readable-fund { font-size:.86rem !important; line-height:1.48 !important; }
 .v18574-readable-fund b { font-size:.90rem !important; }
 .v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
@@ -768,7 +784,7 @@ def _apply_global_update_v18548() -> None:
 def render_global_update_bar_v18548() -> None:
     """Top-level global update control.
 
-    v18.5.76: old floating/dim global indicator is replaced by one normal
+    v18.5.78 Root Patch Runtime Fix: old floating/dim global indicator is replaced by one normal
     two-column row: readable blue status on the left, blue action button on
     the right. No absolute/floating spinner is used here.
     """
@@ -817,7 +833,7 @@ def render_global_update_bar_v18548() -> None:
 
 # SIDEBAR_MARKET_DROPDOWN_V1
 # BANNER_PERIOD_SYNC_FIX_V3
-# v18.5.76: restored constants required by sidebar/main market selector.
+# v18.5.78 Root Patch Runtime Fix: restored constants required by sidebar/main market selector.
 MARKET_CATEGORY_OPTIONS = [
     "US Markets",
     "Europe Markets",
@@ -2520,7 +2536,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.5 / v18.5.76: Global visningsmodus.
+# V14.5 / v18.5.78 Root Patch Runtime Fix: Global visningsmodus.
 # Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
 if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
     st.session_state["global_view_mode_v145"] = "Full"
@@ -3068,7 +3084,7 @@ def render_live_market_banner():
         .ticker-change { font-size: 0.78rem; margin-top: 4px; }
         .ticker-spark svg { width: 86px; height: 34px; }
     }
-    /* v18.5.26: stop banner text from being clipped under the tape. */
+    /* v18.5.78 Root Patch Runtime Fix: stop banner text from being clipped under the tape. */
     .ticker-tape-wrap + div, .ticker-tape-wrap + p { margin-top: .35rem !important; }
     .ticker-tape-item, .ticker-info, .ticker-change { overflow: visible !important; }
     </style>
@@ -4959,7 +4975,7 @@ def render_analysis(results, label):
     render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
     render_graph_explanation("rsi")
 
-    # v18.5.30 Legacy cleanup: standalone strategy testing and strategy
+    # v18.5.78 Root Patch Runtime Fix: standalone strategy testing and strategy
     # optimization were removed from per-ticker analysis cards. Use
     # AI Kontrollsenter -> Testing & Learning as the single source for
     # Strategi-test, Strategi-test Pro and learning history.
@@ -5993,7 +6009,7 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
-# v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
+# v18.5.78 Root Patch Runtime Fix: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
     <div class='v18532-header-status'>
@@ -6014,7 +6030,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.8 / v18.5.34: kompakt Auto trading-kontrollgruppe flyttet opp.
+# V15.8 / v18.5.78 Root Patch Runtime Fix: kompakt Auto trading-kontrollgruppe flyttet opp.
 # Start opphever aldri Full stopp eller Nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
@@ -6071,7 +6087,7 @@ if st.session_state.get("auto_control_notice_v153"):
 
 
 
-# v18.5.35: ekstra lazy-paneler i AI Kontrollsenter.
+# v18.5.78 Root Patch Runtime Fix: ekstra lazy-paneler i AI Kontrollsenter.
 def render_news_control_center_v18535(default_ticker: str = ""):
     """Manual NewsAPI workspace. It never fetches news before the user presses the button."""
     st.subheader("📰 Nyheter")
@@ -6180,7 +6196,7 @@ def render_watchlist_signals_control_center_v18535():
 
 
 
-# v18.5.37: Auto Test Lab Progress + Safe Run Controls.
+# v18.5.78 Root Patch Runtime Fix: Auto Test Lab Progress + Safe Run Controls.
 def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
     """Resolve Auto Test Lab universe without running hidden scans."""
     from auto_test_lab import parse_ticker_list, normalize_ticker
@@ -6509,7 +6525,7 @@ def render_auto_test_lab_control_center_v18536():
         st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
 
 
-# v18.5.43: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
+# v18.5.78 Root Patch Runtime Fix: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
 def _fund_result_limit_key_v18547(title):
     import re
     return "fund_result_view_" + re.sub(r"[^a-z0-9]+", "_", str(title).lower()).strip("_")[:36] + "_v18547"
@@ -6951,7 +6967,7 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
     st.subheader("🏦 Fond / ETF-analyse")
-    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.78 Root Patch Runtime Fix.")
 
     from fund_etf_analyzer import fund_selection_sources, fund_type_options
     col_src, col_a, col_b, col_c, col_d = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
@@ -7170,7 +7186,7 @@ def render_fund_etf_control_center_v18538():
 
 
 
-# v18.5.43: Auto Test Lab Fund Mode.
+# v18.5.78 Root Patch Runtime Fix: Auto Test Lab Fund Mode.
 def render_auto_test_lab_fund_mode_v18543():
     """Run the fund/ETF engine from Auto Test Lab, with progress and safe controls."""
     import html as _html
@@ -7417,7 +7433,7 @@ def render_auto_test_lab_fund_mode_v18543():
 
 
 
-# v18.5.44: Portfolio Analyzer - Stocks + Funds -----------------------------
+# v18.5.78 Root Patch Runtime Fix: Portfolio Analyzer - Stocks + Funds -----------------------------
 def _portfolio_analyzer_result_rows_v18544(result_key: str, row_keys: list[str], limit: int = 12):
     """Fetch rows from a previous lab/result in session_state without triggering analysis."""
     result = st.session_state.get(result_key) or {}
@@ -7688,13 +7704,13 @@ def control_center_extra_panels_v18535():
     ]
 
 
-# v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
+# v18.5.78 Root Patch Runtime Fix: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 render_global_update_bar_v18548()
 
-# v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
+# v18.5.78 Root Patch Runtime Fix: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
 
-# v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
+# v18.5.78 Root Patch Runtime Fix: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 try:
     render_live_market_banner()
     render_banner_main_controls()
@@ -7702,7 +7718,7 @@ try:
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 
-# v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# v18.5.78 Root Patch Runtime Fix: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
 
 if 'top_picks' in locals():
@@ -7710,7 +7726,7 @@ if 'top_picks' in locals():
     top_movers(top_picks)
 
 st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting. System/admin er flyttet til AI Kontrollsenter.")
-# v18.5.35: System/admin renderes kun i valgt Kontrollsenter-panel.
+# v18.5.78 Root Patch Runtime Fix: System/admin renderes kun i valgt Kontrollsenter-panel.
 
 if search.strip():
     tickers_us = [search.strip().upper()]
@@ -7725,7 +7741,7 @@ else:
 
 dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
 
-# v18.5.35: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
+# v18.5.78 Root Patch Runtime Fix: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
 # Hovedsiden viser ikke lenger egen watchlist-boks eller scanner skjult; panel/kall kjøres bare når brukeren åpner
 # Kontrollsenter -> Watchlist/signaler og trykker egen knapp.
 watchlist_tickers = list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
@@ -7733,7 +7749,7 @@ auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signa
 watchlist_scan_limit = int(_alert_runtime_settings.get("watchlist_scan_limit", 30) or 30)
 manual_watchlist_scan = False
 
-# v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
+# v18.5.78 Root Patch Runtime Fix: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
 
 if active_panel == "🇺🇸 USA":
     us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False)
