@@ -36,7 +36,7 @@ def _row(symbol="MEGA"):
 
 
 def test_v18559_version():
-    assert get_app_version() == "v18.5.62"
+    assert get_app_version() == "v18.5.70"
 
 
 def test_intelligence_core_collects_schema_weights_confidence_and_freshness():

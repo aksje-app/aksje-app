@@ -12,7 +12,7 @@ def _benchmark(_symbol):
 
 
 def test_v18550_version():
-    assert get_app_version() == "v18.5.62"
+    assert get_app_version() == "v18.5.70"
 
 
 def test_base_score_profile_is_separate_layer():

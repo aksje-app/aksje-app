@@ -2,13 +2,13 @@ from pathlib import Path
 
 
 def test_version_and_topbar_busy_indicator_present():
-    assert 'APP_VERSION = "v18.5.62"' in Path("app_version.py").read_text()
+    assert 'APP_VERSION = "v18.5.70"' in Path("app_version.py").read_text()
     sticky = Path("sticky_topbar.py").read_text()
     css = Path("workspace_layout.py").read_text()
     assert "global_busy_chip_html" in sticky
     assert "market_statuses" in sticky
     assert "ptw-global-busy-fixed" in css
-    assert "Professional Trading Workspace {get_app_version()}" in sticky
+    assert "Professional Trading Workspace {get_app_build_label()}" in sticky
 
 
 def test_active_panel_selector_moved_above_banner():

@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_v18533_version_label():
-    assert 'APP_VERSION = "v18.5.62"' in Path('app_version.py').read_text()
+    assert 'APP_VERSION = "v18.5.70"' in Path('app_version.py').read_text()
 
 
 def test_sidebar_admin_is_compact_without_dataframe():
@@ -16,7 +16,7 @@ def test_sidebar_admin_is_compact_without_dataframe():
 def test_busy_chip_is_inline_no_top_right_overlap():
     sticky = Path('sticky_topbar.py').read_text()
     css = Path('workspace_layout.py').read_text()
-    assert 'Professional Trading Workspace {get_app_version()}' in sticky
+    assert 'Professional Trading Workspace {get_app_build_label()}' in sticky
     assert 'ptw-global-busy-fixed' in sticky
     assert 'position: static' in css
     assert 'ptw-busy-spinner' in css

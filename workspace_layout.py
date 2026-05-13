@@ -725,6 +725,19 @@ def inject_workspace_css() -> None:
         .ptw-global-busy-fixed .ptw-busy-running { min-width: 178px !important; }
         .ptw-busy-spinner { opacity:1 !important; visibility:visible !important; }
         .ptw-sticky-topbar { overflow: visible !important; padding-top:.58rem !important; }
+
+        /* v18.5.70: stronger top-right status and no-dim safety net. */
+        .ptw-v18570-status-zone, .ptw-topbar-right { min-width: 480px !important; opacity:1 !important; }
+        .ptw-version-chip { color:#dbeafe !important; opacity:1 !important; font-size:.78rem !important; }
+        .ptw-global-busy-fixed { opacity:1 !important; visibility:visible !important; min-width:112px !important; }
+        .ptw-global-busy-fixed .ptw-pill { opacity:1 !important; visibility:visible !important; min-height:32px !important; }
+        .ptw-busy-running { min-width:184px !important; border-color:rgba(56,189,248,.85) !important; background:rgba(8,89,133,.82) !important; }
+        .ptw-busy-spinner { display:inline-block !important; opacity:1 !important; visibility:visible !important; }
+        html body .stApp, html body .main, html body section.main,
+        html body div[data-testid="stAppViewContainer"], html body div[data-testid="stAppViewBlockContainer"] {
+            opacity:1 !important; filter:none !important; transition:none !important;
+        }
+
 </style>
         """,
         unsafe_allow_html=True,

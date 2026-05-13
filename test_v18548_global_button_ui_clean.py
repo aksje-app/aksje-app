@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_version_v18548():
     from app_version import get_app_version
-    assert get_app_version() == "v18.5.62"
+    assert get_app_version() == "v18.5.70"
 
 
 def test_choice_update_is_not_busy():
@@ -16,7 +16,7 @@ def test_choice_update_is_not_busy():
 def test_global_button_moved_up_and_no_spinner():
     app = Path("app.py").read_text()
     assert "render_global_update_bar_v18548()" in app
-    assert 'key="top_apply_all_changes_v18548"' in app
+    assert 'key="top_apply_all_changes_v18570"' in app
     assert 'with st.spinner("Oppdaterer hele appen' not in app
     assert app.index("render_global_update_bar_v18548()") < app.index("active_panel = _render_active_main_panel_selector_v18531()")
 
