@@ -229,6 +229,79 @@ details > summary::after {
 
 current_user = require_login()
 
+
+# v18.5.68: UI polish from user screenshots: readable global button, stable no-dim reruns, compact sidebar/admin.
+st.markdown("""
+<style>
+/* Global oppdatering must be visible even when Streamlit places it in a narrow column. */
+.v18548-global-update-wrap {
+    padding: .58rem .72rem .50rem .72rem !important;
+    border-color: rgba(56,189,248,.45) !important;
+}
+.v18548-global-update-wrap .stButton > button,
+button[kind="primary"] {
+    min-height: 2.95rem !important;
+    padding: .42rem .90rem !important;
+    border-radius: 13px !important;
+    background: linear-gradient(180deg, #22c7ff 0%, #0284c7 100%) !important;
+    border: 1px solid rgba(186,230,253,.95) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    text-shadow: 0 1px 1px rgba(0,0,0,.45) !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 10px 22px rgba(2,132,199,.24) !important;
+}
+.v18548-global-update-wrap .stButton > button p,
+button[kind="primary"] p {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    font-size: .92rem !important;
+    font-weight: 950 !important;
+    letter-spacing: .01em !important;
+    white-space: nowrap !important;
+}
+/* Keep page readable during Streamlit reruns; real work is shown only by the header busy chip. */
+.stApp, .main, section.main, div[data-testid="stAppViewContainer"], div[data-testid="stAppViewBlockContainer"] {
+    opacity: 1 !important;
+    filter: none !important;
+}
+div[data-testid="stSpinner"] {
+    background: rgba(8,16,34,.92) !important;
+    border: 1px solid rgba(56,189,248,.35) !important;
+    border-radius: 12px !important;
+}
+/* Sidebar bottom/admin: prevent vertical word wrapping and oversized cards. */
+section[data-testid="stSidebar"] { width: 214px !important; min-width: 214px !important; }
+section[data-testid="stSidebar"] * {
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    hyphens: none !important;
+}
+section[data-testid="stSidebar"] .auth-sidebar-card,
+section[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    padding: .46rem .52rem !important;
+    margin: .22rem 0 .42rem 0 !important;
+    border-radius: 12px !important;
+}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    min-height: 30px !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+}
+section[data-testid="stSidebar"] .auth-user-row {
+    display: grid !important;
+    grid-template-columns: minmax(0,1fr) auto !important;
+    font-size: .68rem !important;
+    line-height: 1.12 !important;
+}
+section[data-testid="stSidebar"] .auth-mini-heading { font-size:.70rem !important; }
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+    min-height: 30px !important;
+    font-size: .74rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 _runtime_settings = load_settings()
 UI_REFRESH_MINUTES = int(_runtime_settings.get("ui_refresh_minutes", 5) or 5)
 UI_REFRESH_MINUTES = max(1, min(UI_REFRESH_MINUTES, 60))
@@ -440,7 +513,7 @@ def render_global_update_bar_v18548() -> None:
     state_cls = "yellow" if pending else "green"
     state_txt = "Endringer venter – trykk Global oppdatering." if pending else "Klar – ingen ventende endringer."
     st.markdown("<div class='v18548-global-update-wrap'>", unsafe_allow_html=True)
-    c1, c2 = st.columns([1.55, 1.0], gap="small")
+    c1, c2 = st.columns([1.15, 1.15], gap="small")
     with c1:
         st.markdown(
             f"<div class='v18-global-note v18548-global-note'><span class='v18-status-dot {state_cls}'></span>"

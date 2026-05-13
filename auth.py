@@ -389,7 +389,7 @@ def render_user_admin(current_user):
     if current_user.get("role") != "admin":
         return
 
-    with st.sidebar.expander("🔐 Administrer brukere", expanded=False):
+    with st.sidebar.expander("🔐 Admin", expanded=False):  # tidligere: Administrer brukere
         users = list_users()
         if users:
             rows = []
