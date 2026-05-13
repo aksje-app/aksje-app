@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 from core_models import ServiceResult, StockCandidate, UniverseRequest, UniverseResult, normalize_ticker
 from app_version import get_app_version
+from security_metadata import resolve_security_metadata
 from services.state_service import get_state_service
 from services.storage_service import get_storage_service
 
@@ -97,10 +98,12 @@ def _candidate_rows_from_tickers(tickers: Sequence[str], source: str, reason: st
         rows.append(
             StockCandidate(
                 ticker=ticker,
-                name=ticker,
+                name=str(resolve_security_metadata(ticker, {"ticker": ticker}).get("name") or ticker),
                 source=source,
                 rank=idx,
                 market="",
+                sector=str(resolve_security_metadata(ticker, {"ticker": ticker}).get("sector") or "Unknown"),
+                risk=str(resolve_security_metadata(ticker, {"ticker": ticker}).get("risk") or "Ukjent"),
                 reason=reason or f"Valgt fra {source}",
             )
         )
@@ -370,10 +373,12 @@ class UniverseService:
                 candidates.append(
                     StockCandidate(
                         ticker=ticker,
-                        name=ticker,
+                        name=str(resolve_security_metadata(ticker, {"ticker": ticker}).get("name") or ticker),
                         source=source,
                         rank=idx,
                         market="",
+                        sector=str(resolve_security_metadata(ticker, {"ticker": ticker}).get("sector") or "Unknown"),
+                        risk=str(resolve_security_metadata(ticker, {"ticker": ticker}).get("risk") or "Ukjent"),
                         reason="Valgt via Smart Universe Picker",
                     )
                 )
@@ -444,12 +449,12 @@ class UniverseService:
                     continue
                 rows.append({
                     "ticker": row.get("ticker"),
-                    "name": row.get("name") or row.get("ticker"),
+                    "name": resolve_security_metadata(row.get("ticker"), row).get("name") or row.get("name") or row.get("ticker"),
                     "score": row.get("ai_score") or row.get("score"),
                     "smart_score": row.get("smart_score"),
                     "strength": row.get("strength"),
-                    "risk": row.get("risk"),
-                    "sector": row.get("sector"),
+                    "risk": resolve_security_metadata(row.get("ticker"), row).get("risk") or row.get("risk"),
+                    "sector": resolve_security_metadata(row.get("ticker"), row).get("sector") or row.get("sector"),
                     "source": "Smart AI",
                     "reason": row.get("reason"),
                 })
