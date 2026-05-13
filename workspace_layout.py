@@ -402,8 +402,8 @@ def inject_workspace_css() -> None:
         }
         .ptw-topbar-right {
             flex: 0 0 auto !important;
-            min-width: 310px !important;
-            max-width: 45vw !important;
+            min-width: 360px !important;
+            max-width: 52vw !important;
             justify-content: flex-end !important;
             gap: .45rem !important;
             overflow: visible !important;
@@ -716,7 +716,16 @@ def inject_workspace_css() -> None:
             border-color: rgba(56, 189, 248, .22) !important;
             border-radius: 12px !important;
         }
-        </style>
+        
+        /* v18.5.69: user-requested polish: readable AI Kontrollsenter and stable header indicators. */
+        .ptw-control-title { font-size: 1.26rem !important; line-height:1.15 !important; font-weight: 950 !important; }
+        .ptw-control-caption { font-size: .78rem !important; line-height:1.24 !important; color: rgba(203,213,225,.88) !important; }
+        .ptw-status-line .ptw-pill, .ptw-control-header .ptw-pill { font-size: .68rem !important; padding: .18rem .38rem !important; }
+        .ptw-global-busy-fixed .ptw-pill { min-height: 30px !important; opacity:1 !important; }
+        .ptw-global-busy-fixed .ptw-busy-running { min-width: 178px !important; }
+        .ptw-busy-spinner { opacity:1 !important; visibility:visible !important; }
+        .ptw-sticky-topbar { overflow: visible !important; padding-top:.58rem !important; }
+</style>
         """,
         unsafe_allow_html=True,
     )

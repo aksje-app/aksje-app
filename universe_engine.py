@@ -274,6 +274,21 @@ def _smart_score(ai_score: float, strength: float, risk_score: float, sentiment:
     return round(_clamp(value), 2)
 
 
+STOCK_NAME_FALLBACKS_V18569 = {
+    "AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation", "NVDA": "NVIDIA Corporation",
+    "AMZN": "Amazon.com, Inc.", "META": "Meta Platforms, Inc.", "GOOGL": "Alphabet Inc.",
+    "AVGO": "Broadcom Inc.", "TSLA": "Tesla, Inc.", "LLY": "Eli Lilly and Company",
+    "JPM": "JPMorgan Chase & Co.", "V": "Visa Inc.", "UNH": "UnitedHealth Group Incorporated",
+}
+
+def _display_name_or_fallback_v18569(ticker, item):
+    t=str(ticker or "").strip().upper()
+    for key in ("longName", "companyName", "shortName", "displayName", "name"):
+        val=str((item or {}).get(key) or "").strip()
+        if val and val.upper().replace(" ", "") != t.replace(" ", ""):
+            return val
+    return STOCK_NAME_FALLBACKS_V18569.get(t) or t
+
 def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str = "Smart AI") -> SmartUniverseCandidate:
     ticker = normalize_ticker(item.get("ticker") or item.get("symbol") or ticker)
     ai_score = _normalize_ai_score(item.get("score", item.get("ai_score", 5.0)))
@@ -287,7 +302,7 @@ def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str 
     return SmartUniverseCandidate(
         rank=0,
         ticker=ticker,
-        name=str(item.get("name") or item.get("shortName") or item.get("longName") or ticker),
+        name=_display_name_or_fallback_v18569(ticker, item),
         market=str(item.get("market") or infer_market_from_ticker(ticker)),
         source=str(source or item.get("source") or "Smart AI"),
         sector=sector,
