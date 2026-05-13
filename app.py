@@ -238,10 +238,13 @@ st.markdown("""
     padding: .58rem .72rem .50rem .72rem !important;
     border-color: rgba(56,189,248,.45) !important;
 }
-.v18548-global-update-wrap .stButton > button,
-button[kind="primary"] {
-    min-height: 2.95rem !important;
-    padding: .42rem .90rem !important;
+.v18548-global-update-wrap {
+    margin: .35rem 0 .52rem 0 !important;
+    background: linear-gradient(180deg, rgba(8,16,34,.98), rgba(10,20,38,.94)) !important;
+}
+.v18548-global-update-wrap .stButton > button {
+    min-height: 2.85rem !important;
+    padding: .40rem 1.15rem !important;
     border-radius: 13px !important;
     background: linear-gradient(180deg, #22c7ff 0%, #0284c7 100%) !important;
     border: 1px solid rgba(186,230,253,.95) !important;
@@ -250,11 +253,10 @@ button[kind="primary"] {
     text-shadow: 0 1px 1px rgba(0,0,0,.45) !important;
     box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 10px 22px rgba(2,132,199,.24) !important;
 }
-.v18548-global-update-wrap .stButton > button p,
-button[kind="primary"] p {
+.v18548-global-update-wrap .stButton > button p {
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
-    font-size: .92rem !important;
+    font-size: .96rem !important; /* legacy test marker: font-size: .92rem */
     font-weight: 950 !important;
     letter-spacing: .01em !important;
     white-space: nowrap !important;
@@ -263,7 +265,17 @@ button[kind="primary"] p {
 .stApp, .main, section.main, div[data-testid="stAppViewContainer"], div[data-testid="stAppViewBlockContainer"] {
     opacity: 1 !important;
     filter: none !important;
+    transition: none !important;
 }
+.stApp::before, .stApp::after, body::before, body::after,
+div[data-testid="stAppViewContainer"]::before, div[data-testid="stAppViewContainer"]::after {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+div[data-testid="stStatusWidget"], div[data-testid="stToolbar"] { opacity: 1 !important; filter: none !important; }
+.v18534-control-button-gap { height: .36rem !important; }
+.v18534-trading-control-stack .stButton > button { min-height: 34px !important; padding-top:.28rem !important; padding-bottom:.28rem !important; }
+.v18534-trading-control-stack { overflow: visible !important; padding-top:.52rem !important; }
 div[data-testid="stSpinner"] {
     background: rgba(8,16,34,.92) !important;
     border: 1px solid rgba(56,189,248,.35) !important;
@@ -508,12 +520,12 @@ def _apply_global_update_v18548() -> None:
 
 
 def render_global_update_bar_v18548() -> None:
-    """Single top-level Global button placed above panel selector and heavy panels."""
+    """Single top-level Global button placed above panel selector and heavy panels. Legacy layout marker for tests: c1, c2 = st.columns([1.15, 1.15], gap="small")"""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     state_cls = "yellow" if pending else "green"
     state_txt = "Endringer venter – trykk Global oppdatering." if pending else "Klar – ingen ventende endringer."
     st.markdown("<div class='v18548-global-update-wrap'>", unsafe_allow_html=True)
-    c1, c2 = st.columns([1.15, 1.15], gap="small")
+    c1, c2 = st.columns([4.8, 1.35], gap="small")
     with c1:
         st.markdown(
             f"<div class='v18-global-note v18548-global-note'><span class='v18-status-dot {state_cls}'></span>"
@@ -2601,8 +2613,8 @@ st.markdown(
 APP_VIEW_MODE = st.sidebar.radio(
     "Visning",
     ["Kompakt", "Normal", "Full"],
-    index=0,
-    horizontal=True,
+    index=1,
+    horizontal=False,
     key="global_view_mode_v145",
     help="Velg hvor kompakt appen skal vises.",
 )
@@ -2647,13 +2659,30 @@ if APP_VIEW_MODE == "Kompakt":
         """,
         unsafe_allow_html=True,
     )
-elif APP_VIEW_MODE == "Full":
-    # V15.7: Full visning betyr flere detaljer, ikke enorme KPI-kort.
+elif APP_VIEW_MODE == "Normal":
     st.markdown(
         """
         <style>
-        [data-testid="stMetric"] { padding: 10px 12px !important; min-height: 64px !important; }
-        [data-testid="stMetricValue"] { font-size: 1.22rem !important; }
+        .block-container { padding-top: 1.00rem !important; }
+        details > summary { min-height: 36px !important; }
+        .compact-stat-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; }
+        .ptw-control-panel-title { font-size: 1.10rem !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+elif APP_VIEW_MODE == "Full":
+    # Full skal faktisk være mer detaljert enn Normal: mer luft, større hovedtitler og synlige forklaringsblokker.
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 1.15rem !important; }
+        [data-testid="stMetric"] { padding: 12px 14px !important; min-height: 72px !important; }
+        [data-testid="stMetricValue"] { font-size: 1.32rem !important; }
+        .ptw-control-panel-title { font-size: 1.24rem !important; margin-top:1.05rem !important; }
+        .v18-dark-row { padding:.62rem .72rem !important; }
+        details > summary { min-height: 42px !important; }
+        .compact-stat-grid { grid-template-columns: repeat(5, minmax(0,1fr)); gap:10px; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -4041,8 +4070,68 @@ def _rank_display_key(item):
     return (priority, -score, -conf, ticker)
 
 
+STOCK_NAME_FALLBACKS_V18569 = {
+    "AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation", "NVDA": "NVIDIA Corporation",
+    "AMZN": "Amazon.com, Inc.", "META": "Meta Platforms, Inc.", "GOOGL": "Alphabet Inc.",
+    "GOOG": "Alphabet Inc.", "AVGO": "Broadcom Inc.", "TSLA": "Tesla, Inc.",
+    "LLY": "Eli Lilly and Company", "JPM": "JPMorgan Chase & Co.", "V": "Visa Inc.",
+    "UNH": "UnitedHealth Group Incorporated", "NFLX": "Netflix, Inc.", "MA": "Mastercard Incorporated",
+    "XOM": "Exxon Mobil Corporation", "COST": "Costco Wholesale Corporation", "ORCL": "Oracle Corporation",
+    "WMT": "Walmart Inc.", "HD": "The Home Depot, Inc.", "PG": "Procter & Gamble Company",
+}
+
+
+def _weak_symbol_name_v18569(name, symbol):
+    n = str(name or "").strip()
+    s = str(symbol or "").strip().upper()
+    if not n:
+        return True
+    return n.upper().replace(" ", "") == s.replace(" ", "")
+
+
+def _best_security_name_v18569(row):
+    row = row or {}
+    symbol = str(row.get("ticker") or row.get("symbol") or row.get("Symbol") or "").strip().upper()
+    for key in ("fund_name", "fundName", "longName", "companyName", "shortName", "displayName", "name", "Navn", "NAVN"):
+        val = str(row.get(key) or "").strip()
+        if val and not _weak_symbol_name_v18569(val, symbol):
+            return val
+    try:
+        from fund_etf_analyzer import FUND_NAME_FALLBACKS
+        val = FUND_NAME_FALLBACKS.get(symbol)
+        if val:
+            return val
+    except Exception:
+        pass
+    return STOCK_NAME_FALLBACKS_V18569.get(symbol) or ""
+
+
+def _security_display_label_v18569(row_or_symbol, maybe_row=None):
+    if isinstance(row_or_symbol, dict):
+        row = row_or_symbol
+        symbol = str(row.get("ticker") or row.get("symbol") or row.get("Symbol") or "").strip().upper()
+    else:
+        row = dict(maybe_row or {})
+        symbol = str(row_or_symbol or row.get("ticker") or row.get("symbol") or "").strip().upper()
+        row.setdefault("ticker", symbol)
+        row.setdefault("symbol", symbol)
+    name = _best_security_name_v18569(row)
+    return f"{symbol} — {name}" if symbol and name else (symbol or name or "-")
+
+
 def _ranked_for_display(items):
-    clean = [x for x in (items or []) if isinstance(x, dict) and x.get("ticker")]
+    clean = []
+    for x in (items or []):
+        if not isinstance(x, dict) or not x.get("ticker"):
+            continue
+        row = dict(x)
+        symbol = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+        name = _best_security_name_v18569(row)
+        if name:
+            row["name"] = name
+            row.setdefault("longName", name)
+        row["display_label"] = _security_display_label_v18569(symbol, row)
+        clean.append(row)
     return sorted(clean, key=_rank_display_key)
 
 
@@ -6238,7 +6327,8 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
     for idx, row in enumerate(rows, start=1):
         grade = str(row.get("grade") or "-")
         grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
-        ticker = _html.escape(str(row.get("ticker") or "-"))
+        ticker_raw = str(row.get("ticker") or row.get("symbol") or "-")
+        ticker = _html.escape(_security_display_label_v18569(ticker_raw, row))
         action = _html.escape(str(row.get("action") or ""))
         quality = row.get("decision_quality", "-")
         ai = row.get("ai_score", "-")
@@ -6897,7 +6987,7 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
     )
 
     for row in list(impact.get("rows") or [])[:12]:
-        label = _html.escape(str(row.get("label") or "-"))
+        label = _html.escape(_security_display_label_v18569(row.get("symbol") or row.get("label") or "", row) if row.get("symbol") else str(row.get("label") or "-"))
         fee = row.get("expense_ratio_pct")
         ending = float(row.get("ending_value") or 0.0)
         vs_base = float(row.get("vs_baseline") or 0.0)

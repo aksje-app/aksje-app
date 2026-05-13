@@ -2167,8 +2167,9 @@ def build_fund_cost_impact(
         fee = _safe_float(row.get("expense_ratio_pct"), None)
         if fee is None:
             continue
-        symbol = str(row.get("symbol") or "").strip()
-        label = symbol or str(row.get("name") or "Fond")
+        symbol = str(row.get("symbol") or row.get("ticker") or "").strip()
+        name = get_fund_display_name(symbol, row) if symbol else str(row.get("name") or "Fond")
+        label = f"{symbol} — {name}" if symbol and name and name != "Navn ikke funnet" else (symbol or name or "Fond")
         fee_rows.append({"symbol": symbol, "label": label, "expense_ratio_pct": fee})
 
     if include_standard_levels:
