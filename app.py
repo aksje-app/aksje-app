@@ -229,35 +229,28 @@ details > summary::after {
 
 
 
-# v18.5.80: stable global update status/button + no overlay/dim on local widget reruns.
+# v18.5.81: complete clean stability pass: fixed global update button, no floating busy overlay, no dimming.
 st.markdown("""
 <style>
-/* Kill old floating busy chip in sticky topbar; the global status bar below is the only visible job indicator. */
+/* Topbar should only show version + Klar. Global update status lives in the main bar below. */
 .ptw-global-busy-fixed {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
     pointer-events: none !important;
 }
-.ptw-v18570-status-zone {
-    min-width: auto !important;
-}
-.ptw-topbar-right {
-    gap: .65rem !important;
-    justify-content: flex-end !important;
-}
+.ptw-v18570-status-zone { min-width: auto !important; }
+.ptw-topbar-right { gap: .65rem !important; justify-content: flex-end !important; }
 
-/* Stable blue global status row. */
-.v18580-global-toolbar {
-    margin: .46rem 0 .60rem 0 !important;
+/* Global update bar: blue, readable, fixed in normal layout, no overlapping spinner. */
+.v18581-global-toolbar {
+    margin: .46rem 0 .62rem 0 !important;
     padding: 0 !important;
     position: relative !important;
     z-index: 5 !important;
 }
-.v18580-global-toolbar [data-testid="stHorizontalBlock"] {
-    align-items: center !important;
-}
-.v18580-global-status {
+.v18581-global-toolbar [data-testid="stHorizontalBlock"] { align-items: center !important; }
+.v18581-global-status {
     min-height: 42px !important;
     display: flex !important;
     align-items: center !important;
@@ -272,7 +265,7 @@ st.markdown("""
     opacity: 1 !important;
     filter: none !important;
 }
-.v18580-global-status .main {
+.v18581-global-status .main {
     display: inline-flex !important;
     align-items: center !important;
     gap: .38rem !important;
@@ -282,7 +275,7 @@ st.markdown("""
     font-weight:950 !important;
     white-space: nowrap !important;
 }
-.v18580-global-status .sub {
+.v18581-global-status .sub {
     font-size:.72rem !important;
     opacity:.96 !important;
     font-weight:850 !important;
@@ -290,7 +283,7 @@ st.markdown("""
     color:#e0f2fe !important;
     white-space: nowrap !important;
 }
-.v18580-global-action .stButton > button {
+.v18581-global-action .stButton > button {
     min-height:42px !important;
     width:100% !important;
     min-width:205px !important;
@@ -304,14 +297,14 @@ st.markdown("""
     filter:none !important;
     box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.28) !important;
 }
-.v18580-global-action .stButton > button p {
+.v18581-global-action .stButton > button p {
     color:#fff !important;
     -webkit-text-fill-color:#fff !important;
     font-size:.88rem !important;
     font-weight:950 !important;
     white-space:nowrap !important;
 }
-.v18580-inline-spinner {
+.v18581-inline-spinner {
     display:inline-block !important;
     width:13px !important;
     height:13px !important;
@@ -319,12 +312,12 @@ st.markdown("""
     border:2px solid rgba(255,255,255,.40) !important;
     border-top-color:#fff !important;
     border-radius:50% !important;
-    animation:v18580spin .8s linear infinite !important;
+    animation:v18581spin .8s linear infinite !important;
     vertical-align:-2px !important;
 }
-@keyframes v18580spin { to { transform: rotate(360deg); } }
+@keyframes v18581spin { to { transform: rotate(360deg); } }
 
-/* Local input changes must not dim the app. */
+/* Local widget changes must not dim/freeze the whole visual app. */
 html body .stApp,
 html body .main,
 html body section.main,
@@ -344,12 +337,21 @@ html body div[data-testid="stAppViewContainer"]::after {
     pointer-events:none !important;
 }
 
-/* Paper trading overview should be visible, compact and high up. */
-.v18580-paper-section-title {
+/* Paper trading overview and density. */
+.v18581-paper-section-title {
     font-size:1.0rem !important;
     font-weight:950 !important;
     color:#f8fafc !important;
     margin:.70rem 0 .28rem 0 !important;
+}
+.v18581-security-help {
+    font-size:.78rem !important;
+    color:#cbd5e1 !important;
+    margin-top:.20rem !important;
+}
+.analysis-card h2, .analysis-card h3,
+.quicklist-card h2, .quicklist-card h3 {
+    font-size:1.05rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -828,12 +830,12 @@ def _apply_global_update_v18548() -> None:
 
 
 def render_global_update_bar_v18548() -> None:
-    """v18.5.80: stable global update control. No floating overlay, no hidden/dimmed text."""
+    """v18.5.81: stable global update control. No floating overlay, no hidden/dimmed text."""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
         state_txt = "Jobber – kjører tung oppdatering"
-        state_icon = "<span class='v18580-inline-spinner'></span>"
+        state_icon = "<span class='v18581-inline-spinner'></span>"
     elif pending:
         state_txt = "Endringer venter"
         state_icon = "⚠️"
@@ -841,19 +843,19 @@ def render_global_update_bar_v18548() -> None:
         state_txt = "Klar – ingen ventende endringer"
         state_icon = "✅"
 
-    st.markdown("<div class='v18580-global-toolbar'>", unsafe_allow_html=True)
+    st.markdown("<div class='v18581-global-toolbar'>", unsafe_allow_html=True)
     status_col, button_col = st.columns([7.4, 1.8], gap="small")
     with status_col:
         st.markdown(
-            f"<div class='v18580-global-status'><span class='main'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}</span>"
+            f"<div class='v18581-global-status'><span class='main'>{state_icon}<b>Global oppdatering</b> · {html.escape(state_txt)}</span>"
             f"<span class='sub'>Sist: {html.escape(_last_update_label())}</span></div>",
             unsafe_allow_html=True,
         )
     with button_col:
-        st.markdown("<div class='v18580-global-action'>", unsafe_allow_html=True)
+        st.markdown("<div class='v18581-global-action'>", unsafe_allow_html=True)
         clicked = st.button(
             "🔄 Global oppdatering",
-            key="top_apply_all_changes_v18580",
+            key="top_apply_all_changes_v18581",
             use_container_width=True,
             type="primary",
             help="Lagrer valg og kjører tung oppdatering. Vanlige UI-endringer skal ikke fryse skjermen.",
@@ -5655,6 +5657,7 @@ def render_auto_trading_workspace():
                     key="main_auto_safety_mode_v155",
                     help="Når på: nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd. Salg/exit skal fortsatt få gå.",
                 )
+                st.markdown("<div class='v18581-security-help'>Sikkerhetsmodus blokkerer/strammer inn handlinger som kan starte handel eller risikable operasjoner. Full stopp og nødstop har alltid høyest prioritet.</div>", unsafe_allow_html=True)
                 _push = st.checkbox(
                     "Pushover aktiv",
                     value=bool(_settings.get("pushover_enabled", True)),
@@ -5821,14 +5824,17 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     save_settings(_merged)
                     st.success("Varselkontroll oppdatert via Global oppdatering ✅")
             with b2:
-                if st.button("Test", key="main_alert_send_test_v156", disabled=not _pushover_env_ok, use_container_width=True):
+                if st.button("📣 Send testvarsel", key="main_alert_send_test_v18581", disabled=not _pushover_env_ok, use_container_width=True):
                     ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-                    st.success("Test sendt ✅") if ok else st.error(f"Feil: {err}")
+                    if ok:
+                        st.success("Test sendt ✅")
+                    else:
+                        st.error(f"Feil: {err}")
             with b3:
                 if st.button("Nullstill", key="main_alert_reset_antispam_v156", use_container_width=True):
                     reset_alert_state()
                     st.success("Signalhistorikk nullstilt ✅")
-            with st.expander("Varselinfo", expanded=False):
+            with st.expander("Varselinfo / Pushover-status", expanded=False):
                 st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
                 st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
                 st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
@@ -5838,14 +5844,14 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
 
 
-def _render_paper_positions_overview_v18580(portfolio):
-    """Show open Paper Trading positions and recent trades high in the dashboard."""
+def _render_paper_positions_overview_v18581(portfolio):
+    """Show open Paper Trading positions and recent trades high in the dashboard without returning Streamlit objects."""
     try:
         positions = (portfolio or {}).get("positions", {}) or {}
     except Exception:
         positions = {}
 
-    st.markdown("<div class='v18580-paper-section-title'>📌 Åpne Paper Trading-posisjoner</div>", unsafe_allow_html=True)
+    st.markdown("<div class='v18581-paper-section-title'>📌 Åpne Paper Trading-posisjoner</div>", unsafe_allow_html=True)
     if positions:
         rows = []
         for ticker, pos in positions.items():
@@ -5872,16 +5878,22 @@ def _render_paper_positions_overview_v18580(portfolio):
     else:
         st.info("Ingen åpne paper trading-posisjoner.")
 
-    trades = []
     try:
         trades = list((portfolio or {}).get("trades", []) or [])
     except Exception:
         trades = []
-    st.markdown("<div class='v18580-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
+    st.markdown("<div class='v18581-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
     if trades:
         st.dataframe(pd.DataFrame(trades[-20:]), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen handler ennå.")
+
+
+def _safe_float_v18581(value, default=0.0):
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
 
 
 def render_paper_trading_dashboard():
@@ -5952,20 +5964,24 @@ def render_paper_trading_dashboard():
             )
         c_apply, c_reset = st.columns(2)
         with c_apply:
-            if st.button("💾 Bruk porteføljeverdi", key="paper_apply_total_value_v12"):
-                delta = float(new_portfolio_value) - float(total_value)
-                portfolio["cash"] = round(float(portfolio.get("cash", 0)) + delta, 2)
-                save_portfolio(portfolio)
-                _paper_rules["start_cash"] = float(new_start_cash)
+            if st.button("💾 Bruk porteføljeverdi", key="paper_apply_total_value_v18581", use_container_width=True):
+                target_value = _safe_float_v18581(new_portfolio_value, total_value)
+                current_value = _safe_float_v18581(total_value, 0.0)
+                current_cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
+                delta = target_value - current_value
+                portfolio["cash"] = round(current_cash + delta, 2)
+                _paper_rules["start_cash"] = _safe_float_v18581(new_start_cash, current_cash)
                 save_rules(_paper_rules)
-                st.success("Porteføljeverdi oppdatert ved å justere cash ✅")
+                save_portfolio(portfolio)
+                st.success(f"Porteføljeverdi oppdatert til ca. {target_value:,.0f} ved å justere cash ✅")
                 st.rerun()
         with c_reset:
-            if st.button("↩️ Reset til startkapital", key="restore_reset_paper_portfolio"):
-                _paper_rules["start_cash"] = float(new_start_cash)
+            if st.button("↩️ Reset til startkapital", key="restore_reset_paper_portfolio_v18581", use_container_width=True):
+                target_start = _safe_float_v18581(new_start_cash, 100000.0)
+                _paper_rules["start_cash"] = target_start
                 save_rules(_paper_rules)
-                reset_portfolio(float(new_start_cash))
-                st.success("Paper portfolio nullstilt ✅")
+                reset_portfolio(target_start)
+                st.success(f"Paper portfolio nullstilt til {target_start:,.0f} ✅")
                 st.rerun()
 
     st.markdown("---")
@@ -6027,9 +6043,11 @@ def render_paper_trading_dashboard():
                     nav_date=datetime.now().date().isoformat(),
                     purchase_mode=purchase_mode,
                 )
-                st.success(msg) if ok else st.error(msg)
                 if ok:
+                    st.success(msg)
                     st.rerun()
+                else:
+                    st.error(msg)
         with bb:
             fund_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) in {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}}
             sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
@@ -6045,9 +6063,11 @@ def render_paper_trading_dashboard():
                     currency=fund_currency,
                     nav_date=datetime.now().date().isoformat(),
                 )
-                st.success(msg) if ok else st.error(msg)
                 if ok:
+                    st.success(msg)
                     st.rerun()
+                else:
+                    st.error(msg)
 
         if purchase_mode == "Månedlig spareplan":
             if st.button("💾 Lagre spareplan som simulering", key="paper_fund_save_plan_v18545", use_container_width=True):
