@@ -177,7 +177,7 @@ def _inject_ui_path_cleanup_css_v18590():
     .v18590-global-action .stButton > button {
         width:100% !important;
         min-width:0 !important;
-        min-height:48px !important;
+        min-height:50px !important;
         border-radius:14px !important;
         background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
         border:1px solid rgba(224,242,254,.98) !important;
@@ -1357,16 +1357,17 @@ def render_global_update_bar_v18548() -> None:
 
     st.markdown(
         f"""
-        <div class='visual-truth-global-box' data-ui-path='active-global-update-v18592'>
-            <div class='visual-truth-global-title'>{state_icon} Global oppdatering</div>
+        <div class='visual-truth-global-box' data-ui-path='active-global-update-v18596'>
+            <div class='visual-truth-global-title'>{state_icon} GLOBAL OPPDATERING</div>
             <div class='visual-truth-global-sub'>Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+    st.markdown("<div class='global-update-button-anchor-v18596'></div>", unsafe_allow_html=True)
     clicked = st.button(
-        "🔄 Global oppdatering",
+        "🔄 Global oppdatering – lagre og kjør",
         key="top_apply_all_changes_v18591",
         use_container_width=True,
         type="primary",
@@ -6135,37 +6136,37 @@ def _render_pushover_test_panel_v18595() -> None:
     _user_state_v18595 = "OK" if bool(PUSHOVER_USER_KEY) else "MANGLER"
     st.markdown(
         f"""
-        <div class='visual-truth-pushover-box visual-truth-pushover-box-v18595' data-ui-path='active-pushover-test-v18595'>
+        <div class='visual-truth-pushover-box visual-truth-pushover-box-v18596' data-ui-path='active-pushover-test-v18595' data-ui-patch='active-pushover-test-v18596'>
             <div class='visual-truth-pushover-title'>🔔 Pushover test / API-status</div>
             <div class='visual-truth-pushover-status'>
                 Status: {'Aktiv ✅' if _pushover_ready_v18595 else 'Ikke klar ❌'} ·
                 Token: {_token_state_v18595} · User-key: {_user_state_v18595}<br/>
-                Knapper under kjører faktisk API-verifisering og testvarsel. Panelet ligger høyt for å være synlig på PC og mobil.
+                Dette er den aktive testflaten. Knappene under skal være synlige på PC og mobil.
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
-    pb1, pb2 = st.columns([1, 1], gap="medium", vertical_alignment="center")
-    with pb1:
-        _verify_clicked = st.button(
-            "🔐 Verifiser token/user",
-            key="main_auto_verify_pushover_v18595_desktop_visible",
-            disabled=not _pushover_env_ok_v18595,
-            use_container_width=True,
-            type="primary",
-            help="Validerer token/user mot Pushover API uten å sende varsel.",
-        )
-    with pb2:
-        _test_clicked = st.button(
-            "📣 Send testvarsel",
-            key="main_auto_send_test_pushover_v18595_desktop_visible",
-            disabled=not _pushover_env_ok_v18595,
-            use_container_width=True,
-            type="primary",
-            help="Sender faktisk testvarsel via Pushover.",
-        )
+    st.markdown("<div class='pushover-button-anchor-v18596'></div>", unsafe_allow_html=True)
+    # v18.5.96: No columns here. Desktop screenshots showed the column row could be clipped
+    # or rendered as a thin strip. Two normal full-width Streamlit buttons are more robust.
+    _verify_clicked = st.button(
+        "🔐 Verifiser Pushover token/user",
+        key="main_auto_verify_pushover_v18595_desktop_visible",
+        disabled=not _pushover_env_ok_v18595,
+        use_container_width=True,
+        type="primary",
+        help="Validerer token/user mot Pushover API uten å sende varsel.",
+    )
+    _test_clicked = st.button(
+        "📣 Send Pushover testvarsel",
+        key="main_auto_send_test_pushover_v18595_desktop_visible",
+        disabled=not _pushover_env_ok_v18595,
+        use_container_width=True,
+        type="primary",
+        help="Sender faktisk testvarsel via Pushover.",
+    )
     if _last_pushover_check:
         _ok = bool(_last_pushover_check.get("ok"))
         _http = _last_pushover_check.get("status_code", "-")
@@ -8868,109 +8869,250 @@ def render_safe_infrastructure_panel_v18587() -> None:
     except Exception as _safe_panel_error:
         st.caption(f"Safe infrastructure-panel kunne ikke vises: {_safe_panel_error}")
 
-# v18.5.95: late desktop visibility hardening for the three active top controls.
+# v18.5.95: late desktop visibility hardening (compatibility marker; expanded by v18.5.96 below).
+# v18.5.96: desktop visual hardening that targets the actual Streamlit button widgets.
+# Root cause from screenshots: old compact desktop CSS still wins in places and Streamlit
+# element wrappers make adjacent selectors unreliable. This block is intentionally late,
+# broad for primary/buttons, and uses explicit anchors placed immediately before the
+# active Global/Pushover buttons.
 st.markdown("""
 <style>
-/* Global update is a normal full-width row. Do not let older compact button rules shrink it on PC. */
-html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"],
-html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] {
+/* --- v18.5.96 GLOBAL UPDATE: visible desktop row + real clickable button --- */
+html body .stApp .visual-truth-global-box {
     width:100% !important;
-    min-width:0 !important;
-    min-height:50px !important;
-    padding:.58rem .95rem !important;
-    border-radius:15px !important;
+    max-width:100% !important;
+    min-height:64px !important;
+    margin:.56rem 0 .42rem 0 !important;
+    padding:.74rem .95rem !important;
+    border:1px solid rgba(125,211,252,.88) !important;
+    border-left:5px solid #38d5ff !important;
+    border-radius:16px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.96),rgba(8,25,48,.96)) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 10px 28px rgba(14,165,233,.18) !important;
     display:flex !important;
     align-items:center !important;
-    justify-content:center !important;
+    justify-content:space-between !important;
+    gap:.85rem !important;
     overflow:visible !important;
-    white-space:normal !important;
     opacity:1 !important;
     filter:none !important;
 }
-html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"] p,
-html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] p {
-    font-size:1.02rem !important;
-    line-height:1.12 !important;
-    font-weight:950 !important;
+html body .stApp .visual-truth-global-title {
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    font-size:1.03rem !important;
+    font-weight:1000 !important;
+    line-height:1.15 !important;
+    letter-spacing:.01em !important;
+    white-space:normal !important;
+    overflow:visible !important;
+}
+html body .stApp .visual-truth-global-sub {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.86rem !important;
+    font-weight:850 !important;
+    line-height:1.25 !important;
+    text-align:right !important;
     white-space:normal !important;
     overflow:visible !important;
     text-overflow:clip !important;
-}
-/* Pushover API buttons belong directly under the Pushover panel and must not be clipped in desktop expanders. */
-html body .stApp div:has(> .visual-truth-pushover-box) + div,
-html body .stApp div:has(.visual-truth-pushover-box) + div {
-    width:100% !important;
-    max-width:100% !important;
-    min-width:0 !important;
-    overflow:visible !important;
-    visibility:visible !important;
     opacity:1 !important;
 }
-html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"],
-html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"] {
+
+/* Explicit anchor selector for the real Global button. */
+html body .stApp div:has(> .global-update-button-anchor-v18596) + div,
+html body .stApp div:has(.global-update-button-anchor-v18596) + div {
     width:100% !important;
     max-width:100% !important;
     min-width:0 !important;
+    display:block !important;
     overflow:visible !important;
-    align-items:stretch !important;
+    opacity:1 !important;
+    visibility:visible !important;
 }
-html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stButton"] > button,
-html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stButton"] > button {
-    min-height:46px !important;
+html body .stApp div:has(> .global-update-button-anchor-v18596) + div [data-testid="stButton"],
+html body .stApp div:has(.global-update-button-anchor-v18596) + div [data-testid="stButton"] {
     width:100% !important;
-    min-width:0 !important;
-    padding:.54rem .80rem !important;
-    border-radius:13px !important;
+    max-width:100% !important;
+    display:block !important;
+    overflow:visible !important;
+}
+
+/* Broad late primary-button hardening: keeps Global and Pushover readable on PC,
+   even when Streamlit wrapper structure changes. */
+html body .stApp div[data-testid="stButton"] > button[kind="primary"],
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+html body .stApp button[kind="primary"] {
     display:flex !important;
     align-items:center !important;
     justify-content:center !important;
-    overflow:visible !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    min-height:50px !important;
+    height:auto !important;
+    max-height:none !important;
+    padding:.62rem 1.05rem !important;
+    margin:.18rem 0 .32rem 0 !important;
+    border-radius:15px !important;
+    border:1px solid rgba(224,242,254,1) !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
+    text-shadow:0 1px 0 rgba(0,0,0,.25) !important;
+    font-weight:1000 !important;
     white-space:normal !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    filter:none !important;
+    visibility:visible !important;
+    clip-path:none !important;
 }
-html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stButton"] > button p,
-html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stButton"] > button p {
-    font-size:.93rem !important;
-    line-height:1.12 !important;
-    font-weight:950 !important;
+html body .stApp div[data-testid="stButton"] > button[kind="primary"] *,
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] *,
+html body .stApp button[kind="primary"] * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.98rem !important;
+    font-weight:1000 !important;
+    line-height:1.14 !important;
     white-space:normal !important;
     overflow:visible !important;
     text-overflow:clip !important;
+    opacity:1 !important;
+    visibility:visible !important;
 }
+
+/* Disabled buttons must still be readable; they should look inactive, not invisible. */
+html body .stApp div[data-testid="stButton"] > button:disabled,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled,
+html body .stApp button:disabled {
+    opacity:.82 !important;
+    filter:none !important;
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    background:linear-gradient(180deg,#334155 0%,#1e293b 100%) !important;
+    border:1px solid rgba(148,163,184,.72) !important;
+    cursor:not-allowed !important;
+}
+html body .stApp button:disabled * {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+
+/* --- v18.5.96 PUSHOVER: visible status card and vertical full-width buttons --- */
+html body .stApp .visual-truth-pushover-box,
+html body .stApp .visual-truth-pushover-box-v18596 {
+    width:100% !important;
+    max-width:100% !important;
+    min-height:72px !important;
+    margin:.62rem 0 .46rem 0 !important;
+    padding:.78rem .95rem !important;
+    border:1px solid rgba(125,211,252,.74) !important;
+    border-left:5px solid #fbbf24 !important;
+    border-radius:16px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.88),rgba(15,23,42,.90)) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 22px rgba(14,165,233,.12) !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    filter:none !important;
+}
+html body .stApp .visual-truth-pushover-title {
+    color:#fff7ed !important;
+    -webkit-text-fill-color:#fff7ed !important;
+    font-size:1rem !important;
+    font-weight:1000 !important;
+    line-height:1.16 !important;
+    margin-bottom:.28rem !important;
+}
+html body .stApp .visual-truth-pushover-status {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.84rem !important;
+    font-weight:820 !important;
+    line-height:1.32 !important;
+    margin-bottom:0 !important;
+    opacity:1 !important;
+}
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div,
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div + div {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    display:block !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp .v18593-pushover-result {
+    margin:.46rem 0 .42rem 0 !important;
+    padding:.64rem .82rem !important;
+    border:1px solid rgba(125,211,252,.42) !important;
+    border-radius:13px !important;
+    background:rgba(8,20,42,.86) !important;
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.86rem !important;
+    font-weight:850 !important;
+    line-height:1.30 !important;
+    opacity:1 !important;
+}
+
 /* Build/version chip is trust info, not disabled helper text. */
 html body .stApp .ptw-version-chip {
     display:inline-flex !important;
     align-items:center !important;
-    gap:.28rem !important;
-    max-width:min(62vw, 780px) !important;
+    gap:.34rem !important;
+    max-width:min(72vw, 920px) !important;
     min-width:0 !important;
-    padding:.34rem .64rem !important;
-    border:1px solid rgba(125,211,252,.70) !important;
+    padding:.42rem .78rem !important;
+    border:1px solid rgba(125,211,252,.92) !important;
     border-radius:999px !important;
-    background:rgba(8,47,73,.74) !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.92),rgba(8,32,58,.90)) !important;
     color:#f8fafc !important;
     -webkit-text-fill-color:#f8fafc !important;
-    font-size:.82rem !important;
-    font-weight:950 !important;
+    font-size:.88rem !important;
+    font-weight:1000 !important;
     line-height:1.12 !important;
     opacity:1 !important;
     white-space:normal !important;
     overflow:visible !important;
     text-overflow:clip !important;
-    box-shadow:0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(14,165,233,.16) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 8px 22px rgba(14,165,233,.20) !important;
 }
 html body .stApp .ptw-sticky-topbar {
     overflow:visible !important;
-    padding-right:148px !important;
+    padding-right:154px !important;
     box-sizing:border-box !important;
 }
 html body .stApp .ptw-topbar-right {
     min-width:0 !important;
-    max-width:70vw !important;
+    max-width:74vw !important;
     overflow:visible !important;
 }
+@media (min-width:901px) {
+    html body .stApp div[data-testid="stExpander"] details,
+    html body .stApp div[data-testid="stExpander"] details > div {
+        overflow:visible !important;
+    }
+}
 @media (max-width:900px) {
+    html body .stApp .visual-truth-global-box {
+        display:block !important;
+        min-height:0 !important;
+    }
+    html body .stApp .visual-truth-global-sub {
+        text-align:left !important;
+        margin-top:.28rem !important;
+    }
     html body .stApp .ptw-sticky-topbar { padding-right:148px !important; }
-    html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.76rem !important; padding:.30rem .52rem !important; }
+    html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.78rem !important; padding:.34rem .56rem !important; }
     html body .stApp .ptw-topbar-right { max-width:100% !important; width:100% !important; }
 }
 </style>
