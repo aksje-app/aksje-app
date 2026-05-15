@@ -1,6 +1,6 @@
 APP_VERSION = "v18.5.89"
-APP_VERSION_NAME = "UI/Data Trust Batch G"
-APP_BUILD_ID = "v18589-ui-data-trust-batch-g"
+APP_VERSION_NAME = "UI/Data Trust Batch G + UI Path Cleanup H"
+APP_BUILD_ID = "v18589-ui-data-trust-batch-g-ui-path-cleanup-h"
 APP_BUILD_LABEL = f"{APP_VERSION} {APP_VERSION_NAME}"
 
 def get_app_version():
@@ -16,4 +16,7 @@ def get_app_version_label():
 # Legacy regression anchor: APP_BUILD_ID = "v18586-safe-infrastructure-regression-batch-d"
 # Legacy regression anchor: APP_BUILD_ID = "v18587-governance-hardening-batch-e"
 
-# Legacy regression anchor: APP_BUILD_ID = "v18589-ui-data-trust-batch-g"
+# Legacy regression anchor: APP_BUILD_ID = "v18589-ui-data-trust-batch-g-ui-path-cleanup-h"
+
+# Legacy regression anchor: APP_BUILD_ID = "v18589-ui-data-trust-batch-g-ui-path-cleanup-h"
+# Legacy regression anchor: APP_VERSION = "v18.5.89"
