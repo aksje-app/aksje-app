@@ -117,7 +117,7 @@ def render_sticky_topbar() -> None:
             {_market_status_chips_html()}
           </div>
           <div class="ptw-topbar-right ptw-v18570-status-zone" aria-live="polite">
-            <span class="ptw-version-chip">Professional Trading Workspace {get_app_build_label()}</span>
+            <span class="ptw-version-chip" title="Aktiv build: Professional Trading Workspace {get_app_build_label()}" aria-label="Aktiv build">🧭 Professional Trading Workspace {get_app_build_label()}</span>
             {global_busy_chip_html()}
           </div>
         </div>

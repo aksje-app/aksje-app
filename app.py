@@ -344,6 +344,124 @@ def _inject_visual_truth_fix_css_v18591():
         line-height:1.25 !important;
         margin-bottom:.20rem !important;
     }
+
+    .v18593-pushover-result {
+        margin:.38rem 0 .28rem 0 !important;
+        padding:.58rem .70rem !important;
+        border:1px solid rgba(56,189,248,.24) !important;
+        border-radius:10px !important;
+        background:rgba(15,23,42,.72) !important;
+        color:#e2e8f0 !important;
+        font-size:.82rem !important;
+        font-weight:800 !important;
+        line-height:1.25 !important;
+    }
+    .visual-truth-pushover-box + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+        min-height:42px !important;
+        padding:.42rem .72rem !important;
+        border-radius:11px !important;
+        opacity:1 !important;
+        filter:none !important;
+        overflow:visible !important;
+    }
+    .visual-truth-pushover-box + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button p {
+        font-size:.86rem !important;
+        font-weight:950 !important;
+        line-height:1.10 !important;
+        white-space:normal !important;
+        color:#ffffff !important;
+        -webkit-text-fill-color:#ffffff !important;
+    }
+
+
+    /* v18.5.95: PC visibility hardening.
+       Streamlit wraps markdown/buttons in element-container divs, so direct "+ div[data-testid]"
+       selectors above are not reliable on desktop. These :has() selectors bind the next
+       Streamlit element after the visible status box and force readable full-width controls. */
+    html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"],
+    html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] {
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+        width:100% !important;
+        min-width:0 !important;
+        min-height:50px !important;
+        padding:.58rem .95rem !important;
+        border-radius:15px !important;
+        background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+        border:1px solid rgba(224,242,254,1) !important;
+        box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
+        opacity:1 !important;
+        filter:none !important;
+        overflow:visible !important;
+        white-space:normal !important;
+    }
+    html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"] p,
+    html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] p {
+        color:#ffffff !important;
+        -webkit-text-fill-color:#ffffff !important;
+        font-size:1.02rem !important;
+        font-weight:950 !important;
+        line-height:1.12 !important;
+        white-space:normal !important;
+        overflow:visible !important;
+        text-overflow:clip !important;
+    }
+    html body .stApp div:has(> .visual-truth-pushover-box) + div,
+    html body .stApp div:has(.visual-truth-pushover-box) + div {
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        overflow:visible !important;
+        opacity:1 !important;
+        visibility:visible !important;
+    }
+    html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"],
+    html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"] {
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        overflow:visible !important;
+        align-items:stretch !important;
+    }
+    html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stButton"] > button,
+    html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stButton"] > button {
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+        width:100% !important;
+        min-width:0 !important;
+        min-height:46px !important;
+        padding:.54rem .80rem !important;
+        border-radius:13px !important;
+        background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+        border:1px solid rgba(224,242,254,.98) !important;
+        box-shadow:0 0 0 1px rgba(255,255,255,.14),0 8px 20px rgba(14,165,233,.22) !important;
+        opacity:1 !important;
+        filter:none !important;
+        overflow:visible !important;
+        white-space:normal !important;
+    }
+    html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stButton"] > button p,
+    html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stButton"] > button p {
+        font-size:.93rem !important;
+        font-weight:950 !important;
+        line-height:1.12 !important;
+        white-space:normal !important;
+        overflow:visible !important;
+        text-overflow:clip !important;
+        color:#ffffff !important;
+        -webkit-text-fill-color:#ffffff !important;
+    }
+    @media (min-width:901px) {
+        html body .stApp .visual-truth-pushover-box {
+            margin-top:.24rem !important;
+        }
+        html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"],
+        html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"] {
+            gap:.72rem !important;
+        }
+    }
     .visual-truth-inline-status {
         display:flex !important;
         align-items:center !important;
@@ -814,8 +932,8 @@ html body div[data-testid="stAppViewContainer"]::after {
     opacity:0 !important;
     pointer-events:none !important;
 }
-.ptw-v18570-status-zone { min-width: 480px !important; }
-.ptw-version-chip { color:#dbeafe !important; opacity:1 !important; }
+.ptw-v18570-status-zone { min-width: 0 !important; max-width:70vw !important; overflow:visible !important; }
+.ptw-version-chip { color:#f8fafc !important; opacity:1 !important; }
 .ptw-global-busy-fixed { opacity:1 !important; visibility:visible !important; min-width:112px !important; }
 .ptw-busy-running { min-width:184px !important; border-color:rgba(56,189,248,.85) !important; background:rgba(8,89,133,.82) !important; }
 .ptw-busy-spinner { display:inline-block !important; opacity:1 !important; visibility:visible !important; }
@@ -6009,12 +6127,82 @@ def render_trading_rules_workspace():
                 st.warning("Trading-regler lagret lokalt som ventende. DATABASE_URL mangler eller DB feilet.")
 
 
+def _render_pushover_test_panel_v18595() -> None:
+    """Desktop/mobile safe Pushover test panel placed high in Auto trading setup."""
+    _pushover_env_ok_v18595 = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_ready_v18595 = _pushover_env_ok_v18595 and bool(load_settings().get("pushover_enabled", True))
+    _token_state_v18595 = "OK" if bool(PUSHOVER_APP_TOKEN) else "MANGLER"
+    _user_state_v18595 = "OK" if bool(PUSHOVER_USER_KEY) else "MANGLER"
+    st.markdown(
+        f"""
+        <div class='visual-truth-pushover-box visual-truth-pushover-box-v18595' data-ui-path='active-pushover-test-v18595'>
+            <div class='visual-truth-pushover-title'>🔔 Pushover test / API-status</div>
+            <div class='visual-truth-pushover-status'>
+                Status: {'Aktiv ✅' if _pushover_ready_v18595 else 'Ikke klar ❌'} ·
+                Token: {_token_state_v18595} · User-key: {_user_state_v18595}<br/>
+                Knapper under kjører faktisk API-verifisering og testvarsel. Panelet ligger høyt for å være synlig på PC og mobil.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
+    pb1, pb2 = st.columns([1, 1], gap="medium", vertical_alignment="center")
+    with pb1:
+        _verify_clicked = st.button(
+            "🔐 Verifiser token/user",
+            key="main_auto_verify_pushover_v18595_desktop_visible",
+            disabled=not _pushover_env_ok_v18595,
+            use_container_width=True,
+            type="primary",
+            help="Validerer token/user mot Pushover API uten å sende varsel.",
+        )
+    with pb2:
+        _test_clicked = st.button(
+            "📣 Send testvarsel",
+            key="main_auto_send_test_pushover_v18595_desktop_visible",
+            disabled=not _pushover_env_ok_v18595,
+            use_container_width=True,
+            type="primary",
+            help="Sender faktisk testvarsel via Pushover.",
+        )
+    if _last_pushover_check:
+        _ok = bool(_last_pushover_check.get("ok"))
+        _http = _last_pushover_check.get("status_code", "-")
+        _kind = _last_pushover_check.get("type", "-")
+        st.markdown(
+            f"<div class='v18593-pushover-result'>Siste API-sjekk: {'OK ✅' if _ok else 'Feil ❌'} · HTTP {_http} · {_kind}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div class='v18593-pushover-result'>Ingen API-verifisering kjørt i denne sesjonen ennå.</div>",
+            unsafe_allow_html=True,
+        )
+
+    if _verify_clicked:
+        verify_info = verify_pushover_credentials_v18585()
+        st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+        if verify_info.get("ok"):
+            st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
+        else:
+            st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
+    if _test_clicked:
+        ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+        st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
+        if ok:
+            st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
+        else:
+            st.error(f"Testvarsel feilet ❌ {err}")
+
+
 def render_auto_trading_workspace():
     """Hovedområde for Auto trading / Auto-kjøp parametere. Erstatter stor sidebar-meny."""
     _settings = load_settings()
     _markets_settings = _settings.get("markets", {}) or {}
     with st.expander("⚙️ Auto trading-oppsett", expanded=False):
         st.caption("Samlet arbeidsflate for Auto trading. Full stopp / ferie og nødstopp overstyrer alltid disse innstillingene.")
+        _render_pushover_test_panel_v18595()
         with st.form("auto_trading_settings_form_v17", clear_on_submit=False):
             drift_col, buy_col, risk_col, safe_col = st.columns(4)
             with drift_col:
@@ -6156,52 +6344,7 @@ def render_auto_trading_workspace():
             reset_settings()
             st.success("Auto-innstillinger tilbakestilt ✅")
             st.rerun()
-        # v18.5.91: Visual Truth Fix - compact, readable Pushover test panel in the active auto workspace.
-        _pushover_env_ok_v18591 = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
-        _pushover_ready_v18591 = _pushover_env_ok_v18591 and bool(load_settings().get("pushover_enabled", True))
-        _token_state_v18591 = "OK" if bool(PUSHOVER_APP_TOKEN) else "MANGLER"
-        _user_state_v18591 = "OK" if bool(PUSHOVER_USER_KEY) else "MANGLER"
-        st.markdown(
-            f"""
-            <div class='visual-truth-pushover-box' data-ui-path='active-pushover-test-v18591'>
-                <div class='visual-truth-pushover-title'>🔔 Pushover test / API-status</div>
-                <div class='visual-truth-pushover-status'>
-                    Status: {'Aktiv ✅' if _pushover_ready_v18591 else 'Ikke klar ❌'} ·
-                    Token: {_token_state_v18591} · User-key: {_user_state_v18591}<br/>
-                    Bruk knappene under for faktisk API-verifisering og testvarsel.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        pt1, pt2, pt3 = st.columns([1.05, 1.05, 3.0], vertical_alignment="center")
-        with pt1:
-            _verify_clicked = st.button("🔐 Verifiser", key="main_auto_verify_pushover_v18592", disabled=not _pushover_env_ok_v18591, use_container_width=True, help="Validerer token/user mot Pushover API.")
-        with pt2:
-            _test_clicked = st.button("📣 Send test", key="main_auto_send_test_pushover_v18592", disabled=not _pushover_env_ok_v18591, use_container_width=True, help="Sender faktisk testvarsel via Pushover.")
-        with pt3:
-            _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
-            if _last_pushover_check:
-                _ok = bool(_last_pushover_check.get("ok"))
-                _http = _last_pushover_check.get("status_code", "-")
-                st.markdown(f"<div class='v18-dark-row'>Siste API-sjekk: {'OK ✅' if _ok else 'Feil ❌'} · HTTP {_http} · {_last_pushover_check.get('type', '-')}</div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div class='v18-dark-row'>Ingen API-verifisering kjørt i denne sesjonen ennå.</div>", unsafe_allow_html=True)
-
-        if _verify_clicked:
-            verify_info = verify_pushover_credentials_v18585()
-            st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
-            if verify_info.get("ok"):
-                st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
-            else:
-                st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
-        if _test_clicked:
-            ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
-            if ok:
-                st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
-            else:
-                st.error(f"Testvarsel feilet ❌ {err}")
+        # v18.5.95: Pushover test/API-status moved to the top of this expander for desktop visibility.
 
 
 # V15.6 / Fase 2: Varselkontroll og dynamisk watchlist flyttes fra venstremenyen til hovedområdet.
@@ -8724,6 +8867,114 @@ def render_safe_infrastructure_panel_v18587() -> None:
                 st.caption("Ingen audit-hendelser lagret ennå i denne kjøringen.")
     except Exception as _safe_panel_error:
         st.caption(f"Safe infrastructure-panel kunne ikke vises: {_safe_panel_error}")
+
+# v18.5.95: late desktop visibility hardening for the three active top controls.
+st.markdown("""
+<style>
+/* Global update is a normal full-width row. Do not let older compact button rules shrink it on PC. */
+html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"],
+html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] {
+    width:100% !important;
+    min-width:0 !important;
+    min-height:50px !important;
+    padding:.58rem .95rem !important;
+    border-radius:15px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    overflow:visible !important;
+    white-space:normal !important;
+    opacity:1 !important;
+    filter:none !important;
+}
+html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"] p,
+html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] p {
+    font-size:1.02rem !important;
+    line-height:1.12 !important;
+    font-weight:950 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+}
+/* Pushover API buttons belong directly under the Pushover panel and must not be clipped in desktop expanders. */
+html body .stApp div:has(> .visual-truth-pushover-box) + div,
+html body .stApp div:has(.visual-truth-pushover-box) + div {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    overflow:visible !important;
+    visibility:visible !important;
+    opacity:1 !important;
+}
+html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"],
+html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stHorizontalBlock"] {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    overflow:visible !important;
+    align-items:stretch !important;
+}
+html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stButton"] > button,
+html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stButton"] > button {
+    min-height:46px !important;
+    width:100% !important;
+    min-width:0 !important;
+    padding:.54rem .80rem !important;
+    border-radius:13px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    overflow:visible !important;
+    white-space:normal !important;
+}
+html body .stApp div:has(> .visual-truth-pushover-box) + div [data-testid="stButton"] > button p,
+html body .stApp div:has(.visual-truth-pushover-box) + div [data-testid="stButton"] > button p {
+    font-size:.93rem !important;
+    line-height:1.12 !important;
+    font-weight:950 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+}
+/* Build/version chip is trust info, not disabled helper text. */
+html body .stApp .ptw-version-chip {
+    display:inline-flex !important;
+    align-items:center !important;
+    gap:.28rem !important;
+    max-width:min(62vw, 780px) !important;
+    min-width:0 !important;
+    padding:.34rem .64rem !important;
+    border:1px solid rgba(125,211,252,.70) !important;
+    border-radius:999px !important;
+    background:rgba(8,47,73,.74) !important;
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    font-size:.82rem !important;
+    font-weight:950 !important;
+    line-height:1.12 !important;
+    opacity:1 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(14,165,233,.16) !important;
+}
+html body .stApp .ptw-sticky-topbar {
+    overflow:visible !important;
+    padding-right:148px !important;
+    box-sizing:border-box !important;
+}
+html body .stApp .ptw-topbar-right {
+    min-width:0 !important;
+    max-width:70vw !important;
+    overflow:visible !important;
+}
+@media (max-width:900px) {
+    html body .stApp .ptw-sticky-topbar { padding-right:148px !important; }
+    html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.76rem !important; padding:.30rem .52rem !important; }
+    html body .stApp .ptw-topbar-right { max-width:100% !important; width:100% !important; }
+}
+</style>
+""", unsafe_allow_html=True)
 
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
 # v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
