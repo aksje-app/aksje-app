@@ -259,26 +259,34 @@ def _inject_visual_truth_fix_css_v18591():
 
     .visual-truth-global-box {
         width:100% !important;
-        margin:.65rem 0 .75rem 0 !important;
-        padding:.85rem 1rem !important;
-        border:1px solid rgba(56,189,248,.55) !important;
-        border-radius:16px !important;
-        background:linear-gradient(180deg,rgba(8,24,48,.98),rgba(10,15,30,.98)) !important;
-        box-shadow:0 8px 22px rgba(2,8,23,.22) !important;
+        margin:.42rem 0 .52rem 0 !important;
+        padding:.58rem .78rem !important;
+        border:1px solid rgba(56,189,248,.48) !important;
+        border-radius:12px !important;
+        background:linear-gradient(180deg,rgba(8,24,48,.96),rgba(10,15,30,.96)) !important;
+        box-shadow:0 6px 16px rgba(2,8,23,.16) !important;
         clear:both !important;
+        display:flex !important;
+        align-items:center !important;
+        justify-content:space-between !important;
+        gap:.70rem !important;
     }
     .visual-truth-global-title {
         font-weight:950 !important;
-        font-size:1.05rem !important;
-        line-height:1.25 !important;
+        font-size:.95rem !important;
+        line-height:1.2 !important;
         color:#f8fafc !important;
+        white-space:nowrap !important;
     }
     .visual-truth-global-sub {
-        margin-top:.18rem !important;
+        margin-top:0 !important;
         color:#cbd5e1 !important;
-        font-size:.86rem !important;
-        line-height:1.35 !important;
-        overflow-wrap:anywhere !important;
+        font-size:.78rem !important;
+        line-height:1.25 !important;
+        overflow:hidden !important;
+        text-overflow:ellipsis !important;
+        white-space:nowrap !important;
+        text-align:right !important;
     }
 
     /* Make the real Streamlit primary button readable across desktop/mobile. */
@@ -309,33 +317,56 @@ def _inject_visual_truth_fix_css_v18591():
 
     .visual-truth-safe-note {
         border:1px solid rgba(148,163,184,.22) !important;
-        border-radius:12px !important;
-        padding:.52rem .65rem !important;
-        margin:.38rem 0 .48rem 0 !important;
-        background:rgba(15,23,42,.40) !important;
+        border-radius:10px !important;
+        padding:.44rem .56rem !important;
+        margin:.30rem 0 .38rem 0 !important;
+        background:rgba(15,23,42,.38) !important;
         color:#dbeafe !important;
-        font-size:.82rem !important;
-        line-height:1.35 !important;
+        font-size:.76rem !important;
+        line-height:1.26 !important;
     }
     .visual-truth-pushover-box {
-        margin:.75rem 0 .25rem 0 !important;
-        padding:.82rem .9rem !important;
-        border:1px solid rgba(56,189,248,.38) !important;
-        border-radius:15px !important;
-        background:linear-gradient(180deg,rgba(8,20,42,.82),rgba(8,13,28,.80)) !important;
+        margin:.52rem 0 .18rem 0 !important;
+        padding:.56rem .70rem !important;
+        border:1px solid rgba(56,189,248,.34) !important;
+        border-radius:12px !important;
+        background:linear-gradient(180deg,rgba(8,20,42,.76),rgba(8,13,28,.74)) !important;
     }
     .visual-truth-pushover-title {
-        font-size:1rem !important;
+        font-size:.92rem !important;
         font-weight:950 !important;
         color:#f8fafc !important;
-        margin-bottom:.28rem !important;
+        margin-bottom:.20rem !important;
     }
     .visual-truth-pushover-status {
         color:#cbd5e1 !important;
-        font-size:.84rem !important;
-        line-height:1.35 !important;
-        margin-bottom:.50rem !important;
+        font-size:.77rem !important;
+        line-height:1.25 !important;
+        margin-bottom:.20rem !important;
     }
+    .visual-truth-inline-status {
+        display:flex !important;
+        align-items:center !important;
+        justify-content:space-between !important;
+        gap:.55rem !important;
+        flex-wrap:wrap !important;
+        margin:.22rem 0 .42rem 0 !important;
+    }
+    .visual-truth-empty-state {
+        border:1px solid rgba(245,158,11,.22) !important;
+        border-radius:12px !important;
+        padding:.72rem .86rem !important;
+        background:rgba(113,63,18,.18) !important;
+        color:#fde68a !important;
+        line-height:1.35 !important;
+        font-size:.86rem !important;
+    }
+    .visual-truth-empty-state b { color:#fff7ed !important; }
+    /* tighter dashboard density */
+    div[data-testid="stExpander"] details { margin-bottom:.38rem !important; }
+    div[data-testid="stExpander"] details > div { padding-top:.45rem !important; padding-bottom:.55rem !important; }
+    .stCaption, div[data-testid="stCaptionContainer"] { line-height:1.25 !important; }
+    .mini-status-chip, .v18-status-chip { padding:.15rem .38rem !important; font-size:.68rem !important; }
 
     /* Keep floating stop/control buttons away from Chat overlay. */
     .v18534-trading-control-stack,
@@ -493,10 +524,13 @@ details > summary {
     cursor: pointer !important;
 }
 details > summary::after {
-    content: "  · klikk for å åpne/lukke";
-    color: rgba(203,213,225,.62);
-    font-size: .78rem;
-    font-weight: 700;
+    content: "";
+}
+details > summary {
+    min-height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: .35rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1205,7 +1239,7 @@ def render_global_update_bar_v18548() -> None:
 
     st.markdown(
         f"""
-        <div class='visual-truth-global-box' data-ui-path='active-global-update-v18591'>
+        <div class='visual-truth-global-box' data-ui-path='active-global-update-v18592'>
             <div class='visual-truth-global-title'>{state_icon} Global oppdatering</div>
             <div class='visual-truth-global-sub'>Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}</div>
         </div>
@@ -1231,9 +1265,7 @@ def render_global_update_bar_v18548() -> None:
         st.rerun()
 
     if pending and not running:
-        st.warning("Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.")
-    else:
-        st.caption("Manuell modus: UI-valg er lokale til du trykker Global oppdatering.")
+        st.markdown("<div class='v18-dark-row'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
 
 
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
@@ -4929,7 +4961,13 @@ def render_ranking(results, title):
     results = _ranked_for_display(results)
 
     if not results:
-        st.warning("Fant ingen data.")
+        st.markdown("""
+        <div class='visual-truth-empty-state'>
+            <b>Ingen rangeringsdata tilgjengelig.</b><br/>
+            Mulige årsaker: markedet er ikke oppdatert, scan/watchlist er ikke kjørt, eller aktivt filter gir ingen treff.
+            Trykk <b>Global oppdatering</b> eller velg/skriv en ticker manuelt.
+        </div>
+        """, unsafe_allow_html=True)
         return
 
     best = results[0]
@@ -5349,7 +5387,7 @@ def render_analysis(results, label):
                 if options:
                     st.success(f"{source_choice}-listen er oppdatert med {len(options)} aksjer ✅")
                 else:
-                    st.warning(f"Fant ingen data for {source_choice}. Prøv Oppdater hele appen / Scan watchlist eller skriv ticker manuelt.")
+                    st.markdown(f"""<div class='visual-truth-empty-state'><b>Ingen data for {source_choice}.</b><br/>Prøv Global oppdatering / Scan watchlist, sjekk marked/filter, eller skriv ticker manuelt.</div>""", unsafe_allow_html=True)
         with build_cols[1]:
             st.caption("Knappen kjører bare valgt kilde. Den skal ikke starte AAPL-fallback eller skjulte markedspaneler.")
 
@@ -6071,9 +6109,9 @@ def render_auto_trading_workspace():
                     help="Når på: nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd. Salg/exit skal fortsatt få gå.",
                 )
                 if _safety_mode:
-                    st.markdown("<div class='visual-truth-safe-note'>✅ <b>Sikkerhetsmodus er aktiv</b><br/>Nye BUY-handlinger strammes inn/blokkeres ved grensebrudd, dårlig datakvalitet, lav confidence eller sikkerhetsstopp. Salg/exit og nødstopp skal fortsatt prioriteres.</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='visual-truth-safe-note'>✅ <b>Sikkerhetsmodus er aktiv</b><br/>Blokkerer nye kjøp ved lav cash, dagsgrense, lav confidence eller svak datakvalitet. Salg/exit og nødstopp prioriteres fortsatt.</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<div class='visual-truth-safe-note'>⚠️ <b>Sikkerhetsmodus er AV</b><br/>Auto-kjøp bruker fortsatt cash-/dagsgrense-sjekker, men ekstra datakvalitets-/confidence-stramming er ikke aktiv.</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='visual-truth-safe-note'>⚠️ <b>Sikkerhetsmodus er AV</b><br/>Cash- og dagsgrenser gjelder fortsatt. Ekstra blokkering på confidence/datakvalitet er av.</div>", unsafe_allow_html=True)
                 _push = st.checkbox(
                     "Pushover aktiv",
                     value=bool(_settings.get("pushover_enabled", True)),
@@ -6136,19 +6174,19 @@ def render_auto_trading_workspace():
             """,
             unsafe_allow_html=True,
         )
-        pt1, pt2, pt3 = st.columns([1, 1, 2])
+        pt1, pt2, pt3 = st.columns([1.05, 1.05, 3.0], vertical_alignment="center")
         with pt1:
-            _verify_clicked = st.button("🔐 Verifiser token/user", key="main_auto_verify_pushover_v18591", disabled=not _pushover_env_ok_v18591, use_container_width=True)
+            _verify_clicked = st.button("🔐 Verifiser", key="main_auto_verify_pushover_v18592", disabled=not _pushover_env_ok_v18591, use_container_width=True, help="Validerer token/user mot Pushover API.")
         with pt2:
-            _test_clicked = st.button("📣 Send testvarsel", key="main_auto_send_test_pushover_v18591", disabled=not _pushover_env_ok_v18591, use_container_width=True)
+            _test_clicked = st.button("📣 Send test", key="main_auto_send_test_pushover_v18592", disabled=not _pushover_env_ok_v18591, use_container_width=True, help="Sender faktisk testvarsel via Pushover.")
         with pt3:
             _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
             if _last_pushover_check:
                 _ok = bool(_last_pushover_check.get("ok"))
                 _http = _last_pushover_check.get("status_code", "-")
-                st.caption(f"Siste sjekk: {'OK ✅' if _ok else 'Feil ❌'} · HTTP {_http} · type={_last_pushover_check.get('type', '-')}")
+                st.markdown(f"<div class='v18-dark-row'>Siste API-sjekk: {'OK ✅' if _ok else 'Feil ❌'} · HTTP {_http} · {_last_pushover_check.get('type', '-')}</div>", unsafe_allow_html=True)
             else:
-                st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
+                st.markdown("<div class='v18-dark-row'>Ingen API-verifisering kjørt i denne sesjonen ennå.</div>", unsafe_allow_html=True)
 
         if _verify_clicked:
             verify_info = verify_pushover_credentials_v18585()
