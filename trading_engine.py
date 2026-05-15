@@ -2,8 +2,24 @@ from datetime import datetime
 from signal_engine import score_signal
 from notifier import notify_trade
 from trading_settings import load_rules
+from ui_trust import explain_blocked_action
+try:
+    from settings_store import load_settings
+except Exception:
+    load_settings = None
 
 from paper_store import load_portfolio, save_portfolio, add_trade
+
+try:
+    from state_audit import build_paper_state_snapshot, validate_buy_order, audit_state_transition
+except Exception:  # fail-safe: trading must not crash if audit helper is unavailable
+    def build_paper_state_snapshot(portfolio=None, latest_prices=None, rules=None):
+        portfolio = portfolio or {}
+        return {"cash": float(portfolio.get("cash", 0) or 0), "open_positions": len(portfolio.get("positions", {}) or {})}
+    def validate_buy_order(portfolio, **kwargs):
+        return True, "OK"
+    def audit_state_transition(event, before, after=None, detail=None, level="INFO"):
+        return {}
 
 POSITION_SIZE_PCT = 10.0
 MAX_OPEN_POSITIONS = 5
@@ -21,6 +37,60 @@ def build_trading_decision(item, technical_context=None):
     return score_signal(item, technical_context or {})
 
 
+
+
+def _settings_bool(name, default=False):
+    try:
+        if load_settings is None:
+            return bool(default)
+        settings = load_settings() or {}
+        return bool(settings.get(name, default))
+    except Exception:
+        return bool(default)
+
+
+def _position_market_value(portfolio):
+    """Current market value of open positions using last_price/entry fallback."""
+    total = 0.0
+    for _ticker, pos in (portfolio or {}).get("positions", {}).items():
+        try:
+            shares = float(pos.get("shares", pos.get("units", 0)) or 0)
+            price = float(pos.get("last_price", pos.get("entry_price", pos.get("avg_price", 0))) or 0)
+            total += shares * price
+        except Exception:
+            continue
+    return round(total, 2)
+
+
+def paper_liquidity_snapshot(portfolio=None, latest_prices=None):
+    """Single source of truth for paper cash, exposure and buying power.
+
+    Cash/buying_power is the only amount available for new purchases.
+    Portfolio value is cash + open position market value. Unrealized P/L is
+    informational and does not increase cash before a SELL.
+    """
+    portfolio = portfolio or load_portfolio()
+    latest_prices = latest_prices or {}
+    positions_value = 0.0
+    cost_basis = 0.0
+    for ticker, pos in (portfolio or {}).get("positions", {}).items():
+        try:
+            shares = float(pos.get("shares", pos.get("units", 0)) or 0)
+            entry = float(pos.get("entry_price", pos.get("avg_price", 0)) or 0)
+            price = float(latest_prices.get(ticker, pos.get("last_price", entry)) or 0)
+            positions_value += shares * price
+            cost_basis += shares * entry
+        except Exception:
+            continue
+    cash = float((portfolio or {}).get("cash", 0) or 0)
+    return {
+        "cash": round(cash, 2),
+        "buying_power": round(max(0.0, cash), 2),
+        "positions_value": round(positions_value, 2),
+        "total_value": round(cash + positions_value, 2),
+        "unrealized_pnl": round(positions_value - cost_basis, 2),
+        "open_positions": len((portfolio or {}).get("positions", {}) or {}),
+    }
 
 
 def adjusted_score(item, decision):
@@ -135,23 +205,31 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     min_buy_confidence = int(rules.get("min_buy_confidence", MIN_BUY_CONFIDENCE))
     position_size_pct = float(rules.get("position_size_pct", POSITION_SIZE_PCT))
     portfolio = load_portfolio()
+    before = build_paper_state_snapshot(portfolio, rules=rules)
     ticker = str(ticker).upper()
-    price = float(price)
-    if price <= 0:
+    try:
+        price = float(price)
+    except Exception:
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "invalid_price"}, level="WARNING")
         return False, "Ugyldig prisdata - kjøp stoppet"
-    if ticker in portfolio.get("positions", {}):
-        return False, f"{ticker} eies allerede"
-    if len(portfolio.get("positions", {})) >= max_open_positions:
-        return False, "Maks åpne posisjoner nådd"
-    if int(confidence or 0) < min_buy_confidence:
-        return False, f"Confidence for lav ({int(confidence or 0)} < {min_buy_confidence})"
-    # V12: dagsgrensen gjelder kun nye kjøp, ikke salg/exit.
-    if trades_today_count(portfolio, trade_type="BUY") >= max_trades_per_day:
-        return False, f"Maks kjøp per dag nådd ({max_trades_per_day})"
     total_value = portfolio_value(portfolio)
-    amount = min(float(portfolio.get("cash", 0)), total_value * position_size_pct / 100)
-    if amount <= 0:
-        return False, "Ikke nok cash"
+    available_cash = float(portfolio.get("cash", 0) or 0)
+    amount = min(available_cash, total_value * position_size_pct / 100)
+    ok, msg = validate_buy_order(
+        portfolio,
+        ticker=ticker,
+        price=price,
+        amount=amount,
+        confidence=int(confidence or 0),
+        min_confidence=min_buy_confidence,
+        allow_existing=False,
+        max_open_positions=max_open_positions,
+        max_buys_per_day=max_trades_per_day,
+        safety_mode=_settings_bool("auto_buy_safety_mode", True),
+    )
+    if not ok:
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "amount": round(float(amount or 0), 2), "reason": msg}, level="WARNING")
+        return False, explain_blocked_action([msg], action="Kjøp")
     shares = amount / price
     sl, tp, tr = calc_levels(price, price)
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) - amount, 2)
@@ -161,16 +239,24 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
         "take_profit": tp, "trailing_stop": tr, "confidence": int(confidence or 0), "reason": reason,
     }
     add_trade(portfolio, {"type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason})
+    after = build_paper_state_snapshot(portfolio, rules=rules)
+    audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason})
     notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
     return True, f"BUY {ticker} @ {price:.2f}"
 
 
 def paper_sell(ticker, price, reason="SELL signal"):
     portfolio = load_portfolio()
+    before = build_paper_state_snapshot(portfolio)
     ticker = str(ticker).upper()
-    price = float(price)
+    try:
+        price = float(price)
+    except Exception:
+        audit_state_transition("paper_sell_blocked", before, detail={"ticker": ticker, "reason": "invalid_price"}, level="WARNING")
+        return False, "Ugyldig prisdata - salg stoppet"
     pos = portfolio.get("positions", {}).get(ticker)
     if not pos:
+        audit_state_transition("paper_sell_blocked", before, detail={"ticker": ticker, "reason": "missing_position"}, level="WARNING")
         return False, f"Ingen posisjon i {ticker}"
     shares = float(pos.get("shares", 0))
     entry = float(pos.get("entry_price", pos.get("avg_price", price)))
@@ -179,6 +265,8 @@ def paper_sell(ticker, price, reason="SELL signal"):
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
     del portfolio["positions"][ticker]
     add_trade(portfolio, {"type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0), "pnl_pct":round(pnl_pct,2), "reason":reason})
+    after = build_paper_state_snapshot(portfolio)
+    audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
     notify_executed_trade("SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason)
     return True, f"SELL {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
 
@@ -281,9 +369,21 @@ def paper_buy_instrument(
         return False, "Beløp må være større enn 0"
 
     portfolio = load_portfolio()
+    before = build_paper_state_snapshot(portfolio)
+    ok, msg = validate_buy_order(
+        portfolio,
+        ticker=symbol,
+        price=price,
+        amount=amount,
+        confidence=int(confidence or 0),
+        min_confidence=0,
+        allow_existing=True,
+        safety_mode=_settings_bool("auto_buy_safety_mode", True),
+    )
+    if not ok:
+        audit_state_transition("paper_instrument_buy_blocked", before, detail={"symbol": symbol, "amount": round(float(amount or 0), 2), "reason": msg}, level="WARNING")
+        return False, explain_blocked_action([msg], action="Kjøp")
     cash = float(portfolio.get("cash", 0) or 0)
-    if cash < amount:
-        return False, f"Ikke nok cash ({cash:.2f} tilgjengelig)"
 
     units = amount / price
     positions = portfolio.setdefault("positions", {})
@@ -345,6 +445,8 @@ def paper_buy_instrument(
         "nav_date": nav_date,
         "order_kind": "amount_buy",
     })
+    after = build_paper_state_snapshot(portfolio)
+    audit_state_transition("paper_instrument_buy_executed", before, after, {"symbol": symbol, "asset_type": asset_type, "amount": round(amount, 2), "price": round(price, 6), "currency": currency, "purchase_mode": purchase_mode})
     notify_executed_trade("BUY", symbol, price, shares=units, amount=amount, confidence=confidence, reason=reason)
     return True, f"KJØP {asset_type} {symbol}: {amount:.2f} {currency} @ {price:.4f}"
 
@@ -366,8 +468,10 @@ def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper
         return False, "Ugyldig pris/NAV"
 
     portfolio = load_portfolio()
+    before = build_paper_state_snapshot(portfolio)
     pos = portfolio.get("positions", {}).get(symbol)
     if not pos:
+        audit_state_transition("paper_instrument_sell_blocked", before, detail={"symbol": symbol, "reason": "missing_position"}, level="WARNING")
         return False, f"Ingen posisjon i {symbol}"
 
     units = float(pos.get("shares", 0) or 0)
@@ -408,6 +512,8 @@ def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper
         "nav_date": nav_date or pos.get("nav_date", ""),
         "order_kind": "amount_sell" if not close_all else "sell_all",
     })
+    after = build_paper_state_snapshot(portfolio)
+    audit_state_transition("paper_instrument_sell_executed", before, after, {"symbol": symbol, "amount": round(amount, 2), "price": round(price, 6), "pnl_pct": round(pnl_pct, 2), "close_all": close_all})
     notify_executed_trade("SELL", symbol, price, shares=units_to_sell, amount=amount, confidence=pos.get("confidence"), reason=reason)
     suffix = "alt" if close_all else f"{amount:.2f} {currency}"
     return True, f"SALG {symbol}: {suffix} @ {price:.4f} ({pnl_pct:.2f}%)"

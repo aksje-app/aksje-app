@@ -5,7 +5,7 @@ def test_legacy_cleanup_registry_is_present():
     from legacy_cleanup import legacy_cleanup_status
 
     status = legacy_cleanup_status()
-    assert status["version"] == "v18.5.74"
+    assert status["version"] == "v18.5.89"
     assert "🧪 Backtesting" in status["removed_main_panels"]
     assert "Strategi-test" in status["single_sources"]
 

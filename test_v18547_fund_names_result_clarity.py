@@ -8,7 +8,7 @@ from app_version import get_app_version
 
 
 def test_version_is_18547():
-    assert get_app_version() == "v18.5.74"
+    assert get_app_version() == "v18.5.89"
 
 
 def test_known_bond_funds_get_names_without_yahoo_metadata():

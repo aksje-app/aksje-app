@@ -24,7 +24,7 @@ def _row(symbol, fit=70, scenario=65, worst=55, holdings=None, confidence=75):
 
 
 def test_v18561_version():
-    assert get_app_version() == "v18.5.74"
+    assert get_app_version() == "v18.5.89"
 
 
 def test_overlap_matrix_uses_holdings_pairs():

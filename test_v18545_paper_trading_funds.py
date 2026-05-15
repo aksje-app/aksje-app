@@ -92,4 +92,4 @@ def test_paper_sell_instrument_partial_and_portfolio_value(monkeypatch):
 
 
 def test_version_is_18545():
-    assert get_app_version() == "v18.5.74"
+    assert get_app_version() == "v18.5.89"

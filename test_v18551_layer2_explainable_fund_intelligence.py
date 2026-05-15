@@ -8,7 +8,7 @@ def _data(name="Demo ETF", expense=0.07):
 
 
 def test_v18551_version():
-    assert get_app_version() == "v18.5.74"
+    assert get_app_version() == "v18.5.89"
 
 
 def test_explainability_profile_added_to_fund_record():

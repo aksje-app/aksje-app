@@ -4,7 +4,7 @@ import app_version
 
 
 def test_version_v18574():
-    assert app_version.get_app_version() == "v18.5.74"
+    assert app_version.get_app_version() == "v18.5.89"
 
 
 def test_normal_mode_removed_and_migrated():

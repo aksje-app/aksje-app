@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_app_version_18570_is_centralized():
     src = Path("app_version.py").read_text()
-    assert 'APP_VERSION = "v18.5.74"' in src
+    assert 'APP_VERSION = "v18.5.89"' in src
     assert 'APP_BUILD_ID = "v18574-ui-density-global-button-normal-removed-fix"' in src
     sticky = Path("sticky_topbar.py").read_text()
     assert "get_app_build_label" in sticky
