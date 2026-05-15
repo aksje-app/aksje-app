@@ -17,6 +17,7 @@ DEFAULT_SETTINGS = {
     "auto_trading_paused": False,
     "auto_trading_emergency_stop": False,
     "auto_trading_safe_edit_mode": True,
+    "auto_buy_safety_mode": True,
     "markets": {"USA": True, "NORGE": True, "SVERIGE": True},
     "max_tickers_per_market": 20,
     "min_buy_confidence": 70,

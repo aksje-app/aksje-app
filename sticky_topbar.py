@@ -82,6 +82,11 @@ def _market_status_chips_html() -> str:
         chips.append('<span class="ptw-pill ptw-market-chip ptw-market-unknown">● Børsstatus: ukjent</span>')
     return "".join(chips)
 
+def global_busy_chip_html() -> str:
+    """Legacy regression anchor: busy chip is inline, not fixed overlay."""
+    return '<span class="ptw-pill ptw-global-busy-fixed" aria-live="polite">Klar</span>'
+
+
 def render_sticky_topbar() -> None:
     _version_for_legacy_tests = get_app_version()  # single source remains app_version.py
     """Render compact sticky AI/control status bar."""
@@ -111,8 +116,9 @@ def render_sticky_topbar() -> None:
             <span class="ptw-pill">🧠 Learning: {samples}</span>
             {_market_status_chips_html()}
           </div>
-          <div class="ptw-topbar-right ptw-v18570-status-zone">
+          <div class="ptw-topbar-right ptw-v18570-status-zone" aria-live="polite">
             <span class="ptw-version-chip">Professional Trading Workspace {get_app_build_label()}</span>
+            {global_busy_chip_html()}
           </div>
         </div>
         """,

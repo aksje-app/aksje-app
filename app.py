@@ -33,6 +33,10 @@ import requests
 import html
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+from app_version import get_app_build_label
+from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
+from governance_registry import get_changelog, get_protected_zones
+from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
 
 try:
     import yfinance as yf
@@ -48,7 +52,7 @@ from market_selector import auto_rank_market, build_top_picks
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar
 from news import get_news, simple_finance_sentiment
-from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument
+from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument, paper_liquidity_snapshot
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 from strategy_test_pro import render_strategy_test_pro
 from signal_engine import calculate_signal_intelligence
@@ -82,6 +86,40 @@ from global_busy import mark_choice_update, set_global_busy, update_global_busy,
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+
+
+# v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
+def _inject_ui_data_trust_css_v18589():
+    try:
+        _tokens = ui_consistency_tokens()
+        st.markdown(f"""
+        <style>
+        .stButton > button {{ min-height: {_tokens.get('button_height_px', 38)}px; }}
+        .data-trust-card {{
+            border: 1px solid rgba(128,128,128,0.20);
+            border-radius: 10px;
+            padding: 0.55rem 0.75rem;
+            margin: 0.35rem 0;
+            min-height: {_tokens.get('status_min_height_px', 28)}px;
+            font-size: 0.92rem;
+        }}
+        .data-trust-muted {{ opacity: 0.78; font-size: 0.86rem; }}
+        .blocked-action-note {{
+            border-left: 4px solid rgba(255, 193, 7, 0.85);
+            padding: 0.45rem 0.65rem;
+            margin: 0.35rem 0;
+            background: rgba(255, 193, 7, 0.08);
+            border-radius: 6px;
+        }}
+        @media (max-width: 900px) {{
+            .data-trust-card {{ font-size: 0.88rem; }}
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+    except Exception:
+        pass
+
+_inject_ui_data_trust_css_v18589()
 
 
 # v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
@@ -827,10 +865,95 @@ def _apply_global_update_v18548() -> None:
     _request_global_apply_v161()
     _set_update_reason("Global oppdatering / Oppdater hele appen")
     finish_global_busy("Klar", "Global oppdatering er aktivert. Valgene er lagret.")
+    add_audit_event("global_update", {"reason": "Oppdater hele appen"})
+
+
+
+
+# v18.5.84: Batch B UX/stability hard overrides.
+st.markdown("""
+<style>
+/* Global update: same readable blue control on desktop and mobile.
+   Earlier versions had nowrap + narrow columns, causing desktop text collision. */
+.v18581-global-toolbar {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    position: relative !important;
+    z-index: 20 !important;
+    clear: both !important;
+}
+.v18581-global-toolbar [data-testid="stHorizontalBlock"] {
+    gap: .65rem !important;
+    align-items: stretch !important;
+}
+.v18581-global-status {
+    min-height: 50px !important;
+    height: auto !important;
+    overflow: visible !important;
+    white-space: normal !important;
+    flex-wrap: wrap !important;
+    line-height: 1.18 !important;
+    padding: .55rem .78rem !important;
+}
+.v18581-global-status .main,
+.v18581-global-status .sub {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+.v18581-global-status .main {
+    flex: 1 1 280px !important;
+    font-size: clamp(.78rem, 1.1vw, .92rem) !important;
+}
+.v18581-global-status .sub {
+    flex: 1 1 260px !important;
+    margin-left: 0 !important;
+    font-size: clamp(.66rem, .95vw, .76rem) !important;
+}
+.v18581-global-action,
+.v18581-global-action .stButton,
+.v18581-global-action .stButton > button {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+.v18581-global-action .stButton > button {
+    min-width: 0 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+}
+.v18581-global-action .stButton > button p {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    line-height: 1.12 !important;
+}
+.pending-changes-box {
+    margin: .42rem 0 .65rem 0 !important;
+    position: relative !important;
+    z-index: 10 !important;
+    clear: both !important;
+}
+/* Streamlit status messages must stay in document flow, not cover controls. */
+div[data-testid="stAlert"] {
+    position: relative !important;
+    z-index: 6 !important;
+    clear: both !important;
+    margin-top: .35rem !important;
+    margin-bottom: .55rem !important;
+}
+@media (max-width: 900px) {
+    .v18581-global-toolbar [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 def render_global_update_bar_v18548() -> None:
-    """v18.5.81: stable global update control. No floating overlay, no hidden/dimmed text."""
+    """v18.5.84: stable responsive global update control with explicit state text."""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
@@ -866,13 +989,16 @@ def render_global_update_bar_v18548() -> None:
     if clicked:
         set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
         _apply_global_update_v18548()
-        st.success("Global oppdatering aktivert: valgene er lagret.")
+        try:
+            st.toast("Global oppdatering aktivert: valgene er lagret.", icon="✅")
+        except Exception:
+            st.info("Global oppdatering aktivert: valgene er lagret.")
         st.rerun()
 
     if pending and not running:
         st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
     else:
-        st.caption("Manuell modus aktiv: widget-endringer oppdaterer UI lokalt; tung analyse bruker sist godkjente data.")
+        st.caption("Manuell modus aktiv: UI-valg er lokale til du trykker Global oppdatering; tung analyse bruker sist godkjente datasett.")
 
 
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
@@ -3873,15 +3999,29 @@ if not PUSHOVER_APP_TOKEN:
 if not PUSHOVER_USER_KEY:
     PUSHOVER_USER_KEY = None
 
+def _mask_secret_v18585(value, keep=4):
+    """Maskerer token/user-key i UI og logger uten å lekke hemmeligheter."""
+    value = str(value or "")
+    if not value:
+        return "MISSING"
+    if len(value) <= keep:
+        return "*" * len(value)
+    return ("*" * max(0, len(value) - keep)) + value[-keep:]
+
+
 def send_pushover_alert(message, title="AI Aksje Analyzer"):
     """
-    Sender Pushover-varsel.
+    Sender Pushover-varsel og returnerer (ok, error_or_none, response_info).
     Krever Environment Variables:
     - PUSHOVER_APP_TOKEN
     - PUSHOVER_USER_KEY
     """
     if not PUSHOVER_APP_TOKEN or not PUSHOVER_USER_KEY:
-        return False, "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY"
+        return False, "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY", {
+            "configured": False,
+            "status_code": None,
+            "response_text": "missing env",
+        }
 
     try:
         response = requests.post(
@@ -3894,14 +4034,52 @@ def send_pushover_alert(message, title="AI Aksje Analyzer"):
             },
             timeout=10,
         )
+        info = {
+            "configured": True,
+            "status_code": response.status_code,
+            "response_text": response.text[:1200],
+        }
 
         if response.status_code == 200:
-            return True, None
+            return True, None, info
 
-        return False, response.text
+        return False, response.text, info
 
     except Exception as e:
-        return False, str(e)
+        return False, str(e), {
+            "configured": True,
+            "status_code": None,
+            "response_text": str(e),
+        }
+
+
+def verify_pushover_credentials_v18585():
+    """Validerer Pushover token + user-key mot Pushover API uten å sende varsel."""
+    result = {
+        "token_present": bool(PUSHOVER_APP_TOKEN),
+        "user_present": bool(PUSHOVER_USER_KEY),
+        "token_masked": _mask_secret_v18585(PUSHOVER_APP_TOKEN),
+        "user_masked": _mask_secret_v18585(PUSHOVER_USER_KEY),
+        "ok": False,
+        "status_code": None,
+        "response_text": "",
+    }
+    if not result["token_present"] or not result["user_present"]:
+        result["response_text"] = "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY"
+        return result
+    try:
+        response = requests.post(
+            "https://api.pushover.net/1/users/validate.json",
+            data={"token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY},
+            timeout=10,
+        )
+        result["status_code"] = response.status_code
+        result["response_text"] = response.text[:1200]
+        result["ok"] = bool(response.status_code == 200)
+        return result
+    except Exception as e:
+        result["response_text"] = str(e)
+        return result
 
 
 def maybe_send_signal_alert(ticker, decision):
@@ -5812,7 +5990,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                 )
                 st.caption("Watchlist-varsler bruker denne grensen når høy confidence er aktivert.")
 
-            b1, b2, b3 = st.columns([1, 0.7, 0.7])
+            b1, b2, b3, b4 = st.columns([1, 0.9, 0.9, 0.7])
             with b1:
                 if _global_apply_requested_v161():
                     _merged = load_settings()
@@ -5824,21 +6002,35 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     save_settings(_merged)
                     st.success("Varselkontroll oppdatert via Global oppdatering ✅")
             with b2:
-                if st.button("📣 Send testvarsel", key="main_alert_send_test_v18581", disabled=not _pushover_env_ok, use_container_width=True):
-                    ok, err = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+                if st.button("🔐 Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, use_container_width=True):
+                    verify_info = verify_pushover_credentials_v18585()
+                    st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+                    if verify_info.get("ok"):
+                        st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
+                    else:
+                        st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
+            with b3:
+                if st.button("📣 Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=True):
+                    ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+                    st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
                     if ok:
-                        st.success("Test sendt ✅")
+                        st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
                     else:
                         st.error(f"Feil: {err}")
-            with b3:
+            with b4:
                 if st.button("Nullstill", key="main_alert_reset_antispam_v156", use_container_width=True):
                     reset_alert_state()
                     st.success("Signalhistorikk nullstilt ✅")
             with st.expander("Varselinfo / Pushover-status", expanded=False):
                 st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
                 st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
-                st.write("TOKEN:", "OK" if PUSHOVER_APP_TOKEN else "MISSING")
-                st.write("USER:", "OK" if PUSHOVER_USER_KEY else "MISSING")
+                st.write("TOKEN:", _mask_secret_v18585(PUSHOVER_APP_TOKEN))
+                st.write("USER:", _mask_secret_v18585(PUSHOVER_USER_KEY))
+                _last = st.session_state.get("pushover_last_check_v18585")
+                if _last:
+                    st.write("Siste Pushover-sjekk:", _last)
+                else:
+                    st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
 
     st.session_state["latest_watchlist_tickers_v156"] = list(_watchlist_tickers or [])
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
@@ -5909,38 +6101,40 @@ def render_paper_trading_dashboard():
         latest_prices[ticker] = pos.get("last_price", pos.get("avg_price", 0))
 
     total_value = portfolio_value(portfolio, latest_prices)
+    liq = paper_liquidity_snapshot(portfolio, latest_prices)
     stats = performance_stats(portfolio, latest_prices)
 
     _paper_rules = load_rules()
     if APP_VIEW_MODE == "Full":
         p1, p2, p3, p4 = st.columns(4)
-        p1.metric("Cash", _format_nok_no_decimals_v1827(portfolio.get('cash', 0)))
-        p2.metric("Porteføljeverdi", _format_nok_no_decimals_v1827(total_value))
-        p3.metric("Total avkastning", f"{stats['total_return_pct']}%")
-        p4.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
+        p1.metric("Cash / kjøpekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0))))
+        p2.metric("Åpne posisjoner", _format_nok_no_decimals_v1827(liq.get('positions_value', 0)))
+        p3.metric("Porteføljeverdi", _format_nok_no_decimals_v1827(liq.get('total_value', total_value)))
+        p4.metric("Urealisert P/L", _format_nok_no_decimals_v1827(liq.get('unrealized_pnl', 0)))
 
         r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%")
-        r2.metric("Trailing stop", f"{float(_paper_rules.get('trailing_stop_pct', 8.0)):.1f}%")
+        r1.metric("Total avkastning", f"{stats['total_return_pct']}%")
+        r2.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
         r3.metric("Win rate", f"{stats['win_rate']}%")
         r4.metric("Lukkede trades", stats["closed_trades"])
     else:
         render_compact_stat_grid([
-            ("Cash", _format_nok_no_decimals_v1827(portfolio.get('cash', 0))),
-            ("Porteføljeverdi", _format_nok_no_decimals_v1827(total_value)),
+            ("Cash / kjøpekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0)))),
+            ("Åpne posisjoner", _format_nok_no_decimals_v1827(liq.get('positions_value', 0))),
+            ("Porteføljeverdi", _format_nok_no_decimals_v1827(liq.get('total_value', total_value))),
+            ("Urealisert P/L", _format_nok_no_decimals_v1827(liq.get('unrealized_pnl', 0))),
             ("Total avkastning", f"{stats['total_return_pct']}%"),
             ("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}"),
-            ("Stop-loss", f"{float(_paper_rules.get('stop_loss_pct', 7.0)):.1f}%"),
-            ("Trailing stop", f"{float(_paper_rules.get('trailing_stop_pct', 8.0)):.1f}%"),
             ("Win rate", f"{stats['win_rate']}%"),
             ("Lukkede trades", stats["closed_trades"]),
         ], columns=4)
 
+    # DO_NOT_TOUCH_ZONE v18.5.87: Paper capital/cash semantics are protected. Patch minimally.
     with st.expander("💼 Juster Paper Trading startverdier / porteføljeverdi", expanded=True):
         st.markdown("""
         <div class="paper-edit-card">
             <b>Regulerbare startverdier</b><br>
-            Juster startkapital eller ønsket porteføljeverdi. Ved "Bruk porteføljeverdi" justeres cash-delen, mens åpne posisjoner beholdes.
+            Startkapital brukes bare ved full reset. Porteføljeverdi er cash + åpne posisjoner. Ved "Bruk porteføljeverdi" justeres bare cash, mens åpne posisjoner beholdes. Kjøp bruker kun cash/kjøpekraft, ikke urealisert gevinst.
         </div>
         """, unsafe_allow_html=True)
         c_start, c_value = st.columns(2)
@@ -5966,21 +6160,26 @@ def render_paper_trading_dashboard():
         with c_apply:
             if st.button("💾 Bruk porteføljeverdi", key="paper_apply_total_value_v18581", use_container_width=True):
                 target_value = _safe_float_v18581(new_portfolio_value, total_value)
-                current_value = _safe_float_v18581(total_value, 0.0)
                 current_cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
-                delta = target_value - current_value
-                portfolio["cash"] = round(current_cash + delta, 2)
-                _paper_rules["start_cash"] = _safe_float_v18581(new_start_cash, current_cash)
-                save_rules(_paper_rules)
-                save_portfolio(portfolio)
-                st.success(f"Porteføljeverdi oppdatert til ca. {target_value:,.0f} ved å justere cash ✅")
-                st.rerun()
+                positions_value = _safe_float_v18581(liq.get("positions_value", 0), 0.0)
+                new_cash = round(target_value - positions_value, 2)
+                if new_cash < 0:
+                    st.error(f"Kan ikke sette porteføljeverdi lavere enn åpne posisjoner ({positions_value:,.0f}). Lukk/reduser posisjoner først, eller velg høyere totalverdi.")
+                else:
+                    portfolio["cash"] = new_cash
+                    _paper_rules["start_cash"] = _safe_float_v18581(new_start_cash, current_cash)
+                    save_rules(_paper_rules)
+                    save_portfolio(portfolio)
+                    add_audit_event("paper_portfolio_value_applied", {"target_value": target_value, "new_cash": new_cash, "positions_value": positions_value})
+                    st.success(f"Porteføljeverdi oppdatert til ca. {target_value:,.0f}. Cash/kjøpekraft er nå ca. {new_cash:,.0f} ✅")
+                    st.rerun()
         with c_reset:
             if st.button("↩️ Reset til startkapital", key="restore_reset_paper_portfolio_v18581", use_container_width=True):
                 target_start = _safe_float_v18581(new_start_cash, 100000.0)
                 _paper_rules["start_cash"] = target_start
                 save_rules(_paper_rules)
                 reset_portfolio(target_start)
+                add_audit_event("paper_portfolio_reset", {"start_cash": target_start})
                 st.success(f"Paper portfolio nullstilt til {target_start:,.0f} ✅")
                 st.rerun()
 
@@ -8142,8 +8341,72 @@ def control_center_extra_panels_v18535():
     ]
 
 
+
+
+def render_safe_infrastructure_panel_v18587() -> None:
+    """Batch E: visible, low-risk governance/status panel."""
+    try:
+        with st.expander("🛡️ Safe build / governance / changelog", expanded=False):
+            st.caption(f"Aktiv build: {get_app_build_label()}")
+            checks = run_static_regression_checks()
+            if checks.get("ok"):
+                st.success("Regresjonssjekk OK: kritiske UI-ankere og versjon finnes.")
+            else:
+                st.warning(f"Regresjonssjekk varsler: {checks}")
+
+            feature_rows = get_feature_registry()
+            if feature_rows:
+                st.markdown("**Feature-status**")
+                try:
+                    st.dataframe(feature_rows, use_container_width=True, hide_index=True)
+                except Exception:
+                    st.write(feature_rows)
+
+
+
+            protected_rows = get_protected_zones()
+            if protected_rows:
+                st.markdown("**Protected zones**")
+                st.caption("Kritiske områder som skal patches minimalt, slik at stabile funksjoner ikke forsvinner ved nye GO-runder.")
+                try:
+                    st.dataframe(protected_rows, use_container_width=True, hide_index=True)
+                except Exception:
+                    st.write(protected_rows)
+
+            changelog_rows = get_changelog()
+            if changelog_rows:
+                st.markdown("**Hva er nytt / build-historikk**")
+                try:
+                    st.dataframe(changelog_rows, use_container_width=True, hide_index=True)
+                except Exception:
+                    st.write(changelog_rows)
+
+            st.markdown("**UI/data trust**")
+            _tokens = ui_consistency_tokens()
+            st.caption("Batch G: standardiserte UI-tokens, datakvalitet og tydeligere blokk-/varslingsforklaringer uten å endre analysemotorene.")
+            try:
+                st.dataframe([_tokens], use_container_width=True, hide_index=True)
+            except Exception:
+                st.write(_tokens)
+            _sample_trust = normalize_data_trust({"data_quality": "CACHED", "confidence": 75, "missing_fields": []})
+            st.caption(f"Datakvalitet-eksempel: {_sample_trust.get('label')} · {_sample_trust.get('note')}")
+
+            st.markdown("**Audit-logg**")
+            recent = read_recent_audit_events(limit=8)
+            if recent:
+                try:
+                    st.dataframe(recent, use_container_width=True, hide_index=True)
+                except Exception:
+                    st.write(recent)
+            else:
+                st.caption("Ingen audit-hendelser lagret ennå i denne kjøringen.")
+    except Exception as _safe_panel_error:
+        st.caption(f"Safe infrastructure-panel kunne ikke vises: {_safe_panel_error}")
+
+# DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
 # v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 render_global_update_bar_v18548()
+render_safe_infrastructure_panel_v18587()
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
@@ -8224,6 +8487,7 @@ elif active_panel == "⭐ Top Picks":
 
     _guard_summary = market_guard_summary(source_tickers)
     st.caption(_guard_summary)
+    st.caption("Datakvalitet: " + format_data_trust_line({"data_quality": "CACHED" if not bool(open_markets()) else "LIVE"}))
 
     _open_now = bool(open_markets())
     _manual_fetch_closed = False
@@ -8284,7 +8548,11 @@ elif active_panel == "⭐ Top Picks":
                         continue
                     _ok, _msg = paper_buy(_ticker, _price, int(_decision.get("confidence", 0) or 0), f"UI Kjøp nå alle: {scan_market}")
                     _messages.append(_msg)
-                st.success(" | ".join(_messages[:8]))
+                _joined = " | ".join(_messages[:8])
+                if any("blokkert" in str(m).lower() or "ikke nok" in str(m).lower() or "mangler" in str(m).lower() for m in _messages):
+                    st.warning(_joined)
+                else:
+                    st.success(_joined)
                 st.rerun()
 
             render_ranking(buy_now_picks, f"🟢 Kjøp nå {scan_market}")
