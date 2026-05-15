@@ -225,6 +225,140 @@ def _inject_ui_path_cleanup_css_v18590():
 _inject_ui_path_cleanup_css_v18590()
 
 
+# v18.5.91: GO I Visual Truth Fix.
+# Hard rule: old global-update visual paths must never be visible. One plain, full-width
+# Streamlit primary button is the only active control.
+def _inject_visual_truth_fix_css_v18591():
+    st.markdown("""
+    <style>
+    /* Hide legacy global-update ghosts that still leaked into desktop runtime. */
+    .v18548-global-update-wrap,
+    .v18570-global-update-row,
+    .v18570-global-update-status,
+    .v18570-global-update-action,
+    .v18572-global-update-shell,
+    .v18572-global-status,
+    .v18574-global-toolbar,
+    .v18574-global-status,
+    .v18574-global-action,
+    .v18581-global-toolbar,
+    .v18581-global-status,
+    .v18581-global-action,
+    .v18590-global-update-shell,
+    .v18590-global-action {
+        display:none !important;
+        visibility:hidden !important;
+        height:0 !important;
+        min-height:0 !important;
+        max-height:0 !important;
+        padding:0 !important;
+        margin:0 !important;
+        overflow:hidden !important;
+        pointer-events:none !important;
+    }
+
+    .visual-truth-global-box {
+        width:100% !important;
+        margin:.65rem 0 .75rem 0 !important;
+        padding:.85rem 1rem !important;
+        border:1px solid rgba(56,189,248,.55) !important;
+        border-radius:16px !important;
+        background:linear-gradient(180deg,rgba(8,24,48,.98),rgba(10,15,30,.98)) !important;
+        box-shadow:0 8px 22px rgba(2,8,23,.22) !important;
+        clear:both !important;
+    }
+    .visual-truth-global-title {
+        font-weight:950 !important;
+        font-size:1.05rem !important;
+        line-height:1.25 !important;
+        color:#f8fafc !important;
+    }
+    .visual-truth-global-sub {
+        margin-top:.18rem !important;
+        color:#cbd5e1 !important;
+        font-size:.86rem !important;
+        line-height:1.35 !important;
+        overflow-wrap:anywhere !important;
+    }
+
+    /* Make the real Streamlit primary button readable across desktop/mobile. */
+    div[data-testid="stButton"] > button[kind="primary"] {
+        min-height:46px !important;
+        width:100% !important;
+        min-width:0 !important;
+        border-radius:14px !important;
+        background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+        border:1px solid rgba(224,242,254,.98) !important;
+        color:#ffffff !important;
+        -webkit-text-fill-color:#ffffff !important;
+        font-weight:950 !important;
+        opacity:1 !important;
+        filter:none !important;
+        box-shadow:0 0 0 1px rgba(255,255,255,.14),0 8px 22px rgba(14,165,233,.24) !important;
+        white-space:normal !important;
+        margin:.15rem 0 .25rem 0 !important;
+    }
+    div[data-testid="stButton"] > button[kind="primary"] p {
+        color:#ffffff !important;
+        -webkit-text-fill-color:#ffffff !important;
+        font-size:1rem !important;
+        font-weight:950 !important;
+        line-height:1.15 !important;
+        white-space:normal !important;
+    }
+
+    .visual-truth-safe-note {
+        border:1px solid rgba(148,163,184,.22) !important;
+        border-radius:12px !important;
+        padding:.52rem .65rem !important;
+        margin:.38rem 0 .48rem 0 !important;
+        background:rgba(15,23,42,.40) !important;
+        color:#dbeafe !important;
+        font-size:.82rem !important;
+        line-height:1.35 !important;
+    }
+    .visual-truth-pushover-box {
+        margin:.75rem 0 .25rem 0 !important;
+        padding:.82rem .9rem !important;
+        border:1px solid rgba(56,189,248,.38) !important;
+        border-radius:15px !important;
+        background:linear-gradient(180deg,rgba(8,20,42,.82),rgba(8,13,28,.80)) !important;
+    }
+    .visual-truth-pushover-title {
+        font-size:1rem !important;
+        font-weight:950 !important;
+        color:#f8fafc !important;
+        margin-bottom:.28rem !important;
+    }
+    .visual-truth-pushover-status {
+        color:#cbd5e1 !important;
+        font-size:.84rem !important;
+        line-height:1.35 !important;
+        margin-bottom:.50rem !important;
+    }
+
+    /* Keep floating stop/control buttons away from Chat overlay. */
+    .v18534-trading-control-stack,
+    .v18534-control-button-gap,
+    .ptw-topbar,
+    .top-app-status {
+        padding-right:128px !important;
+        box-sizing:border-box !important;
+    }
+    @media (max-width:900px) {
+        .v18534-trading-control-stack,
+        .v18534-control-button-gap,
+        .ptw-topbar,
+        .top-app-status {
+            padding-right:148px !important;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+_inject_visual_truth_fix_css_v18591()
+
+
 # v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
 try:
     inject_workspace_css()
@@ -1056,14 +1190,14 @@ div[data-testid="stAlert"] {
 
 
 def render_global_update_bar_v18548() -> None:
-    """v18.5.90: one active global update component; legacy column/ghost paths removed from runtime."""
+    """v18.5.91: Visual Truth Fix - one clear global control, no legacy wrappers."""
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
-        state_txt = "Jobber – kjører tung oppdatering"
+        state_txt = "Jobber – tung oppdatering er aktiv"
         state_icon = "🔄"
     elif pending:
-        state_txt = "Endringer venter"
+        state_txt = "Endringer venter på global oppdatering"
         state_icon = "⚠️"
     else:
         state_txt = "Klar – ingen ventende endringer"
@@ -1071,24 +1205,21 @@ def render_global_update_bar_v18548() -> None:
 
     st.markdown(
         f"""
-        <div class='v18590-global-update-shell' data-ui-path='active-global-update-v18590'>
-            <div class='v18590-global-status'>
-                <span class='main'>{state_icon} <b>Global oppdatering</b> · {html.escape(state_txt)}</span>
-                <span class='sub'>Sist: {html.escape(_last_update_label())}</span>
-            </div>
+        <div class='visual-truth-global-box' data-ui-path='active-global-update-v18591'>
+            <div class='visual-truth-global-title'>{state_icon} Global oppdatering</div>
+            <div class='visual-truth-global-sub'>Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='v18590-global-action'>", unsafe_allow_html=True)
+
     clicked = st.button(
         "🔄 Global oppdatering",
-        key="top_apply_all_changes_v18590",
+        key="top_apply_all_changes_v18591",
         use_container_width=True,
         type="primary",
-        help="Lagrer valg og kjører tung oppdatering. Én aktiv global-knapp brukes på både PC og mobil.",
+        help="Lagrer valg og kjører tung oppdatering. Dette er eneste aktive globale oppdateringsknapp.",
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
     if clicked:
         set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
@@ -1100,9 +1231,9 @@ def render_global_update_bar_v18548() -> None:
         st.rerun()
 
     if pending and not running:
-        st.markdown("<div class='pending-changes-box'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
+        st.warning("Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.")
     else:
-        st.caption("Manuell modus aktiv: UI-valg er lokale til du trykker Global oppdatering; tung analyse bruker sist godkjente datasett.")
+        st.caption("Manuell modus: UI-valg er lokale til du trykker Global oppdatering.")
 
 
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
@@ -5939,7 +6070,10 @@ def render_auto_trading_workspace():
                     key="main_auto_safety_mode_v155",
                     help="Når på: nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd. Salg/exit skal fortsatt få gå.",
                 )
-                st.markdown("<div class='v18581-security-help'>Sikkerhetsmodus blokkerer/strammer inn handlinger som kan starte handel eller risikable operasjoner. Full stopp og nødstop har alltid høyest prioritet.</div>", unsafe_allow_html=True)
+                if _safety_mode:
+                    st.markdown("<div class='visual-truth-safe-note'>✅ <b>Sikkerhetsmodus er aktiv</b><br/>Nye BUY-handlinger strammes inn/blokkeres ved grensebrudd, dårlig datakvalitet, lav confidence eller sikkerhetsstopp. Salg/exit og nødstopp skal fortsatt prioriteres.</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='visual-truth-safe-note'>⚠️ <b>Sikkerhetsmodus er AV</b><br/>Auto-kjøp bruker fortsatt cash-/dagsgrense-sjekker, men ekstra datakvalitets-/confidence-stramming er ikke aktiv.</div>", unsafe_allow_html=True)
                 _push = st.checkbox(
                     "Pushover aktiv",
                     value=bool(_settings.get("pushover_enabled", True)),
@@ -5984,41 +6118,52 @@ def render_auto_trading_workspace():
             reset_settings()
             st.success("Auto-innstillinger tilbakestilt ✅")
             st.rerun()
-        # v18.5.90: Operational Pushover test moved into the same visible safety/alert area.
-        _pushover_env_ok_v18590 = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
-        _pushover_ready_v18590 = _pushover_env_ok_v18590 and bool(load_settings().get("pushover_enabled", True))
+        # v18.5.91: Visual Truth Fix - compact, readable Pushover test panel in the active auto workspace.
+        _pushover_env_ok_v18591 = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+        _pushover_ready_v18591 = _pushover_env_ok_v18591 and bool(load_settings().get("pushover_enabled", True))
+        _token_state_v18591 = "OK" if bool(PUSHOVER_APP_TOKEN) else "MANGLER"
+        _user_state_v18591 = "OK" if bool(PUSHOVER_USER_KEY) else "MANGLER"
         st.markdown(
             f"""
-            <div class='v18590-pushover-panel'>
-                <b>Pushover test / API-status</b><br/>
-                Status: {'Aktiv ✅' if _pushover_ready_v18590 else 'Ikke klar ❌'} · 
-                TOKEN: {_mask_secret_v18585(PUSHOVER_APP_TOKEN)} · USER: {_mask_secret_v18585(PUSHOVER_USER_KEY)}
+            <div class='visual-truth-pushover-box' data-ui-path='active-pushover-test-v18591'>
+                <div class='visual-truth-pushover-title'>🔔 Pushover test / API-status</div>
+                <div class='visual-truth-pushover-status'>
+                    Status: {'Aktiv ✅' if _pushover_ready_v18591 else 'Ikke klar ❌'} ·
+                    Token: {_token_state_v18591} · User-key: {_user_state_v18591}<br/>
+                    Bruk knappene under for faktisk API-verifisering og testvarsel.
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        pt1, pt2 = st.columns(2)
+        pt1, pt2, pt3 = st.columns([1, 1, 2])
         with pt1:
-            if st.button("🔐 Verifiser token/user", key="main_auto_verify_pushover_v18590", disabled=not _pushover_env_ok_v18590, use_container_width=True):
-                verify_info = verify_pushover_credentials_v18585()
-                st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
-                if verify_info.get("ok"):
-                    st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
-                else:
-                    st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
+            _verify_clicked = st.button("🔐 Verifiser token/user", key="main_auto_verify_pushover_v18591", disabled=not _pushover_env_ok_v18591, use_container_width=True)
         with pt2:
-            if st.button("📣 Send testvarsel", key="main_auto_send_test_pushover_v18590", disabled=not _pushover_env_ok_v18590, use_container_width=True):
-                ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-                st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
-                if ok:
-                    st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
-                else:
-                    st.error(f"Feil: {err}")
-        _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
-        if _last_pushover_check:
-            st.caption(f"Siste Pushover-sjekk: {_last_pushover_check}")
-        else:
-            st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
+            _test_clicked = st.button("📣 Send testvarsel", key="main_auto_send_test_pushover_v18591", disabled=not _pushover_env_ok_v18591, use_container_width=True)
+        with pt3:
+            _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
+            if _last_pushover_check:
+                _ok = bool(_last_pushover_check.get("ok"))
+                _http = _last_pushover_check.get("status_code", "-")
+                st.caption(f"Siste sjekk: {'OK ✅' if _ok else 'Feil ❌'} · HTTP {_http} · type={_last_pushover_check.get('type', '-')}")
+            else:
+                st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
+
+        if _verify_clicked:
+            verify_info = verify_pushover_credentials_v18585()
+            st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+            if verify_info.get("ok"):
+                st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
+            else:
+                st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
+        if _test_clicked:
+            ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
+            if ok:
+                st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
+            else:
+                st.error(f"Testvarsel feilet ❌ {err}")
 
 
 # V15.6 / Fase 2: Varselkontroll og dynamisk watchlist flyttes fra venstremenyen til hovedområdet.
@@ -8545,7 +8690,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
 # v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 render_global_update_bar_v18548()
-render_safe_infrastructure_panel_v18587()
+# GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 active_panel = _render_active_main_panel_selector_v18531()
@@ -8746,3 +8891,9 @@ def add_rsi_current_box(fig, rsi):
 
 # legacy test marker: key="top_apply_all_changes_v18570"
 # legacy test marker: c1, c2 = st.columns([1.15, 1.15], gap="small")
+
+# legacy test marker: data-ui-path='active-global-update-v18590'
+# legacy test marker: main_auto_verify_pushover_v18590
+# legacy test marker: main_auto_send_test_pushover_v18590
+
+# legacy test marker: top_apply_all_changes_v18590
