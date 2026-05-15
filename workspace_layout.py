@@ -80,14 +80,16 @@ def inject_workspace_css() -> None:
         }
 
         .ptw-topbar-right {
-            white-space: nowrap;
-            opacity: .98;
-            font-size: .76rem;
+            white-space: normal;
+            opacity: 1;
+            font-size: .78rem;
             display:flex;
             align-items:center;
             justify-content:flex-end;
             gap:.55rem;
-            min-width: fit-content;
+            min-width: 0;
+            max-width: 70vw;
+            overflow: visible;
         }
 
         .ptw-pill-busy {
@@ -401,21 +403,31 @@ def inject_workspace_css() -> None:
             padding-right: .25rem !important;
         }
         .ptw-topbar-right {
-            flex: 0 0 auto !important;
-            min-width: 360px !important;
-            max-width: 52vw !important;
+            flex: 0 1 auto !important;
+            min-width: 0 !important;
+            max-width: 70vw !important;
             justify-content: flex-end !important;
             gap: .45rem !important;
             overflow: visible !important;
+            white-space: normal !important;
         }
         .ptw-version-chip {
             display: inline-flex;
             align-items: center;
+            gap: .28rem;
             min-width: 0;
-            color: rgba(229,237,255,.70);
-            font-size: .74rem;
-            font-weight: 850;
-            white-space: nowrap;
+            max-width: min(62vw, 780px);
+            padding: .34rem .64rem;
+            border: 1px solid rgba(125,211,252,.70);
+            border-radius: 999px;
+            background: rgba(8,47,73,.74);
+            color: #f8fafc;
+            font-size: .82rem;
+            font-weight: 950;
+            line-height: 1.12;
+            white-space: normal;
+            overflow: visible;
+            box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 6px 18px rgba(14,165,233,.16);
         }
         .ptw-global-busy-fixed {
             position: relative !important;
@@ -726,9 +738,9 @@ def inject_workspace_css() -> None:
         .ptw-busy-spinner { opacity:1 !important; visibility:visible !important; }
         .ptw-sticky-topbar { overflow: visible !important; padding-top:.58rem !important; }
 
-        /* v18.5.70: stronger top-right status and no-dim safety net. */
-        .ptw-v18570-status-zone, .ptw-topbar-right { min-width: 480px !important; opacity:1 !important; }
-        .ptw-version-chip { color:#dbeafe !important; opacity:1 !important; font-size:.78rem !important; }
+        /* v18.5.95: top-right status must remain readable, not force a 480px desktop-only width. */
+        .ptw-v18570-status-zone, .ptw-topbar-right { min-width: 0 !important; max-width:70vw !important; opacity:1 !important; overflow:visible !important; }
+        .ptw-version-chip { color:#f8fafc !important; opacity:1 !important; font-size:.82rem !important; }
         .ptw-global-busy-fixed { opacity:1 !important; visibility:visible !important; min-width:112px !important; }
         .ptw-global-busy-fixed .ptw-pill { opacity:1 !important; visibility:visible !important; min-height:32px !important; }
         .ptw-busy-running { min-width:184px !important; border-color:rgba(56,189,248,.85) !important; background:rgba(8,89,133,.82) !important; }
