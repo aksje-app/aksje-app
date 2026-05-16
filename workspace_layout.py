@@ -820,8 +820,15 @@ def _run_control_panel(label: str, renderer: Callable[[], None]) -> None:
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> None:
-    """Lazy AI control center. Only the selected panel is rendered/executed."""
+AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598 = "↩️ Hovedpanel / normal visning"
+
+
+def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
+    """Lazy AI control center. Only the selected panel is rendered/executed.
+
+    Returns the selected control-center panel label when a real panel is active.
+    Returns None when the user wants the normal main dashboard below.
+    """
     st.markdown(
         """
         <div class="ptw-control-header">
@@ -855,7 +862,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             ("🧩 Services", _render_storage_services_status),
         ]
         panels = base_panels + list(extra_panels or [])
-        labels = [label for label, _renderer in panels]
+        labels = [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598] + [label for label, _renderer in panels]
         active_label = st.radio(
             "Velg Kontrollsenter-panel",
             labels,
@@ -864,11 +871,24 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             key="ai_control_center_active_panel_v18535",
             help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
         )
+        if active_label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598:
+            st.markdown(
+                "<div class='ptw-lazy-panel-note'>Normal hovedvisning er aktiv. Velg et Kontrollsenter-panel når du vil kjøre én samlet oppgave.</div>",
+                unsafe_allow_html=True,
+            )
+            st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+            return None
+
         st.markdown(
-            "<div class='ptw-lazy-panel-note'>Kun valgt panel åpnes og kjøres. Bytt panel når du trenger funksjonen.</div>",
+            "<div class='ptw-lazy-panel-note'>Kun valgt panel åpnes og kjøres. Underliggende hovedpaneler skjules for å unngå dobbeltvisning.</div>",
             unsafe_allow_html=True,
         )
         renderer = dict(panels).get(active_label)
         if renderer:
+            st.session_state["ai_control_center_active_real_panel_v18598"] = active_label
             _run_control_panel(active_label, renderer)
+            return active_label
+        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        return None
+    return None
 
