@@ -6154,18 +6154,18 @@ def _render_pushover_test_panel_v18595() -> None:
     _verify_clicked = st.button(
         "🔐 Verifiser Pushover token/user",
         key="main_auto_verify_pushover_v18595_desktop_visible",
-        disabled=not _pushover_env_ok_v18595,
+        disabled=False,
         use_container_width=True,
         type="primary",
-        help="Validerer token/user mot Pushover API uten å sende varsel.",
+        help="Validerer token/user mot Pushover API uten å sende varsel. Viser tydelig feilmelding hvis token/user mangler.",
     )
     _test_clicked = st.button(
         "📣 Send Pushover testvarsel",
         key="main_auto_send_test_pushover_v18595_desktop_visible",
-        disabled=not _pushover_env_ok_v18595,
+        disabled=False,
         use_container_width=True,
         type="primary",
-        help="Sender faktisk testvarsel via Pushover.",
+        help="Sender faktisk testvarsel via Pushover. Viser tydelig feilmelding hvis token/user mangler.",
     )
     if _last_pushover_check:
         _ok = bool(_last_pushover_check.get("ok"))
@@ -6182,19 +6182,25 @@ def _render_pushover_test_panel_v18595() -> None:
         )
 
     if _verify_clicked:
-        verify_info = verify_pushover_credentials_v18585()
-        st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
-        if verify_info.get("ok"):
-            st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
+        if not _pushover_env_ok_v18595:
+            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før API-verifisering.")
         else:
-            st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
+            verify_info = verify_pushover_credentials_v18585()
+            st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+            if verify_info.get("ok"):
+                st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
+            else:
+                st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
     if _test_clicked:
-        ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-        st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
-        if ok:
-            st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
+        if not _pushover_env_ok_v18595:
+            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før testvarsel sendes.")
         else:
-            st.error(f"Testvarsel feilet ❌ {err}")
+            ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
+            if ok:
+                st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
+            else:
+                st.error(f"Testvarsel feilet ❌ {err}")
 
 
 def render_auto_trading_workspace():
@@ -7385,6 +7391,19 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
         ticker = _html.escape(_security_display_label_v18569(ticker_raw, row))
         action = _html.escape(str(row.get("action") or ""))
         quality = row.get("decision_quality", "-")
+        composite_score = (
+            row.get("composite_score")
+            or row.get("fund_intelligence_score")
+            or row.get("ai_score")
+            or row.get("decision_quality")
+            or "-"
+        )
+        base_score = (
+            row.get("base_score")
+            or row.get("score")
+            or row.get("raw_score")
+            or "-"
+        )
         ai = row.get("ai_score", "-")
         mom = row.get("momentum_score", "-")
         risk = row.get("risk_score", "-")
@@ -9118,6 +9137,248 @@ html body .stApp .ptw-topbar-right {
 </style>
 """, unsafe_allow_html=True)
 
+# v18.5.97: Final desktop truth patch after all legacy CSS.
+# Purpose: stop Streamlit toolbar/status Stop overlay from floating over the app,
+# force real Streamlit buttons to fill their containers on desktop, and keep
+# Pushover/Global/top controls readable even when older CSS tried width:auto.
+st.markdown("""
+<style>
+/* Hide Streamlit runtime chrome that appears as a floating blue Stop button on desktop. */
+html body [data-testid="stStatusWidget"],
+html body [data-testid="stToolbar"],
+html body [data-testid="stDecoration"],
+html body #MainMenu,
+html body footer {
+    display:none !important;
+    visibility:hidden !important;
+    width:0 !important;
+    height:0 !important;
+    min-width:0 !important;
+    min-height:0 !important;
+    max-width:0 !important;
+    max-height:0 !important;
+    overflow:hidden !important;
+    pointer-events:none !important;
+}
+
+/* App header/title must not sit under Streamlit chrome or look clipped. */
+html body .stApp .ptw-app-title {
+    position:relative !important;
+    z-index:12 !important;
+    display:flex !important;
+    align-items:center !important;
+    min-height:44px !important;
+    margin:.42rem 0 .34rem 0 !important;
+    padding:.48rem .56rem .50rem .56rem !important;
+    overflow:visible !important;
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    font-size:1.38rem !important;
+    line-height:1.16 !important;
+    font-weight:1000 !important;
+}
+html body .stApp .ptw-sticky-topbar {
+    position:relative !important;
+    top:auto !important;
+    z-index:11 !important;
+    padding:.68rem .82rem !important;
+    padding-right:.82rem !important;
+    margin:.10rem 0 .70rem 0 !important;
+    overflow:visible !important;
+    box-sizing:border-box !important;
+}
+html body .stApp .ptw-topbar-left {
+    overflow:visible !important;
+}
+html body .stApp .ptw-topbar-right,
+html body .stApp .ptw-v18570-status-zone {
+    min-width:0 !important;
+    max-width:none !important;
+    overflow:visible !important;
+    justify-content:flex-end !important;
+}
+html body .stApp .ptw-version-chip {
+    max-width:min(78vw, 980px) !important;
+    min-height:38px !important;
+    padding:.48rem .88rem !important;
+    font-size:.94rem !important;
+    line-height:1.16 !important;
+    font-weight:1000 !important;
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.98),rgba(8,32,58,.96)) !important;
+    border:1px solid rgba(125,211,252,.98) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.14),0 8px 22px rgba(14,165,233,.22) !important;
+    opacity:1 !important;
+    overflow:visible !important;
+    white-space:normal !important;
+}
+
+/* Final app-wide Streamlit button correction. Earlier CSS set width:auto and clipped labels. */
+html body .stApp div[data-testid="stButton"],
+html body .stApp div[data-testid="stFormSubmitButton"] {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    display:block !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div[data-testid="stButton"] > button,
+html body .stApp div[data-testid="stFormSubmitButton"] > button {
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:.36rem !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    min-height:44px !important;
+    height:auto !important;
+    max-height:none !important;
+    padding:.56rem .88rem !important;
+    margin:.10rem 0 .18rem 0 !important;
+    border-radius:13px !important;
+    box-sizing:border-box !important;
+    text-align:center !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    clip-path:none !important;
+    opacity:1 !important;
+    filter:none !important;
+    visibility:visible !important;
+}
+html body .stApp div[data-testid="stButton"] > button *,
+html body .stApp div[data-testid="stFormSubmitButton"] > button * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.96rem !important;
+    font-weight:1000 !important;
+    line-height:1.14 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div[data-testid="stButton"] > button:disabled,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
+    opacity:.92 !important;
+    filter:none !important;
+    cursor:not-allowed !important;
+}
+html body .stApp div[data-testid="stButton"] > button:disabled *,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled * {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    opacity:1 !important;
+}
+
+/* Top trading buttons: one row, same height, no floating or clipping. */
+html body .stApp .v18534-control-button-gap {
+    height:.38rem !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow:visible !important;
+}
+html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+    align-items:stretch !important;
+    gap:.62rem !important;
+    overflow:visible !important;
+    margin:.10rem 0 .36rem 0 !important;
+}
+html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"],
+html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+    display:flex !important;
+    align-items:stretch !important;
+    min-width:0 !important;
+    overflow:visible !important;
+}
+html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button,
+html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+    min-height:48px !important;
+    margin:0 !important;
+    padding:.58rem .74rem !important;
+}
+
+/* Pushover panel: force readable desktop block and full buttons regardless of Streamlit wrappers. */
+html body .stApp .visual-truth-pushover-box,
+html body .stApp .visual-truth-pushover-box-v18596 {
+    display:block !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-height:84px !important;
+    margin:.72rem 0 .54rem 0 !important;
+    padding:.88rem 1.05rem !important;
+    border:1px solid rgba(125,211,252,.92) !important;
+    border-left:6px solid #fbbf24 !important;
+    border-radius:16px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.96),rgba(15,23,42,.96)) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.12),0 10px 26px rgba(14,165,233,.18) !important;
+    overflow:visible !important;
+    opacity:1 !important;
+}
+html body .stApp .visual-truth-pushover-title {
+    color:#fff7ed !important;
+    -webkit-text-fill-color:#fff7ed !important;
+    font-size:1.05rem !important;
+    font-weight:1000 !important;
+    line-height:1.15 !important;
+}
+html body .stApp .visual-truth-pushover-status {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.88rem !important;
+    font-weight:850 !important;
+    line-height:1.30 !important;
+}
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div,
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div + div {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    overflow:visible !important;
+    display:block !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div button,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div button,
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div + div button,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div + div button {
+    min-height:52px !important;
+    width:100% !important;
+    margin:.10rem 0 .22rem 0 !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(224,242,254,1) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.16),0 10px 24px rgba(14,165,233,.28) !important;
+}
+
+/* Keep expanders/panels from clipping buttons on desktop. */
+html body .stApp div[data-testid="stExpander"],
+html body .stApp div[data-testid="stExpander"] details,
+html body .stApp div[data-testid="stExpander"] details > div,
+html body .stApp div[data-testid="stVerticalBlock"],
+html body .stApp div[data-testid="stHorizontalBlock"] {
+    overflow:visible !important;
+}
+
+@media (max-width:900px) {
+    html body .stApp .ptw-app-title { font-size:1.18rem !important; min-height:38px !important; margin-top:.24rem !important; }
+    html body .stApp .ptw-sticky-topbar { padding:.56rem .60rem !important; margin-bottom:.52rem !important; }
+    html body .stApp .ptw-topbar-right { width:100% !important; max-width:100% !important; justify-content:flex-start !important; }
+    html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.80rem !important; }
+    html body .stApp div[data-testid="stButton"] > button,
+    html body .stApp div[data-testid="stFormSubmitButton"] > button { min-height:42px !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
 # v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 render_global_update_bar_v18548()
@@ -9127,12 +9388,23 @@ render_global_update_bar_v18548()
 active_panel = _render_active_main_panel_selector_v18531()
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
+_active_control_center_panel_v18598 = None
 try:
     render_live_market_banner()
     render_banner_main_controls()
-    render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
+    _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
+
+# v18.5.98: AI Kontrollsenter skal være et ekte fokus-/oppgaveområde.
+# Når et Kontrollsenter-panel er valgt, må gamle hovedseksjoner ikke lekke inn under panelet.
+# Dette fjerner dobbeltvisning av Dynamisk rangering, Interaktiv analyse og legacy-markedspaneler.
+if _active_control_center_panel_v18598:
+    st.markdown(
+        f"<div class='v18-dark-row'>Aktivt Kontrollsenter-panel: <b>{html.escape(str(_active_control_center_panel_v18598))}</b>. Underliggende hovedpaneler er skjult for denne visningen.</div>",
+        unsafe_allow_html=True,
+    )
+    st.stop()
 
 # v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
