@@ -784,50 +784,6 @@ html body div[data-testid="stAppViewContainer"]::after {
 """, unsafe_allow_html=True)
 
 
-
-
-# v18.6.1: Desktop control bar cleanup and no vertical rerun text.
-st.markdown("""
-<style>
-@media (min-width: 901px) {
-  html body .stApp div[data-testid="stButton"] > button {
-    min-height: 38px !important;
-    padding: .34rem .70rem !important;
-    border-radius: 12px !important;
-  }
-  html body .stApp div[data-testid="stButton"] > button p {
-    white-space: nowrap !important;
-    word-break: normal !important;
-    overflow-wrap: normal !important;
-    font-size: .88rem !important;
-    line-height: 1.10 !important;
-  }
-  .visual-truth-global-box, .v18581-global-toolbar, .v18572-global-update-shell, .v18548-global-update-wrap {
-    display: none !important;
-  }
-  .v1861-global-status-line {
-    margin: .34rem 0 .40rem 0 !important;
-    padding: .34rem .58rem !important;
-    border: 1px solid rgba(56,189,248,.45) !important;
-    border-radius: 10px !important;
-    background: rgba(8,47,73,.38) !important;
-    color: #dbeafe !important;
-    font-size: .78rem !important;
-    font-weight: 850 !important;
-    line-height: 1.15 !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-  .v18534-control-button-gap { height: .12rem !important; }
-  .v18534-trading-help { font-size: .74rem !important; padding: .24rem .42rem !important; }
-  .v18532-header-status, .v18534-trading-control-stack { margin-bottom: .18rem !important; }
-}
-html body .stApp * { word-break: normal !important; overflow-wrap: normal !important; }
-section[data-testid="stSidebar"] { overflow-x: visible !important; }
-</style>
-""", unsafe_allow_html=True)
-
 current_user = require_login()
 
 
@@ -1385,89 +1341,38 @@ div[data-testid="stAlert"] {
 """, unsafe_allow_html=True)
 
 
-def render_global_update_bar_v18548() -> None:
-    """v18.5.91: Visual Truth Fix - one clear global control, no legacy wrappers."""
+def _global_update_state_text_v1862():
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
-        state_txt = "Jobber – tung oppdatering er aktiv"
-        state_icon = "🔄"
-    elif pending:
-        state_txt = "Endringer venter på global oppdatering"
-        state_icon = "⚠️"
-    else:
-        state_txt = "Klar – ingen ventende endringer"
-        state_icon = "✅"
+        return "🔄", "Jobber – tung oppdatering er aktiv"
+    if pending:
+        return "⚠️", "Endringer venter"
+    return "✅", "Klar"
 
+
+def _click_global_update_v1862():
+    set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
+    _apply_global_update_v18548()
+    try:
+        st.toast("Global oppdatering aktivert: valgene er lagret.", icon="✅")
+    except Exception:
+        st.info("Global oppdatering aktivert: valgene er lagret.")
+    st.rerun()
+
+
+def render_global_update_bar_v18548() -> None:
+    """v18.6.2: compact status only. The action button is rendered in the trading control row after Gjør klar."""
+    icon, state_txt = _global_update_state_text_v1862()
     st.markdown(
         f"""
-        <div class='visual-truth-global-box' data-ui-path='active-global-update-v18596'>
-            <div class='visual-truth-global-title'>{state_icon} GLOBAL OPPDATERING</div>
-            <div class='visual-truth-global-sub'>Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}</div>
+        <div class='v1862-global-status-line' data-ui-path='global-status-only-v1862'>
+            <span><b>{icon} Global:</b> {html.escape(state_txt)}</span>
+            <span>Sist: {html.escape(_last_update_label())}</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    st.markdown("<div class='global-update-button-anchor-v18596'></div>", unsafe_allow_html=True)
-    clicked = st.button(
-        "🔄 Global oppdatering – lagre og kjør",
-        key="top_apply_all_changes_v18591",
-        use_container_width=True,
-        type="primary",
-        help="Lagrer valg og kjører tung oppdatering. Dette er eneste aktive globale oppdateringsknapp.",
-    )
-
-    if clicked:
-        set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
-        _apply_global_update_v18548()
-        try:
-            st.toast("Global oppdatering aktivert: valgene er lagret.", icon="✅")
-        except Exception:
-            st.info("Global oppdatering aktivert: valgene er lagret.")
-        st.rerun()
-
-    if pending and not running:
-        st.markdown("<div class='v18-dark-row'>⚠️ Endringer venter. Tung datahenting/rangering kjøres først når du trykker Global oppdatering.</div>", unsafe_allow_html=True)
-
-
-def render_global_update_button_inline_v1861() -> None:
-    """v18.6.1: compact global update button placed on the same row as Gjør klar."""
-    clicked = st.button(
-        "🔄 Global",
-        key="top_apply_all_changes_inline_v1861",
-        use_container_width=True,
-        type="primary",
-        help="Lagrer valg og kjører tung global oppdatering.",
-    )
-    if clicked:
-        set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
-        _apply_global_update_v18548()
-        try:
-            st.toast("Global oppdatering aktivert: valgene er lagret.", icon="✅")
-        except Exception:
-            st.info("Global oppdatering aktivert: valgene er lagret.")
-        st.rerun()
-
-
-def render_global_update_status_compact_v1861() -> None:
-    """v18.6.1: one-line status only; no separate large Global oppdatering panel."""
-    pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
-    running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
-    if running:
-        state_txt = "Jobber – tung oppdatering er aktiv"
-        state_icon = "🔄"
-    elif pending:
-        state_txt = "Endringer venter"
-        state_icon = "⚠️"
-    else:
-        state_txt = "Klar"
-        state_icon = "✅"
-    st.markdown(
-        f"<div class='v1861-global-status-line'>{state_icon} Global: <b>{html.escape(state_txt)}</b> · Sist: {html.escape(_last_update_label())}</div>",
-        unsafe_allow_html=True,
-    )
-
 
 
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
@@ -7245,7 +7150,7 @@ elif _top_emergency_stop:
         unsafe_allow_html=True,
     )
 st.markdown("<div class='v18534-control-button-gap'></div>", unsafe_allow_html=True)
-_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _control_spacer = st.columns([0.85, 0.95, 0.95, 1.10, 1.30, 1.05, 4.10], gap="small")
+_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _tq7, _control_spacer = st.columns([0.95, 1.05, 1.05, 1.25, 1.55, 1.35, 1.85, 2.90], gap="small")
 with _tq1:
     if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
         _set_auto_state("START")
@@ -7259,14 +7164,14 @@ with _tq4:
     if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
 with _tq5:
-    # V15.9 / Oppgave 122: Gjør klar skal vises stabilt når vanlig stopp/pause blokkerer.
-    if bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)):
-        if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True):
-            _clear_stops_ready_v158()
+    # Hold the column populated so the Global button always lands directly after Gjør klar.
+    ready_disabled = not (bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)))
+    if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
+        _clear_stops_ready_v158()
 with _tq6:
-    render_global_update_button_inline_v1861()
-with _control_spacer:
-    # V15.9 / Oppgave 122: aktiv og opphev nødstopp må aldri ha samme uklare knappetekst.
+    if st.button("🔄 Global", key="top_apply_all_changes_v1862_inline", use_container_width=True, type="primary", help="Lagre valg og kjør global oppdatering"):
+        _click_global_update_v1862()
+with _tq7:
     if _top_emergency_stop:
         if st.button("🔓 Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
             _reset_emergency_stop_v157()
@@ -9444,6 +9349,59 @@ html body .stApp div:has(.pushover-button-anchor-v18596) + div + div button {
     box-shadow:0 0 0 1px rgba(255,255,255,.16),0 10px 24px rgba(14,165,233,.28) !important;
 }
 
+
+/* v18.6.2 desktop cleanup: compact global status, no vertical wrapping, smaller control buttons. */
+.v1862-global-status-line {
+    display:flex !important;
+    flex-direction:row !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    gap:.75rem !important;
+    width:100% !important;
+    margin:.36rem 0 .48rem 0 !important;
+    padding:.36rem .62rem !important;
+    border:1px solid rgba(56,189,248,.42) !important;
+    border-radius:10px !important;
+    background:rgba(8,47,73,.34) !important;
+    color:#e0f2fe !important;
+    font-size:.78rem !important;
+    font-weight:850 !important;
+    line-height:1.12 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+}
+.v1862-global-status-line span { white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button {
+    min-height:34px !important;
+    height:34px !important;
+    padding:.22rem .55rem !important;
+    border-radius:11px !important;
+    white-space:nowrap !important;
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+    font-size:.82rem !important;
+}
+html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button p {
+    white-space:nowrap !important;
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+    font-size:.82rem !important;
+    line-height:1.05 !important;
+}
+html body .stApp [data-testid="stHorizontalBlock"] .stButton > button,
+html body .stApp [data-testid="stHorizontalBlock"] .stButton > button p {
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+    hyphens:none !important;
+}
+@media (min-width: 901px) {
+    html body .stApp div[data-testid="stButton"] > button {
+        min-height:34px !important;
+        padding-top:.22rem !important;
+        padding-bottom:.22rem !important;
+    }
+}
+
 /* Keep expanders/panels from clipping buttons on desktop. */
 html body .stApp div[data-testid="stExpander"],
 html body .stApp div[data-testid="stExpander"] details,
@@ -9465,8 +9423,8 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
 """, unsafe_allow_html=True)
 
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
-# v18.6.1: Global-knappen ligger på trading-linjen etter Gjør klar. Her vises bare kompakt statuslinje.
-render_global_update_status_compact_v1861()
+# v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
+render_global_update_bar_v18548()
 # GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
