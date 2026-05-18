@@ -14,7 +14,7 @@ The module is intentionally side-effect free:
 """
 
 from __future__ import annotations
-from utils import _safe_float, _now_iso, _clamp  # v18.6.3 centralized helpers
+from utils import _safe_float, _now_iso, _clamp as _raw_clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -29,6 +29,10 @@ ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
 EventRiskProvider = Callable[[str, Sequence[float]], Optional[Mapping[str, Any]]]
 ProgressCallback = Callable[[Mapping[str, Any]], None]
 StopCallback = Callable[[], bool]
+
+
+def _clamp(value: Any, lo: float = 0.0, hi: float = 100.0) -> float:
+    return _raw_clamp(value, lo, hi)
 
 
 TARGET_PROFILES = {
@@ -317,6 +321,22 @@ def _event_score(event_info: Optional[Mapping[str, Any]]) -> Tuple[float, str, i
     return _clamp(score), msg, adjustment
 
 
+def _insider_score(item: Mapping[str, Any]) -> float:
+    candidates: List[Any] = [item.get("insider_score"), item.get("insider")]
+    parts = item.get("score_parts") if isinstance(item.get("score_parts"), Mapping) else {}
+    candidates.append(parts.get("insider"))
+    for value in candidates:
+        score = _safe_float(value, None)
+        if score is None:
+            continue
+        if score <= 1:
+            score *= 100.0
+        elif score <= 10:
+            score *= 10.0
+        return _clamp(score)
+    return 50.0
+
+
 def decision_grade(score: float, event_score: float, risk_score: float, data_quality: float) -> Tuple[str, str]:
     if data_quality < 42:
         return "Vent", "Mangler datakvalitet"
@@ -346,6 +366,7 @@ class DecisionQualityResult:
     risk_score: float
     event_score: float
     learning_score: float
+    insider_score: float
     data_quality: float
     event_adjustment: int
     ret_1m_pct: Optional[float]
@@ -376,6 +397,7 @@ def compute_decision_quality(
     risk = _volatility_score(item)
     event, event_summary, event_adjustment = _event_score(event_info)
     learning = _learning_score(learning_stats, ticker)
+    insider = _insider_score(item)
     data_quality = _data_quality_score(item)
 
     weights = TARGET_PROFILES.get(str(target or "Balansert"), TARGET_PROFILES["Balansert"])
@@ -388,6 +410,7 @@ def compute_decision_quality(
         + learning * weights["learning"]
         + data_quality * weights["data"]
     )
+    score += (insider - 50.0) * 0.06
     # Hard guardrails: good score cannot fully hide major event/risk/data warnings.
     if event < 45:
         score -= 10
@@ -421,6 +444,10 @@ def compute_decision_quality(
         positives.append("Learning history støtter signalet")
     elif learning < 45:
         caution.append("Learning history er svak/usikker")
+    if insider >= 65:
+        positives.append("Insiderhandler støtter caset")
+    elif insider <= 35:
+        caution.append("Insiderhandler trekker ned")
     if event < 60:
         caution.append(event_summary)
     if data_quality < 55:
@@ -445,6 +472,7 @@ def compute_decision_quality(
         risk_score=round(risk, 1),
         event_score=round(event, 1),
         learning_score=round(learning, 1),
+        insider_score=round(insider, 1),
         data_quality=round(data_quality, 1),
         event_adjustment=int(event_adjustment),
         ret_1m_pct=_pct(item.get("ret_1m")),

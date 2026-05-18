@@ -50,6 +50,7 @@ from patterns import detect_head_shoulders, detect_inverse_head_shoulders, break
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_all_tickers
 from analysis import rank_stocks, score_stock
 from market_selector import auto_rank_market, build_top_picks
+from universe_engine import resolve_universe_tickers
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar, get_nordic_ipo_calendar, get_rumored_ipo_watchlist
 from news import get_news, simple_finance_sentiment
@@ -1458,7 +1459,7 @@ def render_global_update_action_panel_v1863g() -> None:
         _click_global_update_v1862()
 
 
-_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
+_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Aktivt univers", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
 
 
 def _on_active_panel_change_v18531():
@@ -1479,6 +1480,7 @@ def _render_active_main_panel_selector_v18531():
         "🇺🇸 USA": "Viser USA-rangering og amerikanske kandidater.",
         "🇳🇴 Norge": "Viser Norge-rangering og norske kandidater.",
         "🇸🇪 Sverige": "Viser Sverige-rangering og svenske kandidater.",
+        "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
         "⭐ Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
         "🚀 IPO": "Nye og kommende børsnoteringer.",
         "🧪 Paper Trading": "Simulert handel og testportefølje.",
@@ -1570,17 +1572,17 @@ def _cache_key_safe(*parts):
     return re.sub(r"[^A-Za-z0-9_]+", "_", raw)[:180]
 
 
-def cached_score_stock_manual(ticker, use_news=False, force=False):
+def cached_score_stock_manual(ticker, use_news=False, force=False, include_insider=True):
     """score_stock med manuell-modus cache.
 
     Når Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
     hentes ikke data før bruker trykker Oppdater hele appen.
     """
     ticker = normalize_user_ticker(ticker)
-    key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news))}"
+    key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news), bool(include_insider))}"
     if (not force) and (not _heavy_update_allowed()):
         return st.session_state.get(key)
-    item = score_stock(ticker, use_news=use_news)
+    item = score_stock(ticker, use_news=use_news, include_insider=include_insider)
     if item:
         st.session_state[key] = item
     return item
@@ -1626,14 +1628,14 @@ def _rank_cache_get(label, fp):
     return None
 
 
-def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False):
+def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
     """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
 
     Draft-verdier kan endres fritt; aktiv rangering oppdateres først via
     Oppdater hele appen, Auto-oppdater eller manuell scan.
     """
     safe_tickers = list(tickers or [])
-    fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch))
+    fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch), bool(include_insider))
     cached = _rank_cache_get(label, fp)
     # V17 / Oppgave 133: eksplisitt manuell henting skal overstyre markedsstengt/cache-blokkering.
     # Vanlige widget-reruns skal fortsatt ikke starte tung jobb når manuell modus er aktiv.
@@ -1645,7 +1647,7 @@ def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_
             return latest
         # Ingen cache ennå: ikke start tung jobb ved vanlig widget-rerun.
         return []
-    data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch)
+    data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch, include_insider=include_insider)
     data = _ranked_for_display(data)
     _rank_cache_store(label, fp, data)
     return data
@@ -5220,12 +5222,19 @@ def render_ranking(results, title):
             with left:
                 st.markdown(f"<div class='v18574-quick-title'>{direction_icon} {ticker}</div>", unsafe_allow_html=True)
                 display_name = meta.get("name") or item.get("name") or "Navn ikke funnet"
+                insider_score = item.get("insider_score")
+                try:
+                    insider_value = float(insider_score)
+                    insider_chip = f"<span>Insider {insider_value * 100:.0f}%</span>" if insider_value <= 1 else f"<span>Insider {insider_value:.0f}%</span>"
+                except Exception:
+                    insider_chip = ""
                 st.markdown(f"<div class='v18574-quick-sub'>#{idx} · {html.escape(str(display_name))}</div>", unsafe_allow_html=True)
                 st.markdown(
                     "<div class='v1863m-quick-meta'>"
                     f"<span>{html.escape(str(listing.get('country', 'Ukjent')))}</span>"
                     f"<span>{html.escape(str(listing.get('exchange', 'Ukjent')))}</span>"
                     f"<span>{html.escape(str(meta.get('sector', 'Unknown')))}</span>"
+                    f"{insider_chip}"
                     "</div>",
                     unsafe_allow_html=True,
                 )
@@ -9708,7 +9717,7 @@ if 'top_picks' in locals():
     market_pulse(top_picks)
     top_movers(top_picks)
 
-st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter og backtesting. System/admin er flyttet til AI Kontrollsenter.")
+st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter, insiderhendelser og backtesting. System/admin er flyttet til AI Kontrollsenter.")
 # v18.5.35: System/admin renderes kun i valgt Kontrollsenter-panel.
 
 if search.strip():
@@ -9717,10 +9726,10 @@ if search.strip():
     tickers_se = []
     tickers_all = tickers_us
 else:
-    tickers_us = get_sp500_tickers(limit=max_count)
-    tickers_no = get_norwegian_tickers(limit=max_count)
-    tickers_se = get_swedish_tickers(limit=max_count)
-    tickers_all = get_all_tickers(limit_per_market=max(5, max_count // 3))
+    tickers_us = resolve_universe_tickers(["USA"], max_count=max_count)
+    tickers_no = resolve_universe_tickers(["Norge"], max_count=max_count)
+    tickers_se = resolve_universe_tickers(["Sverige"], max_count=max_count)
+    tickers_all = resolve_universe_tickers(["Alle"], max_count=max_count)
 
 dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
 
@@ -9748,6 +9757,15 @@ elif active_panel == "🇸🇪 Sverige":
     se_results = cached_auto_rank_market("Sverige", tickers_se, max_count=max_count, use_news=False)
     render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
     render_analysis(se_results, "Sverige")
+
+elif active_panel == "Aktivt univers":
+    active_universe_tickers = _source_tickers_for_interactive("Smart Universe Picker")
+    if not active_universe_tickers:
+        st.info("Ingen aktivt univers er lagret ennå. Åpne AI Kontrollsenter -> Analyseunivers og sett Smart Universe Picker som aktivt aksjeunivers.")
+    else:
+        active_results = cached_auto_rank_market("Smart Universe Picker", active_universe_tickers, max_count=max_count, use_news=False)
+        render_ranking(active_results, "🎯 Dynamisk rangering aktivt univers")
+        render_analysis(active_results, "Smart Universe Picker")
 
 elif active_panel == "⭐ Top Picks":
     st.subheader("⭐ Automatiske Top Picks")

@@ -15,7 +15,7 @@ session_state, Top Picks eller watchlist.
 """
 
 from __future__ import annotations
-from utils import _safe_float, _clamp  # v18.6.3 centralized helpers
+from utils import _safe_float, _clamp as _raw_clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -27,6 +27,10 @@ from security_metadata import resolve_security_metadata
 
 
 ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
+
+
+def _clamp(value: Any, lo: float = 0.0, hi: float = 100.0) -> float:
+    return _raw_clamp(value, lo, hi)
 
 RISK_ORDER = {"Lav": 1, "Middels": 2, "Høy": 3, "Ukjent": 4}
 
@@ -48,6 +52,9 @@ class SmartUniverseCandidate:
     ret_1m_pct: Optional[float]
     ret_3m_pct: Optional[float]
     ret_6m_pct: Optional[float]
+    insider_score: Optional[float]
+    insider_adjustment: Optional[float]
+    insider_label: str
     reason: str
 
     def as_dict(self) -> Dict[str, Any]:
@@ -238,7 +245,26 @@ def _sentiment_0_to_1(item: Mapping[str, Any]) -> float:
     return 0.5
 
 
-def _reason(ai_score: float, strength: float, risk: str, sector: str) -> str:
+def _insider_score_0_to_100(item: Mapping[str, Any]) -> Optional[float]:
+    candidates = [
+        item.get("insider_score"),
+        item.get("insider"),
+    ]
+    parts = item.get("score_parts") if isinstance(item.get("score_parts"), Mapping) else {}
+    candidates.append(parts.get("insider"))
+    for value in candidates:
+        score = _safe_float(value, None)
+        if score is None:
+            continue
+        if score <= 1:
+            score *= 100
+        elif score <= 10:
+            score *= 10
+        return round(_clamp(score), 1)
+    return None
+
+
+def _reason(ai_score: float, strength: float, risk: str, sector: str, insider_score: Optional[float] = None) -> str:
     parts: List[str] = []
     if ai_score >= 7.5:
         parts.append("høy AI-score")
@@ -253,14 +279,23 @@ def _reason(ai_score: float, strength: float, risk: str, sector: str) -> str:
     else:
         parts.append("svakt momentum")
     parts.append(f"{risk.lower()} risiko")
+    if insider_score is not None:
+        if insider_score >= 65:
+            parts.append("positivt insiderbilde")
+        elif insider_score <= 35:
+            parts.append("svakt insiderbilde")
+        else:
+            parts.append("nÃ¸ytralt insiderbilde")
     if sector and sector != "Unknown":
         parts.append(f"sektor: {sector}")
     return ", ".join(parts)
 
 
-def _smart_score(ai_score: float, strength: float, risk_score: float, sentiment: float) -> float:
+def _smart_score(ai_score: float, strength: float, risk_score: float, sentiment: float, insider_score: Optional[float] = None) -> float:
     score_0_100 = ai_score * 10
     value = score_0_100 * 0.55 + strength * 0.30 + (100 - risk_score) * 0.10 + (sentiment * 100) * 0.05
+    if insider_score is not None:
+        value += (float(insider_score) - 50.0) * 0.08
     return round(_clamp(value), 2)
 
 
@@ -282,6 +317,9 @@ def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str 
     if not risk or risk == "Ukjent":
         risk = str(metadata.get("risk") or risk_label_from_score(risk_score))
     sentiment = _sentiment_0_to_1(item)
+    insider_score = _insider_score_0_to_100(item)
+    insider_adjustment = _safe_float(item.get("insider_adjustment"), None)
+    insider_label = str(item.get("insider_label") or ("Ingen insiderdata" if insider_score is None else "Insiderdata"))
     return SmartUniverseCandidate(
         rank=0,
         ticker=ticker,
@@ -290,7 +328,7 @@ def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str 
         source=str(source or item.get("source") or "Smart AI"),
         sector=sector,
         ai_score=ai_score,
-        smart_score=_smart_score(ai_score, strength, risk_score, sentiment),
+        smart_score=_smart_score(ai_score, strength, risk_score, sentiment, insider_score),
         strength=strength,
         risk=risk,
         risk_score=risk_score,
@@ -298,14 +336,17 @@ def candidate_from_score_item(ticker: str, item: Mapping[str, Any], source: str 
         ret_1m_pct=_pct(item.get("ret_1m")),
         ret_3m_pct=_pct(item.get("ret_3m")),
         ret_6m_pct=_pct(item.get("ret_6m")),
-        reason=_reason(ai_score, strength, risk, sector),
+        insider_score=insider_score,
+        insider_adjustment=insider_adjustment,
+        insider_label=insider_label,
+        reason=_reason(ai_score, strength, risk, sector, insider_score),
     )
 
 
 def _default_score_provider(ticker: str, use_news: bool) -> Optional[Mapping[str, Any]]:
     from analysis import score_stock
 
-    return score_stock(ticker, use_news=use_news)
+    return score_stock(ticker, use_news=use_news, include_insider=True)
 
 
 def _tickers_from_existing_scope(scope: str, existing_tickers_by_scope: Optional[Mapping[str, Sequence[str]]]) -> List[str]:
@@ -470,6 +511,9 @@ def _rank(candidates: Sequence[SmartUniverseCandidate]) -> List[SmartUniverseCan
                 ret_1m_pct=candidate.ret_1m_pct,
                 ret_3m_pct=candidate.ret_3m_pct,
                 ret_6m_pct=candidate.ret_6m_pct,
+                insider_score=candidate.insider_score,
+                insider_adjustment=candidate.insider_adjustment,
+                insider_label=candidate.insider_label,
                 reason=candidate.reason,
             )
         )
@@ -561,6 +605,9 @@ def candidate_dicts_for_app(result: Mapping[str, Any]) -> List[Dict[str, Any]]:
                 "strength": row.get("strength"),
                 "risk": row.get("risk"),
                 "risk_score": row.get("risk_score"),
+                "insider_score": row.get("insider_score"),
+                "insider_adjustment": row.get("insider_adjustment"),
+                "insider_label": row.get("insider_label"),
                 "sector": row.get("sector"),
                 "source": "Smart AI",
                 "reason": row.get("reason"),

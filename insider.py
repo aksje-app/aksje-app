@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
+FINNHUB_TIMEOUT_SECONDS = float(os.getenv("FINNHUB_TIMEOUT_SECONDS", "5") or 5)
 
 
 
@@ -77,7 +78,7 @@ def fetch_insider_transactions(ticker, months=6, limit=25):
     }
 
     try:
-        response = requests.get(url, params=params, timeout=12)
+        response = requests.get(url, params=params, timeout=FINNHUB_TIMEOUT_SECONDS)
         response.raise_for_status()
         raw = response.json()
         data = raw.get("data", []) if isinstance(raw, dict) else []

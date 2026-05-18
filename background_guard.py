@@ -22,6 +22,7 @@ from market_hours import market_status, ticker_market, open_markets
 CACHE_DIR = Path("cache")
 CACHE_FILE = CACHE_DIR / "score_stock_cache.pkl"
 DEFAULT_CACHE_MAX_HOURS = 72
+_MEMORY_CACHE = None
 
 
 def _now():
@@ -29,35 +30,42 @@ def _now():
 
 
 def _load_cache():
+    global _MEMORY_CACHE
+    if isinstance(_MEMORY_CACHE, dict):
+        return _MEMORY_CACHE
     try:
         if CACHE_FILE.exists():
             with open(CACHE_FILE, "rb") as f:
                 data = pickle.load(f)
             if isinstance(data, dict):
+                _MEMORY_CACHE = data
                 return data
     except Exception as e:
         print(f"background cache load failed: {e}")
-    return {}
+    _MEMORY_CACHE = {}
+    return _MEMORY_CACHE
 
 
 def _save_cache(cache):
+    global _MEMORY_CACHE
     try:
+        _MEMORY_CACHE = dict(cache or {})
         CACHE_DIR.mkdir(exist_ok=True)
         with open(CACHE_FILE, "wb") as f:
-            pickle.dump(cache, f)
+            pickle.dump(_MEMORY_CACHE, f)
         return True
     except Exception as e:
         print(f"background cache save failed: {e}")
         return False
 
 
-def _cache_key(ticker, use_news=False):
-    return f"{str(ticker).upper()}|news={bool(use_news)}"
+def _cache_key(ticker, use_news=False, include_insider=False):
+    return f"{str(ticker).upper()}|news={bool(use_news)}|insider={bool(include_insider)}"
 
 
-def get_cached_score(ticker, use_news=False, max_age_hours=DEFAULT_CACHE_MAX_HOURS):
+def get_cached_score(ticker, use_news=False, max_age_hours=DEFAULT_CACHE_MAX_HOURS, include_insider=False):
     cache = _load_cache()
-    key = _cache_key(ticker, use_news)
+    key = _cache_key(ticker, use_news, include_insider=include_insider)
     row = cache.get(key)
 
     if not row:
@@ -76,12 +84,12 @@ def get_cached_score(ticker, use_news=False, max_age_hours=DEFAULT_CACHE_MAX_HOU
     return None
 
 
-def put_cached_score(ticker, item, use_news=False):
+def put_cached_score(ticker, item, use_news=False, include_insider=False):
     if not item:
         return False
 
     cache = _load_cache()
-    cache[_cache_key(ticker, use_news)] = {
+    cache[_cache_key(ticker, use_news, include_insider=include_insider)] = {
         "timestamp": _now().isoformat(),
         "item": item,
     }
@@ -97,7 +105,7 @@ def background_fetch_allowed(ticker):
     return bool(status.get("is_open")), market, status
 
 
-def score_stock_guarded(score_func, ticker, use_news=False, mode="background"):
+def score_stock_guarded(score_func, ticker, use_news=False, mode="background", include_insider=False, **score_kwargs):
     """
     Brukes av bakgrunnsrangering / Top Picks.
 
@@ -114,12 +122,12 @@ def score_stock_guarded(score_func, ticker, use_news=False, mode="background"):
     if allowed or mode == "manual":
         if not allowed and mode == "manual":
             print(f"{ticker}: {market} stengt ({status.get('reason')}) - manuell UI-henting tillatt")
-        item = score_func(ticker, use_news=use_news)
+        item = score_func(ticker, use_news=use_news, include_insider=include_insider, **score_kwargs)
         if item:
-            put_cached_score(ticker, item, use_news=use_news)
+            put_cached_score(ticker, item, use_news=use_news, include_insider=include_insider)
         return item
 
-    cached = get_cached_score(ticker, use_news=use_news)
+    cached = get_cached_score(ticker, use_news=use_news, include_insider=include_insider)
     if cached:
         print(f"{ticker}: {market} stengt ({status.get('reason')}) - bruker cache")
         return cached

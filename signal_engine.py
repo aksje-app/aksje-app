@@ -139,6 +139,27 @@ def score_signal(item, technical_context=None, insider=None, analyst=None, earni
             score -= 0.2
             warnings.append("Resultater overrasket negativt")
 
+    if not isinstance(insider, dict):
+        item_insider = _get(item, "insider_score", None)
+        if item_insider is not None:
+            insider = {"score": item_insider}
+
+    if isinstance(insider, dict):
+        insider_score = _safe_float(insider.get("score"), None)
+        if insider_score is not None:
+            if insider_score > 1 and insider_score <= 100:
+                insider_score = insider_score / 100.0
+            elif insider_score > 1:
+                insider_score = insider_score / 10.0
+            insider_score = _clamp(insider_score, 0, 1)
+            insider_delta = (insider_score - 0.5) * 0.9
+            score += insider_delta
+            if insider_score >= 0.65:
+                reasons.append("Insiderhandler stÃ¸tter signalet")
+            elif insider_score <= 0.35:
+                risk_score += 8
+                warnings.append("Insiderhandler trekker signalet ned")
+
     score = round(_clamp(score, 0, 10), 2)
     bonus = round(score - base_score, 2)
     risk_score = int(_clamp(risk_score, 0, 100))
