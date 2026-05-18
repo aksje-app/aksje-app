@@ -102,5 +102,21 @@ def render_market_regime_widget() -> None:
         m5.metric("VIX", f"{result.vix_level}" if result.vix_level is not None else "N/A")
 
         st.write(result.explanation)
-        with st.expander('Avansert detaljdata', expanded=False):
-            st.json(result.components)
+        with st.expander("Avansert detaljdata (lukket)", expanded=False):
+            rows = [
+                ("SPY 1 måned", f"{result.components.get('spy_1m_pct', 0):+.2f}%", "Kort trend i bredt USA-marked."),
+                ("SPY 3 måneder", f"{result.components.get('spy_3m_pct', 0):+.2f}%", "Mellomlang trend i bredt USA-marked."),
+                ("QQQ 1 måned", f"{result.components.get('qqq_1m_pct', 0):+.2f}%", "Kort trend i teknologi/momentum."),
+                ("QQQ 3 måneder", f"{result.components.get('qqq_3m_pct', 0):+.2f}%", "Mellomlang trend i teknologi/momentum."),
+                ("VIX 1 måned", f"{result.components.get('vix_1m_pct', 0):+.2f}%", "Endring i frykt/volatilitet. Høyere VIX trekker risiko opp."),
+            ]
+            for label, value, explanation in rows:
+                st.markdown(
+                    f"""
+                    <div style="border:1px solid rgba(125,211,252,.22);border-radius:10px;padding:.55rem .70rem;margin:.35rem 0;background:rgba(8,20,42,.58);">
+                        <div style="font-weight:950;color:#f8fafc;">{label}: {value}</div>
+                        <div style="font-size:.84rem;color:#cbd5e1;line-height:1.28;">{explanation}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
