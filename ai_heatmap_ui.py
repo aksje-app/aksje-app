@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 import streamlit as st
 
 from ai_heatmap_engine import build_heatmap_rows, build_matrix_payload, build_sector_treemap_rows, extract_tickers_from_app_state, summarize_heatmap
+from security_metadata import infer_security_listing, resolve_security_metadata
 
 
 def _level_icon(level: str) -> str:
@@ -146,6 +147,32 @@ def render_ai_heatmaps() -> None:
 
         source_filter = all_tickers if scope.startswith("Appdata") and all_tickers else None
         rows = build_heatmap_rows(source_tickers=source_filter, limit=300)
+        tickers = sorted({str(r.get("ticker") or "").upper() for r in rows if str(r.get("ticker") or "").strip()})
+        markets = ["Alle"] + sorted({infer_security_listing(t, {"ticker": t}).get("market", "Ukjent") for t in tickers})
+        horizons = ["Alle"] + sorted({str(r.get("horizon") or "") for r in rows if str(r.get("horizon") or "").strip()})
+        f1, f2, f3, f4 = st.columns([1.2, .9, .8, .8])
+        with f1:
+            ticker_filter = st.selectbox("Ticker", ["Alle"] + tickers, key="ai_heatmap_ticker_filter_v1863m")
+        with f2:
+            market_filter = st.selectbox("Marked", markets, key="ai_heatmap_market_filter_v1863m")
+        with f3:
+            horizon_filter = st.selectbox("Horisont", horizons, key="ai_heatmap_horizon_filter_v1863m")
+        with f4:
+            risk_filter = st.selectbox("Risiko", ["Alle", "Rød", "Gul", "Grønn"], key="ai_heatmap_risk_filter_v1863m")
+        risk_lookup = {"Rød": "red", "Gul": "yellow", "Grønn": "green"}
+        filtered_rows = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "").upper()
+            if ticker_filter != "Alle" and ticker != ticker_filter:
+                continue
+            if market_filter != "Alle" and infer_security_listing(ticker, row).get("market") != market_filter:
+                continue
+            if horizon_filter != "Alle" and str(row.get("horizon") or "") != horizon_filter:
+                continue
+            if risk_filter != "Alle" and str(row.get("risk_level") or "") != risk_lookup.get(risk_filter):
+                continue
+            filtered_rows.append(row)
+        rows = filtered_rows
         summary = summarize_heatmap(rows)
 
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -183,9 +210,14 @@ def render_ai_heatmaps() -> None:
         st.markdown("### Tabellvisning")
         table_rows = []
         for row in rows[:100]:
+            meta = resolve_security_metadata(row.get("ticker"), row)
+            listing = infer_security_listing(row.get("ticker"), row)
             table_rows.append({
                 "Nivå": f"{_level_icon(row.get('risk_level'))} {row.get('risk_label')}",
                 "Ticker": row.get("ticker"),
+                "Navn": meta.get("name", ""),
+                "Land": listing.get("country", ""),
+                "Børs": listing.get("exchange", ""),
                 "Horisont": row.get("horizon"),
                 "Strength": f"{row.get('strength',0)}/100",
                 "Confidence": f"{row.get('confidence',0)}%",

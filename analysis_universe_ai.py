@@ -427,12 +427,19 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
         if not isinstance(row, Mapping):
             continue
         meta = resolve_security_metadata(row.get("ticker") or row.get("symbol"), row)
+        try:
+            from security_metadata import infer_security_listing
+            listing = infer_security_listing(meta.get("ticker") or row.get("ticker"), row)
+        except Exception:
+            listing = {"country": "Ukjent", "exchange": "Ukjent", "market": row.get("market") or row.get("source") or "Ukjent"}
         rows.append(
             {
                 "Rank": row.get("rank"),
                 "Ticker": meta.get("ticker") or row.get("ticker"),
                 "Navn": meta.get("name") or row.get("name"),
-                "Marked": row.get("market"),
+                "Land": listing.get("country"),
+                "Børs": listing.get("exchange"),
+                "Marked": listing.get("market") or row.get("market"),
                 "Sektor": meta.get("sector") or row.get("sector"),
                 "AI-score": row.get("ai_score"),
                 "Smart-score": row.get("smart_score"),

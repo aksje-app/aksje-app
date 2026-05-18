@@ -142,6 +142,55 @@ def resolve_security_metadata(symbol: Any, row: Mapping[str, Any] | None = None)
     return out
 
 
+def infer_security_listing(symbol: Any, row: Mapping[str, Any] | None = None) -> Dict[str, str]:
+    """Infer country/exchange from ticker suffix or existing row metadata.
+
+    This is offline-first and intentionally conservative. Live market data can
+    still override these display fields when a source provides better metadata.
+    """
+    row = row or {}
+    sym = normalize_symbol(row.get("ticker") or row.get("symbol") or symbol)
+    market_raw = str(row.get("market") or row.get("Marked") or row.get("source") or "").strip()
+    exchange_raw = str(row.get("exchange") or row.get("børs") or row.get("Børs") or "").strip()
+    country_raw = str(row.get("country") or row.get("land") or row.get("Land") or "").strip()
+
+    country = country_raw
+    exchange = exchange_raw
+    market = market_raw
+
+    if sym.endswith(".OL"):
+        country = country or "Norge"
+        exchange = exchange or "Oslo Børs"
+        market = market or "Norge"
+    elif sym.endswith(".ST"):
+        country = country or "Sverige"
+        exchange = exchange or "Nasdaq Stockholm"
+        market = market or "Sverige"
+    elif sym.endswith(".CO"):
+        country = country or "Danmark"
+        exchange = exchange or "Nasdaq Copenhagen"
+        market = market or "Danmark"
+    elif sym.endswith(".HE"):
+        country = country or "Finland"
+        exchange = exchange or "Nasdaq Helsinki"
+        market = market or "Finland"
+    elif sym.endswith(".IS"):
+        country = country or "Island"
+        exchange = exchange or "Nasdaq Iceland"
+        market = market or "Island"
+    elif sym:
+        country = country or "USA"
+        exchange = exchange or "NYSE/Nasdaq"
+        market = market or "USA"
+
+    return {
+        "ticker": sym,
+        "country": country or "Ukjent",
+        "exchange": exchange or "Ukjent",
+        "market": market or "Ukjent",
+    }
+
+
 def fund_display_label(symbol: Any, row: Mapping[str, Any] | None = None) -> str:
     """Return consistent fund label: TICKER — Fund name when known."""
     meta = resolve_security_metadata(symbol, row)

@@ -84,7 +84,7 @@ from paper_trading import load_portfolio, portfolio_value, reset_portfolio, perf
 from paper_store import save_portfolio
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
-from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows
+from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
@@ -1048,6 +1048,10 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 .v18574-quick-row [data-testid="stMetricValue"] { font-size:1.02rem !important; }
 .v18574-quick-row [data-testid="stProgress"] { margin-top:.12rem !important; }
 .v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.72rem !important; line-height:1.20 !important; }
+.v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.28rem; margin:.24rem 0 .38rem 0; }
+.v1863m-quick-meta span { border:1px solid rgba(56,189,248,.28); background:rgba(8,47,73,.36); border-radius:999px; padding:.16rem .42rem; font-size:.68rem; font-weight:850; color:#bae6fd; line-height:1.18; }
+.v1863m-quick-action { min-height:108px; display:flex; flex-direction:column; gap:.34rem; justify-content:flex-start; }
+.v1863m-quick-action-note { font-size:.76rem; line-height:1.28; color:rgba(226,232,240,.86); min-height:1.25rem; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -5198,6 +5202,8 @@ def render_ranking(results, title):
         score = item.get("score", 0)
         latest_price, change_pct = get_item_price_change(item)
         card_decision = card_decision_for_item(item)
+        meta = resolve_security_metadata(ticker, item)
+        listing = infer_security_listing(ticker, item)
 
         price_text = "N/A"
         delta_text = None
@@ -5213,7 +5219,16 @@ def render_ranking(results, title):
 
             with left:
                 st.markdown(f"<div class='v18574-quick-title'>{direction_icon} {ticker}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='v18574-quick-sub'>#{idx} · {item.get('name', '')}</div>", unsafe_allow_html=True)
+                display_name = meta.get("name") or item.get("name") or "Navn ikke funnet"
+                st.markdown(f"<div class='v18574-quick-sub'>#{idx} · {html.escape(str(display_name))}</div>", unsafe_allow_html=True)
+                st.markdown(
+                    "<div class='v1863m-quick-meta'>"
+                    f"<span>{html.escape(str(listing.get('country', 'Ukjent')))}</span>"
+                    f"<span>{html.escape(str(listing.get('exchange', 'Ukjent')))}</span>"
+                    f"<span>{html.escape(str(meta.get('sector', 'Unknown')))}</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
                 render_action_chips(card_decision)
 
             with mid:
@@ -5227,6 +5242,7 @@ def render_ranking(results, title):
                     ], columns=1)
 
             with right:
+                st.markdown("<div class='v1863m-quick-action'>", unsafe_allow_html=True)
                 st.progress(min(float(score) / 10, 1.0))
                 st.caption(
                     f"1y: {item.get('ret_1y', 0)*100:.1f}% · "
@@ -5240,9 +5256,11 @@ def render_ranking(results, title):
                 reasons = card_decision.get("reasons", [])
 
                 if warnings:
-                    st.markdown(f"<div class='action-explain'>⚠️ {warnings[0]}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='v1863m-quick-action-note'>⚠️ {html.escape(str(warnings[0]))}</div>", unsafe_allow_html=True)
                 elif reasons:
-                    st.markdown(f"<div class='action-explain'>✅ {reasons[0]}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='v1863m-quick-action-note'>✅ {html.escape(str(reasons[0]))}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='v1863m-quick-action-note'>Ingen ekstra varseltekst.</div>", unsafe_allow_html=True)
 
                 # Direkte paper-trading fra kortet
                 try:
@@ -5255,7 +5273,7 @@ def render_ranking(results, title):
                     if latest_price is not None and _action_now == "KJØP NÅ":
                         if _owns:
                             st.caption("📌 Allerede i paper-porteføljen")
-                        elif st.button(f"🟢 Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}"):
+                        elif st.button(f"🟢 Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}", use_container_width=True):
                             _ok, _msg = paper_buy(ticker, latest_price, _conf, f"UI Kjøp nå: {title}")
                             if _ok:
                                 st.success(_msg)
@@ -5264,7 +5282,7 @@ def render_ranking(results, title):
                                 st.warning(_msg)
 
                     elif latest_price is not None and ("UNNGÅ" in _action_now or "SELL" in _action_now):
-                        if _owns and st.button(f"🔴 Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}"):
+                        if _owns and st.button(f"🔴 Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}", use_container_width=True):
                             _ok, _msg = paper_sell(ticker, latest_price, f"UI teknisk signal: {_action_now}")
                             if _ok:
                                 st.success(_msg)
@@ -5273,6 +5291,7 @@ def render_ranking(results, title):
                                 st.warning(_msg)
                 except Exception as _e:
                     st.caption(f"Paper-knapp ikke tilgjengelig: {_e}")
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
 

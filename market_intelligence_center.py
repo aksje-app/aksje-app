@@ -14,6 +14,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import load_forecast_log, load_learning_stats, summarize_alerts
+from security_metadata import infer_security_listing, resolve_security_metadata
 
 
 def _safe_pct(value: Any) -> str:
@@ -88,8 +89,13 @@ def _top_rows(summaries: List[Dict[str, Any]], reverse: bool = True, limit: int 
     rows = sorted(summaries, key=lambda r: (r.get("strength", 0), r.get("confidence", 0), r.get("base_pct", 0)), reverse=reverse)
     out = []
     for r in rows[:limit]:
+        meta = resolve_security_metadata(r.get("ticker"), r)
+        listing = infer_security_listing(r.get("ticker"), r)
         out.append({
             "Ticker": r.get("ticker", ""),
+            "Navn": meta.get("name", ""),
+            "Land": listing.get("country", ""),
+            "Børs": listing.get("exchange", ""),
             "Horisont": r.get("horizon", ""),
             "Base": _safe_pct(r.get("base_pct")),
             "Bull": _safe_pct(r.get("bull_pct")),
@@ -122,36 +128,87 @@ def render_market_intelligence_center() -> None:
     with st.expander("🧠 AI Market Intelligence Center", expanded=False):
         st.caption("Samlet markedsoversikt basert på prognoser, varsler, portefølje/paper-data og lærende confidence. Ingen auto-trading-kobling.")
 
+        all_tickers = sorted({str(r.get("ticker") or "").upper() for r in summaries if str(r.get("ticker") or "").strip()} | {str(a.get("ticker") or "").upper() for a in alerts if str(a.get("ticker") or "").strip()})
+        markets = ["Alle"] + sorted({infer_security_listing(t, {"ticker": t}).get("market", "Ukjent") for t in all_tickers if t})
+        horizons = ["Alle"] + sorted({str(r.get("horizon") or "") for r in summaries if str(r.get("horizon") or "").strip()})
+        risks = ["Alle"] + sorted({str(r.get("risk") or "Ukjent") for r in summaries if str(r.get("risk") or "").strip()})
+        fc1, fc2, fc3, fc4 = st.columns([1.2, .9, .8, .9])
+        with fc1:
+            ticker_filter = st.selectbox("Ticker", ["Alle"] + all_tickers, key="intelligence_ticker_filter_v1863m")
+        with fc2:
+            market_filter = st.selectbox("Marked", markets, key="intelligence_market_filter_v1863m")
+        with fc3:
+            horizon_filter = st.selectbox("Horisont", horizons, key="intelligence_horizon_filter_v1863m")
+        with fc4:
+            risk_filter = st.selectbox("Risiko", risks, key="intelligence_risk_filter_v1863m")
+
+        filtered_summaries = []
+        for row in summaries:
+            ticker = str(row.get("ticker") or "").upper()
+            if ticker_filter != "Alle" and ticker != ticker_filter:
+                continue
+            if market_filter != "Alle" and infer_security_listing(ticker, row).get("market") != market_filter:
+                continue
+            if horizon_filter != "Alle" and str(row.get("horizon") or "") != horizon_filter:
+                continue
+            if risk_filter != "Alle" and str(row.get("risk") or "Ukjent") != risk_filter:
+                continue
+            filtered_summaries.append(row)
+
+        filtered_alerts = []
+        for alert in alerts:
+            ticker = str(alert.get("ticker") or "").upper()
+            if ticker_filter != "Alle" and ticker != ticker_filter:
+                continue
+            if market_filter != "Alle" and infer_security_listing(ticker, alert).get("market") != market_filter:
+                continue
+            if horizon_filter != "Alle" and str(alert.get("horizon") or "") != horizon_filter:
+                continue
+            filtered_alerts.append(alert)
+
+        filter_summary = summarize_alerts(filtered_alerts) if filtered_alerts else {"counts": {"red": 0, "yellow": 0, "green": 0}, "total": 0}
+        red = int(filter_summary.get("counts", {}).get("red", 0))
+        yellow = int(filter_summary.get("counts", {}).get("yellow", 0))
+        green = int(filter_summary.get("counts", {}).get("green", 0))
+        total_alerts = int(filter_summary.get("total", len(filtered_alerts)))
+        regime = auto_regime_payload.get("label") if isinstance(auto_regime_payload, dict) else _market_regime_guess(filtered_summaries, filtered_alerts)
+        st.caption(f"Viser {len(filtered_summaries)} av {len(summaries)} prognoser og {len(filtered_alerts)} av {len(alerts)} varsler etter filter.")
+
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Markedsregime", regime)
         c2.metric("Varsler", total_alerts, f"🔴 {red} · 🟡 {yellow} · 🟢 {green}")
-        c3.metric("Prognoser", len(summaries))
+        c3.metric("Prognoser", len(filtered_summaries))
         c4.metric("Learning samples", int(learning.get("global", {}).get("count", 0)))
         active_sources = sum(1 for v in source_status.values() if v)
         c5.metric("Aktive datakilder", active_sources)
 
         st.markdown("### 🏆 Sterkeste prognoser")
-        strong = _top_rows(summaries, reverse=True, limit=5)
+        strong = _top_rows(filtered_summaries, reverse=True, limit=8)
         if strong:
             st.dataframe(strong, use_container_width=True, hide_index=True)
         else:
             st.info("Ingen lagrede prognoser ennå. Kjør prognosemodulen først.")
 
         st.markdown("### ⚠️ Svakeste / mest risikable prognoser")
-        weak = _top_rows(summaries, reverse=False, limit=5)
+        weak = _top_rows(filtered_summaries, reverse=False, limit=8)
         if weak:
             st.dataframe(weak, use_container_width=True, hide_index=True)
         else:
             st.caption("Ingen risikotabell tilgjengelig ennå.")
 
         st.markdown("### 🚨 Viktigste varsler")
-        if alerts:
+        if filtered_alerts:
             rows = []
-            for alert in alerts[:10]:
+            for alert in filtered_alerts[:20]:
+                meta = resolve_security_metadata(alert.get("ticker"), alert)
+                listing = infer_security_listing(alert.get("ticker"), alert)
                 rows.append({
                     "Nivå": alert.get("level", "").upper(),
                     "Kilde": alert.get("source", ""),
                     "Ticker": alert.get("ticker", ""),
+                    "Navn": meta.get("name", ""),
+                    "Land": listing.get("country", ""),
+                    "Børs": listing.get("exchange", ""),
                     "Horisont": alert.get("horizon", ""),
                     "Kategori": alert.get("category", ""),
                     "Melding": alert.get("message", ""),

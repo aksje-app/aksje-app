@@ -18,6 +18,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import load_forecast_log, load_learning_stats, summarize_alerts
+from security_metadata import infer_security_listing, resolve_security_metadata
 
 VERSION_MARKER = "v18.6.2-daily-report-resolver"
 
@@ -282,11 +283,21 @@ def build_daily_market_report(focus: str = "Ranking toppkandidater", market: str
 
 
 def _rows_for_display(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{"Ticker": r.get("ticker", ""), "Horisont": r.get("horizon", ""), "Base": _fmt_pct(r.get("base_pct")), "Bull": _fmt_pct(r.get("bull_pct")), "Bear": _fmt_pct(r.get("bear_pct")), "Confidence": f"{r.get('confidence', 0)}%", "Strength": f"{r.get('strength', 0)}/100", "Risiko": r.get("risk", "")} for r in rows]
+    out = []
+    for r in rows:
+        meta = resolve_security_metadata(r.get("ticker"), r)
+        listing = infer_security_listing(r.get("ticker"), r)
+        out.append({"Ticker": r.get("ticker", ""), "Navn": meta.get("name", ""), "Land": listing.get("country", ""), "Børs": listing.get("exchange", ""), "Horisont": r.get("horizon", ""), "Base": _fmt_pct(r.get("base_pct")), "Bull": _fmt_pct(r.get("bull_pct")), "Bear": _fmt_pct(r.get("bear_pct")), "Confidence": f"{r.get('confidence', 0)}%", "Strength": f"{r.get('strength', 0)}/100", "Risiko": r.get("risk", "")})
+    return out
 
 
 def _candidate_rows(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{"Ticker": c.get("ticker", ""), "Kilde": c.get("source", ""), "Score": c.get("score", ""), "Confidence": c.get("confidence", ""), "Anbefaling": c.get("recommendation", ""), "Marked": c.get("market", "")} for c in candidates]
+    out = []
+    for c in candidates:
+        meta = resolve_security_metadata(c.get("ticker"), c)
+        listing = infer_security_listing(c.get("ticker"), c)
+        out.append({"Ticker": c.get("ticker", ""), "Navn": meta.get("name", ""), "Land": listing.get("country", ""), "Børs": listing.get("exchange", ""), "Kilde": c.get("source", ""), "Score": c.get("score", ""), "Confidence": c.get("confidence", ""), "Anbefaling": c.get("recommendation", ""), "Marked": listing.get("market") or c.get("market", "")})
+    return out
 
 
 def render_daily_ai_market_report() -> None:

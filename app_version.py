@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3m"
-APP_VERSION_NAME = "AI Control Center UX"
-APP_BUILD_ID = "v1863m-ai-control-center-ux"
+APP_VERSION = "v18.6.3n"
+APP_VERSION_NAME = "Panel Filters Metadata"
+APP_BUILD_ID = "v1863n-panel-filters-metadata"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():
