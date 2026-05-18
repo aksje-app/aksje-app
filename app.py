@@ -1376,6 +1376,84 @@ def render_global_update_bar_v18548() -> None:
     )
 
 
+def render_global_update_action_panel_v1863g() -> None:
+    """Stable full-width Global update action, outside the clipped top control columns."""
+    icon, state_txt = _global_update_state_text_v1862()
+    st.markdown(
+        f"""
+        <style>
+        html body .stApp .v1863g-global-action-card {{
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            max-width:100% !important;
+            margin:.42rem 0 .58rem 0 !important;
+            padding:.72rem .88rem !important;
+            border:1px solid rgba(125,211,252,.46) !important;
+            border-left:5px solid #38d5ff !important;
+            border-radius:12px !important;
+            background:linear-gradient(180deg,rgba(8,47,73,.74),rgba(8,20,42,.72)) !important;
+            color:#e0f2fe !important;
+            overflow:visible !important;
+        }}
+        html body .stApp .v1863g-global-action-title {{
+            color:#f8fafc !important;
+            -webkit-text-fill-color:#f8fafc !important;
+            font-size:1rem !important;
+            font-weight:1000 !important;
+            line-height:1.18 !important;
+            margin-bottom:.20rem !important;
+        }}
+        html body .stApp .v1863g-global-action-sub {{
+            color:#cbd5e1 !important;
+            -webkit-text-fill-color:#cbd5e1 !important;
+            font-size:.84rem !important;
+            font-weight:820 !important;
+            line-height:1.28 !important;
+        }}
+        html body .stApp div[data-testid="stForm"]:has(button[kind="primary"]) {{
+            clear:both !important;
+            width:100% !important;
+            max-width:100% !important;
+            overflow:visible !important;
+            margin:.20rem 0 .72rem 0 !important;
+        }}
+        html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] {{
+            min-height:52px !important;
+            width:100% !important;
+            max-width:100% !important;
+            border-radius:13px !important;
+            font-size:1rem !important;
+            font-weight:1000 !important;
+            white-space:normal !important;
+        }}
+        @media (max-width:900px) {{
+            html body .stApp .v1863g-global-action-card {{
+                padding:.68rem .78rem !important;
+                margin:.36rem 0 .48rem 0 !important;
+            }}
+        }}
+        </style>
+        <div class='v1863g-global-action-card'>
+            <div class='v1863g-global-action-title'>{icon} Global oppdatering</div>
+            <div class='v1863g-global-action-sub'>
+                Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}<br/>
+                Bruk denne når du vil lagre valg og kjøre tung oppdatering av appen.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.form("global_update_action_form_v1863g", clear_on_submit=False):
+        _global_run_clicked = st.form_submit_button(
+            "Kjør Global oppdatering",
+            use_container_width=True,
+            type="primary",
+        )
+    if _global_run_clicked:
+        _click_global_update_v1862()
+
+
 _PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
 
 
@@ -7246,12 +7324,13 @@ with _tq5:
     if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
         _clear_stops_ready_v158()
 with _tq6:
-    if st.button("🔄 Global", key="top_apply_all_changes_v1862_inline", use_container_width=True, type="primary", help="Lagre valg og kjør global oppdatering"):
-        _click_global_update_v1862()
+    st.empty()
 with _tq7:
     if _top_emergency_stop:
         if st.button("🔓 Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
             _reset_emergency_stop_v157()
+
+render_global_update_action_panel_v1863g()
 
 # V15.8: alle handlingsmeldinger vises fullbredde under kontrollgruppen.
 if st.session_state.get("auto_control_notice_v153"):

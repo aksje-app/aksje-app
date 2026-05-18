@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3f"
-APP_VERSION_NAME = "Norwegian Text Encoding Fix"
-APP_BUILD_ID = "v1863f-norwegian-text-encoding-fix"
+APP_VERSION = "v18.6.3g"
+APP_VERSION_NAME = "Global Button Visibility Fix"
+APP_BUILD_ID = "v1863g-global-button-visibility-fix"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():
