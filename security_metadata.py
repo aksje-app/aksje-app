@@ -10,9 +10,29 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping
 import re
 
-APP_SECURITY_METADATA_VERSION = "v18.5.74"
+APP_SECURITY_METADATA_VERSION = "v18.6.3p"
 STANDARD_MARKET_FILTERS = ["Alle", "USA", "Norge", "Sverige", "Danmark", "Finland", "Norden"]
 NORDIC_MARKETS = {"Norge", "Sverige", "Danmark", "Finland", "Island"}
+_MARKET_ALIASES = {
+    "US": "USA",
+    "USA": "USA",
+    "US MARKETS": "USA",
+    "S&P 500": "USA",
+    "NORWAY": "Norge",
+    "NORGE": "Norge",
+    "OSLO": "Norge",
+    "OSLO BÃ˜RS": "Norge",
+    "OSLO BØRS": "Norge",
+    "NORWAY / OSLO": "Norge",
+    "SWEDEN": "Sverige",
+    "SVERIGE": "Sverige",
+    "STOCKHOLM": "Sverige",
+    "SWEDEN / STOCKHOLM": "Sverige",
+    "DENMARK": "Danmark",
+    "DANMARK": "Danmark",
+    "FINLAND": "Finland",
+    "NORDEN": "Norden",
+}
 
 _STOCKS: Dict[str, Dict[str, str]] = {
     "AAPL": {"name": "Apple Inc.", "sector": "Technology", "risk": "Lav"},
@@ -145,45 +165,43 @@ def resolve_security_metadata(symbol: Any, row: Mapping[str, Any] | None = None)
 
 
 def infer_security_listing(symbol: Any, row: Mapping[str, Any] | None = None) -> Dict[str, str]:
-    """Infer country/exchange from ticker suffix or existing row metadata.
-
-    This is offline-first and intentionally conservative. Live market data can
-    still override these display fields when a source provides better metadata.
-    """
+    """Infer listing market from ticker suffix first, never from source/kilde."""
     row = row or {}
     sym = normalize_symbol(row.get("ticker") or row.get("symbol") or symbol)
-    market_raw = str(row.get("market") or row.get("Marked") or row.get("source") or "").strip()
+    market_raw = str(row.get("market") or row.get("Marked") or "").strip()
     exchange_raw = str(row.get("exchange") or row.get("børs") or row.get("Børs") or "").strip()
     country_raw = str(row.get("country") or row.get("land") or row.get("Land") or "").strip()
 
     country = country_raw
     exchange = exchange_raw
-    market = market_raw
+    market = _MARKET_ALIASES.get(market_raw.upper(), market_raw)
 
     if sym.endswith(".OL"):
-        country = country or "Norge"
-        exchange = exchange or "Oslo Børs"
-        market = market or "Norge"
+        country = "Norge"
+        exchange = "Oslo Børs"
+        market = "Norge"
     elif sym.endswith(".ST"):
-        country = country or "Sverige"
-        exchange = exchange or "Nasdaq Stockholm"
-        market = market or "Sverige"
+        country = "Sverige"
+        exchange = "Nasdaq Stockholm"
+        market = "Sverige"
     elif sym.endswith(".CO"):
-        country = country or "Danmark"
-        exchange = exchange or "Nasdaq Copenhagen"
-        market = market or "Danmark"
+        country = "Danmark"
+        exchange = "Nasdaq Copenhagen"
+        market = "Danmark"
     elif sym.endswith(".HE"):
-        country = country or "Finland"
-        exchange = exchange or "Nasdaq Helsinki"
-        market = market or "Finland"
+        country = "Finland"
+        exchange = "Nasdaq Helsinki"
+        market = "Finland"
     elif sym.endswith(".IS"):
-        country = country or "Island"
-        exchange = exchange or "Nasdaq Iceland"
-        market = market or "Island"
+        country = "Island"
+        exchange = "Nasdaq Iceland"
+        market = "Island"
     elif sym:
-        country = country or "USA"
-        exchange = exchange or "NYSE/Nasdaq"
-        market = market or "USA"
+        country = "USA"
+        exchange = "NYSE/Nasdaq"
+        market = "USA"
+    elif not market or market not in STANDARD_MARKET_FILTERS:
+        market = "Ukjent"
 
     return {
         "ticker": sym,
