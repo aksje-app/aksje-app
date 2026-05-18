@@ -1,4 +1,8 @@
+from functools import lru_cache
+from io import StringIO
+
 import pandas as pd
+import requests
 
 US_FALLBACK = [
     "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "AVGO", "TSLA", "LLY", "JPM",
@@ -25,15 +29,27 @@ SWEDISH_STOCKS = [
     "NIBE-B.ST", "SBB-B.ST", "SSAB-A.ST", "THULE.ST", "AZN.ST"
 ]
 
-def get_sp500_tickers(limit=150):
-    """Henter S&P 500 automatisk fra Wikipedia. Fallback hvis nettet feiler."""
+@lru_cache(maxsize=8)
+def _get_sp500_tickers_cached(limit=150):
+    """Fetch S&P 500 with a short timeout and cache it for fast reruns."""
     try:
-        tables = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+        response = requests.get(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            timeout=6,
+            headers={"User-Agent": "smart-ai-trading-app/1.0"},
+        )
+        response.raise_for_status()
+        tables = pd.read_html(StringIO(response.text))
         df = tables[0]
         tickers = df["Symbol"].astype(str).str.replace(".", "-", regex=False).tolist()
-        return tickers[:limit]
+        return tuple(tickers[:limit])
     except Exception:
-        return US_FALLBACK[:limit]
+        return tuple(US_FALLBACK[:limit])
+
+
+def get_sp500_tickers(limit=150):
+    """Henter S&P 500 automatisk fra Wikipedia. Fallback hvis nettet feiler."""
+    return list(_get_sp500_tickers_cached(int(limit or 150)))
 
 def get_norwegian_tickers(limit=None):
     return NORWEGIAN_STOCKS[:limit] if limit else NORWEGIAN_STOCKS

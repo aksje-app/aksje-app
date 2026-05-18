@@ -45,6 +45,10 @@ strategy_profiles.json
 cache/
 logs/
 runtime/
+storage/**
+!storage/
+!storage/.gitkeep
+runtime_audit_log.jsonl
 *.log
 *.tmp
 .DS_Store

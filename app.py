@@ -1811,10 +1811,12 @@ def render_market_category_selector():
 
 
 CHART_CONFIG = {
-    "scrollZoom": True,
-    "displayModeBar": True,
+    "scrollZoom": False,
+    "displayModeBar": "hover",
     "displaylogo": False,
-    "modeBarButtonsToAdd": ["pan2d", "zoom2d", "resetScale2d"],
+    "responsive": True,
+    "doubleClick": "reset",
+    "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"],
 }
 
 def render_interactive_chart(fig, *args, **kwargs):
@@ -3761,18 +3763,61 @@ def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def _download_live_banner_history(tickers):
+    tickers = tuple(str(t or "").strip().upper() for t in (tickers or []) if str(t or "").strip())
+    if yf is None or not tickers:
+        return None
+    try:
+        return yf.download(
+            tickers=list(tickers),
+            period="1mo",
+            interval="1d",
+            auto_adjust=False,
+            prepost=False,
+            progress=False,
+            threads=True,
+            group_by="column",
+        )
+    except Exception as e:
+        logging.warning("Live banner batch download failed: %s", e)
+        return None
+
+
+def _close_from_banner_history(history, ticker):
+    if history is None or getattr(history, "empty", True):
+        return None
+    try:
+        if isinstance(history.columns, pd.MultiIndex):
+            if "Close" in history.columns.get_level_values(0):
+                close_frame = history["Close"]
+                if ticker in close_frame:
+                    return close_frame[ticker].dropna()
+            if "Close" in history.columns.get_level_values(-1):
+                return history[(ticker, "Close")].dropna()
+            return None
+        if "Close" in history:
+            return history["Close"].dropna()
+    except Exception as e:
+        logging.warning("Live banner history parse failed for %s: %s", ticker, e)
+    return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_live_banner_snapshot(banner_items):
     if yf is None:
         return []
 
+    banner_items = tuple(banner_items or ())
+    history = _download_live_banner_history(tuple(ticker for _, ticker, _ in banner_items))
     cards = []
     for market, ticker, label in banner_items:
         try:
-            hist = yf.Ticker(ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
-            if hist is None or hist.empty or "Close" not in hist:
-                continue
-
-            close = hist["Close"].dropna()
+            close = _close_from_banner_history(history, ticker)
+            if close is None or close.empty:
+                hist = yf.Ticker(ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
+                if hist is None or hist.empty or "Close" not in hist:
+                    continue
+                close = hist["Close"].dropna()
             if close.empty or len(close) < 2:
                 continue
 

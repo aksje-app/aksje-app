@@ -3,6 +3,8 @@ from utils import using_postgres  # v18.6.3 centralized helpers
 
 import json
 import os
+import copy
+import time
 from pathlib import Path
 
 try:
@@ -13,6 +15,9 @@ except Exception:
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 SETTINGS_FILE = Path("app_settings.json")  # legacy fallback only
 STORAGE_KEY = "settings/app_settings.json"
+SETTINGS_CACHE_TTL_SECONDS = 2.0
+_SETTINGS_CACHE = None
+_SETTINGS_CACHE_AT = 0.0
 
 DEFAULT_SETTINGS = {
     "auto_trading_enabled": False,
@@ -91,6 +96,11 @@ def init_settings_store():
     return True
 
 def load_settings():
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_AT
+    now = time.monotonic()
+    if isinstance(_SETTINGS_CACHE, dict) and (now - _SETTINGS_CACHE_AT) <= SETTINGS_CACHE_TTL_SECONDS:
+        return copy.deepcopy(_SETTINGS_CACHE)
+
     if using_postgres():
         try:
             init_settings_store()
@@ -100,14 +110,20 @@ def load_settings():
             row = cur.fetchone()
             conn.close()
             if row:
-                return _merge(json.loads(row[0]))
+                merged = _merge(json.loads(row[0]))
+                _SETTINGS_CACHE = copy.deepcopy(merged)
+                _SETTINGS_CACHE_AT = now
+                return merged
         except Exception as e:
             print(f"load_settings DB fallback: {e}")
     storage = _storage()
     if storage is not None:
         stored = storage.read_json(STORAGE_KEY, default=None)
         if isinstance(stored, dict):
-            return _merge(stored)
+            merged = _merge(stored)
+            _SETTINGS_CACHE = copy.deepcopy(merged)
+            _SETTINGS_CACHE_AT = now
+            return merged
 
     # One-time legacy migration from old root file if present locally.
     if SETTINGS_FILE.exists():
@@ -116,12 +132,18 @@ def load_settings():
             merged = _merge(legacy)
             if storage is not None:
                 storage.write_json(STORAGE_KEY, merged)
+            _SETTINGS_CACHE = copy.deepcopy(merged)
+            _SETTINGS_CACHE_AT = now
             return merged
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    return _merge({})
+    merged = _merge({})
+    _SETTINGS_CACHE = copy.deepcopy(merged)
+    _SETTINGS_CACHE_AT = now
+    return merged
 
 def save_settings(settings):
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_AT
     settings = _merge(settings)
     if using_postgres():
         try:
@@ -135,6 +157,8 @@ def save_settings(settings):
             """, (json.dumps(settings),))
             conn.commit()
             conn.close()
+            _SETTINGS_CACHE = copy.deepcopy(settings)
+            _SETTINGS_CACHE_AT = time.monotonic()
             return True
         except Exception as e:
             print(f"save_settings DB fallback: {e}")
@@ -142,11 +166,15 @@ def save_settings(settings):
     if storage is not None:
         try:
             storage.write_json(STORAGE_KEY, settings)
+            _SETTINGS_CACHE = copy.deepcopy(settings)
+            _SETTINGS_CACHE_AT = time.monotonic()
             return False
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
     # Last-resort local dev fallback only.
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+    _SETTINGS_CACHE = copy.deepcopy(settings)
+    _SETTINGS_CACHE_AT = time.monotonic()
     return False
 
 def reset_settings():
