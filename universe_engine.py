@@ -15,6 +15,7 @@ session_state, Top Picks eller watchlist.
 """
 
 from __future__ import annotations
+from utils import _safe_float, _clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -53,20 +54,8 @@ class SmartUniverseCandidate:
         return asdict(self)
 
 
-def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
-    try:
-        if value is None or value == "":
-            return default
-        out = float(value)
-        if math.isnan(out) or math.isinf(out):
-            return default
-        return out
-    except Exception:
-        return default
 
 
-def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
-    return max(low, min(high, float(value)))
 
 
 def normalize_ticker(value: Any) -> str:

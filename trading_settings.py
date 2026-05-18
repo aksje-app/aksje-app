@@ -1,3 +1,4 @@
+import logging
 
 import json
 import os
@@ -115,8 +116,8 @@ def load_rules():
                 rules.update(legacy)
                 if storage is not None:
                     storage.write_json(STORAGE_KEY, rules)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return rules
 
 
@@ -129,21 +130,21 @@ def save_rules(rules):
             storage = _storage()
             if storage is not None:
                 storage.write_json(STORAGE_KEY, clean)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return True
     storage = _storage()
     if storage is not None:
         try:
             storage.write_json(STORAGE_KEY, clean)
             return False
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         with open(LOCAL_RULES_FILE, "w", encoding="utf-8") as f:
             json.dump(clean, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return False
 
 

@@ -13,6 +13,7 @@ across supplied historical snapshots or synthetic regime/stress replays.
 """
 
 from __future__ import annotations
+from utils import _safe_float, _now_iso  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -46,20 +47,8 @@ class ValidationConfig:
         return out
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None or value == "":
-            return default
-        out = float(str(value).replace("%", "").replace(",", ".").strip())
-        if math.isnan(out) or math.isinf(out):
-            return default
-        return out
-    except Exception:
-        return default
 
 
 def _config(value: Optional[Mapping[str, Any] | ValidationConfig]) -> ValidationConfig:

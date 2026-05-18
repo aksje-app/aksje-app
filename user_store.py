@@ -1,3 +1,4 @@
+from utils import using_postgres  # v18.6.3 centralized helpers
 
 import base64
 import hashlib
@@ -5,7 +6,7 @@ import hmac
 import json
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -19,8 +20,6 @@ USERS_FILE = Path("app_users.json")
 PBKDF2_ITERATIONS = 220_000
 
 
-def using_postgres():
-    return bool(DATABASE_URL) and psycopg2 is not None
 
 
 def _conn():
@@ -175,7 +174,7 @@ def create_user(username, password, role="user", active=True):
         return False, "Bruker finnes allerede"
 
     hp = hash_password(password)
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     if using_postgres():
         conn = _conn()
@@ -211,7 +210,7 @@ def update_user(username, role=None, active=None, password=None):
 
     new_role = user.get("role", "user") if role is None else ("admin" if str(role).lower() == "admin" else "user")
     new_active = user.get("active", True) if active is None else bool(active)
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     if password:
         if len(password) < 8:

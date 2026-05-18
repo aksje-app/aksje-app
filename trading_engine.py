@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from signal_engine import score_signal
 from notifier import notify_trade
@@ -296,8 +297,8 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
         try:
             if rsi is not None and float(rsi) > 75 and (prev_rsi is None or float(rsi) < float(prev_rsi)):
                 return paper_sell(ticker, price, f"RSI sell {float(rsi):.1f}")
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return False, f"HOLD {ticker}"
     if "BUY" in sig:
         return paper_buy(ticker, price, confidence, "BUY signal")
