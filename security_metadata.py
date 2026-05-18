@@ -11,6 +11,8 @@ from typing import Any, Dict, Mapping
 import re
 
 APP_SECURITY_METADATA_VERSION = "v18.5.74"
+STANDARD_MARKET_FILTERS = ["Alle", "USA", "Norge", "Sverige", "Danmark", "Finland", "Norden"]
+NORDIC_MARKETS = {"Norge", "Sverige", "Danmark", "Finland", "Island"}
 
 _STOCKS: Dict[str, Dict[str, str]] = {
     "AAPL": {"name": "Apple Inc.", "sector": "Technology", "risk": "Lav"},
@@ -189,6 +191,37 @@ def infer_security_listing(symbol: Any, row: Mapping[str, Any] | None = None) ->
         "exchange": exchange or "Ukjent",
         "market": market or "Ukjent",
     }
+
+
+def standard_market_options(include_sources: bool = False) -> list[str]:
+    options = list(STANDARD_MARKET_FILTERS)
+    if include_sources:
+        options += ["Top Picks", "Watchlist", "Paper trading", "Portefølje"]
+    return options
+
+
+def market_matches_filter(symbol: Any, selected_market: Any, row: Mapping[str, Any] | None = None) -> bool:
+    selected = str(selected_market or "Alle").strip()
+    if selected in {"", "Alle"}:
+        return True
+    listing = infer_security_listing(symbol, row)
+    market = str(listing.get("market") or "")
+    country = str(listing.get("country") or "")
+    source = str((row or {}).get("source") or (row or {}).get("Kilde") or "")
+    if selected == "Norden":
+        return market in NORDIC_MARKETS or country in NORDIC_MARKETS
+    if selected in {"Top Picks", "Watchlist", "Paper trading", "Portefølje"}:
+        return selected.lower() in source.lower()
+    return selected in {market, country}
+
+
+def filter_tickers_for_market(tickers: Any, selected_market: Any) -> list[str]:
+    out = []
+    for ticker in tickers or []:
+        sym = normalize_symbol(ticker)
+        if sym and market_matches_filter(sym, selected_market, {"ticker": sym}):
+            out.append(sym)
+    return out
 
 
 def fund_display_label(symbol: Any, row: Mapping[str, Any] | None = None) -> str:

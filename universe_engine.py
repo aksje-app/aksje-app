@@ -363,6 +363,13 @@ def resolve_universe_tickers(
             source_lists.append(list(get_norwegian_tickers(limit=max_count) or []))
         elif scope == "Sverige" and get_swedish_tickers:
             source_lists.append(list(get_swedish_tickers(limit=max_count) or []))
+        elif scope == "Norden":
+            nordic = []
+            if get_norwegian_tickers:
+                nordic.extend(list(get_norwegian_tickers(limit=max_count) or []))
+            if get_swedish_tickers:
+                nordic.extend(list(get_swedish_tickers(limit=max_count) or []))
+            source_lists.append(nordic)
         elif scope in {"Top Picks", "Watchlist", "Paper trading", "Portefølje", "Smart AI-utvalg"}:
             source_lists.append(_tickers_from_existing_scope(scope, existing_tickers_by_scope))
         else:
@@ -408,7 +415,7 @@ def resolve_strict_universe_tickers(
     if mode == "Smart AI-utvalg":
         return (from_scope("Smart AI-utvalg"), "Smart AI-utvalg")
 
-    market_scopes = [scope for scope in scopes if scope in {"USA", "Norge", "Sverige", "Alle"}]
+    market_scopes = [scope for scope in scopes if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}]
     if mode == "Multi-marked":
         return (resolve_universe_tickers(market_scopes or ["USA", "Norge", "Sverige"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Multi-marked")
 

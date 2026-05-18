@@ -18,7 +18,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import load_forecast_log, load_learning_stats, summarize_alerts
-from security_metadata import infer_security_listing, resolve_security_metadata
+from security_metadata import infer_security_listing, resolve_security_metadata, standard_market_options
 
 VERSION_MARKER = "v18.6.2-daily-report-resolver"
 
@@ -115,8 +115,12 @@ def _session_candidates_from_latest(markets: List[str], top_n: int) -> Tuple[Lis
                 keys += ["Norge", "TopPicks_Norge"]
             elif m == "Sverige":
                 keys += ["Sverige", "TopPicks_Sverige"]
+            elif m == "Norden":
+                keys += ["Norge", "Sverige", "TopPicks_Norge", "TopPicks_Sverige"]
             elif m == "Top Picks":
                 keys += ["TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]
+            elif m in {"Watchlist", "Paper trading", "Portefølje"}:
+                keys += [m, "Dynamisk watchlist / best rangerte", "Smart Universe Picker"]
     rows: List[Dict[str, Any]] = []
     for key in keys:
         data = latest.get(key) or []
@@ -307,7 +311,7 @@ def render_daily_ai_market_report() -> None:
         with c1:
             focus = st.selectbox("Fokus", ["Ranking toppkandidater", "Hele markedet", "Min portefølje", "Watchlist", "Manuelle tickere", "Risiko/advarsler"], key="daily_report_focus_v1862")
         with c2:
-            market = st.selectbox("Marked", ["Alle", "USA", "Norge", "Sverige", "Top Picks"], key="daily_report_market_v1862")
+            market = st.selectbox("Marked", standard_market_options(include_sources=True), key="daily_report_market_v1862")
         with c3:
             top_n = st.number_input("Topp N", min_value=3, max_value=100, value=20, step=1, key="daily_report_topn_v1862")
         with c4:

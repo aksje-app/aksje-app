@@ -14,7 +14,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import load_forecast_log, load_learning_stats, summarize_alerts
-from security_metadata import infer_security_listing, resolve_security_metadata
+from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter, resolve_security_metadata, standard_market_options
 
 
 def _safe_pct(value: Any) -> str:
@@ -129,14 +129,15 @@ def render_market_intelligence_center() -> None:
         st.caption("Samlet markedsoversikt basert på prognoser, varsler, portefølje/paper-data og lærende confidence. Ingen auto-trading-kobling.")
 
         all_tickers = sorted({str(r.get("ticker") or "").upper() for r in summaries if str(r.get("ticker") or "").strip()} | {str(a.get("ticker") or "").upper() for a in alerts if str(a.get("ticker") or "").strip()})
-        markets = ["Alle"] + sorted({infer_security_listing(t, {"ticker": t}).get("market", "Ukjent") for t in all_tickers if t})
+        markets = standard_market_options(include_sources=True)
         horizons = ["Alle"] + sorted({str(r.get("horizon") or "") for r in summaries if str(r.get("horizon") or "").strip()})
         risks = ["Alle"] + sorted({str(r.get("risk") or "Ukjent") for r in summaries if str(r.get("risk") or "").strip()})
         fc1, fc2, fc3, fc4 = st.columns([1.2, .9, .8, .9])
         with fc1:
-            ticker_filter = st.selectbox("Ticker", ["Alle"] + all_tickers, key="intelligence_ticker_filter_v1863m")
-        with fc2:
             market_filter = st.selectbox("Marked", markets, key="intelligence_market_filter_v1863m")
+        market_tickers = filter_tickers_for_market(all_tickers, market_filter)
+        with fc2:
+            ticker_filter = st.selectbox("Ticker", ["Alle"] + market_tickers, key="intelligence_ticker_filter_v1863n")
         with fc3:
             horizon_filter = st.selectbox("Horisont", horizons, key="intelligence_horizon_filter_v1863m")
         with fc4:
@@ -147,7 +148,7 @@ def render_market_intelligence_center() -> None:
             ticker = str(row.get("ticker") or "").upper()
             if ticker_filter != "Alle" and ticker != ticker_filter:
                 continue
-            if market_filter != "Alle" and infer_security_listing(ticker, row).get("market") != market_filter:
+            if not market_matches_filter(ticker, market_filter, row):
                 continue
             if horizon_filter != "Alle" and str(row.get("horizon") or "") != horizon_filter:
                 continue
@@ -160,7 +161,7 @@ def render_market_intelligence_center() -> None:
             ticker = str(alert.get("ticker") or "").upper()
             if ticker_filter != "Alle" and ticker != ticker_filter:
                 continue
-            if market_filter != "Alle" and infer_security_listing(ticker, alert).get("market") != market_filter:
+            if not market_matches_filter(ticker, market_filter, alert):
                 continue
             if horizon_filter != "Alle" and str(alert.get("horizon") or "") != horizon_filter:
                 continue

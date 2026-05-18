@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 import streamlit as st
 
 from forecast_store import load_alerts, summarize_alerts
-from security_metadata import infer_security_listing, resolve_security_metadata
+from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter, resolve_security_metadata, standard_market_options
 
 
 def _level_icon(level: str) -> str:
@@ -139,16 +139,17 @@ def render_common_alert_center(location: str = "top") -> None:
     with st.expander(headline, expanded=(red > 0)):
         st.caption("Felles varsler fra prognose, portefølje, paper trading, watchlist og ranking der data finnes. Dette er beslutningsstøtte, ikke ordre.")
 
-        ticker_values = sorted({str(a.get("ticker") or "").upper() for a in alerts if str(a.get("ticker") or "").strip()})
+        raw_tickers = sorted({str(a.get("ticker") or "").upper() for a in alerts if str(a.get("ticker") or "").strip()})
         source_values = ["Alle"] + sorted({str(a.get("source") or "Ukjent") for a in alerts})
         horizon_values = ["Alle"] + sorted({str(a.get("horizon") or "") for a in alerts if str(a.get("horizon") or "").strip()})
-        market_values = ["Alle"] + sorted({m for m in (_alert_market(a) for a in alerts) if m and m != "Ukjent"})
+        market_values = standard_market_options(include_sources=True)
 
         f1, f2, f3, f4, f5 = st.columns([1.15, .9, .8, .9, .9])
         with f1:
-            ticker_filter = st.selectbox("Ticker", ["Alle"] + ticker_values, key=f"alert_ticker_filter_{location}_v1863m")
-        with f2:
             market_filter = st.selectbox("Marked", market_values, key=f"alert_market_filter_{location}_v1863m")
+        ticker_values = filter_tickers_for_market(raw_tickers, market_filter)
+        with f2:
+            ticker_filter = st.selectbox("Ticker", ["Alle"] + ticker_values, key=f"alert_ticker_filter_{location}_v1863n")
         with f3:
             level_filter = st.selectbox("Nivå", ["Alle", "Rød", "Gul", "Grønn"], key=f"alert_level_filter_{location}_v1863m")
         with f4:
@@ -162,7 +163,7 @@ def render_common_alert_center(location: str = "top") -> None:
             ticker = str(alert.get("ticker") or "").upper()
             if ticker_filter != "Alle" and ticker != ticker_filter:
                 continue
-            if market_filter != "Alle" and _alert_market(alert) != market_filter:
+            if not market_matches_filter(ticker, market_filter, alert):
                 continue
             if level_filter != "Alle" and str(alert.get("level") or "").lower() != level_lookup.get(level_filter):
                 continue

@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3n"
-APP_VERSION_NAME = "Panel Filters Metadata"
-APP_BUILD_ID = "v1863n-panel-filters-metadata"
+APP_VERSION = "v18.6.3o"
+APP_VERSION_NAME = "Consistent Market Filters"
+APP_BUILD_ID = "v1863o-consistent-market-filters"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():

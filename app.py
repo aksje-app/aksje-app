@@ -7494,7 +7494,7 @@ def render_market_ranking_control_center_v18535():
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
-    market = st.selectbox("Marked", ["USA", "Norge", "Sverige"], key="cc_ranking_market_v18535")
+    market = st.selectbox("Marked", ["USA", "Norge", "Sverige", "Norden"], key="cc_ranking_market_v18535")
     limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     source_tickers = []
     if market == "USA":
@@ -7503,6 +7503,9 @@ def render_market_ranking_control_center_v18535():
         source_tickers = get_norwegian_tickers(limit=int(limit))
     elif market == "Sverige":
         source_tickers = get_swedish_tickers(limit=int(limit))
+    elif market == "Norden":
+        per_market = max(3, int(limit) // 2)
+        source_tickers = list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
     if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary"):
@@ -7567,6 +7570,9 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
         return _dedupe(get_norwegian_tickers(limit=limit))
     if scope == "Sverige":
         return _dedupe(get_swedish_tickers(limit=limit))
+    if scope == "Norden":
+        per_market = max(3, limit // 2)
+        return _dedupe(list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market)))
     if scope == "Multi-marked":
         per_market = max(3, limit // 3)
         return _dedupe(list(get_sp500_tickers(limit=per_market)) + list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market)))
@@ -7715,7 +7721,7 @@ def render_auto_test_lab_control_center_v18536():
     with col_a:
         scope = st.selectbox(
             "Univers",
-            ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Multi-marked", "Manuell liste"],
+            ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Norden", "Multi-marked", "Manuell liste"],
             key="auto_lab_scope_v18537",
         )
     with col_b:
@@ -9750,17 +9756,19 @@ elif active_panel == "⭐ Top Picks":
         "Kjøp nå = kandidater som også har grønt teknisk signal akkurat nå."
     )
 
-    scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Alle"], horizontal=True)
+    scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Norden", "Alle"], horizontal=True)
 
     _market_sources_v1863j = {
         "USA": list(tickers_us or []),
         "Norge": list(tickers_no or []),
         "Sverige": list(tickers_se or []),
+        "Norden": list(tickers_no or []) + list(tickers_se or []),
     }
     _market_labels_v1863j = {
         "USA": "USA",
         "Norge": "Norge",
         "Sverige": "Sverige",
+        "Norden": "Norden",
         "Alle": "Alle markeder",
     }
     if scan_market == "Alle":
@@ -9783,7 +9791,12 @@ elif active_panel == "⭐ Top Picks":
         return list(rows) if rows else []
 
     def _top_picks_from_cached_markets_v1863j(market_name):
-        markets = ["USA", "Norge", "Sverige"] if market_name == "Alle" else [market_name]
+        if market_name == "Alle":
+            markets = ["USA", "Norge", "Sverige"]
+        elif market_name == "Norden":
+            markets = ["Norge", "Sverige"]
+        else:
+            markets = [market_name]
         combined = []
         for name in markets:
             combined.extend(_latest_market_rows_v1863j(name))

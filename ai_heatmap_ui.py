@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 import streamlit as st
 
 from ai_heatmap_engine import build_heatmap_rows, build_matrix_payload, build_sector_treemap_rows, extract_tickers_from_app_state, summarize_heatmap
-from security_metadata import infer_security_listing, resolve_security_metadata
+from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter, resolve_security_metadata, standard_market_options
 
 
 def _level_icon(level: str) -> str:
@@ -148,13 +148,14 @@ def render_ai_heatmaps() -> None:
         source_filter = all_tickers if scope.startswith("Appdata") and all_tickers else None
         rows = build_heatmap_rows(source_tickers=source_filter, limit=300)
         tickers = sorted({str(r.get("ticker") or "").upper() for r in rows if str(r.get("ticker") or "").strip()})
-        markets = ["Alle"] + sorted({infer_security_listing(t, {"ticker": t}).get("market", "Ukjent") for t in tickers})
+        markets = standard_market_options(include_sources=False)
         horizons = ["Alle"] + sorted({str(r.get("horizon") or "") for r in rows if str(r.get("horizon") or "").strip()})
         f1, f2, f3, f4 = st.columns([1.2, .9, .8, .8])
         with f1:
-            ticker_filter = st.selectbox("Ticker", ["Alle"] + tickers, key="ai_heatmap_ticker_filter_v1863m")
-        with f2:
             market_filter = st.selectbox("Marked", markets, key="ai_heatmap_market_filter_v1863m")
+        market_tickers = filter_tickers_for_market(tickers, market_filter)
+        with f2:
+            ticker_filter = st.selectbox("Ticker", ["Alle"] + market_tickers, key="ai_heatmap_ticker_filter_v1863n")
         with f3:
             horizon_filter = st.selectbox("Horisont", horizons, key="ai_heatmap_horizon_filter_v1863m")
         with f4:
@@ -165,7 +166,7 @@ def render_ai_heatmaps() -> None:
             ticker = str(row.get("ticker") or "").upper()
             if ticker_filter != "Alle" and ticker != ticker_filter:
                 continue
-            if market_filter != "Alle" and infer_security_listing(ticker, row).get("market") != market_filter:
+            if not market_matches_filter(ticker, market_filter, row):
                 continue
             if horizon_filter != "Alle" and str(row.get("horizon") or "") != horizon_filter:
                 continue

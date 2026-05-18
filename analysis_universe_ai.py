@@ -82,7 +82,7 @@ WORKSPACE_MODES = [
     "Smart AI-utvalg",
 ]
 
-MARKET_SCOPES = ["USA", "Norge", "Sverige", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Manuell liste", "Smart AI-utvalg"]
+MARKET_SCOPES = ["USA", "Norge", "Sverige", "Norden", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Manuell liste", "Smart AI-utvalg"]
 
 SECTOR_OPTIONS = [
     "Alle sektorer",
