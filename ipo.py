@@ -3,6 +3,7 @@ import requests
 from datetime import date, timedelta
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+import re
 
 load_dotenv()
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
@@ -81,6 +82,53 @@ def _matches_country(row, country):
     text = _row_text(row)
     return any(keyword in text for keyword in NORDIC_EXCHANGE_KEYWORDS.get(country, ()))
 
+
+def _looks_like_ipo_or_listing_text(text):
+    low = str(text or "").lower()
+    include = (
+        "ipo",
+        "initial public offering",
+        "new listing",
+        "listing date",
+        "admission",
+        "admitted to trading",
+        "first day of trading",
+        "første handelsdag",
+        "notering",
+        "börsnotering",
+        "børsnotering",
+    )
+    exclude = (
+        "bond",
+        "bonds",
+        "obligation",
+        "warrant",
+        "warrants",
+        "certificate",
+        "certificates",
+        "structured product",
+        "derivative",
+        "derivatives",
+        "etf",
+        "etn",
+        "fund",
+        "fonds",
+        "mutual fund",
+        "open-end",
+        "rights issue",
+        "subscription right",
+        "treasury bill",
+        "note",
+        "notes",
+    )
+    return any(word in low for word in include) and not any(word in low for word in exclude)
+
+
+def _extract_dateish(text):
+    text = str(text or "")
+    match = re.search(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{4}\b|\b\d{1,2}\.\d{1,2}\.\d{4}\b", text)
+    return match.group(0) if match else "Se kilde"
+
 def get_ipo_calendar(days_back=30, days_forward=60):
     if not FINNHUB_API_KEY or FINNHUB_API_KEY.startswith("din_"):
         return [], "Mangler Finnhub API-nøkkel. Legg FINNHUB_API_KEY i .env"
@@ -153,7 +201,7 @@ def get_euronext_oslo_ipos(limit=20):
         text = " ".join(card.get_text(" ", strip=True).split())
         if not text or "Oslo" not in text:
             continue
-        if "IPO" not in text and "listing" not in text.lower() and "Euronext" not in text:
+        if not _looks_like_ipo_or_listing_text(text):
             continue
         key = text[:180]
         if key in seen:
@@ -172,7 +220,7 @@ def get_euronext_oslo_ipos(limit=20):
                 elif not symbol and len(cell) <= 12 and any(ch.isalpha() for ch in cell):
                     symbol = cell
         else:
-            ipo_date = "Se Euronext"
+            ipo_date = _extract_dateish(text)
             name = text[:100]
             symbol = ""
             market = "Euronext Oslo"
@@ -197,6 +245,8 @@ def get_euronext_oslo_ipos_legacy(limit=20):
             continue
         joined = " | ".join(cells)
         if "Oslo" not in joined:
+            continue
+        if not _looks_like_ipo_or_listing_text(joined):
             continue
 
         ipo_date = cells[0]

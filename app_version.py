@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3i"
-APP_VERSION_NAME = "IPO Coverage and Watchlist"
-APP_BUILD_ID = "v1863i-ipo-coverage-watchlist"
+APP_VERSION = "v18.6.3j"
+APP_VERSION_NAME = "Market-Aware Top Picks and IPO Cleanup"
+APP_BUILD_ID = "v1863j-market-aware-top-picks-ipo-cleanup"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():

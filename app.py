@@ -9722,14 +9722,44 @@ elif active_panel == "⭐ Top Picks":
 
     scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Alle"], horizontal=True)
 
-    if scan_market == "USA":
-        source_tickers = tickers_us
-    elif scan_market == "Norge":
-        source_tickers = tickers_no
-    elif scan_market == "Sverige":
-        source_tickers = tickers_se
+    _market_sources_v1863j = {
+        "USA": list(tickers_us or []),
+        "Norge": list(tickers_no or []),
+        "Sverige": list(tickers_se or []),
+    }
+    _market_labels_v1863j = {
+        "USA": "USA",
+        "Norge": "Norge",
+        "Sverige": "Sverige",
+        "Alle": "Alle markeder",
+    }
+    if scan_market == "Alle":
+        source_tickers = (
+            _market_sources_v1863j["USA"]
+            + _market_sources_v1863j["Norge"]
+            + _market_sources_v1863j["Sverige"]
+        )
     else:
-        source_tickers = tickers_all
+        source_tickers = _market_sources_v1863j.get(scan_market, [])
+
+    def _latest_market_rows_v1863j(market_name):
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        for key in (market_name, f"TopPicks_{market_name}"):
+            rows = latest.get(key)
+            if rows:
+                return list(rows)
+        cache = st.session_state.get(f"rank_cache_v148_{market_name}") or {}
+        rows = (cache.get("data") or [])
+        return list(rows) if rows else []
+
+    def _top_picks_from_cached_markets_v1863j(market_name):
+        markets = ["USA", "Norge", "Sverige"] if market_name == "Alle" else [market_name]
+        combined = []
+        for name in markets:
+            combined.extend(_latest_market_rows_v1863j(name))
+        if not combined:
+            return []
+        return _ranked_for_display(build_top_picks(combined, min_score=min_top_pick_score, max_items=15))
 
     _guard_summary = market_guard_summary(source_tickers)
     st.caption(_guard_summary)
@@ -9751,14 +9781,20 @@ elif active_panel == "⭐ Top Picks":
         )
 
     with st.spinner("Finner beste kandidater..."):
-        ranked = cached_auto_rank_market(
-            f"TopPicks_{scan_market}",
-            source_tickers,
-            max_count=max_count,
-            use_news=False,
-            force_manual_fetch=_manual_fetch_closed,
-        )
-        top_picks = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
+        if not _manual_fetch_closed and not _open_now:
+            ranked = _top_picks_from_cached_markets_v1863j(scan_market)
+        else:
+            ranked = cached_auto_rank_market(
+                f"TopPicks_{scan_market}",
+                source_tickers,
+                max_count=max_count,
+                use_news=False,
+                force_manual_fetch=_manual_fetch_closed,
+            )
+        if not _manual_fetch_closed and not _open_now:
+            top_picks = _ranked_for_display(ranked)
+        else:
+            top_picks = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
         buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
         latest = st.session_state.setdefault("latest_rankings_v148", {})
         latest[f"TopPicks_{scan_market}"] = top_picks or []
@@ -9769,14 +9805,15 @@ elif active_panel == "⭐ Top Picks":
 
     if not top_picks and not _manual_fetch_closed and not _open_now:
         st.info(
-            "Ingen cache-data funnet. Kryss av for 'Hent data manuelt likevel' hvis du vil analysere utenfor åpningstid. "
+            f"Ingen lagret rangering for {_market_labels_v1863j.get(scan_market, scan_market)}. "
+            "Kryss av for 'Hent data manuelt likevel' hvis du vil analysere utenfor åpningstid. "
             "Dette starter ikke auto-trading."
         )
 
     top_pick_view = st.radio("Top Picks-visning", ["⭐ Top Picks", "🟢 Kjøp nå"], horizontal=True, key=f"top_pick_view_{scan_market}_v148")
 
     if top_pick_view == "⭐ Top Picks":
-        render_ranking(top_picks, f"⭐ Top Picks {scan_market}")
+        render_ranking(top_picks, f"⭐ Top Picks {_market_labels_v1863j.get(scan_market, scan_market)}")
         st.caption("Merk: En aksje kan være sterk totalt, men fortsatt ha VENT/UNNGÅ hvis teknisk timing er dårlig.")
         render_analysis(top_picks, f"TopPicks_{scan_market}")
     else:
@@ -9801,7 +9838,7 @@ elif active_panel == "⭐ Top Picks":
                     st.success(_joined)
                 st.rerun()
 
-            render_ranking(buy_now_picks, f"🟢 Kjøp nå {scan_market}")
+            render_ranking(buy_now_picks, f"🟢 Kjøp nå {_market_labels_v1863j.get(scan_market, scan_market)}")
             render_analysis(buy_now_picks, f"KjopNa_{scan_market}")
         else:
             st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
