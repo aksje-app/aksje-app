@@ -14,6 +14,8 @@ than directly into the GitHub project tree.
 """
 
 from __future__ import annotations
+import logging
+from utils import _now_iso  # v18.6.3 centralized helpers
 
 import json
 import os
@@ -36,8 +38,6 @@ except Exception:  # pragma: no cover
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _safe_name(name: str) -> str:
@@ -181,8 +181,8 @@ class StorageService:
                 if not row:
                     return default
                 return json.loads(row[0])
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         path = self.base_dir / name
         if not path.exists():
@@ -212,8 +212,8 @@ class StorageService:
                 conn.commit()
                 conn.close()
                 return True
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         path = self.base_dir / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,8 +234,8 @@ class StorageService:
                 conn.commit()
                 conn.close()
                 return True
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         path = self.base_dir / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -257,8 +257,8 @@ class StorageService:
                 rows = [json.loads(r[0]) for r in cur.fetchall()]
                 conn.close()
                 return list(reversed(rows))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         path = self.base_dir / name
         if not path.exists():
@@ -269,8 +269,8 @@ class StorageService:
                 decoded = json.loads(line)
                 if isinstance(decoded, dict):
                     rows.append(decoded)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return rows
 
 

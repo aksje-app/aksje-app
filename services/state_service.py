@@ -11,6 +11,7 @@ Formål:
 """
 
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, Iterable, Optional
 
@@ -42,8 +43,8 @@ class StateService:
         state = self._state()
         try:
             state[key] = value
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return value
 
     def has(self, key: str) -> bool:
@@ -58,8 +59,8 @@ class StateService:
         try:
             if key in state:
                 del state[key]
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     def get_first(self, keys: Iterable[str], default: Any = None) -> Any:
         for key in keys:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 import re
 
@@ -166,8 +167,8 @@ class UniverseService:
             paper_store_tickers = _extract_tickers((loaded or {}).get("positions", {}))
             if paper_store_tickers:
                 out.setdefault("Paper trading", []).extend(paper_store_tickers)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         # Render/session state can be lost between deploys. Pull persisted
         # picker-related data back into source maps when available.
@@ -479,8 +480,8 @@ class UniverseService:
                 context={"origin": "UniverseService.store_result_as_rankings"},
                 storage=self.storage,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return rows
 
 
