@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3e"
-APP_VERSION_NAME = "Pushover Action Panel Fix"
-APP_BUILD_ID = "v1863e-pushover-action-panel-fix"
+APP_VERSION = "v18.6.3f"
+APP_VERSION_NAME = "Norwegian Text Encoding Fix"
+APP_BUILD_ID = "v1863f-norwegian-text-encoding-fix"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():
