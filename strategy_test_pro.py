@@ -13,6 +13,7 @@ og ikke ordreutførelse.
 """
 
 from __future__ import annotations
+import logging
 
 import html
 import itertools
@@ -57,10 +58,10 @@ def _safe_rerun() -> None:
     except AttributeError:  # pragma: no cover
         try:
             st.experimental_rerun()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _render_pro_progress_step(holder: Any, progress: Any, *, step: int, total: int, text: str) -> None:
@@ -77,12 +78,12 @@ def _render_pro_progress_step(holder: Any, progress: Any, *, step: int, total: i
     )
     try:
         progress.progress(pct, text=f"{step}/{total} {text}")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         time.sleep(0.55)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _finish_pro_progress(holder: Any, progress: Any, text: str, ok: bool = True) -> None:
@@ -94,8 +95,8 @@ def _finish_pro_progress(holder: Any, progress: Any, text: str, ok: bool = True)
     )
     try:
         progress.empty()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _storage():
@@ -616,8 +617,8 @@ def _unique_sorted(values, cast=float):
             cv = cast(v)
             if cv not in out:
                 out.append(cv)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return sorted(out)
 
 
@@ -842,8 +843,8 @@ def _load_json_list(path: Path) -> List[dict]:
             if storage is not None and rows:
                 storage.write_json(_storage_key_for_path(path), rows[-250:])
             return [dict(r) for r in rows if isinstance(r, dict)]
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return []
 
 
@@ -854,13 +855,13 @@ def _save_json_list(path: Path, rows: List[dict]) -> None:
         try:
             storage.write_json(_storage_key_for_path(path), rows)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rows, f, indent=2, ensure_ascii=False, default=str)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def save_strategy_log(payload: dict) -> str:
@@ -1030,15 +1031,15 @@ def data_quality_warnings(histories: Dict[str, pd.DataFrame], requested_tickers:
             days_old = (datetime.now().date() - last_date).days
             if days_old > 10:
                 warnings.append(f"{ticker}: siste datapunkt er {last_date} ({days_old} dager gammelt).")
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         if "Volume" in df.columns:
             try:
                 nonzero_share = float((df["Volume"].fillna(0) > 0).mean())
                 if nonzero_share < 0.30:
                     warnings.append(f"{ticker}: volumdata virker mangelfullt. Volum-baserte signaler kan bli svake.")
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return warnings
 
 

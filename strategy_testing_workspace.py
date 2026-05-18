@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 from datetime import datetime, timezone
@@ -24,10 +25,10 @@ def _safe_rerun() -> None:
     except AttributeError:  # pragma: no cover
         try:
             st.experimental_rerun()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 
@@ -45,12 +46,12 @@ def _render_tl_progress_step(holder: Any, progress: Any, *, title: str, step: in
     )
     try:
         progress.progress(pct, text=f"{step}/{total} {text}")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         time.sleep(0.55)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _finish_tl_progress(holder: Any, progress: Any, *, title: str, text: str, ok: bool = True) -> None:
@@ -62,8 +63,8 @@ def _finish_tl_progress(holder: Any, progress: Any, *, title: str, text: str, ok
     )
     try:
         progress.empty()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _normalise_history_frame(df: Any, ticker: str):
@@ -230,8 +231,8 @@ def _collect_known_tickers(default: str = "AAPL", limit: int = 12) -> List[str]:
         smart = st.session_state.get("smart_universe_result") or st.session_state.get("ai_analysis_universe_smart_result_v1859") or {}
         if isinstance(smart, Mapping):
             add(smart.get("top_picks") or smart.get("candidates") or [])
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return tickers[:limit] or [default]
 
 
@@ -286,8 +287,8 @@ def _score_rows_for_ticker(ticker: str) -> List[Dict[str, Any]]:
                     }
                     rows.append(ui_row)
                     raw_rows_to_capture.append(dict(item, source="Smart AI-univers"))
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     try:
         if raw_rows_to_capture:
@@ -296,8 +297,8 @@ def _score_rows_for_ticker(ticker: str) -> List[Dict[str, Any]]:
                 source="AI Kontrollsenter",
                 context={"origin": "Testing & Learning", "ticker": ticker},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     try:
         persisted = score_explanations_for_ui(ticker, limit=20)

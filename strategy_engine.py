@@ -1,3 +1,4 @@
+import logging
 
 import pandas as pd
 
@@ -43,8 +44,8 @@ def strategy_stats(equity, trades=None):
     for t in closed:
         try:
             pnls.append(float(t.get("pnl_pct", 0)))
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
     win_rate = (len(wins) / len(pnls) * 100) if pnls else 0
