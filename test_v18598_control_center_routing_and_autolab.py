@@ -8,6 +8,8 @@ def test_control_center_can_disable_legacy_main_sections():
     app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
     layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     assert "AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598" in layout
+    assert "ai_control_center_group_v1863m" in layout
+    assert "ai_control_center_active_panel_v1863m" in layout
     assert "return active_label" in layout
     assert "_active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())" in app
     assert "st.stop()" in app

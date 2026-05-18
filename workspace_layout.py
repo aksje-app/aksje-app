@@ -862,15 +862,69 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             ("🧩 Services", _render_storage_services_status),
         ]
         panels = base_panels + list(extra_panels or [])
-        labels = [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598] + [label for label, _renderer in panels]
-        active_label = st.radio(
-            "Velg Kontrollsenter-panel",
-            labels,
-            index=0,
-            horizontal=True,
-            key="ai_control_center_active_panel_v18535",
-            help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
-        )
+        panel_map = dict(panels)
+        group_map = {
+            "Normal visning": [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598],
+            "Analyse og prognose": [
+                "🎯 Analyseunivers",
+                "🔮 Prognose",
+                "📈 Daily Report",
+                "📊 Interaktiv analyse",
+            ],
+            "Marked og signaler": [
+                "🚨 Varsler",
+                "🧠 Intelligence",
+                "📊 Heatmaps",
+                "🌍 Regime",
+                "🌐 Makro/renter",
+                "📰 Nyheter",
+                "🏆 Marked/rangering",
+                "🔔 Watchlist/signaler",
+            ],
+            "Testing og portefølje": [
+                "🧪 Testing & Learning",
+                "🔬 Auto Test Lab",
+                "🏦 Fond / ETF",
+                "📊 Porteføljeanalyse",
+            ],
+            "System": [
+                "🧩 Services",
+                "🛠 System/admin",
+            ],
+        }
+        known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
+        extra_labels = [label for label, _renderer in panels if label not in known_labels]
+        if extra_labels:
+            group_map["Andre paneler"] = extra_labels
+
+        previous_label = st.session_state.get("ai_control_center_active_real_panel_v18598") or AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598
+        default_group = "Normal visning"
+        for group_name, group_labels in group_map.items():
+            if previous_label in group_labels:
+                default_group = group_name
+                break
+
+        c_group, c_panel = st.columns([0.9, 1.35])
+        with c_group:
+            active_group = st.selectbox(
+                "Velg arbeidsområde",
+                list(group_map.keys()),
+                index=list(group_map.keys()).index(default_group),
+                key="ai_control_center_group_v1863m",
+                help="Grupperer Kontrollsenteret så menyen er ryddig på mobil og PC.",
+            )
+        panel_options = [label for label in group_map.get(active_group, []) if label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598 or label in panel_map]
+        if not panel_options:
+            panel_options = [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598]
+        default_panel_index = panel_options.index(previous_label) if previous_label in panel_options else 0
+        with c_panel:
+            active_label = st.selectbox(
+                "Velg panel",
+                panel_options,
+                index=default_panel_index,
+                key="ai_control_center_active_panel_v1863m",
+                help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
+            )
         if active_label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598:
             st.markdown(
                 "<div class='ptw-lazy-panel-note'>Normal hovedvisning er aktiv. Velg et Kontrollsenter-panel når du vil kjøre én samlet oppgave.</div>",
@@ -883,7 +937,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             "<div class='ptw-lazy-panel-note'>Kun valgt panel åpnes og kjøres. Underliggende hovedpaneler skjules for å unngå dobbeltvisning.</div>",
             unsafe_allow_html=True,
         )
-        renderer = dict(panels).get(active_label)
+        renderer = panel_map.get(active_label)
         if renderer:
             st.session_state["ai_control_center_active_real_panel_v18598"] = active_label
             _run_control_panel(active_label, renderer)
@@ -891,4 +945,3 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         st.session_state["ai_control_center_active_real_panel_v18598"] = ""
         return None
     return None
-

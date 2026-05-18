@@ -307,10 +307,16 @@ def render_daily_ai_market_report() -> None:
 
     params = (focus, market, int(top_n), tuple(horizons), bool(unique), manual)
     report_key = f"daily_ai_market_report::{_today_key()}::{hash(params)}"
-    if run or report_key not in st.session_state:
+    last_key = st.session_state.get("daily_ai_market_report_last_key_v1862")
+    if run:
         st.session_state[report_key] = build_daily_market_report(focus, market, int(top_n), list(horizons), bool(unique), manual)
         st.session_state["daily_ai_market_report_last_key_v1862"] = report_key
-    report = st.session_state.get(st.session_state.get("daily_ai_market_report_last_key_v1862", report_key), st.session_state[report_key])
+        last_key = report_key
+
+    report = st.session_state.get(last_key) if last_key else None
+    if not report:
+        st.info("Velg oppsett og trykk «Oppdater AI Market Briefing». Rapporten kjøres ikke automatisk når panelet åpnes.")
+        return
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Dato", report.get("date", ""))

@@ -1471,18 +1471,26 @@ def _render_active_main_panel_selector_v18531():
     )
     if saved not in _PANEL_OPTIONS_V18531:
         saved = "🇺🇸 USA"
-    st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Aktivt hovedpanel</div>", unsafe_allow_html=True)
-    active = st.radio(
-        "Aktivt hovedpanel",
+    panel_help_v1863m = {
+        "🇺🇸 USA": "Viser USA-rangering og amerikanske kandidater.",
+        "🇳🇴 Norge": "Viser Norge-rangering og norske kandidater.",
+        "🇸🇪 Sverige": "Viser Sverige-rangering og svenske kandidater.",
+        "⭐ Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
+        "🚀 IPO": "Nye og kommende børsnoteringer.",
+        "🧪 Paper Trading": "Simulert handel og testportefølje.",
+    }
+    st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Hovedpanel</div>", unsafe_allow_html=True)
+    active = st.selectbox(
+        "Velg hovedpanel",
         _PANEL_OPTIONS_V18531,
         index=_PANEL_OPTIONS_V18531.index(saved),
-        horizontal=True,
-        key="active_main_panel_radio_v15",
-        label_visibility="collapsed",
+        key="active_main_panel_select_v1863m",
         on_change=_on_active_panel_change_v18531,
-        help="Bare valgt panel beregnes tungt. Widget-reruns oppdaterer valg, men skjulte paneler skal ikke starte nye analyser.",
+        help="Bare valgt hovedpanel vises og beregnes. AI Kontrollsenteret under brukes til mer spesifikke oppgaver.",
     )
+    st.caption(panel_help_v1863m.get(active, "Bare valgt hovedpanel vises."))
     st.markdown("</div>", unsafe_allow_html=True)
+    st.session_state["active_main_panel_radio_v15"] = active
     st.session_state["active_main_panel_persist_v15"] = active
     st.session_state["active_main_panel_persist_v1412"] = active
     return active
