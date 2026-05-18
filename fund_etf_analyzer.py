@@ -9,6 +9,7 @@ itself; the UI passes data providers only when the user presses run.
 """
 
 from __future__ import annotations
+from utils import _safe_float, _now_iso, _clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -359,24 +360,10 @@ def select_fund_candidates(
     }
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
-    try:
-        if value is None or value == "":
-            return default
-        out = float(value)
-        if math.isnan(out) or math.isinf(out):
-            return default
-        return out
-    except Exception:
-        return default
 
 
-def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
-    return max(low, min(high, float(value)))
 
 
 def normalize_fund_symbol(value: Any) -> str:

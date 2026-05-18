@@ -9,6 +9,7 @@ holdings from manual input, paper trading, Auto Test Lab and Fund / ETF results.
 """
 
 from __future__ import annotations
+from utils import _safe_float, _now_iso, _clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -54,24 +55,10 @@ class MixedHolding:
         return data
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
-    try:
-        if value is None or value == "":
-            return default
-        out = float(str(value).replace("%", "").replace(",", ".").strip())
-        if math.isnan(out) or math.isinf(out):
-            return default
-        return out
-    except Exception:
-        return default
 
 
-def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
-    return max(low, min(high, float(value)))
 
 
 def normalize_symbol(value: Any) -> str:

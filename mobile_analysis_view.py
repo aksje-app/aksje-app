@@ -1,3 +1,5 @@
+import logging
+from utils import _safe_float  # v18.6.3 centralized helpers
 
 import math
 import html
@@ -823,8 +825,8 @@ def _add_last_value_label(fig, x, y, text, row=1, col=1, color='rgba(59,130,246,
             row=row,
             col=1,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 
@@ -1157,13 +1159,6 @@ def _safe_key(*parts):
     )
 
 
-def _safe_float(value, default=0.0):
-    try:
-        if value is None:
-            return default
-        return float(value)
-    except Exception:
-        return default
 
 
 def _get_position_for_ticker(portfolio, ticker):

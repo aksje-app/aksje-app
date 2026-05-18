@@ -1,3 +1,4 @@
+import logging
 import json
 import os
 import time
@@ -42,8 +43,8 @@ def _save_cache(cache):
     try:
         NEWS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         NEWS_CACHE_PATH.write_text(json.dumps(cache or {}, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _fresh(entry, ttl_hours):

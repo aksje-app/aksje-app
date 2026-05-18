@@ -1,3 +1,4 @@
+from utils import _safe_float, _clamp  # v18.6.3 centralized helpers
 
 """
 Smart Core v2
@@ -16,17 +17,8 @@ UI skal aldri krasje på manglende keys.
 Alle kall returnerer samme stabile dictionary.
 """
 
-def _safe_float(value, default=0.0):
-    try:
-        if value is None:
-            return default
-        return float(value)
-    except Exception:
-        return default
 
 
-def _clamp(value, low, high):
-    return max(low, min(high, value))
 
 
 def _get(item, key, default=None):

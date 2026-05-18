@@ -8,6 +8,7 @@ v18.6.2:
 - Alerts can be marked reviewed so the badge/report stops showing already handled items.
 """
 from __future__ import annotations
+import logging
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Iterable, Tuple
@@ -152,8 +153,8 @@ def resolve_report_candidates(focus: str, market: str, top_n: int, manual: str =
                         c = _as_candidate(r, key)
                         if c:
                             rows.append(c)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning("Silenced exception restored in v18.6.3: %s", e)
         if rows:
             return _dedupe(rows, top_n), ["Portefølje fra session_state"]
         diagnostics.append("Ingen portefølje funnet i session_state")

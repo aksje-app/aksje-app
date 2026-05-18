@@ -8,6 +8,7 @@ Ingen auto-trading-kobling.
 """
 
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -77,8 +78,8 @@ def build_heatmap_rows(source_tickers: Optional[List[str]] = None, limit: int = 
                 continue
             weight = {"red": 3, "yellow": 2, "green": 1}.get(str(alert.get("level", "")).lower(), 1)
             alerts_by_ticker[ticker] = alerts_by_ticker.get(ticker, 0) + weight
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     out: List[Dict[str, Any]] = []
     for row in rows:
@@ -144,8 +145,8 @@ def extract_tickers_from_app_state(session_state: Any, keys: Optional[List[str]]
         for key in keys:
             if key in session_state:
                 add(session_state.get(key))
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     return tickers[:100]
 

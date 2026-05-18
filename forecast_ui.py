@@ -13,6 +13,7 @@ Den bruker forecast_engine.py fra Bygg 1 og viser:
 """
 
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,8 +55,8 @@ def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[
                     close = close.iloc[:, 0]
                 else:
                     close = close.select_dtypes(include="number").iloc[:, 0]
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         if hasattr(close, "dropna"):
             close = close.dropna()
@@ -87,8 +88,8 @@ def _fetch_close_prices_yfinance(ticker: str, period: str = "1y") -> Tuple[List[
         try:
             st.session_state[f"forecast_price_dates_latest_{ticker}"] = price_dates
             st.session_state[f"forecast_price_dates_{ticker}_{period}"] = price_dates
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return prices, None
     except Exception as exc:
         return [], f"Klarte ikke hente prisdata for {ticker}: {exc}"
@@ -188,8 +189,8 @@ def _collect_forecast_candidates(limit: int = 80) -> List[str]:
                     add(item)
             else:
                 add(value)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     # Try local app files if they exist. Safe and optional.
     try:
@@ -214,8 +215,8 @@ def _collect_forecast_candidates(limit: int = 80) -> List[str]:
             elif isinstance(data, list):
                 for item in data:
                     add(item)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     return candidates[:limit]
 
@@ -265,8 +266,8 @@ def _candidate_source_label(ticker: str) -> str:
                 blob = str(value).upper()
                 if ticker in blob:
                     return label
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return "Appdata"
 
 
@@ -287,8 +288,8 @@ def _get_cached_forecast(cache_key: str):
 def _set_cached_forecast(cache_key: str, result_dict: Dict[str, Any]) -> None:
     try:
         st.session_state[cache_key] = result_dict
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _render_quick_candidates_panel(limit: int = 12) -> Optional[str]:
@@ -462,8 +463,8 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
             try:
                 if value is not None:
                     all_values.append(float(value))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     if today_label and all_values:
         fig.add_trace(go.Scatter(
@@ -704,8 +705,8 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
                 margin=dict(l=10, r=10, t=50, b=10),
             )
             st.plotly_chart(fig, use_container_width=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         if result.warnings:
             st.warning(" ".join(result.warnings))

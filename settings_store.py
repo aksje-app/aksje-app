@@ -1,3 +1,5 @@
+import logging
+from utils import using_postgres  # v18.6.3 centralized helpers
 
 import json
 import os
@@ -59,8 +61,6 @@ def _storage():
     except Exception:
         return None
 
-def using_postgres():
-    return bool(DATABASE_URL) and psycopg2 is not None
 
 def _merge(settings):
     out = json.loads(json.dumps(DEFAULT_SETTINGS))
@@ -117,8 +117,8 @@ def load_settings():
             if storage is not None:
                 storage.write_json(STORAGE_KEY, merged)
             return merged
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return _merge({})
 
 def save_settings(settings):
@@ -143,8 +143,8 @@ def save_settings(settings):
         try:
             storage.write_json(STORAGE_KEY, settings)
             return False
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     # Last-resort local dev fallback only.
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
     return False

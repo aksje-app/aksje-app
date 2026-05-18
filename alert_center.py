@@ -9,6 +9,7 @@ Felles varselsenter:
 """
 
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List
 
@@ -46,8 +47,8 @@ def collect_common_alerts(limit: int = 100) -> List[Dict[str, Any]]:
     try:
         for alert in load_alerts(limit=limit):
             alerts.append(_normalize_alert(alert, source="Prognose"))
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     try:
         for key, source in [
@@ -72,8 +73,8 @@ def collect_common_alerts(limit: int = 100) -> List[Dict[str, Any]]:
                 "horizon": "",
                 "message": f"{source} er tilgjengelig for prognose-/risikovarsler.",
             }, source=source))
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     seen = set()
     deduped: List[Dict[str, Any]] = []

@@ -14,6 +14,7 @@ Viktig:
 """
 
 from __future__ import annotations
+from utils import _clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
@@ -109,8 +110,6 @@ def _daily_returns(prices: Sequence[float]) -> List[float]:
     return returns
 
 
-def _clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
 
 
 def _risk_from_vol(vol_annual: float) -> str:

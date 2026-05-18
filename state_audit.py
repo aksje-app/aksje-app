@@ -4,6 +4,7 @@ Small helpers that describe committed paper-trading state without importing
 Streamlit or analysis modules. Used as a safe layer around trading actions.
 """
 from __future__ import annotations
+from utils import _safe_float  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -29,11 +30,6 @@ class PaperStateSnapshot:
     max_buys_per_day: int
 
 
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return float(default)
 
 
 def _today_iso() -> str:

@@ -13,6 +13,7 @@ No auto-trading connection.
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import math
@@ -34,8 +35,8 @@ def _pct_returns(prices: Sequence[float]) -> List[float]:
             f = float(p)
             if f > 0:
                 clean.append(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     returns = []
     for prev, cur in zip(clean, clean[1:]):
         if prev > 0:

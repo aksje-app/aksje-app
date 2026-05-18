@@ -1,3 +1,4 @@
+import logging
 
 import json
 import os
@@ -73,8 +74,8 @@ def _load_local():
                 if storage is not None:
                     storage.write_json(STORAGE_KEY, data)
                 return data
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return {}
 
 
@@ -84,13 +85,13 @@ def _save_local(data):
         try:
             storage.write_json(STORAGE_KEY, data if isinstance(data, dict) else {})
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         with open(LOCAL_ALERT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def get_last_signal(ticker):

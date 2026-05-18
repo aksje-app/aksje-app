@@ -12,6 +12,8 @@ No trading/order execution is connected here.
 """
 
 from __future__ import annotations
+import logging
+from utils import _now_iso  # v18.6.3 centralized helpers
 
 import hashlib
 import json
@@ -19,8 +21,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _safe_ticker(ticker: str) -> str:
@@ -159,8 +159,8 @@ def save_score_explanation(
         latest_rows = latest_rows[:50]
         try:
             storage.append_jsonl(history_key, payload)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     else:
         # Keep the latest slot fresh without growing history.
         latest_rows = [dict(r) for r in latest_rows if isinstance(r, Mapping)]
@@ -172,8 +172,8 @@ def save_score_explanation(
 
     try:
         storage.write_json(latest_key, latest_rows)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return payload
 
 

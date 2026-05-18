@@ -6,8 +6,9 @@ be shown in the sticky topbar and updated by modules that start real work.
 """
 
 from __future__ import annotations
+from utils import _now_iso  # v18.6.3 centralized helpers
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 import streamlit as st
@@ -16,8 +17,6 @@ BUSY_STATE_KEY = "global_busy_state_v18570"
 DEFAULT_IDLE_LABEL = "Klar"
 
 
-def _now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
 def _parse_iso(value: Any) -> datetime | None:
@@ -97,7 +96,7 @@ def get_global_busy_snapshot(*, stale_seconds: int = 90) -> Dict[str, Any]:
         return {"running": False, "label": DEFAULT_IDLE_LABEL, "detail": "", "step": None, "total": None}
 
     updated = _parse_iso(state.get("updated_at"))
-    if bool(state.get("running")) and updated and datetime.utcnow() - updated > timedelta(seconds=stale_seconds):
+    if bool(state.get("running")) and updated and datetime.now(timezone.utc) - updated > timedelta(seconds=stale_seconds):
         # Do not leave a permanent busy indicator if a run crashed or completed without cleanup.
         state["running"] = False
         state["label"] = DEFAULT_IDLE_LABEL

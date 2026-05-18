@@ -1,3 +1,4 @@
+import logging
 from settings_store import load_settings
 
 import os
@@ -16,8 +17,8 @@ def send_pushover_alert(message, title="AI Aksje Analyzer"):
         if not bool(load_settings().get("pushover_enabled", True)):
             print("Pushover disabled by settings")
             return False, "disabled by settings"
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     """
     Sender Pushover-varsel.
     Bruker Render ENV:
@@ -61,8 +62,8 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
         if not bool(load_settings().get("notify_paper_trades", True)):
             print("Paper trade-varsler deaktivert i settings")
             return False, "paper trade alerts disabled"
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     trade_type = str(trade_type).upper()
 

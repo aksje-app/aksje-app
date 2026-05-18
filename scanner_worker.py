@@ -1,3 +1,4 @@
+import logging
 from cron_control import should_run_background_scan, mark_background_scan_started
 
 def _ticker_market(ticker):
@@ -50,36 +51,7 @@ SCANNER_MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
 SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
 
 
-def send_pushover_alert(message, title="Auto Paper Trading"):
-    try:
-        _settings = load_settings()
-        if not bool(_settings.get("pushover_enabled", True)):
-            print("Pushover deaktivert i settings")
-            return False
-        if not bool(_settings.get("notify_paper_trades", True)):
-            print("Paper trade-varsler deaktivert i settings")
-            return False
-    except Exception:
-        pass
-
-    token = os.getenv("PUSHOVER_APP_TOKEN")
-    user = os.getenv("PUSHOVER_USER_KEY")
-
-    if not token or not user:
-        print("Pushover ikke konfigurert")
-        return False
-
-    try:
-        res = requests.post(
-            "https://api.pushover.net/1/messages.json",
-            data={"token": token, "user": user, "title": title, "message": message},
-            timeout=15,
-        )
-        print(f"Pushover status: {res.status_code} {res.text}")
-        return res.ok
-    except Exception as e:
-        print(f"Pushover-feil: {e}")
-        return False
+from notifier import send_pushover_alert  # v18.6.3 centralized notifier
 
 
 def _take(fn, n):
@@ -254,8 +226,8 @@ def get_rsi_values(item):
                 return float(rsi.iloc[-1]), float(rsi.iloc[-2])
             if len(rsi) == 1:
                 return float(rsi.iloc[-1]), None
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     return None, None
 

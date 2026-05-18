@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import yfinance as yf
 from analysis import calculate_metrics, score_from_metrics
@@ -9,8 +10,8 @@ def download_history(tickers, period="5y"):
             hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
             if not hist.empty and len(hist) > 280:
                 data[ticker] = hist
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return data
 
 def run_monthly_score_strategy(

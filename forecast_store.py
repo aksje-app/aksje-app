@@ -12,6 +12,8 @@ Ingen auto-trading-kobling.
 """
 
 from __future__ import annotations
+import logging
+from utils import _now_iso  # v18.6.3 centralized helpers
 
 import json
 from dataclasses import dataclass, asdict
@@ -41,8 +43,6 @@ def _storage_name(name: str) -> str:
     return f"forecasts/{name}"
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def ensure_forecast_dirs() -> None:
@@ -65,8 +65,8 @@ def save_forecast_result(ticker: str, payload: Dict[str, Any]) -> Path:
         try:
             storage.write_json(_storage_name(f"{ticker_safe}_latest.json"), payload)
             storage.append_jsonl(_storage_name("forecast_log.jsonl"), payload)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     latest_path = FORECAST_DIR / f"{ticker_safe}_latest.json"
     latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -86,8 +86,8 @@ def load_latest_forecast(ticker: str) -> Optional[Dict[str, Any]]:
             stored = storage.read_json(_storage_name(f"{ticker_safe}_latest.json"), default=None)
             if isinstance(stored, dict):
                 return stored
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     path = FORECAST_DIR / f"{ticker_safe}_latest.json"
     if not path.exists():
@@ -106,8 +106,8 @@ def load_forecast_log(limit: int = 200) -> List[Dict[str, Any]]:
             stored_rows = storage.read_jsonl(_storage_name("forecast_log.jsonl"), limit=limit)
             if stored_rows:
                 return stored_rows
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     if not FORECAST_LOG.exists():
         return []
@@ -302,8 +302,8 @@ def save_alerts(alerts: Sequence[Dict[str, Any]]) -> None:
             if storage is not None:
                 try:
                     storage.append_jsonl(_storage_name("forecast_alerts.jsonl"), row)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning("Silenced exception restored in v18.6.3: %s", e)
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
@@ -315,8 +315,8 @@ def load_alerts(limit: int = 100) -> List[Dict[str, Any]]:
             stored_rows = storage.read_jsonl(_storage_name("forecast_alerts.jsonl"), limit=limit)
             if stored_rows:
                 return stored_rows
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     if not FORECAST_ALERTS.exists():
         return []
@@ -750,8 +750,8 @@ def load_learning_stats() -> Dict[str, Any]:
                 stored.setdefault("tickers", {})
                 stored.setdefault("horizons", {})
                 return stored
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     if not LEARNING_STATS.exists():
         return empty
@@ -773,8 +773,8 @@ def save_learning_stats(stats: Dict[str, Any]) -> None:
     if storage is not None:
         try:
             storage.write_json(_storage_name("forecast_learning_stats.json"), stats)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     LEARNING_STATS.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

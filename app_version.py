@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.2"
-APP_VERSION_NAME = "Control Bar + Daily Report Data Resolver Cleanup"
-APP_BUILD_ID = "v1862-controlbar-dailyreport-resolver"
+APP_VERSION = "v18.6.3"
+APP_VERSION_NAME = "Core Stabilization & Refactor"
+APP_BUILD_ID = "v1863-core-stabilization-refactor"
 APP_BUILD_LABEL = f"{APP_VERSION} — {APP_VERSION_NAME}"
 
 def get_app_version():

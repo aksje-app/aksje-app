@@ -14,7 +14,7 @@ Cache:
 """
 
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pickle
 
 from market_hours import market_status, ticker_market, open_markets
@@ -25,7 +25,7 @@ DEFAULT_CACHE_MAX_HOURS = 72
 
 
 def _now():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def _load_cache():

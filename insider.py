@@ -1,18 +1,12 @@
+from utils import _safe_float  # v18.6.3 centralized helpers
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 
 
-def _safe_float(v, default=0.0):
-    try:
-        if v is None:
-            return default
-        return float(v)
-    except Exception:
-        return default
 
 
 def _safe_int(v, default=0):
@@ -37,7 +31,7 @@ def _days_ago(value):
     d = _parse_date(value)
     if not d:
         return None
-    return max(0, (datetime.utcnow().date() - d.date()).days)
+    return max(0, (datetime.now(timezone.utc).date() - d.date()).days)
 
 
 def _transaction_type(row):
@@ -71,7 +65,7 @@ def fetch_insider_transactions(ticker, months=6, limit=25):
             "source": "Finnhub insider-transactions",
         }
 
-    to_date = datetime.utcnow().date()
+    to_date = datetime.now(timezone.utc).date()
     from_date = to_date - timedelta(days=int(months * 31))
 
     url = "https://finnhub.io/api/v1/stock/insider-transactions"

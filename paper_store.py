@@ -1,3 +1,5 @@
+import logging
+from utils import using_postgres  # v18.6.3 centralized helpers
 
 import json, os
 from pathlib import Path
@@ -32,8 +34,6 @@ def _merge_portfolio(data):
         out.setdefault("fund_savings_plans", [])
     return out
 
-def using_postgres():
-    return bool(DATABASE_URL) and psycopg2 is not None
 
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
@@ -163,8 +163,8 @@ def _load_json():
             if storage is not None:
                 storage.write_json(STORAGE_KEY, merged)
             return merged
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     default = _merge_portfolio({})
     if storage is not None:
@@ -262,8 +262,8 @@ def load_portfolio():
         if storage is not None:
             try:
                 storage.write_json(STORAGE_KEY, portfolio)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return portfolio
     except Exception as e:
         print(f"paper_portfolio load DB fallback: {e}")
@@ -319,8 +319,8 @@ def save_portfolio(portfolio):
         if storage is not None:
             try:
                 storage.write_json(STORAGE_KEY, portfolio)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return True
     except Exception as e:
         print(f"paper_portfolio save DB fallback: {e}")

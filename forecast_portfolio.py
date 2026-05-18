@@ -9,6 +9,7 @@ Porteføljeprognose:
 """
 
 from __future__ import annotations
+import logging
 
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -97,8 +98,8 @@ def normalize_holdings(raw_holdings: Any) -> List[Dict[str, Any]]:
             try:
                 if raw is not None:
                     row[key] = float(raw)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
         rows.append(row)
 
     if isinstance(raw_holdings, list):

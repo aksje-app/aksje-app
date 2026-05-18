@@ -1,3 +1,4 @@
+import logging
 # v18.5.12 Render import-path guard
 import os as _render_os
 import sys as _render_sys
@@ -116,8 +117,8 @@ def _inject_ui_data_trust_css_v18589():
         }}
         </style>
         """, unsafe_allow_html=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 _inject_ui_data_trust_css_v18589()
 
@@ -1152,8 +1153,8 @@ def _deactivate_full_stop_v157():
     """V15.7: Full stopp/ferie oppheves med egen tydelig handling."""
     try:
         deactivate_full_stop()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er slått av. Auto trading er fortsatt AV. Trykk Start når du vil aktivere den."
     st.session_state["auto_control_notice_level_v153"] = "success"
     st.rerun()
@@ -1181,12 +1182,12 @@ def _clear_stops_ready_v158():
         return
     try:
         deactivate_full_stop()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         clear_pause()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
     st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV – trykk Start for å starte."
     st.session_state["auto_control_notice_level_v153"] = "success"
@@ -1244,8 +1245,8 @@ def _apply_global_update_v18548() -> None:
     """Apply pending UI choices without spinner/dimming overlay."""
     try:
         st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     st.session_state["heavy_update_allowed_v148"] = True
     try:
         _clear_pending_manual_change()
@@ -1362,7 +1363,7 @@ def _click_global_update_v1862():
 
 
 def render_global_update_bar_v18548() -> None:
-    """v18.6.2: compact status only. The action button is rendered in the trading control row after Gjør klar."""
+    """v18.6.3: compact status only. The action button is rendered in the trading control row after Gjør klar."""
     icon, state_txt = _global_update_state_text_v1862()
     st.markdown(
         f"""
@@ -1504,8 +1505,8 @@ def cached_timeframe_data_manual(ticker, timeframe, period, force=False):
     try:
         if df is not None and not df.empty:
             st.session_state[key] = df.copy()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return df
 
 
@@ -1835,8 +1836,8 @@ def render_interactive_chart(fig, *args, **kwargs):
         )
         fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
         fig.update_yaxes(showspikes=True, spikemode="across", spikesnap="cursor")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     kwargs.setdefault("use_container_width", True)
     kwargs.setdefault("config", CHART_CONFIG)
@@ -3642,8 +3643,8 @@ def resolve_live_banner_label(ticker, fallback_label=None):
                 candidate = info.get(key) if isinstance(info, dict) else None
                 if candidate and not _is_weak_banner_name(candidate, ticker):
                     return str(candidate).strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     if ticker in LIVE_BANNER_LABELS:
         return LIVE_BANNER_LABELS[ticker]
@@ -4314,8 +4315,8 @@ def render_decision_explanation(decision):
                 st.warning(f"⚠️ {w}")
         if not reasons and not warnings:
             st.caption("Ingen detaljert forklaring tilgjengelig for dette signalet.")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 
@@ -4383,48 +4384,7 @@ def _mask_secret_v18585(value, keep=4):
     return ("*" * max(0, len(value) - keep)) + value[-keep:]
 
 
-def send_pushover_alert(message, title="AI Aksje Analyzer"):
-    """
-    Sender Pushover-varsel og returnerer (ok, error_or_none, response_info).
-    Krever Environment Variables:
-    - PUSHOVER_APP_TOKEN
-    - PUSHOVER_USER_KEY
-    """
-    if not PUSHOVER_APP_TOKEN or not PUSHOVER_USER_KEY:
-        return False, "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY", {
-            "configured": False,
-            "status_code": None,
-            "response_text": "missing env",
-        }
-
-    try:
-        response = requests.post(
-            "https://api.pushover.net/1/messages.json",
-            data={
-                "token": PUSHOVER_APP_TOKEN,
-                "user": PUSHOVER_USER_KEY,
-                "title": title,
-                "message": message,
-            },
-            timeout=10,
-        )
-        info = {
-            "configured": True,
-            "status_code": response.status_code,
-            "response_text": response.text[:1200],
-        }
-
-        if response.status_code == 200:
-            return True, None, info
-
-        return False, response.text, info
-
-    except Exception as e:
-        return False, str(e), {
-            "configured": True,
-            "status_code": None,
-            "response_text": str(e),
-        }
+from notifier import send_pushover_alert  # v18.6.3 centralized notifier
 
 
 def verify_pushover_credentials_v18585():
@@ -4664,8 +4624,8 @@ def plot_price(hist, title):
                 )
             ]
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
     fig.update_layout(
         title=title,
@@ -5262,8 +5222,8 @@ def add_rsi_level_labels(fig, rsi_series=None):
 
         fig.update_yaxes(range=[0, 100])
         fig.update_layout(margin=dict(l=20, r=155, t=90, b=30))
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return fig
 
 
@@ -5762,8 +5722,8 @@ def render_analysis(results, label):
             add_right_side_price_label(fig_ta, last_x_ta, bb_mid_val, f"BB midt: {bb_mid_val:.2f}", color="#ff6b4a")
             add_right_side_price_label(fig_ta, last_x_ta, bb_upper_val, f"BB øvre: {bb_upper_val:.2f}", color="#00e6a8")
             add_right_side_price_label(fig_ta, last_x_ta, bb_lower_val, f"BB nedre: {bb_lower_val:.2f}", color="#b56cff")
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         fig_ta.update_layout(
             margin=dict(l=20, r=170, t=90, b=30),
@@ -5785,8 +5745,8 @@ def render_analysis(results, label):
                 )
             ],
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     render_interactive_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
     render_graph_explanation("ta")
 
@@ -6332,8 +6292,8 @@ def render_auto_trading_workspace():
                 _r = load_rules()
                 _r["max_trades_per_day"] = int(_max_buys)
                 save_rules(_r)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
             st.success("Auto-innstillinger lagret som ventende ✅")
         if reset_auto_btn:
             reset_settings()
@@ -7018,8 +6978,8 @@ if bool(_top_settings.get("chart_auto_update_enabled", False)):
     _top_settings["chart_auto_update_enabled"] = False
     try:
         save_settings(_top_settings)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 _top_cron = cron_status_text()
 _top_auto_state, _top_auto_color = _auto_state(_top_settings)
 _top_full_stop = bool(_top_cron.get("vacation_mode"))
@@ -9350,7 +9310,7 @@ html body .stApp div:has(.pushover-button-anchor-v18596) + div + div button {
 }
 
 
-/* v18.6.2 desktop cleanup: compact global status, no vertical wrapping, smaller control buttons. */
+/* v18.6.3 desktop cleanup: compact global status, no vertical wrapping, smaller control buttons. */
 .v1862-global-status-line {
     display:flex !important;
     flex-direction:row !important;

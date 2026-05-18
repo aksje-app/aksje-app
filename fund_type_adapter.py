@@ -12,6 +12,7 @@ This module is deterministic and does not fetch market data.
 """
 
 from __future__ import annotations
+from utils import _now_iso  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -43,8 +44,6 @@ class FundTypeProfile:
         return asdict(self)
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _norm(value: Any) -> str:

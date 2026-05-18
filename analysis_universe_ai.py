@@ -12,6 +12,8 @@ Top Picks og Watchlist-handlinger går via egne services, ikke direkte UI-muteri
 """
 
 from __future__ import annotations
+import logging
+from utils import _safe_float  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass
 import time
@@ -57,10 +59,10 @@ def _safe_rerun() -> None:
     except AttributeError:  # pragma: no cover
         try:
             st.experimental_rerun()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 AI_UNIVERSE_STATE_KEY = "ai_analysis_universe_config_v1853"
 AI_UNIVERSE_PREVIEW_KEY = "ai_analysis_universe_preview_v1853"
@@ -137,13 +139,6 @@ class UniverseCandidate:
         }
 
 
-def _safe_float(value: Any) -> Optional[float]:
-    try:
-        if value is None or value == "":
-            return None
-        return float(value)
-    except Exception:
-        return None
 
 
 def _normalize_ticker(value: Any) -> str:
@@ -601,15 +596,15 @@ def _render_progress_step(holder: Any, progress: Any, *, title: str, step: int, 
     except TypeError:
         try:
             progress.progress(pct)
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     try:
         # Give Streamlit/browser time to paint the status before the next blocking step.
         time.sleep(0.55)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _finish_progress(holder: Any, progress: Any, *, title: str, text: str, ok: bool = True) -> None:
@@ -627,8 +622,8 @@ def _finish_progress(holder: Any, progress: Any, *, title: str, text: str, ok: b
     )
     try:
         progress.empty()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _existing_tickers_by_scope_from_state(session_state: Mapping[str, Any]) -> Dict[str, List[str]]:
@@ -1436,8 +1431,8 @@ def _default_config() -> Dict[str, Any]:
         mode = "Smart AI-utvalg"
         try:
             st.session_state["ai_universe_mode_draft_v1853"] = mode
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return {
         "mode": mode,
         "scopes": st.session_state.get("ai_universe_scopes_draft_v1853", ["USA"]),

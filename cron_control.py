@@ -1,12 +1,12 @@
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
 
 from settings_store import load_settings, save_settings
 
 
 def _utc_now():
-    return datetime.utcnow().replace(microsecond=0)
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def _parse_iso(value):

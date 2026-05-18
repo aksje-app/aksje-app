@@ -1,3 +1,4 @@
+import logging
 
 import streamlit as st
 import pandas as pd
@@ -113,8 +114,8 @@ def _load_remember_tokens():
             with open(REMEMBER_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return {}
 
 
@@ -122,8 +123,8 @@ def _save_remember_tokens(tokens):
     try:
         with open(REMEMBER_FILE, "w", encoding="utf-8") as f:
             json.dump(tokens, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _create_remember_token(user):
@@ -166,8 +167,8 @@ def _session_is_valid():
             if bool(st.session_state.get("auth_remember_me", False)):
                 st.session_state["auth_expires_at"] = (now + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     st.session_state.pop("auth_user", None)
     st.session_state.pop("auth_expires_at", None)
     st.session_state.pop("auth_logged_in_at", None)
@@ -229,10 +230,10 @@ def _clear_remember_token():
             _save_remember_tokens(tokens)
             try:
                 del st.query_params["remember_token"]
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
 def _logout():
@@ -326,8 +327,8 @@ def render_login():
                     token = _create_remember_token(user)
                     st.session_state["remember_token"] = token
                     st.query_params["remember_token"] = token
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning("Silenced exception restored in v18.6.3: %s", e)
             st.success("Innlogget")
             st.rerun()
         else:
@@ -347,8 +348,8 @@ def require_login():
             tok = st.session_state.get("remember_token")
             if tok and not st.query_params.get("remember_token"):
                 st.query_params["remember_token"] = tok
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return st.session_state.get("auth_user")
 
     user = _restore_from_remember_token()

@@ -4,6 +4,7 @@ Small, dependency-light utilities for audit logging, feature governance and
 regression/smoke checks. Kept separate from analysemotorer to reduce side effects.
 """
 from __future__ import annotations
+import logging
 
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -65,8 +66,8 @@ def add_audit_event(event: str, detail: Optional[Dict[str, Any]] = None, *, leve
         with AUDIT_LOG_FILE.open("a", encoding="utf-8") as fh:
             import json
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return record
 
 
