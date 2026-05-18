@@ -124,10 +124,28 @@ def _looks_like_ipo_or_listing_text(text):
     return any(word in low for word in include) and not any(word in low for word in exclude)
 
 
+def _is_bad_euronext_name(name):
+    low = str(name or "").strip().lower()
+    if not low:
+        return True
+    bad_fragments = (
+        "company name",
+        "filters reset",
+        "toggle visibility",
+        "icon after date",
+        "from to market",
+        "euronext euronext",
+        "isin",
+        "instrument name",
+        "issuer name",
+    )
+    return any(fragment in low for fragment in bad_fragments)
+
+
 def _extract_dateish(text):
     text = str(text or "")
     match = re.search(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{4}\b|\b\d{1,2}\.\d{1,2}\.\d{4}\b", text)
-    return match.group(0) if match else "Se kilde"
+    return match.group(0) if match else ""
 
 def get_ipo_calendar(days_back=30, days_forward=60):
     if not FINNHUB_API_KEY or FINNHUB_API_KEY.startswith("din_"):
@@ -197,34 +215,39 @@ def get_euronext_oslo_ipos(limit=20):
     soup = BeautifulSoup(response.text, "html.parser")
     rows = []
     seen = set()
-    for card in soup.find_all(["article", "div", "tr"]):
-        text = " ".join(card.get_text(" ", strip=True).split())
-        if not text or "Oslo" not in text:
+    for tr in soup.find_all("tr"):
+        tds = tr.find_all("td")
+        if len(tds) < 3:
             continue
-        if not _looks_like_ipo_or_listing_text(text):
+        cells = [" ".join(td.get_text(" ", strip=True).split()) for td in tds]
+        joined = " | ".join(cells)
+        if "Oslo" not in joined:
             continue
-        key = text[:180]
+        if not _looks_like_ipo_or_listing_text(joined):
+            continue
+
+        ipo_date = next((_extract_dateish(cell) for cell in cells if _extract_dateish(cell)), "")
+        name = ""
+        symbol = ""
+        market = "Euronext Oslo"
+        for cell in cells:
+            low = cell.lower()
+            if "oslo" in low or "euronext" in low:
+                market = cell
+                continue
+            if not symbol and 1 <= len(cell) <= 12 and any(ch.isalpha() for ch in cell) and cell.upper() == cell:
+                symbol = cell
+                continue
+            if not name and len(cell) >= 3 and not _extract_dateish(cell) and not _is_bad_euronext_name(cell):
+                name = cell
+
+        if not name or _is_bad_euronext_name(name):
+            continue
+        key = (ipo_date, name.lower(), symbol.upper())
         if key in seen:
             continue
         seen.add(key)
-        cells = [" ".join(td.get_text(" ", strip=True).split()) for td in card.find_all(["td", "th"])]
-        if cells:
-            ipo_date = cells[0]
-            name = cells[1] if len(cells) > 1 else text[:80]
-            symbol = ""
-            market = "Euronext Oslo"
-            for cell in cells[2:]:
-                low = cell.lower()
-                if "oslo" in low or "euronext" in low:
-                    market = cell
-                elif not symbol and len(cell) <= 12 and any(ch.isalpha() for ch in cell):
-                    symbol = cell
-        else:
-            ipo_date = _extract_dateish(text)
-            name = text[:100]
-            symbol = ""
-            market = "Euronext Oslo"
-        rows.append(_ipo_row(name, symbol=symbol, ipo_date=ipo_date, exchange="Oslo", market=market, source="Euronext"))
+        rows.append(_ipo_row(name, symbol=symbol, ipo_date=ipo_date or "Se Euronext", exchange="Oslo", market=market, source="Euronext"))
 
     return rows[:limit], None
 
@@ -249,8 +272,10 @@ def get_euronext_oslo_ipos_legacy(limit=20):
         if not _looks_like_ipo_or_listing_text(joined):
             continue
 
-        ipo_date = cells[0]
-        name = cells[1] if len(cells) > 1 else "Ukjent selskap"
+        ipo_date = next((_extract_dateish(cell) for cell in cells if _extract_dateish(cell)), "")
+        name = next((cell for cell in cells if len(cell) >= 3 and not _extract_dateish(cell) and not _is_bad_euronext_name(cell)), "")
+        if not name:
+            continue
         symbol = ""
         exchange = "Oslo"
         market = "Euronext Oslo"

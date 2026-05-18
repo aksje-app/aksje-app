@@ -7017,8 +7017,11 @@ def render_ipo():
             """
         )
 
-    for source_error in nordic.get("errors", [])[:2]:
-        st.caption(source_error)
+    if nordic.get("errors"):
+        with st.expander("Datakilde-status", expanded=False):
+            st.caption("Noen eksterne IPO-kilder svarte ikke akkurat nå. Kalenderen viser tilgjengelige treff og overvåkingslisten uansett.")
+            for source_error in nordic.get("errors", [])[:2]:
+                st.caption(source_error)
 
 def render_strategy_backtest(tickers, label):
     st.subheader("🧪 Smartere strategi-backtest")
