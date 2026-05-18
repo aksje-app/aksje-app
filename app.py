@@ -6123,6 +6123,54 @@ def render_trading_rules_workspace():
 
 def _render_pushover_test_panel_v18595() -> None:
     """Desktop/mobile safe Pushover test panel placed high in Auto trading setup."""
+    st.markdown(
+        """
+        <style>
+        html body .stApp .visual-truth-pushover-box-v18596 {
+            position:relative !important;
+            z-index:1 !important;
+            display:block !important;
+            clear:both !important;
+            margin:.72rem 0 .62rem 0 !important;
+        }
+        html body .stApp .pushover-button-anchor-v18596 {
+            display:block !important;
+            clear:both !important;
+            height:.10rem !important;
+            margin:0 !important;
+        }
+        html body .stApp .v18593-pushover-result {
+            display:block !important;
+            clear:both !important;
+            margin:.48rem 0 .86rem 0 !important;
+        }
+        html body .stApp .v1863d-pushover-layout-break {
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            height:1.05rem !important;
+            margin:0 0 .35rem 0 !important;
+            border-bottom:1px solid rgba(125,211,252,.18) !important;
+        }
+        html body .stApp .v1863d-auto-form-start {
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            height:.25rem !important;
+        }
+        @media (max-width:900px) {
+            html body .stApp .visual-truth-pushover-box-v18596 {
+                margin:.58rem 0 .54rem 0 !important;
+                padding:.74rem .82rem !important;
+            }
+            html body .stApp .v1863d-pushover-layout-break {
+                height:.80rem !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     _pushover_env_ok_v18595 = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
     _pushover_ready_v18595 = _pushover_env_ok_v18595 and bool(load_settings().get("pushover_enabled", True))
     _token_state_v18595 = "OK" if bool(PUSHOVER_APP_TOKEN) else "MANGLER"
@@ -6174,6 +6222,8 @@ def _render_pushover_test_panel_v18595() -> None:
             unsafe_allow_html=True,
         )
 
+    st.markdown("<div class='v1863d-pushover-layout-break'></div>", unsafe_allow_html=True)
+
     if _verify_clicked:
         if not _pushover_env_ok_v18595:
             st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før API-verifisering.")
@@ -6204,7 +6254,8 @@ def render_auto_trading_workspace():
         st.caption("Samlet arbeidsflate for Auto trading. Full stopp / ferie og nødstopp overstyrer alltid disse innstillingene.")
         _render_pushover_test_panel_v18595()
         with st.form("auto_trading_settings_form_v17", clear_on_submit=False):
-            drift_col, buy_col, risk_col, safe_col = st.columns(4)
+            st.markdown("<div class='v1863d-auto-form-start'></div>", unsafe_allow_html=True)
+            drift_col, buy_col = st.columns(2)
             with drift_col:
                 st.markdown("#### Drift")
                 _auto_enabled = st.checkbox(
@@ -6262,6 +6313,7 @@ def render_auto_trading_workspace():
                     key="main_auto_cooldown_v155",
                 )
                 st.caption("Cooldown og maks kjøp gjelder bare nye kjøp. Salg/exit blokkeres ikke.")
+            risk_col, safe_col = st.columns(2)
             with risk_col:
                 st.markdown("#### Kapasitet / risiko")
                 _max_tickers = st.number_input(
