@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3d"
-APP_VERSION_NAME = "Pushover Layout Hotfix"
-APP_BUILD_ID = "v1863d-pushover-layout-hotfix"
+APP_VERSION = "v18.6.3e"
+APP_VERSION_NAME = "Pushover Action Panel Fix"
+APP_BUILD_ID = "v1863e-pushover-action-panel-fix"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():
