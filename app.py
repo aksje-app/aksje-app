@@ -51,7 +51,7 @@ from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers
 from analysis import rank_stocks, score_stock
 from market_selector import auto_rank_market, build_top_picks
 from backtest_strategy import run_monthly_score_strategy, add_stats
-from ipo import get_ipo_calendar
+from ipo import get_ipo_calendar, get_nordic_ipo_calendar, get_rumored_ipo_watchlist
 from news import get_news, simple_finance_sentiment
 from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument, paper_liquidity_snapshot
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
@@ -6948,17 +6948,77 @@ def render_paper_trading_dashboard():
 
 def render_ipo():
     st.subheader("🚀 Nye og kommende børsnoteringer")
+    st.caption("Offisiell IPO-kalender vises separat fra ryktede/overvåkede IPO-kandidater.")
+
     ipo_list, error = get_ipo_calendar()
-    if error:
-        st.info(error)
-        return
-    if not ipo_list:
-        st.info("Fant ingen IPO-data akkurat nå.")
-        return
-    for ipo in ipo_list[:12]:
-        st.markdown(f"**{ipo.get('name','Ukjent selskap')}** ({ipo.get('symbol','N/A')})")
-        st.caption(f"{ipo.get('date','Ukjent dato')} · {ipo.get('exchange','Ukjent børs')}")
-        st.divider()
+    nordic = get_nordic_ipo_calendar()
+    rumored_rows = get_rumored_ipo_watchlist()
+
+    def _render_ipo_rows(rows, empty_text, show_status=False):
+        if not rows:
+            st.info(empty_text)
+            return
+        for ipo in rows[:20]:
+            st.markdown(f"**{ipo.get('name','Ukjent selskap')}** ({ipo.get('symbol','N/A')})")
+            parts = [
+                str(ipo.get("date") or ipo.get("expected") or "Ukjent dato"),
+                str(ipo.get("exchange") or ipo.get("region") or "Ukjent børs"),
+            ]
+            if show_status and ipo.get("status"):
+                parts.append(str(ipo.get("status")))
+            if ipo.get("source"):
+                parts.append(str(ipo.get("source")))
+            st.caption(" · ".join(part for part in parts if part))
+            if show_status and ipo.get("note"):
+                st.caption(str(ipo.get("note")))
+            st.divider()
+
+    tab_global, tab_no, tab_se, tab_watch, tab_help = st.tabs([
+        "USA / global",
+        "Norge",
+        "Sverige",
+        "Overvåking",
+        "Forklaring",
+    ])
+    with tab_global:
+        if error:
+            st.info(error)
+        else:
+            _render_ipo_rows(ipo_list, "Fant ingen IPO-data akkurat nå.")
+
+    with tab_no:
+        norway_rows = nordic.get("Norge", [])
+        _render_ipo_rows(norway_rows, "Fant ingen norske IPO-/noteringsdata akkurat nå.")
+        st.caption("Norge bruker Euronext Oslo-kilde pluss Finnhub-treff som matcher Oslo/Euronext Oslo.")
+
+    with tab_se:
+        sweden_rows = nordic.get("Sverige", [])
+        _render_ipo_rows(sweden_rows, "Fant ingen svenske IPO-/noteringsdata akkurat nå.")
+        st.caption("Sverige vises når IPO-feed returnerer Stockholm/Nasdaq Nordic/First North/Spotlight/NGM-treff.")
+
+    with tab_watch:
+        st.caption("Dette er ikke bekreftede kalendernoteringer. Listen brukes for å følge private selskaper som kan komme på børs.")
+        _render_ipo_rows(rumored_rows, "Ingen overvåkede IPO-kandidater lagt inn.", show_status=True)
+
+    with tab_help:
+        st.markdown(
+            """
+            **Slik fungerer IPO-fanen**
+
+            Kalender-fanene viser selskaper som finnes i IPO-kilder med dato, ticker eller børs.
+
+            **USA / global** bruker Finnhub sin IPO-kalender. Den dekker ofte amerikanske børser best.
+
+            **Norge** bruker Euronext Oslo-søk i tillegg til Finnhub-treff som matcher Oslo/Euronext.
+
+            **Sverige** bruker Finnhub-treff som matcher Stockholm, Nasdaq Nordic, First North, Spotlight eller NGM.
+
+            **Overvåking** er for selskaper som SpaceX, Starlink, Stripe og Databricks. De kan være omtalt i media, men vises ikke som offisiell IPO før dato/ticker/børs er offentlig nok til å ligge i kalenderdata.
+            """
+        )
+
+    for source_error in nordic.get("errors", [])[:2]:
+        st.caption(source_error)
 
 def render_strategy_backtest(tickers, label):
     st.subheader("🧪 Smartere strategi-backtest")
