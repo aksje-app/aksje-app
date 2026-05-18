@@ -80,6 +80,7 @@ class StorageService:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.database_url = (database_url if database_url is not None else DATABASE_URL).strip()
+        self._db_initialized = False
 
     def using_postgres(self) -> bool:
         return bool(self.database_url) and psycopg2 is not None
@@ -98,6 +99,8 @@ class StorageService:
     def init_db(self) -> bool:
         if not self.using_postgres():
             return False
+        if self._db_initialized:
+            return True
         conn = self._conn()
         cur = conn.cursor()
         cur.execute(
@@ -122,6 +125,7 @@ class StorageService:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_app_jsonl_store_name_id ON app_jsonl_store(name, id DESC);")
         conn.commit()
         conn.close()
+        self._db_initialized = True
         return True
 
     def health(self) -> StorageHealth:
