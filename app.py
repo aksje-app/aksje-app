@@ -1705,7 +1705,7 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
             merged.extend(latest.get(key, []) or [])
         return _dedupe_ranked_items(merged or fallback_results)
 
-    if source_label in {"USA", "Norge", "Sverige"}:
+    if source_label in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
         stored = latest.get(source_label) or []
         if stored:
             return _dedupe_ranked_items(stored)
@@ -1749,23 +1749,22 @@ def _source_tickers_for_interactive(source_label, max_fallback=30):
         latest = st.session_state.get("latest_rankings_v148", {}) or {}
         return [normalize_user_ticker(r.get("ticker")) for r in latest.get("Smart Universe Picker", []) if isinstance(r, dict) and r.get("ticker")][:limit]
     if source_label == "USA":
-        return list(globals().get("tickers_us") or get_sp500_tickers(limit=limit))
+        return resolve_universe_tickers(["USA"], max_count=limit)
     if source_label == "Norge":
-        return list(globals().get("tickers_no") or get_norwegian_tickers(limit=limit))
+        return resolve_universe_tickers(["Norge"], max_count=limit)
     if source_label == "Sverige":
-        return list(globals().get("tickers_se") or get_swedish_tickers(limit=limit))
+        return resolve_universe_tickers(["Sverige"], max_count=limit)
+    if source_label == "Norden":
+        return resolve_universe_tickers(["Norden"], max_count=limit)
+    if source_label == "Alle":
+        return resolve_universe_tickers(["Alle"], max_count=limit)
     if source_label == "Dynamisk watchlist / best rangerte":
         wl = list(globals().get("watchlist_tickers") or [])
         if wl:
             return wl[:limit]
         return list(globals().get("dynamic_watchlist") or [])[:limit]
     if source_label == "Top Picks":
-        merged = []
-        for seq in [globals().get("tickers_us"), globals().get("tickers_no"), globals().get("tickers_se")]:
-            merged.extend(list(seq or [])[: max(5, limit // 3)])
-        if not merged:
-            merged = get_all_tickers(limit_per_market=max(5, limit // 3))
-        return merged[:limit]
+        return resolve_universe_tickers(["Alle"], max_count=limit)
     return []
 
 
@@ -1796,7 +1795,7 @@ def _build_interactive_source_ranking_now(source_label):
     latest = st.session_state.setdefault("latest_rankings_v148", {})
     latest[key] = data or []
     # Lagre også under normal kildenøkkel når relevant, slik at dropdownen finner listen direkte.
-    if source_label in {"USA", "Norge", "Sverige"}:
+    if source_label in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
         latest[source_label] = data or []
     st.session_state[f"rank_cache_v148_{key}"] = {"fp": ("manual_build", tuple(tickers[:limit])), "data": data or [], "updated_at": _now_short()}
     _set_update_reason(f"Interaktiv analyse: bygget {source_label}-liste")
@@ -5563,7 +5562,7 @@ def render_analysis(results, label):
     # uten å starte en ny scan/rangering bare fordi menyen åpnes.
     source_choice = st.selectbox(
         "Aksjekilde",
-        ["Aktuell liste", "Smart Universe Picker", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige"],
+        ["Aktuell liste", "Smart Universe Picker", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige", "Norden", "Alle"],
         index=0,
         key=f"analysis_source_{label}_v148",
         help="Bruker siste lagrede/godkjente rangering. Manuell ticker overstyrer alltid listen.",
@@ -7523,6 +7522,128 @@ def render_market_ranking_control_center_v18535():
         st.info("Ingen lagret rangering for dette panelet ennå.")
 
 
+def _parse_control_center_tickers_v1863s(text: str) -> list[str]:
+    values = re.split(r"[\s,;|/]+", str(text or ""))
+    out, seen = [], set()
+    for raw in values:
+        ticker = normalize_user_ticker(raw)
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        out.append(ticker)
+    return out
+
+
+def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_text: str = "") -> list[str]:
+    limit = max(1, min(int(limit or 30), 250))
+    scope = str(scope or "").strip()
+    if scope == "Aktivt univers":
+        return _source_tickers_for_interactive("Smart Universe Picker", max_fallback=limit)[:limit]
+    if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+        return resolve_universe_tickers([scope], max_count=limit)
+    if scope == "Watchlist":
+        return _dedupe_text_list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])[:limit]
+    if scope == "Manuell liste":
+        return _parse_control_center_tickers_v1863s(manual_text)[:limit]
+    return []
+
+
+def render_top_picks_control_center_v1863s():
+    """Top Picks as a first-class AI Kontrollsenter panel."""
+    st.subheader("⭐ Top Picks")
+    st.caption("Bygger Top Picks fra samme universmotor som rangering, analyse, varsler og testpaneler.")
+
+    c1, c2 = st.columns([1.25, 1])
+    with c1:
+        scope = st.selectbox(
+            "Univers / marked",
+            ["Aktivt univers", "USA", "Norge", "Sverige", "Norden", "Alle", "Watchlist", "Manuell liste"],
+            key="cc_top_picks_scope_v1863s",
+        )
+    with c2:
+        limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_top_picks_limit_v1863s")
+
+    manual_text = ""
+    if scope == "Manuell liste":
+        manual_text = st.text_area(
+            "Manuelle tickere",
+            value="",
+            placeholder="AAPL, EQNR.OL, ABB.ST",
+            key="cc_top_picks_manual_v1863s",
+            height=90,
+        )
+
+    source_tickers = _resolve_control_center_scope_tickers_v1863s(scope, int(limit), manual_text=manual_text)
+    storage_scope = re.sub(r"[^A-Za-z0-9]+", "_", scope).strip("_") or "Aktivt"
+    storage_key = f"TopPicks_{storage_scope}"
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+
+    if source_tickers:
+        st.caption(f"Univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
+        guard = market_guard_summary(source_tickers)
+        if guard:
+            st.caption(guard)
+    else:
+        st.warning("Ingen tickere funnet for valgt univers ennå. Velg et marked, bygg Smart Universe, eller skriv manuell liste.")
+
+    run_clicked = st.button(
+        f"Kjør Top Picks for {scope}",
+        key="cc_top_picks_run_v1863s",
+        type="primary",
+        use_container_width=True,
+        disabled=not bool(source_tickers),
+    )
+    if run_clicked and source_tickers:
+        with st.spinner(f"Rangerer {scope} via felles universmotor..."):
+            ranked = cached_auto_rank_market(
+                storage_key,
+                source_tickers,
+                max_count=int(limit),
+                use_news=False,
+                force_manual_fetch=True,
+                include_insider=True,
+            )
+        top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
+        latest[storage_key] = top_rows or []
+        if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+            latest[scope] = ranked or []
+        st.success(f"Top Picks ferdig: {len(top_rows or [])} kandidater fra {scope}.")
+
+    top_picks = _ranked_for_display(latest.get(storage_key, []) or [])
+    buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
+    view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
+
+    if view == "Top Picks":
+        render_ranking(top_picks, f"⭐ Top Picks {scope}")
+        if top_picks:
+            render_analysis(top_picks, f"TopPicks_{storage_scope}")
+    else:
+        if buy_now_picks:
+            saved = save_latest_buy_now_candidates(buy_now_picks, scope)
+            st.info(f"{len(saved)} kjøp-nå-kandidater er lagret til Cron-prioritering. Auto-kjøp skjer fortsatt bare via reglene dine.")
+            if st.button(f"Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key="cc_top_picks_paper_buy_all_v1863s"):
+                messages = []
+                for item in buy_now_picks:
+                    ticker = item.get("ticker")
+                    price, _change = get_item_price_change(item)
+                    decision = card_decision_for_item(item)
+                    if price is None:
+                        messages.append(f"{ticker}: mangler pris")
+                        continue
+                    _ok, msg = paper_buy(ticker, price, int(decision.get("confidence", 0) or 0), f"AI Kontrollsenter Kjøp nå: {scope}")
+                    messages.append(msg)
+                joined = " | ".join(messages[:8])
+                if any("blokkert" in str(m).lower() or "ikke nok" in str(m).lower() or "mangler" in str(m).lower() for m in messages):
+                    st.warning(joined)
+                else:
+                    st.success(joined)
+                st.rerun()
+            render_ranking(buy_now_picks, f"🟢 Kjøp nå {scope}")
+            render_analysis(buy_now_picks, f"KjopNa_{storage_scope}")
+        else:
+            st.warning("Ingen kandidater har grønt teknisk kjøpssignal akkurat nå.")
+
+
 def render_watchlist_signals_control_center_v18535():
     """Watchlist and signal settings in the control center only."""
     st.subheader("🔔 Watchlist / signaler")
@@ -7567,18 +7688,10 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
 
     if scope == "Manuell liste":
         return _dedupe(parse_ticker_list(manual_text))
-    if scope == "USA":
-        return _dedupe(get_sp500_tickers(limit=limit))
-    if scope == "Norge":
-        return _dedupe(get_norwegian_tickers(limit=limit))
-    if scope == "Sverige":
-        return _dedupe(get_swedish_tickers(limit=limit))
-    if scope == "Norden":
-        per_market = max(3, limit // 2)
-        return _dedupe(list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market)))
+    if scope in {"USA", "Norge", "Sverige", "Norden"}:
+        return _dedupe(resolve_universe_tickers([scope], max_count=limit))
     if scope == "Multi-marked":
-        per_market = max(3, limit // 3)
-        return _dedupe(list(get_sp500_tickers(limit=per_market)) + list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market)))
+        return _dedupe(resolve_universe_tickers(["Alle"], max_count=limit))
     if scope == "Aktivt Smart Universe":
         try:
             from services.service_registry import build_service_registry
@@ -9060,6 +9173,9 @@ def render_mixed_portfolio_control_center_v18544():
 
 def control_center_extra_panels_v18535():
     return [
+        ("⭐ Top Picks", render_top_picks_control_center_v1863s),
+        ("🚀 IPO", render_ipo),
+        ("🧪 Paper Trading", render_paper_trading_dashboard),
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
         ("🏦 Fond / ETF", render_fund_etf_control_center_v18538),
         ("📊 Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
@@ -9683,7 +9799,8 @@ render_global_update_bar_v18548()
 # GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
-active_panel = _render_active_main_panel_selector_v18531()
+# v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
+active_panel = None
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
@@ -9702,7 +9819,12 @@ if _active_control_center_panel_v18598:
         f"<div class='v18-dark-row'>Aktivt Kontrollsenter-panel: <b>{html.escape(str(_active_control_center_panel_v18598))}</b>. Underliggende hovedpaneler er skjult for denne visningen.</div>",
         unsafe_allow_html=True,
     )
-    st.stop()
+else:
+    st.markdown(
+        "<div class='v18-dark-row'>Velg et panel i AI Kontrollsenter. Hovedpanelvelgeren er samlet inn her for å hindre motstridende markedvalg.</div>",
+        unsafe_allow_html=True,
+    )
+st.stop()
 
 # v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
 # Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.

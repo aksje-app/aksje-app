@@ -844,7 +844,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         unsafe_allow_html=True,
     )
 
-    with st.expander("› Åpne AI Kontrollsenter", expanded=False):
+    with st.expander("› Åpne AI Kontrollsenter", expanded=True):
         base_panels: list[Tuple[str, Callable[[], None]]] = [
             ("🎯 Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
             ("🔮 Prognose", _render_forecast_workspace_tab),
@@ -864,7 +864,6 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         panels = base_panels + list(extra_panels or [])
         panel_map = dict(panels)
         group_map = {
-            "Normal visning": [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598],
             "Analyse og prognose": [
                 "🎯 Analyseunivers",
                 "🔮 Prognose",
@@ -904,10 +903,9 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         # Build groups from the actual panel labels. This avoids the mobile/encoding
         # fallback where "Marked og signaler" only showed normal hovedpanel.
         group_map = {
-            "Normal visning": [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598],
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist"),
-            "Testing og portefølje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef"),
+            "Marked og signaler": _matching_panel_labels("top picks", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist"),
+            "Testing og portefølje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
         }
 
@@ -916,8 +914,9 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
 
-        previous_label = st.session_state.get("ai_control_center_active_real_panel_v18598") or AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598
-        default_group = "Normal visning"
+        first_real_panel = next((labels[0] for labels in group_map.values() if labels), None)
+        previous_label = st.session_state.get("ai_control_center_active_real_panel_v18598") or first_real_panel or AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598
+        default_group = next((name for name, labels in group_map.items() if labels), "Analyse og prognose")
         for group_name, group_labels in group_map.items():
             if previous_label in group_labels:
                 default_group = group_name
@@ -932,9 +931,9 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 key="ai_control_center_group_v1863m",
                 help="Grupperer Kontrollsenteret så menyen er ryddig på mobil og PC.",
             )
-        panel_options = [label for label in group_map.get(active_group, []) if label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598 or label in panel_map]
+        panel_options = [label for label in group_map.get(active_group, []) if label in panel_map]
         if not panel_options:
-            panel_options = [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598]
+            panel_options = [first_real_panel] if first_real_panel else []
         default_panel_index = panel_options.index(previous_label) if previous_label in panel_options else 0
         with c_panel:
             active_label = st.selectbox(

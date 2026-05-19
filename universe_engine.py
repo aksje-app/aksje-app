@@ -405,12 +405,10 @@ def resolve_universe_tickers(
         elif scope == "Sverige" and get_swedish_tickers:
             source_lists.append(list(get_swedish_tickers(limit=max_count) or []))
         elif scope == "Norden":
-            nordic = []
             if get_norwegian_tickers:
-                nordic.extend(list(get_norwegian_tickers(limit=max_count) or []))
+                source_lists.append(list(get_norwegian_tickers(limit=max_count) or []))
             if get_swedish_tickers:
-                nordic.extend(list(get_swedish_tickers(limit=max_count) or []))
-            source_lists.append(nordic)
+                source_lists.append(list(get_swedish_tickers(limit=max_count) or []))
         elif scope in {"Top Picks", "Watchlist", "Paper trading", "Portefølje", "Smart AI-utvalg"}:
             source_lists.append(_tickers_from_existing_scope(scope, existing_tickers_by_scope))
         else:
