@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3s"
-APP_VERSION_NAME = "AI Control Center Unified Workspace"
-APP_BUILD_ID = "v1863s-ai-control-center-unified-workspace"
+APP_VERSION = "v18.6.3t"
+APP_VERSION_NAME = "Clean Market Universe Expansion"
+APP_BUILD_ID = "v1863t-clean-market-universe-expansion"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():

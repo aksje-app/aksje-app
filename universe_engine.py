@@ -131,6 +131,12 @@ def infer_market_from_ticker(ticker: str) -> str:
         return "Norge"
     if t.endswith(".ST"):
         return "Sverige"
+    if t.endswith(".HE"):
+        return "Finland"
+    if t.endswith(".CO"):
+        return "Danmark"
+    if t.endswith(".SA"):
+        return "Brasil"
     return "USA"
 
 
@@ -383,32 +389,53 @@ def resolve_universe_tickers(
         source_lists.append([manual])
 
     try:
-        from stocks import get_all_tickers, get_norwegian_tickers, get_sp500_tickers, get_swedish_tickers
+        from stocks import (
+            get_all_tickers,
+            get_brazilian_tickers,
+            get_danish_tickers,
+            get_finnish_tickers,
+            get_norwegian_tickers,
+            get_sp500_tickers,
+            get_swedish_tickers,
+        )
     except Exception:
-        get_sp500_tickers = get_norwegian_tickers = get_swedish_tickers = get_all_tickers = None  # type: ignore
+        get_sp500_tickers = get_norwegian_tickers = get_swedish_tickers = get_finnish_tickers = get_danish_tickers = get_brazilian_tickers = get_all_tickers = None  # type: ignore
 
     for scope in selected:
         if scope == "Alle":
-            if get_sp500_tickers and get_norwegian_tickers and get_swedish_tickers:
-                per_market = max(5, math.ceil(max_count / 3))
+            if all([get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_finnish_tickers, get_danish_tickers, get_brazilian_tickers]):
+                per_market = max(5, math.ceil(max_count / 6))
                 source_lists.extend([
                     list(get_sp500_tickers(limit=per_market) or []),
                     list(get_norwegian_tickers(limit=per_market) or []),
                     list(get_swedish_tickers(limit=per_market) or []),
+                    list(get_finnish_tickers(limit=per_market) or []),
+                    list(get_danish_tickers(limit=per_market) or []),
+                    list(get_brazilian_tickers(limit=per_market) or []),
                 ])
             elif get_all_tickers:
-                source_lists.append(list(get_all_tickers(limit_per_market=max(5, math.ceil(max_count / 3))) or []))
+                source_lists.append(list(get_all_tickers(limit_per_market=max(5, math.ceil(max_count / 6))) or []))
         elif scope == "USA" and get_sp500_tickers:
             source_lists.append(list(get_sp500_tickers(limit=max_count) or []))
         elif scope == "Norge" and get_norwegian_tickers:
             source_lists.append(list(get_norwegian_tickers(limit=max_count) or []))
         elif scope == "Sverige" and get_swedish_tickers:
             source_lists.append(list(get_swedish_tickers(limit=max_count) or []))
+        elif scope == "Finland" and get_finnish_tickers:
+            source_lists.append(list(get_finnish_tickers(limit=max_count) or []))
+        elif scope == "Danmark" and get_danish_tickers:
+            source_lists.append(list(get_danish_tickers(limit=max_count) or []))
+        elif scope == "Brasil" and get_brazilian_tickers:
+            source_lists.append(list(get_brazilian_tickers(limit=max_count) or []))
         elif scope == "Norden":
             if get_norwegian_tickers:
                 source_lists.append(list(get_norwegian_tickers(limit=max_count) or []))
             if get_swedish_tickers:
                 source_lists.append(list(get_swedish_tickers(limit=max_count) or []))
+            if get_finnish_tickers:
+                source_lists.append(list(get_finnish_tickers(limit=max_count) or []))
+            if get_danish_tickers:
+                source_lists.append(list(get_danish_tickers(limit=max_count) or []))
         elif scope in {"Top Picks", "Watchlist", "Paper trading", "Portefølje", "Smart AI-utvalg"}:
             source_lists.append(_tickers_from_existing_scope(scope, existing_tickers_by_scope))
         else:
@@ -456,7 +483,7 @@ def resolve_strict_universe_tickers(
 
     market_scopes = [scope for scope in scopes if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}]
     if mode == "Multi-marked":
-        return (resolve_universe_tickers(market_scopes or ["USA", "Norge", "Sverige"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Multi-marked")
+        return (resolve_universe_tickers(market_scopes or ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Multi-marked")
 
     # Markedvalg is market-only. Manual ticker is intentionally ignored here;
     # Enkeltaksje is the only mode that should scan a manual single ticker.

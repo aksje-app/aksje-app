@@ -30,6 +30,27 @@ MARKETS = {
         "open": time(9, 0),
         "close": time(17, 30),
     },
+    "FINLAND": {
+        "name": "Finland",
+        "calendar": "XHEL",
+        "tz": "Europe/Helsinki",
+        "open": time(10, 0),
+        "close": time(18, 30),
+    },
+    "DANMARK": {
+        "name": "Danmark",
+        "calendar": "XCSE",
+        "tz": "Europe/Copenhagen",
+        "open": time(9, 0),
+        "close": time(17, 0),
+    },
+    "BRASIL": {
+        "name": "Brasil",
+        "calendar": "BVMF",
+        "tz": "America/Sao_Paulo",
+        "open": time(10, 0),
+        "close": time(17, 55),
+    },
 }
 
 
@@ -155,6 +176,51 @@ def _manual_holidays(market, year):
             date(year, 12, 24),
             date(year, 12, 25),
             date(year, 12, 26),
+            date(year, 12, 31),
+        })
+
+    elif market == "FINLAND":
+        holidays.update({
+            date(year, 1, 1),
+            date(year, 1, 6),
+            easter - timedelta(days=2),
+            easter + timedelta(days=1),
+            date(year, 5, 1),
+            easter + timedelta(days=39),
+            _midsummer_eve_sweden(year),
+            date(year, 12, 24),
+            date(year, 12, 25),
+            date(year, 12, 26),
+        })
+
+    elif market == "DANMARK":
+        holidays.update({
+            date(year, 1, 1),
+            easter - timedelta(days=3),
+            easter - timedelta(days=2),
+            easter + timedelta(days=1),
+            easter + timedelta(days=26),
+            easter + timedelta(days=39),
+            easter + timedelta(days=50),
+            date(year, 6, 5),
+            date(year, 12, 24),
+            date(year, 12, 25),
+            date(year, 12, 26),
+            date(year, 12, 31),
+        })
+
+    elif market == "BRASIL":
+        holidays.update({
+            date(year, 1, 1),
+            easter - timedelta(days=2),
+            date(year, 4, 21),
+            date(year, 5, 1),
+            date(year, 9, 7),
+            date(year, 10, 12),
+            date(year, 11, 2),
+            date(year, 11, 15),
+            date(year, 12, 24),
+            date(year, 12, 25),
             date(year, 12, 31),
         })
 
@@ -299,11 +365,11 @@ def _format_status_line(status):
 
 
 def market_statuses():
-    return {m: market_status(m) for m in ["USA", "NORGE", "SVERIGE"]}
+    return {m: market_status(m) for m in ["USA", "NORGE", "SVERIGE", "FINLAND", "DANMARK", "BRASIL"]}
 
 
 def market_status_lines():
-    return [market_status(m)["label"] for m in ["USA", "NORGE", "SVERIGE"]]
+    return [market_status(m)["label"] for m in ["USA", "NORGE", "SVERIGE", "FINLAND", "DANMARK", "BRASIL"]]
 
 
 def open_markets():
@@ -316,6 +382,12 @@ def ticker_market(ticker):
         return "NORGE"
     if ticker.endswith(".ST"):
         return "SVERIGE"
+    if ticker.endswith(".HE"):
+        return "FINLAND"
+    if ticker.endswith(".CO"):
+        return "DANMARK"
+    if ticker.endswith(".SA"):
+        return "BRASIL"
     return "USA"
 
 

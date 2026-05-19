@@ -1,8 +1,15 @@
 from functools import lru_cache
 from io import StringIO
 
-import pandas as pd
-import requests
+try:
+    import pandas as pd
+except Exception:
+    pd = None
+
+try:
+    import requests
+except Exception:
+    requests = None
 
 US_FALLBACK = [
     "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "AVGO", "TSLA", "LLY", "JPM",
@@ -29,9 +36,35 @@ SWEDISH_STOCKS = [
     "NIBE-B.ST", "SBB-B.ST", "SSAB-A.ST", "THULE.ST", "AZN.ST"
 ]
 
+FINNISH_STOCKS = [
+    "NOKIA.HE", "NESTE.HE", "KNEBV.HE", "SAMPO.HE", "UPM.HE",
+    "FORTUM.HE", "WRT1V.HE", "ELISA.HE", "METSO.HE", "VALMT.HE",
+    "ORNAV.HE", "ORNBV.HE", "KESKOB.HE", "HUH1V.HE", "KCR.HE",
+    "TYRES.HE", "STERV.HE", "OUT1V.HE", "QTCOM.HE", "PUUILO.HE",
+    "KOJAMO.HE", "MEKKO.HE", "KEMIRA.HE", "CGCBV.HE", "MANTA.HE"
+]
+
+DANISH_STOCKS = [
+    "NOVO-B.CO", "MAERSK-B.CO", "DSV.CO", "ORSTED.CO", "CARL-B.CO",
+    "PNDORA.CO", "NZYM-B.CO", "VWS.CO", "COLO-B.CO", "GMAB.CO",
+    "DANSKE.CO", "TRYG.CO", "ROCK-B.CO", "JYSK.CO", "AMBU-B.CO",
+    "DEMANT.CO", "GN.CO", "ISS.CO", "RBREW.CO", "FLS.CO",
+    "BAVA.CO", "NETC.CO", "ALK-B.CO", "NKT.CO", "TOP.CO"
+]
+
+BRAZILIAN_STOCKS = [
+    "PETR4.SA", "VALE3.SA", "ITUB4.SA", "BBDC4.SA", "ABEV3.SA",
+    "B3SA3.SA", "WEGE3.SA", "BBAS3.SA", "RENT3.SA", "PRIO3.SA",
+    "ITSA4.SA", "ELET3.SA", "SUZB3.SA", "GGBR4.SA", "JBSS3.SA",
+    "RAIL3.SA", "LREN3.SA", "HAPV3.SA", "RADL3.SA", "CSNA3.SA",
+    "EMBR3.SA", "EQTL3.SA", "CMIG4.SA", "VIVT3.SA", "SBSP3.SA"
+]
+
 @lru_cache(maxsize=8)
 def _get_sp500_tickers_cached(limit=150):
     """Fetch S&P 500 with a short timeout and cache it for fast reruns."""
+    if pd is None or requests is None:
+        return tuple(US_FALLBACK[:limit])
     try:
         response = requests.get(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
@@ -57,9 +90,21 @@ def get_norwegian_tickers(limit=None):
 def get_swedish_tickers(limit=None):
     return SWEDISH_STOCKS[:limit] if limit else SWEDISH_STOCKS
 
+def get_finnish_tickers(limit=None):
+    return FINNISH_STOCKS[:limit] if limit else FINNISH_STOCKS
+
+def get_danish_tickers(limit=None):
+    return DANISH_STOCKS[:limit] if limit else DANISH_STOCKS
+
+def get_brazilian_tickers(limit=None):
+    return BRAZILIAN_STOCKS[:limit] if limit else BRAZILIAN_STOCKS
+
 def get_all_tickers(limit_per_market=50):
     return (
         get_sp500_tickers(limit_per_market) +
         get_norwegian_tickers(limit_per_market) +
-        get_swedish_tickers(limit_per_market)
+        get_swedish_tickers(limit_per_market) +
+        get_finnish_tickers(limit_per_market) +
+        get_danish_tickers(limit_per_market) +
+        get_brazilian_tickers(limit_per_market)
     )

@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping
 import re
 
-APP_SECURITY_METADATA_VERSION = "v18.6.3p"
-STANDARD_MARKET_FILTERS = ["Alle", "USA", "Norge", "Sverige", "Danmark", "Finland", "Norden"]
+APP_SECURITY_METADATA_VERSION = "v18.6.3t"
+STANDARD_MARKET_FILTERS = ["Alle", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden"]
 NORDIC_MARKETS = {"Norge", "Sverige", "Danmark", "Finland", "Island"}
 _MARKET_ALIASES = {
     "US": "USA",
@@ -30,7 +30,13 @@ _MARKET_ALIASES = {
     "SWEDEN / STOCKHOLM": "Sverige",
     "DENMARK": "Danmark",
     "DANMARK": "Danmark",
+    "COPENHAGEN": "Danmark",
     "FINLAND": "Finland",
+    "HELSINKI": "Finland",
+    "BRAZIL": "Brasil",
+    "BRASIL": "Brasil",
+    "B3": "Brasil",
+    "BOVESPA": "Brasil",
     "NORDEN": "Norden",
 }
 
@@ -67,6 +73,16 @@ _STOCKS: Dict[str, Dict[str, str]] = {
     "ERIC-B.ST": {"name": "Ericsson B", "sector": "Communication", "risk": "Middels"},
     "ABB.ST": {"name": "ABB Ltd", "sector": "Industrials", "risk": "Middels"},
     "ATCO-A.ST": {"name": "Atlas Copco AB A", "sector": "Industrials", "risk": "Lav"},
+    "NOKIA.HE": {"name": "Nokia Oyj", "sector": "Technology", "risk": "Middels"},
+    "NESTE.HE": {"name": "Neste Oyj", "sector": "Energy", "risk": "Middels"},
+    "KNEBV.HE": {"name": "KONE Oyj B", "sector": "Industrials", "risk": "Lav"},
+    "SAMPO.HE": {"name": "Sampo Oyj", "sector": "Financials", "risk": "Lav"},
+    "MAERSK-B.CO": {"name": "A.P. Moller - Maersk B", "sector": "Industrials", "risk": "Middels"},
+    "DSV.CO": {"name": "DSV A/S", "sector": "Industrials", "risk": "Lav"},
+    "ORSTED.CO": {"name": "Orsted A/S", "sector": "Utilities", "risk": "Middels"},
+    "PETR4.SA": {"name": "Petrobras PN", "sector": "Energy", "risk": "Høy"},
+    "VALE3.SA": {"name": "Vale S.A.", "sector": "Materials", "risk": "Middels"},
+    "ITUB4.SA": {"name": "Itau Unibanco PN", "sector": "Financials", "risk": "Middels"},
 }
 
 _FUNDS: Dict[str, Dict[str, str]] = {
@@ -192,6 +208,10 @@ def infer_security_listing(symbol: Any, row: Mapping[str, Any] | None = None) ->
         country = "Finland"
         exchange = "Nasdaq Helsinki"
         market = "Finland"
+    elif sym.endswith(".SA"):
+        country = "Brasil"
+        exchange = "B3"
+        market = "Brasil"
     elif sym.endswith(".IS"):
         country = "Island"
         exchange = "Nasdaq Iceland"

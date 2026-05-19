@@ -47,7 +47,7 @@ except Exception:
 from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal
 from patterns import detect_head_shoulders, detect_inverse_head_shoulders, breakout_scanner, build_signal_alerts
 
-from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_all_tickers
+from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_finnish_tickers, get_danish_tickers, get_brazilian_tickers, get_all_tickers
 from analysis import rank_stocks, score_stock
 from market_selector import auto_rank_market, build_top_picks
 from universe_engine import resolve_universe_tickers
@@ -1701,11 +1701,16 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
 
     if source_label == "Dynamisk watchlist / best rangerte":
         merged = []
-        for key in ["Dynamisk watchlist / best rangerte", "USA", "Norge", "Sverige", "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Alle"]:
+        for key in [
+            "Dynamisk watchlist / best rangerte",
+            "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden",
+            "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Finland",
+            "TopPicks_Danmark", "TopPicks_Brasil", "TopPicks_Norden", "TopPicks_Alle",
+        ]:
             merged.extend(latest.get(key, []) or [])
         return _dedupe_ranked_items(merged or fallback_results)
 
-    if source_label in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+    if source_label in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
         stored = latest.get(source_label) or []
         if stored:
             return _dedupe_ranked_items(stored)
@@ -1754,6 +1759,12 @@ def _source_tickers_for_interactive(source_label, max_fallback=30):
         return resolve_universe_tickers(["Norge"], max_count=limit)
     if source_label == "Sverige":
         return resolve_universe_tickers(["Sverige"], max_count=limit)
+    if source_label == "Finland":
+        return resolve_universe_tickers(["Finland"], max_count=limit)
+    if source_label == "Danmark":
+        return resolve_universe_tickers(["Danmark"], max_count=limit)
+    if source_label == "Brasil":
+        return resolve_universe_tickers(["Brasil"], max_count=limit)
     if source_label == "Norden":
         return resolve_universe_tickers(["Norden"], max_count=limit)
     if source_label == "Alle":
@@ -1795,7 +1806,7 @@ def _build_interactive_source_ranking_now(source_label):
     latest = st.session_state.setdefault("latest_rankings_v148", {})
     latest[key] = data or []
     # Lagre også under normal kildenøkkel når relevant, slik at dropdownen finner listen direkte.
-    if source_label in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+    if source_label in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
         latest[source_label] = data or []
     st.session_state[f"rank_cache_v148_{key}"] = {"fp": ("manual_build", tuple(tickers[:limit])), "data": data or [], "updated_at": _now_short()}
     _set_update_reason(f"Interaktiv analyse: bygget {source_label}-liste")
@@ -1805,7 +1816,7 @@ def _build_interactive_source_ranking_now(source_label):
 def _clean_manual_ticker_input(value: str) -> str:
     """Rydd manuell ticker. Eksempeltekst og lister skal ikke behandles som aktiv ticker."""
     raw = str(value or "").strip()
-    examples = {"STB.OL / EQNR.OL / ABB.ST", "AAPL / EQNR.OL / ABB.ST"}
+    examples = {"EQNR.OL / VOLV-B.ST / NOVO-B.CO", "EQNR.OL / NOKIA.HE / PETR4.SA"}
     if raw.upper() in {x.upper() for x in examples}:
         return ""
     # Interaktiv analyse er for én ticker. Hvis bruker limer inn en liste, bruk første og vis info.
@@ -1824,6 +1835,9 @@ MARKET_CATEGORY_OPTIONS = [
     "Europe Markets",
     "Norway / Oslo",
     "Sweden / Stockholm",
+    "Finland / Helsinki",
+    "Denmark / Copenhagen",
+    "Brazil / B3",
     "Cryptocurrencies",
     "Rates",
     "Commodities",
@@ -1836,6 +1850,9 @@ MARKET_CATEGORY_TO_MODE = {
     "Europe Markets": "Alle",
     "Norway / Oslo": "Norge / Oslo Børs",
     "Sweden / Stockholm": "Sverige / Stockholm",
+    "Finland / Helsinki": "Finland / Helsinki",
+    "Denmark / Copenhagen": "Danmark / Copenhagen",
+    "Brazil / B3": "Brasil / B3",
     "Cryptocurrencies": "Alle",
     "Rates": "Alle",
     "Commodities": "Alle",
@@ -4193,10 +4210,10 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
         with t1:
             usa_tickers = st.text_area(
                 "USA tickere",
-                value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")),
+                value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI")),
                 height=90,
                 key=f"{form_key}_usa_tickers",
-                help="Kommaseparert liste, f.eks. AAPL, MSFT, NVDA.",
+                help="Kommaseparert liste. Bruk markedsindekser eller egne tickere.",
             )
         with t2:
             no_tickers = st.text_area(
@@ -4308,7 +4325,7 @@ def render_banner_main_controls():
             with t1:
                 usa_tickers = st.text_area(
                     "USA tickere",
-                    value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI, AAPL, MSFT, NVDA")),
+                    value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI")),
                     height=90,
                     key="banner_v1582_usa_tickers",
                 )
@@ -4563,7 +4580,7 @@ def maybe_send_signal_alert(ticker, decision):
 
 
 
-def get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all):
+def get_dynamic_watchlist(mode, max_count, tickers_us=None, tickers_no=None, tickers_se=None, tickers_all=None):
     """Lager dynamisk watchlist fra siste lagrede/rangerte markedsliste.
 
     V17: Hvis en rangering finnes, brukes BUY/HOLD/SELL-sortert rekkefølge.
@@ -4573,11 +4590,17 @@ def get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, t
     source_key = None
     fallback = tickers_all
     if mode == "USA / S&P 500":
-        source_key, fallback = "USA", tickers_us
+        source_key, fallback = "USA", tickers_us or resolve_universe_tickers(["USA"], max_count=max_count)
     elif mode == "Norge / Oslo Børs":
-        source_key, fallback = "Norge", tickers_no
+        source_key, fallback = "Norge", tickers_no or resolve_universe_tickers(["Norge"], max_count=max_count)
     elif mode == "Sverige / Stockholm":
-        source_key, fallback = "Sverige", tickers_se
+        source_key, fallback = "Sverige", tickers_se or resolve_universe_tickers(["Sverige"], max_count=max_count)
+    elif mode == "Finland / Helsinki":
+        source_key, fallback = "Finland", resolve_universe_tickers(["Finland"], max_count=max_count)
+    elif mode == "Danmark / Copenhagen":
+        source_key, fallback = "Danmark", resolve_universe_tickers(["Danmark"], max_count=max_count)
+    elif mode == "Brasil / B3":
+        source_key, fallback = "Brasil", resolve_universe_tickers(["Brasil"], max_count=max_count)
 
     ranked = _ranked_for_display(latest.get(source_key, []) if source_key else [])
     if ranked:
@@ -5550,6 +5573,62 @@ def normalize_user_ticker(ticker: str) -> str:
     return str(ticker or "").strip().upper().replace(" ", "")
 
 
+LEGACY_SEED_TICKERS_V1863T = {
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
+    "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO",
+}
+
+
+def _extract_tickers_any_v1863t(value):
+    out = []
+
+    def add(v):
+        if v is None:
+            return
+        if isinstance(v, str):
+            for part in re.split(r"[\s,;|/]+", v):
+                ticker = normalize_user_ticker(part)
+                if ticker and ticker not in out:
+                    out.append(ticker)
+        elif isinstance(v, dict):
+            ticker = normalize_user_ticker(v.get("ticker") or v.get("symbol"))
+            if ticker and ticker not in out:
+                out.append(ticker)
+            for key in ("tickers", "rows", "candidates", "top_picks"):
+                add(v.get(key))
+        elif isinstance(v, (list, tuple, set)):
+            for item in v:
+                add(item)
+
+    add(value)
+    return out
+
+
+def _legacy_seed_only_v1863t(value) -> bool:
+    tickers = _extract_tickers_any_v1863t(value)
+    return bool(tickers) and set(tickers).issubset(LEGACY_SEED_TICKERS_V1863T)
+
+
+def _cleanup_legacy_session_seed_data_v1863t() -> None:
+    """Ignore old demo/seed data so it cannot masquerade as current market data."""
+    try:
+        for key in ["latest_watchlist_tickers_v156", "watchlist", "watchlist_items"]:
+            if _legacy_seed_only_v1863t(st.session_state.get(key)):
+                st.session_state[key] = []
+
+        latest = st.session_state.get("latest_rankings_v148")
+        if isinstance(latest, dict):
+            cleaned = {k: v for k, v in latest.items() if not _legacy_seed_only_v1863t(v)}
+            if len(cleaned) != len(latest):
+                st.session_state["latest_rankings_v148"] = cleaned
+
+        for key in ["top_picks_result", "watchlist_result", "smart_universe_result", "ai_analysis_universe_smart_result_v1859"]:
+            if _legacy_seed_only_v1863t(st.session_state.get(key)):
+                st.session_state[key] = {}
+    except Exception as e:
+        logging.warning("Legacy seed cleanup skipped: %s", e)
+
+
 def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> str:
     manual = _clean_manual_ticker_input(manual_ticker)
     return manual if manual else normalize_user_ticker(selected_from_list)
@@ -5562,7 +5641,7 @@ def render_analysis(results, label):
     # uten å starte en ny scan/rangering bare fordi menyen åpnes.
     source_choice = st.selectbox(
         "Aksjekilde",
-        ["Aktuell liste", "Smart Universe Picker", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige", "Norden", "Alle"],
+        ["Aktuell liste", "Smart Universe Picker", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"],
         index=0,
         key=f"analysis_source_{label}_v148",
         help="Bruker siste lagrede/godkjente rangering. Manuell ticker overstyrer alltid listen.",
@@ -5597,9 +5676,8 @@ def render_analysis(results, label):
         return _options, _labels
 
     options, option_labels = _build_options(source_results)
-    fallback_static = ["AAPL", "MSFT", "GOOGL", "AVGO", "NVDA", "AMZN", "EQNR.OL", "DNB.OL", "YAR.OL", "ABB.ST", "VOLV-B.ST"]
     if not options and source_choice == "Aktuell liste":
-        options = list(fallback_static)
+        st.info("Aktuell liste er tom. Kjør en rangering, velg et marked, eller skriv én ticker manuelt.")
 
     # V14.10: hvis valgt dynamisk kilde mangler liste, gi eksplisitt knapp for å bygge akkurat denne kilden.
     if not options and source_choice != "Aktuell liste":
@@ -5644,14 +5722,14 @@ def render_analysis(results, label):
     with s2:
         manual_ticker_raw = st.text_input(
             "Eller skriv ticker",
-            placeholder="Skriv én ticker, f.eks. STB.OL",
+            placeholder="Skriv én ticker, f.eks. EQNR.OL",
             key=manual_key,
             help="Manuell ticker overstyrer valgt kilde. For flere tickere bruker du Strategi-test.",
         )
         if st.button("Tøm manuell ticker", key=f"manual_ticker_clear_btn_{label}_v1410", use_container_width=True):
             st.session_state[manual_key] = ""
             st.rerun()
-        st.caption("Eksempel: STB.OL, EQNR.OL eller ABB.ST")
+        st.caption("Eksempel: EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE eller PETR4.SA")
 
     manual_ticker_clean = _clean_manual_ticker_input(manual_ticker_raw)
     if manual_ticker_raw and manual_ticker_clean != normalize_user_ticker(manual_ticker_raw):
@@ -5681,7 +5759,7 @@ def render_analysis(results, label):
         if _manual_update_mode_enabled():
             st.info("Manuell modus er aktiv og det finnes ingen lagret analyse for valgt ticker. Trykk Oppdater hele appen for å hente data.")
         else:
-            st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. AAPL, EQNR.OL eller ABB.ST.")
+            st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE eller PETR4.SA.")
         return
 
     _sync_timeframe, _sync_period = get_selected_time_settings(label, selected)
@@ -6412,6 +6490,9 @@ def render_auto_trading_workspace():
                 _m_usa = st.checkbox("USA", value=bool(_markets_settings.get("USA", True)), key="main_auto_market_usa_v155")
                 _m_no = st.checkbox("Norge", value=bool(_markets_settings.get("NORGE", True)), key="main_auto_market_no_v155")
                 _m_se = st.checkbox("Sverige", value=bool(_markets_settings.get("SVERIGE", True)), key="main_auto_market_se_v155")
+                _m_fi = st.checkbox("Finland", value=bool(_markets_settings.get("FINLAND", True)), key="main_auto_market_fi_v1863t")
+                _m_dk = st.checkbox("Danmark", value=bool(_markets_settings.get("DANMARK", True)), key="main_auto_market_dk_v1863t")
+                _m_br = st.checkbox("Brasil", value=bool(_markets_settings.get("BRASIL", False)), key="main_auto_market_br_v1863t")
             with buy_col:
                 st.markdown("#### Kjøpsgrenser")
                 _min_conf = st.number_input(
@@ -6505,7 +6586,7 @@ def render_auto_trading_workspace():
                 "auto_trading_paused": bool(_safe_edit) if bool(_auto_enabled) else False,
                 "auto_trading_emergency_stop": False,
                 "auto_trading_safe_edit_mode": bool(_safe_edit),
-                "markets": {"USA": bool(_m_usa), "NORGE": bool(_m_no), "SVERIGE": bool(_m_se)},
+                "markets": {"USA": bool(_m_usa), "NORGE": bool(_m_no), "SVERIGE": bool(_m_se), "FINLAND": bool(_m_fi), "DANMARK": bool(_m_dk), "BRASIL": bool(_m_br)},
                 "max_tickers_per_market": int(_max_tickers),
                 "min_buy_confidence": int(_min_conf),
                 "min_buy_score": float(_min_score),
@@ -7227,6 +7308,7 @@ use_high_conf_alerts_only = bool(_alert_runtime_settings.get("notify_high_confid
 min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 80))
 auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
 search = str(st.session_state.get("search_main_v157", "") or "").strip().upper()
+_cleanup_legacy_session_seed_data_v1863t()
 
 # V14.8 / Oppgave 70 og 72:
 # Menyer skriver først til draft. Tunge analyser bruker aktive verdier til bruker trykker
@@ -7446,7 +7528,7 @@ def render_news_control_center_v18535(default_ticker: str = ""):
     """Manual NewsAPI workspace. It never fetches news before the user presses the button."""
     st.subheader("📰 Nyheter")
     st.caption("Live NewsAPI brukes bare når du trykker knappen. Automatiske kall holdes av som standard.")
-    default_ticker = normalize_user_ticker(default_ticker or search or "AAPL")
+    default_ticker = normalize_user_ticker(default_ticker or search or "")
     ticker = st.text_input("Ticker", value=default_ticker, key="cc_news_ticker_v18535")
     limit = st.slider("Antall nyheter", 3, 10, 6, 1, key="cc_news_limit_v18535")
     if st.button("Hent nyheter manuelt", key="cc_news_fetch_v18535", type="primary"):
@@ -7477,7 +7559,7 @@ def render_interactive_technical_control_center_v18535():
     """Manual single-ticker analysis panel for interactive/technical/trading-engine views."""
     st.subheader("📊 Interaktiv / teknisk analyse")
     st.caption("Panelet henter ikke data før du trykker Kjør analyse. Teknisk analyse og Trading engine vises i samme aksjekort.")
-    default_ticker = normalize_user_ticker(search or "AAPL")
+    default_ticker = normalize_user_ticker(search or "")
     ticker = st.text_input("Ticker for analyse", value=default_ticker, key="cc_interactive_ticker_v18535")
     run = st.button("Kjør interaktiv analyse", key="cc_interactive_run_v18535", type="primary")
     if run:
@@ -7503,10 +7585,10 @@ def render_market_ranking_control_center_v18535():
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
-    market = st.selectbox("Marked", ["USA", "Norge", "Sverige", "Norden", "Alle"], key="cc_ranking_market_v18535")
+    market = st.selectbox("Marked", ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"], key="cc_ranking_market_v18535")
     limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     source_tickers = []
-    if market in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+    if market in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
         source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
@@ -7539,7 +7621,7 @@ def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_
     scope = str(scope or "").strip()
     if scope == "Aktivt univers":
         return _source_tickers_for_interactive("Smart Universe Picker", max_fallback=limit)[:limit]
-    if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+    if scope in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
         return resolve_universe_tickers([scope], max_count=limit)
     if scope == "Watchlist":
         return _dedupe_text_list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])[:limit]
@@ -7557,7 +7639,7 @@ def render_top_picks_control_center_v1863s():
     with c1:
         scope = st.selectbox(
             "Univers / marked",
-            ["Aktivt univers", "USA", "Norge", "Sverige", "Norden", "Alle", "Watchlist", "Manuell liste"],
+            ["Aktivt univers", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle", "Watchlist", "Manuell liste"],
             key="cc_top_picks_scope_v1863s",
         )
     with c2:
@@ -7568,7 +7650,7 @@ def render_top_picks_control_center_v1863s():
         manual_text = st.text_area(
             "Manuelle tickere",
             value="",
-            placeholder="AAPL, EQNR.OL, ABB.ST",
+            placeholder="EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE, PETR4.SA",
             key="cc_top_picks_manual_v1863s",
             height=90,
         )
@@ -7605,7 +7687,7 @@ def render_top_picks_control_center_v1863s():
             )
         top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
         latest[storage_key] = top_rows or []
-        if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+        if scope in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
             latest[scope] = ranked or []
         st.success(f"Top Picks ferdig: {len(top_rows or [])} kandidater fra {scope}.")
 
@@ -7688,7 +7770,7 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
 
     if scope == "Manuell liste":
         return _dedupe(parse_ticker_list(manual_text))
-    if scope in {"USA", "Norge", "Sverige", "Norden"}:
+    if scope in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden"}:
         return _dedupe(resolve_universe_tickers([scope], max_count=limit))
     if scope == "Multi-marked":
         return _dedupe(resolve_universe_tickers(["Alle"], max_count=limit))
@@ -7716,7 +7798,7 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
         latest = st.session_state.get("latest_rankings_v148", {}) or {}
         rows = []
         for key, vals in latest.items():
-            if "Top" in str(key) or key in {"USA", "Norge", "Sverige"}:
+            if "Top" in str(key) or key in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden"}:
                 rows.extend(vals or [])
         rows = _ranked_for_display(rows)
         return _dedupe(rows)
@@ -7837,7 +7919,7 @@ def render_auto_test_lab_control_center_v18536():
     with col_a:
         scope = st.selectbox(
             "Univers",
-            ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Norden", "Multi-marked", "Manuell liste"],
+            ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Multi-marked", "Manuell liste"],
             key="auto_lab_scope_v18537",
         )
     with col_b:
@@ -7849,7 +7931,7 @@ def render_auto_test_lab_control_center_v18536():
 
     manual_text = ""
     if scope == "Manuell liste":
-        manual_text = st.text_area("Tickere", value="AAPL, MSFT, NVDA", height=82, key="auto_lab_manual_v18537")
+        manual_text = st.text_area("Tickere", value="", placeholder="EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE, PETR4.SA", height=82, key="auto_lab_manual_v18537")
 
     c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
     with c1:
@@ -9080,7 +9162,7 @@ def render_mixed_portfolio_control_center_v18544():
     manual_stocks = ""
     manual_funds = ""
     if stock_source == "Manuell":
-        manual_stocks = st.text_area("Manuelle aksjer", value="AAPL 10\nMSFT 10\nNVDA 10", height=76, key="mixed_portfolio_manual_stocks_v18544", help="Format: TICKER vekt. Hvis vekt mangler fordeles likt.")
+        manual_stocks = st.text_area("Manuelle aksjer", value="", placeholder="EQNR.OL 10\nVOLV-B.ST 10\nNOVO-B.CO 10", height=76, key="mixed_portfolio_manual_stocks_v18544", help="Format: TICKER vekt. Hvis vekt mangler fordeles likt.")
     if fund_source == "Manuell":
         manual_funds = st.text_area("Manuelle fond/ETF", value="VOO 50 ETF\nQQQ 20 ETF", height=76, key="mixed_portfolio_manual_funds_v18544", help="Format: SYMBOL vekt type. Eksempel: VOO 60 ETF")
 

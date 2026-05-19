@@ -10,6 +10,7 @@ Felles varselsenter:
 
 from __future__ import annotations
 import logging
+from datetime import datetime, timezone
 
 from typing import Any, Dict, List
 
@@ -17,6 +18,13 @@ import streamlit as st
 
 from forecast_store import load_alerts, summarize_alerts
 from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter, resolve_security_metadata, standard_market_options
+from universe_engine import resolve_universe_tickers
+
+ALERT_MAX_AGE_HOURS = 72
+LEGACY_SEED_TICKERS = {
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
+    "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO",
+}
 
 
 def _level_icon(level: str) -> str:
@@ -58,13 +66,40 @@ def _alert_market(alert: Dict[str, Any]) -> str:
     return infer_security_listing(alert.get("ticker"), alert).get("market", "Ukjent")
 
 
+def _alert_age_hours(alert: Dict[str, Any]) -> float | None:
+    raw = str(alert.get("created_at") or alert.get("generated_at") or alert.get("saved_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() / 3600.0
+    except Exception:
+        return None
+
+
+def _is_stale_or_legacy_alert(alert: Dict[str, Any]) -> bool:
+    age = _alert_age_hours(alert)
+    if age is not None and age > ALERT_MAX_AGE_HOURS:
+        return True
+    ticker = str(alert.get("ticker") or "").upper().strip()
+    category = str(alert.get("category") or "").lower()
+    message = str(alert.get("message") or "")
+    if ticker in LEGACY_SEED_TICKERS and ("2026-05-12" in message or category == "earnings_event"):
+        return True
+    return False
+
+
 def collect_common_alerts(limit: int = 100) -> List[Dict[str, Any]]:
     """Collect alerts from forecast log and simple app-state sources."""
     alerts: List[Dict[str, Any]] = []
 
     try:
         for alert in load_alerts(limit=limit):
-            alerts.append(_normalize_alert(alert, source="Prognose"))
+            row = _normalize_alert(alert, source="Prognose")
+            if not _is_stale_or_legacy_alert(row):
+                alerts.append(row)
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
@@ -147,7 +182,10 @@ def render_common_alert_center(location: str = "top") -> None:
         f1, f2, f3, f4, f5 = st.columns([1.15, .9, .8, .9, .9])
         with f1:
             market_filter = st.selectbox("Marked", market_values, key=f"alert_market_filter_{location}_v1863m")
-        ticker_values = filter_tickers_for_market(raw_tickers, market_filter)
+        universe_tickers = []
+        if market_filter in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+            universe_tickers = resolve_universe_tickers([market_filter], max_count=120)
+        ticker_values = filter_tickers_for_market(sorted(set(raw_tickers + universe_tickers)), market_filter)
         with f2:
             ticker_filter = st.selectbox("Ticker", ["Alle"] + ticker_values, key=f"alert_ticker_filter_{location}_v1863n")
         with f3:
