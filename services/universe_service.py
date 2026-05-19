@@ -159,7 +159,7 @@ class UniverseService:
         latest_rankings = self.state.get("latest_rankings_v148", {}) or {}
         if isinstance(latest_rankings, Mapping):
             for source, rows in latest_rankings.items():
-                tickers = _extract_tickers(rows)
+                tickers = _extract_non_legacy_tickers(rows)
                 if tickers:
                     source_key = str(source)
                     out[source_key] = tickers
@@ -168,7 +168,7 @@ class UniverseService:
                     if source_key.startswith("SmartAI") or source_key.startswith("Smart AI"):
                         out.setdefault("Smart AI-utvalg", []).extend(tickers)
 
-        watch = _extract_tickers(
+        watch = _extract_non_legacy_tickers(
             self.state.get_first(["latest_watchlist_tickers_v156", "watchlist", "watchlist_items"], [])
         )
         if watch:
@@ -293,7 +293,7 @@ class UniverseService:
         # has one market; Multi-marked can have several. Existing scopes such as
         # Watchlist/Top Picks can be mixed in deliberately.
         if not scopes:
-            scopes = ["USA"]
+            return ([], "Marked", "Velg minst ett marked eller en kilde")
         try:
             from universe_engine import resolve_universe_tickers
 
@@ -304,7 +304,7 @@ class UniverseService:
                 existing_tickers_by_scope=existing,
             )
         except Exception:
-            tickers = _dedupe_tickers([manual_ticker])[:max_count]
+            tickers = _dedupe_tickers([manual_ticker])[:max_count] if manual_ticker else []
 
         source = "Multi-marked" if mode == "Multi-marked" or len(scopes) > 1 else "Marked"
         return (tickers[:max_count], source, f"Kilder: {', '.join(scopes)}")
