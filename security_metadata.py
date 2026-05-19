@@ -11,7 +11,7 @@ from typing import Any, Dict, Mapping
 import re
 from market_universe import MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES
 
-APP_SECURITY_METADATA_VERSION = "v18.6.3u"
+APP_SECURITY_METADATA_VERSION = "v18.6.3w"
 STANDARD_MARKET_FILTERS = ["Alle"] + [x for x in MARKET_SCOPE_OPTIONS if x != "Alle"]
 NORDIC_MARKETS = set(NORDIC_MARKET_SCOPES)
 _MARKET_ALIASES = {
@@ -86,6 +86,133 @@ _STOCKS: Dict[str, Dict[str, str]] = {
     "ITUB4.SA": {"name": "Itau Unibanco PN", "sector": "Financials", "risk": "Middels"},
 }
 
+_STOCKS.update({
+    # Norway
+    "TEL.OL": {"name": "Telenor ASA", "sector": "Communication", "risk": "Middels"},
+    "ORK.OL": {"name": "Orkla ASA", "sector": "Consumer", "risk": "Lav"},
+    "MOWI.OL": {"name": "Mowi ASA", "sector": "Consumer", "risk": "Middels"},
+    "AKRBP.OL": {"name": "Aker BP ASA", "sector": "Energy", "risk": "Middels"},
+    "KOG.OL": {"name": "Kongsberg Gruppen ASA", "sector": "Industrials", "risk": "Middels"},
+    "TOM.OL": {"name": "Tomra Systems ASA", "sector": "Industrials", "risk": "Middels"},
+    "SALM.OL": {"name": "SalMar ASA", "sector": "Consumer", "risk": "Middels"},
+    "GJF.OL": {"name": "Gjensidige Forsikring ASA", "sector": "Financials", "risk": "Lav"},
+    "SUBC.OL": {"name": "Subsea 7 S.A.", "sector": "Energy", "risk": "Middels"},
+    "ATEA.OL": {"name": "Atea ASA", "sector": "Technology", "risk": "Middels"},
+    "FRO.OL": {"name": "Frontline plc", "sector": "Energy", "risk": "Høy"},
+    "NEL.OL": {"name": "Nel ASA", "sector": "Industrials", "risk": "Høy"},
+    "VAR.OL": {"name": "Var Energi ASA", "sector": "Energy", "risk": "Middels"},
+    "BAKKA.OL": {"name": "Bakkafrost", "sector": "Consumer", "risk": "Middels"},
+    "WAWI.OL": {"name": "Wallenius Wilhelmsen ASA", "sector": "Industrials", "risk": "Middels"},
+    "AUTO.OL": {"name": "AutoStore Holdings Ltd.", "sector": "Technology", "risk": "Høy"},
+    "SCHB.OL": {"name": "Schibsted ASA B", "sector": "Communication", "risk": "Middels"},
+    "HAFNI.OL": {"name": "Hafnia Ltd.", "sector": "Energy", "risk": "Middels"},
+    "BORR.OL": {"name": "Borr Drilling Ltd.", "sector": "Energy", "risk": "Høy"},
+    "MPCC.OL": {"name": "MPC Container Ships ASA", "sector": "Industrials", "risk": "Høy"},
+    "LSG.OL": {"name": "Leroy Seafood Group ASA", "sector": "Consumer", "risk": "Middels"},
+    "ELK.OL": {"name": "Elkem ASA", "sector": "Materials", "risk": "Høy"},
+    "NAS.OL": {"name": "Norwegian Air Shuttle ASA", "sector": "Industrials", "risk": "Høy"},
+    "KIT.OL": {"name": "Kitron ASA", "sector": "Technology", "risk": "Middels"},
+    "XXL.OL": {"name": "XXL ASA", "sector": "Consumer", "risk": "Høy"},
+
+    # Sweden
+    "HM-B.ST": {"name": "Hennes & Mauritz AB B", "sector": "Consumer", "risk": "Middels"},
+    "ATCO-B.ST": {"name": "Atlas Copco AB B", "sector": "Industrials", "risk": "Lav"},
+    "SAND.ST": {"name": "Sandvik AB", "sector": "Industrials", "risk": "Middels"},
+    "SEB-A.ST": {"name": "SEB A", "sector": "Financials", "risk": "Lav"},
+    "SWED-A.ST": {"name": "Swedbank AB A", "sector": "Financials", "risk": "Middels"},
+    "TELIA.ST": {"name": "Telia Company AB", "sector": "Communication", "risk": "Middels"},
+    "SKF-B.ST": {"name": "SKF AB B", "sector": "Industrials", "risk": "Middels"},
+    "ASSA-B.ST": {"name": "Assa Abloy AB B", "sector": "Industrials", "risk": "Lav"},
+    "INVE-B.ST": {"name": "Investor AB B", "sector": "Financials", "risk": "Lav"},
+    "EVO.ST": {"name": "Evolution AB", "sector": "Consumer", "risk": "Høy"},
+    "SINCH.ST": {"name": "Sinch AB", "sector": "Technology", "risk": "Høy"},
+    "NDA-SE.ST": {"name": "Nordea Bank Abp", "sector": "Financials", "risk": "Lav"},
+    "SHB-A.ST": {"name": "Handelsbanken A", "sector": "Financials", "risk": "Lav"},
+    "ALFA.ST": {"name": "Alfa Laval AB", "sector": "Industrials", "risk": "Middels"},
+    "SAAB-B.ST": {"name": "Saab AB B", "sector": "Industrials", "risk": "Middels"},
+    "SCA-B.ST": {"name": "Svenska Cellulosa AB B", "sector": "Materials", "risk": "Middels"},
+    "BOL.ST": {"name": "Boliden AB", "sector": "Materials", "risk": "Middels"},
+    "ELUX-B.ST": {"name": "Electrolux AB B", "sector": "Consumer", "risk": "Middels"},
+    "GETI-B.ST": {"name": "Getinge AB B", "sector": "Healthcare", "risk": "Middels"},
+    "KINV-B.ST": {"name": "Kinnevik AB B", "sector": "Financials", "risk": "Høy"},
+    "LATO-B.ST": {"name": "Investment AB Latour B", "sector": "Financials", "risk": "Lav"},
+    "NIBE-B.ST": {"name": "Nibe Industrier AB B", "sector": "Industrials", "risk": "Middels"},
+    "SBB-B.ST": {"name": "Samhallsbyggnadsbolaget i Norden AB B", "sector": "Real Estate", "risk": "Høy"},
+    "SSAB-A.ST": {"name": "SSAB AB A", "sector": "Materials", "risk": "Middels"},
+    "THULE.ST": {"name": "Thule Group AB", "sector": "Consumer", "risk": "Middels"},
+    "AZN.ST": {"name": "AstraZeneca PLC", "sector": "Healthcare", "risk": "Lav"},
+
+    # Finland
+    "UPM.HE": {"name": "UPM-Kymmene Oyj", "sector": "Materials", "risk": "Middels"},
+    "FORTUM.HE": {"name": "Fortum Oyj", "sector": "Utilities", "risk": "Middels"},
+    "WRT1V.HE": {"name": "Wartsila Oyj Abp", "sector": "Industrials", "risk": "Middels"},
+    "ELISA.HE": {"name": "Elisa Oyj", "sector": "Communication", "risk": "Lav"},
+    "METSO.HE": {"name": "Metso Corporation", "sector": "Industrials", "risk": "Middels"},
+    "VALMT.HE": {"name": "Valmet Oyj", "sector": "Industrials", "risk": "Middels"},
+    "ORNAV.HE": {"name": "Orion Oyj A", "sector": "Healthcare", "risk": "Lav"},
+    "ORNBV.HE": {"name": "Orion Oyj B", "sector": "Healthcare", "risk": "Lav"},
+    "KESKOB.HE": {"name": "Kesko Oyj B", "sector": "Consumer", "risk": "Lav"},
+    "HUH1V.HE": {"name": "Huhtamaki Oyj", "sector": "Materials", "risk": "Middels"},
+    "KCR.HE": {"name": "Konecranes Oyj", "sector": "Industrials", "risk": "Middels"},
+    "TYRES.HE": {"name": "Nokian Tyres plc", "sector": "Consumer", "risk": "Høy"},
+    "STERV.HE": {"name": "Stora Enso Oyj R", "sector": "Materials", "risk": "Middels"},
+    "OUT1V.HE": {"name": "Outokumpu Oyj", "sector": "Materials", "risk": "Høy"},
+    "QTCOM.HE": {"name": "Qt Group Oyj", "sector": "Technology", "risk": "Høy"},
+    "PUUILO.HE": {"name": "Puuilo Oyj", "sector": "Consumer", "risk": "Middels"},
+    "KOJAMO.HE": {"name": "Kojamo Oyj", "sector": "Real Estate", "risk": "Middels"},
+    "MEKKO.HE": {"name": "Marimekko Oyj", "sector": "Consumer", "risk": "Middels"},
+    "KEMIRA.HE": {"name": "Kemira Oyj", "sector": "Materials", "risk": "Middels"},
+    "CGCBV.HE": {"name": "Cargotec Oyj B", "sector": "Industrials", "risk": "Middels"},
+    "MANTA.HE": {"name": "Mandatum Oyj", "sector": "Financials", "risk": "Middels"},
+
+    # Denmark
+    "CARL-B.CO": {"name": "Carlsberg A/S B", "sector": "Consumer", "risk": "Lav"},
+    "PNDORA.CO": {"name": "Pandora A/S", "sector": "Consumer", "risk": "Middels"},
+    "NZYM-B.CO": {"name": "Novozymes A/S B", "sector": "Healthcare", "risk": "Middels"},
+    "VWS.CO": {"name": "Vestas Wind Systems A/S", "sector": "Industrials", "risk": "Høy"},
+    "COLO-B.CO": {"name": "Coloplast A/S B", "sector": "Healthcare", "risk": "Lav"},
+    "GMAB.CO": {"name": "Genmab A/S", "sector": "Healthcare", "risk": "Middels"},
+    "DANSKE.CO": {"name": "Danske Bank A/S", "sector": "Financials", "risk": "Middels"},
+    "TRYG.CO": {"name": "Tryg A/S", "sector": "Financials", "risk": "Lav"},
+    "ROCK-B.CO": {"name": "Rockwool A/S B", "sector": "Industrials", "risk": "Middels"},
+    "JYSK.CO": {"name": "Jyske Bank A/S", "sector": "Financials", "risk": "Middels"},
+    "AMBU-B.CO": {"name": "Ambu A/S B", "sector": "Healthcare", "risk": "Høy"},
+    "DEMANT.CO": {"name": "Demant A/S", "sector": "Healthcare", "risk": "Middels"},
+    "GN.CO": {"name": "GN Store Nord A/S", "sector": "Healthcare", "risk": "Høy"},
+    "ISS.CO": {"name": "ISS A/S", "sector": "Industrials", "risk": "Middels"},
+    "RBREW.CO": {"name": "Royal Unibrew A/S", "sector": "Consumer", "risk": "Middels"},
+    "FLS.CO": {"name": "FLSmidth & Co. A/S", "sector": "Industrials", "risk": "Middels"},
+    "BAVA.CO": {"name": "Bavarian Nordic A/S", "sector": "Healthcare", "risk": "Høy"},
+    "NETC.CO": {"name": "Netcompany Group A/S", "sector": "Technology", "risk": "Middels"},
+    "ALK-B.CO": {"name": "ALK-Abello A/S B", "sector": "Healthcare", "risk": "Middels"},
+    "NKT.CO": {"name": "NKT A/S", "sector": "Industrials", "risk": "Middels"},
+    "TOP.CO": {"name": "Topdanmark A/S", "sector": "Financials", "risk": "Lav"},
+
+    # Brazil
+    "BBDC4.SA": {"name": "Banco Bradesco PN", "sector": "Financials", "risk": "Middels"},
+    "ABEV3.SA": {"name": "Ambev S.A.", "sector": "Consumer", "risk": "Lav"},
+    "B3SA3.SA": {"name": "B3 S.A.", "sector": "Financials", "risk": "Middels"},
+    "WEGE3.SA": {"name": "WEG S.A.", "sector": "Industrials", "risk": "Middels"},
+    "BBAS3.SA": {"name": "Banco do Brasil S.A.", "sector": "Financials", "risk": "Middels"},
+    "RENT3.SA": {"name": "Localiza Rent a Car S.A.", "sector": "Consumer", "risk": "Middels"},
+    "PRIO3.SA": {"name": "PRIO S.A.", "sector": "Energy", "risk": "Høy"},
+    "ITSA4.SA": {"name": "Itausa PN", "sector": "Financials", "risk": "Middels"},
+    "ELET3.SA": {"name": "Eletrobras ON", "sector": "Utilities", "risk": "Middels"},
+    "SUZB3.SA": {"name": "Suzano S.A.", "sector": "Materials", "risk": "Middels"},
+    "GGBR4.SA": {"name": "Gerdau PN", "sector": "Materials", "risk": "Middels"},
+    "JBSS3.SA": {"name": "JBS S.A.", "sector": "Consumer", "risk": "Høy"},
+    "RAIL3.SA": {"name": "Rumo S.A.", "sector": "Industrials", "risk": "Middels"},
+    "LREN3.SA": {"name": "Lojas Renner S.A.", "sector": "Consumer", "risk": "Middels"},
+    "HAPV3.SA": {"name": "Hapvida Participacoes", "sector": "Healthcare", "risk": "Høy"},
+    "RADL3.SA": {"name": "Raia Drogasil S.A.", "sector": "Consumer", "risk": "Lav"},
+    "CSNA3.SA": {"name": "CSN ON", "sector": "Materials", "risk": "Høy"},
+    "EMBR3.SA": {"name": "Embraer S.A.", "sector": "Industrials", "risk": "Middels"},
+    "EQTL3.SA": {"name": "Equatorial Energia S.A.", "sector": "Utilities", "risk": "Middels"},
+    "CMIG4.SA": {"name": "Cemig PN", "sector": "Utilities", "risk": "Middels"},
+    "VIVT3.SA": {"name": "Telefonica Brasil S.A.", "sector": "Communication", "risk": "Lav"},
+    "SBSP3.SA": {"name": "Sabesp", "sector": "Utilities", "risk": "Lav"},
+})
+
 _FUNDS: Dict[str, Dict[str, str]] = {
     "SHYG": {"name": "iShares 0-5 Year High Yield Corporate Bond ETF", "sector": "High yield credit", "risk": "Høy"},
     "USHY": {"name": "iShares Broad USD High Yield Corporate Bond ETF", "sector": "High yield credit", "risk": "Høy"},
@@ -140,10 +267,29 @@ def _source_meta(symbol: str) -> Dict[str, str]:
     return dict(_STOCKS.get(symbol) or _FUNDS.get(symbol) or {})
 
 
+def _pretty_name_from_symbol(symbol: str) -> str:
+    base = re.sub(r"\.(OL|ST|HE|CO|SA|IS)$", "", symbol or "", flags=re.IGNORECASE)
+    base = base.replace("-", " ").replace("_", " ").strip()
+    if not base:
+        return symbol
+    return " ".join(part if part.isupper() and len(part) <= 4 else part.capitalize() for part in base.split())
+
+
+def _fallback_profile(symbol: str) -> Dict[str, str]:
+    if symbol.endswith(".SA"):
+        return {"name": _pretty_name_from_symbol(symbol), "sector": "Broad equity", "risk": "Middels"}
+    if symbol.endswith((".OL", ".ST", ".HE", ".CO")):
+        return {"name": _pretty_name_from_symbol(symbol), "sector": "Broad equity", "risk": "Middels"}
+    if symbol:
+        return {"name": _pretty_name_from_symbol(symbol), "sector": "Broad equity", "risk": "Middels"}
+    return {"name": "", "sector": "Broad equity", "risk": "Middels"}
+
+
 def resolve_security_metadata(symbol: Any, row: Mapping[str, Any] | None = None) -> Dict[str, Any]:
     row = row or {}
     sym = normalize_symbol(row.get("ticker") or row.get("symbol") or row.get("Symbol") or symbol)
     meta = _source_meta(sym)
+    fallback = _fallback_profile(sym)
 
     name = ""
     for key in ("fund_name", "fundName", "longName", "companyName", "shortName", "displayName", "name", "Navn", "NAVN"):
@@ -152,7 +298,7 @@ def resolve_security_metadata(symbol: Any, row: Mapping[str, Any] | None = None)
             name = val
             break
     if not name:
-        name = meta.get("name", "")
+        name = meta.get("name", "") or fallback["name"]
 
     sector = ""
     for key in ("sector", "Sector", "industry", "Industry"):
@@ -161,11 +307,11 @@ def resolve_security_metadata(symbol: Any, row: Mapping[str, Any] | None = None)
             sector = val
             break
     if not sector:
-        sector = meta.get("sector", "Unknown")
+        sector = meta.get("sector") or fallback["sector"]
 
     risk = str(row.get("risk") or row.get("risk_label") or "").strip()
     if not risk or risk in {"Unknown", "Ukjent"}:
-        risk = meta.get("risk", "Ukjent")
+        risk = meta.get("risk") or fallback["risk"]
 
     out = dict(row)
     out.update({

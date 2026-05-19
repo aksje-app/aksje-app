@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3v"
-APP_VERSION_NAME = "Paper Trading Valuation Refresh"
-APP_BUILD_ID = "v1863v-paper-trading-valuation-refresh"
+APP_VERSION = "v18.6.3w"
+APP_VERSION_NAME = "Picker UX Metadata Enrichment"
+APP_BUILD_ID = "v1863w-picker-ux-metadata-enrichment"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():

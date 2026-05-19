@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from app_version import get_app_version
-from market_universe import MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, picker_scope_options
+from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, NO_MARKET_SELECTION_LABEL, picker_scope_options
 from security_metadata import resolve_security_metadata, display_label, infer_security_listing
 
 from services.service_registry import build_service_registry
@@ -427,6 +427,16 @@ def _candidate_dataframe(candidates: Sequence[UniverseCandidate]) -> pd.DataFram
 
 def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
     rows = []
+    source_label = str(result.get("source") or (result.get("summary") or {}).get("source") or "").lower()
+    is_picker_only = source_label in {
+        "marked", "multi-marked", "enkeltaksje", "manuell liste",
+        "top picks", "watchlist", "paper trading", "portefølje", "portefã¸lje",
+    }
+
+    def _score_value(row: Mapping[str, Any], key: str) -> Any:
+        value = row.get(key)
+        return value if value not in (None, "") else ("Ikke scoret" if is_picker_only else "")
+
     for row in result.get("candidates", []) or []:
         if not isinstance(row, Mapping):
             continue
@@ -445,12 +455,12 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
                 "Børs": listing.get("exchange"),
                 "Marked": listing.get("market") or row.get("market"),
                 "Sektor": meta.get("sector") or row.get("sector"),
-                "AI-score": row.get("ai_score"),
-                "Smart-score": row.get("smart_score"),
-                "Strength": row.get("strength"),
+                "AI-score": _score_value(row, "ai_score"),
+                "Smart-score": _score_value(row, "smart_score"),
+                "Strength": _score_value(row, "strength"),
                 "Risiko": meta.get("risk") or row.get("risk"),
-                "1m %": row.get("ret_1m_pct"),
-                "3m %": row.get("ret_3m_pct"),
+                "1m %": _score_value(row, "ret_1m_pct"),
+                "3m %": _score_value(row, "ret_3m_pct"),
                 "Forklaring": row.get("reason"),
             }
         )
@@ -1528,13 +1538,44 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     index=WORKSPACE_MODES.index(current["mode"]) if current["mode"] in WORKSPACE_MODES else 1,
                     key="ai_universe_mode_draft_v1853",
                 )
-                scopes = st.multiselect(
-                    "Marked / kilde",
-                    MARKET_SCOPES,
-                    default=[x for x in current["scopes"] if x in MARKET_SCOPES],
-                    key="ai_universe_scopes_draft_v1853",
-                    help="Velg ett eller flere marked/kilder. Smart AI-utvalg kan kjøre multi-marked i fase 1.",
-                )
+                current_scope_values = current["scopes"]
+                if isinstance(current_scope_values, str):
+                    current_scope_values = [current_scope_values]
+                current_scopes = [x for x in current_scope_values if x in MARKET_SCOPES]
+                if mode == "Markedvalg":
+                    market_options = [NO_MARKET_SELECTION_LABEL] + MARKET_SCOPE_OPTIONS
+                    default_market = current_scopes[0] if current_scopes and current_scopes[0] in MARKET_SCOPE_OPTIONS else NO_MARKET_SELECTION_LABEL
+                    market_choice = st.selectbox(
+                        "Marked",
+                        market_options,
+                        index=market_options.index(default_market),
+                        key="ai_universe_market_single_v1863w",
+                        help="Velg ett marked. Menyen lukker seg etter valg og starter ingen analyse.",
+                    )
+                    scopes = [] if market_choice == NO_MARKET_SELECTION_LABEL else [market_choice]
+                elif mode == "Multi-marked":
+                    st.caption("Velg flere markeder uten nedtrekksmeny.")
+                    scopes = []
+                    checkbox_markets = BASE_MARKET_SCOPES + ["Norden", "Alle"]
+                    market_cols = st.columns(4)
+                    for idx, market_name in enumerate(checkbox_markets):
+                        with market_cols[idx % 4]:
+                            if st.checkbox(
+                                market_name,
+                                value=market_name in current_scopes,
+                                key=f"ai_universe_market_chip_{market_name}_v1863w",
+                            ):
+                                scopes.append(market_name)
+                    if "Alle" in scopes:
+                        scopes = ["Alle"]
+                else:
+                    scopes = [mode] if mode in MARKET_SCOPES else []
+                    if mode in {"Top Picks", "Watchlist", "Paper trading", "Portefølje", "Manuell liste", "Smart AI-utvalg"}:
+                        st.markdown(
+                            f"<div class='ai-universe-empty-note'>Kilde: {escape(mode)}</div>",
+                            unsafe_allow_html=True,
+                        )
+                st.session_state["ai_universe_scopes_draft_v1853"] = scopes
                 manual_ticker = st.text_input(
                     "Manuell ticker / enkeltaksje",
                     value=str(current["manual_ticker"] or ""),
@@ -1588,13 +1629,19 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     key="ai_universe_max_risk_v1853",
                     help="Operativt filter. Risiko beregnes fra volatilitet/drawdown eller eksisterende risk_score.",
                 )
-                sectors = st.multiselect(
+                current_sector_values = current["sectors"]
+                if isinstance(current_sector_values, str):
+                    current_sector_values = [current_sector_values]
+                current_sector = next((x for x in current_sector_values if x in SECTOR_OPTIONS), "Alle sektorer")
+                sector_choice = st.selectbox(
                     "Sektorfilter",
                     SECTOR_OPTIONS,
-                    default=[x for x in current["sectors"] if x in SECTOR_OPTIONS] or ["Alle sektorer"],
-                    key="ai_universe_sectors_v1853",
-                    help="Bruker sektor fra analysedata når mulig, ellers transparent ticker-fallback.",
+                    index=SECTOR_OPTIONS.index(current_sector) if current_sector in SECTOR_OPTIONS else 0,
+                    key="ai_universe_sector_single_v1863w",
+                    help="Ett sektorfilter om gangen. Velg Alle sektorer for bred scan.",
                 )
+                sectors = [sector_choice]
+                st.session_state["ai_universe_sectors_v1853"] = sectors
                 use_news = st.checkbox(
                     "Bruk nyheter/sentiment (NewsAPI)",
                     value=bool(current["use_news"]),

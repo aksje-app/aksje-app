@@ -774,7 +774,7 @@ def _render_forecast_workspace_tab() -> None:
         st.session_state["forecast_render_context_v1849"] = "ai_control_center"
         render_forecast_section()
     except TypeError:
-        render_forecast_section(default_ticker="AAPL")
+        render_forecast_section(default_ticker="")
     except Exception as exc:
         st.warning(f"Prognosemodul kunne ikke vises i AI Kontrollsenter: {exc}")
     finally:
