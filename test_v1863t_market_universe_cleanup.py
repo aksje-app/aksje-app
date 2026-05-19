@@ -32,3 +32,23 @@ def test_legacy_seed_only_storage_is_ignored():
     assert _extract_non_legacy_tickers(legacy_rows) == []
     assert _legacy_seed_only(current_rows) is False
     assert _extract_non_legacy_tickers(current_rows) == ["VOLV-B.ST", "NOKIA.HE"]
+
+
+def test_empty_scope_does_not_fall_back_to_usa():
+    assert resolve_universe_tickers([], max_count=5) == []
+
+
+def test_picker_empty_scope_stays_empty(tmp_path):
+    from services.state_service import get_state_service
+    from services.storage_service import StorageService
+    from services.universe_service import UniverseService
+
+    service = UniverseService(
+        state_service=get_state_service({}),
+        storage_service=StorageService(base_dir=str(tmp_path), database_url=""),
+        score_provider=lambda ticker, use_news=False: None,
+    )
+    resolved = service.resolve_picker({"mode": "Markedvalg", "scopes": [], "max_count": 30})
+    assert resolved.ok
+    assert resolved.status == "empty"
+    assert resolved.data["tickers"] == []

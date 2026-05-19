@@ -45,18 +45,18 @@ def test_picker_resolves_manual_list_and_persists_active_universe(tmp_path):
 
 def test_picker_resolves_all_non_market_sources(tmp_path):
     session_state = {
-        "latest_rankings_v148": {"TopPicks_Alle": [{"ticker": "AAPL"}]},
-        "latest_watchlist_tickers_v156": ["MSFT"],
-        "paper_positions": {"NVDA": {"qty": 1}},
-        "portfolio": {"AAPL": {"qty": 2}},
+        "latest_rankings_v148": {"TopPicks_Alle": [{"ticker": "VOLV-B.ST"}]},
+        "latest_watchlist_tickers_v156": ["NOKIA.HE"],
+        "paper_positions": {"PETR4.SA": {"qty": 1}},
+        "portfolio": {"NHY.OL": {"qty": 2}},
     }
     service = make_service(tmp_path, session_state)
 
     cases = {
-        "Top Picks": ["AAPL"],
-        "Watchlist": ["MSFT"],
-        "Paper trading": ["NVDA"],
-        "Portefølje": ["AAPL"],
+        "Top Picks": ["VOLV-B.ST"],
+        "Watchlist": ["NOKIA.HE"],
+        "Paper trading": ["PETR4.SA"],
+        "Portefølje": ["NHY.OL"],
         "Enkeltaksje": ["MSFT"],
     }
     for mode, expected in cases.items():

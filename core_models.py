@@ -94,7 +94,7 @@ class StockCandidate:
 @dataclass(frozen=True)
 class UniverseRequest:
     mode: str = "Smart AI-utvalg"
-    scopes: List[str] = field(default_factory=lambda: ["USA"])
+    scopes: List[str] = field(default_factory=list)
     manual_ticker: str = ""
     max_count: int = 30
     max_risk: str = "Middels"
@@ -108,7 +108,7 @@ class UniverseRequest:
     def normalized(self) -> "UniverseRequest":
         return UniverseRequest(
             mode=str(self.mode or "Smart AI-utvalg"),
-            scopes=[str(x) for x in (self.scopes or ["USA"]) if str(x or "").strip()] or ["USA"],
+            scopes=[str(x) for x in (self.scopes or []) if str(x or "").strip()],
             manual_ticker=normalize_ticker(self.manual_ticker),
             max_count=max(1, min(int(self.max_count or 30), 250)),
             max_risk=str(self.max_risk or "Middels"),
@@ -127,7 +127,7 @@ class UniverseRequest:
     def from_config(cls, config: Mapping[str, Any]) -> "UniverseRequest":
         return cls(
             mode=str(config.get("mode") or "Smart AI-utvalg"),
-            scopes=list(config.get("scopes") or ["USA"]),
+            scopes=list(config.get("scopes") or []),
             manual_ticker=str(config.get("manual_ticker") or ""),
             max_count=int(config.get("max_count") or 30),
             max_risk=str(config.get("max_risk") or "Middels"),

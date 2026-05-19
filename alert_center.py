@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 import streamlit as st
 
 from forecast_store import load_alerts, summarize_alerts
+from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL
 from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter, resolve_security_metadata, standard_market_options
 from universe_engine import resolve_universe_tickers
 
@@ -147,6 +148,9 @@ def collect_common_alerts(limit: int = 100) -> List[Dict[str, Any]]:
         deduped.append(alert)
 
     deduped.sort(key=lambda a: priority.get((a.get("level") or "").lower(), 0), reverse=True)
+    ticker_set = {str(a.get("ticker") or "").upper().strip() for a in deduped if str(a.get("ticker") or "").strip()}
+    if ticker_set and ticker_set.issubset(LEGACY_SEED_TICKERS):
+        return []
     return deduped[:limit]
 
 
@@ -177,13 +181,13 @@ def render_common_alert_center(location: str = "top") -> None:
         raw_tickers = sorted({str(a.get("ticker") or "").upper() for a in alerts if str(a.get("ticker") or "").strip()})
         source_values = ["Alle"] + sorted({str(a.get("source") or "Ukjent") for a in alerts})
         horizon_values = ["Alle"] + sorted({str(a.get("horizon") or "") for a in alerts if str(a.get("horizon") or "").strip()})
-        market_values = standard_market_options(include_sources=True)
+        market_values = [NO_UNIVERSE_SELECTION_LABEL] + standard_market_options(include_sources=True)
 
         f1, f2, f3, f4, f5 = st.columns([1.15, .9, .8, .9, .9])
         with f1:
             market_filter = st.selectbox("Marked", market_values, key=f"alert_market_filter_{location}_v1863m")
         universe_tickers = []
-        if market_filter in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+        if market_filter in MARKET_SCOPE_OPTIONS:
             universe_tickers = resolve_universe_tickers([market_filter], max_count=120)
         ticker_values = filter_tickers_for_market(sorted(set(raw_tickers + universe_tickers)), market_filter)
         with f2:
@@ -194,6 +198,16 @@ def render_common_alert_center(location: str = "top") -> None:
             source_filter = st.selectbox("Kilde", source_values, key=f"alert_source_filter_{location}_v1863m")
         with f5:
             horizon_filter = st.selectbox("Horisont", horizon_values, key=f"alert_horizon_filter_{location}_v1863m")
+
+        show_key = f"alert_center_show_{location}_v1863u"
+        if st.button("Vis / oppdater varsler for valgt filter", key=f"alert_center_run_{location}_v1863u", type="primary", use_container_width=True, disabled=market_filter == NO_UNIVERSE_SELECTION_LABEL):
+            st.session_state[show_key] = True
+        if not bool(st.session_state.get(show_key)):
+            st.info("Velg marked/kilde og trykk knappen. Varselsenteret viser ikke gamle lagrede AAPL/STB.OL-varsler automatisk.")
+            return
+        if market_filter == NO_UNIVERSE_SELECTION_LABEL:
+            st.info("Velg marked/kilde først.")
+            return
 
         level_lookup = {"Rød": "red", "Gul": "yellow", "Grønn": "green"}
         filtered_alerts = []

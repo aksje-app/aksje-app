@@ -18,6 +18,11 @@ from score_explanation_store import capture_score_explanations, score_explanatio
 from strategy_engine import optimize_strategy, run_strategy, strategy_stats
 from strategy_test_pro import render_strategy_test_pro
 
+LEGACY_SEED_TICKERS_TL = {
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
+    "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO",
+}
+
 
 def _safe_rerun() -> None:
     try:
@@ -202,7 +207,11 @@ def _render_basic_strategy_result(result: Mapping[str, Any]) -> bool:
     return True
 
 
-def _collect_known_tickers(default: str = "AAPL", limit: int = 12) -> List[str]:
+def _normalize_ticker_input(value: Any) -> str:
+    return str(value or "").strip().upper().replace(" ", "")
+
+
+def _collect_known_tickers(default: str = "", limit: int = 12) -> List[str]:
     tickers: List[str] = []
 
     def add(value: Any) -> None:
@@ -221,7 +230,8 @@ def _collect_known_tickers(default: str = "AAPL", limit: int = 12) -> List[str]:
             for item in value:
                 add(item)
 
-    add(default)
+    if default:
+        add(default)
     try:
         add(st.session_state.get("latest_watchlist_tickers_v156", []))
         rankings = st.session_state.get("latest_rankings_v148", {}) or {}
@@ -233,7 +243,9 @@ def _collect_known_tickers(default: str = "AAPL", limit: int = 12) -> List[str]:
             add(smart.get("top_picks") or smart.get("candidates") or [])
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    return tickers[:limit] or [default]
+    if tickers and set(tickers).issubset(LEGACY_SEED_TICKERS_TL):
+        return []
+    return tickers[:limit]
 
 
 def _score_rows_for_ticker(ticker: str) -> List[Dict[str, Any]]:
@@ -400,12 +412,23 @@ def _render_learning_history_summary() -> bool:
     return True
 
 
-def render_strategy_testing_workspace(ticker: str = "AAPL") -> None:
+def render_strategy_testing_workspace(ticker: str = "") -> None:
     st.markdown("### 🧪 Testing & Learning")
     st.caption("Strategi-test, Strategi-test Pro, scoreforklaring og læringshistorikk samlet i AI Kontrollsenter. Ingen ordre eller auto-trading kobles her.")
 
     known = _collect_known_tickers(ticker)
-    selected = st.selectbox("Ticker for testing", options=known, index=0, key="tl_selected_ticker_v18515")
+    selected = _normalize_ticker_input(st.text_input(
+        "Ticker for testing",
+        value="",
+        placeholder="Skriv ticker, f.eks. EQNR.OL, VOLV-B.ST, NOKIA.HE, NOVO-B.CO eller PETR4.SA",
+        key="tl_selected_ticker_input_v1863u",
+    ))
+    if known:
+        st.caption("Tilgjengelige tickere fra aktivt univers/cache: " + ", ".join(known[:10]))
+    if not selected:
+        st.info("Skriv inn en ticker først. Testing & Learning starter tomt og bruker ikke AAPL/STB.OL som standard.")
+        _render_learning_history_summary()
+        return
 
     rendered: Dict[str, bool] = {}
     rendered["Strategi-test"] = _render_basic_strategy_test(selected)
@@ -419,7 +442,7 @@ def render_strategy_testing_workspace(ticker: str = "AAPL") -> None:
         }
         render_strategy_test_pro(
             default_ticker=selected,
-            default_tickers=known,
+            default_tickers=[selected] + [t for t in known if t != selected],
             default_rules=default_rules,
             key_prefix="testing_learning_strategy_pro_v18515",
         )

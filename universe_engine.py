@@ -23,6 +23,7 @@ import math
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_version import get_app_version
+from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, normalize_market_scopes
 from security_metadata import resolve_security_metadata
 
 
@@ -379,9 +380,9 @@ def resolve_universe_tickers(
     Watchlist and Top Picks when the UI passes them in.
     """
     max_count = max(1, min(int(max_count or 30), 250))
-    selected = [str(x) for x in (scopes or []) if str(x or "").strip()]
+    selected = normalize_market_scopes(scopes)
     if not selected:
-        selected = ["USA"]
+        return []
 
     source_lists: List[List[str]] = []
     manual = normalize_ticker(manual_ticker)
@@ -404,7 +405,7 @@ def resolve_universe_tickers(
     for scope in selected:
         if scope == "Alle":
             if all([get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_finnish_tickers, get_danish_tickers, get_brazilian_tickers]):
-                per_market = max(5, math.ceil(max_count / 6))
+                per_market = max(5, math.ceil(max_count / max(1, len(BASE_MARKET_SCOPES))))
                 source_lists.extend([
                     list(get_sp500_tickers(limit=per_market) or []),
                     list(get_norwegian_tickers(limit=per_market) or []),
@@ -414,7 +415,7 @@ def resolve_universe_tickers(
                     list(get_brazilian_tickers(limit=per_market) or []),
                 ])
             elif get_all_tickers:
-                source_lists.append(list(get_all_tickers(limit_per_market=max(5, math.ceil(max_count / 6))) or []))
+                source_lists.append(list(get_all_tickers(limit_per_market=max(5, math.ceil(max_count / max(1, len(BASE_MARKET_SCOPES))))) or []))
         elif scope == "USA" and get_sp500_tickers:
             source_lists.append(list(get_sp500_tickers(limit=max_count) or []))
         elif scope == "Norge" and get_norwegian_tickers:
@@ -481,13 +482,13 @@ def resolve_strict_universe_tickers(
     if mode == "Smart AI-utvalg":
         return (from_scope("Smart AI-utvalg"), "Smart AI-utvalg")
 
-    market_scopes = [scope for scope in scopes if scope in {"USA", "Norge", "Sverige", "Norden", "Alle"}]
+    market_scopes = [scope for scope in scopes if scope in MARKET_SCOPE_OPTIONS]
     if mode == "Multi-marked":
-        return (resolve_universe_tickers(market_scopes or ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Multi-marked")
+        return (resolve_universe_tickers(market_scopes, max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Multi-marked")
 
     # Markedvalg is market-only. Manual ticker is intentionally ignored here;
     # Enkeltaksje is the only mode that should scan a manual single ticker.
-    return (resolve_universe_tickers(market_scopes or ["USA"], max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Markedvalg")
+    return (resolve_universe_tickers(market_scopes, max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Markedvalg")
 
 
 def filter_smart_candidates(
@@ -557,7 +558,7 @@ def run_smart_ai_universe(
     """
     score_provider = score_provider or _default_score_provider
     max_count = max(1, min(int(config.get("max_count", 30) or 30), 250))
-    scopes = list(config.get("scopes") or ["USA"])
+    scopes = normalize_market_scopes(config.get("scopes") or [])
     use_news = bool(config.get("use_news", False))
     max_risk = str(config.get("max_risk") or "Middels")
     sectors = list(config.get("sectors") or ["Alle sektorer"])

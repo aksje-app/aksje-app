@@ -26,6 +26,7 @@ from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines, market_statuses
+from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, market_scope_options
 from background_guard import market_guard_summary
 from trading_settings import load_rules, save_rules, DEFAULT_RULES
 import pandas as pd
@@ -5612,9 +5613,9 @@ def _legacy_seed_only_v1863t(value) -> bool:
 def _cleanup_legacy_session_seed_data_v1863t() -> None:
     """Ignore old demo/seed data so it cannot masquerade as current market data."""
     try:
-        for key in ["latest_watchlist_tickers_v156", "watchlist", "watchlist_items"]:
+        for key in ["latest_watchlist_tickers_v156", "watchlist", "watchlist_items", "search_main_v157", "cc_interactive_ticker_v18535"]:
             if _legacy_seed_only_v1863t(st.session_state.get(key)):
-                st.session_state[key] = []
+                st.session_state[key] = "" if "ticker" in key or key == "search_main_v157" else []
 
         latest = st.session_state.get("latest_rankings_v148")
         if isinstance(latest, dict):
@@ -5625,6 +5626,11 @@ def _cleanup_legacy_session_seed_data_v1863t() -> None:
         for key in ["top_picks_result", "watchlist_result", "smart_universe_result", "ai_analysis_universe_smart_result_v1859"]:
             if _legacy_seed_only_v1863t(st.session_state.get(key)):
                 st.session_state[key] = {}
+        controls = st.session_state.get("active_analysis_controls_v148")
+        if isinstance(controls, dict) and _legacy_seed_only_v1863t(controls.get("search")):
+            controls = dict(controls)
+            controls["search"] = ""
+            st.session_state["active_analysis_controls_v148"] = controls
     except Exception as e:
         logging.warning("Legacy seed cleanup skipped: %s", e)
 
@@ -5649,8 +5655,8 @@ def render_analysis(results, label):
     source_results = _latest_ranked_results_for_source(source_choice, results or [], current_label=label)
 
     # Oppgave 76/76B + 78/79: dynamiske, rangerte valg etter valgt aksjekilde.
-    # Standard AAPL-listen brukes bare for Aktuell liste. Andre kilder må ha lagret rangering
-    # eller bygges eksplisitt med egen knapp. Ingen stille fallback til AAPL.
+    # Panelet starter tomt. Kilder må ha lagret rangering eller bygges eksplisitt
+    # med egen knapp. Ingen stille fallback til AAPL.
     def _build_options(_source_results):
         result_options = [normalize_user_ticker(r.get("ticker")) for r in (_source_results or []) if isinstance(r, dict) and r.get("ticker")]
         _options = []
@@ -7585,14 +7591,18 @@ def render_market_ranking_control_center_v18535():
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
-    market = st.selectbox("Marked", ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"], key="cc_ranking_market_v18535")
+    market = st.selectbox("Marked", [NO_UNIVERSE_SELECTION_LABEL] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
     limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     source_tickers = []
-    if market in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+    if market in MARKET_SCOPE_OPTIONS:
         source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
-    if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary"):
+    if source_tickers:
+        st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
+    else:
+        st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
+    if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
         with st.spinner(f"Rangerer {market}..."):
             ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
         latest[storage_key] = ranked or []
@@ -7619,9 +7629,11 @@ def _parse_control_center_tickers_v1863s(text: str) -> list[str]:
 def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_text: str = "") -> list[str]:
     limit = max(1, min(int(limit or 30), 250))
     scope = str(scope or "").strip()
+    if scope in {"", NO_UNIVERSE_SELECTION_LABEL, "Velg marked"}:
+        return []
     if scope == "Aktivt univers":
         return _source_tickers_for_interactive("Smart Universe Picker", max_fallback=limit)[:limit]
-    if scope in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+    if scope in MARKET_SCOPE_OPTIONS:
         return resolve_universe_tickers([scope], max_count=limit)
     if scope == "Watchlist":
         return _dedupe_text_list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])[:limit]
@@ -7639,7 +7651,7 @@ def render_top_picks_control_center_v1863s():
     with c1:
         scope = st.selectbox(
             "Univers / marked",
-            ["Aktivt univers", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle", "Watchlist", "Manuell liste"],
+            [NO_UNIVERSE_SELECTION_LABEL, "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"],
             key="cc_top_picks_scope_v1863s",
         )
     with c2:
@@ -7666,7 +7678,8 @@ def render_top_picks_control_center_v1863s():
         if guard:
             st.caption(guard)
     else:
-        st.warning("Ingen tickere funnet for valgt univers ennå. Velg et marked, bygg Smart Universe, eller skriv manuell liste.")
+        st.info("Velg univers/marked og trykk Kjør Top Picks. Panelet starter tomt og bruker ingen gammel AAPL/STB.OL-cache.")
+        return
 
     run_clicked = st.button(
         f"Kjør Top Picks for {scope}",
@@ -7687,7 +7700,7 @@ def render_top_picks_control_center_v1863s():
             )
         top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
         latest[storage_key] = top_rows or []
-        if scope in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+        if scope in MARKET_SCOPE_OPTIONS:
             latest[scope] = ranked or []
         st.success(f"Top Picks ferdig: {len(top_rows or [])} kandidater fra {scope}.")
 
@@ -7756,6 +7769,8 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
     from auto_test_lab import parse_ticker_list, normalize_ticker
     limit = max(1, min(int(limit or 25), 150))
     scope = str(scope or "").strip()
+    if scope in {"", NO_UNIVERSE_SELECTION_LABEL, "Velg marked"}:
+        return []
 
     def _dedupe(values):
         out, seen = [], set()
@@ -7770,7 +7785,7 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
 
     if scope == "Manuell liste":
         return _dedupe(parse_ticker_list(manual_text))
-    if scope in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden"}:
+    if scope in MARKET_SCOPE_OPTIONS:
         return _dedupe(resolve_universe_tickers([scope], max_count=limit))
     if scope == "Multi-marked":
         return _dedupe(resolve_universe_tickers(["Alle"], max_count=limit))
@@ -7798,7 +7813,7 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
         latest = st.session_state.get("latest_rankings_v148", {}) or {}
         rows = []
         for key, vals in latest.items():
-            if "Top" in str(key) or key in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden"}:
+            if "Top" in str(key) or key in MARKET_SCOPE_OPTIONS:
                 rows.extend(vals or [])
         rows = _ranked_for_display(rows)
         return _dedupe(rows)
@@ -7919,7 +7934,7 @@ def render_auto_test_lab_control_center_v18536():
     with col_a:
         scope = st.selectbox(
             "Univers",
-            ["Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Multi-marked", "Manuell liste"],
+            [NO_UNIVERSE_SELECTION_LABEL, "Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading"] + market_scope_options(include_aggregate=True) + ["Multi-marked", "Manuell liste"],
             key="auto_lab_scope_v18537",
         )
     with col_b:
@@ -7971,7 +7986,7 @@ def render_auto_test_lab_control_center_v18536():
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
-        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
+        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", use_container_width=True, disabled=not bool(preview_tickers), on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
     with stop_col:
         if st.button("⏹ Stopp/avbryt", key="auto_lab_stop_v18537", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
             st.session_state["auto_lab_stop_requested_v18537"] = True

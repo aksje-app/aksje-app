@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3t"
-APP_VERSION_NAME = "Clean Market Universe Expansion"
-APP_BUILD_ID = "v1863t-clean-market-universe-expansion"
+APP_VERSION = "v18.6.3u"
+APP_VERSION_NAME = "Explicit Scan Market Engine Cleanup"
+APP_BUILD_ID = "v1863u-explicit-scan-market-engine-cleanup"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():

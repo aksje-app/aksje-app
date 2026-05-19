@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping
 import re
+from market_universe import MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES
 
-APP_SECURITY_METADATA_VERSION = "v18.6.3t"
-STANDARD_MARKET_FILTERS = ["Alle", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden"]
-NORDIC_MARKETS = {"Norge", "Sverige", "Danmark", "Finland", "Island"}
+APP_SECURITY_METADATA_VERSION = "v18.6.3u"
+STANDARD_MARKET_FILTERS = ["Alle"] + [x for x in MARKET_SCOPE_OPTIONS if x != "Alle"]
+NORDIC_MARKETS = set(NORDIC_MARKET_SCOPES)
 _MARKET_ALIASES = {
     "US": "USA",
     "USA": "USA",

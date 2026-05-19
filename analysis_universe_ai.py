@@ -23,7 +23,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from app_version import get_app_version
-from security_metadata import resolve_security_metadata, display_label
+from market_universe import MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, picker_scope_options
+from security_metadata import resolve_security_metadata, display_label, infer_security_listing
 
 from services.service_registry import build_service_registry
 from services.universe_service import (
@@ -82,7 +83,7 @@ WORKSPACE_MODES = [
     "Smart AI-utvalg",
 ]
 
-MARKET_SCOPES = ["USA", "Norge", "Sverige", "Norden", "Alle", "Top Picks", "Watchlist", "Paper trading", "Portefølje", "Manuell liste", "Smart AI-utvalg"]
+MARKET_SCOPES = picker_scope_options(include_sources=True)
 
 SECTOR_OPTIONS = [
     "Alle sektorer",
@@ -100,7 +101,7 @@ SECTOR_OPTIONS = [
 
 FEATURE_STATUS_ROWS = [
     ("Enkeltaksje", "Operativ", "Manuell ticker løses til aktivt aksjeunivers uten fallback."),
-    ("Markedvalg", "Operativ", "USA/Norge/Sverige/Alle løses via UniverseService og kan settes som aktivt univers."),
+    ("Markedvalg", "Operativ", "USA, Norge, Sverige, Finland, Danmark, Brasil, Norden og Alle løses via UniverseService og kan settes som aktivt univers."),
     ("Multi-marked", "Operativ", "Flere markeder kan blandes i samme picker-resultat med round-robin/deduplisering."),
     ("Top Picks", "Operativ", "Lagrede Top Picks kan brukes som univers og persisteres videre."),
     ("Watchlist", "Operativ", "Watchlist leses fra session/storage og kan bli aktivt univers."),
@@ -376,12 +377,15 @@ def filter_universe_candidates(
         source_is_top_pick = source.startswith("TopPicks") or "Top Picks" in source
         if selected_scopes and "Alle" not in selected_scopes:
             allowed = False
-            if "USA" in selected_scopes and source == "USA":
-                allowed = True
-            if "Norge" in selected_scopes and source == "Norge":
-                allowed = True
-            if "Sverige" in selected_scopes and source == "Sverige":
-                allowed = True
+            listing = infer_security_listing(c.ticker, {"ticker": c.ticker, "source": source})
+            market = str(listing.get("market") or "")
+            for market_scope in MARKET_SCOPE_OPTIONS:
+                if market_scope not in selected_scopes:
+                    continue
+                if market_scope == "Norden" and market in set(NORDIC_MARKET_SCOPES):
+                    allowed = True
+                elif market_scope not in {"Norden", "Alle"} and (source == market_scope or market == market_scope):
+                    allowed = True
             if "Top Picks" in selected_scopes and source_is_top_pick:
                 allowed = True
             if "Watchlist" in selected_scopes and source == "Watchlist":
@@ -1433,6 +1437,12 @@ def _set_pending_change(reason: str) -> None:
 
 
 def _default_config() -> Dict[str, Any]:
+    if not st.session_state.get("ai_universe_default_reset_v1863u"):
+        if st.session_state.get("ai_universe_scopes_draft_v1853") in (["USA"], ("USA",)):
+            st.session_state["ai_universe_scopes_draft_v1853"] = []
+        if str(st.session_state.get("ai_universe_manual_ticker_draft_v18523") or "").upper() in {"AAPL", "STB.OL"}:
+            st.session_state["ai_universe_manual_ticker_draft_v18523"] = ""
+        st.session_state["ai_universe_default_reset_v1863u"] = True
     mode = st.session_state.get("ai_universe_mode_draft_v1853", "Markedvalg")
     if mode == "Smart AI-utvalg (planlagt)":
         mode = "Smart AI-utvalg"
@@ -1442,8 +1452,8 @@ def _default_config() -> Dict[str, Any]:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return {
         "mode": mode,
-        "scopes": st.session_state.get("ai_universe_scopes_draft_v1853", ["USA"]),
-        "manual_ticker": st.session_state.get("ai_universe_manual_ticker_draft_v18523", st.session_state.get("search_main_v157", "")),
+        "scopes": st.session_state.get("ai_universe_scopes_draft_v1853", []),
+        "manual_ticker": st.session_state.get("ai_universe_manual_ticker_draft_v18523", ""),
         "manual_list": st.session_state.get("ai_universe_manual_list_draft_v18517", ""),
         "max_count": int(st.session_state.get("max_count_main_v157", 30) or 30),
         "min_top_pick_score": float(st.session_state.get("min_top_pick_score_main_v157", 6.5) or 6.5),
@@ -1521,14 +1531,14 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 scopes = st.multiselect(
                     "Marked / kilde",
                     MARKET_SCOPES,
-                    default=[x for x in current["scopes"] if x in MARKET_SCOPES] or ["USA"],
+                    default=[x for x in current["scopes"] if x in MARKET_SCOPES],
                     key="ai_universe_scopes_draft_v1853",
                     help="Velg ett eller flere marked/kilder. Smart AI-utvalg kan kjøre multi-marked i fase 1.",
                 )
                 manual_ticker = st.text_input(
                     "Manuell ticker / enkeltaksje",
                     value=str(current["manual_ticker"] or ""),
-                    placeholder="F.eks. AAPL, EQNR.OL eller ABB.ST",
+                    placeholder="F.eks. EQNR.OL, VOLV-B.ST, NOKIA.HE, NOVO-B.CO eller PETR4.SA",
                     key="ai_universe_manual_ticker_draft_v18523",
                 )
                 _manual_ticker_preview = _normalize_ticker(manual_ticker)
@@ -1540,7 +1550,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 manual_list_text = st.text_area(
                     "Manuell liste",
                     value=str(current.get("manual_list") or ""),
-                    placeholder="AAPL, MSFT, NVDA\nEQNR.OL, DNB.OL",
+                    placeholder="EQNR.OL, VOLV-B.ST, NOKIA.HE\nNOVO-B.CO, PETR4.SA",
                     key="ai_universe_manual_list_draft_v18517",
                     help="Brukes når modus er Manuell liste. Du kan skille tickere med komma, mellomrom eller linjeskift.",
                     height=86,
@@ -1624,7 +1634,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             st.session_state["min_top_pick_score_main_v157"] = float(min_top_pick_score)
             st.session_state["use_news_main_v157"] = bool(use_news)
             st.session_state["use_signal_intelligence_main_v157"] = bool(use_signal_intelligence)
-            st.session_state["search_main_v157"] = _normalize_ticker(manual_ticker)
+            st.session_state["search_main_v157"] = _normalize_ticker(manual_ticker) if mode == "Enkeltaksje" else ""
             # v18.5.26: Do not assign to ai_universe_manual_list_draft_v18517 after
             # its st.text_area widget has been instantiated in this run. Streamlit
             # raises if a widget key is mutated post-instantiation. Keep a separate
@@ -1637,6 +1647,12 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 st.session_state["market_category_selector_v157"] = "Norway / Oslo"
             elif "Sverige" in scopes and len(scopes) == 1:
                 st.session_state["market_category_selector_v157"] = "Sweden / Stockholm"
+            elif "Finland" in scopes and len(scopes) == 1:
+                st.session_state["market_category_selector_v157"] = "Finland / Helsinki"
+            elif "Danmark" in scopes and len(scopes) == 1:
+                st.session_state["market_category_selector_v157"] = "Danmark / Copenhagen"
+            elif "Brasil" in scopes and len(scopes) == 1:
+                st.session_state["market_category_selector_v157"] = "Brasil / B3"
             elif "USA" in scopes and len(scopes) == 1:
                 st.session_state["market_category_selector_v157"] = "US Markets"
 
@@ -1664,17 +1680,6 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         with picker_a:
             if st.button("🎯 Bruk som aktivt aksjeunivers", key="use_smart_universe_picker_active_v18517", use_container_width=True):
                 service_result = services.universe.save_active_universe(config)
-                payload = service_result.data or {}
-                tickers = payload.get("tickers", []) if isinstance(payload, Mapping) else []
-                if tickers:
-                    st.session_state["search_main_v157"] = tickers[0]
-                    st.session_state["active_analysis_controls_v148"] = {
-                        **dict(st.session_state.get("active_analysis_controls_v148", {})),
-                        "search": tickers[0],
-                        "max_count": int(max_count),
-                        "use_news": bool(use_news),
-                        "use_signal_intelligence": bool(use_signal_intelligence),
-                    }
                 _set_pending_change("Smart Universe Picker satt som aktivt aksjeunivers")
                 st.success(service_result.message or "Smart Universe Picker er satt som aktivt aksjeunivers.")
         with picker_b:
@@ -1706,6 +1711,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 "🚀 Kjør Smart AI-utvalg nå",
                 key="run_smart_ai_universe_v1859",
                 use_container_width=True,
+                disabled=not bool(picker_result.get("tickers") or picker_result.get("candidates")),
                 on_click=set_global_busy,
                 kwargs={"label": "Kjører Smart AI-utvalg", "detail": "Forbereder valgt ticker-univers", "step": 1, "total": 4},
             )

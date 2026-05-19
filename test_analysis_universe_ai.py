@@ -24,7 +24,7 @@ def test_filter_candidates_respects_scope_risk_and_strength():
     session_state = {
         "latest_rankings_v148": {
             "USA": [
-                {"ticker": "AAPL", "score": 8.1, "max_drawdown": -0.12},
+                {"ticker": "AAPL", "score": 8.1, "strength": 80, "max_drawdown": -0.12},
                 {"ticker": "LOW", "score": 4.2, "max_drawdown": -0.55},
             ],
             "Norge": [
