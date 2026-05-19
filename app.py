@@ -84,6 +84,7 @@ from earnings import get_earnings
 from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 from paper_store import save_portfolio
+from paper_trading_valuation import normalize_paper_portfolio, paper_position_rows, paper_trade_rows, timestamp_now
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
@@ -6787,8 +6788,8 @@ def _render_paper_positions_overview_v18581(portfolio):
         for ticker, pos in positions.items():
             try:
                 pos = pos or {}
-                last_price = float(pos.get("last_price", pos.get("avg_price", 0)) or 0)
-                avg_price = float(pos.get("avg_price", pos.get("entry_price", 0)) or 0)
+                last_price = float(pos.get("last_price", pos.get("avg_price", pos.get("entry_price", 0))) or 0)
+                avg_price = float(pos.get("avg_price", pos.get("entry_price", last_price)) or last_price)
                 shares = float(pos.get("shares", pos.get("units", 0)) or 0)
                 value = shares * last_price
                 pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
@@ -6814,7 +6815,7 @@ def _render_paper_positions_overview_v18581(portfolio):
         trades = []
     st.markdown("<div class='v18581-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
     if trades:
-        st.dataframe(pd.DataFrame(trades[-20:]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=20)), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen handler ennå.")
 
@@ -6826,6 +6827,52 @@ def _safe_float_v18581(value, default=0.0):
         return float(default)
 
 
+def _fetch_latest_paper_price_v1863v(ticker: str):
+    """Fetch one latest close for explicit Paper Trading price refresh."""
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return None, "mangler ticker"
+    try:
+        hist = yf.Ticker(symbol).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+        if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+            return None, "fant ingen Close-data"
+        close = hist["Close"].dropna()
+        if close.empty:
+            return None, "Close-data er tom"
+        return float(close.iloc[-1]), ""
+    except Exception as exc:
+        return None, str(exc)[:160]
+
+
+def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = False):
+    positions = (portfolio or {}).get("positions", {}) or {}
+    latest_prices = {}
+    errors = []
+    updated_at = timestamp_now() if fetch_live else ""
+    if fetch_live:
+        for ticker in positions.keys():
+            price, err = _fetch_latest_paper_price_v1863v(ticker)
+            if price and price > 0:
+                latest_prices[str(ticker).upper()] = price
+            else:
+                errors.append(f"{ticker}: {err or 'ingen pris'}")
+    normalized = normalize_paper_portfolio(portfolio, latest_prices, updated_at=updated_at)
+    should_save = bool(fetch_live and latest_prices)
+    if not should_save:
+        for old_pos in positions.values():
+            if _safe_float_v18581((old_pos or {}).get("avg_price"), 0.0) <= 0 and (
+                _safe_float_v18581((old_pos or {}).get("entry_price"), 0.0) > 0
+                or _safe_float_v18581((old_pos or {}).get("last_price"), 0.0) > 0
+            ):
+                should_save = True
+                break
+    if should_save:
+        save_portfolio(normalized)
+    return normalized, latest_prices, errors, updated_at
+
+
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
@@ -6834,9 +6881,32 @@ def render_paper_trading_dashboard():
 
     portfolio = load_portfolio()
 
+    status_cols = st.columns([1.1, 1.2, 1.7])
+    with status_cols[0]:
+        refresh_prices = st.button("🔄 Oppdater paper-kurser", key="paper_refresh_prices_v1863v", type="primary", use_container_width=True)
+    with status_cols[1]:
+        st.markdown("<div class='v18-dark-row'><b>Ekte handel:</b> Ikke aktiv</div>", unsafe_allow_html=True)
+    with status_cols[2]:
+        st.markdown("<div class='v18-dark-row'><b>Dette er simulert handel.</b> Ingen ordre sendes til broker.</div>", unsafe_allow_html=True)
+
+    portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=bool(refresh_prices))
+    if refresh_prices:
+        st.session_state["paper_price_refresh_status_v1863v"] = {
+            "time": refreshed_at,
+            "updated": len(refreshed_prices),
+            "errors": refresh_errors[:8],
+        }
+    refresh_status = st.session_state.get("paper_price_refresh_status_v1863v") or {}
+    if refresh_status:
+        st.caption(f"Sist oppdatert: {refresh_status.get('time', '-')} · kurser oppdatert: {refresh_status.get('updated', 0)}")
+        if refresh_status.get("errors"):
+            st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(refresh_status.get("errors", [])[:5]))
+    else:
+        st.caption("Kursene oppdateres når du trykker Oppdater paper-kurser. Lagrede priser brukes ellers.")
+
     latest_prices = {}
     for ticker, pos in portfolio.get("positions", {}).items():
-        latest_prices[ticker] = pos.get("last_price", pos.get("avg_price", 0))
+        latest_prices[ticker] = pos.get("last_price", pos.get("avg_price", pos.get("entry_price", 0)))
 
     total_value = portfolio_value(portfolio, latest_prices)
     liq = paper_liquidity_snapshot(portfolio, latest_prices)
@@ -7033,25 +7103,7 @@ def render_paper_trading_dashboard():
     st.markdown("#### Posisjoner")
     positions = portfolio.get("positions", {})
     if positions:
-        rows = []
-        for ticker, pos in positions.items():
-            last_price = pos.get("last_price", pos.get("avg_price", 0))
-            avg_price = pos.get("avg_price", 0)
-            shares = pos.get("shares", 0)
-            value = shares * last_price
-            pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
-            rows.append({
-                "ticker": ticker,
-                "type": pos.get("asset_type", "Aksje"),
-                "units": round(shares, 4),
-                "unit_label": pos.get("units_label", "shares"),
-                "avg_price": round(avg_price, 4),
-                "last_price": round(last_price, 4),
-                "value": round(value, 2),
-                "currency": pos.get("currency", ""),
-                "pnl_pct": round(pnl_pct, 2),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(paper_position_rows(portfolio, latest_prices)), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen åpne paper trading-posisjoner.")
 
@@ -7065,7 +7117,7 @@ def render_paper_trading_dashboard():
     st.markdown("#### Handelslogg")
     trades = portfolio.get("trades", [])
     if trades:
-        st.dataframe(pd.DataFrame(trades[-50:]), use_container_width=True)
+        st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=50)), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen handler ennå.")
 

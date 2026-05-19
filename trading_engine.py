@@ -10,6 +10,7 @@ except Exception:
     load_settings = None
 
 from paper_store import load_portfolio, save_portfolio, add_trade
+from paper_trading_valuation import normalize_paper_position, paper_reason_label
 
 try:
     from state_audit import build_paper_state_snapshot, validate_buy_order, audit_state_transition
@@ -55,8 +56,9 @@ def _position_market_value(portfolio):
     total = 0.0
     for _ticker, pos in (portfolio or {}).get("positions", {}).items():
         try:
-            shares = float(pos.get("shares", pos.get("units", 0)) or 0)
-            price = float(pos.get("last_price", pos.get("entry_price", pos.get("avg_price", 0))) or 0)
+            normalized = normalize_paper_position(_ticker, pos)
+            shares = float(normalized.get("shares", normalized.get("units", 0)) or 0)
+            price = float(normalized.get("last_price", normalized.get("entry_price", 0)) or 0)
             total += shares * price
         except Exception:
             continue
@@ -76,9 +78,10 @@ def paper_liquidity_snapshot(portfolio=None, latest_prices=None):
     cost_basis = 0.0
     for ticker, pos in (portfolio or {}).get("positions", {}).items():
         try:
-            shares = float(pos.get("shares", pos.get("units", 0)) or 0)
-            entry = float(pos.get("entry_price", pos.get("avg_price", 0)) or 0)
-            price = float(latest_prices.get(ticker, pos.get("last_price", entry)) or 0)
+            normalized = normalize_paper_position(ticker, pos, latest_price=latest_prices.get(ticker))
+            shares = float(normalized.get("shares", normalized.get("units", 0)) or 0)
+            entry = float(normalized.get("entry_price", normalized.get("avg_price", 0)) or 0)
+            price = float(normalized.get("last_price", entry) or 0)
             positions_value += shares * price
             cost_basis += shares * entry
         except Exception:
@@ -108,9 +111,8 @@ def portfolio_value(portfolio=None, latest_prices=None):
     latest_prices = latest_prices or {}
     total = float(portfolio.get("cash", 0))
     for ticker, pos in portfolio.get("positions", {}).items():
-        entry = pos.get("entry_price", pos.get("avg_price", 0))
-        price = latest_prices.get(ticker, pos.get("last_price", entry))
-        total += float(pos.get("shares", 0)) * float(price or 0)
+        normalized = normalize_paper_position(ticker, pos, latest_price=latest_prices.get(ticker))
+        total += float(normalized.get("shares", 0)) * float(normalized.get("last_price", 0) or 0)
     return round(total, 2)
 
 
@@ -208,6 +210,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     portfolio = load_portfolio()
     before = build_paper_state_snapshot(portfolio, rules=rules)
     ticker = str(ticker).upper()
+    reason = paper_reason_label(reason, "BUY") or "PAPER-KJØP"
     try:
         price = float(price)
     except Exception:
@@ -238,12 +241,13 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
         "ticker": ticker, "shares": shares, "entry_price": price, "avg_price": price,
         "last_price": price, "highest_price": price, "stop_loss": sl,
         "take_profit": tp, "trailing_stop": tr, "confidence": int(confidence or 0), "reason": reason,
+        "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
     }
-    add_trade(portfolio, {"type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason})
+    add_trade(portfolio, {"type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason, "order_kind":"paper"})
     after = build_paper_state_snapshot(portfolio, rules=rules)
     audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason})
     notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
-    return True, f"BUY {ticker} @ {price:.2f}"
+    return True, f"PAPER-KJØP {ticker} @ {price:.2f}"
 
 
 def paper_sell(ticker, price, reason="SELL signal"):
@@ -259,17 +263,19 @@ def paper_sell(ticker, price, reason="SELL signal"):
     if not pos:
         audit_state_transition("paper_sell_blocked", before, detail={"ticker": ticker, "reason": "missing_position"}, level="WARNING")
         return False, f"Ingen posisjon i {ticker}"
-    shares = float(pos.get("shares", 0))
-    entry = float(pos.get("entry_price", pos.get("avg_price", price)))
+    reason = paper_reason_label(reason, "SELL") or "PAPER-SALG"
+    normalized_pos = normalize_paper_position(ticker, pos, latest_price=price)
+    shares = float(normalized_pos.get("shares", 0))
+    entry = float(normalized_pos.get("entry_price", normalized_pos.get("avg_price", price)))
     amount = shares * price
     pnl_pct = ((price-entry)/entry*100) if entry else 0
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
     del portfolio["positions"][ticker]
-    add_trade(portfolio, {"type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0), "pnl_pct":round(pnl_pct,2), "reason":reason})
+    add_trade(portfolio, {"type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0), "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper"})
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
     notify_executed_trade("SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason)
-    return True, f"SELL {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
+    return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
 
 
 def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):

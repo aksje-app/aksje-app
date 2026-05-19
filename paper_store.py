@@ -213,6 +213,7 @@ def load_portfolio():
                 "ticker": r[0],
                 "shares": float(r[1] or 0),
                 "entry_price": entry,
+                "avg_price": entry,
                 "last_price": last,
                 "stop_loss": float(r[4] or 0),
                 "take_profit": float(r[5] or 0),
@@ -287,7 +288,7 @@ def save_portfolio(portfolio):
 
         cur.execute("DELETE FROM paper_positions")
         for ticker, pos in portfolio.get("positions", {}).items():
-            entry = float(pos.get("entry_price", 0))
+            entry = float(pos.get("entry_price") or pos.get("avg_price") or pos.get("last_price") or 0)
             cur.execute("""
                 INSERT INTO paper_positions
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
