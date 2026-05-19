@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Mapping
 from core_models import ServiceResult, StockCandidate, TopPickItem
 from services.state_service import get_state_service
 from services.storage_service import get_storage_service
-from services.universe_service import _extract_tickers, get_universe_service
+from services.universe_service import _extract_tickers, _legacy_seed_only, get_universe_service
 
 
 def _ok(data: Any = None, message: str = "", status: str = "ok") -> ServiceResult:
@@ -52,6 +52,8 @@ class TopPicksService:
         rows = []
         if isinstance(latest_rankings, Mapping):
             rows = list(latest_rankings.get("TopPicks_SmartAI") or latest_rankings.get("SmartAI") or [])[: int(limit or 10)]
+        if _legacy_seed_only(rows):
+            rows = []
         items = []
         for row in rows:
             if isinstance(row, Mapping):

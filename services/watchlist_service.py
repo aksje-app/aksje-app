@@ -5,7 +5,7 @@ from typing import Any, List, Mapping
 from core_models import ServiceResult, WatchlistItem, normalize_ticker
 from services.state_service import get_state_service
 from services.storage_service import get_storage_service
-from services.universe_service import _extract_tickers
+from services.universe_service import _extract_non_legacy_tickers, _extract_tickers
 
 
 def _ok(data: Any = None, message: str = "", status: str = "ok") -> ServiceResult:
@@ -21,7 +21,7 @@ class WatchlistService:
         tickers = _extract_tickers(self.state.get_first(["latest_watchlist_tickers_v156", "watchlist", "watchlist_items"], []))
         if not tickers:
             stored = self.storage.read_json("watchlist.json", default=[])
-            tickers = _extract_tickers(stored)
+            tickers = _extract_non_legacy_tickers(stored)
         return tickers
 
     def _save_tickers(self, tickers: List[str]) -> None:
