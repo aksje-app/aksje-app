@@ -9,7 +9,7 @@ itself; the UI passes data providers only when the user presses run.
 """
 
 from __future__ import annotations
-from utils import _safe_float, _now_iso, _clamp  # v18.6.3 centralized helpers
+from utils import _safe_float, _now_iso, _clamp as _raw_clamp  # v18.6.3 centralized helpers
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -21,12 +21,18 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 from app_version import get_app_version
 from security_metadata import resolve_security_metadata, fund_display_label
+from market_universe import BASE_MARKET_SCOPES, NORDIC_MARKET_SCOPES, market_scope_options
 
 
 FundDataProvider = Callable[[str], Optional[Mapping[str, Any]]]
 BenchmarkProvider = Callable[[str], Optional[Mapping[str, Any]]]
 ProgressCallback = Callable[[Mapping[str, Any]], None]
 StopCallback = Callable[[], bool]
+
+
+def _clamp(value: Any, lo: float = 0.0, hi: float = 100.0) -> float:
+    """Clamp fund scores, preserving older 0-100 shorthand used in this module."""
+    return _raw_clamp(value, lo, hi)
 
 
 FUND_TYPE_OPTIONS = [
@@ -78,6 +84,7 @@ OBJECTIVE_WEIGHTS = {
 # where possible and never fetch data until the user presses Run.
 FUND_SELECTION_SOURCES = [
     "Manuell liste",
+    "Auto-univers",
     "Auto indeksfond",
     "Auto ETF",
     "Auto aktive fond",
@@ -86,6 +93,9 @@ FUND_SELECTION_SOURCES = [
     "Auto pengemarkedsfond",
     "Alle / balansert miks",
 ]
+
+FUND_EXTRA_MARKETS = ["Europa/UCITS"]
+FUND_MARKET_OPTIONS = ["Alle"] + BASE_MARKET_SCOPES + ["Norden"] + FUND_EXTRA_MARKETS
 
 FUND_UNIVERSES: Dict[str, List[Dict[str, str]]] = {
     "Indeksfond": [
@@ -113,6 +123,11 @@ FUND_UNIVERSES: Dict[str, List[Dict[str, str]]] = {
         {"symbol": "XLK", "type": "ETF", "bucket": "Sektor teknologi", "reason": "sektor-satellitt teknologi"},
         {"symbol": "XLF", "type": "ETF", "bucket": "Sektor finans", "reason": "sektor-satellitt finans"},
         {"symbol": "XLV", "type": "ETF", "bucket": "Sektor helse", "reason": "defensiv/sektor helse"},
+        {"symbol": "NORW", "type": "ETF", "bucket": "Norge ETF", "reason": "Norge-eksponering via ETF", "markets": ["Norge", "Norden"]},
+        {"symbol": "EWD", "type": "ETF", "bucket": "Sverige ETF", "reason": "Sverige-eksponering via ETF", "markets": ["Sverige", "Norden"]},
+        {"symbol": "EFNL", "type": "ETF", "bucket": "Finland ETF", "reason": "Finland-eksponering via ETF", "markets": ["Finland", "Norden"]},
+        {"symbol": "EDEN", "type": "ETF", "bucket": "Danmark ETF", "reason": "Danmark-eksponering via ETF", "markets": ["Danmark", "Norden"]},
+        {"symbol": "EWZ", "type": "ETF", "bucket": "Brasil ETF", "reason": "Brasil-eksponering via ETF", "markets": ["Brasil"]},
     ],
     "Aktivt fond": [
         {"symbol": "ARKK", "type": "Aktivt fond", "bucket": "Aktiv vekst", "reason": "aktiv/disruptiv vekstprofil, må bevise merverdi"},
@@ -123,6 +138,11 @@ FUND_UNIVERSES: Dict[str, List[Dict[str, str]]] = {
         {"symbol": "TCAF", "type": "Aktivt fond", "bucket": "Aktiv kapitalallokering", "reason": "aktivt forvaltet ETF-kandidat"},
         {"symbol": "DYNF", "type": "Aktivt fond", "bucket": "Aktiv faktor", "reason": "aktiv faktor/rotasjon"},
         {"symbol": "AVGV", "type": "Aktivt fond", "bucket": "Aktiv verdi", "reason": "aktiv verdifaktor-kandidat"},
+        {"symbol": "DNB_GLOBAL_INDEKS_A", "type": "Indeksfond", "bucket": "Norsk fondskatalog", "reason": "norsk indeksfond, krever NAV/ISIN-datakilde for full historikk", "markets": ["Norge", "Norden"]},
+        {"symbol": "KLP_AKSJEGLOBAL_INDEKS_P", "type": "Indeksfond", "bucket": "Norsk fondskatalog", "reason": "norsk globalt indeksfond, lokal metadata/NAV-fallback", "markets": ["Norge", "Norden"]},
+        {"symbol": "STOREBRAND_INDEKS_NORGE_A", "type": "Indeksfond", "bucket": "Norsk fondskatalog", "reason": "norsk indeksfond med Oslo-eksponering, krever NAV-kilde", "markets": ["Norge", "Norden"]},
+        {"symbol": "AVANZA_GLOBAL", "type": "Indeksfond", "bucket": "Svensk fondskatalog", "reason": "svensk fondskandidat med lokal metadata/NAV-fallback", "markets": ["Sverige", "Norden"]},
+        {"symbol": "SPILTAN_AKTIEFOND_INVESTMENTBOLAG", "type": "Aktivt fond", "bucket": "Svensk fondskatalog", "reason": "svensk aktiv fondskandidat, krever NAV-kilde", "markets": ["Sverige", "Norden"]},
     ],
     "Rente-/obligasjonsfond": [
         {"symbol": "BND", "type": "Rente-/obligasjonsfond", "bucket": "Bred obligasjon", "reason": "bred obligasjons-/renteeksponering"},
@@ -168,6 +188,11 @@ FUND_SYMBOL_ALIASES = {
     "KRAFTHIGHYIELDD": "KRAFT_HIGH_YIELD_D",
     "KRAFT-HIGH-YIELD-D": "KRAFT_HIGH_YIELD_D",
     "KRAFT_HIGH_YIELD_D": "KRAFT_HIGH_YIELD_D",
+    "DNBGLOBALINDEKSA": "DNB_GLOBAL_INDEKS_A",
+    "KLPAKSJEGLOBALINDEKSP": "KLP_AKSJEGLOBAL_INDEKS_P",
+    "STOREBRANDINDEKSNORGEA": "STOREBRAND_INDEKS_NORGE_A",
+    "AVANZAGLOBAL": "AVANZA_GLOBAL",
+    "SPILTANAKTIEFONDINVESTMENTBOLAG": "SPILTAN_AKTIEFOND_INVESTMENTBOLAG",
 }
 
 # v18.5.47: shared display-name layer. Yahoo/metadata wins when present; this
@@ -211,6 +236,16 @@ FUND_NAME_FALLBACKS: Dict[str, str] = {
     "VT": "Vanguard Total World Stock ETF",
     "SPY": "SPDR S&P 500 ETF Trust",
     "QQQ": "Invesco QQQ Trust",
+    "NORW": "Global X MSCI Norway ETF",
+    "EWD": "iShares MSCI Sweden ETF",
+    "EFNL": "iShares MSCI Finland ETF",
+    "EDEN": "iShares MSCI Denmark ETF",
+    "EWZ": "iShares MSCI Brazil ETF",
+    "DNB_GLOBAL_INDEKS_A": "DNB Global Indeks A",
+    "KLP_AKSJEGLOBAL_INDEKS_P": "KLP AksjeGlobal Indeks P",
+    "STOREBRAND_INDEKS_NORGE_A": "Storebrand Indeks Norge A",
+    "AVANZA_GLOBAL": "Avanza Global",
+    "SPILTAN_AKTIEFOND_INVESTMENTBOLAG": "Spiltan Aktiefond Investmentbolag",
 }
 
 def get_fund_display_name(symbol: Any, data: Optional[Mapping[str, Any]] = None) -> str:
@@ -255,6 +290,83 @@ def fund_selection_sources() -> List[str]:
 def fund_type_options() -> List[str]:
     """Return UI-safe fund type options including fixed income/high yield. v18.5.46."""
     return list(FUND_TYPE_OPTIONS)
+
+
+def fund_market_options() -> List[str]:
+    """Return fund/ETF market choices aligned with the shared market engine."""
+    options: List[str] = []
+    for item in ["Alle"] + market_scope_options(include_aggregate=True) + FUND_EXTRA_MARKETS:
+        if item not in options:
+            options.append(item)
+    return options
+
+
+def _fund_market_tags(row: Mapping[str, Any]) -> List[str]:
+    explicit = row.get("markets") or row.get("market") or []
+    if isinstance(explicit, str):
+        tags = [x.strip() for x in explicit.replace(";", ",").split(",") if x.strip()]
+    else:
+        try:
+            tags = [str(x).strip() for x in explicit if str(x).strip()]
+        except Exception:
+            tags = []
+    symbol = normalize_fund_symbol(row.get("symbol"))
+    if symbol.endswith(".OL") or symbol in {"KRAFT_HIGH_YIELD_D", "DNB_GLOBAL_INDEKS_A", "KLP_AKSJEGLOBAL_INDEKS_P", "STOREBRAND_INDEKS_NORGE_A", "NORW"}:
+        tags.extend(["Norge", "Norden"])
+    elif symbol.endswith(".ST") or symbol in {"EWD", "AVANZA_GLOBAL", "SPILTAN_AKTIEFOND_INVESTMENTBOLAG"}:
+        tags.extend(["Sverige", "Norden"])
+    elif symbol.endswith(".HE") or symbol == "EFNL":
+        tags.extend(["Finland", "Norden"])
+    elif symbol.endswith(".CO") or symbol == "EDEN":
+        tags.extend(["Danmark", "Norden"])
+    elif symbol.endswith(".SA") or symbol == "EWZ":
+        tags.append("Brasil")
+    elif symbol.endswith(".DE"):
+        tags.append("Europa/UCITS")
+    elif symbol:
+        tags.append("USA")
+    out: List[str] = []
+    for tag in tags:
+        if tag and tag not in out:
+            out.append(tag)
+    return out or ["Ukjent"]
+
+
+def _fund_row_matches_market(row: Mapping[str, Any], market_scope: str) -> bool:
+    scope = str(market_scope or "Alle").strip()
+    if scope in {"", "Alle"}:
+        return True
+    tags = set(_fund_market_tags(row))
+    if scope == "Norden":
+        return bool(tags.intersection(set(NORDIC_MARKET_SCOPES))) or "Norden" in tags
+    return scope in tags
+
+
+def default_fund_benchmark(fund_type: str = "Alle", market_scope: str = "Alle") -> str:
+    """Pick a fund/region benchmark instead of always using SPY."""
+    ftype = str(fund_type or "Alle")
+    market = str(market_scope or "Alle")
+    if ftype == "High yield-fond":
+        return "HYG"
+    if ftype == "Rente-/obligasjonsfond":
+        return "BND"
+    if ftype == "Pengemarkedsfond":
+        return "SGOV"
+    if market == "Norge":
+        return "NORW"
+    if market == "Sverige":
+        return "EWD"
+    if market == "Finland":
+        return "EFNL"
+    if market == "Danmark":
+        return "EDEN"
+    if market == "Brasil":
+        return "EWZ"
+    if market == "Europa/UCITS":
+        return "EUNL.DE"
+    if market == "Norden":
+        return "EWD"
+    return "SPY"
 
 
 def _dedupe_symbols(items: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -308,6 +420,7 @@ def select_fund_candidates(
     fund_type: str = "Alle",
     manual_symbols: Sequence[str] | None = None,
     max_funds: int = 8,
+    market_scope: str = "Alle",
 ) -> Dict[str, Any]:
     """Resolve fund/ETF candidates from a source.
 
@@ -326,6 +439,8 @@ def select_fund_candidates(
             {"symbol": sym, "type": fund_type if fund_type != "Alle" else "Manuell", "bucket": "Manuell", "reason": "valgt manuelt av bruker"}
             for sym in manual
         ]
+    elif source in {"Auto-univers", "Alle / balansert miks"}:
+        rows = _balanced_mix()
     elif source == "Auto indeksfond":
         rows = FUND_UNIVERSES["Indeksfond"]
     elif source == "Auto ETF":
@@ -344,19 +459,25 @@ def select_fund_candidates(
     # v18.5.49: Do not truncate the candidate list before scoring. `max_funds`
     # is kept as the user's desired result-display limit and is applied only
     # after ranking in the UI.
-    selected = _dedupe_symbols(rows)
+    selected = [
+        dict(row, markets=_fund_market_tags(row))
+        for row in _dedupe_symbols(rows)
+        if _fund_row_matches_market(row, market_scope)
+    ]
 
     symbols = [r["symbol"] for r in selected]
     return {
         "source": source,
         "fund_type": fund_type,
+        "market_scope": market_scope,
         "max_funds": max_funds,
         "available_in_universe": len(_dedupe_symbols(rows)),
+        "available_after_market_filter": len(selected),
         "symbols": symbols,
         "selected": selected,
-        "selection_summary": f"{len(symbols)} fond/ETF i analyseunivers fra {source}; viser maks {max_funds} etter rangering",
+        "selection_summary": f"{len(symbols)} fond/ETF i analyseunivers fra {source} / {market_scope}; viser maks {max_funds} etter rangering",
         "display_limit": max_funds,
-        "universe_note": "Auto-universet er et starter-univers, ikke hele markedet. Hele starter-universet analyseres før resultatlisten kuttes.",
+        "universe_note": "Auto-universet er et starter-univers, ikke hele markedet. Hele starter-universet analyseres før resultatlisten kuttes. Vanlige nordiske fond kan kreve NAV/ISIN-kilde og vises med datastatus.",
     }
 
 
@@ -2622,6 +2743,8 @@ def analyze_fund_record(
         "reasons_positive": positives[:4],
         "reasons_caution": cautions[:4],
         "data_points": len(prices),
+        "datastatus": "Pris/NAV funnet" if len(prices) >= 2 else "Mangler pris/NAV-historikk",
+        "data_quality_label": "Høy" if data_score >= 75 else ("Middels" if data_score >= 55 else "Lav"),
         "version": get_app_version(),
         "created_at": _now_iso(),
     }

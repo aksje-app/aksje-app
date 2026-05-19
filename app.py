@@ -1044,17 +1044,22 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 .v18574-readable-fund .v18-dark-row, .v18574-readable-fund { font-size:.86rem !important; line-height:1.48 !important; }
 .v18574-readable-fund b { font-size:.90rem !important; }
 .v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
-.v18574-quick-row { padding:.44rem .56rem !important; margin:.26rem 0 !important; }
-.v18574-quick-title { font-size:1.02rem !important; line-height:1.12 !important; margin:0 !important; font-weight:950 !important; }
-.v18574-quick-sub { font-size:.72rem !important; color:rgba(203,213,225,.86) !important; margin-top:.14rem !important; }
+.v18574-quick-row { padding:.62rem .72rem !important; margin:.38rem 0 !important; }
+.v18574-quick-title { display:flex !important; align-items:center !important; gap:.32rem !important; font-size:1.08rem !important; line-height:1.20 !important; margin:0 0 .18rem 0 !important; font-weight:950 !important; min-height:1.38rem !important; }
+.v18574-quick-sub { font-size:.84rem !important; color:rgba(203,213,225,.92) !important; margin:.18rem 0 .32rem 0 !important; line-height:1.28 !important; overflow-wrap:anywhere !important; }
 .v18574-quick-row [data-testid="stMetric"] { min-height:52px !important; padding:.36rem .52rem !important; }
 .v18574-quick-row [data-testid="stMetricValue"] { font-size:1.02rem !important; }
 .v18574-quick-row [data-testid="stProgress"] { margin-top:.12rem !important; }
-.v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.72rem !important; line-height:1.20 !important; }
-.v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.28rem; margin:.24rem 0 .38rem 0; }
-.v1863m-quick-meta span { border:1px solid rgba(56,189,248,.28); background:rgba(8,47,73,.36); border-radius:999px; padding:.16rem .42rem; font-size:.68rem; font-weight:850; color:#bae6fd; line-height:1.18; }
-.v1863m-quick-action { min-height:108px; display:flex; flex-direction:column; gap:.34rem; justify-content:flex-start; }
-.v1863m-quick-action-note { font-size:.76rem; line-height:1.28; color:rgba(226,232,240,.86); min-height:1.25rem; }
+.v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.82rem !important; line-height:1.32 !important; }
+.v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.34rem; margin:.28rem 0 .44rem 0; align-items:center; }
+.v1863m-quick-meta span { border:1px solid rgba(56,189,248,.32); background:rgba(8,47,73,.42); border-radius:999px; padding:.20rem .48rem; font-size:.76rem; font-weight:850; color:#bae6fd; line-height:1.22; white-space:nowrap; }
+.v1863m-quick-action { min-height:auto; display:flex; flex-direction:column; gap:.46rem; justify-content:flex-start; padding-top:.18rem; }
+.v1863m-quick-action-note { font-size:.84rem; line-height:1.36; color:rgba(226,232,240,.92); min-height:1.35rem; }
+@media (max-width:900px) {
+    .v18574-quick-title { font-size:1rem !important; }
+    .v18574-quick-sub { font-size:.82rem !important; }
+    .v1863m-quick-meta span { font-size:.74rem !important; }
+}
 
 </style>
 """, unsafe_allow_html=True)
@@ -3713,6 +3718,28 @@ LIVE_BANNER_LABELS = {
     "VOLV-B.ST": "Volvo B",
     "ERIC-B.ST": "Ericsson B",
     "ABB.ST": "ABB",
+    "NOKIA.HE": "Nokia",
+    "NESTE.HE": "Neste",
+    "KNEBV.HE": "KONE B",
+    "SAMPO.HE": "Sampo",
+    "NOVO-B.CO": "Novo Nordisk B",
+    "MAERSK-B.CO": "A.P. Moller - Maersk B",
+    "DSV.CO": "DSV",
+    "ORSTED.CO": "Orsted",
+    "PETR4.SA": "Petrobras PN",
+    "VALE3.SA": "Vale",
+    "ITUB4.SA": "Itau Unibanco PN",
+    "BBDC4.SA": "Banco Bradesco PN",
+}
+
+LIVE_BANNER_MARKETS = ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
+LIVE_BANNER_DEFAULT_TICKERS = {
+    "USA": "^GSPC, ^IXIC, ^DJI",
+    "Norge": "EQNR.OL, DNB.OL, NHY.OL, YAR.OL",
+    "Sverige": "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST",
+    "Finland": "NOKIA.HE, NESTE.HE, KNEBV.HE, SAMPO.HE",
+    "Danmark": "NOVO-B.CO, MAERSK-B.CO, DSV.CO, ORSTED.CO",
+    "Brasil": "PETR4.SA, VALE3.SA, ITUB4.SA, BBDC4.SA",
 }
 
 
@@ -3779,10 +3806,10 @@ def parse_banner_tickers(settings=None):
         visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
     visible_markets = set(visible_markets or [])
     out = []
-    for market in ["USA", "Norge", "Sverige"]:
+    for market in LIVE_BANNER_MARKETS:
         if market not in visible_markets:
             continue
-        text_value = raw.get(market, "") if isinstance(raw, dict) else ""
+        text_value = raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, "")) if isinstance(raw, dict) else ""
         parts = str(text_value).replace(";", ",").replace("\n", ",").split(",")
         seen = set()
         for part in parts:
@@ -4200,50 +4227,28 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
             )
 
         st.markdown("**Markeder som vises i banneret**")
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            show_usa = st.checkbox("USA", value=("USA" in visible_markets), key=f"{form_key}_show_usa")
-        with m2:
-            show_no = st.checkbox("Norge", value=("Norge" in visible_markets), key=f"{form_key}_show_no")
-        with m3:
-            show_se = st.checkbox("Sverige", value=("Sverige" in visible_markets), key=f"{form_key}_show_se")
+        banner_market_values = {}
+        market_cols = st.columns(3)
+        for idx, market in enumerate(LIVE_BANNER_MARKETS):
+            with market_cols[idx % 3]:
+                banner_market_values[market] = st.checkbox(market, value=(market in visible_markets), key=f"{form_key}_show_{market.lower()}")
 
-        t1, t2, t3 = st.columns(3)
-        with t1:
-            usa_tickers = st.text_area(
-                "USA tickere",
-                value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI")),
-                height=90,
-                key=f"{form_key}_usa_tickers",
-                help="Kommaseparert liste. Bruk markedsindekser eller egne tickere.",
-            )
-        with t2:
-            no_tickers = st.text_area(
-                "Norge tickere",
-                value=str(raw.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")),
-                height=90,
-                key=f"{form_key}_no_tickers",
-                help="Kommaseparert liste, f.eks. EQNR.OL, DNB.OL.",
-            )
-        with t3:
-            se_tickers = st.text_area(
-                "Sverige tickere",
-                value=str(raw.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")),
-                height=90,
-                key=f"{form_key}_se_tickers",
-                help="Kommaseparert liste, f.eks. VOLV-B.ST, ERIC-B.ST.",
-            )
+        ticker_texts = {}
+        ticker_cols = st.columns(3)
+        for idx, market in enumerate(LIVE_BANNER_MARKETS):
+            with ticker_cols[idx % 3]:
+                ticker_texts[market] = st.text_area(
+                    f"{market} tickere",
+                    value=str(raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, ""))),
+                    height=84,
+                    key=f"{form_key}_{market.lower()}_tickers",
+                    help="Kommaseparert liste. Bruk markedsindekser eller egne tickere.",
+                )
 
         submitted = _global_apply_requested_v161()
 
     if submitted:
-        new_visible = []
-        if show_usa:
-            new_visible.append("USA")
-        if show_no:
-            new_visible.append("Norge")
-        if show_se:
-            new_visible.append("Sverige")
+        new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
         if not new_visible:
             new_visible = ["USA", "Norge", "Sverige"]
 
@@ -4252,11 +4257,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
             "live_banner_speed_seconds": int(live_banner_speed),
             "ui_refresh_minutes": int(ui_refresh_minutes),
             "live_banner_markets_visible": new_visible,
-            "live_banner_tickers": {
-                "USA": str(usa_tickers).strip(),
-                "Norge": str(no_tickers).strip(),
-                "Sverige": str(se_tickers).strip(),
-            },
+            "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
         })
         save_settings(settings)
         st.success("Ticker-banner lagret som ventende endringer ✅")
@@ -4315,47 +4316,27 @@ def render_banner_main_controls():
                 )
 
             st.markdown("**Markeder som vises i banneret**")
-            m1, m2, m3 = st.columns(3)
-            with m1:
-                show_usa = st.checkbox("USA", value=("USA" in visible_markets), key="banner_v1582_show_usa")
-            with m2:
-                show_no = st.checkbox("Norge", value=("Norge" in visible_markets), key="banner_v1582_show_no")
-            with m3:
-                show_se = st.checkbox("Sverige", value=("Sverige" in visible_markets), key="banner_v1582_show_se")
+            banner_market_values = {}
+            market_cols = st.columns(3)
+            for idx, market in enumerate(LIVE_BANNER_MARKETS):
+                with market_cols[idx % 3]:
+                    banner_market_values[market] = st.checkbox(market, value=(market in visible_markets), key=f"banner_v1582_show_{market.lower()}")
 
-            t1, t2, t3 = st.columns(3)
-            with t1:
-                usa_tickers = st.text_area(
-                    "USA tickere",
-                    value=str(raw.get("USA", "^GSPC, ^IXIC, ^DJI")),
-                    height=90,
-                    key="banner_v1582_usa_tickers",
-                )
-            with t2:
-                no_tickers = st.text_area(
-                    "Norge tickere",
-                    value=str(raw.get("Norge", "EQNR.OL, DNB.OL, NHY.OL, YAR.OL")),
-                    height=90,
-                    key="banner_v1582_no_tickers",
-                )
-            with t3:
-                se_tickers = st.text_area(
-                    "Sverige tickere",
-                    value=str(raw.get("Sverige", "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST")),
-                    height=90,
-                    key="banner_v1582_se_tickers",
-                )
+            ticker_texts = {}
+            ticker_cols = st.columns(3)
+            for idx, market in enumerate(LIVE_BANNER_MARKETS):
+                with ticker_cols[idx % 3]:
+                    ticker_texts[market] = st.text_area(
+                        f"{market} tickere",
+                        value=str(raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, ""))),
+                        height=84,
+                        key=f"banner_v1582_{market.lower()}_tickers",
+                    )
 
             submitted = st.form_submit_button("💾 Lagre banner som ventende", use_container_width=True)
 
         if submitted:
-            new_visible = []
-            if show_usa:
-                new_visible.append("USA")
-            if show_no:
-                new_visible.append("Norge")
-            if show_se:
-                new_visible.append("Sverige")
+            new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
             if not new_visible:
                 new_visible = ["USA", "Norge", "Sverige"]
 
@@ -4364,11 +4345,7 @@ def render_banner_main_controls():
                 "live_banner_speed_seconds": int(live_banner_speed),
                 "ui_refresh_minutes": int(ui_refresh_minutes),
                 "live_banner_markets_visible": new_visible,
-                "live_banner_tickers": {
-                    "USA": str(usa_tickers).strip(),
-                    "Norge": str(no_tickers).strip(),
-                    "Sverige": str(se_tickers).strip(),
-                },
+                "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
             })
             save_settings(settings)
             _mark_pending_manual_change("Ticker-banner endret")
@@ -5242,7 +5219,7 @@ def render_ranking(results, title):
             direction_icon = "🟢" if change_pct >= 0 else "🔴"
 
         with st.container(border=True):
-            left, mid, right = st.columns([1.15, 1.0, 2.2])
+            left, mid, right = st.columns([1.35, 1.05, 2.35])
 
             with left:
                 st.markdown(f"<div class='v18574-quick-title'>{direction_icon} {ticker}</div>", unsafe_allow_html=True)
@@ -8598,10 +8575,12 @@ def render_fund_etf_control_center_v18538():
     st.subheader("🏦 Fond / ETF-analyse")
     st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
 
-    from fund_etf_analyzer import fund_selection_sources, fund_type_options
-    col_src, col_a, col_b, col_c, col_d = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
+    from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options
+    col_src, col_market, col_a, col_b, col_c, col_d = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
     with col_src:
-        selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-kilder velger fond fra et transparent start-univers. Manuell liste bruker dine tickere i rekkefølge.")
+        selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-univers velger fra fondskatalogen. Manuell liste bruker dine symboler i rekkefølge.")
+    with col_market:
+        fund_market = st.selectbox("Marked / region", fund_market_options(), key="fund_lab_market_v1863x", help="Bruker samme markedslogikk som resten av AI Kontrollsenter, med ekstra Europa/UCITS for fond.")
     with col_a:
         fund_type = st.selectbox("Fondstype", fund_type_options(), key="fund_lab_type_v18538")
     with col_b:
@@ -8611,9 +8590,15 @@ def render_fund_etf_control_center_v18538():
     with col_d:
         max_funds = st.slider("Maks fond", 1, 40, 8, 1, key="fund_lab_limit_v18538")
 
+    auto_benchmark = st.checkbox("Automatisk benchmark", value=True, key="fund_lab_auto_benchmark_v1863x")
+    auto_benchmark_symbol = default_fund_benchmark(fund_type, fund_market)
     col_bench, col_period = st.columns([1.0, 1.0])
     with col_bench:
-        benchmark_symbol = st.text_input("Benchmark", value="SPY", key="fund_lab_benchmark_v18538", help="Yahoo-symbol for benchmark, f.eks. SPY, VTI, ACWI, ^GSPC.").strip().upper()
+        if auto_benchmark:
+            benchmark_symbol = auto_benchmark_symbol
+            st.markdown(f"<div class='v18-dark-row'>Benchmark: <b>{html.escape(benchmark_symbol)}</b> valgt automatisk for {html.escape(str(fund_type))} / {html.escape(str(fund_market))}.</div>", unsafe_allow_html=True)
+        else:
+            benchmark_symbol = st.text_input("Benchmark", value=auto_benchmark_symbol, key="fund_lab_benchmark_v18538", help="Yahoo-symbol for benchmark, f.eks. SPY, HYG, BND, SGOV, EUNL.DE.").strip().upper()
     with col_period:
         period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="fund_lab_period_v18538")
 
@@ -8630,7 +8615,7 @@ def render_fund_etf_control_center_v18538():
 
     from fund_etf_analyzer import parse_fund_list, estimate_fund_etf_run, select_fund_candidates
     manual_symbols = parse_fund_list(manual_text)
-    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8))
+    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8), market_scope=fund_market)
     symbols = list(selection.get("symbols") or [])
     budget = estimate_fund_etf_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
     tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
@@ -8639,6 +8624,7 @@ def render_fund_etf_control_center_v18538():
         <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
           <span><b>Planlagt fondanalyse:</b> {int(budget.get('funds', len(symbols)) or 0)} fond · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
           <span class='v18-status-chip green'>Kilde: {html.escape(str(selection.get('source') or selection_source))}</span>
+          <span class='v18-status-chip green'>Marked: {html.escape(str(selection.get('market_scope') or fund_market))}</span>
           <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
           <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
         </div>
@@ -8650,10 +8636,11 @@ def render_fund_etf_control_center_v18538():
     if symbols:
         reasons = []
         for item in list(selection.get("selected") or [])[:12]:
-            reasons.append(f"<b>{html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({html.escape(str(item.get('bucket') or '-'))}: {html.escape(str(item.get('reason') or 'valgt'))})</span>")
+            markets = ", ".join(str(x) for x in (item.get("markets") or []))
+            reasons.append(f"<b>{html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({html.escape(str(markets or item.get('bucket') or '-'))}: {html.escape(str(item.get('reason') or 'valgt'))})</span>")
         st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet. Velg auto-kilde eller legg inn en liste før kjøring.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. Prøv Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
@@ -8789,6 +8776,8 @@ def render_fund_etf_control_center_v18538():
         cols[4].metric("Feil", summary.get("errors", 0))
         if result.get("interrupted"):
             st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er foreløpige.")
+        if int(summary.get("analyzed", 0) or 0) == 0 and int(summary.get("errors", 0) or 0) > 0:
+            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste årsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under før du endrer strategi.")
         _render_fund_result_scope_v18547(result, default_limit=8)
         _render_what_changed_v18555(result.get("what_changed_profile"))
         display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
@@ -8821,10 +8810,10 @@ def render_auto_test_lab_fund_mode_v18543():
     import html as _html
     st.markdown("<div class='v18-dark-row'><b>Fondmodus:</b> Auto Test Lab tester fond/ETF-er mot kostnad, benchmark, aktiv merverdi, grunnmur/satellitt og Fond Decision Quality.</div>", unsafe_allow_html=True)
 
-    from fund_etf_analyzer import fund_selection_sources, fund_type_options, parse_fund_list, select_fund_candidates
+    from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options, parse_fund_list, select_fund_candidates
     from auto_test_lab import estimate_auto_lab_fund_run
 
-    col_src, col_type, col_obj, col_mode, col_max = st.columns([1.05, 0.9, 1.05, 0.9, 0.75])
+    col_src, col_market, col_type, col_obj, col_mode, col_max = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
     with col_src:
         selection_source = st.selectbox(
             "Utvalgskilde",
@@ -8832,6 +8821,8 @@ def render_auto_test_lab_fund_mode_v18543():
             key="auto_lab_fund_source_v18543",
             help="Auto-kilder velger fond/ETF-er fra et transparent start-univers. Manuell liste bruker dine symboler i rekkefølge.",
         )
+    with col_market:
+        fund_market = st.selectbox("Marked / region", fund_market_options(), key="auto_lab_fund_market_v1863x")
     with col_type:
         fund_type = st.selectbox("Fondstype", fund_type_options(), key="auto_lab_fund_type_v18543")
     with col_obj:
@@ -8841,14 +8832,20 @@ def render_auto_test_lab_fund_mode_v18543():
     with col_max:
         max_funds = st.slider("Maks fond", 1, 40, 8, 1, key="auto_lab_fund_limit_v18543")
 
+    auto_benchmark = st.checkbox("Automatisk benchmark", value=True, key="auto_lab_fund_auto_benchmark_v1863x")
+    auto_benchmark_symbol = default_fund_benchmark(fund_type, fund_market)
     col_bench, col_period = st.columns([1.0, 1.0])
     with col_bench:
-        benchmark_symbol = st.text_input(
-            "Benchmark",
-            value="SPY",
-            key="auto_lab_fund_benchmark_v18543",
-            help="Yahoo-symbol for benchmark, f.eks. SPY, VTI, ACWI, ^GSPC.",
-        ).strip().upper()
+        if auto_benchmark:
+            benchmark_symbol = auto_benchmark_symbol
+            st.markdown(f"<div class='v18-dark-row'>Benchmark: <b>{_html.escape(benchmark_symbol)}</b> valgt automatisk for {_html.escape(str(fund_type))} / {_html.escape(str(fund_market))}.</div>", unsafe_allow_html=True)
+        else:
+            benchmark_symbol = st.text_input(
+                "Benchmark",
+                value=auto_benchmark_symbol,
+                key="auto_lab_fund_benchmark_v18543",
+                help="Yahoo-symbol for benchmark, f.eks. SPY, HYG, BND, SGOV, EUNL.DE.",
+            ).strip().upper()
     with col_period:
         period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="auto_lab_fund_period_v18543")
 
@@ -8870,7 +8867,7 @@ def render_auto_test_lab_fund_mode_v18543():
         store_result = st.checkbox("Lagre Auto Test Lab-resultat", value=True, key="auto_lab_fund_store_result_v18543")
 
     manual_symbols = parse_fund_list(manual_text)
-    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8))
+    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8), market_scope=fund_market)
     symbols = list(selection.get("symbols") or [])
     budget = estimate_auto_lab_fund_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
     tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
@@ -8881,6 +8878,7 @@ def render_auto_test_lab_fund_mode_v18543():
         <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
           <span><b>Planlagt fondmodus:</b> {int(budget.get('funds', len(symbols)) or 0)} fond/ETF · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
           <span class='v18-status-chip green'>Auto Test Lab: Fond / ETF</span>
+          <span class='v18-status-chip green'>Marked: {_html.escape(str(selection.get('market_scope') or fund_market))}</span>
           <span class='v18-status-chip {load_cls}'>Databudsjett: {_html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
           <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
         </div>
@@ -8892,10 +8890,11 @@ def render_auto_test_lab_fund_mode_v18543():
     if symbols:
         reasons = []
         for item in list(selection.get("selected") or [])[:12]:
-            reasons.append(f"<b>{_html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({_html.escape(str(item.get('bucket') or '-'))}: {_html.escape(str(item.get('reason') or 'valgt'))})</span>")
+            markets = ", ".join(str(x) for x in (item.get("markets") or []))
+            reasons.append(f"<b>{_html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({_html.escape(str(markets or item.get('bucket') or '-'))}: {_html.escape(str(item.get('reason') or 'valgt'))})</span>")
         st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet. Velg auto-kilde eller legg inn en liste før kjøring.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. Prøv Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
@@ -9039,6 +9038,8 @@ def render_auto_test_lab_fund_mode_v18543():
         cols[4].metric("Grunnmur/sat", summary.get("core_satellite_positions", 0))
         if result.get("interrupted"):
             st.warning("Siste Auto Test Lab Fondmodus ble avbrutt. Resultatene under er foreløpige.")
+        if int(summary.get("analyzed", 0) or 0) == 0 and int(summary.get("errors", 0) or 0) > 0:
+            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste årsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under før du endrer strategi.")
         _render_fund_result_scope_v18547(result, default_limit=8)
         _render_what_changed_v18555(result.get("what_changed_profile"))
         display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
@@ -10050,29 +10051,10 @@ elif active_panel == "⭐ Top Picks":
         "Kjøp nå = kandidater som også har grønt teknisk signal akkurat nå."
     )
 
-    scan_market = st.radio("Velg marked for Top Picks", ["USA", "Norge", "Sverige", "Norden", "Alle"], horizontal=True)
+    scan_market = st.radio("Velg marked for Top Picks", market_scope_options(include_aggregate=True), horizontal=True)
 
-    _market_sources_v1863j = {
-        "USA": list(tickers_us or []),
-        "Norge": list(tickers_no or []),
-        "Sverige": list(tickers_se or []),
-        "Norden": list(tickers_no or []) + list(tickers_se or []),
-    }
-    _market_labels_v1863j = {
-        "USA": "USA",
-        "Norge": "Norge",
-        "Sverige": "Sverige",
-        "Norden": "Norden",
-        "Alle": "Alle markeder",
-    }
-    if scan_market == "Alle":
-        source_tickers = (
-            _market_sources_v1863j["USA"]
-            + _market_sources_v1863j["Norge"]
-            + _market_sources_v1863j["Sverige"]
-        )
-    else:
-        source_tickers = _market_sources_v1863j.get(scan_market, [])
+    _market_labels_v1863j = {market: ("Alle markeder" if market == "Alle" else market) for market in market_scope_options(include_aggregate=True)}
+    source_tickers = resolve_universe_tickers([scan_market], max_count=int(max_count or 30))
 
     def _latest_market_rows_v1863j(market_name):
         latest = st.session_state.get("latest_rankings_v148", {}) or {}
@@ -10086,9 +10068,9 @@ elif active_panel == "⭐ Top Picks":
 
     def _top_picks_from_cached_markets_v1863j(market_name):
         if market_name == "Alle":
-            markets = ["USA", "Norge", "Sverige"]
+            markets = [m for m in market_scope_options(include_aggregate=False)]
         elif market_name == "Norden":
-            markets = ["Norge", "Sverige"]
+            markets = ["Norge", "Sverige", "Finland", "Danmark"]
         else:
             markets = [market_name]
         combined = []

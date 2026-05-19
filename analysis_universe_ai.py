@@ -422,7 +422,25 @@ def _feature_status_dataframe() -> pd.DataFrame:
 
 
 def _candidate_dataframe(candidates: Sequence[UniverseCandidate]) -> pd.DataFrame:
-    return pd.DataFrame([c.as_dict() for c in candidates])
+    rows = []
+    for idx, c in enumerate(candidates, start=1):
+        raw = c.as_dict()
+        meta = resolve_security_metadata(c.ticker, raw)
+        listing = infer_security_listing(c.ticker, raw)
+        rows.append({
+            "Nr": idx,
+            "Ticker": meta.get("ticker") or c.ticker,
+            "Selskap": meta.get("name") or c.ticker,
+            "Land": listing.get("country"),
+            "Børs": listing.get("exchange"),
+            "Marked": listing.get("market"),
+            "Sektor": meta.get("sector") or c.sector,
+            "Status": "Eksisterende score" if c.score is not None else "Ikke analysert ennå",
+            "Score": c.score if c.score is not None else "Ikke scoret",
+            "Risiko": meta.get("risk") or c.risk,
+            "Forklaring": c.note or "Kandidat fra eksisterende cache/session. Kjør Smart AI-utvalg for ny scoring.",
+        })
+    return pd.DataFrame(rows)
 
 
 def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
@@ -437,7 +455,15 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
         value = row.get(key)
         return value if value not in (None, "") else ("Ikke scoret" if is_picker_only else "")
 
-    for row in result.get("candidates", []) or []:
+    def _reason_value(row: Mapping[str, Any], listing: Mapping[str, Any]) -> str:
+        reason = str(row.get("reason") or "").strip()
+        if reason and reason != "Valgt via Smart Universe Picker":
+            return reason
+        if is_picker_only:
+            return f"Valgt fra {listing.get('market') or row.get('source') or 'univers'}. Ikke scoret ennå; kjør Smart AI-utvalg for rangering."
+        return reason or "Scoret av Smart AI-utvalg."
+
+    for idx, row in enumerate(result.get("candidates", []) or [], start=1):
         if not isinstance(row, Mapping):
             continue
         meta = resolve_security_metadata(row.get("ticker") or row.get("symbol"), row)
@@ -448,20 +474,22 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
             listing = {"country": "Ukjent", "exchange": "Ukjent", "market": row.get("market") or row.get("source") or "Ukjent"}
         rows.append(
             {
-                "Rank": row.get("rank"),
+                "Nr" if is_picker_only else "Rank": row.get("rank") or idx,
                 "Ticker": meta.get("ticker") or row.get("ticker"),
-                "Navn": meta.get("name") or row.get("name"),
+                "Selskap": meta.get("name") or row.get("name"),
                 "Land": listing.get("country"),
                 "Børs": listing.get("exchange"),
                 "Marked": listing.get("market") or row.get("market"),
                 "Sektor": meta.get("sector") or row.get("sector"),
+                "Status": "Ikke analysert ennå" if is_picker_only else "Scoret",
                 "AI-score": _score_value(row, "ai_score"),
                 "Smart-score": _score_value(row, "smart_score"),
                 "Strength": _score_value(row, "strength"),
                 "Risiko": meta.get("risk") or row.get("risk"),
+                "Datakvalitet": row.get("data_quality") or row.get("data_quality_label") or ("Ikke testet" if is_picker_only else ""),
                 "1m %": _score_value(row, "ret_1m_pct"),
                 "3m %": _score_value(row, "ret_3m_pct"),
-                "Forklaring": row.get("reason"),
+                "Forklaring": _reason_value(row, listing),
             }
         )
     return pd.DataFrame(rows)
@@ -515,18 +543,18 @@ def _render_dark_table(
     min_width = max(760, min(1800, 128 * col_count))
     # No fixed blank body: just enough height for the rows that exist, capped.
     row_count = max(1, len(visible.index))
-    dynamic_height = min(int(max_height_px), 44 + row_count * 36)
-    grid = f"repeat({col_count}, minmax(92px, 1fr))"
+    dynamic_height = min(int(max_height_px), 48 + row_count * 42)
+    grid = f"repeat({col_count}, minmax(110px, 1fr))"
 
     header_cells = "".join(
-        f'<div style="padding:.33rem .42rem;color:#bae6fd;font-size:.68rem;font-weight:950;text-transform:uppercase;letter-spacing:.025em;white-space:nowrap;border-right:1px solid rgba(125,211,252,.13);">{escape(col)}</div>'
+        f'<div style="padding:.40rem .50rem;color:#bae6fd;font-size:.78rem;font-weight:950;text-transform:uppercase;letter-spacing:.015em;white-space:nowrap;border-right:1px solid rgba(125,211,252,.13);">{escape(col)}</div>'
         for col in columns
     )
 
     rows_html: List[str] = []
     for _, row in visible.iterrows():
         cells = "".join(
-            f'<div style="padding:.32rem .42rem;color:#e5edf8;font-size:.74rem;font-weight:720;line-height:1.22;overflow-wrap:anywhere;border-right:1px solid rgba(148,163,184,.10);">{escape(_format_table_cell(row.get(col)))}</div>'
+            f'<div style="padding:.40rem .50rem;color:#e5edf8;font-size:.82rem;font-weight:760;line-height:1.30;overflow-wrap:anywhere;border-right:1px solid rgba(148,163,184,.10);">{escape(_format_table_cell(row.get(col)))}</div>'
             for col in visible.columns
         )
         rows_html.append(
@@ -537,7 +565,7 @@ def _render_dark_table(
     total_rows = len(df.index)
     if total_rows > len(visible.index):
         overflow_note = (
-            f'<div style="color:#cbd5e1;font-size:.72rem;margin:-.12rem 0 .48rem .15rem;opacity:.88;">Viser {len(visible.index)} av {total_rows} rader. '
+            f'<div style="color:#cbd5e1;font-size:.80rem;margin:-.12rem 0 .48rem .15rem;opacity:.92;">Viser {len(visible.index)} av {total_rows} rader. '
             'Bruk filtre eller Top Picks for å korte ned listen.</div>'
         )
 
@@ -969,7 +997,7 @@ def _render_compact_status_rows(rows: Sequence[Mapping[str, str]], *, variant: s
     """
     if not rows:
         st.markdown(
-            '<div style="border:1px dashed rgba(250,204,21,.45);background:rgba(250,204,21,.08);border-radius:10px;padding:.45rem .6rem;color:#fde68a;font-size:.76rem;font-weight:800;margin:.25rem 0 .45rem 0;">Ingen resultater ennå.</div>',
+            '<div style="border:1px dashed rgba(250,204,21,.45);background:rgba(250,204,21,.08);border-radius:10px;padding:.50rem .65rem;color:#fde68a;font-size:.84rem;font-weight:800;margin:.25rem 0 .45rem 0;">Ingen resultater ennå.</div>',
             unsafe_allow_html=True,
         )
         return
@@ -991,14 +1019,14 @@ def _render_compact_status_rows(rows: Sequence[Mapping[str, str]], *, variant: s
         detail = escape(str(row.get("detail", "")))
         border = border_for(kind)
         detail_html = (
-            f'<span style="color:#cbd5e1;font-size:.72rem;line-height:1.28;overflow-wrap:anywhere;">{detail}</span>'
+            f'<span style="color:#cbd5e1;font-size:.82rem;line-height:1.36;overflow-wrap:anywhere;">{detail}</span>'
             if detail
             else ""
         )
         row_html.append(
             f'<div style="display:grid;grid-template-columns:minmax(110px,170px) minmax(110px,210px) 1fr;gap:.55rem;align-items:center;border:1px solid {border};background:linear-gradient(180deg,rgba(8,47,73,.40),rgba(15,23,42,.86));border-radius:12px;padding:.42rem .55rem;min-height:0;margin:.26rem 0;box-shadow:none;">'
-            f'<span style="color:#bae6fd;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;font-weight:950;white-space:nowrap;">{label}</span>'
-            f'<span style="color:#f8fafc;font-size:.84rem;font-weight:950;line-height:1.2;overflow-wrap:anywhere;">{value}</span>'
+            f'<span style="color:#bae6fd;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;font-weight:950;white-space:nowrap;">{label}</span>'
+            f'<span style="color:#f8fafc;font-size:.92rem;font-weight:950;line-height:1.24;overflow-wrap:anywhere;">{value}</span>'
             f'{detail_html}'
             f'</div>'
         )
@@ -1082,7 +1110,7 @@ def _inject_ai_universe_css() -> None:
         }
         .ai-universe-sub {
             color: #cbd5e1;
-            font-size: .82rem;
+            font-size: .90rem;
             line-height: 1.35;
         }
         .ai-universe-pill-row {
@@ -1096,7 +1124,7 @@ def _inject_ai_universe_css() -> None:
             background: rgba(15,23,42,.78);
             border-radius: 999px;
             padding: .22rem .52rem;
-            font-size: .74rem;
+            font-size: .82rem;
             font-weight: 850;
             color: #e2e8f0;
         }
@@ -1126,7 +1154,7 @@ def _inject_ai_universe_css() -> None:
         .ai-universe-compact-row.preview { border-color: rgba(56,189,248,.50); }
         .ai-universe-compact-label {
             color:#bae6fd !important;
-            font-size:.68rem;
+            font-size:.78rem;
             text-transform: uppercase;
             letter-spacing:.04em;
             font-weight: 950;
@@ -1134,15 +1162,15 @@ def _inject_ai_universe_css() -> None:
         }
         .ai-universe-compact-value {
             color:#f8fafc !important;
-            font-size:.84rem;
+            font-size:.92rem;
             font-weight: 950;
             line-height:1.2;
             overflow-wrap:anywhere;
         }
         .ai-universe-compact-detail {
             color:#cbd5e1 !important;
-            font-size:.72rem;
-            line-height:1.28;
+            font-size:.82rem;
+            line-height:1.36;
             overflow-wrap:anywhere;
         }
         @media (max-width: 900px) {
@@ -1171,7 +1199,7 @@ def _inject_ai_universe_css() -> None:
         .ai-universe-choice-card.preview { border-color: rgba(56,189,248,.58); }
         .ai-universe-choice-label {
             color:#bae6fd;
-            font-size:.70rem;
+            font-size:.80rem;
             text-transform: uppercase;
             letter-spacing:.04em;
             font-weight: 950;
@@ -1186,7 +1214,7 @@ def _inject_ai_universe_css() -> None:
         }
         .ai-universe-choice-detail {
             color:#cbd5e1;
-            font-size:.74rem;
+            font-size:.84rem;
             line-height:1.32;
             overflow-wrap:anywhere;
         }
@@ -1209,7 +1237,7 @@ def _inject_ai_universe_css() -> None:
         .ai-universe-live-card.preview { border-color: rgba(56,189,248,.48); }
         .ai-universe-live-label {
             color:#94a3b8;
-            font-size:.70rem;
+            font-size:.80rem;
             text-transform: uppercase;
             letter-spacing:.04em;
             font-weight: 950;
@@ -1224,7 +1252,7 @@ def _inject_ai_universe_css() -> None:
         }
         .ai-universe-live-detail {
             color:#cbd5e1;
-            font-size:.74rem;
+            font-size:.84rem;
             line-height:1.32;
             overflow-wrap:anywhere;
         }
@@ -1253,12 +1281,12 @@ def _inject_ai_universe_css() -> None:
         .ai-universe-status-name {
             font-weight: 900;
             color: #f8fafc;
-            font-size: .86rem;
+            font-size: .94rem;
         }
         .ai-universe-status-badge {
             border-radius: 999px;
             padding: .15rem .42rem;
-            font-size: .65rem;
+            font-size: .76rem;
             font-weight: 900;
             white-space: nowrap;
             border: 1px solid rgba(148,163,184,.30);
@@ -1271,7 +1299,7 @@ def _inject_ai_universe_css() -> None:
         .ai-universe-status-badge.planned { border-color: rgba(248,113,113,.52); color:#fecaca; }
         .ai-universe-status-text {
             color:#cbd5e1;
-            font-size:.75rem;
+            font-size:.84rem;
             line-height:1.33;
         }
         .ai-universe-empty-note {
@@ -1280,7 +1308,7 @@ def _inject_ai_universe_css() -> None:
             border-radius: 12px;
             padding: .62rem .75rem;
             color: #fde68a;
-            font-size: .78rem;
+            font-size: .86rem;
             font-weight: 780;
             margin-top: .25rem;
         }
@@ -1298,7 +1326,7 @@ def _inject_ai_universe_css() -> None:
             width: 100%;
             border-collapse: collapse;
             color: #e5edf8;
-            font-size: .76rem;
+            font-size: .84rem;
             line-height: 1.25;
             min-width: 900px;
         }
@@ -1329,7 +1357,7 @@ def _inject_ai_universe_css() -> None:
         }
         .ai-universe-table-note {
             color: #cbd5e1;
-            font-size: .72rem;
+            font-size: .80rem;
             margin: -.20rem 0 .55rem .15rem;
             opacity: .88;
         }
