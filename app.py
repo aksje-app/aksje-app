@@ -1459,7 +1459,7 @@ def render_global_update_action_panel_v1863g() -> None:
         _click_global_update_v1862()
 
 
-_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Aktivt univers", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
+_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Norden", "Aktivt univers", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
 
 
 def _on_active_panel_change_v18531():
@@ -1480,6 +1480,7 @@ def _render_active_main_panel_selector_v18531():
         "🇺🇸 USA": "Viser USA-rangering og amerikanske kandidater.",
         "🇳🇴 Norge": "Viser Norge-rangering og norske kandidater.",
         "🇸🇪 Sverige": "Viser Sverige-rangering og svenske kandidater.",
+        "Norden": "Viser samlet rangering for Norge og Sverige.",
         "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
         "⭐ Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
         "🚀 IPO": "Nye og kommende børsnoteringer.",
@@ -7503,23 +7504,16 @@ def render_market_ranking_control_center_v18535():
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
-    market = st.selectbox("Marked", ["USA", "Norge", "Sverige", "Norden"], key="cc_ranking_market_v18535")
+    market = st.selectbox("Marked", ["USA", "Norge", "Sverige", "Norden", "Alle"], key="cc_ranking_market_v18535")
     limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     source_tickers = []
-    if market == "USA":
-        source_tickers = get_sp500_tickers(limit=int(limit))
-    elif market == "Norge":
-        source_tickers = get_norwegian_tickers(limit=int(limit))
-    elif market == "Sverige":
-        source_tickers = get_swedish_tickers(limit=int(limit))
-    elif market == "Norden":
-        per_market = max(3, int(limit) // 2)
-        source_tickers = list(get_norwegian_tickers(limit=per_market)) + list(get_swedish_tickers(limit=per_market))
+    if market in {"USA", "Norge", "Sverige", "Norden", "Alle"}:
+        source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
     if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary"):
         with st.spinner(f"Rangerer {market}..."):
-            ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False)
+            ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
         latest[storage_key] = ranked or []
         st.success(f"Rangering ferdig: {len(ranked or [])} kandidater.")
     rows = latest.get(storage_key, []) or []
@@ -9744,26 +9738,37 @@ manual_watchlist_scan = False
 # v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
 
 if active_panel == "🇺🇸 USA":
-    us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False)
+    run_main_usa = st.button("Kjør / oppdater USA-rangering", key="main_panel_run_usa_v1863r", type="primary")
+    us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False, force_manual_fetch=run_main_usa)
     render_ranking(us_results, "🏆 Dynamisk rangering USA/S&P 500")
     render_analysis(us_results, "USA")
 
 elif active_panel == "🇳🇴 Norge":
-    no_results = cached_auto_rank_market("Norge", tickers_no, max_count=max_count, use_news=False)
+    run_main_no = st.button("Kjør / oppdater Norge-rangering", key="main_panel_run_no_v1863r", type="primary")
+    no_results = cached_auto_rank_market("Norge", tickers_no, max_count=max_count, use_news=False, force_manual_fetch=run_main_no)
     render_ranking(no_results, "🇳🇴 Dynamisk rangering Norge")
     render_analysis(no_results, "Norge")
 
 elif active_panel == "🇸🇪 Sverige":
-    se_results = cached_auto_rank_market("Sverige", tickers_se, max_count=max_count, use_news=False)
+    run_main_se = st.button("Kjør / oppdater Sverige-rangering", key="main_panel_run_se_v1863r", type="primary")
+    se_results = cached_auto_rank_market("Sverige", tickers_se, max_count=max_count, use_news=False, force_manual_fetch=run_main_se)
     render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
     render_analysis(se_results, "Sverige")
+
+elif active_panel == "Norden":
+    tickers_nordic = list(tickers_no or []) + list(tickers_se or [])
+    run_main_nordic = st.button("Kjør / oppdater Norden-rangering", key="main_panel_run_norden_v1863r", type="primary")
+    nordic_results = cached_auto_rank_market("Norden", tickers_nordic, max_count=max_count, use_news=False, force_manual_fetch=run_main_nordic)
+    render_ranking(nordic_results, "🌐 Dynamisk rangering Norden")
+    render_analysis(nordic_results, "Norden")
 
 elif active_panel == "Aktivt univers":
     active_universe_tickers = _source_tickers_for_interactive("Smart Universe Picker")
     if not active_universe_tickers:
         st.info("Ingen aktivt univers er lagret ennå. Åpne AI Kontrollsenter -> Analyseunivers og sett Smart Universe Picker som aktivt aksjeunivers.")
     else:
-        active_results = cached_auto_rank_market("Smart Universe Picker", active_universe_tickers, max_count=max_count, use_news=False)
+        run_main_active = st.button("Kjør / oppdater aktivt univers", key="main_panel_run_active_universe_v1863r", type="primary")
+        active_results = cached_auto_rank_market("Smart Universe Picker", active_universe_tickers, max_count=max_count, use_news=False, force_manual_fetch=run_main_active)
         render_ranking(active_results, "🎯 Dynamisk rangering aktivt univers")
         render_analysis(active_results, "Smart Universe Picker")
 

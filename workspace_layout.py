@@ -892,6 +892,25 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 "🛠 System/admin",
             ],
         }
+        def _matching_panel_labels(*needles: str) -> list[str]:
+            out: list[str] = []
+            wanted = [str(n or "").lower() for n in needles if str(n or "").strip()]
+            for label, _renderer in panels:
+                text = str(label or "").lower()
+                if any(n in text for n in wanted):
+                    out.append(label)
+            return out
+
+        # Build groups from the actual panel labels. This avoids the mobile/encoding
+        # fallback where "Marked og signaler" only showed normal hovedpanel.
+        group_map = {
+            "Normal visning": [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598],
+            "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
+            "Marked og signaler": _matching_panel_labels("varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist"),
+            "Testing og portefølje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef"),
+            "System": _matching_panel_labels("services", "system/admin"),
+        }
+
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:

@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3q"
-APP_VERSION_NAME = "Shared Universe Insider Scoring"
-APP_BUILD_ID = "v1863q-shared-universe-insider-scoring"
+APP_VERSION = "v18.6.3r"
+APP_VERSION_NAME = "Control Center Market Panel Fix"
+APP_BUILD_ID = "v1863r-control-center-market-panel-fix"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 def get_app_version():
