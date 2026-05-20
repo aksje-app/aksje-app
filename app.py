@@ -6190,12 +6190,110 @@ def _apply_trading_rule_preset_v159(name: str, values: dict):
     st.rerun()
 
 
+_TRADING_RULE_PRESETS_V1863Z = {
+    "Standard": {
+        "min_buy_score": 7.5,
+        "min_buy_confidence": 70,
+        "max_buy_rsi": 72,
+        "min_hold_days": 1,
+        "use_noise_filter": False,
+        "ignore_small_moves_pct": 1.0,
+        "enable_sell_signal_exit": True,
+        "stop_loss_pct": 7.0,
+        "take_profit_pct": 12.0,
+        "trailing_stop_pct": 8.0,
+        "rsi_exit_level": 75,
+        "rsi_must_fall": True,
+    },
+    "Konservativ": {
+        "min_buy_score": 8.0,
+        "min_buy_confidence": 80,
+        "max_buy_rsi": 65,
+        "min_hold_days": 2,
+        "enable_sell_signal_exit": True,
+        "stop_loss_pct": 5.0,
+        "take_profit_pct": 10.0,
+        "trailing_stop_pct": 6.0,
+        "rsi_exit_level": 72,
+        "rsi_must_fall": True,
+        "use_noise_filter": False,
+        "ignore_small_moves_pct": 1.0,
+    },
+    "Aggressiv": {
+        "min_buy_score": 7.0,
+        "min_buy_confidence": 60,
+        "max_buy_rsi": 80,
+        "min_hold_days": 0,
+        "enable_sell_signal_exit": True,
+        "stop_loss_pct": 8.0,
+        "take_profit_pct": 18.0,
+        "trailing_stop_pct": 10.0,
+        "rsi_exit_level": 80,
+        "rsi_must_fall": True,
+        "use_noise_filter": False,
+        "ignore_small_moves_pct": 1.0,
+    },
+}
+
+
+def _trading_strategy_label_v1863z(rules):
+    def _same(current, expected):
+        if isinstance(expected, bool):
+            return bool(current) == bool(expected)
+        try:
+            return abs(float(current) - float(expected)) < 0.001
+        except Exception:
+            return str(current) == str(expected)
+
+    for name, preset in _TRADING_RULE_PRESETS_V1863Z.items():
+        if all(_same(rules.get(k), v) for k, v in preset.items()):
+            return name
+    return "Egendefinert"
+
+
+def _render_trading_strategy_summary_v1863z(rules):
+    name = _trading_strategy_label_v1863z(rules)
+    if name == "Konservativ":
+        profile, cls = "Lavere risiko, færre kjøp, strengere confidence.", "green"
+    elif name == "Aggressiv":
+        profile, cls = "Høyere aktivitet, løsere kjøpskrav og videre exits.", "yellow"
+    elif name == "Standard":
+        profile, cls = "Balansert standardoppsett for normal paper trading.", "green"
+    else:
+        profile, cls = "Reglene avviker fra presetene. Dette er din aktive egendefinerte strategi.", "yellow"
+
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(56,189,248,.55);margin:.45rem 0 .65rem 0;padding:.68rem .78rem;'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <div>
+              <div style='font-size:.78rem;color:#bae6fd;font-weight:950;text-transform:uppercase;'>Gjeldende trading-strategi</div>
+              <div style='font-size:1.08rem;color:#f8fafc;font-weight:950;'>{html.escape(name)}</div>
+            </div>
+            <span class='v18-status-chip {cls}'>Aktiv nå</span>
+          </div>
+          <div style='display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.45rem;'>
+            <span class='v18-status-chip'>BUY score ≥ <b>{float(rules.get("min_buy_score", 0) or 0):.1f}</b></span>
+            <span class='v18-status-chip'>Confidence ≥ <b>{int(rules.get("min_buy_confidence", 0) or 0)}</b></span>
+            <span class='v18-status-chip'>Maks RSI <b>{int(rules.get("max_buy_rsi", 0) or 0)}</b></span>
+            <span class='v18-status-chip red'>Stop-loss <b>{float(rules.get("stop_loss_pct", 0) or 0):.1f}%</b></span>
+            <span class='v18-status-chip green'>Take-profit <b>{float(rules.get("take_profit_pct", 0) or 0):.1f}%</b></span>
+            <span class='v18-status-chip yellow'>Trailing <b>{float(rules.get("trailing_stop_pct", 0) or 0):.1f}%</b></span>
+          </div>
+          <div style='font-size:.82rem;color:#cbd5e1;margin-top:.38rem;line-height:1.35;'>{html.escape(profile)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # V15.5 / Fase 1: flytt store arbeidsinnstillinger ut av venstremenyen og inn i hovedarbeidsflaten.
 def render_trading_rules_workspace():
     """Hovedområde for trading-regler. Erstatter lange Kjøp/Hold/Salg-menyer i venstresiden."""
     _rules = load_rules()
     with st.expander("📊 Trading-regler", expanded=False):
         st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer brukes først når du trykker «Oppdater hele appen».")
+        _render_trading_strategy_summary_v1863z(_rules)
         p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
         with p1:
             if st.button("↩️ Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
@@ -6850,6 +6948,78 @@ def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = Fals
     return normalized, latest_prices, errors, updated_at
 
 
+def _paper_price_candidates_v1863z(symbol: str, *, asset_type: str = "Aksje"):
+    raw = str(symbol or "").strip().upper()
+    if not raw:
+        return []
+    alias = {
+        "ORKLY": "ORK.OL",
+        "ORCLA": "ORK.OL",
+    }.get(raw, raw)
+    candidates = [alias]
+    if asset_type == "Aksje" and "." not in alias and alias.isalpha():
+        candidates.append(f"{alias}.OL")
+    return list(dict.fromkeys(candidates))
+
+
+def _fetch_yfinance_close_v1863z(symbol: str, *, asset_type: str = "Aksje"):
+    if yf is None:
+        return None, "", "yfinance er ikke tilgjengelig i miljøet."
+    last_error = ""
+    for candidate in _paper_price_candidates_v1863z(symbol, asset_type=asset_type):
+        try:
+            hist = yf.Ticker(candidate).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+            if hist is not None and not hist.empty and "Close" in hist:
+                close = hist["Close"].dropna()
+                if not close.empty:
+                    return float(close.iloc[-1]), candidate, ""
+        except Exception as exc:
+            last_error = str(exc)
+    return None, "", last_error or "Fant ikke pris/NAV i Yahoo Finance."
+
+
+def _paper_fetch_stock_price_v1863z():
+    symbol = str(st.session_state.get("paper_stock_symbol_v1863y", "") or "").strip().upper()
+    if not symbol:
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", "Skriv inn aksjesymbol først.")
+        return
+    price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type="Aksje")
+    if price and price > 0:
+        st.session_state["paper_stock_price_input_v1863y"] = float(price)
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.")
+    else:
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", f"Fant ikke aksjekurs for {symbol}. {err} Prøv børs-suffiks, f.eks. .OL, eller skriv pris manuelt.")
+
+
+def _paper_fetch_fund_price_v1863z():
+    symbol = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip().upper()
+    asset_type = str(st.session_state.get("paper_fund_type_v18545", "ETF") or "ETF")
+    if not symbol:
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", "Skriv inn fond/ETF-symbol først.")
+        return
+    price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type=asset_type)
+    if price and price > 0:
+        st.session_state["paper_fund_price_input_v18545"] = float(price)
+        st.session_state["paper_fund_price_v18545"] = float(price)
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Pris/NAV er oppdatert.")
+    else:
+        hint = "ISIN og nordiske fond mangler ofte gratis NAV-kilde. Bruk ETF/Yahoo-symbol eller skriv NAV manuelt."
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", f"Fant ikke pris/NAV for {symbol}. {err} {hint}")
+
+
+def _render_paper_fetch_status_v1863z(key: str):
+    status = st.session_state.get(key)
+    if not status:
+        return
+    level, msg = status
+    if level == "success":
+        st.success(msg)
+    elif level == "warning":
+        st.warning(msg)
+    else:
+        st.info(msg)
+
+
 def render_paper_trading_dashboard():
     st.subheader("🧪 Paper Trading")
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
@@ -6976,7 +7146,7 @@ def render_paper_trading_dashboard():
 
     st.markdown("#### 🟢 Simulert kjøp av aksjer")
     st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
-    with st.form("paper_stock_trade_form_v1863y", clear_on_submit=False):
+    with st.container():
         s1, s2, s3, s4 = st.columns([1.0, 0.85, 0.85, 0.9])
         with s1:
             stock_symbol = st.text_input("Aksjesymbol", value=st.session_state.get("paper_stock_symbol_v1863y", ""), key="paper_stock_symbol_v1863y").strip().upper()
@@ -6985,28 +7155,12 @@ def render_paper_trading_dashboard():
         with s3:
             stock_confidence = st.number_input("Confidence", min_value=0, max_value=100, value=80, step=5, key="paper_stock_confidence_v1863y")
         with s4:
-            fetch_stock_price = st.form_submit_button("Hent aksjekurs", use_container_width=True)
-            if fetch_stock_price:
-                if yf is None:
-                    st.warning("yfinance er ikke tilgjengelig i miljøet.")
-                elif not stock_symbol:
-                    st.warning("Skriv inn aksjesymbol først.")
-                else:
-                    try:
-                        hist = yf.Ticker(stock_symbol).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
-                        if hist is not None and not hist.empty and "Close" in hist:
-                            latest_price = float(hist["Close"].dropna().iloc[-1])
-                            st.session_state["paper_stock_price_v1863y"] = latest_price
-                            st.success(f"Hentet {stock_symbol}: {latest_price:.4f}")
-                            st.rerun()
-                        else:
-                            st.warning("Fant ikke aksjekurs. Skriv inn manuelt.")
-                    except Exception as exc:
-                        st.warning(f"Kunne ikke hente aksjekurs: {exc}")
+            st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
+        _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
 
         buy_col, sell_col = st.columns([1.0, 1.0])
         with buy_col:
-            buy_stock_clicked = st.form_submit_button("🟢 Paper-kjøp aksje", type="primary", use_container_width=True)
+            buy_stock_clicked = st.button("🟢 Paper-kjøp aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=True)
             if buy_stock_clicked:
                 if not stock_symbol:
                     st.error("Skriv inn aksjesymbol først.")
@@ -7023,7 +7177,7 @@ def render_paper_trading_dashboard():
             stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
             sell_stock_symbol = st.selectbox("Selg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1863y")
             sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1863y")
-            sell_stock_clicked = st.form_submit_button("🔴 Paper-selg aksje", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
+            sell_stock_clicked = st.button("🔴 Paper-selg aksje", key="paper_stock_sell_v1863z", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
             if sell_stock_clicked:
                 price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
                 if price_to_use <= 0:
@@ -7038,7 +7192,7 @@ def render_paper_trading_dashboard():
 
     st.markdown("#### 🏦 Simulert kjøp av fond / ETF")
     st.caption("Fond/ETF handles som paper trading med beløp. ETF-er bruker siste pris, mens vanlige fond kan bruke NAV/manuell pris. Ekte handel er ikke aktivert.")
-    with st.form("paper_fund_trade_form_v1863y", clear_on_submit=False):
+    with st.container():
         f1, f2, f3, f4 = st.columns([1.0, 1.0, 1.0, 0.9])
         with f1:
             fund_symbol = st.text_input("Fond/ETF-symbol", value=st.session_state.get("paper_fund_symbol_v18545", "VOO"), key="paper_fund_symbol_v18545").strip().upper()
@@ -7056,28 +7210,12 @@ def render_paper_trading_dashboard():
         with pf2:
             purchase_mode = st.selectbox("Kjøpstype", ["Engangskjøp", "Månedlig spareplan"], key="paper_fund_purchase_mode_v18545")
         with pf3:
-            fetch_fund_price = st.form_submit_button("Hent pris/NAV", use_container_width=True)
-            if fetch_fund_price:
-                if yf is None:
-                    st.warning("yfinance er ikke tilgjengelig i miljøet.")
-                elif not fund_symbol:
-                    st.warning("Skriv inn symbol først.")
-                else:
-                    try:
-                        hist = yf.Ticker(fund_symbol).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
-                        if hist is not None and not hist.empty and "Close" in hist:
-                            latest_price = float(hist["Close"].dropna().iloc[-1])
-                            st.session_state["paper_fund_price_v18545"] = latest_price
-                            st.success(f"Hentet {fund_symbol}: {latest_price:.4f}")
-                            st.rerun()
-                        else:
-                            st.warning("Fant ikke pris/NAV. Skriv inn manuelt.")
-                    except Exception as exc:
-                        st.warning(f"Kunne ikke hente pris/NAV: {exc}")
+            st.button("Hent pris/NAV", key="paper_fund_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_fund_price_v1863z)
+        _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
 
         ba, bb = st.columns([1.0, 1.0])
         with ba:
-            buy_fund_clicked = st.form_submit_button("🟢 Paper-kjøp fond/ETF", type="primary", use_container_width=True)
+            buy_fund_clicked = st.button("🟢 Paper-kjøp fond/ETF", key="paper_fund_buy_v1863z", type="primary", use_container_width=True)
             if buy_fund_clicked:
                 price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
                 ok, msg = paper_buy_instrument(
@@ -7101,7 +7239,7 @@ def render_paper_trading_dashboard():
             sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
             sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v18545")
             sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
-            sell_fund_clicked = st.form_submit_button("🔴 Paper-selg fond/ETF", use_container_width=True, disabled=(sell_symbol == "Ingen"))
+            sell_fund_clicked = st.button("🔴 Paper-selg fond/ETF", key="paper_fund_sell_v1863z", use_container_width=True, disabled=(sell_symbol == "Ingen"))
             if sell_fund_clicked:
                 price_to_use = float(sell_price or (fund_positions.get(sell_symbol, {}) or {}).get("last_price", 0.0) or 0.0)
                 ok, msg = paper_sell_instrument(
@@ -7119,7 +7257,7 @@ def render_paper_trading_dashboard():
                     st.error(msg)
 
         if purchase_mode == "Månedlig spareplan":
-            save_fund_plan_clicked = st.form_submit_button("💾 Lagre spareplan som simulering", use_container_width=True)
+            save_fund_plan_clicked = st.button("💾 Lagre spareplan som simulering", key="paper_fund_save_plan_v1863z", use_container_width=True)
             if save_fund_plan_clicked:
                 plan = {
                     "symbol": fund_symbol,

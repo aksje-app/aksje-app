@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3x"
-APP_VERSION_NAME = "Responsible UI Market Fund Cleanup"
-APP_BUILD_ID = "v1863x-responsible-ui-market-fund-cleanup"
+APP_VERSION = "v18.6.3z"
+APP_VERSION_NAME = "Paper Trading Price Strategy UX"
+APP_BUILD_ID = "v1863z-paper-trading-price-strategy-ux"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -9,6 +9,8 @@ APP_PATCH_NOTES = [
     "Smart Universe-tabeller viser selskap, land, børs, status, score, risiko og forklaring i stedet for bare ticker.",
     "Fond/ETF har marked/region, automatisk benchmark og tydelig melding når pris-/NAV-data mangler.",
     "Små tekster, statusrader og mørke tabeller er gjort mer lesbare på PC og mobil.",
+    "Paper Trading viser aksjekjÃ¸p igjen, henter pris/NAV tydeligere og viser gjeldende trading-strategi.",
+    "Mobil-login, Smart AI-statuskort og Analyseunivers-oppsett er forbedret for mindre friksjon.",
 ]
 
 def get_app_version():
