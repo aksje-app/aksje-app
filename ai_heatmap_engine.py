@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from forecast_store import load_forecast_log, load_alerts
 
+LEGACY_DEFAULT_TICKERS = {"AAPL", "STB.OL"}
+
 
 def _risk_level_from_row(row: Dict[str, Any]) -> str:
     strength = int(row.get("strength", 0))
@@ -66,6 +68,7 @@ def _extract_latest_forecast_rows(limit: int = 500) -> List[Dict[str, Any]]:
 def build_heatmap_rows(source_tickers: Optional[List[str]] = None, limit: int = 200) -> List[Dict[str, Any]]:
     """Build normalized heatmap rows from forecast log and optional ticker filter."""
     rows = _extract_latest_forecast_rows(limit=limit)
+    rows = [r for r in rows if str(r.get("ticker") or "").upper() not in LEGACY_DEFAULT_TICKERS]
     if source_tickers:
         allowed = {str(t).upper() for t in source_tickers}
         rows = [r for r in rows if r.get("ticker") in allowed]
@@ -119,7 +122,7 @@ def summarize_heatmap(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def extract_tickers_from_app_state(session_state: Any, keys: Optional[List[str]] = None) -> List[str]:
     """Extract tickers from session_state sources like portfolio/watchlist/ranking."""
-    keys = keys or ["portfolio", "paper_portfolio", "holdings", "positions", "watchlist", "top_picks", "ai_ranking"]
+    keys = keys or ["portfolio", "paper_portfolio", "holdings", "positions", "watchlist", "top_picks", "ai_ranking", "latest_rankings_v148"]
     tickers: List[str] = []
 
     def add(value: Any) -> None:
@@ -128,7 +131,7 @@ def extract_tickers_from_app_state(session_state: Any, keys: Optional[List[str]]
         if isinstance(value, str):
             s = value.strip().upper()
             if 1 <= len(s) <= 24 and all(ch.isalnum() or ch in ".-_" for ch in s):
-                if s not in tickers:
+                if s not in LEGACY_DEFAULT_TICKERS and s not in tickers:
                     tickers.append(s)
         elif isinstance(value, dict):
             for k in ("ticker", "symbol", "Ticker", "Symbol"):

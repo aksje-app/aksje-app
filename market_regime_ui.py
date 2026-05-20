@@ -12,6 +12,17 @@ import streamlit as st
 
 from market_regime_engine import detect_market_regime, regime_to_forecast_inputs
 
+REGIME_PRESETS = {
+    "USA": ("SPY", "QQQ", "^VIX"),
+    "Norge": ("OBX.OL", "EQNR.OL", ""),
+    "Sverige": ("^OMX", "VOLV-B.ST", ""),
+    "Danmark": ("NOVO-B.CO", "OMXC25.CO", ""),
+    "Finland": ("NOKIA.HE", "SAMPO.HE", ""),
+    "Brasil": ("EWZ", "^BVSP", ""),
+    "Norden": ("OBX.OL", "NOVO-B.CO", ""),
+    "Egendefinert": ("SPY", "QQQ", "^VIX"),
+}
+
 
 def _fetch_prices(ticker: str, period: str = "6mo") -> Tuple[List[float], Optional[str]]:
     try:
@@ -51,15 +62,17 @@ def _fetch_prices(ticker: str, period: str = "6mo") -> Tuple[List[float], Option
 def render_market_regime_widget() -> None:
     """Render automatic market regime widget."""
     with st.expander("🌍 Automatisk markedsregime", expanded=False):
-        st.caption("Analyserer markedsklima med SPY, QQQ og VIX. Brukes som beslutningsstøtte for prognoser og varsler.")
+        st.caption("Analyserer markedsklima for valgt marked. Brukes som beslutningsstotte for prognoser og varsler.")
 
+        market_scope = st.selectbox("Marked/regimeomraade", list(REGIME_PRESETS.keys()), key="regime_market_scope_v1863ae")
+        default_spy, default_qqq, default_vix = REGIME_PRESETS.get(market_scope, REGIME_PRESETS["USA"])
         c1, c2, c3 = st.columns(3)
         with c1:
-            spy_ticker = st.text_input("Markedsproxy", value="SPY", key="regime_spy_v1840")
+            spy_ticker = st.text_input("Markedsproxy", value=default_spy, key=f"regime_spy_v1863ae_{market_scope}")
         with c2:
-            qqq_ticker = st.text_input("Tech/momentum", value="QQQ", key="regime_qqq_v1840")
+            qqq_ticker = st.text_input("Momentum/sekundaer proxy", value=default_qqq, key=f"regime_qqq_v1863ae_{market_scope}")
         with c3:
-            vix_ticker = st.text_input("Volatilitet", value="^VIX", key="regime_vix_v1840")
+            vix_ticker = st.text_input("Volatilitet", value=default_vix, key=f"regime_vix_v1863ae_{market_scope}", help="Tomt felt betyr at regime beregnes uten volatilitetsproxy.")
 
         run = st.button("Oppdater markedsregime", key="regime_run_v1840", use_container_width=True)
         if not run:
@@ -70,7 +83,7 @@ def render_market_regime_widget() -> None:
 
         spy, err_spy = _fetch_prices(spy_ticker, period="1y")
         qqq, err_qqq = _fetch_prices(qqq_ticker, period="1y")
-        vix, err_vix = _fetch_prices(vix_ticker, period="6mo")
+        vix, err_vix = _fetch_prices(vix_ticker, period="6mo") if str(vix_ticker or "").strip() else ([], None)
 
         if err_spy:
             st.warning(err_spy)
@@ -90,6 +103,10 @@ def render_market_regime_widget() -> None:
 
         payload = result.to_dict()
         payload.update(regime_to_forecast_inputs(result))
+        payload["market_scope"] = market_scope
+        payload["market_proxy"] = spy_ticker
+        payload["momentum_proxy"] = qqq_ticker
+        payload["volatility_proxy"] = vix_ticker
         st.session_state["market_regime_result_v1840"] = payload
         st.session_state["auto_market_regime_v1840"] = payload.get("market_regime", "neutral")
         st.session_state["auto_event_risk_v1840"] = payload.get("event_risk", False)
@@ -101,7 +118,7 @@ def render_market_regime_widget() -> None:
         m4.metric("Risiko", result.risk_level)
         m5.metric("VIX", f"{result.vix_level}" if result.vix_level is not None else "N/A")
 
-        st.write(result.explanation)
+        st.write(f"{market_scope}: {result.explanation}")
         with st.expander("Avansert detaljdata (lukket)", expanded=False):
             rows = [
                 ("SPY 1 måned", f"{result.components.get('spy_1m_pct', 0):+.2f}%", "Kort trend i bredt USA-marked."),

@@ -145,7 +145,13 @@ def render_ai_heatmaps() -> None:
             key="ai_heatmap_scope_v1843",
         )
 
-        source_filter = all_tickers if scope.startswith("Appdata") and all_tickers else None
+        if scope.startswith("Appdata"):
+            if not all_tickers:
+                st.info("Ingen appdata for heatmap ennå. Kjør rangering, legg inn watchlist eller ha paper-posisjoner først.")
+                return
+            source_filter = all_tickers
+        else:
+            source_filter = None
         rows = build_heatmap_rows(source_tickers=source_filter, limit=300)
         tickers = sorted({str(r.get("ticker") or "").upper() for r in rows if str(r.get("ticker") or "").strip()})
         markets = standard_market_options(include_sources=False)

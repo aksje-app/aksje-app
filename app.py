@@ -1045,16 +1045,18 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 .v18574-readable-fund b { font-size:.90rem !important; }
 .v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
 .v18574-quick-row { padding:.62rem .72rem !important; margin:.38rem 0 !important; }
-.v18574-quick-title { display:flex !important; align-items:center !important; gap:.32rem !important; font-size:1.08rem !important; line-height:1.20 !important; margin:0 0 .18rem 0 !important; font-weight:950 !important; min-height:1.38rem !important; }
+.v18574-quick-title { display:flex !important; align-items:center !important; gap:.32rem !important; font-size:1.08rem !important; line-height:1.20 !important; margin:0 0 .28rem 0 !important; font-weight:950 !important; min-height:1.38rem !important; }
 .v18574-quick-sub { font-size:.84rem !important; color:rgba(203,213,225,.92) !important; margin:.18rem 0 .32rem 0 !important; line-height:1.28 !important; overflow-wrap:anywhere !important; }
 .v18574-quick-row [data-testid="stMetric"] { min-height:52px !important; padding:.36rem .52rem !important; }
 .v18574-quick-row [data-testid="stMetricValue"] { font-size:1.02rem !important; }
 .v18574-quick-row [data-testid="stProgress"] { margin-top:.12rem !important; }
 .v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.82rem !important; line-height:1.32 !important; }
-.v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.34rem; margin:.28rem 0 .44rem 0; align-items:center; }
+.v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.42rem; margin:.40rem 0 .62rem 0; align-items:center; }
 .v1863m-quick-meta span { border:1px solid rgba(56,189,248,.32); background:rgba(8,47,73,.42); border-radius:999px; padding:.20rem .48rem; font-size:.76rem; font-weight:850; color:#bae6fd; line-height:1.22; white-space:nowrap; }
-.v1863m-quick-action { min-height:auto; display:flex; flex-direction:column; gap:.46rem; justify-content:flex-start; padding-top:.18rem; }
-.v1863m-quick-action-note { font-size:.84rem; line-height:1.36; color:rgba(226,232,240,.92); min-height:1.35rem; }
+.v1863m-quick-action { min-height:auto; display:flex; flex-direction:column; gap:.68rem; justify-content:flex-start; padding-top:.22rem; }
+.v1863m-quick-action [data-testid="stProgress"] { margin-bottom:.10rem !important; }
+.v1863m-quick-action [data-testid="stCaptionContainer"] { max-width:760px !important; line-height:1.55 !important; margin:.12rem 0 .18rem 0 !important; color:rgba(226,232,240,.88) !important; }
+.v1863m-quick-action-note { font-size:.86rem; line-height:1.48; color:rgba(226,232,240,.92); min-height:1.55rem; margin:.10rem 0 .14rem 0; }
 @media (max-width:900px) {
     .v18574-quick-title { font-size:1rem !important; }
     .v18574-quick-sub { font-size:.82rem !important; }
@@ -1947,9 +1949,11 @@ def render_interactive_chart(fig, *args, **kwargs):
             dragmode="pan",
             hovermode="x unified",
             legend=dict(
-                bgcolor="rgba(15,23,42,0.75)",
-                bordercolor="rgba(148,163,184,0.35)",
+                bgcolor="rgba(15,23,42,0.94)",
+                bordercolor="rgba(125,211,252,0.58)",
                 borderwidth=1,
+                font=dict(color="#e0f2fe", size=13),
+                itemwidth=34,
             ),
         )
         fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
@@ -2440,17 +2444,19 @@ div[data-testid="stAlert"] {
 
 /* --- GRAPH EXPLANATION BOXES V1 --- */
 .graph-explain-box {
-    background: rgba(15, 23, 42, 0.88);
-    border: 1px solid rgba(148, 163, 184, 0.38);
+    background: linear-gradient(135deg, rgba(8,47,73,.72), rgba(15,23,42,.94));
+    border: 1px solid rgba(125, 211, 252, 0.42);
     border-radius: 14px;
-    padding: 12px 14px;
-    margin: 8px 0 18px 0;
-    color: #cbd5e1 !important;
+    padding: 13px 16px;
+    margin: 14px 0 22px 0;
+    color: #dbeafe !important;
     font-size: 0.92rem;
-    line-height: 1.45;
+    line-height: 1.55;
+    max-width: 980px;
+    overflow-wrap: break-word;
 }
 .graph-explain-box b {
-    color: #f8fafc !important;
+    color: #e0f2fe !important;
 }
 
 
@@ -4801,9 +4807,15 @@ def get_item_price_change(item):
 
 def currency_suffix(ticker):
     if ticker.endswith(".OL"):
-        return "kr"
+        return "NOK"
     if ticker.endswith(".ST"):
         return "SEK"
+    if ticker.endswith(".CO"):
+        return "DKK"
+    if ticker.endswith(".HE"):
+        return "EUR"
+    if ticker.endswith(".SA"):
+        return "BRL"
     return "$"
 
 def add_pattern_markers(fig, pattern, name):
@@ -5569,7 +5581,9 @@ def render_macd_explanation():
 
 def normalize_user_ticker(ticker: str) -> str:
     """Normaliserer manuell ticker uten å falle stille tilbake til AAPL."""
-    return str(ticker or "").strip().upper().replace(" ", "")
+    value = str(ticker or "").strip().upper().replace(" ", "")
+    aliases = {"ORKLY": "ORK.OL", "ORK": "ORK.OL"}
+    return aliases.get(value, value)
 
 
 LEGACY_SEED_TICKERS_V1863T = {
@@ -5895,8 +5909,14 @@ def render_analysis(results, label):
             st.info(f"⚪ {title}: {desc}")
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Motstand", breakout.get("resistance", "N/A"))
-    c2.metric("Støtte", breakout.get("support", "N/A"))
+    chart_currency = currency_suffix(selected)
+    def _level_with_currency_v1863ae(value):
+        try:
+            return f"{float(value):.2f} {chart_currency}"
+        except Exception:
+            return "N/A"
+    c1.metric("Motstand", _level_with_currency_v1863ae(breakout.get("resistance")))
+    c2.metric("Stotte", _level_with_currency_v1863ae(breakout.get("support")))
     c3.metric("Volum boost", breakout.get("volume_boost", "N/A"))
 
     st.markdown("#### 🧩 Pattern detection")
@@ -5949,7 +5969,7 @@ def render_analysis(results, label):
             fig_ta,
             last_x_ta,
             last_price_ta,
-            f"Pris: {last_price_ta:.2f}",
+            f"Pris: {last_price_ta:.2f} {chart_currency}",
             color="white",
             yshift=0,
         )
@@ -5960,9 +5980,9 @@ def render_analysis(results, label):
             bb_upper_val = float(bb_upper.dropna().iloc[-1])
             bb_lower_val = float(bb_lower.dropna().iloc[-1])
 
-            add_right_side_price_label(fig_ta, last_x_ta, bb_mid_val, f"BB midt: {bb_mid_val:.2f}", color="#ff6b4a")
-            add_right_side_price_label(fig_ta, last_x_ta, bb_upper_val, f"BB øvre: {bb_upper_val:.2f}", color="#00e6a8")
-            add_right_side_price_label(fig_ta, last_x_ta, bb_lower_val, f"BB nedre: {bb_lower_val:.2f}", color="#b56cff")
+            add_right_side_price_label(fig_ta, last_x_ta, bb_mid_val, f"BB midt: {bb_mid_val:.2f} {chart_currency}", color="#ff6b4a")
+            add_right_side_price_label(fig_ta, last_x_ta, bb_upper_val, f"BB øvre: {bb_upper_val:.2f} {chart_currency}", color="#00e6a8")
+            add_right_side_price_label(fig_ta, last_x_ta, bb_lower_val, f"BB nedre: {bb_lower_val:.2f} {chart_currency}", color="#b56cff")
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
@@ -5972,7 +5992,7 @@ def render_analysis(results, label):
             annotations=[
                 *fig_ta.layout.annotations,
                 dict(
-                    text=f"💹 Gjeldende kurs: <b>{last_price_ta:.2f}</b>",
+                    text=f"💹 Gjeldende kurs: <b>{last_price_ta:.2f} {chart_currency}</b>",
                     xref="paper",
                     yref="paper",
                     x=0.01,
@@ -7829,9 +7849,6 @@ st.markdown(
             <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
             <span class='mini-status-chip {_top_paper_color}'>Paper: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
-            <span class='mini-status-chip yellow'>Manuell: <b>PÅ</b></span>
-            <span class='v18532-status-label'>Sesjon</span>
-            {_session_status_html(current_user)}
             <span class='v18532-status-label'>Oppdatert</span>
             <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
             <span class='mini-status-chip'>Tung: <b>{html.escape(_last_update_label())}</b></span>
@@ -8079,6 +8096,11 @@ def render_top_picks_control_center_v1863s():
     top_picks = _ranked_for_display(latest.get(storage_key, []) or [])
     buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
     view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
+    if top_picks:
+        st.markdown(
+            f"<div class='v18-dark-row'>Top Picks funnet: <b>{len(top_picks)}</b> | Kjoep naa-signaler: <b>{len(buy_now_picks)}</b>. Kjoep naa er et strengere teknisk timingfilter.</div>",
+            unsafe_allow_html=True,
+        )
 
     if view == "Top Picks":
         render_ranking(top_picks, f"⭐ Top Picks {scope}")
@@ -8108,7 +8130,7 @@ def render_top_picks_control_center_v1863s():
             render_ranking(buy_now_picks, f"🟢 Kjøp nå {scope}")
             render_analysis(buy_now_picks, f"KjopNa_{storage_scope}")
         else:
-            st.warning("Ingen kandidater har grønt teknisk kjøpssignal akkurat nå.")
+            st.warning(f"Top Picks finnes ({len(top_picks)}), men ingen har groent teknisk Kjoep naa-signal akkurat naa. Bytt til Top Picks for aa se kandidatene.")
 
 
 def render_watchlist_signals_control_center_v18535():
