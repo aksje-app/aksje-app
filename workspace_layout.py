@@ -291,26 +291,32 @@ def inject_workspace_css() -> None:
         }
         .ptw-control-selector-title {
             color:#bae6fd;
-            font-size:.78rem;
+            font-size:.94rem;
             font-weight:950;
             text-transform:uppercase;
             letter-spacing:.04em;
-            margin:0 0 .35rem 0;
+            margin:0 0 .48rem 0;
+            text-shadow:0 0 12px rgba(56,189,248,.18);
         }
+        .ptw-control-selector-shell div[data-testid="stSelectbox"] label,
         .ptw-control-hero div[data-testid="stSelectbox"] label {
-            color:#f8fafc !important;
-            font-size:.88rem !important;
+            color:#bae6fd !important;
+            font-size:1rem !important;
             font-weight:950 !important;
+            padding-bottom:.18rem !important;
         }
+        .ptw-control-selector-shell div[data-baseweb="select"] > div,
         .ptw-control-hero div[data-baseweb="select"] > div {
-            min-height:44px !important;
-            border-color:rgba(125,211,252,.55) !important;
+            min-height:48px !important;
+            border-color:rgba(125,211,252,.68) !important;
             background:rgba(15,23,42,.92) !important;
             box-shadow:0 0 0 1px rgba(56,189,248,.10) inset !important;
         }
+        .ptw-control-selector-shell div[data-baseweb="select"] span,
         .ptw-control-hero div[data-baseweb="select"] span {
             font-weight:900 !important;
             color:#f8fafc !important;
+            font-size:1rem !important;
         }
         .ptw-control-note-strong {
             border:1px solid rgba(34,197,94,.34);
@@ -1081,15 +1087,19 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         panel_options = [label for label in group_map.get(active_group, []) if label in panel_map]
         if not panel_options:
             panel_options = [first_real_panel] if first_real_panel else []
-        default_panel_index = panel_options.index(previous_label) if previous_label in panel_options else 0
+        group_suffix = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(active_group))[:48]
+        panel_key = f"ai_control_center_active_panel_v1863m_{group_suffix}"
+        remembered_panel = st.session_state.get(panel_key) or previous_label
+        default_panel_index = panel_options.index(remembered_panel) if remembered_panel in panel_options else 0
         with c_panel:
             active_label = st.selectbox(
                 "Velg panel",
                 panel_options,
                 index=default_panel_index,
-                key="ai_control_center_active_panel_v1863m",
+                key=panel_key,
                 help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
             )
+        st.session_state["ai_control_center_active_panel_v1863m"] = active_label
         st.markdown("</div>", unsafe_allow_html=True)
         if active_label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598:
             st.markdown(

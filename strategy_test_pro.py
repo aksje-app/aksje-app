@@ -50,6 +50,7 @@ PROFILE_FILE = Path("strategy_profiles.json")  # legacy fallback only
 LOG_STORAGE_KEY = "strategy_testing/logs.json"
 PROFILE_STORAGE_KEY = "strategy_testing/profiles.json"
 MAX_DISPLAY_ROWS = 25
+MAX_SMART_STAGE_COMBINATIONS = 2_500
 
 
 def _safe_rerun() -> None:
@@ -730,6 +731,7 @@ def optimize_rule_sets(
     - støtter en enkel avbryt-flaggsjekk via session_state
     """
     rows = []
+    errors = []
     total = max(1, len(candidates))
     tickers_n = int(ticker_count or len(histories) or 1)
     status_box = st.empty()
@@ -755,7 +757,13 @@ def optimize_rule_sets(
         if cancel_key and bool(st.session_state.get(cancel_key, False)):
             st.warning(f"Testen ble avbrutt etter {len(rows)} av {total} kombinasjoner.")
             break
-        result = run_group_backtest(histories, rules, start_cash=start_cash)
+        try:
+            result = run_group_backtest(histories, rules, start_cash=start_cash)
+        except Exception as e:
+            errors.append(str(e))
+            if len(errors) <= 3:
+                st.warning(f"Hoppet over en regelkombinasjon som feilet i {phase_label}: {e}")
+            continue
         s = result.get("summary", {}) or {}
         row = rules.to_row()
         row.update({
@@ -775,11 +783,21 @@ def optimize_rule_sets(
     if rows:
         _render_progress(len(rows))
     progress.empty()
+    if errors:
+        st.warning(f"{len(errors)} regelkombinasjoner feilet og ble hoppet over. Testen fortsatte med resten.")
     # Behold siste statusboks synlig, slik at ferdig prosent ikke forsvinner med en gang.
     opt = pd.DataFrame(rows)
     if opt.empty:
         return opt
     return opt.sort_values(["Strategi-score", "Avkastning %"], ascending=False).reset_index(drop=True)
+
+
+def _finish_strategy_pro_early_v1863ac(holder: Any, progress: Any, message: str, *, ok: bool = False) -> None:
+    try:
+        _finish_pro_progress(holder, progress, message, ok=ok)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    finish_global_busy("Klar", message)
 
 
 def _rules_from_opt_row(row, base: RuleSet) -> RuleSet:
@@ -1142,6 +1160,13 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 index=3,
                 key=f"{key_prefix}_max_combos",
             )
+            effective_max_combos = int(max_combos)
+            if test_type == "Kraftig smart-test" and effective_max_combos > MAX_SMART_STAGE_COMBINATIONS:
+                effective_max_combos = MAX_SMART_STAGE_COMBINATIONS
+                st.info(
+                    f"Kraftig smart-test bruker maks {MAX_SMART_STAGE_COMBINATIONS:,} kombinasjoner per fase "
+                    "for at appen ikke skal fryse. Velg Standard test for bredere manuell kjøring."
+                )
             validation_method = st.selectbox(
                 "Valideringsmetode",
                 VALIDATION_METHOD_OPTIONS,
@@ -1236,7 +1261,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         elif test_type == "Finjuster siste grovtest":
             last = latest_coarse_log()
             if last and last.get("top_rows"):
-                total_est = min(len(last.get("top_rows", [])) * 450, int(max_combos))
+                total_est = min(len(last.get("top_rows", [])) * 450, int(effective_max_combos))
                 candidate_est = total_est
                 st.info(f"Finjustering bruker siste lagrede grovtest: {last.get('test_id', 'ukjent')}")
             else:
@@ -1246,7 +1271,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         else:
             est_ranges = custom_ranges if test_type in {"Egendefinert intervall", "Kraftig smart-test"} else preset_ranges(base, test_type if test_type in {"Rask test", "Standard test"} else "Rask test")
             total_est = count_combinations(est_ranges)
-            candidate_est = min(int(max_combos), total_est)
+            candidate_est = min(int(effective_max_combos), total_est)
         _show_combination_status(total_est, candidate_est, len(tickers_preview) or 1)
         render_test_summary_card(
             tickers_preview,
@@ -1256,7 +1281,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             int(applied_train_share),
             int(total_est),
             int(candidate_est),
-            int(max_combos),
+            int(effective_max_combos),
         )
 
         cancel_key = f"{key_prefix}_cancel_requested"
@@ -1315,6 +1340,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
         tickers = _parse_ticker_text(raw_tickers_active, default_list)
         if not tickers:
             st.warning("Legg inn minst én ticker.")
+            _finish_strategy_pro_early_v1863ac(progress_holder, progress_bar, "Strategi-test Pro manglet tickere.")
             return
         if len(tickers) >= 20:
             st.info("Maks 20 tickere testes samtidig i denne versjonen for å holde appen rask.")
@@ -1329,6 +1355,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             st.warning("Fant ikke nok historikk for: " + ", ".join(missing))
         if not histories:
             st.error("Klarte ikke å hente historikk. Sjekk internett/Yahoo Finance eller ticker-symbolene.")
+            _finish_strategy_pro_early_v1863ac(progress_holder, progress_bar, "Strategi-test Pro fant ikke historikk.")
             return
         show_data_quality_box(histories, tickers)
 
@@ -1359,20 +1386,22 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             last = latest_coarse_log()
             if not last:
                 st.warning("Fant ingen lagret grovtest. Kjør Kraftig smart-test først.")
+                _finish_strategy_pro_early_v1863ac(progress_holder, progress_bar, "Strategi-test Pro manglet lagret grovtest.")
                 return
             top_rows = pd.DataFrame(last.get("top_rows", []))
-            candidates = refine_candidates_from_top(top_rows, base, max_candidates=int(max_combos))
+            candidates = refine_candidates_from_top(top_rows, base, max_candidates=int(effective_max_combos))
             st.info(f"Finjusterer {len(candidates)} kombinasjoner fra siste lagrede grovtest: {last.get('test_id')}")
             opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash), phase_label="Finjustering", ticker_count=len(histories), cancel_key=cancel_key)
         elif test_type == "Kraftig smart-test":
             coarse_ranges = custom_ranges
             total = count_combinations(coarse_ranges)
-            coarse_candidates = rules_from_ranges(coarse_ranges, base, max_combinations=int(max_combos))
+            coarse_candidates = rules_from_ranges(coarse_ranges, base, max_combinations=int(effective_max_combos))
             _show_combination_status(total, len(coarse_candidates), len(histories))
             st.info("Steg 1/2: kjører grovtest og lagrer toppresultater automatisk.")
             coarse = optimize_rule_sets(optimization_histories, coarse_candidates, start_cash=float(start_cash), phase_label="Grovtest", ticker_count=len(histories), cancel_key=cancel_key)
             if coarse.empty:
                 st.warning("Grovtesten ga ingen resultater.")
+                _finish_strategy_pro_early_v1863ac(progress_holder, progress_bar, "Strategi-test Pro ga ingen grovtest-resultater.")
                 return
             coarse_id = save_strategy_log({
                 "test_type": test_type,
@@ -1388,13 +1417,13 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             })
             st.success(f"Grovtest lagret automatisk: {coarse_id}")
             st.info("Steg 2/2: finjusterer rundt beste grovtest-kombinasjoner.")
-            refine = refine_candidates_from_top(coarse, base, max_candidates=int(max_combos))
+            refine = refine_candidates_from_top(coarse, base, max_candidates=int(effective_max_combos))
             opt = optimize_rule_sets(optimization_histories, refine, start_cash=float(start_cash), phase_label="Finjustering", ticker_count=len(histories), cancel_key=cancel_key)
             run_note = f"Kraftig smart-test: grovtest {coarse_id} + finjustering."
         else:
             ranges = custom_ranges if test_type == "Egendefinert intervall" else preset_ranges(base, test_type)
             total = count_combinations(ranges)
-            candidates = rules_from_ranges(ranges, base, max_combinations=int(max_combos))
+            candidates = rules_from_ranges(ranges, base, max_combinations=int(effective_max_combos))
             _show_combination_status(total, len(candidates), len(histories))
             opt = optimize_rule_sets(optimization_histories, candidates, start_cash=float(start_cash), phase_label=test_type, ticker_count=len(histories), cancel_key=cancel_key)
 
