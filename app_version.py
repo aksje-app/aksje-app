@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3z"
-APP_VERSION_NAME = "Paper Trading Price Strategy UX"
-APP_BUILD_ID = "v1863z-paper-trading-price-strategy-ux"
+APP_VERSION = "v18.6.3aa"
+APP_VERSION_NAME = "AI Control Center Focus UX"
+APP_BUILD_ID = "v1863aa-ai-control-center-focus-ux"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -11,6 +11,7 @@ APP_PATCH_NOTES = [
     "Små tekster, statusrader og mørke tabeller er gjort mer lesbare på PC og mobil.",
     "Paper Trading viser aksjekjÃ¸p igjen, henter pris/NAV tydeligere og viser gjeldende trading-strategi.",
     "Mobil-login, Smart AI-statuskort og Analyseunivers-oppsett er forbedret for mindre friksjon.",
+    "AI Kontrollsenter er gjort tydeligere som hovedarbeidsflate med større header og aktivt panel.",
 ]
 
 def get_app_version():

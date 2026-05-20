@@ -234,6 +234,93 @@ def inject_workspace_css() -> None:
             color: #f8fafc;
             margin-bottom: .25rem;
         }
+        .ptw-control-hero {
+            border: 1px solid rgba(56,189,248,.55);
+            background: linear-gradient(135deg, rgba(8,47,73,.84), rgba(15,23,42,.94) 58%, rgba(20,83,45,.38));
+            border-radius: 16px;
+            padding: .86rem .95rem .74rem .95rem;
+            margin: .34rem 0 .58rem 0;
+            box-shadow: 0 14px 32px rgba(0,0,0,.24), 0 0 0 1px rgba(125,211,252,.10) inset;
+        }
+        .ptw-control-hero-top {
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:.85rem;
+            flex-wrap:wrap;
+        }
+        .ptw-control-eyebrow {
+            color:#67e8f9;
+            font-size:.76rem;
+            font-weight:950;
+            text-transform:uppercase;
+            letter-spacing:.06em;
+            margin-bottom:.12rem;
+        }
+        .ptw-control-title {
+            font-size:1.62rem;
+            line-height:1.08;
+            font-weight:950;
+            color:#f8fafc;
+        }
+        .ptw-control-caption {
+            color:#dbeafe;
+            font-size:.90rem;
+            line-height:1.34;
+            margin-top:.20rem;
+            max-width:74rem;
+        }
+        .ptw-control-active-chip {
+            border:1px solid rgba(34,197,94,.55);
+            background:rgba(16,65,52,.70);
+            color:#dcfce7;
+            border-radius:999px;
+            padding:.34rem .62rem;
+            font-size:.78rem;
+            font-weight:950;
+            white-space:nowrap;
+            box-shadow:0 0 18px rgba(34,197,94,.15);
+        }
+        .ptw-control-selector-shell {
+            border:1px solid rgba(125,211,252,.38);
+            background:rgba(2,6,23,.32);
+            border-radius:14px;
+            padding:.62rem .68rem .50rem .68rem;
+            margin:.45rem 0 .30rem 0;
+        }
+        .ptw-control-selector-title {
+            color:#bae6fd;
+            font-size:.78rem;
+            font-weight:950;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+            margin:0 0 .35rem 0;
+        }
+        .ptw-control-hero div[data-testid="stSelectbox"] label {
+            color:#f8fafc !important;
+            font-size:.88rem !important;
+            font-weight:950 !important;
+        }
+        .ptw-control-hero div[data-baseweb="select"] > div {
+            min-height:44px !important;
+            border-color:rgba(125,211,252,.55) !important;
+            background:rgba(15,23,42,.92) !important;
+            box-shadow:0 0 0 1px rgba(56,189,248,.10) inset !important;
+        }
+        .ptw-control-hero div[data-baseweb="select"] span {
+            font-weight:900 !important;
+            color:#f8fafc !important;
+        }
+        .ptw-control-note-strong {
+            border:1px solid rgba(34,197,94,.34);
+            background:rgba(6,78,59,.30);
+            color:#d1fae5;
+            border-radius:12px;
+            padding:.48rem .60rem;
+            margin:.42rem 0 .40rem 0;
+            font-size:.84rem;
+            font-weight:850;
+        }
         div[data-testid="stRadio"] div[role="radiogroup"] {
             gap: .36rem .42rem !important;
         }
@@ -733,6 +820,9 @@ def inject_workspace_css() -> None:
         .ptw-control-title { font-size: 1.26rem !important; line-height:1.15 !important; font-weight: 950 !important; }
         .ptw-control-caption { font-size: .78rem !important; line-height:1.24 !important; color: rgba(203,213,225,.88) !important; }
         .ptw-status-line .ptw-pill, .ptw-control-header .ptw-pill { font-size: .68rem !important; padding: .18rem .38rem !important; }
+        .ptw-control-hero .ptw-control-title { font-size: 1.62rem !important; line-height:1.08 !important; }
+        .ptw-control-hero .ptw-control-caption { font-size: .90rem !important; line-height:1.34 !important; color:#dbeafe !important; }
+        .ptw-control-hero .ptw-status-line .ptw-pill { font-size: .76rem !important; padding: .26rem .52rem !important; }
         .ptw-global-busy-fixed .ptw-pill { min-height: 30px !important; opacity:1 !important; }
         .ptw-global-busy-fixed .ptw-busy-running { min-width: 178px !important; }
         .ptw-busy-spinner { opacity:1 !important; visibility:visible !important; }
@@ -829,21 +919,6 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
     Returns the selected control-center panel label when a real panel is active.
     Returns None when the user wants the normal main dashboard below.
     """
-    st.markdown(
-        """
-        <div class="ptw-control-header">
-          <div class="ptw-control-title">🧠 AI Kontrollsenter</div>
-          <div class="ptw-control-caption">Analyseunivers, prognose, varsler, nyheter, analyse, system/admin og tjenester samlet i ett arbeidsområde.</div>
-          <div class="ptw-status-line">
-            <span class="ptw-pill ptw-pill-ai">🟢 Samlet AI workspace aktivt</span>
-            <span class="ptw-pill">🧩 Lazy panels</span>
-            <span class="ptw-pill">Ingen skjulte analyser</span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     with st.expander("› Åpne AI Kontrollsenter", expanded=True):
         base_panels: list[Tuple[str, Callable[[], None]]] = [
             ("🎯 Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
@@ -922,6 +997,29 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 default_group = group_name
                 break
 
+        st.markdown(
+            f"""
+            <div class="ptw-control-hero">
+              <div class="ptw-control-hero-top">
+                <div>
+                  <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
+                  <div class="ptw-control-title">🧠 AI Kontrollsenter</div>
+                  <div class="ptw-control-caption">Analyseunivers, prognose, varsler, nyheter, marked, testing og system er samlet her. Velg ett område og ett panel, så kjøres bare det panelet.</div>
+                </div>
+                <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(previous_label or first_real_panel or "-"))}</div>
+              </div>
+              <div class="ptw-status-line" style="margin-top:.55rem;">
+                <span class="ptw-pill ptw-pill-ai">🟢 Samlet AI workspace aktivt</span>
+                <span class="ptw-pill">Kun valgt panel kjøres</span>
+                <span class="ptw-pill">Ingen skjulte analyser</span>
+              </div>
+            </div>
+            <div class="ptw-control-selector-shell">
+              <div class="ptw-control-selector-title">Velg oppgave</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         c_group, c_panel = st.columns([0.9, 1.35])
         with c_group:
             active_group = st.selectbox(
@@ -943,16 +1041,17 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 key="ai_control_center_active_panel_v1863m",
                 help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
             )
+        st.markdown("</div>", unsafe_allow_html=True)
         if active_label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598:
             st.markdown(
-                "<div class='ptw-lazy-panel-note'>Normal hovedvisning er aktiv. Velg et Kontrollsenter-panel når du vil kjøre én samlet oppgave.</div>",
+                "<div class='ptw-control-note-strong'>Normal hovedvisning er aktiv. Velg et Kontrollsenter-panel når du vil kjøre én samlet oppgave.</div>",
                 unsafe_allow_html=True,
             )
             st.session_state["ai_control_center_active_real_panel_v18598"] = ""
             return None
 
         st.markdown(
-            "<div class='ptw-lazy-panel-note'>Kun valgt panel åpnes og kjøres. Underliggende hovedpaneler skjules for å unngå dobbeltvisning.</div>",
+            f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_label))}</b>. Kun dette panelet åpnes og kjøres.</div>",
             unsafe_allow_html=True,
         )
         renderer = panel_map.get(active_label)
