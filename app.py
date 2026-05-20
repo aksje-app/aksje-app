@@ -6909,16 +6909,21 @@ def _fetch_latest_paper_price_v1863v(ticker: str):
     symbol = str(ticker or "").strip().upper()
     if not symbol:
         return None, "mangler ticker"
-    try:
-        hist = yf.Ticker(symbol).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
-        if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
-            return None, "fant ingen Close-data"
-        close = hist["Close"].dropna()
-        if close.empty:
-            return None, "Close-data er tom"
-        return float(close.iloc[-1]), ""
-    except Exception as exc:
-        return None, str(exc)[:160]
+    last_error = ""
+    for candidate in _paper_price_candidates_v1863z(symbol, asset_type="Aksje"):
+        try:
+            hist = yf.Ticker(candidate).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+            if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+                last_error = "fant ingen Close-data"
+                continue
+            close = hist["Close"].dropna()
+            if close.empty:
+                last_error = "Close-data er tom"
+                continue
+            return float(close.iloc[-1]), ""
+        except Exception as exc:
+            last_error = str(exc)[:160]
+    return None, last_error or "fant ingen pris"
 
 
 def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = False):
@@ -6986,7 +6991,19 @@ def _paper_fetch_stock_price_v1863z():
     price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type="Aksje")
     if price and price > 0:
         st.session_state["paper_stock_price_input_v1863y"] = float(price)
-        st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.")
+        confidence_msg = ""
+        try:
+            item = score_stock(resolved or symbol, use_news=False)
+            decision = build_trading_decision(item or {}, {})
+            conf = int(decision.get("confidence", item.get("confidence", 0)) or 0)
+            st.session_state["paper_stock_confidence_v1863y"] = max(0, min(100, conf))
+            label = str(decision.get("decision") or decision.get("action") or "").strip()
+            confidence_msg = f" System-confidence: {conf}%{(' · ' + label) if label else ''}."
+        except Exception as exc:
+            st.session_state["paper_stock_confidence_v1863y"] = 0
+            confidence_msg = f" System-confidence mangler: {str(exc)[:90]}."
+        st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.{confidence_msg}")
     else:
         st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", f"Fant ikke aksjekurs for {symbol}. {err} Prøv børs-suffiks, f.eks. .OL, eller skriv pris manuelt.")
 
@@ -7001,6 +7018,8 @@ def _paper_fetch_fund_price_v1863z():
     if price and price > 0:
         st.session_state["paper_fund_price_input_v18545"] = float(price)
         st.session_state["paper_fund_price_v18545"] = float(price)
+        st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_fund_last_type_v1863ac"] = asset_type
         st.session_state["paper_fund_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Pris/NAV er oppdatert.")
     else:
         hint = "ISIN og nordiske fond mangler ofte gratis NAV-kilde. Bruk ETF/Yahoo-symbol eller skriv NAV manuelt."
@@ -7018,6 +7037,85 @@ def _render_paper_fetch_status_v1863z(key: str):
         st.warning(msg)
     else:
         st.info(msg)
+
+
+def _paper_stock_symbol_changed_v1863ac():
+    symbol = str(st.session_state.get("paper_stock_symbol_v1863y", "") or "").strip().upper()
+    previous = str(st.session_state.get("paper_stock_last_symbol_v1863ac", "") or "").strip().upper()
+    if previous and symbol != previous:
+        st.session_state["paper_stock_price_input_v1863y"] = 0.0
+        st.session_state["paper_stock_confidence_v1863y"] = 0
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("info", "Ticker er endret. Hent ny aksjekurs før paper-kjøp.")
+    st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
+
+
+def _paper_fund_symbol_changed_v1863ac():
+    symbol = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip().upper()
+    asset_type = str(st.session_state.get("paper_fund_type_v18545", "") or "")
+    previous_symbol = str(st.session_state.get("paper_fund_last_symbol_v1863ac", "") or "").strip().upper()
+    previous_type = str(st.session_state.get("paper_fund_last_type_v1863ac", "") or "")
+    if (previous_symbol and symbol != previous_symbol) or (previous_type and asset_type != previous_type):
+        st.session_state["paper_fund_price_input_v18545"] = 0.0
+        st.session_state["paper_fund_price_v18545"] = 0.0
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("info", "Fond/ETF er endret. Hent ny pris/NAV før paper-kjøp.")
+    st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
+    st.session_state["paper_fund_last_type_v1863ac"] = asset_type
+
+
+def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
+    rows = paper_position_rows(portfolio, latest_prices)
+    if not rows:
+        st.info("Ingen åpne paper trading-posisjoner.")
+        return
+    st.markdown(
+        """
+        <style>
+        .paper-position-card {
+            border:1px solid rgba(56,189,248,.30);
+            background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.78));
+            border-radius:12px;
+            padding:.62rem .72rem;
+            margin:.35rem 0;
+        }
+        .paper-position-card.gain { border-color:rgba(56,189,248,.62); box-shadow:0 0 0 1px rgba(56,189,248,.10) inset; }
+        .paper-position-card.loss { border-color:rgba(248,113,113,.62); box-shadow:0 0 0 1px rgba(248,113,113,.10) inset; }
+        .paper-position-main { display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center; }
+        .paper-position-main b { color:#f8fafc;font-size:1rem; }
+        .paper-position-main span { color:#94a3b8;margin-left:.38rem;font-weight:850;font-size:.78rem; }
+        .paper-position-pnl { color:#e2e8f0;font-weight:950;font-size:1rem; }
+        .paper-position-card.gain .paper-position-pnl { color:#7dd3fc; }
+        .paper-position-card.loss .paper-position-pnl { color:#fda4af; }
+        .paper-position-pnl span { margin-left:.35rem;color:inherit;font-size:.88rem; }
+        .paper-position-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.38rem;margin-top:.45rem;color:#cbd5e1;font-size:.82rem; }
+        .paper-position-grid b { color:#f8fafc; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    for row in rows:
+        pnl = _safe_float_v18581(row.get("pnl"), 0.0)
+        pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+        cls = "gain" if pnl > 0 else ("loss" if pnl < 0 else "flat")
+        sign = "+" if pnl > 0 else ""
+        updated = html.escape(str(row.get("updated") or "Lagret kurs"))
+        st.markdown(
+            f"""
+            <div class='paper-position-card {cls}'>
+              <div class='paper-position-main'>
+                <div><b>{html.escape(str(row.get('ticker') or '-'))}</b><span>{html.escape(str(row.get('type') or 'Aksje'))}</span></div>
+                <div class='paper-position-pnl'>{sign}{pnl:,.2f} kr <span>{sign}{pnl_pct:.2f}%</span></div>
+              </div>
+              <div class='paper-position-grid'>
+                <span>Antall <b>{row.get('units')}</b></span>
+                <span>Snitt <b>{row.get('avg_price')}</b></span>
+                <span>Siste <b>{row.get('last_price')}</b></span>
+                <span>Verdi <b>{float(row.get('value') or 0):,.2f}</b></span>
+                <span>Oppdatert <b>{updated}</b></span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def render_paper_trading_dashboard():
@@ -7147,13 +7245,29 @@ def render_paper_trading_dashboard():
     st.markdown("#### 🟢 Simulert kjøp av aksjer")
     st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
     with st.container():
+        st.session_state.setdefault("paper_stock_price_input_v1863y", 0.0)
+        st.session_state.setdefault("paper_stock_confidence_v1863y", 0)
         s1, s2, s3, s4 = st.columns([1.0, 0.85, 0.85, 0.9])
         with s1:
-            stock_symbol = st.text_input("Aksjesymbol", value=st.session_state.get("paper_stock_symbol_v1863y", ""), key="paper_stock_symbol_v1863y").strip().upper()
+            stock_symbol = st.text_input(
+                "Aksjesymbol",
+                value=st.session_state.get("paper_stock_symbol_v1863y", ""),
+                key="paper_stock_symbol_v1863y",
+                on_change=_paper_stock_symbol_changed_v1863ac,
+            ).strip().upper()
         with s2:
-            stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
+            stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
         with s3:
-            stock_confidence = st.number_input("Confidence", min_value=0, max_value=100, value=80, step=5, key="paper_stock_confidence_v1863y")
+            stock_confidence = st.number_input(
+                "System-confidence",
+                min_value=0,
+                max_value=100,
+                value=int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0),
+                step=1,
+                key="paper_stock_confidence_v1863y",
+                disabled=True,
+                help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
+            )
         with s4:
             st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
         _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
@@ -7195,9 +7309,14 @@ def render_paper_trading_dashboard():
     with st.container():
         f1, f2, f3, f4 = st.columns([1.0, 1.0, 1.0, 0.9])
         with f1:
-            fund_symbol = st.text_input("Fond/ETF-symbol", value=st.session_state.get("paper_fund_symbol_v18545", "VOO"), key="paper_fund_symbol_v18545").strip().upper()
+            fund_symbol = st.text_input(
+                "Fond/ETF-symbol",
+                value=st.session_state.get("paper_fund_symbol_v18545", "VOO"),
+                key="paper_fund_symbol_v18545",
+                on_change=_paper_fund_symbol_changed_v1863ac,
+            ).strip().upper()
         with f2:
-            fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545")
+            fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545", on_change=_paper_fund_symbol_changed_v1863ac)
         with f3:
             fund_amount = st.number_input("Beløp", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
         with f4:
@@ -7284,7 +7403,7 @@ def render_paper_trading_dashboard():
     st.markdown("#### Posisjoner")
     positions = portfolio.get("positions", {})
     if positions:
-        st.dataframe(pd.DataFrame(paper_position_rows(portfolio, latest_prices)), use_container_width=True, hide_index=True)
+        _render_paper_positions_cards_v1863ac(portfolio, latest_prices)
     else:
         st.info("Ingen åpne paper trading-posisjoner.")
 
