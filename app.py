@@ -5162,6 +5162,21 @@ def save_latest_buy_now_candidates(candidates, market_label=""):
         return []
 
 
+
+def _display_pe_v1863ad(item):
+    """Return a compact P/E label from the shared score_stock fields."""
+    try:
+        value = (item or {}).get("forward_pe")
+        label = "Forward P/E"
+        if value in (None, "", 0):
+            value = (item or {}).get("trailing_pe")
+            label = "Trailing P/E"
+        if value in (None, "", 0):
+            return "P/E N/A"
+        return f"{label} {float(value):.1f}"
+    except Exception:
+        return "P/E N/A"
+
 def render_ranking(results, title):
     st.subheader(title)
     results = _ranked_for_display(results)
@@ -5204,6 +5219,8 @@ def render_ranking(results, title):
     for idx, item in enumerate(results[:15], start=1):
         ticker = item.get("ticker", "N/A")
         score = item.get("score", 0)
+        pe_text = _display_pe_v1863ad(item)
+        pe_value_text = pe_text.replace("Forward P/E ", "").replace("Trailing P/E ", "")
         latest_price, change_pct = get_item_price_change(item)
         card_decision = card_decision_for_item(item)
         meta = resolve_security_metadata(ticker, item)
@@ -5245,10 +5262,12 @@ def render_ranking(results, title):
             with mid:
                 if APP_VIEW_MODE == "Full":
                     st.metric("Total score", f"{score}/10")
+                    st.metric("P/E", pe_value_text)
                     st.metric("Kurs", price_text, delta=delta_text)
                 else:
                     render_compact_stat_grid([
                         ("Score", f"{score}/10"),
+                        ("P/E", pe_value_text),
                         ("Kurs", price_text, delta_text),
                     ], columns=1)
 
@@ -5260,7 +5279,8 @@ def render_ranking(results, title):
                     f"6m: {item.get('ret_6m', 0)*100:.1f}% · "
                     f"3m: {item.get('ret_3m', 0)*100:.1f}% · "
                     f"Vol: {item.get('volatility', 0):.4f} · "
-                    f"DD: {item.get('max_drawdown', 0)*100:.1f}%"
+                    f"DD: {item.get('max_drawdown', 0)*100:.1f}% · "
+                    f"{pe_text}"
                 )
 
                 warnings = card_decision.get("warnings", [])

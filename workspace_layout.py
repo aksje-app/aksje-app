@@ -283,34 +283,48 @@ def inject_workspace_css() -> None:
             box-shadow:0 0 18px rgba(34,197,94,.15);
         }
         .ptw-control-selector-shell {
-            border:1px solid rgba(125,211,252,.38);
-            background:rgba(2,6,23,.32);
-            border-radius:14px;
-            padding:.62rem .68rem .50rem .68rem;
-            margin:.45rem 0 .30rem 0;
+            border:1px solid rgba(125,211,252,.70);
+            background:linear-gradient(135deg, rgba(8,47,73,.88), rgba(12,74,110,.66) 48%, rgba(15,23,42,.92));
+            border-radius:16px;
+            padding:.82rem .82rem .68rem .82rem;
+            margin:.62rem 0 .34rem 0;
+            box-shadow:0 14px 34px rgba(14,165,233,.18), 0 0 0 1px rgba(125,211,252,.12) inset;
         }
         .ptw-control-selector-title {
-            color:#bae6fd;
-            font-size:.94rem;
+            display:inline-flex;
+            align-items:center;
+            border:1px solid rgba(125,211,252,.72);
+            background:linear-gradient(180deg, rgba(14,165,233,.38), rgba(2,132,199,.22));
+            color:#e0f2fe;
+            border-radius:999px;
+            padding:.26rem .64rem;
+            font-size:.98rem;
             font-weight:950;
             text-transform:uppercase;
             letter-spacing:.04em;
-            margin:0 0 .48rem 0;
-            text-shadow:0 0 12px rgba(56,189,248,.18);
+            margin:0 0 .68rem 0;
+            text-shadow:0 0 12px rgba(56,189,248,.26);
         }
         .ptw-control-selector-shell div[data-testid="stSelectbox"] label,
         .ptw-control-hero div[data-testid="stSelectbox"] label {
-            color:#bae6fd !important;
+            display:inline-flex !important;
+            width:auto !important;
+            border:1px solid rgba(125,211,252,.58) !important;
+            background:rgba(14,165,233,.18) !important;
+            color:#dff6ff !important;
             font-size:1rem !important;
             font-weight:950 !important;
-            padding-bottom:.18rem !important;
+            border-radius:999px !important;
+            padding:.16rem .54rem !important;
+            margin-bottom:.36rem !important;
+            line-height:1.15 !important;
         }
         .ptw-control-selector-shell div[data-baseweb="select"] > div,
         .ptw-control-hero div[data-baseweb="select"] > div {
-            min-height:48px !important;
-            border-color:rgba(125,211,252,.68) !important;
-            background:rgba(15,23,42,.92) !important;
-            box-shadow:0 0 0 1px rgba(56,189,248,.10) inset !important;
+            min-height:52px !important;
+            border-color:rgba(125,211,252,.88) !important;
+            background:linear-gradient(180deg, rgba(15,23,42,.96), rgba(8,47,73,.84)) !important;
+            box-shadow:0 0 0 1px rgba(56,189,248,.16) inset, 0 8px 18px rgba(0,0,0,.18) !important;
         }
         .ptw-control-selector-shell div[data-baseweb="select"] span,
         .ptw-control-hero div[data-baseweb="select"] span {
@@ -964,15 +978,6 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
     Returns the selected control-center panel label when a real panel is active.
     Returns None when the user wants the normal main dashboard below.
     """
-    st.markdown(
-        """
-        <div class="ptw-ai-control-open-hint">
-          <b>🧠 AI Kontrollsenter</b>
-          <span>Åpne samlet arbeidsflate for analyse, marked, testing og system</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
     with st.expander("🧠  ÅPNE AI KONTROLLSENTER  ·  samlet arbeidsflate", expanded=True):
         base_panels: list[Tuple[str, Callable[[], None]]] = [

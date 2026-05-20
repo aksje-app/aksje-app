@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ac"
-APP_VERSION_NAME = "Paper Control Testing UX Polish"
-APP_BUILD_ID = "v1863ac-paper-control-testing-ux-polish"
+APP_VERSION = "v18.6.3ad"
+APP_VERSION_NAME = "AI Control Learning Valuation Polish"
+APP_BUILD_ID = "v1863ad-ai-control-learning-valuation-polish"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -16,6 +16,9 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter-valgene er gjort lysere/storre, panelvalg synkroniseres med arbeidsomrade, og Paper Trading nullstiller gammel pris ved tickerbytte.",
     "Paper Trading bruker markedsmotoren til prisforslag/system-confidence og viser posisjonsgevinst/-tap i tydelige blaa/rode kort.",
     "Strategi-test Pro har tryggere kraftig smart-test, tydeligere tidlig stopp og hopper over enkeltkombinasjoner som feiler.",
+    "AI Kontrollsenter-valgene er rendret som tydeligere blaa kontrollbokser, og den lille dupliserte toppstripen er fjernet.",
+    "P/E vises i Top Picks/hurtigkort i tillegg til detaljanalysen, basert paa forward/trailing P/E fra felles aksjeanalyse.",
+    "Learning history skjuler demo-/testtickere fra brukerlisten og viser tolkning av retning, prognosebaand og snittfeil.",
 ]
 
 def get_app_version():
