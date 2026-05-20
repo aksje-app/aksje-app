@@ -1,6 +1,7 @@
 import logging
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import json
 import os
@@ -28,6 +29,47 @@ REMEMBER_FILE = Path("remember_tokens.json")
 REMEMBER_DAYS = 30
 SESSION_HOURS = 24
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+
+def _remember_storage_bridge(token=None, clear=False):
+    """Best-effort browser storage for mobile refreshes that drop query params."""
+    try:
+        safe_token = json.dumps(str(token or ""))
+        clear_flag = "true" if clear else "false"
+        components.html(
+            f"""
+            <script>
+            (function() {{
+              try {{
+                var key = "ai_aksje_remember_token";
+                var clear = {clear_flag};
+                var token = {safe_token};
+                var parentUrl = new URL(window.parent.location.href);
+                if (clear) {{
+                  window.localStorage.removeItem(key);
+                  parentUrl.searchParams.delete("remember_token");
+                  window.parent.history.replaceState(null, "", parentUrl.toString());
+                  return;
+                }}
+                if (token) {{
+                  window.localStorage.setItem(key, token);
+                  return;
+                }}
+                if (!parentUrl.searchParams.get("remember_token")) {{
+                  var stored = window.localStorage.getItem(key);
+                  if (stored) {{
+                    parentUrl.searchParams.set("remember_token", stored);
+                    window.parent.location.replace(parentUrl.toString());
+                  }}
+                }}
+              }} catch (err) {{}}
+            }})();
+            </script>
+            """,
+            height=0,
+        )
+    except Exception as e:
+        logging.warning("Remember storage bridge failed: %s", e)
 
 
 
@@ -232,6 +274,7 @@ def _clear_remember_token():
                 del st.query_params["remember_token"]
             except Exception as e:
                 logging.warning("Silenced exception restored in v18.6.3: %s", e)
+        _remember_storage_bridge(clear=True)
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
@@ -273,6 +316,7 @@ def render_first_admin_setup():
 
 
 def render_login():
+    _remember_storage_bridge()
     # V13 / Oppgave 33: hele login-formen skal være kort og sentrert, ikke bare headeren.
     st.markdown(
         """
@@ -327,6 +371,7 @@ def render_login():
                     token = _create_remember_token(user)
                     st.session_state["remember_token"] = token
                     st.query_params["remember_token"] = token
+                    _remember_storage_bridge(token)
                 except Exception as e:
                     logging.warning("Silenced exception restored in v18.6.3: %s", e)
             st.success("Innlogget")
@@ -348,6 +393,8 @@ def require_login():
             tok = st.session_state.get("remember_token")
             if tok and not st.query_params.get("remember_token"):
                 st.query_params["remember_token"] = tok
+            if tok:
+                _remember_storage_bridge(tok)
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return st.session_state.get("auth_user")

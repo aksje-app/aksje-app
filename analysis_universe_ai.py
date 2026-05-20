@@ -1019,20 +1019,20 @@ def _render_compact_status_rows(rows: Sequence[Mapping[str, str]], *, variant: s
         detail = escape(str(row.get("detail", "")))
         border = border_for(kind)
         detail_html = (
-            f'<span style="color:#cbd5e1;font-size:.82rem;line-height:1.36;overflow-wrap:anywhere;">{detail}</span>'
+            f'<span class="ai-universe-compact-detail">{detail}</span>'
             if detail
             else ""
         )
         row_html.append(
-            f'<div style="display:grid;grid-template-columns:minmax(110px,170px) minmax(110px,210px) 1fr;gap:.55rem;align-items:center;border:1px solid {border};background:linear-gradient(180deg,rgba(8,47,73,.40),rgba(15,23,42,.86));border-radius:12px;padding:.42rem .55rem;min-height:0;margin:.26rem 0;box-shadow:none;">'
-            f'<span style="color:#bae6fd;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;font-weight:950;white-space:nowrap;">{label}</span>'
-            f'<span style="color:#f8fafc;font-size:.92rem;font-weight:950;line-height:1.24;overflow-wrap:anywhere;">{value}</span>'
+            f'<div class="ai-universe-compact-row {escape(kind)}" style="border-color:{border};">'
+            f'<span class="ai-universe-compact-label">{label}</span>'
+            f'<span class="ai-universe-compact-value">{value}</span>'
             f'{detail_html}'
             f'</div>'
         )
 
     st.markdown(
-        f'<div data-ai-universe-panel="{escape(variant)}" style="display:flex;flex-direction:column;gap:.05rem;margin:.25rem 0 .55rem 0;width:100%;max-width:100%;height:auto;min-height:0;background:transparent;">'
+        f'<div data-ai-universe-panel="{escape(variant)}" class="ai-universe-compact-panel">'
         + "".join(row_html)
         + "</div>",
         unsafe_allow_html=True,
@@ -1554,10 +1554,9 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen. Valgt modus-chip oppdateres omgående før lagring."
         )
 
-        # v18.5.26: no form wrapper here. Streamlit forms buffer widget changes until submit,
-        # which made the active mode chips stale. Normal widgets rerun immediately so
-        # the green chip follows Workspace-modus before the user saves or runs.
-        with st.container():
+        # v18.6.3y: buffer config widgets so several choices can be changed
+        # before Streamlit reruns the workspace.
+        with st.form("ai_universe_config_form_v1863y", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)
             with c1:
                 mode = st.selectbox(
@@ -1682,7 +1681,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     key="ai_universe_use_signal_intelligence_draft_v1853",
                 )
 
-            submitted = st.button("💾 Lagre Analyseunivers AI-oppsett som ventende", key="ai_analysis_universe_save_v18524", use_container_width=True)
+            submitted = st.form_submit_button("💾 Lagre Analyseunivers AI-oppsett som ventende", use_container_width=True)
 
         config = {
             "mode": mode,
