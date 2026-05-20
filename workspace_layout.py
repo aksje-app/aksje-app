@@ -9,6 +9,7 @@ Ingen auto-trading-kobling.
 
 from __future__ import annotations
 
+import html
 import streamlit as st
 from typing import Callable, Iterable, Optional, Sequence, Tuple
 from ai_service_bridge import render_service_workspace
@@ -320,6 +321,44 @@ def inject_workspace_css() -> None:
             margin:.42rem 0 .40rem 0;
             font-size:.84rem;
             font-weight:850;
+        }
+        .ptw-ai-control-open-hint {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:.75rem;
+            flex-wrap:wrap;
+            border:1px solid rgba(56,189,248,.42);
+            background:linear-gradient(135deg, rgba(14,165,233,.22), rgba(15,23,42,.78));
+            border-radius:14px;
+            padding:.54rem .68rem;
+            margin:.34rem 0 .20rem 0;
+        }
+        .ptw-ai-control-open-hint b {
+            color:#f8fafc;
+            font-size:1.02rem;
+        }
+        .ptw-ai-control-open-hint span {
+            color:#bae6fd;
+            font-size:.82rem;
+            font-weight:850;
+        }
+        html body .stApp div[data-testid="stExpander"] details summary {
+            min-height:48px !important;
+            border:1px solid rgba(56,189,248,.42) !important;
+            background:linear-gradient(180deg, rgba(8,47,73,.76), rgba(15,23,42,.94)) !important;
+            border-radius:13px !important;
+            padding:.55rem .72rem !important;
+            box-shadow:0 10px 22px rgba(0,0,0,.18), 0 0 0 1px rgba(125,211,252,.08) inset !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details summary p {
+            color:#f8fafc !important;
+            font-size:.98rem !important;
+            font-weight:950 !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details[open] summary {
+            border-color:rgba(34,197,94,.42) !important;
+            background:linear-gradient(180deg, rgba(6,78,59,.60), rgba(15,23,42,.94)) !important;
         }
         div[data-testid="stRadio"] div[role="radiogroup"] {
             gap: .36rem .42rem !important;
@@ -919,7 +958,17 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
     Returns the selected control-center panel label when a real panel is active.
     Returns None when the user wants the normal main dashboard below.
     """
-    with st.expander("› Åpne AI Kontrollsenter", expanded=True):
+    st.markdown(
+        """
+        <div class="ptw-ai-control-open-hint">
+          <b>🧠 AI Kontrollsenter</b>
+          <span>Åpne samlet arbeidsflate for analyse, marked, testing og system</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("🧠  ÅPNE AI KONTROLLSENTER  ·  samlet arbeidsflate", expanded=True):
         base_panels: list[Tuple[str, Callable[[], None]]] = [
             ("🎯 Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
             ("🔮 Prognose", _render_forecast_workspace_tab),

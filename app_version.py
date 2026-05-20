@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3aa"
-APP_VERSION_NAME = "AI Control Center Focus UX"
-APP_BUILD_ID = "v1863aa-ai-control-center-focus-ux"
+APP_VERSION = "v18.6.3ab"
+APP_VERSION_NAME = "AI Control Center Open Button UX"
+APP_BUILD_ID = "v1863ab-ai-control-center-open-button-ux"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -12,6 +12,7 @@ APP_PATCH_NOTES = [
     "Paper Trading viser aksjekjÃ¸p igjen, henter pris/NAV tydeligere og viser gjeldende trading-strategi.",
     "Mobil-login, Smart AI-statuskort og Analyseunivers-oppsett er forbedret for mindre friksjon.",
     "AI Kontrollsenter er gjort tydeligere som hovedarbeidsflate med større header og aktivt panel.",
+    "Apne AI Kontrollsenter-linjen er gjort tydeligere og friskere, og importfeil i Kontrollsenter-header er rettet.",
 ]
 
 def get_app_version():
