@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3af"
-APP_VERSION_NAME = "Portfolio Control Currency Alerts"
-APP_BUILD_ID = "v1863af-portfolio-control-currency-alerts"
+APP_VERSION = "v18.6.3ag"
+APP_VERSION_NAME = "AI Control Quick Navigation"
+APP_BUILD_ID = "v1863ag-ai-control-quick-navigation"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -25,6 +25,7 @@ APP_PATCH_NOTES = [
     "Regime-panelet har markedvalg for USA, Norge, Sverige, Danmark, Finland, Brasil og Norden.",
     "Paper Trading-portefoljen kan brukes som testarena for portefoljeovervaking, kontrollpunkter og AI-forslag.",
     "AI Kontrollsenter har valutavarsler med faste ovre/nedre grenser og Pushover-stotte, for eksempel BRL/NOK.",
+    "AI Kontrollsenter har hovedboks-rad, automatisk undermeny, favoritter, sist brukt, sok, arbeidsmodus og paneltellere.",
 ]
 
 def get_app_version():

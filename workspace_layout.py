@@ -319,6 +319,9 @@ def inject_workspace_css() -> None:
             margin-bottom:.36rem !important;
             line-height:1.15 !important;
         }
+        .ptw-control-selector-shell div[data-testid="stSelectbox"] {
+            display:none !important;
+        }
         .ptw-control-selector-shell div[data-baseweb="select"] > div,
         .ptw-control-hero div[data-baseweb="select"] > div {
             min-height:52px !important;
@@ -341,6 +344,49 @@ def inject_workspace_css() -> None:
             margin:.42rem 0 .40rem 0;
             font-size:.84rem;
             font-weight:850;
+        }
+        .ptw-control-selector-shell div[data-testid="stButton"] button {
+            min-height: 44px !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(125,211,252,.70) !important;
+            background: linear-gradient(180deg, rgba(14,165,233,.38), rgba(8,47,73,.92)) !important;
+            color: #e0f2fe !important;
+            font-weight: 950 !important;
+            box-shadow: 0 8px 20px rgba(14,165,233,.14), 0 0 0 1px rgba(125,211,252,.10) inset !important;
+        }
+        .ptw-control-selector-shell div[data-testid="stButton"] button[kind="primary"] {
+            border-color: rgba(248,113,113,.86) !important;
+            background: linear-gradient(180deg, rgba(239,68,68,.72), rgba(127,29,29,.88)) !important;
+            color: #fff7f7 !important;
+            box-shadow: 0 0 22px rgba(248,113,113,.28), 0 0 0 1px rgba(254,202,202,.14) inset !important;
+        }
+        .ptw-control-submenu {
+            border:1px solid rgba(125,211,252,.46);
+            background:rgba(2,6,23,.38);
+            border-radius:14px;
+            padding:.58rem .62rem .32rem .62rem;
+            margin:.42rem 0 .32rem 0;
+        }
+        .ptw-control-submenu-title {
+            color:#bae6fd;
+            font-size:.84rem;
+            font-weight:950;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+            margin-bottom:.32rem;
+        }
+        .ptw-control-mini-title {
+            color:#bae6fd;
+            font-size:.78rem;
+            font-weight:950;
+            margin:.26rem 0 .20rem 0;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+        }
+        .ptw-control-mode-note {
+            color:#cbd5e1;
+            font-size:.80rem;
+            margin:.15rem 0 .30rem 0;
         }
         .ptw-ai-control-open-hint {
             display:flex;
@@ -1080,6 +1126,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             unsafe_allow_html=True,
         )
 
+        # v18.6.3ag: quick navigation replaces the two selectboxes below.
         c_group, c_panel = st.columns([0.9, 1.35])
         with c_group:
             active_group = st.selectbox(
@@ -1105,6 +1152,113 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 help="Kun valgt panel rendres. Skjulte paneler starter ikke tunge analyser.",
             )
         st.session_state["ai_control_center_active_panel_v1863m"] = active_label
+        groups = list(group_map.keys())
+        menu_open = bool(st.session_state.get("ai_control_center_menu_open_v1863ag", True))
+
+        mode_map = {
+            "Finne kjop": "Marked og signaler",
+            "Overvake portefolje": "Testing og portefÃ¸lje",
+            "Teste strategi": "Testing og portefÃ¸lje",
+            "Administrere": "System",
+        }
+        mode_options = list(mode_map.keys())
+        current_mode = st.session_state.get("ai_control_center_work_mode_v1863ag") or mode_options[0]
+        st.markdown("<div class='ptw-control-mini-title'>Arbeidsmodus</div>", unsafe_allow_html=True)
+        mode_cols = st.columns(len(mode_options))
+        for idx, mode in enumerate(mode_options):
+            with mode_cols[idx]:
+                if st.button(mode, key=f"ai_cc_mode_v1863ag_{idx}", type="primary" if mode == current_mode else "secondary", use_container_width=True):
+                    st.session_state["ai_control_center_work_mode_v1863ag"] = mode
+                    st.session_state["ai_control_center_group_v1863m"] = mode_map[mode]
+                    st.session_state["ai_control_center_menu_open_v1863ag"] = True
+                    st.rerun()
+
+        st.markdown("<div class='ptw-control-mini-title'>HovedomrÃ¥der</div>", unsafe_allow_html=True)
+        group_cols = st.columns(len(groups))
+        for idx, group_name in enumerate(groups):
+            labels = [label for label in group_map.get(group_name, []) if label in panel_map]
+            active = group_name == active_group
+            prefix = "🔴" if active else "🔵"
+            with group_cols[idx]:
+                if st.button(f"{prefix} {group_name} · {len(labels)}", key=f"ai_cc_group_v1863ag_{idx}", type="primary" if active else "secondary", use_container_width=True):
+                    st.session_state["ai_control_center_group_v1863m"] = group_name
+                    st.session_state["ai_control_center_menu_open_v1863ag"] = True
+                    st.rerun()
+
+        favorite_needles = ["top picks", "paper trading", "paper-portef", "regime", "valutavarsler"]
+        favorites: list[str] = []
+        for needle in favorite_needles:
+            match = next((label for label, _renderer in panels if needle in str(label).lower()), None)
+            if match and match not in favorites:
+                favorites.append(match)
+        if favorites:
+            st.markdown("<div class='ptw-control-mini-title'>Favoritter</div>", unsafe_allow_html=True)
+            fav_cols = st.columns(min(len(favorites), 5))
+            for idx, label in enumerate(favorites[:5]):
+                with fav_cols[idx]:
+                    if st.button(label, key=f"ai_cc_fav_v1863ag_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                        st.session_state["ai_control_center_active_panel_v1863m"] = label
+                        st.session_state["ai_control_center_active_real_panel_v18598"] = label
+                        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+                        for g_name, g_labels in group_map.items():
+                            if label in g_labels:
+                                st.session_state["ai_control_center_group_v1863m"] = g_name
+                                break
+                        st.rerun()
+
+        recent = [x for x in st.session_state.get("ai_control_center_recent_panels_v1863ag", []) if x in panel_map]
+        if recent:
+            st.markdown("<div class='ptw-control-mini-title'>Sist brukt</div>", unsafe_allow_html=True)
+            recent_cols = st.columns(min(len(recent), 4))
+            for idx, label in enumerate(recent[:4]):
+                with recent_cols[idx]:
+                    if st.button(label, key=f"ai_cc_recent_v1863ag_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                        st.session_state["ai_control_center_active_panel_v1863m"] = label
+                        st.session_state["ai_control_center_active_real_panel_v18598"] = label
+                        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+                        for g_name, g_labels in group_map.items():
+                            if label in g_labels:
+                                st.session_state["ai_control_center_group_v1863m"] = g_name
+                                break
+                        st.rerun()
+
+        search_query = st.text_input("SÃ¸k i funksjoner", value="", key="ai_control_center_search_v1863ag", placeholder="Skriv f.eks. paper, valuta, regime, heatmap")
+        quick_panel_options = [label for label in group_map.get(active_group, []) if label in panel_map]
+        if search_query.strip():
+            q = search_query.strip().lower()
+            quick_panel_options = [label for label, _renderer in panels if q in str(label).lower()]
+            menu_open = True
+            submenu_title = f"SÃ¸keresultat: {len(quick_panel_options)} treff"
+        else:
+            submenu_title = f"Undermeny for {active_group}"
+        if not quick_panel_options:
+            quick_panel_options = panel_options
+
+        if menu_open and quick_panel_options:
+            st.markdown(f"<div class='ptw-control-submenu'><div class='ptw-control-submenu-title'>{html.escape(submenu_title)}</div>", unsafe_allow_html=True)
+            for start in range(0, len(quick_panel_options), 4):
+                row = quick_panel_options[start:start + 4]
+                cols = st.columns(len(row))
+                for idx, label in enumerate(row):
+                    with cols[idx]:
+                        if st.button(label, key=f"ai_cc_panel_v1863ag_{start}_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                            st.session_state["ai_control_center_active_panel_v1863m"] = label
+                            st.session_state["ai_control_center_active_real_panel_v18598"] = label
+                            st.session_state["ai_control_center_menu_open_v1863ag"] = False
+                            recent_next = [label] + [x for x in recent if x != label]
+                            st.session_state["ai_control_center_recent_panels_v1863ag"] = recent_next[:4]
+                            for g_name, g_labels in group_map.items():
+                                if label in g_labels:
+                                    st.session_state["ai_control_center_group_v1863m"] = g_name
+                                    break
+                            st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif not menu_open:
+            if st.button("Ã…pne undermeny", key="ai_cc_open_submenu_v1863ag", use_container_width=True):
+                st.session_state["ai_control_center_menu_open_v1863ag"] = True
+                st.rerun()
+
+        active_label = st.session_state.get("ai_control_center_active_panel_v1863m") or active_label
         st.markdown("</div>", unsafe_allow_html=True)
         if active_label == AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598:
             st.markdown(
