@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ag"
-APP_VERSION_NAME = "AI Control Quick Navigation"
-APP_BUILD_ID = "v1863ag-ai-control-quick-navigation"
+APP_VERSION = "v18.6.3ah"
+APP_VERSION_NAME = "AI Control Clean Quick Navigation"
+APP_BUILD_ID = "v1863ah-ai-control-clean-quick-navigation"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -26,6 +26,7 @@ APP_PATCH_NOTES = [
     "Paper Trading-portefoljen kan brukes som testarena for portefoljeovervaking, kontrollpunkter og AI-forslag.",
     "AI Kontrollsenter har valutavarsler med faste ovre/nedre grenser og Pushover-stotte, for eksempel BRL/NOK.",
     "AI Kontrollsenter har hovedboks-rad, automatisk undermeny, favoritter, sist brukt, sok, arbeidsmodus og paneltellere.",
+    "AI Kontrollsenter bruker ren hurtignavigasjon uten skjulte gamle dropdowns, med tydelig Til hovedvalg-knapp.",
 ]
 
 def get_app_version():

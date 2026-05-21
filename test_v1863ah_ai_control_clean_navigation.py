@@ -9,11 +9,9 @@ layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore"
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
 assert 'APP_VERSION = "v18.6.3ah"' in version
-assert "ai_control_center_menu_open_v1863ag" in layout
-assert "ai_control_center_recent_panels_v1863ag" in layout
-assert "ai_control_center_search_v1863ag" in layout
-assert "ai_control_center_work_mode_v1863ag" in layout
-assert "Hovedomr" in layout
-assert "Favoritter" in layout
-assert "Sist brukt" in layout
-assert "Undermeny for" in layout
+assert "return _render_ai_control_center_v1863ah(extra_panels)" in layout
+assert "def _render_ai_control_center_v1863ah" in layout
+assert "ai_control_center_group_v1863ah" in layout
+assert "ai_control_center_show_home_v1863ah" in layout
+assert "ai_control_center_submenu_open_v1863ah" in layout
+assert "Til hovedvalg" in layout

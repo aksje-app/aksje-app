@@ -1,4 +1,4 @@
-"""
+﻿"""
 workspace_layout.py
 
 v18.5.35 Professional Trading Workspace.
@@ -359,6 +359,19 @@ def inject_workspace_css() -> None:
             background: linear-gradient(180deg, rgba(239,68,68,.72), rgba(127,29,29,.88)) !important;
             color: #fff7f7 !important;
             box-shadow: 0 0 22px rgba(248,113,113,.28), 0 0 0 1px rgba(254,202,202,.14) inset !important;
+        }
+        .ptw-control-selector-shell div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
+            border-color: rgba(248,113,113,.86) !important;
+            background: linear-gradient(180deg, rgba(239,68,68,.76), rgba(127,29,29,.90)) !important;
+            color: #fff7f7 !important;
+            box-shadow: 0 0 22px rgba(248,113,113,.32), 0 0 0 1px rgba(254,202,202,.16) inset !important;
+        }
+        .ptw-control-home-button div[data-testid="stButton"] button {
+            border-color: rgba(125,211,252,.84) !important;
+            background: linear-gradient(180deg, rgba(14,165,233,.55), rgba(8,47,73,.96)) !important;
+            color:#f0f9ff !important;
+            min-height:42px !important;
+            font-weight:950 !important;
         }
         .ptw-control-submenu {
             border:1px solid rgba(125,211,252,.46);
@@ -1024,6 +1037,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
     Returns the selected control-center panel label when a real panel is active.
     Returns None when the user wants the normal main dashboard below.
     """
+    return _render_ai_control_center_v1863ah(extra_panels)
 
     with st.expander("🧠  ÅPNE AI KONTROLLSENTER  ·  samlet arbeidsflate", expanded=True):
         base_panels: list[Tuple[str, Callable[[], None]]] = [
@@ -1280,3 +1294,190 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         st.session_state["ai_control_center_active_real_panel_v18598"] = ""
         return None
     return None
+
+
+def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
+    """Clean quick-navigation control center without hidden selectbox widgets."""
+    with st.expander("AI KONTROLLSENTER - samlet arbeidsflate", expanded=True):
+        base_panels: list[Tuple[str, Callable[[], None]]] = [
+            ("Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
+            ("Prognose", _render_forecast_workspace_tab),
+            ("Varsler", lambda: render_common_alert_center(location="workspace")),
+            ("Daily Report", render_daily_ai_market_report),
+            ("Intelligence", render_market_intelligence_center),
+            ("Heatmaps", render_ai_heatmaps),
+            ("Testing & Learning", lambda: (
+                st.info("Strategi-test, Strategi-test Pro, prognose-vs-faktisk, scoreforklaring og backtest-laering er samlet her."),
+                render_strategy_testing_workspace(),
+                render_backtest_learning_panel(),
+            )),
+            ("Regime", render_market_regime_widget),
+            ("Makro/renter", render_macro_rates_breadth_panel),
+            ("Services", _render_storage_services_status),
+        ]
+        panels = base_panels + list(extra_panels or [])
+        panel_map = dict(panels)
+
+        def _matching_panel_labels(*needles: str) -> list[str]:
+            out: list[str] = []
+            wanted = [str(n or "").lower() for n in needles if str(n or "").strip()]
+            for label, _renderer in panels:
+                text = str(label or "").lower()
+                if any(n in text for n in wanted):
+                    out.append(label)
+            return out
+
+        group_map = {
+            "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
+            "Marked og signaler": _matching_panel_labels("top picks", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
+            "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
+            "System": _matching_panel_labels("services", "system/admin"),
+        }
+        known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
+        extra_labels = [label for label, _renderer in panels if label not in known_labels]
+        if extra_labels:
+            group_map["Andre paneler"] = extra_labels
+
+        first_panel = next((labels[0] for labels in group_map.values() if labels), None)
+        active_label = st.session_state.get("ai_control_center_active_panel_v1863ah") or first_panel or ""
+        active_group = st.session_state.get("ai_control_center_group_v1863ah") or next((g for g, labels in group_map.items() if active_label in labels), "Analyse og prognose")
+        if active_group not in group_map:
+            active_group = "Analyse og prognose"
+        show_home = bool(st.session_state.get("ai_control_center_show_home_v1863ah", True))
+        submenu_open = bool(st.session_state.get("ai_control_center_submenu_open_v1863ah", True))
+
+        st.markdown(
+            f"""
+            <div class="ptw-control-hero">
+              <div class="ptw-control-hero-top">
+                <div>
+                  <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
+                  <div class="ptw-control-title">AI Kontrollsenter</div>
+                  <div class="ptw-control-caption">Velg hovedomrade, deretter funksjon. Bare valgt panel kjores.</div>
+                </div>
+                <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(active_label or "-"))}</div>
+              </div>
+              <div class="ptw-status-line" style="margin-top:.55rem;">
+                <span class="ptw-pill ptw-pill-ai">Samlet AI workspace aktivt</span>
+                <span class="ptw-pill">Kun valgt panel kjores</span>
+                <span class="ptw-pill">Ingen skjulte analyser</span>
+              </div>
+            </div>
+            <div class="ptw-control-selector-shell">
+              <div class="ptw-control-selector-title">Velg oppgave</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("<div class='ptw-control-home-button'>", unsafe_allow_html=True)
+        if st.button("Til hovedvalg / vis alle bokser", key="ai_cc_home_v1863ah", use_container_width=True):
+            st.session_state["ai_control_center_show_home_v1863ah"] = True
+            st.session_state["ai_control_center_submenu_open_v1863ah"] = True
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        mode_map = {
+            "Finne kjop": "Marked og signaler",
+            "Overvake portefolje": "Testing og portefolje",
+            "Teste strategi": "Testing og portefolje",
+            "Administrere": "System",
+        }
+        mode_options = list(mode_map.keys())
+        current_mode = st.session_state.get("ai_control_center_work_mode_v1863ah") or mode_options[0]
+
+        if show_home:
+            st.markdown("<div class='ptw-control-mini-title'>Arbeidsmodus</div>", unsafe_allow_html=True)
+            mode_cols = st.columns(len(mode_options))
+            for idx, mode in enumerate(mode_options):
+                with mode_cols[idx]:
+                    if st.button(mode, key=f"ai_cc_mode_v1863ah_{idx}", type="primary" if mode == current_mode else "secondary", use_container_width=True):
+                        st.session_state["ai_control_center_work_mode_v1863ah"] = mode
+                        st.session_state["ai_control_center_group_v1863ah"] = mode_map[mode]
+                        st.session_state["ai_control_center_submenu_open_v1863ah"] = True
+                        st.rerun()
+
+            st.markdown("<div class='ptw-control-mini-title'>Hovedomrader</div>", unsafe_allow_html=True)
+            groups = list(group_map.keys())
+            group_cols = st.columns(len(groups))
+            for idx, group_name in enumerate(groups):
+                labels = [label for label in group_map.get(group_name, []) if label in panel_map]
+                is_active = group_name == active_group
+                with group_cols[idx]:
+                    if st.button(f"{'ROD' if is_active else 'BLA'} {group_name} - {len(labels)}", key=f"ai_cc_group_v1863ah_{idx}", type="primary" if is_active else "secondary", use_container_width=True):
+                        st.session_state["ai_control_center_group_v1863ah"] = group_name
+                        st.session_state["ai_control_center_show_home_v1863ah"] = True
+                        st.session_state["ai_control_center_submenu_open_v1863ah"] = True
+                        st.rerun()
+
+            favorite_needles = ["top picks", "paper trading", "paper-portef", "regime", "valutavarsler"]
+            favorites: list[str] = []
+            for needle in favorite_needles:
+                match = next((label for label, _renderer in panels if needle in str(label).lower()), None)
+                if match and match not in favorites:
+                    favorites.append(match)
+            if favorites:
+                st.markdown("<div class='ptw-control-mini-title'>Favoritter</div>", unsafe_allow_html=True)
+                fav_cols = st.columns(min(len(favorites), 5))
+                for idx, label in enumerate(favorites[:5]):
+                    with fav_cols[idx]:
+                        if st.button(label, key=f"ai_cc_fav_v1863ah_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                            st.session_state["ai_control_center_active_panel_v1863ah"] = label
+                            st.session_state["ai_control_center_show_home_v1863ah"] = False
+                            st.session_state["ai_control_center_submenu_open_v1863ah"] = False
+                            recent = st.session_state.get("ai_control_center_recent_panels_v1863ah", [])
+                            st.session_state["ai_control_center_recent_panels_v1863ah"] = ([label] + [x for x in recent if x != label])[:4]
+                            st.rerun()
+
+            recent = [x for x in st.session_state.get("ai_control_center_recent_panels_v1863ah", []) if x in panel_map]
+            if recent:
+                st.markdown("<div class='ptw-control-mini-title'>Sist brukt</div>", unsafe_allow_html=True)
+                recent_cols = st.columns(min(len(recent), 4))
+                for idx, label in enumerate(recent[:4]):
+                    with recent_cols[idx]:
+                        if st.button(label, key=f"ai_cc_recent_v1863ah_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                            st.session_state["ai_control_center_active_panel_v1863ah"] = label
+                            st.session_state["ai_control_center_show_home_v1863ah"] = False
+                            st.session_state["ai_control_center_submenu_open_v1863ah"] = False
+                            st.rerun()
+
+            search_query = st.text_input("Sok i funksjoner", value="", key="ai_control_center_search_v1863ah", placeholder="Skriv f.eks. paper, valuta, regime, heatmap")
+            panel_options = [label for label in group_map.get(active_group, []) if label in panel_map]
+            title = f"Undermeny for {active_group}"
+            if search_query.strip():
+                q = search_query.strip().lower()
+                panel_options = [label for label, _renderer in panels if q in str(label).lower()]
+                title = f"Sokeresultat: {len(panel_options)} treff"
+
+            if submenu_open and panel_options:
+                st.markdown(f"<div class='ptw-control-submenu'><div class='ptw-control-submenu-title'>{html.escape(title)}</div>", unsafe_allow_html=True)
+                for start in range(0, len(panel_options), 4):
+                    row = panel_options[start:start + 4]
+                    cols = st.columns(len(row))
+                    for idx, label in enumerate(row):
+                        with cols[idx]:
+                            if st.button(label, key=f"ai_cc_panel_v1863ah_{start}_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                                st.session_state["ai_control_center_active_panel_v1863ah"] = label
+                                st.session_state["ai_control_center_show_home_v1863ah"] = False
+                                st.session_state["ai_control_center_submenu_open_v1863ah"] = False
+                                recent = st.session_state.get("ai_control_center_recent_panels_v1863ah", [])
+                                st.session_state["ai_control_center_recent_panels_v1863ah"] = ([label] + [x for x in recent if x != label])[:4]
+                                for g_name, g_labels in group_map.items():
+                                    if label in g_labels:
+                                        st.session_state["ai_control_center_group_v1863ah"] = g_name
+                                        break
+                                st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        active_label = st.session_state.get("ai_control_center_active_panel_v1863ah") or active_label
+        if active_label not in panel_map:
+            st.info("Velg et panel i hovedvalget.")
+            return None
+
+        st.markdown(
+            f"<div class='ptw-control-note-strong'>Du jobber na i: <b>{html.escape(str(active_label))}</b>. Bruk Til hovedvalg for a vise alle bokser igjen.</div>",
+            unsafe_allow_html=True,
+        )
+        _run_control_panel(active_label, panel_map[active_label])
+        return active_label
