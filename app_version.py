@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ae"
-APP_VERSION_NAME = "Market UX Defaults Currency Polish"
-APP_BUILD_ID = "v1863ae-market-ux-defaults-currency-polish"
+APP_VERSION = "v18.6.3af"
+APP_VERSION_NAME = "Portfolio Control Currency Alerts"
+APP_BUILD_ID = "v1863af-portfolio-control-currency-alerts"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -23,6 +23,8 @@ APP_PATCH_NOTES = [
     "Heatmap filtrerer bort gamle AAPL/STB.OL-seeddata og bruker samme filtrerte datasett for tall og visning.",
     "Tekniske kursnivaer viser valuta tydeligere, ORK/ORKLY tolkes som ORK.OL, og chart/legend-spacing er forbedret.",
     "Regime-panelet har markedvalg for USA, Norge, Sverige, Danmark, Finland, Brasil og Norden.",
+    "Paper Trading-portefoljen kan brukes som testarena for portefoljeovervaking, kontrollpunkter og AI-forslag.",
+    "AI Kontrollsenter har valutavarsler med faste ovre/nedre grenser og Pushover-stotte, for eksempel BRL/NOK.",
 ]
 
 def get_app_version():

@@ -33,7 +33,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
@@ -8157,6 +8157,312 @@ def render_watchlist_signals_control_center_v18535():
 
 
 
+def _send_pushover_safe_v1863af(message: str, title: str):
+    """Handle both old and new notifier return shapes."""
+    try:
+        result = send_pushover_alert(message, title=title)
+        if isinstance(result, tuple):
+            ok = bool(result[0]) if result else False
+            err = result[1] if len(result) > 1 else ""
+            return ok, err or ""
+        return bool(result), ""
+    except Exception as exc:
+        return False, str(exc)[:180]
+
+
+def _paper_control_latest_prices_v1863af(portfolio):
+    latest_prices = {}
+    for ticker, pos in ((portfolio or {}).get("positions", {}) or {}).items():
+        symbol = str(ticker or "").upper()
+        latest_prices[symbol] = _safe_float_v18581(
+            (pos or {}).get("last_price", (pos or {}).get("avg_price", (pos or {}).get("entry_price", 0))),
+            0.0,
+        )
+    return latest_prices
+
+
+def _paper_control_rows_v1863af(portfolio):
+    latest_prices = _paper_control_latest_prices_v1863af(portfolio)
+    return paper_position_rows(portfolio, latest_prices), latest_prices
+
+
+def _paper_control_flags_v1863af(rows, total_value: float):
+    flags = []
+    for row in rows or []:
+        ticker = str(row.get("ticker") or "-")
+        value = _safe_float_v18581(row.get("value"), 0.0)
+        pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+        weight = (value / total_value * 100.0) if total_value else 0.0
+        updated = str(row.get("updated") or "").strip()
+        if pnl_pct <= -5:
+            flags.append({"ticker": ticker, "nivaa": "Krever oppfolging", "signal": f"Tap {pnl_pct:.2f}%", "forslag": "Sjekk stop-loss, nyheter og om posisjonen fortsatt passer reglene."})
+        elif pnl_pct >= 10:
+            flags.append({"ticker": ticker, "nivaa": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
+        if weight >= 25:
+            flags.append({"ticker": ticker, "nivaa": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
+        if not updated:
+            flags.append({"ticker": ticker, "nivaa": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
+    return flags
+
+
+def _paper_control_learning_points_v1863af(rows, stats, flags):
+    points = []
+    if not rows:
+        return ["Ingen paper-posisjoner ennå. Start med små simulerte kjøp for å bygge testgrunnlag."]
+    avg_pnl = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+    loss_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) < 0])
+    gain_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) > 0])
+    if avg_pnl > 0:
+        points.append(f"Paper-porteføljen har positiv snitt-P/L ({avg_pnl:.2f}%). Test om samme regler holder i flere markeder.")
+    else:
+        points.append(f"Paper-porteføljen har svak/negativ snitt-P/L ({avg_pnl:.2f}%). Se om inngangene skjer for tidlig eller med for lav confidence.")
+    if loss_count > gain_count:
+        points.append("Flere tapere enn vinnere akkurat nå. AI-forslag: stram inn kjøpsscore/confidence før nye paper-kjøp.")
+    if stats.get("closed_trades", 0) and stats.get("win_rate", 0) < 45:
+        points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
+    if any(f.get("nivaa") == "Konsentrasjon" for f in flags):
+        points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
+    if any(f.get("nivaa") == "Datakvalitet" for f in flags):
+        points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
+    return points[:5]
+
+
+def render_paper_portfolio_control_center_v1863af():
+    """Paper portfolio monitoring, controls and deterministic AI suggestions."""
+    st.subheader("🧭 Paper-portefølje kontroll")
+    st.caption("Bruker Paper Trading-porteføljen som trygg testarena for overvåking, kontroll og AI-forslag. Ingen ekte ordre sendes.")
+
+    portfolio = load_portfolio() or {}
+    if st.button("🔄 Oppdater paper-kurser for kontroll", key="paper_control_refresh_prices_v1863af", type="primary", use_container_width=True):
+        portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=True)
+        st.session_state["paper_control_refresh_status_v1863af"] = {
+            "time": refreshed_at,
+            "updated": len(refreshed_prices),
+            "errors": refresh_errors[:8],
+        }
+
+    status = st.session_state.get("paper_control_refresh_status_v1863af") or {}
+    if status:
+        st.caption(f"Sist kurssjekk: {status.get('time', '-')} · oppdatert: {status.get('updated', 0)}")
+        if status.get("errors"):
+            st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(status.get("errors", [])[:5]))
+
+    rows, latest_prices = _paper_control_rows_v1863af(portfolio)
+    stats = performance_stats(portfolio, latest_prices)
+    cash = _safe_float_v18581(portfolio.get("cash"), 0.0)
+    total_value = _safe_float_v18581(stats.get("total_value"), 0.0)
+    total_pnl = sum(_safe_float_v18581(r.get("pnl"), 0.0) for r in rows)
+    avg_pnl_pct = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+    flags = _paper_control_flags_v1863af(rows, total_value)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total verdi", f"{total_value:,.0f} kr")
+    m2.metric("Kontant", f"{cash:,.0f} kr")
+    m3.metric("Åpne posisjoner", str(len(rows)))
+    m4.metric("Urealisert P/L", f"{total_pnl:+,.0f} kr", f"{avg_pnl_pct:+.2f}%")
+
+    if rows:
+        st.markdown("#### Kontrollkort")
+        control_rows = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "-")
+            value = _safe_float_v18581(row.get("value"), 0.0)
+            pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+            weight = (value / total_value * 100.0) if total_value else 0.0
+            if pnl_pct <= -5:
+                action = "Krever oppfølging"
+            elif pnl_pct >= 10:
+                action = "Vurder gevinstsikring"
+            elif weight >= 25:
+                action = "Sjekk konsentrasjon"
+            else:
+                action = "Hold / overvåk"
+            control_rows.append({
+                "Ticker": ticker,
+                "Valuta": row.get("currency") or currency_suffix(ticker),
+                "Verdi": round(value, 2),
+                "P/L %": round(pnl_pct, 2),
+                "Vekt %": round(weight, 1),
+                "Forslag": action,
+            })
+        st.dataframe(pd.DataFrame(control_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen åpne paper-posisjoner ennå.")
+
+    if flags:
+        st.markdown("#### Varsler og kontrollpunkter")
+        st.dataframe(pd.DataFrame(flags), use_container_width=True, hide_index=True)
+    else:
+        st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
+
+    st.markdown("#### AI-forslag fra paper-testen")
+    for point in _paper_control_learning_points_v1863af(rows, stats, flags):
+        st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
+
+    if st.button("🔔 Send paper-kontrollrapport til Pushover", key="paper_control_pushover_v1863af", use_container_width=True):
+        summary = [
+            "Paper-portefølje kontroll",
+            f"Total verdi: {total_value:,.0f} kr",
+            f"Åpne posisjoner: {len(rows)}",
+            f"Urealisert P/L: {total_pnl:+,.0f} kr ({avg_pnl_pct:+.2f}%)",
+            f"Kontrollvarsler: {len(flags)}",
+        ]
+        for flag in flags[:4]:
+            summary.append(f"{flag.get('ticker')}: {flag.get('signal')} - {flag.get('forslag')}")
+        ok, err = _send_pushover_safe_v1863af("\n".join(summary), "Paper-portefølje kontroll")
+        if ok:
+            st.success("Pushover-rapport sendt.")
+        else:
+            st.warning(f"Pushover ble ikke sendt: {err or 'ukjent feil'}")
+
+
+FX_ALERT_PAIRS_V1863AF = {
+    "BRL/NOK": "BRLNOK=X",
+    "USD/NOK": "USDNOK=X",
+    "EUR/NOK": "EURNOK=X",
+    "SEK/NOK": "SEKNOK=X",
+    "DKK/NOK": "DKKNOK=X",
+}
+
+
+def _fetch_fx_rate_v1863af(symbol: str):
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    candidate = str(symbol or "").strip().upper()
+    if not candidate:
+        return None, "mangler valutasymbol"
+    try:
+        hist = yf.Ticker(candidate).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+        if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+            return None, "fant ingen Close-data"
+        close = hist["Close"].dropna()
+        if close.empty:
+            return None, "Close-data er tom"
+        return float(close.iloc[-1]), ""
+    except Exception as exc:
+        return None, str(exc)[:180]
+
+
+def _currency_alert_defaults_v1863af():
+    return {
+        "pair": "BRL/NOK",
+        "symbol": "BRLNOK=X",
+        "lower": 1.70,
+        "upper": 2.20,
+        "active": True,
+        "pushover": True,
+        "cooldown_hours": 12,
+    }
+
+
+def _load_currency_alerts_v1863af():
+    settings = load_settings() or {}
+    alerts = settings.get("currency_alerts_v1863af")
+    if isinstance(alerts, list) and alerts:
+        return alerts
+    return [_currency_alert_defaults_v1863af()]
+
+
+def _save_currency_alerts_v1863af(alerts):
+    settings = load_settings() or {}
+    settings["currency_alerts_v1863af"] = alerts
+    save_settings(settings)
+
+
+def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_hours: int):
+    sent = (settings or {}).get("currency_alert_last_sent_v1863af", {}) or {}
+    raw = sent.get(alert_key)
+    if not raw:
+        return True
+    try:
+        last = datetime.fromisoformat(str(raw))
+        return datetime.now() - last >= timedelta(hours=max(1, int(cooldown_hours or 12)))
+    except Exception:
+        return True
+
+
+def render_currency_alerts_control_center_v1863af():
+    st.subheader("💱 Valutavarsler")
+    st.caption("Overvåker valutapar med faste øvre/nedre grenser. BRL/NOK betyr NOK for 1 BRL. Varsel sendes bare når du kjører sjekk eller senere kobler dette til planlagt jobb.")
+
+    alerts = _load_currency_alerts_v1863af()
+    current = dict(alerts[0] if alerts else _currency_alert_defaults_v1863af())
+    pair_options = list(FX_ALERT_PAIRS_V1863AF.keys()) + ["Egendefinert"]
+    current_pair = current.get("pair", "BRL/NOK")
+
+    with st.form("currency_alert_form_v1863af"):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            pair = st.selectbox("Valutapar", pair_options, index=pair_options.index(current_pair) if current_pair in pair_options else 0)
+        with c2:
+            default_symbol = FX_ALERT_PAIRS_V1863AF.get(pair, current.get("symbol", "BRLNOK=X"))
+            symbol = st.text_input("Yahoo-symbol", value=str(default_symbol or "BRLNOK=X"))
+        c3, c4, c5 = st.columns(3)
+        with c3:
+            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.4f")
+        with c4:
+            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.4f")
+        with c5:
+            cooldown = st.number_input("Varselpause timer", min_value=1, max_value=168, value=int(current.get("cooldown_hours", 12) or 12), step=1)
+        active = st.checkbox("Aktiv", value=bool(current.get("active", True)))
+        pushover = st.checkbox("Send Pushover ved brudd", value=bool(current.get("pushover", True)))
+        saved = st.form_submit_button("💾 Lagre valutavarsel", use_container_width=True)
+
+    if saved:
+        _save_currency_alerts_v1863af([{
+            "pair": pair,
+            "symbol": symbol.strip().upper(),
+            "lower": float(lower),
+            "upper": float(upper),
+            "active": bool(active),
+            "pushover": bool(pushover),
+            "cooldown_hours": int(cooldown),
+        }])
+        st.success("Valutavarsel lagret.")
+        st.rerun()
+
+    alert = _load_currency_alerts_v1863af()[0]
+    st.markdown(
+        f"<div class='v18-dark-row'><b>Aktivt varsel:</b> {html.escape(str(alert.get('pair')))} ({html.escape(str(alert.get('symbol')))}), nedre {float(alert.get('lower') or 0):.4f}, øvre {float(alert.get('upper') or 0):.4f}</div>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🔎 Sjekk valutavarsler nå", key="currency_alert_check_now_v1863af", type="primary", use_container_width=True):
+        if not alert.get("active", True):
+            st.info("Valutavarselet er deaktivert.")
+            return
+        rate, err = _fetch_fx_rate_v1863af(alert.get("symbol"))
+        if rate is None:
+            st.warning(f"Kunne ikke hente valutakurs: {err}")
+            return
+        pair_label = str(alert.get("pair") or alert.get("symbol") or "Valuta")
+        lower_v = float(alert.get("lower") or 0)
+        upper_v = float(alert.get("upper") or 0)
+        st.metric(pair_label, f"{rate:.4f}", help="Kursen er quote-valuta per 1 base-valuta, f.eks. NOK per 1 BRL for BRL/NOK.")
+        breach = None
+        if lower_v and rate <= lower_v:
+            breach = f"{pair_label} er under nedre grense: {rate:.4f} <= {lower_v:.4f}"
+        elif upper_v and rate >= upper_v:
+            breach = f"{pair_label} er over øvre grense: {rate:.4f} >= {upper_v:.4f}"
+        if breach:
+            st.error(breach)
+            if alert.get("pushover", True):
+                settings = load_settings() or {}
+                alert_key = f"{pair_label}:{alert.get('symbol')}"
+                if _currency_alert_can_send_v1863af(settings, alert_key, int(alert.get("cooldown_hours", 12) or 12)):
+                    ok, send_err = _send_pushover_safe_v1863af(breach, f"Valutavarsel {pair_label}")
+                    settings.setdefault("currency_alert_last_sent_v1863af", {})[alert_key] = datetime.now().isoformat(timespec="seconds")
+                    save_settings(settings)
+                    if ok:
+                        st.success("Pushover-varsel sendt.")
+                    else:
+                        st.warning(f"Pushover ble ikke sendt: {send_err or 'ukjent feil'}")
+                else:
+                    st.info("Grensen er brutt, men varselpause/cooldown hindrer nytt Pushover-varsel akkurat nå.")
+        else:
+            st.success(f"{pair_label} er innenfor grensene.")
+
+
 # v18.5.37: Auto Test Lab Progress + Safe Run Controls.
 def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
     """Resolve Auto Test Lab universe without running hidden scans."""
@@ -9702,6 +10008,16 @@ def control_center_extra_panels_v18535():
     ]
 
 
+
+
+_control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
+
+
+def control_center_extra_panels_v18535():
+    panels = list(_control_center_extra_panels_base_v1863af())
+    panels.insert(3, ("🧭 Paper-portefølje kontroll", render_paper_portfolio_control_center_v1863af))
+    panels.insert(4, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
+    return panels
 
 
 def render_safe_infrastructure_panel_v18587() -> None:
