@@ -20,7 +20,11 @@ ACTIVE_UNIVERSE_KEY = "smart_universe_picker_active_v18517"
 ACTIVE_UNIVERSE_TICKERS_KEY = "smart_universe_picker_tickers_v18517"
 ACTIVE_UNIVERSE_RANKING_KEY = "Smart Universe Picker"
 
-DEFAULTS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO"]
+DEFAULTS: List[str] = []
+LEGACY_SEED_TICKERS = {
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
+    "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO",
+}
 ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
 
 
@@ -93,6 +97,17 @@ def _dedupe_tickers(values: Iterable[Any]) -> List[str]:
     return out
 
 
+def _legacy_seed_only(value: Any) -> bool:
+    tickers = _extract_tickers(value)
+    return bool(tickers) and set(tickers).issubset(LEGACY_SEED_TICKERS)
+
+
+def _extract_non_legacy_tickers(value: Any) -> List[str]:
+    if _legacy_seed_only(value):
+        return []
+    return _extract_tickers(value)
+
+
 def _candidate_rows_from_tickers(tickers: Sequence[str], source: str, reason: str = "") -> List[StockCandidate]:
     rows: List[StockCandidate] = []
     for idx, ticker in enumerate(_dedupe_tickers(tickers), start=1):
@@ -144,7 +159,7 @@ class UniverseService:
         latest_rankings = self.state.get("latest_rankings_v148", {}) or {}
         if isinstance(latest_rankings, Mapping):
             for source, rows in latest_rankings.items():
-                tickers = _extract_tickers(rows)
+                tickers = _extract_non_legacy_tickers(rows)
                 if tickers:
                     source_key = str(source)
                     out[source_key] = tickers
@@ -153,7 +168,7 @@ class UniverseService:
                     if source_key.startswith("SmartAI") or source_key.startswith("Smart AI"):
                         out.setdefault("Smart AI-utvalg", []).extend(tickers)
 
-        watch = _extract_tickers(
+        watch = _extract_non_legacy_tickers(
             self.state.get_first(["latest_watchlist_tickers_v156", "watchlist", "watchlist_items"], [])
         )
         if watch:
@@ -179,14 +194,14 @@ class UniverseService:
 
         # Render/session state can be lost between deploys. Pull persisted
         # picker-related data back into source maps when available.
-        stored_watchlist = _extract_tickers(self.storage.read_json("watchlist.json", default=[]))
+        stored_watchlist = _extract_non_legacy_tickers(self.storage.read_json("watchlist.json", default=[]))
         if stored_watchlist:
             out.setdefault("Watchlist", []).extend(stored_watchlist)
 
         stored_rankings = self.storage.read_json("latest_rankings_v148.json", default={}) or {}
         if isinstance(stored_rankings, Mapping):
             for source, rows in stored_rankings.items():
-                tickers = _extract_tickers(rows)
+                tickers = _extract_non_legacy_tickers(rows)
                 if tickers:
                     out.setdefault(str(source), []).extend(tickers)
                     if str(source).startswith("TopPicks") or str(source) == "Top Picks":
@@ -195,12 +210,12 @@ class UniverseService:
                         out.setdefault("Smart AI-utvalg", []).extend(tickers)
 
         stored_top = self.storage.read_json("top_picks_result.json", default={}) or {}
-        top_tickers = _extract_tickers(stored_top)
+        top_tickers = _extract_non_legacy_tickers(stored_top)
         if top_tickers:
             out.setdefault("Top Picks", []).extend(top_tickers)
 
         active = self.storage.read_json("active_universe.json", default={}) or self.storage.read_json("smart_universe_picker_active.json", default={}) or {}
-        active_tickers = _extract_tickers(active.get("tickers") if isinstance(active, Mapping) else active)
+        active_tickers = _extract_non_legacy_tickers(active.get("tickers") if isinstance(active, Mapping) else active)
         if active_tickers:
             out.setdefault(ACTIVE_UNIVERSE_RANKING_KEY, []).extend(active_tickers)
 
@@ -278,18 +293,18 @@ class UniverseService:
         # has one market; Multi-marked can have several. Existing scopes such as
         # Watchlist/Top Picks can be mixed in deliberately.
         if not scopes:
-            scopes = ["USA"]
+            return ([], "Marked", "Velg minst ett marked eller en kilde")
         try:
             from universe_engine import resolve_universe_tickers
 
             tickers = resolve_universe_tickers(
                 scopes=scopes,
                 max_count=max_count,
-                manual_ticker=manual_ticker if mode in {"Markedvalg", "Multi-marked"} else "",
+                manual_ticker="",
                 existing_tickers_by_scope=existing,
             )
         except Exception:
-            tickers = _dedupe_tickers([manual_ticker] + DEFAULTS)[:max_count]
+            tickers = []
 
         source = "Multi-marked" if mode == "Multi-marked" or len(scopes) > 1 else "Marked"
         return (tickers[:max_count], source, f"Kilder: {', '.join(scopes)}")

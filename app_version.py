@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3al"
-APP_VERSION_NAME = "Default Ticker Regression Guardrails"
-APP_BUILD_ID = "v1863al-default-ticker-regression-guardrails"
+APP_VERSION = "v18.6.3am"
+APP_VERSION_NAME = "Source Priority Regression Guards"
+APP_BUILD_ID = "v1863am-source-priority-regression-guards"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -31,6 +31,7 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter bruker stabil radio-basert hovedmeny og undermeny for mindre knekk ved menyvalg.",
     "AI Kontrollsenter-navigasjon unngaar ekstra rerun og hopper over ticker-banneret under aktiv menybruk.",
     "Gamle AAPL/MSFT/NVDA-defaults er fjernet fra Daily Report, Prognose og service-univers, og tester stopper skjult manuell fallback.",
+    "Regresjonsvern er utvidet for kildeprioritet, panel-smoke, tung-jobb gating og visuelle statiske guardrails.",
 ]
 
 def get_app_version():

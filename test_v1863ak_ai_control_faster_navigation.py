@@ -9,7 +9,7 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3al"' in version
+assert 'APP_VERSION = "v18.6.3am"' in version
 assert "_cc_fast_nav_v1863ak" in app
 assert "render_live_market_banner()" in app
 assert 'st.session_state["ai_control_center_group_v1863aj"] = selected_group' in layout
