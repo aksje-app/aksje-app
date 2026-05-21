@@ -10636,8 +10636,14 @@ active_panel = None
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
-    render_live_market_banner()
-    render_banner_main_controls()
+    _cc_fast_nav_v1863ak = bool(
+        st.session_state.get("ai_control_center_group_radio_v1863aj")
+        or st.session_state.get("ai_control_center_active_panel_v1863aj")
+        or st.session_state.get("ai_control_center_group_v1863aj")
+    )
+    if not _cc_fast_nav_v1863ak:
+        render_live_market_banner()
+        render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")

@@ -8,7 +8,7 @@ for name in ["workspace_layout.py", "app_version.py"]:
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3aj"' in version
+assert 'APP_VERSION = "v18.6.3ak"' in version
 assert "ai_control_center_menu_open_v1863ag" in layout
 assert "ai_control_center_recent_panels_v1863ag" in layout
 assert "ai_control_center_search_v1863ag" in layout

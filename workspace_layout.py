@@ -1684,7 +1684,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         if selected_group != current_group:
             st.session_state["ai_control_center_group_v1863aj"] = selected_group
             st.session_state["ai_control_center_active_panel_v1863aj"] = ""
-            st.rerun()
+            current_group = selected_group
 
         active_label = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
         if selected_group:
@@ -1704,7 +1704,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             st.markdown("</div>", unsafe_allow_html=True)
             if selected_panel != current_panel_option:
                 st.session_state["ai_control_center_active_panel_v1863aj"] = "" if selected_panel == "Ingen valgt" else selected_panel
-                st.rerun()
+                active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
 
         st.markdown("</div>", unsafe_allow_html=True)
 

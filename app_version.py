@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3aj"
-APP_VERSION_NAME = "AI Control Stable Radio Menu"
-APP_BUILD_ID = "v1863aj-ai-control-stable-radio-menu"
+APP_VERSION = "v18.6.3ak"
+APP_VERSION_NAME = "AI Control Faster Navigation"
+APP_BUILD_ID = "v1863ak-ai-control-faster-navigation"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -29,6 +29,7 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter bruker ren hurtignavigasjon uten skjulte gamle dropdowns, med tydelig Til hovedvalg-knapp.",
     "AI Kontrollsenter er forenklet til hovedbokser og kompakt undermeny, uten automatisk aapnet startpanel.",
     "AI Kontrollsenter bruker stabil radio-basert hovedmeny og undermeny for mindre knekk ved menyvalg.",
+    "AI Kontrollsenter-navigasjon unngaar ekstra rerun og hopper over ticker-banneret under aktiv menybruk.",
 ]
 
 def get_app_version():
