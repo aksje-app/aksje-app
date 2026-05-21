@@ -621,10 +621,14 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
         st.caption("Samlet bull/base/bear-scenario for porteføljen. Bruker portefølje-data hvis de finnes, ellers kan du skrive tickere manuelt.")
 
         found_holdings = _portfolio_sources_from_session()
+        manual_key = f"portfolio_forecast_manual_tickers_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}"
+        if str(st.session_state.get(manual_key, "") or "").strip().upper() in {"AAPL,MSFT,NVDA", "AAPL,NVDA,MSFT", "AAPL", "STB.OL"}:
+            st.session_state[manual_key] = ""
         manual = st.text_input(
             "Manuelle tickere hvis portefølje ikke finnes",
-            value=",".join([h["ticker"] for h in found_holdings[:8]]) if found_holdings else "AAPL,MSFT,NVDA",
-            key=f"portfolio_forecast_manual_tickers_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}",
+            value=",".join([h["ticker"] for h in found_holdings[:8]]) if found_holdings else "",
+            key=manual_key,
+            placeholder="Tomt hvis ingen portefolje. Skriv egne tickere ved behov.",
             help="Kommaseparert. Hvis verdier mangler brukes lik vekting.",
         )
 
@@ -640,7 +644,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
             st.caption(f"Fant {len(holdings)} beholdninger fra appdata.")
         else:
             holdings = [{"ticker": t.strip().upper()} for t in manual.split(",") if t.strip()]
-            st.caption("Bruker manuelle tickere med lik vekting.")
+            st.caption("Bruker manuelle tickere med lik vekting." if holdings else "Ingen portefolje funnet og ingen manuelle tickere valgt.")
 
         run_pf = st.button("Lag porteføljeprognose", key=f"portfolio_forecast_run_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}", use_container_width=True)
         if not run_pf:

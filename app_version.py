@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ak"
-APP_VERSION_NAME = "AI Control Faster Navigation"
-APP_BUILD_ID = "v1863ak-ai-control-faster-navigation"
+APP_VERSION = "v18.6.3al"
+APP_VERSION_NAME = "Default Ticker Regression Guardrails"
+APP_BUILD_ID = "v1863al-default-ticker-regression-guardrails"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -30,6 +30,7 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter er forenklet til hovedbokser og kompakt undermeny, uten automatisk aapnet startpanel.",
     "AI Kontrollsenter bruker stabil radio-basert hovedmeny og undermeny for mindre knekk ved menyvalg.",
     "AI Kontrollsenter-navigasjon unngaar ekstra rerun og hopper over ticker-banneret under aktiv menybruk.",
+    "Gamle AAPL/MSFT/NVDA-defaults er fjernet fra Daily Report, Prognose og service-univers, og tester stopper skjult manuell fallback.",
 ]
 
 def get_app_version():

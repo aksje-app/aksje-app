@@ -19,8 +19,11 @@ import streamlit as st
 from alert_center import collect_common_alerts
 from forecast_store import load_forecast_log, load_learning_stats, summarize_alerts
 from security_metadata import infer_security_listing, resolve_security_metadata, standard_market_options
+from universe_engine import resolve_universe_tickers
 
 VERSION_MARKER = "v18.6.2-daily-report-resolver"
+
+LEGACY_MANUAL_DEFAULTS_V1863AL = {"AAPL,MSFT,NVDA", "AAPL,NVDA,MSFT", "AAPL", "STB.OL"}
 
 
 def _today_key() -> str:
@@ -183,11 +186,14 @@ def resolve_report_candidates(focus: str, market: str, top_n: int, manual: str =
     if ranking_candidates:
         return ranking_candidates, diagnostics
 
-    # Last explicit fallback: manual ticker box, so user can always force candidates.
-    manual_rows = _dedupe((_as_candidate(t, "Manuell fallback") for t in _manual_tickers(manual)), top_n)
-    if manual_rows:
-        diagnostics.append("Bruker manuelle tickere fordi rangering manglet")
-        return manual_rows, diagnostics
+    if focus == "Hele markedet":
+        market_scopes = ["Alle"] if market == "Alle" else [market]
+        universe_rows = _dedupe((_as_candidate(t, f"Markedsunivers: {market}") for t in resolve_universe_tickers(market_scopes, max_count=top_n)), top_n)
+        if universe_rows:
+            diagnostics.append(f"Bruker markedsunivers for {market}")
+            return universe_rows, diagnostics
+
+    diagnostics.append("Ingen kandidater funnet fra valgt kilde. Manuelle tickere brukes bare naar fokus er Manuelle tickere.")
 
     return [], diagnostics
 
@@ -317,7 +323,14 @@ def render_daily_ai_market_report() -> None:
         with c4:
             unique = st.checkbox("Unike tickere", value=True, key="daily_report_unique_v1862")
         horizons = st.multiselect("Horisontfilter", ["1d", "1w", "1m", "3m", "6m"], default=["1m", "3m", "6m"], key="daily_report_horizons_v1862")
-        manual = st.text_input("Manuelle tickere / fallback", value=st.session_state.get("daily_report_manual_v1862", "AAPL,MSFT,NVDA"), key="daily_report_manual_v1862")
+        if str(st.session_state.get("daily_report_manual_v1862", "") or "").strip().upper() in LEGACY_MANUAL_DEFAULTS_V1863AL:
+            st.session_state["daily_report_manual_v1862"] = ""
+        manual = st.text_input(
+            "Manuelle tickere (brukes kun ved fokus Manuelle tickere)",
+            value="",
+            key="daily_report_manual_v1862",
+            placeholder="Valgfritt: EQNR.OL, VOLV-B.ST, NOKIA.HE",
+        )
         run = st.button("Oppdater AI Market Briefing", key="daily_ai_report_refresh_v1862", use_container_width=True, type="primary")
 
     params = (focus, market, int(top_n), tuple(horizons), bool(unique), manual)

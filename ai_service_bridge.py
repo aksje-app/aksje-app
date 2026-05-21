@@ -82,15 +82,16 @@ def render_smart_universe_picker() -> None:
 
     manual_raw = ""
     if mode in {"Enkeltaksje", "Manuell liste"}:
-        default_manual = "AAPL" if mode == "Enkeltaksje" else "AAPL,NVDA,MSFT"
-        manual_raw = st.text_input("Ticker(e)", value=default_manual, key="service_universe_manual_v18515")
+        if str(st.session_state.get("service_universe_manual_v18515", "") or "").strip().upper() in {"AAPL", "AAPL,NVDA,MSFT", "AAPL,MSFT,NVDA", "STB.OL"}:
+            st.session_state["service_universe_manual_v18515"] = ""
+        manual_raw = st.text_input("Ticker(e)", value="", key="service_universe_manual_v18515", placeholder="Skriv ticker(e) ved behov")
 
     scopes = PICKER_MODES.get(mode, ["USA"])
     if mode == "Marked":
         scopes = [market]
     elif mode == "Enkeltaksje":
         scopes = ["Manuell liste"]
-        manual_raw = manual_raw.split(",")[0] if manual_raw else "AAPL"
+        manual_raw = manual_raw.split(",")[0] if manual_raw else ""
 
     config = {
         "mode": f"Smart Universe Picker: {mode}",
