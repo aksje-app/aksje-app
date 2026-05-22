@@ -348,3 +348,24 @@ def test_alpha_radar_normalizes_impossible_parameter_combinations():
     assert "Kun large/mega" in joined
     assert "Signal-lupe" in joined
     assert "lav-data" in joined
+
+
+def test_alpha_radar_emits_progress_events_for_ui():
+    events = []
+
+    result = run_alpha_radar(
+        ["MICRO.OL", "STB.OL", "UNKNOWNCAP.OL"],
+        horizon="3m",
+        limit=2,
+        max_scan=3,
+        market_cap_filter="Mikro/small",
+        score_provider=fake_score_provider,
+        progress_callback=events.append,
+    )
+
+    assert result["scanned_count"] == 3
+    assert events[0]["status"] == "starter"
+    assert events[-1]["status"] == "ferdig"
+    assert events[-1]["completed"] == 3
+    assert any(event["status"] == "scoret" and event["ticker"] == "MICRO.OL" for event in events)
+    assert any(event["status"] == "ekskludert" and event["ticker"] == "STB.OL" for event in events)

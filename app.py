@@ -10697,7 +10697,7 @@ except Exception as _top_banner_workspace_error:
 # Dette fjerner dobbeltvisning av Dynamisk rangering, Interaktiv analyse og legacy-markedspaneler.
 if _active_control_center_panel_v18598:
     st.markdown(
-        f"<div class='v18-dark-row'>Aktivt Kontrollsenter-panel: <b>{html.escape(str(_active_control_center_panel_v18598))}</b>. Underliggende hovedpaneler er skjult for denne visningen.</div>",
+        f"<div class='v18-dark-row'><b>{html.escape(str(_active_control_center_panel_v18598))}</b> er aktivt. USA/Norge/Sverige/Norden, Aktivt univers, Top Picks, IPO og Paper Trading vises ikke samtidig.</div>",
         unsafe_allow_html=True,
     )
 else:

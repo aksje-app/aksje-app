@@ -980,6 +980,7 @@ def run_alpha_radar(
     score_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     insider_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     news_provider: Callable[..., Iterable[Mapping[str, Any]]] | None = None,
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Build a contrarian hidden-potential shortlist from explicit tickers.
 
@@ -1020,6 +1021,23 @@ def run_alpha_radar(
     excluded_reason_counts: dict[str, int] = {}
     low_data_count = 0
 
+    def _progress(completed: int, ticker_value: str = "", status: str = "scanner") -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback({
+                "completed": int(completed),
+                "total": len(clean_tickers),
+                "ticker": ticker_value,
+                "status": status,
+                "scored_count": len(candidates),
+                "excluded_count": len(excluded),
+                "skipped_count": len(skipped),
+                "low_data_count": low_data_count,
+            })
+        except Exception:
+            pass
+
     def _exclude(ticker_value: str, reasons: Sequence[str], row_value: Mapping[str, Any] | None = None) -> None:
         clean_reasons = [str(reason) for reason in reasons if str(reason).strip()] or ["ukjent aarsak"]
         for reason in clean_reasons:
@@ -1031,7 +1049,9 @@ def run_alpha_radar(
         })
         skipped.append(ticker_value)
 
-    for ticker in clean_tickers:
+    _progress(0, "", "starter")
+
+    for index, ticker in enumerate(clean_tickers, start=1):
         row: Mapping[str, Any] | None = None
         if score_provider is not None:
             try:
@@ -1041,6 +1061,7 @@ def run_alpha_radar(
         if not row:
             if not fill_low_data:
                 _exclude(ticker, ["mangler analysedata"])
+                _progress(index, ticker, "ekskludert")
                 continue
             row = _fallback_row(ticker)
             low_data_count += 1
@@ -1071,6 +1092,7 @@ def run_alpha_radar(
         )
         if not gate["ok"]:
             _exclude(ticker, gate["blocking_reasons"], row)
+            _progress(index, ticker, "ekskludert")
             continue
         row = dict(row)
         row["data_quality"] = gate["data_quality"]
@@ -1087,14 +1109,18 @@ def run_alpha_radar(
         )
         if candidate is None:
             skipped.append(ticker)
+            _progress(index, ticker, "hoppet over")
         else:
             candidates.append(candidate)
+            _progress(index, ticker, "scoret")
 
     ranked = sorted(candidates, key=lambda item: item.hidden_potential_score, reverse=True)[:limit]
     ranked = [
         AlphaRadarCandidate(**{**candidate.to_dict(), "rank": idx})
         for idx, candidate in enumerate(ranked, start=1)
     ]
+
+    _progress(len(clean_tickers), "", "ferdig")
 
     return {
         "horizon": horizon,

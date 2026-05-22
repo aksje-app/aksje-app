@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3as"
-APP_VERSION_NAME = "Alpha Radar Discipline Gates"
-APP_BUILD_ID = "v1863as-alpha-radar-discipline-gates"
+APP_VERSION = "v18.6.3at"
+APP_VERSION_NAME = "Alpha Radar Run Clarity"
+APP_BUILD_ID = "v1863at-alpha-radar-run-clarity"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -37,6 +37,7 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter har Alpha Radar som eksplisitt kjoert hypotesemotor for 1-15 mulige aksjecaser paa 1, 3, 6 og 12 maaneder.",
     "Alpha Radar V2 bruker Contrarian / Hidden Potential Score med underdekkethet, vendepunkt, insider/bjellesauer, uvanlig volum, ravare/makro, why-now og crowding-straff.",
     "Alpha Radar har strengere parameterdisiplin med harde borsverdi-gates, presisjonsvalg, lav-data blokkering og tydelige ekskluderingsaarsaker.",
+    "Alpha Radar viser scan-progresjon, skiller signal-lupe fra datakilder, markerer gamle resultater naar input endres og kan lagre/eksportere resultat.",
 ]
 
 def get_app_version():
