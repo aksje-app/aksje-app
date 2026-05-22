@@ -22,6 +22,21 @@ MARKET_CAP_FILTERS = [
     "Kun large/mega",
 ]
 
+PRECISION_LEVELS = [
+    "Streng",
+    "Balansert",
+    "Utforskende",
+]
+
+MARKET_CAP_LIMITS = {
+    "Mikro/small": 1_500_000_000,
+    "Small/mid": 15_000_000_000,
+    "Unnga megacaps": 75_000_000_000,
+    "Kun large/mega": 40_000_000_000,
+}
+
+STRICT_CAP_FILTERS = {"Mikro/small", "Small/mid", "Kun large/mega"}
+
 BASE_HIDDEN_WEIGHTS = {
     "underfollowed": 14.0,
     "inflection": 14.0,
@@ -191,11 +206,14 @@ class AlphaRadarCandidate:
     risk_score: float
     crowdedness_penalty: float
     liquidity_penalty: float
+    market_cap: float | None
+    data_quality: str
     base_score: float
     why_now: str
     thesis: str
     signals: list[str]
     reject_reasons: list[str]
+    warning_reasons: list[str]
     manual_review: str
     factor_scores: dict[str, float]
     source: str
@@ -319,19 +337,127 @@ def _base_score(row: Mapping[str, Any]) -> float:
     return max(0.0, min(10.0, score))
 
 
+def _known_market_cap(row: Mapping[str, Any]) -> float | None:
+    value = _float(row.get("market_cap"), None)
+    if value is None or value <= 0:
+        return None
+    return value
+
+
 def _market_cap_filter_ok(row: Mapping[str, Any], market_cap_filter: str) -> bool:
     market_cap = _float(row.get("market_cap"), None)
     if market_cap is None or market_cap_filter == "Alle":
         return True
-    if market_cap_filter == "Mikro/small":
-        return market_cap <= 5_000_000_000
-    if market_cap_filter == "Small/mid":
-        return market_cap <= 20_000_000_000
-    if market_cap_filter == "Unnga megacaps":
-        return market_cap <= 75_000_000_000
+    if market_cap_filter in {"Mikro/small", "Small/mid", "Unnga megacaps"}:
+        return market_cap <= MARKET_CAP_LIMITS[market_cap_filter]
     if market_cap_filter == "Kun large/mega":
-        return market_cap >= 20_000_000_000
+        return market_cap >= MARKET_CAP_LIMITS[market_cap_filter]
     return True
+
+
+def _market_cap_block_reason(row: Mapping[str, Any], market_cap_filter: str) -> str | None:
+    market_cap = _known_market_cap(row)
+    if market_cap_filter == "Alle":
+        return None
+    if market_cap is None:
+        return f"ukjent borsverdi blokkert for {market_cap_filter}"
+    if market_cap_filter in {"Mikro/small", "Small/mid", "Unnga megacaps"}:
+        limit = MARKET_CAP_LIMITS[market_cap_filter]
+        if market_cap > limit:
+            return f"for stor borsverdi for {market_cap_filter}"
+    if market_cap_filter == "Kun large/mega":
+        minimum = MARKET_CAP_LIMITS[market_cap_filter]
+        if market_cap < minimum:
+            return "for liten borsverdi for Kun large/mega"
+    return None
+
+
+def normalize_alpha_radar_parameters(
+    *,
+    mode: str,
+    market_cap_filter: str,
+    precision_level: str,
+    active_signals: Sequence[str] | None,
+    fill_low_data: bool,
+) -> dict[str, Any]:
+    mode = mode if mode in ALPHA_RADAR_MODES else "Blandet Alpha Radar"
+    precision_level = precision_level if precision_level in PRECISION_LEVELS else "Streng"
+    market_cap_filter = market_cap_filter if market_cap_filter in MARKET_CAP_FILTERS else "Alle"
+    warnings: list[str] = []
+
+    if mode == "Skjulte small/mid caps":
+        if market_cap_filter == "Kun large/mega":
+            warnings.append("Skjulte small/mid caps kan ikke kombineres med Kun large/mega; bruker Small/mid.")
+            market_cap_filter = "Small/mid"
+        elif market_cap_filter in {"Alle", "Unnga megacaps"}:
+            warnings.append("Skjulte small/mid caps bruker Small/mid som hard borsverdi-gate.")
+            market_cap_filter = "Small/mid"
+
+    max_signals = 3 if precision_level == "Streng" else 4 if precision_level == "Balansert" else 5
+    clean_signals: list[str] = []
+    for signal in active_signals or []:
+        if signal in ACTIVE_SIGNAL_FACTORS and signal not in clean_signals:
+            clean_signals.append(signal)
+    if len(clean_signals) > max_signals:
+        warnings.append(f"Signal-lupe er begrenset til {max_signals} signaler i {precision_level} presisjon.")
+        clean_signals = clean_signals[:max_signals]
+
+    if precision_level == "Streng" and fill_low_data:
+        warnings.append("Streng presisjon tillater ikke lav-data utfylling.")
+        fill_low_data = False
+    if market_cap_filter in STRICT_CAP_FILTERS and fill_low_data:
+        warnings.append(f"{market_cap_filter} krever kjent borsverdi; lav-data utfylling er slatt av.")
+        fill_low_data = False
+
+    return {
+        "mode": mode,
+        "market_cap_filter": market_cap_filter,
+        "precision_level": precision_level,
+        "active_signals": clean_signals,
+        "fill_low_data": bool(fill_low_data),
+        "parameter_warnings": warnings,
+    }
+
+
+def _data_quality_gate(
+    row: Mapping[str, Any],
+    *,
+    market_cap_filter: str,
+    precision_level: str,
+) -> dict[str, Any]:
+    blocking: list[str] = []
+    warnings: list[str] = []
+
+    cap_reason = _market_cap_block_reason(row, market_cap_filter)
+    if cap_reason:
+        blocking.append(cap_reason)
+
+    market_cap = _known_market_cap(row)
+    if precision_level == "Streng" and market_cap is None:
+        blocking.append("ukjent borsverdi blokkert i Streng presisjon")
+    elif precision_level == "Balansert" and market_cap is None:
+        warnings.append("ukjent borsverdi")
+
+    if row.get("data_missing"):
+        if precision_level in {"Streng", "Balansert"}:
+            blocking.append("lav-data kandidat blokkert")
+        else:
+            warnings.append("lav-data kandidat")
+
+    required_score_fields = ("score", "ret_1m", "ret_3m", "volatility", "max_drawdown")
+    missing = [key for key in required_score_fields if row.get(key) is None]
+    if precision_level == "Streng" and missing:
+        blocking.append("mangler kjernefelter: " + ", ".join(missing[:4]))
+    elif missing:
+        warnings.append("mangler kjernefelter: " + ", ".join(missing[:4]))
+
+    data_quality = "Blokkert" if blocking else "Svak" if warnings else "OK"
+    return {
+        "ok": not blocking,
+        "data_quality": data_quality,
+        "blocking_reasons": blocking,
+        "warning_reasons": warnings,
+    }
 
 
 def _underfollowed_score(row: Mapping[str, Any], base_score: float) -> float:
@@ -374,9 +500,16 @@ def _underfollowed_score(row: Mapping[str, Any], base_score: float) -> float:
 
 
 def _catalyst_score(row: Mapping[str, Any], include_news: bool, include_insider: bool) -> float:
-    explicit = row.get("catalyst_score", row.get("event_score"))
-    if explicit is not None:
-        return _normalize_unit(explicit)
+    explicit_values = [
+        row.get("catalyst_score"),
+        row.get("event_score"),
+        row.get("local_news_score"),
+        row.get("small_news_big_impact_score"),
+    ]
+    explicit_scores = [_normalize_unit(value, None) for value in explicit_values if value is not None]
+    explicit_scores = [value for value in explicit_scores if value is not None]
+    if explicit_scores:
+        return max(explicit_scores)
 
     text = _text_blob(row)
     keyword_hits = sum(1 for word in CATALYST_KEYWORDS if word in text)
@@ -393,9 +526,11 @@ def _catalyst_score(row: Mapping[str, Any], include_news: bool, include_insider:
 
 
 def _inflection_score(row: Mapping[str, Any]) -> float:
-    explicit = row.get("inflection_score", row.get("turnaround_score"))
-    if explicit is not None:
-        return _normalize_unit(explicit)
+    explicit_values = [row.get("inflection_score"), row.get("turnaround_score"), row.get("result_inflection_score")]
+    explicit_scores = [_normalize_unit(value, None) for value in explicit_values if value is not None]
+    explicit_scores = [value for value in explicit_scores if value is not None]
+    if explicit_scores:
+        return max(explicit_scores)
 
     ret_1m = _normalize_return(row.get("ret_1m"))
     ret_3m = _normalize_return(row.get("ret_3m"))
@@ -419,9 +554,17 @@ def _inflection_score(row: Mapping[str, Any]) -> float:
 
 
 def _insider_bjellesau_score(row: Mapping[str, Any], include_insider: bool) -> float:
-    explicit = row.get("bjellesau_score", row.get("smart_money_score", row.get("owner_signal")))
-    if explicit is not None:
-        return _normalize_unit(explicit)
+    explicit_values = [
+        row.get("bjellesau_score"),
+        row.get("smart_money_score"),
+        row.get("owner_signal"),
+        row.get("insider_quality_score"),
+        row.get("historical_insider_quality_score"),
+    ]
+    explicit_scores = [_normalize_unit(value, None) for value in explicit_values if value is not None]
+    explicit_scores = [value for value in explicit_scores if value is not None]
+    if explicit_scores:
+        return max(explicit_scores)
     insider = _normalize_unit(row.get("insider_score"), 0.5) if include_insider else _normalize_unit(row.get("insider_score"), 0.5)
     buy_count = _float(row.get("insider_buy_count", row.get("buy_count")), 0.0) or 0.0
     sell_count = _float(row.get("insider_sell_count", row.get("sell_count")), 0.0) or 0.0
@@ -760,7 +903,7 @@ def _score_candidate(
     active_signals: Sequence[str] | None,
 ) -> AlphaRadarCandidate | None:
     ticker = _safe_ticker(row.get("ticker"))
-    if not ticker or not _market_cap_filter_ok(row, market_cap_filter):
+    if not ticker:
         return None
 
     factors = _factor_scores(row, include_news=include_news, include_insider=include_insider)
@@ -780,6 +923,7 @@ def _score_candidate(
 
     signals = _signals(row, factors, risk_level)
     reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, factors["evidence"])
+    warning_reasons = list(row.get("warning_reasons") or [])
     why_now = _why_now(row, factors, signals)
     thesis = (
         f"{ticker} er en {mode.lower()}-hypotese for {horizon}. "
@@ -806,12 +950,15 @@ def _score_candidate(
         risk_score=round(risk_level, 1),
         crowdedness_penalty=round(crowdedness, 1),
         liquidity_penalty=round(liquidity, 1),
+        market_cap=_known_market_cap(row),
+        data_quality=str(row.get("data_quality") or "OK"),
         base_score=round(_base_score(row), 2),
         why_now=why_now,
         thesis=thesis,
         signals=signals,
         reject_reasons=reject_reasons,
-        manual_review=_manual_review_note(row, reject_reasons),
+        warning_reasons=warning_reasons,
+        manual_review=_manual_review_note(row, list(reject_reasons) + warning_reasons),
         factor_scores={key: round(value * 100.0, 1) for key, value in factors.items()},
         source="Alpha Radar V2 Contrarian / Hidden Potential",
     )
@@ -827,6 +974,7 @@ def run_alpha_radar(
     include_insider: bool = False,
     mode: str = "Blandet Alpha Radar",
     market_cap_filter: str = "Alle",
+    precision_level: str = "Streng",
     active_signals: Sequence[str] | None = None,
     fill_low_data: bool = True,
     score_provider: Callable[..., Mapping[str, Any] | None] | None = None,
@@ -840,8 +988,18 @@ def run_alpha_radar(
     """
 
     horizon = horizon if horizon in HORIZON_MULTIPLIERS else "3m"
-    mode = mode if mode in ALPHA_RADAR_MODES else "Blandet Alpha Radar"
-    market_cap_filter = market_cap_filter if market_cap_filter in MARKET_CAP_FILTERS else "Alle"
+    params = normalize_alpha_radar_parameters(
+        mode=mode,
+        market_cap_filter=market_cap_filter,
+        precision_level=precision_level,
+        active_signals=active_signals,
+        fill_low_data=fill_low_data,
+    )
+    mode = params["mode"]
+    market_cap_filter = params["market_cap_filter"]
+    precision_level = params["precision_level"]
+    active_signals = params["active_signals"]
+    fill_low_data = params["fill_low_data"]
     limit = max(1, min(int(limit or 10), 15))
     max_scan = max(limit, min(int(max_scan or 60), 250))
 
@@ -858,7 +1016,21 @@ def run_alpha_radar(
 
     candidates: list[AlphaRadarCandidate] = []
     skipped: list[str] = []
+    excluded: list[dict[str, Any]] = []
+    excluded_reason_counts: dict[str, int] = {}
     low_data_count = 0
+
+    def _exclude(ticker_value: str, reasons: Sequence[str], row_value: Mapping[str, Any] | None = None) -> None:
+        clean_reasons = [str(reason) for reason in reasons if str(reason).strip()] or ["ukjent aarsak"]
+        for reason in clean_reasons:
+            excluded_reason_counts[reason] = excluded_reason_counts.get(reason, 0) + 1
+        excluded.append({
+            "ticker": ticker_value,
+            "reasons": clean_reasons,
+            "market_cap": _known_market_cap(row_value or {}),
+        })
+        skipped.append(ticker_value)
+
     for ticker in clean_tickers:
         row: Mapping[str, Any] | None = None
         if score_provider is not None:
@@ -868,7 +1040,7 @@ def run_alpha_radar(
                 row = None
         if not row:
             if not fill_low_data:
-                skipped.append(ticker)
+                _exclude(ticker, ["mangler analysedata"])
                 continue
             row = _fallback_row(ticker)
             low_data_count += 1
@@ -891,6 +1063,18 @@ def run_alpha_radar(
                     row["insider_sell_count"] = insider.get("sell_count")
             except Exception:
                 pass
+
+        gate = _data_quality_gate(
+            row,
+            market_cap_filter=market_cap_filter,
+            precision_level=precision_level,
+        )
+        if not gate["ok"]:
+            _exclude(ticker, gate["blocking_reasons"], row)
+            continue
+        row = dict(row)
+        row["data_quality"] = gate["data_quality"]
+        row["warning_reasons"] = list(gate["warning_reasons"])
 
         candidate = _score_candidate(
             row,
@@ -916,14 +1100,27 @@ def run_alpha_radar(
         "horizon": horizon,
         "mode": mode,
         "market_cap_filter": market_cap_filter,
+        "precision_level": precision_level,
         "active_signals": list(active_signals or []),
+        "parameter_warnings": list(params.get("parameter_warnings") or []),
+        "effective_parameters": {
+            "mode": mode,
+            "market_cap_filter": market_cap_filter,
+            "precision_level": precision_level,
+            "active_signals": list(active_signals or []),
+            "fill_low_data": bool(fill_low_data),
+        },
         "limit": limit,
         "max_scan": max_scan,
         "scanned_count": len(clean_tickers),
+        "scored_count": len(candidates),
         "candidate_count": len(ranked),
         "low_data_count": low_data_count,
         "skipped_count": len(skipped),
         "skipped_tickers": skipped[:20],
+        "excluded_count": len(excluded),
+        "excluded_reason_counts": dict(sorted(excluded_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "excluded_samples": excluded[:15],
         "candidates": [candidate.to_dict() for candidate in ranked],
         "disclaimer": "Hypoteseliste for manuell analyse. Ikke investeringsraad og ikke automatisk handel.",
     }
@@ -932,6 +1129,8 @@ def run_alpha_radar(
 __all__ = [
     "ALPHA_RADAR_MODES",
     "MARKET_CAP_FILTERS",
+    "PRECISION_LEVELS",
     "AlphaRadarCandidate",
+    "normalize_alpha_radar_parameters",
     "run_alpha_radar",
 ]
