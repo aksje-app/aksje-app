@@ -18,6 +18,10 @@ assert "Oppdater AI Market Briefing" in daily
 assert "Lag portef" in forecast
 assert "Kjor Smart AI-utvalg" in analysis or "Kjør Smart AI-utvalg" in analysis
 
+assert "tickerliste/univers" in analysis
+assert "scorede kandidater" in analysis
+assert "Preview av eksisterende scorede/cache-kandidater" in analysis
+
 # Known heavy calls should remain behind explicit buttons in the most sensitive panels.
 daily_run_pos = daily.find("run = st.button")
 daily_build_pos = daily.find("build_daily_market_report")

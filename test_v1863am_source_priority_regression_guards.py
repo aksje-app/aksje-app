@@ -22,7 +22,7 @@ analysis = Path("analysis_universe_ai.py").read_text(encoding="utf-8", errors="i
 service = Path("services/universe_service.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3am"' in version
+assert 'APP_VERSION = "v18.6.3ao"' in version
 
 # 1. Hidden defaults must not appear as UI values in the main user-facing modules.
 for source in [daily, forecast, service]:
@@ -57,6 +57,8 @@ assert tickers == ["AAPL", "MSFT"]
 # 4. UI navigation should not start heavy dashboard/banner work while control center state is active.
 assert "_cc_fast_nav_v1863ak" in app
 assert "if not _cc_fast_nav_v1863ak" in app
+assert "startup_heavy_update_pending_v1863an" in app
+assert "_clear_startup_heavy_update_for_control_center_v1863an()" in app
 
 # 5. Visual-smoke static guard: no user-facing panel should introduce known legacy default text as a rendered default.
 rendered_defaults = [

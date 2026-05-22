@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3am"
-APP_VERSION_NAME = "Source Priority Regression Guards"
-APP_BUILD_ID = "v1863am-source-priority-regression-guards"
+APP_VERSION = "v18.6.3ao"
+APP_VERSION_NAME = "Universe Explanation Polish"
+APP_BUILD_ID = "v1863ao-universe-explanation-polish"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -32,6 +32,8 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter-navigasjon unngaar ekstra rerun og hopper over ticker-banneret under aktiv menybruk.",
     "Gamle AAPL/MSFT/NVDA-defaults er fjernet fra Daily Report, Prognose og service-univers, og tester stopper skjult manuell fallback.",
     "Regresjonsvern er utvidet for kildeprioritet, panel-smoke, tung-jobb gating og visuelle statiske guardrails.",
+    "Oppstart av Kontrollsenter nuller engangsflagget for tung jobb slik at ticker-banneret ikke forsinker Analyseunivers/preview.",
+    "Analyseunivers forklarer tydelig forskjellen mellom tickerliste/univers, preview-cache og scorede Smart AI-kandidater.",
 ]
 
 def get_app_version():

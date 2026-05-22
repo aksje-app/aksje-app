@@ -1248,6 +1248,19 @@ def _finish_global_apply_v161():
     st.session_state["global_apply_all_changes_v161"] = False
 
 
+def _clear_startup_heavy_update_for_control_center_v1863an() -> None:
+    """Do not let first-load setup trigger banner/data work before the Control Center."""
+    if not bool(st.session_state.pop("startup_heavy_update_pending_v1863an", False)):
+        return
+    if _global_apply_requested_v161():
+        return
+    st.session_state["heavy_update_allowed_v148"] = False
+    try:
+        finish_global_busy("Klar", "Oppstart klar uten tung Kontrollsenter-jobb")
+    except Exception:
+        pass
+
+
 def _last_update_label():
     reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
     at = st.session_state.get("last_update_started_at_v148", "-")
@@ -7723,6 +7736,7 @@ _draft_analysis_controls_v148 = {
 if "active_analysis_controls_v148" not in st.session_state:
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
     st.session_state["heavy_update_allowed_v148"] = True
+    st.session_state["startup_heavy_update_pending_v1863an"] = True
     _set_update_reason("Oppstart / første aktive innstillinger")
 
 # V16.1: Auto-oppdater er fjernet fra normal arbeidsflyt.
@@ -7730,6 +7744,7 @@ if "active_analysis_controls_v148" not in st.session_state:
 
 _active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
 _pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
+_clear_startup_heavy_update_for_control_center_v1863an()
 
 # Aktive verdier brukes av datahenting/rangering. Widgetverdier kan endres uten tung analyse.
 mode = _active_analysis_controls_v148.get("mode", mode)

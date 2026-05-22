@@ -710,7 +710,7 @@ def _picker_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str
             {
                 "label": "Picker-status",
                 "value": "Tom",
-                "detail": "Velg kilde eller manuell liste for å bygge et aktivt aksjeunivers.",
+                "detail": "Velg kilde eller manuell liste for å bygge en tickerliste/univers. Scorede kandidater lages først når Smart AI-utvalg kjøres.",
                 "kind": "warn",
             }
         ]
@@ -721,19 +721,19 @@ def _picker_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str
         {
             "label": "Picker-kilde",
             "value": source,
-            "detail": reason or "Valgt kilde er løst til en felles tickerliste.",
+            "detail": reason or "Valgt kilde er løst til en tickerliste/univers. Dette er ikke en ny scoret kandidatliste.",
             "kind": "ok" if tickers else "warn",
         },
         {
-            "label": "Tickerliste",
+            "label": "Tickerliste / univers",
             "value": f"{len(tickers)} tickere",
-            "detail": _safe_join(tickers[:12], empty="Ingen") + (" …" if len(tickers) > 12 else ""),
+            "detail": (_safe_join(tickers[:12], empty="Ingen") + (" …" if len(tickers) > 12 else "")) + " · Usortert arbeidsliste, ikke scorede kandidater.",
             "kind": "ok" if tickers else "warn",
         },
         {
             "label": "Dataflyt",
             "value": "Kan aktiveres",
-            "detail": "Resultatet kan settes som aktivt aksjeunivers og sendes til Watchlist/Top Picks.",
+            "detail": "Listen kan settes som aktivt aksjeunivers eller sendes videre. Scorede kandidater krever Smart AI-utvalg.",
             "kind": "preview",
         },
     ]
@@ -743,9 +743,9 @@ def _smart_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str]
     if not result:
         return [
             {
-                "label": "Smart AI-utvalg",
+                "label": "Scorede kandidater",
                 "value": "Ikke kjørt ennå",
-                "detail": "Trykk ‘Kjør Smart AI-utvalg nå’ for å score, filtrere og rangere valgt univers.",
+                "detail": "Trykk ‘Kjør Smart AI-utvalg nå’ for å gjøre tickerlisten/universet om til scorede kandidater.",
                 "kind": "neutral",
             }
         ]
@@ -758,13 +758,13 @@ def _smart_result_summary_rows(result: Mapping[str, Any]) -> List[Dict[str, str]
             "kind": "ok" if result.get("status") == "ok" else "warn",
         },
         {
-            "label": "Univers",
+            "label": "Input-univers",
             "value": f"{result.get('universe_size', 0)} tickere",
-            "detail": f"Scannet: {result.get('scanned', 0)} · Scorede: {result.get('raw_candidates', 0)}",
+            "detail": f"Tickerlisten som ble analysert. Scannet: {result.get('scanned', 0)} · scorede før filter: {result.get('raw_candidates', 0)}",
             "kind": "preview",
         },
         {
-            "label": "Matcher filtre",
+            "label": "Scorede kandidater",
             "value": f"{result.get('matched_candidates', 0)} kandidater",
             "detail": str((result.get("summary") or {}).get("text", "")),
             "kind": "ok" if result.get("matched_candidates", 0) else "warn",
@@ -849,7 +849,7 @@ def build_universe_live_status(
         {
             "label": "Marked/kilder",
             "value": _safe_join(config.get("scopes") or []),
-            "detail": "Disse kildene løses nå av Smart Universe Picker og kan settes som aktivt univers.",
+            "detail": "Disse kildene løses til en tickerliste/univers. Listen blir ikke scorede kandidater før Smart AI-utvalg kjøres.",
             "kind": "preview",
         },
         {
@@ -865,9 +865,9 @@ def build_universe_live_status(
             "kind": "ok" if active_tickers else "warn",
         },
         {
-            "label": "Kandidater funnet",
+            "label": "Preview-data funnet",
             "value": f"{len(candidates)} totalt / {len(preview)} etter filter",
-            "detail": "Basert på rangeringer, watchlist, paper/portefølje og aktivt picker-univers.",
+            "detail": "Eksisterende cache/session-data for visning. Ikke en ny Smart AI-scoring.",
             "kind": "ok" if candidates else "warn",
         },
         {
@@ -877,9 +877,9 @@ def build_universe_live_status(
             "kind": "ok" if watchlist else "warn",
         },
         {
-            "label": "Top Picks",
+            "label": "Top Picks-cache",
             "value": f"{top_pick_count} kandidater",
-            "detail": "Leses fra TopPicks_* i siste rangering/cache.",
+            "detail": "Scorede/rangerte kandidater som allerede ligger i TopPicks_* cache.",
             "kind": "ok" if top_pick_count else "warn",
         },
         {
@@ -901,9 +901,9 @@ def build_universe_live_status(
             "kind": "ok" if latest_rankings else "warn",
         },
         {
-            "label": "Smart AI-kjøring",
-            "value": f"{smart_result.get('matched_candidates', 0)} kandidater" if smart_result else "Ikke kjørt",
-            "detail": str(smart_result.get("generated_at", "Trykk ‘Kjør Smart AI-utvalg nå’ for å lage ekte kandidater.")),
+            "label": "Smart AI-scoring",
+            "value": f"{smart_result.get('matched_candidates', 0)} scorede kandidater" if smart_result else "Ikke kjørt",
+            "detail": str(smart_result.get("generated_at", "Trykk ‘Kjør Smart AI-utvalg nå’ for å lage scorede kandidater fra tickerlisten.")),
             "kind": "ok" if smart_result.get("matched_candidates", 0) else "neutral",
         },
         {
@@ -951,13 +951,13 @@ def build_universe_selection_summary(
         {
             "label": "Valgte kilder",
             "value": _safe_join(scopes),
-            "detail": "Brukes til å avgrense preview og sendes videre som ventende analyseoppsett.",
+            "detail": "Brukes til å bygge tickerliste/univers og avgrense preview. Dette er ikke en scoret kandidatkjøring.",
             "kind": "preview",
         },
         {
             "label": "Enkeltaksje",
             "value": manual_ticker or "Ikke satt",
-            "detail": "Når modus er Enkeltaksje, blir denne ett-tickerlisten aktiv.",
+            "detail": "Når modus er Enkeltaksje, blir dette et én-ticker-univers.",
             "kind": "ok" if manual_ticker else "neutral",
         },
         {
@@ -973,15 +973,15 @@ def build_universe_selection_summary(
             "kind": "preview",
         },
         {
-            "label": "Resultat nå",
-            "value": f"{len(preview)} av {len(candidates)} kandidater matcher",
-            "detail": "Vises i tabellen ‘Preview av eksisterende kandidater’ under. Hvis tallet er 0, mangler cache/session-data eller filtrene er for strenge.",
+            "label": "Preview nå",
+            "value": f"{len(preview)} av {len(candidates)} eksisterende kandidater matcher",
+            "detail": "Viser bare eksisterende cache/session-kandidater under. Scorede Smart AI-kandidater lages først når du trykker Kjør.",
             "kind": "ok" if preview else "warn",
         },
         {
             "label": "Lagringsstatus",
             "value": saved_text,
-            "detail": "Knappen lagrer valgene. ‘Bruk som aktivt aksjeunivers’ gjør listen til felles valgkjerne for appen.",
+            "detail": "Knappen lagrer oppsettet. ‘Bruk som aktivt aksjeunivers’ gjør tickerlisten til felles valgkjerne for appen.",
             "kind": "ok" if saved else "neutral",
         },
     ]
@@ -1551,7 +1551,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
     with st.expander("Konfigurer Analyseunivers AI-modul", expanded=expanded):
         st.info(
             "Denne modulen er nå Smart Universe Picker: den velger og lagrer appens aktive aksjeunivers. "
-            "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen. Valgt modus-chip oppdateres omgående før lagring."
+            "Picker-resultatet er tickerliste/univers, ikke scorede kandidater. "
+            "Smart AI-utvalg/scanning kjører fortsatt kun når du trykker på kjør-knappen."
         )
 
         # v18.6.3y: buffer config widgets so several choices can be changed
@@ -1739,7 +1740,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         st.markdown("#### Smart Universe Picker")
         st.caption(
-            "Dette er kjernen for valg av aksjer. Den løser valgt kilde til én felles tickerliste uten å starte tung analyse."
+            "Dette er valg av tickerliste/univers: en arbeidsliste med symboler fra valgt kilde. "
+            "Den er ikke en scoret kandidatliste før du kjører Smart AI-utvalg."
         )
         _render_selection_summary_panel(_picker_result_summary_rows(picker_result))
         if picker_result.get("candidates"):
@@ -1776,8 +1778,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         st.markdown("#### Smart AI-utvalg")
         st.caption(
-            "Operativ Fase 2: knappen bygger ticker-univers fra valgte kilder og kjører via "
-            "UniverseService + felles datamodell før resultatet sendes videre til Top Picks/Watchlist-services."
+            "Dette er scoring/rangering: knappen analyserer tickerlisten/universet via UniverseService "
+            "og lager scorede kandidater som kan sendes til Top Picks/Watchlist."
         )
         run_col, info_col = st.columns([1, 2])
         with run_col:
@@ -1790,7 +1792,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 kwargs={"label": "Kjører Smart AI-utvalg", "detail": "Forbereder valgt ticker-univers", "step": 1, "total": 4},
             )
         with info_col:
-            st.info("Kjøringen går via UniverseService og felles datamodell. Den skriver ikke runtime-data til GitHub/prosjektfiler.")
+            st.info("Før du trykker Kjør er listen bare et univers. Etter kjøring får du scorede kandidater med filter/rangering. Runtime-data skrives ikke til GitHub/prosjektfiler.")
 
         # v18.5.26: Keep a visible progress panel in the module, not only a transient spinner.
         # This makes the run state visible even after Streamlit reruns or if the browser misses
@@ -1860,8 +1862,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         st.markdown("#### Resultat av valgene i skjemaet")
         _render_selection_summary_panel(build_universe_selection_summary(config, candidates, preview, saved=bool(submitted)))
         st.caption(
-            "Dette er det direkte resultatet av valgene i skjemaet. Selve kandidatlisten ligger i "
-            "‘Preview av eksisterende kandidater’ lenger ned."
+            "Dette er resultatet av valgene i skjemaet: valgt tickerliste/univers og preview mot eksisterende cache. "
+            "Ny scoring skjer bare i Smart AI-utvalg."
         )
 
         st.markdown("#### Status for Analyseunivers-modulen")
@@ -1879,18 +1881,18 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         if show_roadmap:
             _render_feature_status_panel()
 
-        st.markdown("#### Preview av eksisterende kandidater")
+        st.markdown("#### Preview av eksisterende scorede/cache-kandidater")
         if preview:
             _render_dark_table(_candidate_dataframe(preview[:50]), empty_message="Ingen eksisterende kandidater å forhåndsvise.", max_rows=50, max_height_px=300)
             st.caption(
                 "Preview bruker bare eksisterende rangeringer, watchlist og paper-posisjoner som allerede finnes i appen. "
-                "Den kjører ikke en ny AI-scan."
+                "Den kjører ikke ny AI-scan og er ikke samme ting som valgt tickerliste/univers."
             )
         else:
             st.markdown(
                 '<div class="ai-universe-empty-note">Ingen eksisterende kandidater i cache/session for valgt scope ennå. '
                 'Kjør vanlig markedspanel eller Top Picks for å fylle preview-data. Dette betyr ikke at modulen feiler; '
-                'det betyr bare at AI-universet ikke har noe eksisterende datagrunnlag å forhåndsvise.</div>',
+                'det betyr bare at tickerlisten/universet ikke har eksisterende scorede kandidater å forhåndsvise.</div>',
                 unsafe_allow_html=True,
             )
 

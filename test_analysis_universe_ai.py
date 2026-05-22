@@ -70,5 +70,5 @@ def test_live_status_contains_real_module_information():
 
     values_by_label = {row["label"]: row["value"] for row in rows}
     assert values_by_label["Watchlist"] == "2 tickere"
-    assert values_by_label["Top Picks"] == "1 kandidater"
-    assert "totalt" in values_by_label["Kandidater funnet"]
+    assert values_by_label["Top Picks-cache"] == "1 kandidater"
+    assert "totalt" in values_by_label["Preview-data funnet"]
