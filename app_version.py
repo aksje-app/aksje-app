@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3aq"
-APP_VERSION_NAME = "Alpha Radar Hidden Potential V2"
-APP_BUILD_ID = "v1863aq-alpha-radar-hidden-potential-v2"
+APP_VERSION = "v18.6.3as"
+APP_VERSION_NAME = "Alpha Radar Discipline Gates"
+APP_BUILD_ID = "v1863as-alpha-radar-discipline-gates"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -36,6 +36,7 @@ APP_PATCH_NOTES = [
     "Analyseunivers forklarer tydelig forskjellen mellom tickerliste/univers, preview-cache og scorede Smart AI-kandidater.",
     "AI Kontrollsenter har Alpha Radar som eksplisitt kjoert hypotesemotor for 1-15 mulige aksjecaser paa 1, 3, 6 og 12 maaneder.",
     "Alpha Radar V2 bruker Contrarian / Hidden Potential Score med underdekkethet, vendepunkt, insider/bjellesauer, uvanlig volum, ravare/makro, why-now og crowding-straff.",
+    "Alpha Radar har strengere parameterdisiplin med harde borsverdi-gates, presisjonsvalg, lav-data blokkering og tydelige ekskluderingsaarsaker.",
 ]
 
 def get_app_version():

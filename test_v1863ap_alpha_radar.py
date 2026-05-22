@@ -5,6 +5,7 @@ import py_compile
 for name in [
     "alpha_radar_engine.py",
     "alpha_radar_ui.py",
+    "alpha_radar_enrichment.py",
     "app.py",
     "workspace_layout.py",
     "app_version.py",
@@ -17,12 +18,15 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3aq"' in version
-assert "Alpha Radar Hidden Potential V2" in version
+assert 'APP_VERSION = "v18.6.3as"' in version
+assert "Alpha Radar Discipline Gates" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
+assert "from alpha_radar_enrichment import enrich_alpha_radar_row" in app
 assert "def render_alpha_radar_control_center_v1863ap" in app
+assert "data_enricher=enrich_alpha_radar_row" in app
+assert "earnings_provider=get_earnings" in app
 assert '("Alpha Radar", render_alpha_radar_control_center_v1863ap)' in app
 active_layout_block = layout.split("def _render_ai_control_center_v1863aj", 1)[1]
 assert '"alpha"' in active_layout_block and '"muligheter"' in active_layout_block
@@ -37,6 +41,13 @@ assert "Kjor Alpha Radar V2" in ui
 assert "Contrarian / Hidden Potential Score" in ui
 assert "ALPHA_RADAR_MODES" in ui
 assert "MARKET_CAP_FILTERS" in ui
+assert "PRECISION_LEVELS" in engine + ui
+assert "normalize_alpha_radar_parameters" in engine + ui
+assert "excluded_reason_counts" in engine + ui
+assert "data_quality" in engine + ui
+assert "warning_reasons" in engine + ui
+assert "Presisjon" in ui
+assert "Fyll opp lav-data" in ui
 assert "crowding-straff" in ui
 assert "fill_low_data" in engine
 assert "crowdedness_penalty" in engine

@@ -1,4 +1,4 @@
-from alpha_radar_engine import run_alpha_radar
+from alpha_radar_engine import normalize_alpha_radar_parameters, run_alpha_radar
 
 
 FAKE_ROWS = {
@@ -116,6 +116,89 @@ FAKE_ROWS = {
             "volume": 0.72,
         },
     },
+    "STB.OL": {
+        "ticker": "STB.OL",
+        "name": "Storebrand ASA",
+        "score": 7.5,
+        "ret_1m": 0.04,
+        "ret_3m": 0.08,
+        "ret_6m": 0.16,
+        "volatility": 0.018,
+        "max_drawdown": -0.10,
+        "market_cap": 33_000_000_000,
+        "catalyst_score": 0.68,
+        "score_parts": {
+            "momentum": 0.65,
+            "trend": 0.70,
+            "quality": 0.78,
+            "fundamental_growth": 0.70,
+            "debt": 0.70,
+            "value": 0.62,
+            "volume": 0.62,
+        },
+    },
+    "XXL.OL": {
+        "ticker": "XXL.OL",
+        "name": "XXL ASA",
+        "score": 5.5,
+        "ret_1m": 0.03,
+        "ret_3m": 0.06,
+        "ret_6m": -0.04,
+        "volatility": 0.045,
+        "max_drawdown": -0.30,
+        "market_cap": 2_200_000_000,
+        "catalyst_score": 0.58,
+        "score_parts": {
+            "momentum": 0.56,
+            "trend": 0.54,
+            "quality": 0.42,
+            "fundamental_growth": 0.42,
+            "debt": 0.38,
+            "value": 0.64,
+            "volume": 0.58,
+        },
+    },
+    "MICRO.OL": {
+        "ticker": "MICRO.OL",
+        "name": "Real Micro Cap",
+        "score": 6.6,
+        "ret_1m": 0.05,
+        "ret_3m": 0.08,
+        "ret_6m": 0.02,
+        "volatility": 0.026,
+        "max_drawdown": -0.14,
+        "market_cap": 450_000_000,
+        "catalyst_score": 0.60,
+        "score_parts": {
+            "momentum": 0.61,
+            "trend": 0.60,
+            "quality": 0.58,
+            "fundamental_growth": 0.56,
+            "debt": 0.56,
+            "value": 0.68,
+            "volume": 0.60,
+        },
+    },
+    "UNKNOWNCAP.OL": {
+        "ticker": "UNKNOWNCAP.OL",
+        "name": "Unknown Cap",
+        "score": 6.4,
+        "ret_1m": 0.04,
+        "ret_3m": 0.07,
+        "ret_6m": 0.05,
+        "volatility": 0.022,
+        "max_drawdown": -0.12,
+        "catalyst_score": 0.62,
+        "score_parts": {
+            "momentum": 0.62,
+            "trend": 0.60,
+            "quality": 0.56,
+            "fundamental_growth": 0.55,
+            "debt": 0.55,
+            "value": 0.62,
+            "volume": 0.59,
+        },
+    },
 }
 
 
@@ -170,6 +253,8 @@ def test_alpha_radar_v2_fills_requested_count_with_low_data_hypotheses():
         limit=4,
         max_scan=4,
         fill_low_data=True,
+        precision_level="Utforskende",
+        market_cap_filter="Alle",
         score_provider=fake_score_provider,
     )
 
@@ -178,7 +263,7 @@ def test_alpha_radar_v2_fills_requested_count_with_low_data_hypotheses():
     assert any("lav-data" in row["manual_review"].lower() for row in result["candidates"])
 
 
-def test_alpha_radar_v2_penalizes_crowded_large_caps():
+def test_alpha_radar_v2_excludes_crowded_large_caps_from_hidden_small_mid():
     result = run_alpha_radar(
         ["MEGA", "QUIET.CO"],
         horizon="6m",
@@ -188,7 +273,78 @@ def test_alpha_radar_v2_penalizes_crowded_large_caps():
     )
 
     tickers = [row["ticker"] for row in result["candidates"]]
-    assert tickers[0] == "QUIET.CO"
-    mega = next(row for row in result["candidates"] if row["ticker"] == "MEGA")
-    assert mega["crowdedness_penalty"] >= 20
-    assert any("overdekket" in reason for reason in mega["reject_reasons"])
+    assert tickers == ["QUIET.CO"]
+    assert result["market_cap_filter"] == "Small/mid"
+    assert result["excluded_reason_counts"]["for stor borsverdi for Small/mid"] == 1
+    assert any(row["ticker"] == "MEGA" for row in result["excluded_samples"])
+
+
+def test_alpha_radar_blocks_stb_and_xxl_from_micro_small_gate():
+    result = run_alpha_radar(
+        ["STB.OL", "XXL.OL", "MICRO.OL"],
+        horizon="3m",
+        limit=3,
+        max_scan=3,
+        market_cap_filter="Mikro/small",
+        score_provider=fake_score_provider,
+    )
+
+    tickers = [row["ticker"] for row in result["candidates"]]
+    assert tickers == ["MICRO.OL"]
+    assert result["excluded_reason_counts"]["for stor borsverdi for Mikro/small"] == 2
+    assert {row["ticker"] for row in result["excluded_samples"]} >= {"STB.OL", "XXL.OL"}
+
+
+def test_alpha_radar_blocks_unknown_market_cap_in_strict_size_gates():
+    result = run_alpha_radar(
+        ["UNKNOWNCAP.OL"],
+        horizon="3m",
+        limit=1,
+        market_cap_filter="Small/mid",
+        score_provider=fake_score_provider,
+    )
+
+    assert result["candidates"] == []
+    assert result["excluded_reason_counts"]["ukjent borsverdi blokkert for Small/mid"] == 1
+    assert result["excluded_reason_counts"]["ukjent borsverdi blokkert i Streng presisjon"] == 1
+
+
+def test_alpha_radar_does_not_fill_low_data_inside_strict_cap_filter():
+    result = run_alpha_radar(
+        ["UNKNOWN1.OL"],
+        horizon="3m",
+        limit=1,
+        market_cap_filter="Mikro/small",
+        precision_level="Utforskende",
+        fill_low_data=True,
+        score_provider=fake_score_provider,
+    )
+
+    assert result["candidates"] == []
+    assert result["effective_parameters"]["fill_low_data"] is False
+    assert result["excluded_reason_counts"]["mangler analysedata"] == 1
+    assert any("lav-data utfylling" in warning for warning in result["parameter_warnings"])
+
+
+def test_alpha_radar_normalizes_impossible_parameter_combinations():
+    params = normalize_alpha_radar_parameters(
+        mode="Skjulte small/mid caps",
+        market_cap_filter="Kun large/mega",
+        precision_level="Streng",
+        active_signals=[
+            "Borsverdi",
+            "Nyheter/katalysator",
+            "Resultater",
+            "Insider/bjellesauer",
+            "Ravarer/makro",
+        ],
+        fill_low_data=True,
+    )
+
+    assert params["market_cap_filter"] == "Small/mid"
+    assert params["fill_low_data"] is False
+    assert len(params["active_signals"]) == 3
+    joined = " ".join(params["parameter_warnings"])
+    assert "Kun large/mega" in joined
+    assert "Signal-lupe" in joined
+    assert "lav-data" in joined
