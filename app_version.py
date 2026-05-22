@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ao"
-APP_VERSION_NAME = "Universe Explanation Polish"
-APP_BUILD_ID = "v1863ao-universe-explanation-polish"
+APP_VERSION = "v18.6.3aq"
+APP_VERSION_NAME = "Alpha Radar Hidden Potential V2"
+APP_BUILD_ID = "v1863aq-alpha-radar-hidden-potential-v2"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -34,6 +34,8 @@ APP_PATCH_NOTES = [
     "Regresjonsvern er utvidet for kildeprioritet, panel-smoke, tung-jobb gating og visuelle statiske guardrails.",
     "Oppstart av Kontrollsenter nuller engangsflagget for tung jobb slik at ticker-banneret ikke forsinker Analyseunivers/preview.",
     "Analyseunivers forklarer tydelig forskjellen mellom tickerliste/univers, preview-cache og scorede Smart AI-kandidater.",
+    "AI Kontrollsenter har Alpha Radar som eksplisitt kjoert hypotesemotor for 1-15 mulige aksjecaser paa 1, 3, 6 og 12 maaneder.",
+    "Alpha Radar V2 bruker Contrarian / Hidden Potential Score med underdekkethet, vendepunkt, insider/bjellesauer, uvanlig volum, ravare/makro, why-now og crowding-straff.",
 ]
 
 def get_app_version():

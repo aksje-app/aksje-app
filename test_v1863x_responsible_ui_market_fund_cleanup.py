@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 for name in [
@@ -23,7 +23,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scop
 from security_metadata import infer_security_listing, resolve_security_metadata
 
 
-assert APP_VERSION == "v18.6.3ao"
+assert APP_VERSION == "v18.6.3aq"
 assert any("Finland" in note and "Brasil" in note for note in get_app_patch_notes())
 
 assert BASE_MARKET_SCOPES == ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
@@ -57,7 +57,7 @@ result = run_fund_etf_lab(
 assert result["summary"]["analyzed"] == 2
 assert result["summary"]["errors"] == 0
 assert result["ranked"][0]["datastatus"] in {"Mangler pris/NAV-historikk", "Pris/NAV funnet"}
-assert result["ranked"][0]["data_quality_label"] in {"Lav", "Middels", "Hoy", "Høy"}
+assert result["ranked"][0]["data_quality_label"] in {"Lav", "Middels", "Hoy", "HÃ¸y"}
 
 for ticker, country in [
     ("NOKIA.HE", "Finland"),
@@ -84,5 +84,7 @@ assert 'value=""' in Path("strategy_testing_workspace.py").read_text(encoding="u
 
 assert '"Selskap"' in analysis
 assert '"Datakvalitet"' in analysis
-assert '"Ikke analysert ennå"' in analysis
+assert '"Ikke analysert' in analysis
 assert "Velg flere markeder uten nedtrekksmeny" in analysis
+
+

@@ -21,6 +21,7 @@ from market_regime_ui import render_market_regime_widget
 from alert_center import render_common_alert_center
 from market_intelligence_center import render_market_intelligence_center
 from forecast_ui import render_forecast_section
+from alpha_radar_ui import render_alpha_radar_panel
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
@@ -8148,6 +8149,30 @@ def render_top_picks_control_center_v1863s():
             st.warning(f"Top Picks finnes ({len(top_picks)}), men ingen har groent teknisk Kjoep naa-signal akkurat naa. Bytt til Top Picks for aa se kandidatene.")
 
 
+def render_alpha_radar_control_center_v1863ap():
+    """Explicit-run Alpha Radar panel for unusual opportunity hypotheses."""
+
+    def _resolve(scope: str, limit: int, manual_text: str = "") -> list[str]:
+        return _resolve_control_center_scope_tickers_v1863s(scope, limit, manual_text=manual_text)
+
+    def _score_provider(ticker: str, use_news: bool = False, include_insider: bool = False):
+        return cached_score_stock_manual(
+            ticker,
+            use_news=use_news,
+            force=True,
+            include_insider=include_insider,
+        )
+
+    render_alpha_radar_panel(
+        resolve_tickers=_resolve,
+        score_provider=_score_provider,
+        insider_provider=get_insider_data,
+        news_provider=None,
+        market_options=market_scope_options(include_aggregate=True),
+        no_selection_label=NO_UNIVERSE_SELECTION_LABEL,
+    )
+
+
 def render_watchlist_signals_control_center_v18535():
     """Watchlist and signal settings in the control center only."""
     st.subheader("🔔 Watchlist / signaler")
@@ -10010,6 +10035,7 @@ def render_mixed_portfolio_control_center_v18544():
 def control_center_extra_panels_v18535():
     return [
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
+        ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("🚀 IPO", render_ipo),
         ("🧪 Paper Trading", render_paper_trading_dashboard),
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
