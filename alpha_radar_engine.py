@@ -230,6 +230,7 @@ class AlphaRadarCandidate:
     insider_evidence: list[dict[str, Any]]
     bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
+    source_diagnostics: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -466,6 +467,40 @@ def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insid
     ownership, insider, bjellesau = split_ownership_evidence(row, limit=8) if include_insider else ([], [], [])
     combined = ownership + news
     return combined[:10], insider, bjellesau, news
+
+
+def _source_diagnostics(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    if isinstance(row.get("source_diagnostics"), list):
+        diagnostics.extend(dict(item) for item in row["source_diagnostics"] if isinstance(item, Mapping))
+    for key, label in (
+        ("alpha_insider_error", "insiderkilde"),
+        ("alpha_news_error", "nyhetskilde"),
+        ("alpha_earnings_error", "earningskilde"),
+        ("alpha_result_diagnostic", "resultat/vendepunkt"),
+    ):
+        if row.get(key):
+            diagnostics.append({
+                "type": "datadiagnostikk",
+                "title": label,
+                "source": "Radar",
+                "status": "mangler/begrenset",
+                "detail": summarize_source_error(label, row.get(key)) or str(row.get(key)),
+                "url": "",
+            })
+    clean: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in diagnostics:
+        marker = (
+            str(item.get("type") or "").lower(),
+            str(item.get("title") or "").lower(),
+            str(item.get("url") or "").lower(),
+        )
+        if marker in seen:
+            continue
+        seen.add(marker)
+        clean.append(item)
+    return clean[:14]
 
 
 def _base_score(row: Mapping[str, Any]) -> float:
@@ -975,6 +1010,8 @@ def _factor_quality(row: Mapping[str, Any], factor: str, value: float | None) ->
         if row.get("macro_tailwind_score") is not None or row.get("commodity_tailwind_score") is not None:
             return "ekte"
         return "proxy"
+    if factor == "inflection" and row.get("result_inflection_quality"):
+        return str(row.get("result_inflection_quality"))
     if factor in {"underfollowed", "inflection", "volume_accumulation", "value_gap", "surprise_gap", "seasonality", "technical_turn"}:
         return "proxy" if row.get("data_missing") else "beregnet"
     return "beregnet"
@@ -1140,6 +1177,7 @@ def _score_candidate(
 
     signals = _signals(row, scoring_factors, risk_level)
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    source_diagnostics = _source_diagnostics(row)
     reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, scoring_factors["evidence"])
     warning_reasons = list(row.get("warning_reasons") or [])
     for key, label in (
@@ -1202,6 +1240,7 @@ def _score_candidate(
         insider_evidence=insider_evidence,
         bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
+        source_diagnostics=source_diagnostics,
     )
 
 

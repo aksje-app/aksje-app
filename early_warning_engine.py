@@ -94,6 +94,7 @@ class EarlyWarningCandidate:
     insider_evidence: list[dict[str, Any]]
     bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
+    source_diagnostics: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -293,6 +294,40 @@ def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insid
     return combined[:10], insider, bjellesau, news
 
 
+def _source_diagnostics(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    if isinstance(row.get("source_diagnostics"), list):
+        diagnostics.extend(dict(item) for item in row["source_diagnostics"] if isinstance(item, Mapping))
+    for key, label in (
+        ("alpha_insider_error", "insiderkilde"),
+        ("alpha_news_error", "nyhetskilde"),
+        ("alpha_earnings_error", "earningskilde"),
+        ("alpha_result_diagnostic", "resultat/vendepunkt"),
+    ):
+        if row.get(key):
+            diagnostics.append({
+                "type": "datadiagnostikk",
+                "title": label,
+                "source": "Radar",
+                "status": "mangler/begrenset",
+                "detail": summarize_source_error(label, row.get(key)) or str(row.get(key)),
+                "url": "",
+            })
+    clean: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in diagnostics:
+        marker = (
+            str(item.get("type") or "").lower(),
+            str(item.get("title") or "").lower(),
+            str(item.get("url") or "").lower(),
+        )
+        if marker in seen:
+            continue
+        seen.add(marker)
+        clean.append(item)
+    return clean[:14]
+
+
 def _expectation_change(row: Mapping[str, Any]) -> tuple[float | None, str]:
     values = [
         row.get("estimate_revision_score"),
@@ -320,6 +355,11 @@ def _earnings_surprise(row: Mapping[str, Any]) -> tuple[float | None, str]:
     scores = [value for value in scores if value is not None]
     if scores:
         return max(scores), "ekte"
+    proxy_scores = [_unit(row.get(key)) for key in ("result_inflection_score", "inflection_score", "turnaround_score")]
+    proxy_scores = [value for value in proxy_scores if value is not None]
+    if proxy_scores:
+        quality = str(row.get("result_inflection_quality") or "beregnet")
+        return max(proxy_scores), quality if quality in {"ekte", "proxy", "beregnet"} else "beregnet"
     if row.get("earnings_days_until") is not None:
         return 0.54, "proxy"
     return None, "mangler"
@@ -504,6 +544,7 @@ def _score_row(
             if warning and warning not in warnings:
                 warnings.append(warning)
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    source_diagnostics = _source_diagnostics(row)
     if include_insider and not insider_evidence and not bjellesau_evidence and factors.get("ownership_insider") is None:
         warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")
     if include_news and not news_evidence and factors.get("catalyst_altdata_macro") is None:
@@ -564,6 +605,7 @@ def _score_row(
         insider_evidence=insider_evidence,
         bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
+        source_diagnostics=source_diagnostics,
     )
 
 

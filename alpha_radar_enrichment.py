@@ -10,6 +10,19 @@ from alpha_radar_ownership import classify_ownership_item, split_ownership_evide
 from data_source_diagnostics import horizon_to_days, horizon_to_months
 
 try:
+    from actor_registry import actor_aliases_for_matching, match_actor_text
+except Exception:  # pragma: no cover - optional UI registry
+    actor_aliases_for_matching = None
+    match_actor_text = None
+
+try:
+    from nordic_market_sources import local_market_source_diagnostics, local_news_queries, merge_source_diagnostics
+except Exception:  # pragma: no cover - optional source diagnostics
+    local_market_source_diagnostics = None
+    local_news_queries = None
+    merge_source_diagnostics = None
+
+try:
     import yfinance as yf
 except Exception:  # pragma: no cover - depends on runtime
     yf = None
@@ -122,19 +135,35 @@ def load_bjellesau_watchlist(path: Path = BJELLESAU_CONFIG) -> list[str]:
     global _BJELLESAU_CACHE
     now = time.time()
     if _BJELLESAU_CACHE and now - _BJELLESAU_CACHE[0] < 300:
-        return list(_BJELLESAU_CACHE[1])
-    names: list[str] = []
-    try:
-        if path.exists():
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(raw, list):
-                names = [str(x).strip().lower() for x in raw if str(x).strip()]
-            elif isinstance(raw, Mapping):
-                names = [str(x).strip().lower() for x in raw.get("names", []) if str(x).strip()]
-    except Exception:
+        names = list(_BJELLESAU_CACHE[1])
+    else:
         names = []
-    _BJELLESAU_CACHE = (now, names)
-    return list(names)
+        try:
+            if path.exists():
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    names = [str(x).strip().lower() for x in raw if str(x).strip()]
+                elif isinstance(raw, Mapping):
+                    names = [str(x).strip().lower() for x in raw.get("names", []) if str(x).strip()]
+        except Exception:
+            names = []
+        _BJELLESAU_CACHE = (now, names)
+    try:
+        if actor_aliases_for_matching is not None:
+            names.extend(actor_aliases_for_matching(actor_types=("Bjellesau", "Institusjon")))
+    except Exception:
+        pass
+    out: list[str] = []
+    for name in names:
+        clean = str(name or "").strip().lower()
+        if clean and clean not in out:
+            out.append(clean)
+    return out
+
+
+def reset_bjellesau_watchlist_cache() -> None:
+    global _BJELLESAU_CACHE
+    _BJELLESAU_CACHE = None
 
 
 def fetch_market_proxy_snapshot(
@@ -246,6 +275,11 @@ def enrich_with_news(
     ticker = _safe_ticker(row.get("ticker"))
     query_parts = [_ticker_query(ticker)]
     name = str(row.get("name") or row.get("company") or "").strip()
+    if local_news_queries is not None:
+        try:
+            row["local_news_queries"] = local_news_queries(ticker, name, row.get("market"))
+        except Exception:
+            pass
     if name and name.upper() != ticker:
         query_parts.append(name)
     query = " OR ".join([x for x in query_parts if x])
@@ -270,6 +304,8 @@ def enrich_with_news(
     else:
         row.pop("local_news_score", None)
         row.pop("small_news_big_impact_score", None)
+        if not error:
+            row["alpha_news_error"] = "Ingen treff i global nyhetskilde for valgt datavindu"
     if error:
         row["alpha_news_error"] = str(error)[:180]
     return row
@@ -314,6 +350,7 @@ def enrich_with_insider_quality(
     latest_type = str(row.get("insider_latest_type") or "").upper()
     latest_transactions = row.get("latest_transactions") if isinstance(row.get("latest_transactions"), list) else []
     watchlist = load_bjellesau_watchlist()
+    market = str(row.get("market") or "")
     relation_boost = 0.0
     matched_names: list[str] = []
     normalized_transactions: list[dict[str, Any]] = []
@@ -328,6 +365,17 @@ def enrich_with_insider_quality(
             if name and name in text:
                 matched_names.append(name)
                 relation_boost += 0.08
+        if match_actor_text is not None:
+            try:
+                for actor in match_actor_text(text, market=market, ticker=ticker, actor_types=("Bjellesau", "Institusjon")):
+                    actor_name = str(actor.get("name") or actor.get("matched_alias") or "").strip()
+                    if actor_name:
+                        matched_names.append(actor_name)
+                        tx["actor_registry_match"] = actor_name
+                        tx["ownership_type"] = "Bjellesau"
+                        relation_boost += 0.10 if actor.get("strength") == "Sterk" else 0.07
+            except Exception:
+                pass
         tx["ownership_type"] = classify_ownership_item(tx, watchlist_names=watchlist)
         normalized_transactions.append(tx)
     if normalized_transactions:
@@ -404,7 +452,9 @@ def enrich_with_results(
     earnings_has_date = False
     ticker = _safe_ticker(row.get("ticker"))
     earnings = None
-    if earnings_provider is not None:
+    if earnings_provider is None:
+        row["alpha_earnings_error"] = "Earnings provider mangler"
+    else:
         try:
             earnings = earnings_provider(ticker, months=horizon_to_months(horizon))
         except TypeError:
@@ -432,8 +482,10 @@ def enrich_with_results(
         row["result_inflection_score"] = _clamp(quality * 0.28 + growth * 0.34 + margin_score * 0.20 + earnings_score * 0.18)
         row["inflection_score"] = max(_normalize_unit(row.get("inflection_score"), 0.5), row["result_inflection_score"])
         row["result_inflection_quality"] = "ekte" if row.get("revenue_growth") is not None or margin_present or earnings_has_date else "beregnet"
+        row.pop("alpha_result_diagnostic", None)
     else:
         row.pop("result_inflection_score", None)
+        row["alpha_result_diagnostic"] = "Ingen earnings/revisions, guiding, vekst eller margindata funnet i valgt datavindu"
     return row
 
 
@@ -472,6 +524,16 @@ def enrich_alpha_radar_row(
     enriched = enrich_with_insider_quality(enriched, include_insider=insider_on, insider_provider=insider_provider, horizon=horizon)
     enriched = enrich_with_macro_tailwind(enriched, include_macro=macro_on, commodity_snapshot=commodity_snapshot)
     enriched = enrich_with_results(enriched, include_results=results_on, earnings_provider=earnings_provider, horizon=horizon)
+    if local_market_source_diagnostics is not None:
+        try:
+            diagnostics = local_market_source_diagnostics(enriched, horizon=horizon)
+            if diagnostics:
+                if merge_source_diagnostics is not None:
+                    enriched["source_diagnostics"] = merge_source_diagnostics(enriched.get("source_diagnostics"), diagnostics)
+                else:
+                    enriched["source_diagnostics"] = list(diagnostics)
+        except Exception:
+            pass
     return enriched
 
 
@@ -481,4 +543,5 @@ __all__ = [
     "fetch_market_proxy_snapshot",
     "infer_macro_themes",
     "load_bjellesau_watchlist",
+    "reset_bjellesau_watchlist_cache",
 ]

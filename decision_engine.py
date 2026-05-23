@@ -3,6 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
+try:
+    from nbim_radar import apply_nbim_overlay, load_nbim_overlay
+except Exception:  # pragma: no cover - optional module
+    apply_nbim_overlay = None
+    load_nbim_overlay = None
+
 
 DECISION_QUEUE_KEY = "decision_support_queue_v1863ba"
 DECISION_CASES_KEY = "decision_support_cases_v1863ba"
@@ -64,6 +70,7 @@ def decision_source_rows_from_radar_result(
 ) -> list[dict[str, Any]]:
     selected = {str(ticker or "").strip().upper() for ticker in selected_tickers or [] if str(ticker or "").strip()}
     source = "Early Warning" if "Early Warning" in str(result.get("analysis_engine") or result.get("mode") or "") else "Alpha Radar"
+    nbim_overlay = load_nbim_overlay() if load_nbim_overlay is not None else {}
     rows: list[dict[str, Any]] = []
     for candidate in result.get("candidates") or []:
         if not isinstance(candidate, Mapping):
@@ -81,6 +88,8 @@ def decision_source_rows_from_radar_result(
         row["source_horizon"] = result.get("horizon") or candidate.get("horizon")
         row["source_precision"] = result.get("precision_level")
         row["queued_at"] = datetime.now().isoformat(timespec="seconds")
+        if nbim_overlay and apply_nbim_overlay is not None:
+            row = apply_nbim_overlay(row, nbim_overlay)
         rows.append(row)
     return rows
 
@@ -118,32 +127,36 @@ def build_decision_case(row: Mapping[str, Any]) -> dict[str, Any]:
     bjellesau_score = _score(row.get("bjellesau_score"), default=0.0)
     volume_score = _score(row.get("volume_score"), default=0.0)
     macro_score = _score(row.get("macro_score"), default=0.0)
+    nbim_score = _score(row.get("nbim_signal_score"), default=0.0)
     risk_score = _score(row.get("risk_score"), default=45.0)
     liquidity_penalty = _score(row.get("liquidity_penalty"), default=0.0)
 
     insider_count = _evidence_count(row, "insider_evidence")
     bjellesau_count = _evidence_count(row, "bjellesau_evidence")
     news_count = _evidence_count(row, "news_evidence")
+    nbim_count = _evidence_count(row, "nbim_evidence")
     source_count = _evidence_count(row, "evidence_items")
-    concrete_bonus = min(18.0, insider_count * 5.0 + bjellesau_count * 5.0 + news_count * 3.0)
+    source_count_total = source_count + nbim_count
+    concrete_bonus = min(20.0, insider_count * 5.0 + bjellesau_count * 5.0 + news_count * 3.0 + nbim_count * 4.0)
 
-    ownership_strength = max(insider_score, bjellesau_score)
+    ownership_strength = max(insider_score, bjellesau_score, nbim_score * 0.88)
     timing_strength = max(volume_score, catalyst_score, macro_score)
-    evidence_strength = max(evidence_score, catalyst_score, ownership_strength) + concrete_bonus
+    evidence_strength = max(evidence_score, catalyst_score, ownership_strength, nbim_score * 0.85) + concrete_bonus
     evidence_strength = max(0.0, min(100.0, evidence_strength))
     risk_pressure = max(risk_score, liquidity_penalty * 2.2)
     decision_score = (
-        alpha_score * 0.34
-        + evidence_strength * 0.30
-        + timing_strength * 0.18
+        alpha_score * 0.32
+        + evidence_strength * 0.29
+        + timing_strength * 0.17
         + ownership_strength * 0.10
+        + nbim_score * 0.04
         + max(0.0, 100.0 - risk_pressure) * 0.08
     )
 
     rejects = _text_list(row.get("reject_reasons"))
     warnings = _text_list(row.get("warning_reasons"))
     missing = []
-    if source_count == 0:
+    if source_count_total == 0:
         missing.append("mangler direkte kildespor")
     if not insider_count and not bjellesau_count and ownership_strength >= 55:
         missing.append("eierskapsscore uten konkret insider-/bjellesauliste")
@@ -153,7 +166,7 @@ def build_decision_case(row: Mapping[str, Any]) -> dict[str, Any]:
         missing.append("borsverdi/valuta maa bekreftes")
 
     hard_risk = risk_pressure >= 72 or liquidity_penalty >= 16 or bool(rejects)
-    weak_evidence = evidence_strength < 48 or source_count == 0
+    weak_evidence = evidence_strength < 48 or source_count_total == 0
     if hard_risk and decision_score < 78:
         decision = "Unnga"
     elif decision_score >= 76 and evidence_strength >= 58 and risk_pressure < 62 and not rejects:
@@ -173,6 +186,8 @@ def build_decision_case(row: Mapping[str, Any]) -> dict[str, Any]:
         positives.append(f"{bjellesau_count} bjellesau-spor")
     if news_count:
         positives.append(f"{news_count} nyhets-/katalysatorspor")
+    if nbim_count and nbim_score >= 55:
+        positives.append(f"Oljefond/NBIM-spor {nbim_score:.0f}")
     if timing_strength >= 65:
         positives.append(f"timing/bekreftelse {timing_strength:.0f}")
     if ownership_strength >= 65:
@@ -195,6 +210,8 @@ def build_decision_case(row: Mapping[str, Any]) -> dict[str, Any]:
     ]
     if insider_count or bjellesau_count:
         triggers.insert(0, "verifiser hvem som er insider og hvem som er bjellesau")
+    if nbim_count:
+        triggers.insert(0, "sjekk NBIM-endringen mot siste offentlige beholdningsfil")
     if decision == "Kjop naa":
         position_hint = "liten startposisjon hvis manuell sjekk bekrefter kildene"
     elif decision == "Vent":
@@ -221,7 +238,8 @@ def build_decision_case(row: Mapping[str, Any]) -> dict[str, Any]:
         "insider_count": insider_count,
         "bjellesau_count": bjellesau_count,
         "news_count": news_count,
-        "source_count": source_count,
+        "nbim_count": nbim_count,
+        "source_count": source_count_total,
         "source_row": dict(row),
         "reviewed_at": datetime.now().isoformat(timespec="seconds"),
         "disclaimer": "Beslutningsstotte for manuell vurdering, ikke investeringsraad og ikke automatisk handel.",

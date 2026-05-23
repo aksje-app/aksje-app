@@ -74,18 +74,18 @@ def render_decision_support_panel() -> None:
             st.session_state[DECISION_QUEUE_KEY] = queue
             st.success(f"Hentet {len(rows)} radarfunn til beslutningsgrunnlag.")
     with c2:
-        if st.button("Vurder ko", key="decision_support_run_v1863ba", use_container_width=True, disabled=not queue):
+        if st.button("Vurder hele køen", key="decision_support_run_v1863ba", use_container_width=True, disabled=not queue):
             st.session_state[DECISION_CASES_KEY] = build_decision_cases(queue)
             st.success(f"Vurdert {len(queue)} kandidater.")
     with c3:
-        if st.button("Tom ko", key="decision_support_clear_v1863ba", use_container_width=True, disabled=not queue):
+        if st.button("Tøm kø", key="decision_support_clear_v1863ba", use_container_width=True, disabled=not queue):
             queue = []
             st.session_state[DECISION_QUEUE_KEY] = []
             st.session_state[DECISION_CASES_KEY] = []
-            st.success("Beslutningskoen er tom.")
+            st.success("Beslutningskøen er tom.")
 
     if not queue:
-        st.info("Ingen radarfunn i beslutningskoen ennaa. Kjor radar og send funn hit, eller hent siste radarfunn.")
+        st.info("Ingen radarfunn i beslutningskøen ennaa. Kjor radar og send funn hit, eller hent siste radarfunn.")
         return
 
     labels = [f"{row.get('ticker')} | {row.get('decision_source') or row.get('source') or row.get('mode')}" for row in queue]
@@ -120,7 +120,7 @@ def render_decision_support_panel() -> None:
         "Vent": sum(1 for case in cases if case.get("decision") == "Vent"),
         "Unnga": sum(1 for case in cases if case.get("decision") == "Unnga"),
     }
-    st.caption(f"Ko: {len(queue)} | Kjop naa: {summary['Kjop naa']} | Vent: {summary['Vent']} | Unnga: {summary['Unnga']}")
+    st.caption(f"Kø: {len(queue)} | Kjop naa: {summary['Kjop naa']} | Vent: {summary['Vent']} | Unnga: {summary['Unnga']}")
 
     for case in cases:
         st.markdown(_case_card(case), unsafe_allow_html=True)

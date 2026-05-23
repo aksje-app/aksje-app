@@ -9,8 +9,13 @@ for name in [
     "alpha_radar_enrichment.py",
     "alpha_radar_currency.py",
     "alpha_radar_results.py",
+    "actor_registry.py",
+    "actor_registry_ui.py",
     "runtime_env.py",
     "data_source_diagnostics.py",
+    "nordic_market_sources.py",
+    "nbim_radar.py",
+    "nbim_radar_ui.py",
     "decision_engine.py",
     "decision_ui.py",
     "early_warning_engine.py",
@@ -28,21 +33,25 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3bc"' in version
-assert "Radar Status Polish" in version
+assert 'APP_VERSION = "v18.6.3bd"' in version
+assert "Nordic Sources & NBIM Radar" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
 assert "from alpha_radar_enrichment import enrich_alpha_radar_row" in app
+assert "from actor_registry_ui import render_actor_registry_panel" in app
+assert "from nbim_radar_ui import render_nbim_radar_panel" in app
 assert "def render_alpha_radar_control_center_v1863ap" in app
 assert "data_enricher=enrich_alpha_radar_row" in app
 assert "earnings_provider=get_earnings" in app
 assert '("Alpha Radar", render_alpha_radar_control_center_v1863ap)' in app
+assert '("Aktørregister", render_actor_registry_panel)' in app
+assert '("Oljefond Radar", render_nbim_radar_panel)' in app
 assert "from decision_ui import render_decision_support_panel" in app
 assert '("Beslutningsgrunnlag", render_decision_support_panel)' in app
 active_layout_block = layout.split("def _render_ai_control_center_v1863aj", 1)[1]
 assert '"alpha"' in active_layout_block and '"muligheter"' in active_layout_block
-assert '"beslut"' in active_layout_block
+assert '"beslut"' in active_layout_block and '"oljefond"' in active_layout_block and '"nbim"' in active_layout_block
 
 # Heavy scanning must stay behind an explicit button.
 button_pos = ui.find("run_clicked = st.button")
@@ -87,10 +96,15 @@ assert "Send til Beslutningsgrunnlag" in ui
 assert "DECISION_QUEUE_KEY" in ui
 assert "Datakilde-status / markedstest" in ui
 assert "Test datakilder per marked" in ui
+assert "source_diagnostics" in engine + early + results
+assert "Datadiagnostikk" in results
+assert "local_market_source_diagnostics" in Path("nordic_market_sources.py").read_text(encoding="utf-8", errors="ignore")
 assert "horizon_to_months" in ui + Path("data_source_diagnostics.py").read_text(encoding="utf-8", errors="ignore")
 assert "data_window_months" in engine + early + ui + results
 assert "build_decision_cases" in Path("decision_engine.py").read_text(encoding="utf-8", errors="ignore")
 assert "render_decision_support_panel" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "Vurder hele køen" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "Tøm kø" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Enkeltmarked bruker egen grense" in ui
 assert "alpha_news_quality" in engine
 assert "Valgene er endret siden siste" in ui

@@ -11,6 +11,12 @@ from typing import Any, Mapping, Sequence
 
 from alpha_radar_currency import market_cap_display
 
+try:
+    from runtime_env import redact_secrets
+except Exception:  # pragma: no cover - static fallback
+    def redact_secrets(value: Any) -> str:
+        return str(value or "")
+
 
 SNAPSHOT_SETTINGS_KEY = "alpha_radar_saved_snapshots"
 OBSERVATION_SETTINGS_KEY = "alpha_radar_observation_list"
@@ -64,6 +70,8 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "warning_reasons",
         "manual_review",
         "evidence_summary",
+        "diagnostics",
+        "source_diagnostics",
         "insider_evidence",
         "bjellesau_evidence",
         "news_evidence",
@@ -80,6 +88,8 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
             if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
                 out[key] = "; ".join(str(item) for item in value)
         out["evidence_summary"] = _evidence_summary(row)
+        out["diagnostics"] = _diagnostic_text(row)
+        out["source_diagnostics"] = _diagnostic_text(row)
         out["insider_evidence"] = _evidence_text(row.get("insider_evidence"))
         out["bjellesau_evidence"] = _evidence_text(row.get("bjellesau_evidence"))
         out["news_evidence"] = _evidence_text(row.get("news_evidence"))
@@ -157,10 +167,10 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         "volume_score", "macro_score", "evidence_score", "risk_score", "market_cap",
         "market_cap_currency", "market_cap_display", "market_cap_nok_estimate",
         "data_quality", "why_now", "signals", "reject_reasons", "warning_reasons", "manual_review",
-        "evidence_summary",
+        "evidence_summary", "diagnostics", "source_diagnostics",
     ]
     candidate_rows = [candidate_fields] + [[
-        _evidence_summary(row) if field == "evidence_summary" else _market_cap_text(row) if field == "market_cap_display" else row.get(field)
+        _evidence_summary(row) if field == "evidence_summary" else _diagnostic_text(row) if field in {"diagnostics", "source_diagnostics"} else _market_cap_text(row) if field == "market_cap_display" else row.get(field)
         for field in candidate_fields
     ] for row in candidates]
     signal_rows = [["ticker", "factor", "score", "quality"]]
@@ -186,6 +196,20 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
                     item.get("detail"),
                     item.get("url"),
                 ])
+    diagnostic_rows = [["ticker", "type", "title", "source", "status", "window", "detail", "url"]]
+    for row in candidates:
+        for item in row.get("source_diagnostics") or []:
+            if isinstance(item, Mapping):
+                diagnostic_rows.append([
+                    row.get("ticker"),
+                    item.get("type"),
+                    item.get("title"),
+                    item.get("source"),
+                    item.get("status"),
+                    item.get("window"),
+                    item.get("detail"),
+                    item.get("url"),
+                ])
     raw_rows = [["Key", "Value"]] + [[key, value] for key, value in context.items()]
 
     sheets = [
@@ -194,6 +218,7 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         ("Signals", signal_rows),
         ("Data quality", quality_rows),
         ("Evidence", evidence_rows),
+        ("Diagnostics", diagnostic_rows),
         ("Excluded", excluded_rows),
         ("Raw input", raw_rows),
     ]
@@ -276,6 +301,46 @@ def _evidence_summary(row: Mapping[str, Any]) -> str:
     return f"{len(insider)} insider-spor, {len(bjellesau)} bjellesau-spor, {len(news)} nyhetsspor, {len(evidence)} kildespor totalt."
 
 
+def _diagnostic_text(row: Mapping[str, Any]) -> str:
+    diagnostics = row.get("source_diagnostics") if isinstance(row.get("source_diagnostics"), list) else []
+    parts: list[str] = []
+    for item in diagnostics:
+        if not isinstance(item, Mapping):
+            continue
+        text = " | ".join(
+            str(part or "").strip()
+            for part in (
+                item.get("title"),
+                item.get("source"),
+                item.get("status"),
+                item.get("window"),
+                item.get("detail"),
+                item.get("url"),
+            )
+            if str(part or "").strip()
+        )
+        if text:
+            parts.append(redact_secrets(text))
+    for key, label in (
+        ("alpha_insider_error", "insider"),
+        ("alpha_news_error", "nyheter"),
+        ("alpha_earnings_error", "earnings"),
+        ("alpha_result_diagnostic", "vendepunkt"),
+    ):
+        if row.get(key):
+            parts.append(redact_secrets(f"{label}: {row.get(key)}"))
+    if not parts:
+        return "Ingen ekstra datadiagnostikk lagret."
+    seen: set[str] = set()
+    clean: list[str] = []
+    for part in parts:
+        if part in seen:
+            continue
+        seen.add(part)
+        clean.append(part)
+    return "\n".join(clean[:12])
+
+
 def _evidence_html(row: Mapping[str, Any]) -> str:
     evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
     if not evidence:
@@ -293,6 +358,28 @@ def _evidence_html(row: Mapping[str, Any]) -> str:
         meta = " | ".join(part for part in (source, published, link) if part)
         items.append(f"<li><b>{kind}:</b> {title}<br><span>{meta}</span><br><em>{detail}</em></li>")
     return "<div class='evidence'><b>Kildespor / hva ble funnet:</b><ul>" + "".join(items) + "</ul></div>"
+
+
+def _diagnostic_html(row: Mapping[str, Any]) -> str:
+    diagnostics = row.get("source_diagnostics") if isinstance(row.get("source_diagnostics"), list) else []
+    extra = _diagnostic_text(row)
+    if not diagnostics and extra == "Ingen ekstra datadiagnostikk lagret.":
+        return "<p class='muted'><b>Datadiagnostikk:</b> Ingen ekstra datadiagnostikk lagret.</p>"
+    items: list[str] = []
+    for item in diagnostics[:10]:
+        if not isinstance(item, Mapping):
+            continue
+        title = html.escape(str(item.get("title") or "Datakilde"))
+        source = html.escape(str(item.get("source") or ""))
+        status = html.escape(str(item.get("status") or ""))
+        window = html.escape(str(item.get("window") or ""))
+        detail = html.escape(redact_secrets(item.get("detail") or ""))
+        link = _link_html(item.get("url"), "Apne")
+        meta = " | ".join(part for part in (source, status, window, link) if part)
+        items.append(f"<li><b>{title}</b><br><span>{meta}</span><br><em>{detail}</em></li>")
+    if not items and extra:
+        items.append(f"<li>{html.escape(redact_secrets(extra))}</li>")
+    return "<div class='diagnostics'><b>Datadiagnostikk / hvorfor felt kan vaere tomme:</b><ul>" + "".join(items) + "</ul></div>"
 
 
 def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
@@ -343,6 +430,7 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
             f"<p>{html.escape(str(row.get('why_now') or row.get('thesis') or ''))}</p>"
             f"<p><b>Signaler:</b> {html.escape(', '.join(str(x) for x in signals) or '-')}</p>"
             f"{_evidence_html(row)}"
+            f"{_diagnostic_html(row)}"
             f"<p><b>Sjekk/avslag:</b> {html.escape('; '.join(str(x) for x in rejects) or 'ingen harde avslag')}</p>"
             f"<p><b>Datavarsel:</b> {html.escape('; '.join(str(x) for x in warnings) or 'ingen')}</p>"
             f"<p class='review'>{html.escape(str(row.get('manual_review') or ''))}</p>"
@@ -368,6 +456,9 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
     .evidence {{ background: #f8fafc; border: 1px solid #dbeafe; padding: 8px 10px; margin: 8px 0; }}
     .evidence ul {{ margin: 6px 0 0 18px; padding: 0; }}
     .evidence li {{ margin: 0 0 7px 0; }}
+    .diagnostics {{ background: #fff7ed; border: 1px solid #fed7aa; padding: 8px 10px; margin: 8px 0; }}
+    .diagnostics ul {{ margin: 6px 0 0 18px; padding: 0; }}
+    .diagnostics li {{ margin: 0 0 7px 0; }}
     .evidence span, .muted {{ color: #4b5563; font-size: 12px; }}
     @media print {{ button {{ display: none; }} body {{ margin: 16mm; }} }}
   </style>
