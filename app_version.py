@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ax"
-APP_VERSION_NAME = "Radar Menu Logic Hardening"
-APP_BUILD_ID = "v1863ax-radar-menu-logic-hardening"
+APP_VERSION = "v18.6.3az"
+APP_VERSION_NAME = "Evidence Currency Radar"
+APP_BUILD_ID = "v1863az-evidence-currency-radar"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -48,6 +48,12 @@ APP_PATCH_NOTES = [
     "Radar-menyene er strammet: Radar-modus laaser kjerne-signalene, ekstra Signal-lupe er separat, og datakilder folger samme regelmodell.",
     "Insider-modus i Alpha Radar starter naa med Insider/bjellesauer alene; nyheter/resultater blir kun stottevalg hvis bruker legger dem til.",
     "Kontrollsenter avslutter tung-jobb-gaten foer st.stop, slik at Global oppdatering ikke blir hengende igjen og gjor senere menyvalg tunge.",
+    "Alpha Radar og Early Warning henter alltid ferskt run-univers ved Kjor, nuller gammel tickerliste og viser markedstelling for univers, skannet, scoret, ekskludert og funn.",
+    "Alle/Norden bruker balansert sluttliste: beste funn per marked tas med foer resten fylles etter score, slik at USA ikke kan skjule alle andre markeder uten forklaring.",
+    "Funn-grensen er utvidet til 60 for brede univers, og IPO/pre-IPO forklares som separat omraade, ikke som skjult tillegg i 177-universet.",
+    "Radarene krever naa konkret nyhets-/makro-/resultatevidens foer faktorer merkes ekte, slik at tomme kildesok ikke gir lik 45.0-katalysator paa alle tickere.",
+    "Borsverdi vises med punkt som tusenskille og lokal valuta, med ca. NOK-estimat der valuta ikke er NOK.",
+    "Enkeltmarked bruker egen skannegrense i Alpha Radar/Early Warning, Brasil-listen er utvidet, og 177 behandles ikke som fast globalt tak.",
 ]
 
 def get_app_version():

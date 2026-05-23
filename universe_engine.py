@@ -23,7 +23,7 @@ import math
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_version import get_app_version
-from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, normalize_market_scopes
+from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, SOURCE_SCOPE_OPTIONS, normalize_market_scopes
 from security_metadata import resolve_security_metadata
 
 
@@ -481,6 +481,9 @@ def resolve_strict_universe_tickers(
         return (from_scope("Portefølje"), "Portefølje")
     if mode == "Smart AI-utvalg":
         return (from_scope("Smart AI-utvalg"), "Smart AI-utvalg")
+    for source_scope in SOURCE_SCOPE_OPTIONS:
+        if source_scope in scopes:
+            return (from_scope(source_scope), source_scope)
 
     market_scopes = [scope for scope in scopes if scope in MARKET_SCOPE_OPTIONS]
     if mode == "Multi-marked":

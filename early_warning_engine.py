@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from alpha_radar_currency import market_cap_fields
+
 
 HORIZON_WEIGHTS = {
     "1m": {
@@ -71,6 +73,9 @@ class EarlyWarningCandidate:
     crowdedness_penalty: float
     liquidity_penalty: float
     market_cap: float | None
+    market_cap_currency: str
+    market_cap_nok_estimate: float | None
+    market_cap_display: str
     data_quality: str
     base_score: float
     why_now: str
@@ -124,6 +129,7 @@ def _safe_ticker(value: Any) -> str:
 
 
 def _infer_market(ticker: str) -> str:
+    ticker = _safe_ticker(ticker)
     if ticker.endswith(".OL"):
         return "Norge"
     if ticker.endswith(".ST"):
@@ -135,6 +141,60 @@ def _infer_market(ticker: str) -> str:
     if ticker.endswith(".SA"):
         return "Brasil"
     return "USA/annet"
+
+
+def _market_counts_from_tickers(tickers: Sequence[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for ticker in tickers or []:
+        market = _infer_market(str(ticker or ""))
+        counts[market] = counts.get(market, 0) + 1
+    return counts
+
+
+def _market_counts_from_candidates(candidates: Sequence["EarlyWarningCandidate"]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates or []:
+        market = str(candidate.market or _infer_market(candidate.ticker))
+        counts[market] = counts.get(market, 0) + 1
+    return counts
+
+
+def _balanced_candidates(
+    candidates: Sequence["EarlyWarningCandidate"],
+    *,
+    limit: int,
+    balance_markets: bool,
+) -> list["EarlyWarningCandidate"]:
+    ranked = sorted(candidates or [], key=lambda item: item.early_warning_score, reverse=True)
+    if not balance_markets or limit <= 1:
+        return ranked[:limit]
+    by_market: dict[str, list[EarlyWarningCandidate]] = {}
+    for candidate in ranked:
+        by_market.setdefault(str(candidate.market or _infer_market(candidate.ticker)), []).append(candidate)
+    if len(by_market) <= 1:
+        return ranked[:limit]
+
+    selected: list[EarlyWarningCandidate] = []
+    selected_ids: set[str] = set()
+    markets_by_best = sorted(
+        by_market,
+        key=lambda market: by_market[market][0].early_warning_score if by_market.get(market) else -1,
+        reverse=True,
+    )
+    for market in markets_by_best:
+        if len(selected) >= limit:
+            break
+        top = by_market[market][0]
+        selected.append(top)
+        selected_ids.add(top.ticker)
+    for candidate in ranked:
+        if len(selected) >= limit:
+            break
+        if candidate.ticker in selected_ids:
+            continue
+        selected.append(candidate)
+        selected_ids.add(candidate.ticker)
+    return sorted(selected, key=lambda item: item.early_warning_score, reverse=True)[:limit]
 
 
 def _market_cap(row: Mapping[str, Any]) -> float | None:
@@ -181,6 +241,14 @@ def _news_items(row: Mapping[str, Any], limit: int = 5) -> list[dict[str, Any]]:
             "detail": "Nyhets-/katalysatorspor som maa leses manuelt.",
         })
     return items
+
+
+def _news_count(row: Mapping[str, Any]) -> int:
+    articles = row.get("articles") if isinstance(row.get("articles"), list) else []
+    if articles:
+        return len(articles)
+    value = _float(row.get("news_count", row.get("article_count")), 0.0) or 0.0
+    return max(0, int(value))
 
 
 def _insider_items(row: Mapping[str, Any], limit: int = 6) -> list[dict[str, Any]]:
@@ -258,7 +326,6 @@ def _expectation_change(row: Mapping[str, Any]) -> tuple[float | None, str]:
 def _earnings_surprise(row: Mapping[str, Any]) -> tuple[float | None, str]:
     values = [
         row.get("earnings_surprise_score"),
-        row.get("result_inflection_score"),
         row.get("guidance_score"),
         row.get("surprise_score"),
     ]
@@ -271,26 +338,29 @@ def _earnings_surprise(row: Mapping[str, Any]) -> tuple[float | None, str]:
     return None, "mangler"
 
 
-def _fundamental_acceleration(row: Mapping[str, Any]) -> tuple[float, str]:
+def _fundamental_acceleration(row: Mapping[str, Any]) -> tuple[float | None, str]:
     growth = _unit(row.get("revenue_growth"))
     margin = _unit(row.get("profit_margin"))
     quality = _score_part(row, "quality")
     fundamental_growth = _score_part(row, "fundamental_growth")
     values = [value for value in (growth, margin, quality, fundamental_growth) if value is not None]
     if not values:
-        base = _float(row.get("score"), None)
-        return (_clamp((base or 5.0) / 10.0), "proxy")
+        return None, "mangler"
     return (_clamp(sum(values) / len(values)), "ekte" if growth is not None or margin is not None else "proxy")
 
 
-def _market_confirmation(row: Mapping[str, Any]) -> tuple[float, str]:
+def _market_confirmation(row: Mapping[str, Any]) -> tuple[float | None, str]:
     momentum = _score_part(row, "momentum")
     trend = _score_part(row, "trend")
     volume = _score_part(row, "volume")
-    ret_1m = _ret(row.get("ret_1m"))
-    ret_3m = _ret(row.get("ret_3m"))
-    ret_score = _clamp(0.48 + ret_1m * 2.1 + ret_3m * 0.9)
+    ret_score = None
+    if row.get("ret_1m") is not None or row.get("ret_3m") is not None:
+        ret_1m = _ret(row.get("ret_1m"))
+        ret_3m = _ret(row.get("ret_3m"))
+        ret_score = _clamp(0.48 + ret_1m * 2.1 + ret_3m * 0.9)
     values = [value for value in (momentum, trend, volume, ret_score) if value is not None]
+    if not values:
+        return None, "mangler"
     return (_clamp(sum(values) / len(values)), "beregnet")
 
 
@@ -313,17 +383,19 @@ def _ownership_insider(row: Mapping[str, Any], include_insider: bool) -> tuple[f
 
 
 def _catalyst_altdata_macro(row: Mapping[str, Any], include_news: bool, include_macro: bool) -> tuple[float | None, str]:
-    values = [
-        row.get("catalyst_score"),
-        row.get("small_news_big_impact_score"),
-        row.get("local_news_score"),
-        row.get("macro_tailwind_score"),
-        row.get("commodity_tailwind_score"),
-    ]
-    scores = [_unit(value) for value in values if value is not None]
-    scores = [value for value in scores if value is not None]
-    if scores:
-        return max(scores), "ekte"
+    news_values = [row.get("catalyst_score")]
+    has_news = _news_items(row, limit=1) or _news_count(row)
+    if has_news or str(row.get("alpha_news_quality") or "").lower() == "ekte":
+        news_values.extend([row.get("small_news_big_impact_score"), row.get("local_news_score")])
+    news_scores = [_unit(value) for value in news_values if value is not None]
+    news_scores = [value for value in news_scores if value is not None]
+    if news_scores:
+        return max(news_scores), "ekte"
+    macro_values = [row.get("macro_tailwind_score"), row.get("commodity_tailwind_score")]
+    macro_scores = [_unit(value) for value in macro_values if value is not None]
+    macro_scores = [value for value in macro_scores if value is not None]
+    if include_macro and macro_scores and row.get("macro_tailwind_notes"):
+        return max(macro_scores), "proxy"
     text = " ".join(str(row.get(key) or "") for key in ("sector", "industry", "name", "description")).lower()
     hits = sum(1 for word in ("contract", "order", "patent", "guidance", "oil", "copper", "shipping", "ai", "semiconductor") if word in text)
     if hits and (include_news or include_macro):
@@ -444,6 +516,7 @@ def _score_row(
     evidence_note = f"{len(insider_evidence)} insider/bjellesau-spor og {len(news_evidence)} nyhetsspor" if evidence_items else "ingen direkte kildespor"
     why = f"{ticker}: {', '.join(signals[:3])} peker mest opp i Early Warning; funnet {evidence_note}. Bekreft kildene manuelt foer vurdering."
     cap = _market_cap(row)
+    cap_fields = market_cap_fields(ticker, {**dict(row), "market_cap": cap})
     factor_scores = {key: (None if value is None else round(float(value) * 100.0, 1)) for key, value in factors.items()}
     return EarlyWarningCandidate(
         rank=0,
@@ -467,6 +540,9 @@ def _score_row(
         crowdedness_penalty=0.0,
         liquidity_penalty=round(liquidity, 1),
         market_cap=cap,
+        market_cap_currency=str(cap_fields["market_cap_currency"]),
+        market_cap_nok_estimate=cap_fields["market_cap_nok_estimate"],
+        market_cap_display=str(cap_fields["market_cap_display"]),
         data_quality=data_quality,
         base_score=round(_float(row.get("score"), 0.0) or 0.0, 2),
         why_now=why,
@@ -497,9 +573,10 @@ def run_early_warning(
     include_ipo: bool = False,
     score_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    balance_markets: bool = False,
 ) -> dict[str, Any]:
     horizon = horizon if horizon in HORIZON_WEIGHTS else "3m"
-    limit = max(1, min(int(limit or 10), 15))
+    limit = max(1, min(int(limit or 10), 60))
     max_scan = max(limit, min(int(max_scan or 60), 250))
     clean: list[str] = []
     seen: set[str] = set()
@@ -560,7 +637,7 @@ def run_early_warning(
         candidates.append(candidate)
         progress(index, ticker, "scoret")
 
-    ranked = sorted(candidates, key=lambda item: item.early_warning_score, reverse=True)[:limit]
+    ranked = _balanced_candidates(candidates, limit=limit, balance_markets=bool(balance_markets))
     ranked = [EarlyWarningCandidate(**{**candidate.to_dict(), "rank": idx}) for idx, candidate in enumerate(ranked, start=1)]
     progress(len(clean), "", "ferdig")
     return {
@@ -574,12 +651,18 @@ def run_early_warning(
         "scanned_count": len(clean),
         "scored_count": len(candidates),
         "candidate_count": len(ranked),
+        "all_candidate_count": len(candidates),
         "low_data_count": 0,
         "skipped_count": len(skipped),
         "skipped_tickers": skipped[:20],
         "excluded_count": 0,
         "excluded_reason_counts": {},
         "excluded_samples": [],
+        "market_scan_counts": _market_counts_from_tickers(clean),
+        "market_scored_counts": _market_counts_from_candidates(candidates),
+        "market_candidate_counts": _market_counts_from_candidates(ranked),
+        "market_excluded_counts": {},
+        "market_balance_enabled": bool(balance_markets),
         "scope_limits": {
             "listed_equities": True,
             "ipo_preipo_included": bool(include_ipo),

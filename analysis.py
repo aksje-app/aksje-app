@@ -5,6 +5,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 
 import pandas as pd
 import yfinance as yf
+from alpha_radar_currency import market_cap_fields
 from news import get_news, simple_finance_sentiment
 
 FAST_CACHE_TTL_SECONDS = int(os.getenv("APP_SCORE_FAST_CACHE_TTL_SECONDS", "900") or 900)
@@ -343,10 +344,12 @@ def score_stock(ticker, use_news=True, include_insider=False, insider_provider=N
         "revenue_growth": info.get("revenueGrowth"),
         "debt_to_equity": info.get("debtToEquity"),
         "market_cap": info.get("marketCap"),
+        "market_cap_currency": info.get("currency") or info.get("financialCurrency"),
         "articles": articles,
         "news_error": news_error,
         "hist": hist,
     }
+    item.update(market_cap_fields(ticker, item))
     if include_insider:
         item["insider_score"] = round(float(insider_score if insider_score is not None else 0.5), 3)
         item["insider_adjustment"] = _insider_adjustment(insider_score)

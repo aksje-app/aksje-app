@@ -22,9 +22,10 @@ from alpha_radar_results import (
     save_alpha_radar_observation_list,
     save_alpha_radar_snapshot,
 )
+from alpha_radar_currency import market_cap_display
 
 
-RADAR_UI_STATE_VERSION = "v1863ax"
+RADAR_UI_STATE_VERSION = "v1863az"
 LAST_RESULT_KEY = f"alpha_radar_last_result_{RADAR_UI_STATE_VERSION}"
 ACTIVE_SIGNAL_OPTIONS = [
     "Borsverdi",
@@ -42,6 +43,8 @@ SOURCE_LABELS = {
     "macro": "Ravarer/makro",
     "results": "Resultater",
 }
+
+MARKET_DISPLAY_ORDER = ["USA/annet", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
 
 SIGNAL_SOURCE_REQUIREMENTS = {
     "Nyheter/katalysator": {"news": "Signal-lupe: Nyheter/katalysator"},
@@ -382,6 +385,119 @@ def _render_run_preview(
     )
 
 
+def _infer_market_from_ticker(ticker: str) -> str:
+    value = str(ticker or "").strip().upper()
+    if value.endswith(".OL"):
+        return "Norge"
+    if value.endswith(".ST"):
+        return "Sverige"
+    if value.endswith(".HE"):
+        return "Finland"
+    if value.endswith(".CO"):
+        return "Danmark"
+    if value.endswith(".SA"):
+        return "Brasil"
+    return "USA/annet"
+
+
+def _market_counts(values: Sequence[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for ticker in values or []:
+        market = _infer_market_from_ticker(str(ticker or ""))
+        counts[market] = counts.get(market, 0) + 1
+    return counts
+
+
+def _ordered_market_items(counts: Mapping[str, int]) -> list[tuple[str, int]]:
+    known = [(market, int(counts.get(market) or 0)) for market in MARKET_DISPLAY_ORDER if int(counts.get(market) or 0) > 0]
+    other = sorted((str(market), int(count)) for market, count in counts.items() if market not in MARKET_DISPLAY_ORDER and int(count or 0) > 0)
+    return known + other
+
+
+def _format_market_counts(counts: Mapping[str, int]) -> str:
+    items = _ordered_market_items(counts)
+    if not items:
+        return "ingen tickere"
+    return ", ".join(f"{market} {count}" for market, count in items)
+
+
+def _should_balance_markets(scope: str, tickers: Sequence[str]) -> bool:
+    counts = _market_counts(tickers)
+    return str(scope or "") in {"Alle", "Norden"} and len([count for count in counts.values() if count > 0]) > 1
+
+
+def _scan_default_for_scope(scope: str, fallback: int = 120) -> int:
+    value = str(scope or "").strip()
+    if value == "Alle":
+        return 250
+    if value == "Norden":
+        return 177
+    if value in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"}:
+        return 177
+    return int(fallback)
+
+
+def _attach_universe_metadata(
+    result: dict[str, Any],
+    *,
+    scope: str,
+    source_tickers: Sequence[str],
+    balance_markets: bool,
+    fresh_universe: bool,
+) -> dict[str, Any]:
+    counts = _market_counts(source_tickers)
+    result["universe_total"] = len(source_tickers or [])
+    result["universe_market_counts"] = counts
+    result["universe_fresh_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    result["universe_fresh_run"] = bool(fresh_universe)
+    result["market_balance_enabled"] = bool(balance_markets or result.get("market_balance_enabled"))
+    result["market_balance_note"] = (
+        "Alle/Norden bruker balansert sluttliste: beste funn per marked tas med foer resten fylles etter score."
+        if balance_markets
+        else "Enkeltmarked eller ubalansert kilde: vanlig global score-sortering."
+    )
+    result["scope"] = scope
+    return result
+
+
+def _render_market_audit(result: Mapping[str, Any]) -> None:
+    scan = result.get("market_scan_counts") if isinstance(result.get("market_scan_counts"), Mapping) else {}
+    scored = result.get("market_scored_counts") if isinstance(result.get("market_scored_counts"), Mapping) else {}
+    excluded = result.get("market_excluded_counts") if isinstance(result.get("market_excluded_counts"), Mapping) else {}
+    found = result.get("market_candidate_counts") if isinstance(result.get("market_candidate_counts"), Mapping) else {}
+    universe = result.get("universe_market_counts") if isinstance(result.get("universe_market_counts"), Mapping) else {}
+    markets = {str(market) for market in list(universe) + list(scan) + list(scored) + list(excluded) + list(found)}
+    if not markets:
+        return
+    order = [market for market in MARKET_DISPLAY_ORDER if market in markets] + sorted(market for market in markets if market not in MARKET_DISPLAY_ORDER)
+    rows = []
+    for market in order:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(market)}</td>"
+            f"<td>{int(universe.get(market) or scan.get(market) or 0)}</td>"
+            f"<td>{int(scan.get(market) or 0)}</td>"
+            f"<td>{int(scored.get(market) or 0)}</td>"
+            f"<td>{int(excluded.get(market) or 0)}</td>"
+            f"<td>{int(found.get(market) or 0)}</td>"
+            "</tr>"
+        )
+    st.markdown(
+        f"""
+        <div class='alpha-radar-market-audit'>
+          <b>Markedskontroll</b><br>
+          Univers: {int(result.get('universe_total') or result.get('scanned_count') or 0)} tickere ·
+          {html.escape(str(result.get('market_balance_note') or ''))}<br>
+          <table>
+            <thead><tr><th>Marked</th><th>Univers</th><th>Skannet</th><th>Scoret</th><th>Ekskludert</th><th>Funn</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _ticker_digest(tickers: Sequence[str]) -> str:
     joined = "|".join(str(ticker).strip().upper() for ticker in tickers or [])
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
@@ -627,6 +743,7 @@ def _render_alpha_radar_css() -> None:
         }
         .alpha-radar-rule-note,
         .alpha-radar-signal-rule,
+        .alpha-radar-market-audit,
         .alpha-radar-run-preview {
             border: 1px solid rgba(125, 211, 252, 0.28);
             background: rgba(8, 47, 73, 0.30);
@@ -640,6 +757,27 @@ def _render_alpha_radar_css() -> None:
         .alpha-radar-run-preview {
             border-color: rgba(74, 222, 128, 0.32);
             background: rgba(6, 78, 59, 0.24);
+        }
+        .alpha-radar-market-audit {
+            border-color: rgba(125, 211, 252, 0.34);
+            background: rgba(8, 47, 73, 0.22);
+        }
+        .alpha-radar-market-audit table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.42rem;
+            font-size: 0.74rem;
+        }
+        .alpha-radar-market-audit th,
+        .alpha-radar-market-audit td {
+            border: 1px solid rgba(125, 211, 252, 0.16);
+            padding: 0.22rem 0.34rem;
+            text-align: left;
+        }
+        .alpha-radar-market-audit th {
+            color: #bae6fd;
+            font-weight: 900;
+            background: rgba(15, 23, 42, 0.62);
         }
         .alpha-radar-signal-rule {
             border-color: rgba(125, 211, 252, 0.40);
@@ -753,7 +891,10 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
     warnings = candidate.get("warning_reasons") if isinstance(candidate.get("warning_reasons"), list) else []
     data_quality = html.escape(str(candidate.get("data_quality") or "OK"))
     market_cap = candidate.get("market_cap")
-    cap_text = "-" if market_cap in {None, ""} else f"{float(market_cap):,.0f}".replace(",", " ")
+    cap_text = str(candidate.get("market_cap_display") or market_cap_display(market_cap, candidate.get("market_cap_currency")) or "-")
+    cap_nok = candidate.get("market_cap_nok_estimate")
+    if cap_nok not in {None, ""} and str(candidate.get("market_cap_currency") or "").upper() != "NOK":
+        cap_text = f"{cap_text} (ca. {market_cap_display(cap_nok, 'NOK')})"
     review = html.escape(str(candidate.get("manual_review") or ""))
     reject_text = "; ".join(str(x) for x in rejects) if rejects else "ingen harde avslag"
     warning_text = "; ".join(str(x) for x in warnings) if warnings else "ingen datavarsler"
@@ -844,7 +985,7 @@ def render_alpha_radar_panel(
         )
     else:
         st.subheader("Alpha Radar V2")
-        st.caption("Contrarian / Hidden Potential Score for 1-15 manuelle aksjehypoteser.")
+        st.caption("Contrarian / Hidden Potential Score for inntil 60 manuelle aksjehypoteser.")
         st.markdown(
             "<div class='alpha-radar-note'>V2 leter etter underdekkede vendepunkter, why-now-signaler, "
             "insider/bjellesauer, uvanlig volum og andreordens makro/ravare-effekter. Kjente/overdekkede "
@@ -862,7 +1003,9 @@ def render_alpha_radar_panel(
     with c2:
         mode = st.selectbox("Radar-modus", ALPHA_RADAR_MODES, key="alpha_radar_mode_v1863au")
     with c3:
-        limit = st.slider("Funn", 1, 15, 10, 1, key="alpha_radar_limit_v1863au")
+        limit_default = 30 if scope not in {no_selection_label, "Manuell liste"} else 15
+        limit_scope_key = hashlib.sha256(str(scope or "").encode("utf-8")).hexdigest()[:8]
+        limit = st.slider("Funn", 1, 60, limit_default, 1, key=f"alpha_radar_limit_{RADAR_UI_STATE_VERSION}_{limit_scope_key}")
 
     c4, c5, c6, c6b = st.columns([0.78, 0.82, 0.82, 1.28])
     with c4:
@@ -963,7 +1106,8 @@ def render_alpha_radar_panel(
 
     c7, c8, c9, c10, c11, c12 = st.columns([0.72, 0.72, 0.72, 0.72, 0.78, 0.90])
     with c7:
-        max_scan = st.slider("Maks scan", 5, 250, 120, 5, key="alpha_radar_scan_limit_v1863au")
+        scan_scope_key = hashlib.sha256(str(scope or "").encode("utf-8")).hexdigest()[:8]
+        max_scan = st.slider("Maks scan", 5, 250, _scan_default_for_scope(scope), 5, key=f"alpha_radar_scan_limit_{RADAR_UI_STATE_VERSION}_{scan_scope_key}")
     with c8:
         if source_locked["news"]:
             locked_news_key = f"{source_keys['news']}_locked"
@@ -1092,8 +1236,10 @@ def render_alpha_radar_panel(
             "Merk IPO/pre-IPO som separat omraade",
             value=False,
             key="early_warning_include_ipo_v1863au",
-            help="V1 blander ikke IPO/pre-IPO direkte med boersnoterte aksjer. Dette reserverer feltet for separat datadekning.",
+            help="Dette er ikke en ekstra tickerkilde i denne V1-rangeringen. IPO/pre-IPO maa behandles som separat omraade fordi mange mangler ticker/boershistorikk.",
         )
+        if include_ipo:
+            st.caption("IPO/pre-IPO markeres separat og legges ikke oppaa de boersnoterte tickerne i 177-universet. Egen IPO-motor maa brukes for kalender/rykter uten ticker.")
 
     manual_text = ""
     if scope == "Manuell liste":
@@ -1135,16 +1281,18 @@ def render_alpha_radar_panel(
             st.warning(f"Kunne ikke hente univers: {exc}")
 
     if source_tickers:
+        market_count_text = _format_market_counts(_market_counts(source_tickers))
         if len(source_tickers) < int(max_scan):
             st.caption(
                 f"Univers klart: {len(source_tickers)} tickere. Maks scan er {int(max_scan)}, "
-                "men valgt univers har ikke flere tilgjengelige tickere akkurat naa. "
-                f"Eksempel: {', '.join(source_tickers[:10])}"
+                "men valgt univers har ikke flere tilgjengelige tickere akkurat naa. Enkeltmarked bruker ikke Alle-kvoten. "
+                f"Fordeling: {market_count_text}. Eksempel: {', '.join(source_tickers[:10])}"
             )
         else:
-            st.caption(f"Skannes ved neste Kjor: {len(source_tickers)} tickere av maks {int(max_scan)}. Eksempel: {', '.join(source_tickers[:10])}")
+            st.caption(f"Skannes ved neste Kjor: {len(source_tickers)} tickere av maks {int(max_scan)}. Enkeltmarked bruker egen grense, ikke Alle-kvote. Fordeling: {market_count_text}. Eksempel: {', '.join(source_tickers[:10])}")
     else:
         st.info("Univers-preview er ikke hentet for gjeldende valg. Menyvalg starter ingen scan; trykk Oppdater univers-preview eller Kjor.")
+    st.caption("Kjor henter alltid ferskt run-univers og nuller gammel tickerliste/teller foer scan. Preview-cache brukes bare til visning.")
 
     _render_run_preview(
         analysis_engine=analysis_engine,
@@ -1191,20 +1339,27 @@ def render_alpha_radar_panel(
     )
 
     if run_clicked:
-        if not source_tickers:
-            try:
-                source_tickers = list(resolve_tickers(scope, int(max_scan), manual_text) or [])
-                st.session_state[preview_key] = {
-                    "request_key": universe_request_key,
-                    "tickers": source_tickers,
-                    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                }
-            except Exception as exc:
-                source_tickers = []
-                st.warning(f"Kunne ikke hente univers: {exc}")
+        st.session_state[LAST_RESULT_KEY] = {}
+        source_tickers = []
+        try:
+            source_tickers = list(resolve_tickers(scope, int(max_scan), manual_text) or [])
+            st.session_state[preview_key] = {
+                "request_key": universe_request_key,
+                "tickers": source_tickers,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "fresh_run": True,
+            }
+        except Exception as exc:
+            source_tickers = []
+            st.warning(f"Kunne ikke hente univers: {exc}")
         if not source_tickers:
             st.warning("Fant ingen tickere aa skanne for gjeldende valg.")
             return
+        balance_markets = _should_balance_markets(scope, source_tickers)
+        st.caption(
+            f"Ferskt run-univers: {len(source_tickers)} tickere. "
+            f"Fordeling: {_format_market_counts(_market_counts(source_tickers))}."
+        )
         input_context = _alpha_radar_input_context(
             scope=scope,
             horizon=horizon,
@@ -1276,6 +1431,7 @@ def render_alpha_radar_panel(
                 include_ipo=bool(include_ipo),
                 score_provider=enriched_score_provider,
                 progress_callback=_progress_callback,
+                balance_markets=balance_markets,
             )
         else:
             result = run_alpha_radar(
@@ -1294,9 +1450,16 @@ def render_alpha_radar_panel(
                 insider_provider=insider_provider,
                 news_provider=news_provider,
                 progress_callback=_progress_callback,
+                balance_markets=balance_markets,
             )
         progress_bar.progress(100, text=f"{analysis_engine} ferdig")
-        result["scope"] = scope
+        result = _attach_universe_metadata(
+            result,
+            scope=scope,
+            source_tickers=source_tickers,
+            balance_markets=balance_markets,
+            fresh_universe=True,
+        )
         result["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         result["input_context"] = dict(input_context)
         result["input_fingerprint"] = input_fingerprint
@@ -1338,6 +1501,7 @@ def render_alpha_radar_panel(
         )
         if top_reasons:
             st.caption(f"Viktigste ekskluderinger: {top_reasons}")
+        _render_market_audit(result)
         if result.get("parameter_warnings"):
             st.warning("Parameterdisiplin: " + " | ".join(str(x) for x in result.get("parameter_warnings") or []))
         _render_result_actions(result, disabled=result_is_stale)

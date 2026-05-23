@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from alpha_radar_currency import market_cap_fields, market_cap_nok_estimate, infer_market_cap_currency
+
 
 ALPHA_RADAR_MODES = [
     "Blandet Alpha Radar",
@@ -207,6 +209,9 @@ class AlphaRadarCandidate:
     crowdedness_penalty: float
     liquidity_penalty: float
     market_cap: float | None
+    market_cap_currency: str
+    market_cap_nok_estimate: float | None
+    market_cap_display: str
     data_quality: str
     base_score: float
     why_now: str
@@ -285,6 +290,63 @@ def _infer_market(ticker: str) -> str:
         if ticker.endswith(suffix):
             return label
     return "USA/annet"
+
+
+def _market_counts_from_tickers(tickers: Sequence[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for ticker in tickers or []:
+        market = _infer_market(str(ticker or ""))
+        counts[market] = counts.get(market, 0) + 1
+    return counts
+
+
+def _market_counts_from_candidates(candidates: Sequence["AlphaRadarCandidate"]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates or []:
+        market = str(candidate.market or _infer_market(candidate.ticker))
+        counts[market] = counts.get(market, 0) + 1
+    return counts
+
+
+def _balanced_candidates(
+    candidates: Sequence["AlphaRadarCandidate"],
+    *,
+    limit: int,
+    balance_markets: bool,
+) -> list["AlphaRadarCandidate"]:
+    ranked = sorted(candidates or [], key=lambda item: item.hidden_potential_score, reverse=True)
+    if not balance_markets or limit <= 1:
+        return ranked[:limit]
+
+    by_market: dict[str, list[AlphaRadarCandidate]] = {}
+    for candidate in ranked:
+        by_market.setdefault(str(candidate.market or _infer_market(candidate.ticker)), []).append(candidate)
+    if len(by_market) <= 1:
+        return ranked[:limit]
+
+    selected: list[AlphaRadarCandidate] = []
+    selected_ids: set[str] = set()
+    markets_by_best = sorted(
+        by_market,
+        key=lambda market: by_market[market][0].hidden_potential_score if by_market.get(market) else -1,
+        reverse=True,
+    )
+    for market in markets_by_best:
+        if len(selected) >= limit:
+            break
+        top = by_market[market][0]
+        selected.append(top)
+        selected_ids.add(top.ticker)
+
+    for candidate in ranked:
+        if len(selected) >= limit:
+            break
+        if candidate.ticker in selected_ids:
+            continue
+        selected.append(candidate)
+        selected_ids.add(candidate.ticker)
+
+    return sorted(selected, key=lambda item: item.hidden_potential_score, reverse=True)[:limit]
 
 
 def _row_score_part(row: Mapping[str, Any], key: str, default: float = 0.5) -> float:
@@ -408,8 +470,21 @@ def _known_market_cap(row: Mapping[str, Any]) -> float | None:
     return value
 
 
+def _known_market_cap_nok(row: Mapping[str, Any]) -> float | None:
+    market_cap = _known_market_cap(row)
+    if market_cap is None:
+        return None
+    ticker = _safe_ticker(row.get("ticker"))
+    currency = infer_market_cap_currency(ticker, row)
+    return market_cap_nok_estimate(market_cap, currency, row)
+
+
+def _market_cap_for_filter(row: Mapping[str, Any]) -> float | None:
+    return _known_market_cap_nok(row) or _known_market_cap(row)
+
+
 def _market_cap_filter_ok(row: Mapping[str, Any], market_cap_filter: str) -> bool:
-    market_cap = _float(row.get("market_cap"), None)
+    market_cap = _market_cap_for_filter(row)
     if market_cap is None or market_cap_filter == "Alle":
         return True
     if market_cap_filter in {"Mikro/small", "Small/mid", "Unnga megacaps"}:
@@ -420,7 +495,7 @@ def _market_cap_filter_ok(row: Mapping[str, Any], market_cap_filter: str) -> boo
 
 
 def _market_cap_block_reason(row: Mapping[str, Any], market_cap_filter: str) -> str | None:
-    market_cap = _known_market_cap(row)
+    market_cap = _market_cap_for_filter(row)
     if market_cap_filter == "Alle":
         return None
     if market_cap is None:
@@ -525,7 +600,7 @@ def _data_quality_gate(
 
 
 def _underfollowed_score(row: Mapping[str, Any], base_score: float) -> float:
-    market_cap = _float(row.get("market_cap"), None)
+    market_cap = _market_cap_for_filter(row)
     if market_cap is None:
         score = 0.56 if not row.get("data_missing") else 0.46
     elif market_cap < 750_000_000:
@@ -571,12 +646,10 @@ def _has_articles_or_news(row: Mapping[str, Any]) -> bool:
 
 
 def _catalyst_score(row: Mapping[str, Any], include_news: bool, include_insider: bool) -> float | None:
-    explicit_values = [
-        row.get("catalyst_score"),
-        row.get("event_score"),
-        row.get("local_news_score"),
-        row.get("small_news_big_impact_score"),
-    ]
+    has_news = _has_articles_or_news(row)
+    explicit_values = [row.get("catalyst_score"), row.get("event_score")]
+    if has_news or str(row.get("alpha_news_quality") or "").lower() == "ekte":
+        explicit_values.extend([row.get("local_news_score"), row.get("small_news_big_impact_score")])
     explicit_scores = [_normalize_unit(value, None) for value in explicit_values if value is not None]
     explicit_scores = [value for value in explicit_scores if value is not None]
     if explicit_scores:
@@ -798,7 +871,7 @@ def _risk_score(row: Mapping[str, Any]) -> float:
 
 
 def _crowdedness_penalty(row: Mapping[str, Any], mode: str) -> float:
-    market_cap = _float(row.get("market_cap"), None)
+    market_cap = _market_cap_for_filter(row)
     news = _news_count(row)
     score = _base_score(row)
     penalty = 0.0
@@ -860,10 +933,12 @@ def _factor_quality(row: Mapping[str, Any], factor: str, value: float | None) ->
     if value is None:
         return "mangler"
     if factor == "catalyst":
-        if any(row.get(key) is not None for key in ("catalyst_score", "event_score", "local_news_score", "small_news_big_impact_score")):
+        if row.get("catalyst_score") is not None or row.get("event_score") is not None:
             return "ekte"
         if _has_articles_or_news(row):
             return "ekte"
+        if row.get("local_news_score") is not None or row.get("small_news_big_impact_score") is not None:
+            return "proxy"
         return "proxy"
     if factor == "insider_bjellesau":
         if any(row.get(key) is not None for key in ("bjellesau_score", "smart_money_score", "owner_signal", "insider_quality_score", "historical_insider_quality_score", "insider_score")):
@@ -1050,6 +1125,8 @@ def _score_candidate(
         f"Hidden score drives av {', '.join(signals[:3])}."
     )
 
+    cap = _known_market_cap(row)
+    cap_fields = market_cap_fields(ticker, {**dict(row), "market_cap": cap})
     return AlphaRadarCandidate(
         rank=0,
         ticker=ticker,
@@ -1070,7 +1147,10 @@ def _score_candidate(
         risk_score=round(risk_level, 1),
         crowdedness_penalty=round(crowdedness, 1),
         liquidity_penalty=round(liquidity, 1),
-        market_cap=_known_market_cap(row),
+        market_cap=cap,
+        market_cap_currency=str(cap_fields["market_cap_currency"]),
+        market_cap_nok_estimate=cap_fields["market_cap_nok_estimate"],
+        market_cap_display=str(cap_fields["market_cap_display"]),
         data_quality=str(row.get("data_quality") or "OK"),
         base_score=round(_base_score(row), 2),
         why_now=why_now,
@@ -1105,6 +1185,7 @@ def run_alpha_radar(
     insider_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     news_provider: Callable[..., Iterable[Mapping[str, Any]]] | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    balance_markets: bool = False,
 ) -> dict[str, Any]:
     """Build a contrarian hidden-potential shortlist from explicit tickers.
 
@@ -1125,7 +1206,7 @@ def run_alpha_radar(
     precision_level = params["precision_level"]
     active_signals = params["active_signals"]
     fill_low_data = params["fill_low_data"]
-    limit = max(1, min(int(limit or 10), 15))
+    limit = max(1, min(int(limit or 10), 60))
     max_scan = max(limit, min(int(max_scan or 60), 250))
 
     seen: set[str] = set()
@@ -1144,6 +1225,7 @@ def run_alpha_radar(
     excluded: list[dict[str, Any]] = []
     excluded_reason_counts: dict[str, int] = {}
     low_data_count = 0
+    market_excluded_counts: dict[str, int] = {}
 
     def _progress(completed: int, ticker_value: str = "", status: str = "scanner") -> None:
         if progress_callback is None:
@@ -1166,11 +1248,19 @@ def run_alpha_radar(
         clean_reasons = [str(reason) for reason in reasons if str(reason).strip()] or ["ukjent aarsak"]
         for reason in clean_reasons:
             excluded_reason_counts[reason] = excluded_reason_counts.get(reason, 0) + 1
+        cap = _known_market_cap(row_value or {})
+        cap_fields = market_cap_fields(ticker_value, {**dict(row_value or {}), "market_cap": cap})
         excluded.append({
             "ticker": ticker_value,
             "reasons": clean_reasons,
-            "market_cap": _known_market_cap(row_value or {}),
+            "market_cap": cap,
+            "market_cap_currency": cap_fields["market_cap_currency"],
+            "market_cap_nok_estimate": cap_fields["market_cap_nok_estimate"],
+            "market_cap_display": cap_fields["market_cap_display"],
+            "market": str((row_value or {}).get("market") or _infer_market(ticker_value)),
         })
+        market = str((row_value or {}).get("market") or _infer_market(ticker_value))
+        market_excluded_counts[market] = market_excluded_counts.get(market, 0) + 1
         skipped.append(ticker_value)
 
     _progress(0, "", "starter")
@@ -1238,7 +1328,7 @@ def run_alpha_radar(
             candidates.append(candidate)
             _progress(index, ticker, "scoret")
 
-    ranked = sorted(candidates, key=lambda item: item.hidden_potential_score, reverse=True)[:limit]
+    ranked = _balanced_candidates(candidates, limit=limit, balance_markets=bool(balance_markets))
     ranked = [
         AlphaRadarCandidate(**{**candidate.to_dict(), "rank": idx})
         for idx, candidate in enumerate(ranked, start=1)
@@ -1265,12 +1355,18 @@ def run_alpha_radar(
         "scanned_count": len(clean_tickers),
         "scored_count": len(candidates),
         "candidate_count": len(ranked),
+        "all_candidate_count": len(candidates),
         "low_data_count": low_data_count,
         "skipped_count": len(skipped),
         "skipped_tickers": skipped[:20],
         "excluded_count": len(excluded),
         "excluded_reason_counts": dict(sorted(excluded_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
         "excluded_samples": excluded[:15],
+        "market_scan_counts": _market_counts_from_tickers(clean_tickers),
+        "market_scored_counts": _market_counts_from_candidates(candidates),
+        "market_candidate_counts": _market_counts_from_candidates(ranked),
+        "market_excluded_counts": dict(sorted(market_excluded_counts.items())),
+        "market_balance_enabled": bool(balance_markets),
         "candidates": [candidate.to_dict() for candidate in ranked],
         "disclaimer": "Hypoteseliste for manuell analyse. Ikke investeringsraad og ikke automatisk handel.",
     }

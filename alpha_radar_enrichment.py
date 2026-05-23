@@ -256,12 +256,16 @@ def enrich_with_news(
     row["articles"] = articles
     row["news_count"] = len(articles)
     row["news_sentiment"] = simple_finance_sentiment(articles)
-    row["local_news_score"] = _clamp(0.38 + len(articles[:8]) * 0.045 + (row["news_sentiment"] - 0.5) * 0.9)
-    market_cap = _float(row.get("market_cap"), None)
-    small_cap_boost = 0.18 if market_cap is not None and market_cap < 5_000_000_000 else 0.06
-    row["small_news_big_impact_score"] = _clamp(row["local_news_score"] + small_cap_boost if articles else 0.45)
     if articles:
+        row["local_news_score"] = _clamp(0.38 + len(articles[:8]) * 0.045 + (row["news_sentiment"] - 0.5) * 0.9)
+        market_cap = _float(row.get("market_cap"), None)
+        small_cap_boost = 0.18 if market_cap is not None and market_cap < 5_000_000_000 else 0.06
+        row["small_news_big_impact_score"] = _clamp(row["local_news_score"] + small_cap_boost)
         row["catalyst_score"] = max(_normalize_unit(row.get("catalyst_score"), 0.5), row["small_news_big_impact_score"])
+        row["alpha_news_quality"] = "ekte"
+    else:
+        row.pop("local_news_score", None)
+        row.pop("small_news_big_impact_score", None)
     if error:
         row["alpha_news_error"] = str(error)[:180]
     return row
@@ -339,8 +343,13 @@ def enrich_with_macro_tailwind(
     themes = infer_macro_themes(row)
     score, notes = _theme_tailwind_score(themes, snapshot)
     row["macro_themes"] = themes
-    row["macro_tailwind_score"] = score
-    row["commodity_tailwind_score"] = score
+    if notes:
+        row["macro_tailwind_score"] = score
+        row["commodity_tailwind_score"] = score
+        row["macro_tailwind_quality"] = "proxy"
+    else:
+        row.pop("macro_tailwind_score", None)
+        row.pop("commodity_tailwind_score", None)
     row["macro_tailwind_notes"] = notes
     return row
 
@@ -353,6 +362,9 @@ def enrich_with_results(
 ) -> dict[str, Any]:
     if not include_results:
         return row
+    quality_present = row.get("quality") is not None or (isinstance(row.get("score_parts"), Mapping) and (row.get("score_parts") or {}).get("quality") is not None)
+    growth_present = row.get("revenue_growth") is not None or (isinstance(row.get("score_parts"), Mapping) and (row.get("score_parts") or {}).get("fundamental_growth") is not None)
+    margin_present = row.get("profit_margin") is not None
     quality = _normalize_unit(row.get("quality", None), _normalize_unit((row.get("score_parts") or {}).get("quality"), 0.5) if isinstance(row.get("score_parts"), Mapping) else 0.5)
     if row.get("revenue_growth") is not None:
         growth = _clamp(0.50 + (_float(row.get("revenue_growth"), 0.0) or 0.0) * 1.35)
@@ -361,6 +373,7 @@ def enrich_with_results(
     margin = _float(row.get("profit_margin"), None)
     margin_score = _clamp(0.50 + (margin or 0.0) * 1.8) if margin is not None else 0.50
     earnings_score = 0.50
+    earnings_has_date = False
     ticker = _safe_ticker(row.get("ticker"))
     if earnings_provider is not None:
         try:
@@ -371,12 +384,17 @@ def enrich_with_results(
                 days = _float(earnings.get("days_until"), None)
                 if days is not None and 0 <= days <= 45:
                     earnings_score = 0.62
+                    earnings_has_date = True
                 if earnings.get("error"):
                     row["alpha_earnings_error"] = str(earnings.get("error"))[:180]
         except Exception as exc:
             row["alpha_earnings_error"] = str(exc)[:180]
-    row["result_inflection_score"] = _clamp(quality * 0.28 + growth * 0.34 + margin_score * 0.20 + earnings_score * 0.18)
-    row["inflection_score"] = max(_normalize_unit(row.get("inflection_score"), 0.5), row["result_inflection_score"])
+    if quality_present or growth_present or margin_present or earnings_has_date:
+        row["result_inflection_score"] = _clamp(quality * 0.28 + growth * 0.34 + margin_score * 0.20 + earnings_score * 0.18)
+        row["inflection_score"] = max(_normalize_unit(row.get("inflection_score"), 0.5), row["result_inflection_score"])
+        row["result_inflection_quality"] = "ekte" if row.get("revenue_growth") is not None or margin_present or earnings_has_date else "beregnet"
+    else:
+        row.pop("result_inflection_score", None)
     return row
 
 

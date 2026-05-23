@@ -9,6 +9,8 @@ import zipfile
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
+from alpha_radar_currency import market_cap_display
+
 
 SNAPSHOT_SETTINGS_KEY = "alpha_radar_saved_snapshots"
 OBSERVATION_SETTINGS_KEY = "alpha_radar_observation_list"
@@ -52,6 +54,9 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "risk_score",
         "data_quality",
         "market_cap",
+        "market_cap_currency",
+        "market_cap_display",
+        "market_cap_nok_estimate",
         "why_now",
         "signals",
         "reject_reasons",
@@ -75,6 +80,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         out["evidence_summary"] = _evidence_summary(row)
         out["insider_evidence"] = _evidence_text(row.get("insider_evidence"))
         out["news_evidence"] = _evidence_text(row.get("news_evidence"))
+        out["market_cap_display"] = out.get("market_cap_display") or _market_cap_text(row)
         writer.writerow(out)
     return buffer.getvalue().encode("utf-8-sig")
 
@@ -87,6 +93,15 @@ def _clean_cell(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _market_cap_text(row: Mapping[str, Any]) -> str:
+    base = str(row.get("market_cap_display") or market_cap_display(row.get("market_cap"), row.get("market_cap_currency")) or "")
+    nok = row.get("market_cap_nok_estimate")
+    currency = str(row.get("market_cap_currency") or "").upper()
+    if base and nok not in {None, ""} and currency != "NOK":
+        return f"{base} (ca. {market_cap_display(nok, 'NOK')})"
+    return base
 
 
 def _sheet_xml(rows: Sequence[Sequence[Any]]) -> str:
@@ -122,16 +137,27 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         ["scanned_count", result.get("scanned_count")],
         ["scored_count", result.get("scored_count")],
         ["excluded_count", result.get("excluded_count")],
+        ["universe_total", result.get("universe_total")],
+        ["universe_market_counts", result.get("universe_market_counts")],
+        ["market_scan_counts", result.get("market_scan_counts")],
+        ["market_scored_counts", result.get("market_scored_counts")],
+        ["market_candidate_counts", result.get("market_candidate_counts")],
+        ["market_excluded_counts", result.get("market_excluded_counts")],
+        ["market_balance_enabled", result.get("market_balance_enabled")],
         ["disclaimer", result.get("disclaimer")],
     ]
     candidate_fields = [
         "rank", "ticker", "name", "market", "horizon", "mode", "hidden_potential_score",
         "underfollowed_score", "inflection_score", "catalyst_score", "insider_score",
         "volume_score", "macro_score", "evidence_score", "risk_score", "market_cap",
+        "market_cap_currency", "market_cap_display", "market_cap_nok_estimate",
         "data_quality", "why_now", "signals", "reject_reasons", "warning_reasons", "manual_review",
         "evidence_summary",
     ]
-    candidate_rows = [candidate_fields] + [[_evidence_summary(row) if field == "evidence_summary" else row.get(field) for field in candidate_fields] for row in candidates]
+    candidate_rows = [candidate_fields] + [[
+        _evidence_summary(row) if field == "evidence_summary" else _market_cap_text(row) if field == "market_cap_display" else row.get(field)
+        for field in candidate_fields
+    ] for row in candidates]
     signal_rows = [["ticker", "factor", "score", "quality"]]
     quality_rows = [["ticker", "factor", "quality"]]
     for row in candidates:
@@ -141,7 +167,7 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
             signal_rows.append([row.get("ticker"), factor, score, qualities.get(factor)])
         for factor, quality in qualities.items():
             quality_rows.append([row.get("ticker"), factor, quality])
-    excluded_rows = [["ticker", "reasons", "market_cap"]] + [[row.get("ticker"), row.get("reasons"), row.get("market_cap")] for row in excluded]
+    excluded_rows = [["ticker", "reasons", "market_cap"]] + [[row.get("ticker"), row.get("reasons"), _market_cap_text(row)] for row in excluded]
     evidence_rows = [["ticker", "type", "title", "source", "published", "detail", "url"]]
     for row in candidates:
         for item in row.get("evidence_items") or []:
@@ -290,7 +316,7 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
             ("Volum/bekreftelse", row.get("volume_score"), qualities.get("volume_accumulation") or qualities.get("market_confirmation")),
             ("Makro/fundamental", row.get("macro_score"), qualities.get("macro_second_order") or qualities.get("fundamental_acceleration")),
             ("Risiko", row.get("risk_score"), "beregnet"),
-            ("Borsverdi", row.get("market_cap"), ""),
+            ("Borsverdi", _market_cap_text(row), str(row.get("market_cap_currency") or "")),
         ]
         metric_html = "".join(
             f"<tr><td>{html.escape(label)}</td><td>{html.escape(_clean_cell(value) or 'N/A')}</td><td>{html.escape(str(quality or ''))}</td></tr>"
