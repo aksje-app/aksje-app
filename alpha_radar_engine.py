@@ -196,12 +196,12 @@ class AlphaRadarCandidate:
     alpha_score: float
     hidden_potential_score: float
     potential_score: float
-    catalyst_score: float
+    catalyst_score: float | None
     underfollowed_score: float
     inflection_score: float
-    insider_score: float
+    insider_score: float | None
     volume_score: float
-    macro_score: float
+    macro_score: float | None
     evidence_score: float
     risk_score: float
     crowdedness_penalty: float
@@ -215,7 +215,8 @@ class AlphaRadarCandidate:
     reject_reasons: list[str]
     warning_reasons: list[str]
     manual_review: str
-    factor_scores: dict[str, float]
+    factor_scores: dict[str, float | None]
+    factor_quality: dict[str, str]
     source: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -499,7 +500,14 @@ def _underfollowed_score(row: Mapping[str, Any], base_score: float) -> float:
     return _clamp(score)
 
 
-def _catalyst_score(row: Mapping[str, Any], include_news: bool, include_insider: bool) -> float:
+def _has_articles_or_news(row: Mapping[str, Any]) -> bool:
+    articles = row.get("articles")
+    if isinstance(articles, Sequence) and not isinstance(articles, (str, bytes)):
+        return len(articles) > 0
+    return bool(_news_count(row))
+
+
+def _catalyst_score(row: Mapping[str, Any], include_news: bool, include_insider: bool) -> float | None:
     explicit_values = [
         row.get("catalyst_score"),
         row.get("event_score"),
@@ -513,10 +521,15 @@ def _catalyst_score(row: Mapping[str, Any], include_news: bool, include_insider:
 
     text = _text_blob(row)
     keyword_hits = sum(1 for word in CATALYST_KEYWORDS if word in text)
+    if not include_news and not keyword_hits:
+        return None
+    if include_news and not _has_articles_or_news(row) and not keyword_hits:
+        return None
     keyword_score = _clamp(0.40 + keyword_hits * 0.085)
-    sentiment = _normalize_unit(row.get("sentiment", row.get("news_sentiment")), 0.5)
+    sentiment_raw = row.get("sentiment", row.get("news_sentiment"))
+    sentiment = _normalize_unit(sentiment_raw, 0.5) if sentiment_raw is not None else 0.5
     volume = _row_score_part(row, "volume", 0.5)
-    insider = _normalize_unit(row.get("insider_score"), 0.5) if include_insider else 0.5
+    insider = _normalize_unit(row.get("insider_score"), 0.5) if include_insider and row.get("insider_score") is not None else 0.5
     news_boost = 0.0
     if include_news:
         count = _news_count(row)
@@ -553,7 +566,7 @@ def _inflection_score(row: Mapping[str, Any]) -> float:
     return _clamp(price_turn * 0.46 + fundamentals * 0.42 + min(text_hits, 3) * 0.04)
 
 
-def _insider_bjellesau_score(row: Mapping[str, Any], include_insider: bool) -> float:
+def _insider_bjellesau_score(row: Mapping[str, Any], include_insider: bool) -> float | None:
     explicit_values = [
         row.get("bjellesau_score"),
         row.get("smart_money_score"),
@@ -565,10 +578,15 @@ def _insider_bjellesau_score(row: Mapping[str, Any], include_insider: bool) -> f
     explicit_scores = [value for value in explicit_scores if value is not None]
     if explicit_scores:
         return max(explicit_scores)
-    insider = _normalize_unit(row.get("insider_score"), 0.5) if include_insider else _normalize_unit(row.get("insider_score"), 0.5)
+    has_insider_score = row.get("insider_score") is not None
     buy_count = _float(row.get("insider_buy_count", row.get("buy_count")), 0.0) or 0.0
     sell_count = _float(row.get("insider_sell_count", row.get("sell_count")), 0.0) or 0.0
     label = str(row.get("insider_label") or "").lower()
+    if not include_insider and not has_insider_score and not buy_count and not sell_count and not label:
+        return None
+    if include_insider and not has_insider_score and not buy_count and not sell_count and not label:
+        return None
+    insider = _normalize_unit(row.get("insider_score"), 0.5) if has_insider_score else 0.5
     score = insider * 0.70 + 0.15
     if buy_count > sell_count:
         score += min((buy_count - sell_count) * 0.035, 0.14)
@@ -594,7 +612,7 @@ def _volume_accumulation_score(row: Mapping[str, Any]) -> float:
     return _clamp(volume * 0.62 + quiet_break * 0.38)
 
 
-def _macro_second_order_score(row: Mapping[str, Any]) -> float:
+def _macro_second_order_score(row: Mapping[str, Any]) -> float | None:
     explicit = row.get("macro_tailwind_score", row.get("commodity_tailwind_score"))
     if explicit is not None:
         return _normalize_unit(explicit)
@@ -602,6 +620,9 @@ def _macro_second_order_score(row: Mapping[str, Any]) -> float:
     hits = sum(1 for word in MACRO_KEYWORDS if word in text)
     sector = str(row.get("sector") or row.get("industry") or "").lower()
     sector_hits = sum(1 for word in MACRO_KEYWORDS if word in sector)
+    has_beta = any(row.get(key) is not None for key in ("oil_beta", "commodity_beta", "fx_tailwind"))
+    if not hits and not sector_hits and not has_beta:
+        return None
     beta = max(
         _normalize_unit(row.get("oil_beta"), 0.5),
         _normalize_unit(row.get("commodity_beta"), 0.5),
@@ -772,7 +793,31 @@ def _adjusted_weights(horizon: str, mode: str, active_signals: Sequence[str] | N
     return {key: value / total for key, value in weights.items()}
 
 
-def _factor_scores(row: Mapping[str, Any], include_news: bool, include_insider: bool) -> dict[str, float]:
+def _factor_quality(row: Mapping[str, Any], factor: str, value: float | None) -> str:
+    if value is None:
+        return "mangler"
+    if factor == "catalyst":
+        if any(row.get(key) is not None for key in ("catalyst_score", "event_score", "local_news_score", "small_news_big_impact_score")):
+            return "ekte"
+        if _has_articles_or_news(row):
+            return "ekte"
+        return "proxy"
+    if factor == "insider_bjellesau":
+        if any(row.get(key) is not None for key in ("bjellesau_score", "smart_money_score", "owner_signal", "insider_quality_score", "historical_insider_quality_score", "insider_score")):
+            return "ekte"
+        if row.get("insider_buy_count") is not None or row.get("buy_count") is not None or row.get("insider_label"):
+            return "proxy"
+        return "mangler"
+    if factor == "macro_second_order":
+        if row.get("macro_tailwind_score") is not None or row.get("commodity_tailwind_score") is not None:
+            return "ekte"
+        return "proxy"
+    if factor in {"underfollowed", "inflection", "volume_accumulation", "value_gap", "surprise_gap", "seasonality", "technical_turn"}:
+        return "proxy" if row.get("data_missing") else "beregnet"
+    return "beregnet"
+
+
+def _factor_scores(row: Mapping[str, Any], include_news: bool, include_insider: bool) -> dict[str, float | None]:
     base_score = _base_score(row)
     catalyst = _catalyst_score(row, include_news=include_news, include_insider=include_insider)
     inflection = _inflection_score(row)
@@ -784,12 +829,13 @@ def _factor_scores(row: Mapping[str, Any], include_news: bool, include_insider: 
         "volume_accumulation": _volume_accumulation_score(row),
         "macro_second_order": _macro_second_order_score(row),
         "value_gap": _value_gap_score(row),
-        "surprise_gap": _surprise_gap_score(row, inflection=inflection, catalyst=catalyst),
+        "surprise_gap": _surprise_gap_score(row, inflection=inflection, catalyst=catalyst or 0.0),
         "seasonality": _seasonality_score(row),
         "technical_turn": _technical_turn_score(row),
         "evidence": _evidence_score(row, include_news=include_news, include_insider=include_insider),
     }
-    factors["why_now"] = _why_now_score(factors)
+    scoring = {key: (0.0 if value is None else float(value)) for key, value in factors.items()}
+    factors["why_now"] = _why_now_score(scoring)
     return factors
 
 
@@ -907,24 +953,34 @@ def _score_candidate(
         return None
 
     factors = _factor_scores(row, include_news=include_news, include_insider=include_insider)
+    scoring_factors = {key: (0.0 if value is None else float(value)) for key, value in factors.items()}
+    factor_quality = {key: _factor_quality(row, key, value) for key, value in factors.items() if key != "why_now"}
     weights = _adjusted_weights(horizon, mode, active_signals)
-    raw = sum(factors.get(key, 0.5) * weight for key, weight in weights.items()) * 100.0
+    raw = sum(scoring_factors.get(key, 0.0) * weight for key, weight in weights.items()) * 100.0
     risk_level = _risk_score(row)
     crowdedness = _crowdedness_penalty(row, mode=mode)
     liquidity = _liquidity_penalty(row)
-    evidence = factors["evidence"] * 100.0
+    evidence = scoring_factors["evidence"] * 100.0
 
     penalty = risk_level * 0.10 + crowdedness + liquidity
-    if factors["why_now"] < 0.50:
+    if scoring_factors["why_now"] < 0.50:
         penalty += 5.0
+    missing_focus = [
+        signal for signal in active_signals or []
+        if any(factors.get(factor_key) is None for factor_key in ACTIVE_SIGNAL_FACTORS.get(signal, ()))
+    ]
+    if missing_focus:
+        penalty += min(18.0, 7.0 * len(missing_focus))
     hidden = max(0.0, min(100.0, raw - penalty + _stable_ticker_noise(ticker) * 100.0))
     if row.get("data_missing"):
         hidden = min(hidden, 48.0)
 
-    signals = _signals(row, factors, risk_level)
-    reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, factors["evidence"])
+    signals = _signals(row, scoring_factors, risk_level)
+    reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, scoring_factors["evidence"])
     warning_reasons = list(row.get("warning_reasons") or [])
-    why_now = _why_now(row, factors, signals)
+    if missing_focus:
+        warning_reasons.append("mangler data for valgt signal-lupe: " + ", ".join(missing_focus[:3]))
+    why_now = _why_now(row, scoring_factors, signals)
     thesis = (
         f"{ticker} er en {mode.lower()}-hypotese for {horizon}. "
         f"Hidden score drives av {', '.join(signals[:3])}."
@@ -940,12 +996,12 @@ def _score_candidate(
         alpha_score=round(hidden, 1),
         hidden_potential_score=round(hidden, 1),
         potential_score=round(raw, 1),
-        catalyst_score=round(factors["catalyst"] * 100.0, 1),
-        underfollowed_score=round(factors["underfollowed"] * 100.0, 1),
-        inflection_score=round(factors["inflection"] * 100.0, 1),
-        insider_score=round(factors["insider_bjellesau"] * 100.0, 1),
-        volume_score=round(factors["volume_accumulation"] * 100.0, 1),
-        macro_score=round(factors["macro_second_order"] * 100.0, 1),
+        catalyst_score=None if factors["catalyst"] is None else round(float(factors["catalyst"]) * 100.0, 1),
+        underfollowed_score=round(scoring_factors["underfollowed"] * 100.0, 1),
+        inflection_score=round(scoring_factors["inflection"] * 100.0, 1),
+        insider_score=None if factors["insider_bjellesau"] is None else round(float(factors["insider_bjellesau"]) * 100.0, 1),
+        volume_score=round(scoring_factors["volume_accumulation"] * 100.0, 1),
+        macro_score=None if factors["macro_second_order"] is None else round(float(factors["macro_second_order"]) * 100.0, 1),
         evidence_score=round(evidence, 1),
         risk_score=round(risk_level, 1),
         crowdedness_penalty=round(crowdedness, 1),
@@ -959,7 +1015,8 @@ def _score_candidate(
         reject_reasons=reject_reasons,
         warning_reasons=warning_reasons,
         manual_review=_manual_review_note(row, list(reject_reasons) + warning_reasons),
-        factor_scores={key: round(value * 100.0, 1) for key, value in factors.items()},
+        factor_scores={key: (None if value is None else round(float(value) * 100.0, 1)) for key, value in factors.items()},
+        factor_quality=factor_quality,
         source="Alpha Radar V2 Contrarian / Hidden Potential",
     )
 

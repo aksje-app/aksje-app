@@ -1,9 +1,13 @@
+import io
+import zipfile
+
 from alpha_radar_results import (
     alpha_radar_candidate_tickers,
     alpha_radar_result_to_active_universe_payload,
     alpha_radar_result_to_csv,
     alpha_radar_result_to_print_html,
     alpha_radar_result_to_ticker_text,
+    alpha_radar_result_to_xlsx,
 )
 
 
@@ -20,6 +24,10 @@ RESULT = {
             "name": "Real Micro",
             "market": "Norge",
             "hidden_potential_score": 72.4,
+            "catalyst_score": None,
+            "insider_score": 64.0,
+            "macro_score": None,
+            "factor_quality": {"catalyst": "mangler", "insider_bjellesau": "ekte"},
             "why_now": "Tidlig vendepunkt med lav dekning.",
             "signals": ["Borsverdi", "Resultater"],
             "reject_reasons": [],
@@ -46,10 +54,16 @@ def test_alpha_radar_exports_csv_html_and_ticker_text():
     csv_bytes = alpha_radar_result_to_csv(RESULT)
     html_bytes = alpha_radar_result_to_print_html(RESULT)
     tickers = alpha_radar_result_to_ticker_text(RESULT)
+    xlsx_bytes = alpha_radar_result_to_xlsx(RESULT)
 
     assert b"MICRO.OL" in csv_bytes
     assert b"HIDE.ST" in csv_bytes
     assert b"window.print" in html_bytes
+    assert b"Datakvalitet" in html_bytes
+    assert xlsx_bytes[:2] == b"PK"
+    with zipfile.ZipFile(io.BytesIO(xlsx_bytes)) as zf:
+        assert "xl/workbook.xml" in zf.namelist()
+        assert "xl/worksheets/sheet2.xml" in zf.namelist()
     assert tickers.decode("utf-8").splitlines() == ["MICRO.OL", "HIDE.ST"]
 
 

@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -7,6 +7,7 @@ for name in [
     "alpha_radar_ui.py",
     "alpha_radar_enrichment.py",
     "alpha_radar_results.py",
+    "early_warning_engine.py",
     "app.py",
     "workspace_layout.py",
     "app_version.py",
@@ -16,12 +17,13 @@ for name in [
 engine = Path("alpha_radar_engine.py").read_text(encoding="utf-8", errors="ignore")
 ui = Path("alpha_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 results = Path("alpha_radar_results.py").read_text(encoding="utf-8", errors="ignore")
+early = Path("early_warning_engine.py").read_text(encoding="utf-8", errors="ignore")
 app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3at"' in version
-assert "Alpha Radar Run Clarity" in version
+assert 'APP_VERSION = "v18.6.3au"' in version
+assert "Alpha Radar Early Warning" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -36,9 +38,14 @@ assert '"alpha"' in active_layout_block and '"muligheter"' in active_layout_bloc
 # Heavy scanning must stay behind an explicit button.
 button_pos = ui.find("run_clicked = st.button")
 guard_pos = ui.find("if run_clicked and source_tickers:", button_pos)
+if guard_pos < 0:
+    guard_pos = ui.find("if run_clicked:", button_pos)
 scan_pos = ui.find("run_alpha_radar(", button_pos)
 assert 0 < button_pos < guard_pos < scan_pos
 assert "run_alpha_radar(" not in ui[:button_pos]
+refresh_pos = ui.find("refresh_universe = st.button")
+resolve_pos = ui.find("resolve_tickers(scope")
+assert 0 < refresh_pos < resolve_pos < button_pos
 assert "Kjor Alpha Radar V2" in ui
 assert "Contrarian / Hidden Potential Score" in ui
 assert "ALPHA_RADAR_MODES" in ui
@@ -57,6 +64,12 @@ assert "Valgene er endret siden siste Alpha Radar-kjoering" in ui
 assert "alpha_radar_result_to_csv" in ui + results
 assert "alpha_radar_result_to_print_html" in ui + results
 assert "Bruk som aktivt Analyseunivers" in ui
+assert "Oppdater univers-preview" in ui
+assert "run_early_warning" in ui + early
+assert "Early Warning V1" in ui + early
+assert "Standard/bred vekting" in ui
+assert "alpha_radar_result_to_xlsx" in ui + results
+assert "factor_quality" in engine + ui + results + early
 assert "Presisjon" in ui
 assert "Fyll opp lav-data" in ui
 assert "crowding-straff" in ui

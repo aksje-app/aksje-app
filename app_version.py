@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3at"
-APP_VERSION_NAME = "Alpha Radar Run Clarity"
-APP_BUILD_ID = "v1863at-alpha-radar-run-clarity"
+APP_VERSION = "v18.6.3au"
+APP_VERSION_NAME = "Alpha Radar Early Warning"
+APP_BUILD_ID = "v1863au-alpha-radar-early-warning"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -38,6 +38,7 @@ APP_PATCH_NOTES = [
     "Alpha Radar V2 bruker Contrarian / Hidden Potential Score med underdekkethet, vendepunkt, insider/bjellesauer, uvanlig volum, ravare/makro, why-now og crowding-straff.",
     "Alpha Radar har strengere parameterdisiplin med harde borsverdi-gates, presisjonsvalg, lav-data blokkering og tydelige ekskluderingsaarsaker.",
     "Alpha Radar viser scan-progresjon, skiller signal-lupe fra datakilder, markerer gamle resultater naar input endres og kan lagre/eksportere resultat.",
+    "Alpha Radar viser manglende faktorgrunnlag som N/A, stopper univershenting ved vanlige menyvalg, har komplett print/Excel-eksport og Early Warning V1.",
 ]
 
 def get_app_version():

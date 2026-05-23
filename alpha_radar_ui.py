@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import html
 import hashlib
@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping, Sequence
 import streamlit as st
 
 from alpha_radar_engine import ALPHA_RADAR_MODES, MARKET_CAP_FILTERS, PRECISION_LEVELS, normalize_alpha_radar_parameters, run_alpha_radar
+from early_warning_engine import run_early_warning
 from alpha_radar_results import (
     alpha_radar_candidate_tickers,
     alpha_radar_result_basename,
@@ -17,12 +18,13 @@ from alpha_radar_results import (
     alpha_radar_result_to_json,
     alpha_radar_result_to_print_html,
     alpha_radar_result_to_ticker_text,
+    alpha_radar_result_to_xlsx,
     save_alpha_radar_observation_list,
     save_alpha_radar_snapshot,
 )
 
 
-LAST_RESULT_KEY = "alpha_radar_last_result_v1863at"
+LAST_RESULT_KEY = "alpha_radar_last_result_v1863au"
 ACTIVE_SIGNAL_OPTIONS = [
     "Borsverdi",
     "Insider/bjellesauer",
@@ -35,10 +37,12 @@ ACTIVE_SIGNAL_OPTIONS = [
 
 
 def _fmt_score(value: Any) -> str:
+    if value is None or value == "":
+        return "N/A"
     try:
         return f"{float(value):.1f}"
     except Exception:
-        return "-"
+        return "N/A"
 
 
 def _market_options(no_selection_label: str, market_options: Sequence[str] | None) -> list[str]:
@@ -108,8 +112,11 @@ def _alpha_radar_input_context(
     max_scan: int,
     source_tickers: Sequence[str],
     manual_text: str,
+    analysis_engine: str = "Alpha Radar",
+    include_ipo: bool = False,
 ) -> dict[str, Any]:
     return {
+        "analysis_engine": analysis_engine,
         "scope": scope,
         "horizon": horizon,
         "mode": mode,
@@ -126,6 +133,7 @@ def _alpha_radar_input_context(
         "source_count": len(source_tickers or []),
         "source_digest": _ticker_digest(source_tickers),
         "manual_digest": hashlib.sha256(str(manual_text or "").encode("utf-8")).hexdigest()[:12],
+        "include_ipo": bool(include_ipo),
     }
 
 
@@ -161,7 +169,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
     st.markdown("**Resultat / eksport**")
     st.caption("HTML-rapporten er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
 
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d3, d4, d5 = st.columns(5)
     with d1:
         st.download_button(
             "Last ned CSV",
@@ -170,7 +178,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             mime="text/csv",
             disabled=disabled,
             use_container_width=True,
-            key=f"alpha_radar_csv_v1863at_{basename}",
+            key=f"alpha_radar_csv_v1863au_{basename}",
         )
     with d2:
         st.download_button(
@@ -180,7 +188,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             mime="text/html",
             disabled=disabled,
             use_container_width=True,
-            key=f"alpha_radar_html_v1863at_{basename}",
+            key=f"alpha_radar_html_v1863au_{basename}",
         )
     with d3:
         st.download_button(
@@ -190,9 +198,19 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             mime="application/json",
             disabled=disabled,
             use_container_width=True,
-            key=f"alpha_radar_json_v1863at_{basename}",
+            key=f"alpha_radar_json_v1863au_{basename}",
         )
     with d4:
+        st.download_button(
+            "Excel XLSX",
+            data=alpha_radar_result_to_xlsx(result),
+            file_name=f"{basename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=disabled,
+            use_container_width=True,
+            key=f"alpha_radar_xlsx_v1863au_{basename}",
+        )
+    with d5:
         st.download_button(
             "Tickerliste",
             data=alpha_radar_result_to_ticker_text(result),
@@ -200,20 +218,20 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             mime="text/plain",
             disabled=disabled,
             use_container_width=True,
-            key=f"alpha_radar_tickers_v1863at_{basename}",
+            key=f"alpha_radar_tickers_v1863au_{basename}",
         )
 
     a1, a2, a3 = st.columns(3)
     with a1:
-        if st.button("Lagre snapshot", key="alpha_radar_save_snapshot_v1863at", disabled=disabled, use_container_width=True):
+        if st.button("Lagre snapshot", key="alpha_radar_save_snapshot_v1863au", disabled=disabled, use_container_width=True):
             saved = save_alpha_radar_snapshot(result)
             st.success(f"Snapshot lagret med {saved} tickere.")
     with a2:
-        if st.button("Send til observasjonsliste", key="alpha_radar_observation_list_v1863at", disabled=disabled, use_container_width=True):
+        if st.button("Send til observasjonsliste", key="alpha_radar_observation_list_v1863au", disabled=disabled, use_container_width=True):
             saved = save_alpha_radar_observation_list(result)
             st.success(f"Observasjonsliste oppdatert med {saved} tickere.")
     with a3:
-        if st.button("Bruk som aktivt Analyseunivers", key="alpha_radar_active_universe_v1863at", disabled=disabled, use_container_width=True):
+        if st.button("Bruk som aktivt Analyseunivers", key="alpha_radar_active_universe_v1863au", disabled=disabled, use_container_width=True):
             saved = _persist_active_universe_from_alpha(result)
             st.success(f"Alpha Radar-resultatet er satt som aktivt analyseunivers med {saved} tickere.")
 
@@ -345,6 +363,13 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
     reject_text = "; ".join(str(x) for x in rejects) if rejects else "ingen harde avslag"
     warning_text = "; ".join(str(x) for x in warnings) if warnings else "ingen datavarsler"
     tags = "".join(f"<span class='alpha-radar-tag'>{html.escape(str(signal))}</span>" for signal in signals[:6])
+    factor_quality = candidate.get("factor_quality") if isinstance(candidate.get("factor_quality"), Mapping) else {}
+
+    def metric(value_key: str, label: str, quality_key: str | None = None) -> str:
+        quality = str(factor_quality.get(quality_key or value_key) or "").strip()
+        caption = label if not quality else f"{label} Â· {quality}"
+        return f"<div class='alpha-radar-metric'><b>{_fmt_score(candidate.get(value_key))}</b><span>{html.escape(caption)}</span></div>"
+
     return f"""
     <div class="alpha-radar-row">
       <div class="alpha-radar-top">
@@ -355,12 +380,12 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
         <div class="alpha-radar-score">{_fmt_score(candidate.get("hidden_potential_score", candidate.get("alpha_score")))}</div>
       </div>
       <div class="alpha-radar-metrics">
-        <div class="alpha-radar-metric"><b>{_fmt_score(candidate.get("underfollowed_score"))}</b><span>oversett</span></div>
-        <div class="alpha-radar-metric"><b>{_fmt_score(candidate.get("inflection_score"))}</b><span>vendepunkt</span></div>
-        <div class="alpha-radar-metric"><b>{_fmt_score(candidate.get("catalyst_score"))}</b><span>katalysator</span></div>
-        <div class="alpha-radar-metric"><b>{_fmt_score(candidate.get("insider_score"))}</b><span>insider</span></div>
-        <div class="alpha-radar-metric"><b>{_fmt_score(candidate.get("volume_score"))}</b><span>volum</span></div>
-        <div class="alpha-radar-metric"><b>{_fmt_score(candidate.get("macro_score"))}</b><span>makro</span></div>
+        {metric("underfollowed_score", "oversett", "underfollowed")}
+        {metric("inflection_score", "vendepunkt", "inflection")}
+        {metric("catalyst_score", "katalysator", "catalyst")}
+        {metric("insider_score", "insider", "insider_bjellesau")}
+        {metric("volume_score", "volum", "volume_accumulation")}
+        {metric("macro_score", "makro", "macro_second_order")}
       </div>
       <div class="alpha-radar-why">{why_now}</div>
       <div class="alpha-radar-tags">{tags}</div>
@@ -369,9 +394,9 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
     """
 
 
-def _render_candidates(candidates: Sequence[Mapping[str, Any]], grouped: bool) -> None:
+def _render_candidates(candidates: Sequence[Mapping[str, Any]], grouped: bool, empty_label: str = "Alpha Radar") -> None:
     if not candidates:
-        st.info("Ingen Alpha Radar-funn ennaa. Velg univers og trykk Kjor Alpha Radar.")
+        st.info(f"Ingen {empty_label}-funn ennaa. Velg univers og trykk Kjor.")
         return
 
     if grouped:
@@ -411,29 +436,39 @@ def render_alpha_radar_panel(
         unsafe_allow_html=True,
     )
 
+    analysis_engine = st.radio(
+        "Sokemotor",
+        ["Alpha Radar", "Early Warning V1"],
+        horizontal=True,
+        key="alpha_radar_engine_v1863au",
+        help="Alpha Radar leter etter skjulte hypoteser. Early Warning V1 rangerer forventningsendring, earnings, fundamental akselerasjon og markedsbekreftelse.",
+    )
+    if analysis_engine == "Early Warning V1":
+        st.caption("Early Warning V1 bruker samme markedsvalg, men rangerer bare boersnoterte aksjer i hovedlisten. IPO/pre-IPO kan merkes som separat omraade naar datakilder finnes.")
+
     c1, c2, c3 = st.columns([1.30, 0.88, 0.72])
     with c1:
         scope = st.selectbox(
             "Univers / marked",
             _market_options(no_selection_label, market_options),
-            key="alpha_radar_scope_v1863at",
+            key="alpha_radar_scope_v1863au",
         )
     with c2:
-        mode = st.selectbox("Radar-modus", ALPHA_RADAR_MODES, key="alpha_radar_mode_v1863at")
+        mode = st.selectbox("Radar-modus", ALPHA_RADAR_MODES, key="alpha_radar_mode_v1863au")
     with c3:
-        limit = st.slider("Funn", 1, 15, 10, 1, key="alpha_radar_limit_v1863at")
+        limit = st.slider("Funn", 1, 15, 10, 1, key="alpha_radar_limit_v1863au")
 
     c4, c5, c6, c6b = st.columns([0.78, 0.82, 0.82, 1.28])
     with c4:
-        horizon = st.radio("Horisont", ["1m", "3m", "6m", "12m"], horizontal=True, key="alpha_radar_horizon_v1863at")
+        horizon = st.radio("Horisont", ["1m", "3m", "6m", "12m"], horizontal=True, key="alpha_radar_horizon_v1863au")
     with c5:
         cap_options = _cap_options_for_mode(mode)
-        market_cap_filter = st.selectbox("Borsverdi", cap_options, index=min(1, len(cap_options) - 1) if mode == "Skjulte small/mid caps" else 0, key="alpha_radar_cap_v1863at")
+        market_cap_filter = st.selectbox("Borsverdi", cap_options, index=min(1, len(cap_options) - 1) if mode == "Skjulte small/mid caps" else 0, key="alpha_radar_cap_v1863au")
     with c6:
-        precision_level = st.selectbox("Presisjon", PRECISION_LEVELS, index=0, key="alpha_radar_precision_v1863at")
+        precision_level = st.selectbox("Presisjon", PRECISION_LEVELS, index=0, key="alpha_radar_precision_v1863au")
     with c6b:
         signal_limit = _signal_limit_for_precision(precision_level)
-        signal_key = f"alpha_radar_signal_lupe_v1863at_{mode}_{precision_level}"
+        signal_key = f"alpha_radar_signal_lupe_v1863au_{mode}_{precision_level}"
         active_signals = st.multiselect(
             "Signal-lupe",
             ACTIVE_SIGNAL_OPTIONS,
@@ -453,6 +488,8 @@ def render_alpha_radar_panel(
     )
     effective_cap_filter = normalized_preview["market_cap_filter"]
     effective_signals = list(normalized_preview["active_signals"] or [])
+    if not effective_signals:
+        st.info("Signal-lupe er tom: Standard/bred vekting brukes. Datakilder kan fortsatt brukes som stotte, men faar ikke ekstra vekt.")
     if normalized_preview.get("parameter_warnings"):
         st.warning(" | ".join(normalized_preview["parameter_warnings"]))
 
@@ -461,12 +498,12 @@ def render_alpha_radar_panel(
 
     c7, c8, c9, c10, c11, c12 = st.columns([0.72, 0.72, 0.72, 0.72, 0.78, 0.90])
     with c7:
-        max_scan = st.slider("Maks scan", 5, 250, 120, 5, key="alpha_radar_scan_limit_v1863at")
+        max_scan = st.slider("Maks scan", 5, 250, 120, 5, key="alpha_radar_scan_limit_v1863au")
     with c8:
         include_news = st.checkbox(
             "Nyheter",
             value=True,
-            key="alpha_radar_news_v1863at",
+            key="alpha_radar_news_v1863au",
             disabled=required_sources["news"],
             help="Laast paa naar Signal-lupe bruker Nyheter/katalysator.",
         )
@@ -474,7 +511,7 @@ def render_alpha_radar_panel(
         include_insider_signal = st.checkbox(
             "Insider",
             value=True,
-            key="alpha_radar_insider_v1863at",
+            key="alpha_radar_insider_v1863au",
             disabled=required_sources["insider"],
             help="Laast paa naar Signal-lupe bruker Insider/bjellesauer.",
         )
@@ -482,7 +519,7 @@ def render_alpha_radar_panel(
         include_macro = st.checkbox(
             "Ravarer/makro",
             value=True,
-            key="alpha_radar_macro_v1863at",
+            key="alpha_radar_macro_v1863au",
             disabled=required_sources["macro"],
             help="Laast paa naar Signal-lupe bruker Ravarer/makro eller Arstid/syklus.",
         )
@@ -490,7 +527,7 @@ def render_alpha_radar_panel(
         include_results = st.checkbox(
             "Resultater",
             value=True,
-            key="alpha_radar_results_v1863at",
+            key="alpha_radar_results_v1863au",
             disabled=required_sources["results"],
             help="Laast paa naar Signal-lupe bruker Resultater.",
         )
@@ -500,10 +537,18 @@ def render_alpha_radar_panel(
     include_results = bool(include_results or required_sources["results"])
     low_data_allowed = precision_level == "Utforskende" and effective_cap_filter not in {"Mikro/small", "Small/mid", "Kun large/mega"}
     with c12:
-        fill_low_data = st.checkbox("Fyll opp lav-data", value=False, key="alpha_radar_fill_low_data_v1863at", disabled=not low_data_allowed)
+        fill_low_data = st.checkbox("Fyll opp lav-data", value=False, key="alpha_radar_fill_low_data_v1863au", disabled=not low_data_allowed)
     if not low_data_allowed:
         fill_low_data = False
         st.caption("Lav-data utfylling er blokkert i strenge borsverdi-/presisjonsvalg.")
+    include_ipo = False
+    if analysis_engine == "Early Warning V1":
+        include_ipo = st.checkbox(
+            "Merk IPO/pre-IPO som separat omraade",
+            value=False,
+            key="early_warning_include_ipo_v1863au",
+            help="V1 blander ikke IPO/pre-IPO direkte med boersnoterte aksjer. Dette reserverer feltet for separat datadekning.",
+        )
 
     manual_text = ""
     if scope == "Manuell liste":
@@ -511,15 +556,38 @@ def render_alpha_radar_panel(
             "Manuelle tickere",
             value="",
             placeholder="EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE, PETR4.SA",
-            key="alpha_radar_manual_v1863at",
+            key="alpha_radar_manual_v1863au",
             height=88,
         )
 
-    try:
-        source_tickers = list(resolve_tickers(scope, int(max_scan), manual_text) or [])
-    except Exception as exc:
-        source_tickers = []
-        st.warning(f"Kunne ikke hente univers: {exc}")
+    universe_request = {
+        "scope": scope,
+        "max_scan": int(max_scan),
+        "manual_digest": hashlib.sha256(str(manual_text or "").encode("utf-8")).hexdigest()[:12],
+    }
+    universe_request_key = _alpha_radar_fingerprint(universe_request)
+    preview_key = "alpha_radar_universe_preview_v1863au"
+    preview = st.session_state.get(preview_key) if isinstance(st.session_state.get(preview_key), Mapping) else {}
+    source_tickers = list(preview.get("tickers") or []) if preview.get("request_key") == universe_request_key else []
+
+    refresh_universe = st.button(
+        "Oppdater univers-preview",
+        key="alpha_radar_refresh_universe_v1863au",
+        use_container_width=True,
+        disabled=(scope == no_selection_label or (scope == "Manuell liste" and not manual_text.strip())),
+        help="Henter tickerlisten for valgte marked. Dette er eneste univershenting foer Kjor.",
+    )
+    if refresh_universe:
+        try:
+            source_tickers = list(resolve_tickers(scope, int(max_scan), manual_text) or [])
+            st.session_state[preview_key] = {
+                "request_key": universe_request_key,
+                "tickers": source_tickers,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+        except Exception as exc:
+            source_tickers = []
+            st.warning(f"Kunne ikke hente univers: {exc}")
 
     if source_tickers:
         if len(source_tickers) < int(max_scan):
@@ -531,7 +599,7 @@ def render_alpha_radar_panel(
         else:
             st.caption(f"Skannes ved neste Kjor: {len(source_tickers)} tickere av maks {int(max_scan)}. Eksempel: {', '.join(source_tickers[:10])}")
     else:
-        st.info("Velg univers/marked eller manuell liste. Alpha Radar scorer ingenting foer du trykker Kjor.")
+        st.info("Univers-preview er ikke hentet for gjeldende valg. Menyvalg starter ingen scan; trykk Oppdater univers-preview eller Kjor.")
 
     input_context = _alpha_radar_input_context(
         scope=scope,
@@ -549,6 +617,8 @@ def render_alpha_radar_panel(
         max_scan=int(max_scan),
         source_tickers=source_tickers,
         manual_text=manual_text,
+        analysis_engine=analysis_engine,
+        include_ipo=include_ipo,
     )
     input_fingerprint = _alpha_radar_fingerprint(input_context)
 
@@ -556,19 +626,53 @@ def render_alpha_radar_panel(
         "Visning",
         ["Samlet rangering", "Gruppert per marked"],
         horizontal=True,
-        key="alpha_radar_show_mode_v1863at",
+        key="alpha_radar_show_mode_v1863au",
     )
 
     run_clicked = st.button(
-        "Kjor Alpha Radar V2",
-        key="alpha_radar_run_v1863at",
+        "Kjor Early Warning V1" if analysis_engine == "Early Warning V1" else "Kjor Alpha Radar V2",
+        key="alpha_radar_run_v1863au",
         type="primary",
         use_container_width=True,
-        disabled=not bool(source_tickers),
+        disabled=(scope == no_selection_label or (scope == "Manuell liste" and not manual_text.strip())),
     )
 
-    if run_clicked and source_tickers:
-        progress_bar = st.progress(0, text=f"Starter Alpha Radar: 0/{len(source_tickers)}")
+    if run_clicked:
+        if not source_tickers:
+            try:
+                source_tickers = list(resolve_tickers(scope, int(max_scan), manual_text) or [])
+                st.session_state[preview_key] = {
+                    "request_key": universe_request_key,
+                    "tickers": source_tickers,
+                    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                }
+            except Exception as exc:
+                source_tickers = []
+                st.warning(f"Kunne ikke hente univers: {exc}")
+        if not source_tickers:
+            st.warning("Fant ingen tickere aa skanne for gjeldende valg.")
+            return
+        input_context = _alpha_radar_input_context(
+            scope=scope,
+            horizon=horizon,
+            mode=mode,
+            market_cap_filter=effective_cap_filter,
+            precision_level=precision_level,
+            active_signals=effective_signals,
+            include_news=include_news,
+            include_insider=include_insider_signal,
+            include_macro=include_macro,
+            include_results=include_results,
+            fill_low_data=fill_low_data,
+            limit=int(limit),
+            max_scan=int(max_scan),
+            source_tickers=source_tickers,
+            manual_text=manual_text,
+            analysis_engine=analysis_engine,
+            include_ipo=include_ipo,
+        )
+        input_fingerprint = _alpha_radar_fingerprint(input_context)
+        progress_bar = st.progress(0, text=f"Starter {analysis_engine}: 0/{len(source_tickers)}")
         progress_line = st.empty()
 
         def _progress_callback(event: Mapping[str, Any]) -> None:
@@ -599,39 +703,55 @@ def render_alpha_radar_panel(
                 include_insider=bool(include_insider_signal),
                 include_macro=bool(include_macro),
                 include_results=bool(include_results),
-                mode=mode,
+                mode="Early Warning V1" if analysis_engine == "Early Warning V1" else mode,
                 active_signals=list(effective_signals or []),
                 news_provider=news_provider,
                 insider_provider=insider_provider,
                 earnings_provider=earnings_provider,
             )
 
-        result = run_alpha_radar(
-            source_tickers,
-            horizon=horizon,
-            limit=int(limit),
-            max_scan=int(max_scan),
-            include_news=bool(include_news),
-            include_insider=bool(include_insider_signal),
-            mode=mode,
-            market_cap_filter=effective_cap_filter,
-            precision_level=precision_level,
-            active_signals=list(effective_signals or []),
-            fill_low_data=bool(fill_low_data),
-            score_provider=enriched_score_provider,
-            insider_provider=insider_provider,
-            news_provider=news_provider,
-            progress_callback=_progress_callback,
-        )
-        progress_bar.progress(100, text="Alpha Radar ferdig")
+        if analysis_engine == "Early Warning V1":
+            result = run_early_warning(
+                source_tickers,
+                horizon=horizon,
+                limit=int(limit),
+                max_scan=int(max_scan),
+                include_news=bool(include_news),
+                include_insider=bool(include_insider_signal),
+                include_macro=bool(include_macro),
+                include_results=bool(include_results),
+                include_ipo=bool(include_ipo),
+                score_provider=enriched_score_provider,
+                progress_callback=_progress_callback,
+            )
+        else:
+            result = run_alpha_radar(
+                source_tickers,
+                horizon=horizon,
+                limit=int(limit),
+                max_scan=int(max_scan),
+                include_news=bool(include_news),
+                include_insider=bool(include_insider_signal),
+                mode=mode,
+                market_cap_filter=effective_cap_filter,
+                precision_level=precision_level,
+                active_signals=list(effective_signals or []),
+                fill_low_data=bool(fill_low_data),
+                score_provider=enriched_score_provider,
+                insider_provider=insider_provider,
+                news_provider=news_provider,
+                progress_callback=_progress_callback,
+            )
+        progress_bar.progress(100, text=f"{analysis_engine} ferdig")
         result["scope"] = scope
         result["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         result["input_context"] = dict(input_context)
         result["input_fingerprint"] = input_fingerprint
         result["source_tickers"] = list(source_tickers)
+        result["analysis_engine"] = analysis_engine
         st.session_state[LAST_RESULT_KEY] = result
         st.success(
-            f"Alpha Radar V2 ferdig: viser {len(result.get('candidates') or [])} funn "
+            f"{analysis_engine} ferdig: viser {len(result.get('candidates') or [])} funn "
             f"av {int(limit)} onsket fra {result.get('scanned_count', 0)} tickere."
         )
 
@@ -668,6 +788,6 @@ def render_alpha_radar_panel(
             st.warning("Parameterdisiplin: " + " | ".join(str(x) for x in result.get("parameter_warnings") or []))
         _render_result_actions(result, disabled=result_is_stale)
     if result_is_stale:
-        _render_candidates([], grouped=(show_mode == "Gruppert per marked"))
+        _render_candidates([], grouped=(show_mode == "Gruppert per marked"), empty_label=analysis_engine)
     else:
-        _render_candidates(candidates, grouped=(show_mode == "Gruppert per marked"))
+        _render_candidates(candidates, grouped=(show_mode == "Gruppert per marked"), empty_label=analysis_engine)

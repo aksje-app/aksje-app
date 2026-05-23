@@ -9,7 +9,7 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3at"' in version
+assert 'APP_VERSION = "v18.6.3au"' in version
 assert "_cc_fast_nav_v1863ak" in app
 assert "render_live_market_banner()" in app
 startup_marker_pos = app.find("startup_heavy_update_pending_v1863an")
