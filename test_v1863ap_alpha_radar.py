@@ -22,8 +22,8 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3au"' in version
-assert "Alpha Radar Early Warning" in version
+assert 'APP_VERSION = "v18.6.3av"' in version
+assert "Early Warning Evidence Split" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -60,13 +60,16 @@ assert "input_fingerprint" in ui + results
 assert "max_selections=signal_limit" in ui
 assert "Signal-lupe = vekting" in ui
 assert "Datakilder = datagrunnlag" in ui
-assert "Valgene er endret siden siste Alpha Radar-kjoering" in ui
+assert "Valgene er endret siden siste" in ui
 assert "alpha_radar_result_to_csv" in ui + results
 assert "alpha_radar_result_to_print_html" in ui + results
 assert "Bruk som aktivt Analyseunivers" in ui
 assert "Oppdater univers-preview" in ui
 assert "run_early_warning" in ui + early
 assert "Early Warning V1" in ui + early
+assert "fresh_source_evidence" in early
+assert "evidence_items" in early + results
+assert "Euronext/Norden" in ui + results
 assert "Standard/bred vekting" in ui
 assert "alpha_radar_result_to_xlsx" in ui + results
 assert "factor_quality" in engine + ui + results + early

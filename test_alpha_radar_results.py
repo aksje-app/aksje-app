@@ -33,6 +33,26 @@ RESULT = {
             "reject_reasons": [],
             "warning_reasons": ["tynt volum"],
             "manual_review": "Manuell sjekk.",
+            "evidence_items": [
+                {
+                    "type": "nyhet",
+                    "title": "Kontrakt vunnet",
+                    "source": "Borsmelding",
+                    "published": "2026-05-22",
+                    "detail": "Katalysator",
+                    "url": "https://example.com/news",
+                }
+            ],
+            "news_evidence": [
+                {
+                    "title": "Kontrakt vunnet",
+                    "source": "Borsmelding",
+                    "published": "2026-05-22",
+                    "detail": "Katalysator",
+                    "url": "https://example.com/news",
+                }
+            ],
+            "insider_evidence": [],
         },
         {
             "rank": 2,
@@ -60,10 +80,13 @@ def test_alpha_radar_exports_csv_html_and_ticker_text():
     assert b"HIDE.ST" in csv_bytes
     assert b"window.print" in html_bytes
     assert b"Datakvalitet" in html_bytes
+    assert b"https://example.com/news" in html_bytes
+    assert b"evidence_summary" in csv_bytes
     assert xlsx_bytes[:2] == b"PK"
     with zipfile.ZipFile(io.BytesIO(xlsx_bytes)) as zf:
         assert "xl/workbook.xml" in zf.namelist()
         assert "xl/worksheets/sheet2.xml" in zf.namelist()
+        assert "xl/worksheets/sheet5.xml" in zf.namelist()
     assert tickers.decode("utf-8").splitlines() == ["MICRO.OL", "HIDE.ST"]
 
 

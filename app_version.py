@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3au"
-APP_VERSION_NAME = "Alpha Radar Early Warning"
-APP_BUILD_ID = "v1863au-alpha-radar-early-warning"
+APP_VERSION = "v18.6.3av"
+APP_VERSION_NAME = "Early Warning Evidence Split"
+APP_BUILD_ID = "v1863av-early-warning-evidence-split"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -39,6 +39,9 @@ APP_PATCH_NOTES = [
     "Alpha Radar har strengere parameterdisiplin med harde borsverdi-gates, presisjonsvalg, lav-data blokkering og tydelige ekskluderingsaarsaker.",
     "Alpha Radar viser scan-progresjon, skiller signal-lupe fra datakilder, markerer gamle resultater naar input endres og kan lagre/eksportere resultat.",
     "Alpha Radar viser manglende faktorgrunnlag som N/A, stopper univershenting ved vanlige menyvalg, har komplett print/Excel-eksport og Early Warning V1.",
+    "Early Warning er skilt tydeligere fra Alpha Radar med ferske kildebevis, insider-/bjellesau-spor, nyhetskatalysatorer og Euronext/Norden-notat i rapportene.",
+    "Alpha Radar/Early Warning-rapportene viser kildespor med titler, kilder, datoer og lenker der datakilden leverer dette.",
+    "Mobilvisning for driftkontroll og Alpha Radar Signal-lupe er strammet inn uten aa flytte tunge jobber ut fra eksplisitte Kjor-knapper.",
 ]
 
 def get_app_version():

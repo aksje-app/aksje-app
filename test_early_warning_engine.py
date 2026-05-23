@@ -47,8 +47,38 @@ def test_early_warning_ranks_expectation_change_above_price_only():
     assert result["mode"] == "Early Warning V1"
     assert result["candidates"][0]["ticker"] == "REV.OL"
     assert result["candidates"][0]["factor_quality"]["expectation_change"] == "ekte"
+    assert "fresh_source_evidence" in result["candidates"][0]["factor_scores"]
     assert result["candidates"][1]["factor_scores"]["expectation_change"] is None
     assert result["scope_limits"]["listed_equities"] is True
+    assert ".OL" in result["scope_limits"]["euronext_note"]
+
+
+def test_early_warning_keeps_source_evidence_details():
+    def evidence_provider(ticker, use_news=False, include_insider=False):
+        row = dict(ROWS["REV.OL"])
+        row["ticker"] = ticker
+        row["articles"] = [{
+            "title": "Kontrakt vunnet",
+            "source": "Borsmelding",
+            "published": "2026-05-22",
+            "url": "https://example.com/news",
+        }]
+        row["latest_transactions"] = [{
+            "name": "Kari CEO",
+            "relation": "CEO",
+            "type": "BUY",
+            "date": "2026-05-21",
+            "shares": 10000,
+            "url": "https://example.com/insider",
+        }]
+        return row
+
+    result = run_early_warning(["REV.OL"], limit=1, max_scan=1, score_provider=evidence_provider)
+    candidate = result["candidates"][0]
+
+    assert candidate["evidence_items"]
+    assert candidate["news_evidence"][0]["url"] == "https://example.com/news"
+    assert candidate["insider_evidence"][0]["title"] == "Kari CEO"
 
 
 def test_early_warning_emits_progress_events():

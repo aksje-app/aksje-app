@@ -57,6 +57,9 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "reject_reasons",
         "warning_reasons",
         "manual_review",
+        "evidence_summary",
+        "insider_evidence",
+        "news_evidence",
     ]
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
@@ -69,6 +72,9 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
             value = out.get(key)
             if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
                 out[key] = "; ".join(str(item) for item in value)
+        out["evidence_summary"] = _evidence_summary(row)
+        out["insider_evidence"] = _evidence_text(row.get("insider_evidence"))
+        out["news_evidence"] = _evidence_text(row.get("news_evidence"))
         writer.writerow(out)
     return buffer.getvalue().encode("utf-8-sig")
 
@@ -123,8 +129,9 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         "underfollowed_score", "inflection_score", "catalyst_score", "insider_score",
         "volume_score", "macro_score", "evidence_score", "risk_score", "market_cap",
         "data_quality", "why_now", "signals", "reject_reasons", "warning_reasons", "manual_review",
+        "evidence_summary",
     ]
-    candidate_rows = [candidate_fields] + [[row.get(field) for field in candidate_fields] for row in candidates]
+    candidate_rows = [candidate_fields] + [[_evidence_summary(row) if field == "evidence_summary" else row.get(field) for field in candidate_fields] for row in candidates]
     signal_rows = [["ticker", "factor", "score", "quality"]]
     quality_rows = [["ticker", "factor", "quality"]]
     for row in candidates:
@@ -135,6 +142,19 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         for factor, quality in qualities.items():
             quality_rows.append([row.get("ticker"), factor, quality])
     excluded_rows = [["ticker", "reasons", "market_cap"]] + [[row.get("ticker"), row.get("reasons"), row.get("market_cap")] for row in excluded]
+    evidence_rows = [["ticker", "type", "title", "source", "published", "detail", "url"]]
+    for row in candidates:
+        for item in row.get("evidence_items") or []:
+            if isinstance(item, Mapping):
+                evidence_rows.append([
+                    row.get("ticker"),
+                    item.get("type"),
+                    item.get("title"),
+                    item.get("source"),
+                    item.get("published"),
+                    item.get("detail"),
+                    item.get("url"),
+                ])
     raw_rows = [["Key", "Value"]] + [[key, value] for key, value in context.items()]
 
     sheets = [
@@ -142,6 +162,7 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         ("Candidates", candidate_rows),
         ("Signals", signal_rows),
         ("Data quality", quality_rows),
+        ("Evidence", evidence_rows),
         ("Excluded", excluded_rows),
         ("Raw input", raw_rows),
     ]
@@ -178,8 +199,72 @@ def alpha_radar_result_to_ticker_text(result: Mapping[str, Any]) -> bytes:
     return "\n".join(alpha_radar_candidate_tickers(result)).encode("utf-8")
 
 
+def _result_title(result: Mapping[str, Any]) -> str:
+    engine = str(result.get("analysis_engine") or result.get("mode") or "").strip()
+    if "Early Warning" in engine:
+        return "Early Warning result"
+    return "Alpha Radar result"
+
+
+def _link_html(url: Any, label: str = "Kilde") -> str:
+    href = str(url or "").strip()
+    if not href:
+        return ""
+    if not href.lower().startswith(("http://", "https://")):
+        return html.escape(href)
+    return f'<a href="{html.escape(href)}">{html.escape(label)}</a>'
+
+
+def _evidence_text(items: Any) -> str:
+    if not isinstance(items, Sequence) or isinstance(items, (str, bytes, bytearray)):
+        return ""
+    lines: list[str] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        parts = [
+            str(item.get("title") or "").strip(),
+            str(item.get("source") or "").strip(),
+            str(item.get("published") or "").strip(),
+            str(item.get("detail") or "").strip(),
+            str(item.get("url") or "").strip(),
+        ]
+        clean = [part for part in parts if part]
+        if clean:
+            lines.append(" | ".join(clean))
+    return "\n".join(lines)
+
+
+def _evidence_summary(row: Mapping[str, Any]) -> str:
+    evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
+    insider = row.get("insider_evidence") if isinstance(row.get("insider_evidence"), list) else []
+    news = row.get("news_evidence") if isinstance(row.get("news_evidence"), list) else []
+    if not evidence and not insider and not news:
+        return "Ingen direkte kildedetaljer i resultatet."
+    return f"{len(insider)} insider/bjellesau-spor, {len(news)} nyhetsspor, {len(evidence)} kildespor totalt."
+
+
+def _evidence_html(row: Mapping[str, Any]) -> str:
+    evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
+    if not evidence:
+        return "<p class='muted'><b>Kildespor:</b> Ingen direkte kildedetaljer lagret for denne kandidaten.</p>"
+    items: list[str] = []
+    for item in evidence[:10]:
+        if not isinstance(item, Mapping):
+            continue
+        kind = html.escape(str(item.get("type") or "kilde"))
+        title = html.escape(str(item.get("title") or "Uten tittel"))
+        source = html.escape(str(item.get("source") or "Ukjent kilde"))
+        published = html.escape(str(item.get("published") or ""))
+        detail = html.escape(str(item.get("detail") or ""))
+        link = _link_html(item.get("url"), "Apne kilde")
+        meta = " | ".join(part for part in (source, published, link) if part)
+        items.append(f"<li><b>{kind}:</b> {title}<br><span>{meta}</span><br><em>{detail}</em></li>")
+    return "<div class='evidence'><b>Kildespor / hva ble funnet:</b><ul>" + "".join(items) + "</ul></div>"
+
+
 def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
-    title = "Alpha Radar result"
+    title = _result_title(result)
     created = html.escape(str(result.get("created_at") or ""))
     scope = html.escape(str(result.get("scope") or ""))
     mode = html.escape(str(result.get("mode") or ""))
@@ -219,6 +304,7 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
             f"<table><thead><tr><th>Faktor</th><th>Verdi</th><th>Datakvalitet</th></tr></thead><tbody>{metric_html}</tbody></table>"
             f"<p>{html.escape(str(row.get('why_now') or row.get('thesis') or ''))}</p>"
             f"<p><b>Signaler:</b> {html.escape(', '.join(str(x) for x in signals) or '-')}</p>"
+            f"{_evidence_html(row)}"
             f"<p><b>Sjekk/avslag:</b> {html.escape('; '.join(str(x) for x in rejects) or 'ingen harde avslag')}</p>"
             f"<p><b>Datavarsel:</b> {html.escape('; '.join(str(x) for x in warnings) or 'ingen')}</p>"
             f"<p class='review'>{html.escape(str(row.get('manual_review') or ''))}</p>"
@@ -241,14 +327,19 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
     th, td {{ border: 1px solid #d1d5db; padding: 5px 7px; text-align: left; font-size: 12px; }}
     th {{ background: #f3f4f6; }}
     .review {{ color: #92400e; }}
+    .evidence {{ background: #f8fafc; border: 1px solid #dbeafe; padding: 8px 10px; margin: 8px 0; }}
+    .evidence ul {{ margin: 6px 0 0 18px; padding: 0; }}
+    .evidence li {{ margin: 0 0 7px 0; }}
+    .evidence span, .muted {{ color: #4b5563; font-size: 12px; }}
     @media print {{ button {{ display: none; }} body {{ margin: 16mm; }} }}
   </style>
 </head>
 <body>
   <button onclick="window.print()">Skriv ut / lagre som PDF</button>
-  <h1>Alpha Radar</h1>
+  <h1>{html.escape(title)}</h1>
   <p class="meta">{created} | {scope} | {mode} | {horizon} | {precision} | {market_filter}</p>
   <p class="meta">Scannet {scanned} | scoret {scored} | ekskludert {excluded}</p>
+  <p class="meta">Euronext/Norden: Norge (.OL), Sverige (.ST), Finland (.HE) og Danmark (.CO) er med naar valgt univers inneholder disse markedene. Kildelenker vises bare der datakilden returnerer URL.</p>
   <p>Hypoteseliste for manuell analyse. Ikke investeringsraad og ikke automatisk handel.</p>
   {body}
 </body>
@@ -289,9 +380,10 @@ def save_alpha_radar_observation_list(result: Mapping[str, Any]) -> int:
 
     settings = load_settings() or {}
     tickers = alpha_radar_candidate_tickers(result)
+    source_name = "Early Warning" if "Early Warning" in str(result.get("analysis_engine") or result.get("mode") or "") else "Alpha Radar"
     settings[OBSERVATION_SETTINGS_KEY] = {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "source": "Alpha Radar",
+        "source": source_name,
         "tickers": tickers,
         "input_fingerprint": result.get("input_fingerprint"),
     }
@@ -301,6 +393,7 @@ def save_alpha_radar_observation_list(result: Mapping[str, Any]) -> int:
 
 def alpha_radar_result_to_active_universe_payload(result: Mapping[str, Any]) -> dict[str, Any]:
     tickers = alpha_radar_candidate_tickers(result)
+    source_name = "Early Warning" if "Early Warning" in str(result.get("analysis_engine") or result.get("mode") or "") else "Alpha Radar"
     rows = []
     for row in result.get("candidates") or []:
         if not isinstance(row, Mapping):
@@ -313,13 +406,13 @@ def alpha_radar_result_to_active_universe_payload(result: Mapping[str, Any]) -> 
             "name": row.get("name"),
             "market": row.get("market"),
             "score": row.get("hidden_potential_score") or row.get("alpha_score"),
-            "status": "Alpha Radar hypotese",
+            "status": f"{source_name} hypotese",
             "reason": row.get("why_now") or row.get("thesis"),
-            "source": "Alpha Radar",
+            "source": source_name,
         })
     return {
-        "source": "Alpha Radar",
-        "picker_reason": "Alpha Radar resultat sendt manuelt til aktivt analyseunivers.",
+        "source": source_name,
+        "picker_reason": f"{source_name} resultat sendt manuelt til aktivt analyseunivers.",
         "tickers": tickers,
         "rows": rows,
         "config": dict(result.get("input_context") or {}),

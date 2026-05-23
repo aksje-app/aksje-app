@@ -10662,6 +10662,40 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
     html body .stApp .ptw-sticky-topbar { padding:.56rem .60rem !important; margin-bottom:.52rem !important; }
     html body .stApp .ptw-topbar-right { width:100% !important; max-width:100% !important; justify-content:flex-start !important; }
     html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.80rem !important; }
+    html body .stApp .v18532-status-row {
+        display:flex !important;
+        flex-wrap:wrap !important;
+        align-items:center !important;
+        gap:.36rem .42rem !important;
+    }
+    html body .stApp .v18534-trading-control-stack,
+    html body .stApp .v18534-trading-help {
+        display:block !important;
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        line-height:1.25 !important;
+        white-space:normal !important;
+        overflow:visible !important;
+    }
+    html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+    html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+        display:grid !important;
+        grid-template-columns:repeat(2, minmax(0, 1fr)) !important;
+        gap:.46rem !important;
+    }
+    html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"],
+    html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+        width:100% !important;
+        min-width:0 !important;
+    }
+    html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button,
+    html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button p {
+        min-height:40px !important;
+        height:auto !important;
+        font-size:.82rem !important;
+        line-height:1.08 !important;
+    }
     html body .stApp div[data-testid="stButton"] > button,
     html body .stApp div[data-testid="stFormSubmitButton"] > button { min-height:42px !important; }
 }

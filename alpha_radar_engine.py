@@ -218,6 +218,9 @@ class AlphaRadarCandidate:
     factor_scores: dict[str, float | None]
     factor_quality: dict[str, str]
     source: str
+    evidence_items: list[dict[str, Any]]
+    insider_evidence: list[dict[str, Any]]
+    news_evidence: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -325,6 +328,66 @@ def _news_count(row: Mapping[str, Any]) -> int | None:
         except Exception:
             return None
     return None
+
+
+def _clean_text(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _news_evidence(row: Mapping[str, Any], limit: int = 5) -> list[dict[str, Any]]:
+    articles = row.get("articles") if isinstance(row.get("articles"), list) else []
+    items: list[dict[str, Any]] = []
+    for article in articles[:limit]:
+        if not isinstance(article, Mapping):
+            continue
+        items.append({
+            "type": "nyhet",
+            "title": _clean_text(article.get("title") or article.get("headline"), "Uten tittel"),
+            "source": _clean_text(article.get("source") or article.get("publisher") or article.get("site"), "Ukjent kilde"),
+            "published": _clean_text(article.get("published") or article.get("publishedAt") or article.get("date")),
+            "url": _clean_text(article.get("url") or article.get("link")),
+            "detail": "Nyhets-/katalysatorspor brukt som støtte i Alpha Radar.",
+        })
+    return items
+
+
+def _insider_evidence(row: Mapping[str, Any], limit: int = 6) -> list[dict[str, Any]]:
+    txs = row.get("latest_transactions") if isinstance(row.get("latest_transactions"), list) else []
+    items: list[dict[str, Any]] = []
+    for tx in txs[:limit]:
+        if not isinstance(tx, Mapping):
+            continue
+        relation = _clean_text(tx.get("relation") or tx.get("role"))
+        tx_type = _clean_text(tx.get("type") or tx.get("transaction_type") or tx.get("side"), "transaksjon")
+        shares = _clean_text(tx.get("shares") or tx.get("volume") or tx.get("quantity"))
+        value = _clean_text(tx.get("value") or tx.get("amount") or tx.get("value_nok"))
+        detail = " | ".join(part for part in (relation, tx_type, f"aksjer {shares}" if shares else "", f"verdi {value}" if value else "") if part)
+        items.append({
+            "type": "insider/bjellesau",
+            "title": _clean_text(tx.get("name") or tx.get("person") or tx.get("insider"), "Ukjent insider"),
+            "source": _clean_text(tx.get("source"), "Insiderdata"),
+            "published": _clean_text(tx.get("date") or tx.get("published") or tx.get("transaction_date")),
+            "url": _clean_text(tx.get("url") or tx.get("link") or tx.get("source_url")),
+            "detail": detail or "Insider-/eierskapsspor brukt som støtte i Alpha Radar.",
+        })
+    return items
+
+
+def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    news = _news_evidence(row) if include_news else []
+    insider = _insider_evidence(row) if include_insider else []
+    combined = insider + news
+    if row.get("bjellesau_match"):
+        combined.insert(0, {
+            "type": "bjellesau-match",
+            "title": ", ".join(str(x) for x in row.get("bjellesau_match") or []),
+            "source": "Lokal bjellesau-watchlist",
+            "published": "",
+            "url": "",
+            "detail": "Navn fra siste insiderdata matcher lokal watchlist.",
+        })
+    return combined[:10], insider, news
 
 
 def _base_score(row: Mapping[str, Any]) -> float:
@@ -976,6 +1039,7 @@ def _score_candidate(
         hidden = min(hidden, 48.0)
 
     signals = _signals(row, scoring_factors, risk_level)
+    evidence_items, insider_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
     reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, scoring_factors["evidence"])
     warning_reasons = list(row.get("warning_reasons") or [])
     if missing_focus:
@@ -1018,6 +1082,9 @@ def _score_candidate(
         factor_scores={key: (None if value is None else round(float(value) * 100.0, 1)) for key, value in factors.items()},
         factor_quality=factor_quality,
         source="Alpha Radar V2 Contrarian / Hidden Potential",
+        evidence_items=evidence_items,
+        insider_evidence=insider_evidence,
+        news_evidence=news_evidence,
     )
 
 

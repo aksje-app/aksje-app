@@ -340,6 +340,29 @@ def _render_alpha_radar_css() -> None:
             .alpha-radar-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .alpha-radar-score { min-width: 3.8rem; font-size: 1.05rem; }
         }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+            max-width: 100% !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            height: auto !important;
+            min-height: 30px !important;
+        }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] span {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            line-height: 1.14 !important;
+        }
+        div[data-testid="stMultiSelect"] > div {
+            min-height: 44px !important;
+            align-items: flex-start !important;
+        }
+        @media (max-width: 700px) {
+            div[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+                width: auto !important;
+                max-width: calc(100vw - 92px) !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -427,15 +450,6 @@ def render_alpha_radar_panel(
     """Render the explicit-run Alpha Radar V2 panel."""
 
     _render_alpha_radar_css()
-    st.subheader("Alpha Radar V2")
-    st.caption("Contrarian / Hidden Potential Score for 1-15 manuelle aksjehypoteser.")
-    st.markdown(
-        "<div class='alpha-radar-note'>V2 leter etter underdekkede vendepunkter, why-now-signaler, "
-        "insider/bjellesauer, uvanlig volum og andreordens makro/ravare-effekter. Kjente/overdekkede "
-        "megacaps faar crowding-straff. Ingen handel starter her.</div>",
-        unsafe_allow_html=True,
-    )
-
     analysis_engine = st.radio(
         "Sokemotor",
         ["Alpha Radar", "Early Warning V1"],
@@ -444,7 +458,27 @@ def render_alpha_radar_panel(
         help="Alpha Radar leter etter skjulte hypoteser. Early Warning V1 rangerer forventningsendring, earnings, fundamental akselerasjon og markedsbekreftelse.",
     )
     if analysis_engine == "Early Warning V1":
-        st.caption("Early Warning V1 bruker samme markedsvalg, men rangerer bare boersnoterte aksjer i hovedlisten. IPO/pre-IPO kan merkes som separat omraade naar datakilder finnes.")
+        st.subheader("Early Warning V1")
+        st.caption("Tidligvarslingsmotor for ferske insider-/bjellesau-spor, nyheter, forventningsendring og tidlig bekreftelse.")
+        st.markdown(
+            "<div class='alpha-radar-note'>Early Warning skal finne andre ting enn Alpha Radar: tidlige kildespor, "
+            "konkrete insider-/bjellesauhendelser, nyhetskatalysatorer, revisjoner og svake signaler som maa "
+            "bekreftes manuelt. Den er ikke en hidden-potential score og starter ingen handel.</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Early Warning V1 jakter andre signaler enn Alpha Radar: ferske insider-/bjellesau-spor, nyhetskatalysatorer, "
+            "forventningsendring og tidlig markedsbekreftelse. Euronext/Norden tas med via .OL, .ST, .HE og .CO naar universet inneholder disse markedene."
+        )
+    else:
+        st.subheader("Alpha Radar V2")
+        st.caption("Contrarian / Hidden Potential Score for 1-15 manuelle aksjehypoteser.")
+        st.markdown(
+            "<div class='alpha-radar-note'>V2 leter etter underdekkede vendepunkter, why-now-signaler, "
+            "insider/bjellesauer, uvanlig volum og andreordens makro/ravare-effekter. Kjente/overdekkede "
+            "megacaps faar crowding-straff. Ingen handel starter her.</div>",
+            unsafe_allow_html=True,
+        )
 
     c1, c2, c3 = st.columns([1.30, 0.88, 0.72])
     with c1:
@@ -772,9 +806,10 @@ def render_alpha_radar_panel(
         wanted = int(result.get("limit") or limit)
         shown = len(candidates)
         if result_is_stale:
+            rerun_label = "Kjor Early Warning V1" if analysis_engine == "Early Warning V1" else "Kjor Alpha Radar V2"
             st.warning(
-                "Valgene er endret siden siste Alpha Radar-kjoering. "
-                "Resultatet under er gammelt og skjules som aktiv kandidatvisning. Trykk Kjor Alpha Radar V2 for ny scan."
+                f"Valgene er endret siden siste {analysis_engine}-kjoering. "
+                f"Resultatet under er gammelt og skjules som aktiv kandidatvisning. Trykk {rerun_label} for ny scan."
             )
         st.markdown(
             f"<div class='alpha-radar-note'>Siste kjoering: <b>{scope_text}</b> | {mode_text} | {created_at} | "

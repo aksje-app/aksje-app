@@ -6,40 +6,44 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 HORIZON_WEIGHTS = {
     "1m": {
-        "expectation_change": 0.16,
-        "earnings_surprise": 0.16,
-        "fundamental_acceleration": 0.14,
-        "market_confirmation": 0.28,
-        "ownership_insider": 0.08,
-        "catalyst_altdata_macro": 0.14,
-        "risk_filter": 0.04,
+        "fresh_source_evidence": 0.26,
+        "ownership_insider": 0.18,
+        "catalyst_altdata_macro": 0.18,
+        "expectation_change": 0.12,
+        "earnings_surprise": 0.10,
+        "market_confirmation": 0.10,
+        "fundamental_acceleration": 0.04,
+        "risk_filter": 0.02,
     },
     "3m": {
-        "expectation_change": 0.25,
-        "earnings_surprise": 0.20,
-        "fundamental_acceleration": 0.16,
-        "market_confirmation": 0.18,
-        "ownership_insider": 0.10,
-        "catalyst_altdata_macro": 0.08,
-        "risk_filter": 0.03,
-    },
-    "6m": {
-        "expectation_change": 0.22,
-        "earnings_surprise": 0.16,
-        "fundamental_acceleration": 0.26,
-        "market_confirmation": 0.12,
-        "ownership_insider": 0.08,
-        "catalyst_altdata_macro": 0.12,
-        "risk_filter": 0.04,
-    },
-    "12m": {
+        "fresh_source_evidence": 0.22,
+        "ownership_insider": 0.18,
+        "catalyst_altdata_macro": 0.16,
         "expectation_change": 0.18,
         "earnings_surprise": 0.12,
-        "fundamental_acceleration": 0.28,
-        "market_confirmation": 0.10,
-        "ownership_insider": 0.06,
+        "market_confirmation": 0.08,
+        "fundamental_acceleration": 0.04,
+        "risk_filter": 0.02,
+    },
+    "6m": {
+        "fresh_source_evidence": 0.16,
+        "ownership_insider": 0.14,
         "catalyst_altdata_macro": 0.16,
-        "risk_filter": 0.10,
+        "expectation_change": 0.18,
+        "earnings_surprise": 0.12,
+        "fundamental_acceleration": 0.18,
+        "market_confirmation": 0.04,
+        "risk_filter": 0.02,
+    },
+    "12m": {
+        "fresh_source_evidence": 0.12,
+        "ownership_insider": 0.10,
+        "catalyst_altdata_macro": 0.16,
+        "expectation_change": 0.16,
+        "earnings_surprise": 0.10,
+        "fundamental_acceleration": 0.26,
+        "market_confirmation": 0.04,
+        "risk_filter": 0.06,
     },
 }
 
@@ -78,6 +82,9 @@ class EarlyWarningCandidate:
     factor_scores: dict[str, float | None]
     factor_quality: dict[str, str]
     source: str
+    evidence_items: list[dict[str, Any]]
+    insider_evidence: list[dict[str, Any]]
+    news_evidence: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -148,6 +155,87 @@ def _quality(value: float | None, *, proxy: bool = False) -> str:
     if value is None:
         return "mangler"
     return "proxy" if proxy else "ekte"
+
+
+def _clean_text(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _news_items(row: Mapping[str, Any], limit: int = 5) -> list[dict[str, Any]]:
+    articles = row.get("articles") if isinstance(row.get("articles"), list) else []
+    items: list[dict[str, Any]] = []
+    for article in articles[:limit]:
+        if not isinstance(article, Mapping):
+            continue
+        title = _clean_text(article.get("title") or article.get("headline"), "Uten tittel")
+        source = _clean_text(article.get("source") or article.get("publisher") or article.get("site"), "Ukjent kilde")
+        url = _clean_text(article.get("url") or article.get("link"))
+        published = _clean_text(article.get("published") or article.get("publishedAt") or article.get("date"))
+        items.append({
+            "type": "nyhet",
+            "title": title,
+            "source": source,
+            "published": published,
+            "url": url,
+            "detail": "Nyhets-/katalysatorspor som maa leses manuelt.",
+        })
+    return items
+
+
+def _insider_items(row: Mapping[str, Any], limit: int = 6) -> list[dict[str, Any]]:
+    txs = row.get("latest_transactions") if isinstance(row.get("latest_transactions"), list) else []
+    items: list[dict[str, Any]] = []
+    for tx in txs[:limit]:
+        if not isinstance(tx, Mapping):
+            continue
+        name = _clean_text(tx.get("name") or tx.get("person") or tx.get("insider"), "Ukjent insider")
+        relation = _clean_text(tx.get("relation") or tx.get("role"))
+        tx_type = _clean_text(tx.get("type") or tx.get("transaction_type") or tx.get("side"), "transaksjon")
+        date = _clean_text(tx.get("date") or tx.get("published") or tx.get("transaction_date"))
+        shares = _clean_text(tx.get("shares") or tx.get("volume") or tx.get("quantity"))
+        value = _clean_text(tx.get("value") or tx.get("amount") or tx.get("value_nok"))
+        url = _clean_text(tx.get("url") or tx.get("link") or tx.get("source_url"))
+        detail_parts = [part for part in (relation, tx_type, f"aksjer {shares}" if shares else "", f"verdi {value}" if value else "") if part]
+        items.append({
+            "type": "insider/bjellesau",
+            "title": name,
+            "source": _clean_text(tx.get("source"), "Insiderdata"),
+            "published": date,
+            "url": url,
+            "detail": " | ".join(detail_parts) or "Insider-/eierskapsspor maa bekreftes manuelt.",
+        })
+    return items
+
+
+def _fresh_source_evidence(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[float | None, str]:
+    news_items = _news_items(row) if include_news else []
+    insider_items = _insider_items(row) if include_insider else []
+    news_count = len(news_items)
+    insider_count = len(insider_items)
+    bjellesau_matches = row.get("bjellesau_match") if isinstance(row.get("bjellesau_match"), list) else []
+    if not news_count and not insider_count and not bjellesau_matches:
+        return None, "mangler"
+    score = 0.42 + min(news_count, 5) * 0.055 + min(insider_count, 5) * 0.075 + min(len(bjellesau_matches), 3) * 0.08
+    if any(item.get("url") for item in news_items + insider_items):
+        score += 0.05
+    return _clamp(score), "direkte kilde"
+
+
+def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    news = _news_items(row) if include_news else []
+    insider = _insider_items(row) if include_insider else []
+    combined = insider + news
+    if row.get("bjellesau_match"):
+        combined.insert(0, {
+            "type": "bjellesau-match",
+            "title": ", ".join(str(x) for x in row.get("bjellesau_match") or []),
+            "source": "Lokal bjellesau-watchlist",
+            "published": "",
+            "url": "",
+            "detail": "Navn fra siste insiderdata matcher lokal watchlist.",
+        })
+    return combined[:10], insider, news
 
 
 def _expectation_change(row: Mapping[str, Any]) -> tuple[float | None, str]:
@@ -282,6 +370,7 @@ def _provider_call(provider: Callable[..., Mapping[str, Any] | None], ticker: st
 
 def _factor_bundle(row: Mapping[str, Any], *, include_news: bool, include_insider: bool, include_macro: bool) -> tuple[dict[str, float | None], dict[str, str]]:
     pairs = {
+        "fresh_source_evidence": _fresh_source_evidence(row, include_news=include_news, include_insider=include_insider),
         "expectation_change": _expectation_change(row),
         "earnings_surprise": _earnings_surprise(row),
         "fundamental_acceleration": _fundamental_acceleration(row),
@@ -296,6 +385,7 @@ def _factor_bundle(row: Mapping[str, Any], *, include_news: bool, include_inside
 def _signals(factors: Mapping[str, float | None]) -> list[str]:
     labels = {
         "expectation_change": "forventninger/revisions",
+        "fresh_source_evidence": "ferske kilder",
         "earnings_surprise": "earnings/guiding",
         "fundamental_acceleration": "fundamental akselerasjon",
         "market_confirmation": "pris/volum bekreftelse",
@@ -340,13 +430,19 @@ def _score_row(
     warnings = []
     if missing_focus:
         warnings.append("mangler tidligvarslingsdata: " + ", ".join(missing_focus[:4]))
+    evidence_items, insider_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    if include_insider and not insider_evidence and factors.get("ownership_insider") is None:
+        warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")
+    if include_news and not news_evidence and factors.get("catalyst_altdata_macro") is None:
+        warnings.append("ingen konkrete nyhetslenker funnet")
     rejects = []
     if liquidity >= 10:
         rejects.append("likviditet maa sjekkes")
     if risk_level >= 70:
         rejects.append("hoy volatilitet/drawdown")
     data_quality = "Svak" if missing_focus else "OK"
-    why = f"{ticker}: {', '.join(signals[:3])} peker mest opp i Early Warning. Bekreft manuelt foer vurdering."
+    evidence_note = f"{len(insider_evidence)} insider/bjellesau-spor og {len(news_evidence)} nyhetsspor" if evidence_items else "ingen direkte kildespor"
+    why = f"{ticker}: {', '.join(signals[:3])} peker mest opp i Early Warning; funnet {evidence_note}. Bekreft kildene manuelt foer vurdering."
     cap = _market_cap(row)
     factor_scores = {key: (None if value is None else round(float(value) * 100.0, 1)) for key, value in factors.items()}
     return EarlyWarningCandidate(
@@ -382,6 +478,9 @@ def _score_row(
         factor_scores=factor_scores,
         factor_quality=quality,
         source="Early Warning V1",
+        evidence_items=evidence_items,
+        insider_evidence=insider_evidence,
+        news_evidence=news_evidence,
     )
 
 
@@ -469,7 +568,7 @@ def run_early_warning(
         "mode": "Early Warning V1",
         "market_cap_filter": "Etter valgt univers",
         "precision_level": "Datakvalitet styrt per faktor",
-        "active_signals": ["Forventningsendring", "Earnings", "Fundamental akselerasjon", "Pris/volum"],
+        "active_signals": ["Ferske kilder", "Insider/bjellesauer", "Nyheter/katalysator", "Forventningsendring", "Tidlig markedsbekreftelse"],
         "limit": limit,
         "max_scan": max_scan,
         "scanned_count": len(clean),
@@ -485,6 +584,7 @@ def run_early_warning(
             "listed_equities": True,
             "ipo_preipo_included": bool(include_ipo),
             "ipo_note": "IPO/pre-IPO er merket separat og blandes ikke direkte med ordinare aksjer i denne V1-rangeringen.",
+            "euronext_note": "Norge (.OL), Sverige (.ST), Finland (.HE) og Danmark (.CO) tas med naar valgt univers inneholder disse markedene.",
         },
         "candidates": [candidate.to_dict() for candidate in ranked],
         "disclaimer": "Tidligvarslingsliste for manuell analyse. Ikke investeringsraad og ikke automatisk handel.",
