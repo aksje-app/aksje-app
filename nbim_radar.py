@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
@@ -18,6 +19,43 @@ def _clean(value: Any) -> str:
 
 def _normalize_key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", _clean(value).lower())
+
+
+def _decode_csv_bytes(data: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "latin-1"):
+        try:
+            text = data.decode(encoding)
+            if "Region" in text[:200] or "Name" in text[:200] or ";" in text[:200]:
+                return text
+        except Exception:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _normalize_company(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", _clean(value)).encode("ascii", "ignore").decode("ascii")
+    text = text.lower()
+    text = text.replace("&", " and ")
+    text = re.sub(r"\b(the|a/s|as|asa|ab|oyj|oy|plc|inc|corp|corporation|ltd|limited|ag|sa|spa|nv|bv|co|company|group|holding|holdings)\b", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _country_suffix(country: Any) -> tuple[str, ...]:
+    text = _clean(country).lower()
+    if "norway" in text:
+        return (".OL",)
+    if "sweden" in text:
+        return (".ST",)
+    if "denmark" in text:
+        return (".CO",)
+    if "finland" in text:
+        return (".HE",)
+    if "brazil" in text:
+        return (".SA",)
+    if "united states" in text or text == "usa":
+        return ("",)
+    return ()
 
 
 def parse_number(value: Any) -> float | None:
@@ -70,22 +108,28 @@ def normalize_nbim_holding(row: Mapping[str, Any]) -> dict[str, Any]:
         "ticker": ticker,
         "name": name or ticker,
         "country": country,
+        "region": _clean(_first(row, ("region",))),
         "sector": sector,
         "market_value_nok": market_value_nok,
         "market_value_usd": market_value_usd,
         "ownership_pct": ownership_pct,
         "voting_pct": voting_pct,
         "shares": shares,
+        "isin": _clean(_first(row, ("isin", "isin code"))).upper(),
     }
 
 
 def read_nbim_csv_bytes(data: bytes) -> list[dict[str, Any]]:
-    text = data.decode("utf-8-sig", errors="replace")
+    text = _decode_csv_bytes(data)
     sample = text[:2048]
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
     except Exception:
-        dialect = csv.excel
+        delimiter = ";" if sample.count(";") >= max(sample.count(","), sample.count("\t")) else "\t" if sample.count("\t") > sample.count(",") else ","
+        class _Dialect(csv.excel):
+            pass
+        dialect = _Dialect
+        dialect.delimiter = delimiter
     rows: list[dict[str, Any]] = []
     for raw in csv.DictReader(io.StringIO(text), dialect=dialect):
         if not isinstance(raw, Mapping):
@@ -96,10 +140,31 @@ def read_nbim_csv_bytes(data: bytes) -> list[dict[str, Any]]:
     return rows
 
 
+def nbim_file_diagnostics(rows: Sequence[Mapping[str, Any]], overlay: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    overlay = overlay or {}
+    countries: dict[str, int] = {}
+    sectors: dict[str, int] = {}
+    for row in rows or []:
+        country = _clean(row.get("country")) or "Ukjent"
+        sector = _clean(row.get("sector")) or "Ukjent"
+        countries[country] = countries.get(country, 0) + 1
+        sectors[sector] = sectors.get(sector, 0) + 1
+    return {
+        "rows": len(rows or []),
+        "matched_tickers": len(overlay),
+        "unmatched_rows": max(0, len(rows or []) - len(overlay)),
+        "countries": dict(sorted(countries.items(), key=lambda item: item[1], reverse=True)[:12]),
+        "sectors": dict(sorted(sectors.items(), key=lambda item: item[1], reverse=True)[:12]),
+    }
+
+
 def _holding_key(row: Mapping[str, Any]) -> str:
     ticker = _clean(row.get("ticker")).upper()
     if ticker:
         return f"ticker:{ticker}"
+    isin = _clean(row.get("isin")).upper()
+    if isin:
+        return f"isin:{isin}"
     return "name:" + _normalize_key(row.get("name"))
 
 
@@ -160,6 +225,80 @@ def compare_nbim_holdings(previous: Sequence[Mapping[str, Any]], current: Sequen
     return sorted(changes, key=lambda item: (priority.get(str(item.get("change_type")), 9), -abs(float(item.get("change_pct") or 0.0))))
 
 
+def build_ticker_alias_index(ticker_aliases: Mapping[str, Sequence[str]] | None = None) -> list[dict[str, Any]]:
+    if ticker_aliases is None:
+        try:
+            from stocks import get_ticker_name_aliases
+
+            ticker_aliases = get_ticker_name_aliases()
+        except Exception:
+            ticker_aliases = {}
+    index: list[dict[str, Any]] = []
+    for ticker, aliases in (ticker_aliases or {}).items():
+        ticker_text = _clean(ticker).upper()
+        suffixes = _country_suffix({
+            ".OL": "Norway",
+            ".ST": "Sweden",
+            ".CO": "Denmark",
+            ".HE": "Finland",
+            ".SA": "Brazil",
+        }.get("." + ticker_text.rsplit(".", 1)[-1] if "." in ticker_text else "", "United States"))
+        all_aliases = list(aliases or [])
+        root = ticker_text.split(".", 1)[0].replace("-", " ")
+        all_aliases.append(root)
+        for alias in all_aliases:
+            normalized = _normalize_company(alias)
+            if len(normalized) < 2:
+                continue
+            index.append({
+                "ticker": ticker_text,
+                "alias": alias,
+                "normalized": normalized,
+                "suffixes": suffixes,
+            })
+    return index
+
+
+def match_nbim_holding_to_ticker(row: Mapping[str, Any], alias_index: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    explicit = _clean(row.get("ticker")).upper()
+    if explicit:
+        return {"ticker": explicit, "quality": "ticker", "alias": explicit}
+    name = _normalize_company(row.get("name"))
+    if not name:
+        return {"ticker": "", "quality": "mangler", "alias": ""}
+    suffixes = _country_suffix(row.get("country"))
+    candidates = []
+    generic_single_aliases = {"investor", "capital", "holding", "holdings", "group", "bank", "energy"}
+    for item in alias_index or build_ticker_alias_index():
+        ticker = _clean(item.get("ticker")).upper()
+        if suffixes and ticker.endswith(tuple(suffixes)) is False:
+            continue
+        alias = _clean(item.get("normalized"))
+        if not alias:
+            continue
+        alias_tokens = alias.split()
+        name_tokens = name.split()
+        score = 0
+        if name == alias:
+            score = 100
+        elif len(alias_tokens) >= 2 and len(alias) >= 5 and (name.startswith(alias + " ") or f" {alias} " in f" {name} "):
+            score = 88
+        elif len(alias_tokens) == 1 and alias not in generic_single_aliases and alias in name_tokens:
+            score = 84
+        elif len(name.split()) >= 2 and len(name) >= 6 and name in alias:
+            score = 82
+        if score:
+            if suffixes:
+                score += 5
+            candidates.append((score, ticker, item.get("alias")))
+    if not candidates:
+        return {"ticker": "", "quality": "ingen match", "alias": ""}
+    candidates.sort(reverse=True)
+    score, ticker, alias = candidates[0]
+    quality = "navn eksakt" if score >= 100 else "navn sterk" if score >= 88 else "navn mulig"
+    return {"ticker": ticker, "quality": quality, "alias": alias, "score": score}
+
+
 def score_nbim_change(change: Mapping[str, Any]) -> float:
     change_type = _clean(change.get("change_type"))
     delta = abs(parse_number(change.get("change_pct")) or 0.0)
@@ -176,10 +315,15 @@ def score_nbim_change(change: Mapping[str, Any]) -> float:
     return 52.0 + min(size_bonus, 6.0)
 
 
-def build_nbim_overlay(changes: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+def build_nbim_overlay(
+    changes: Sequence[Mapping[str, Any]],
+    ticker_aliases: Mapping[str, Sequence[str]] | None = None,
+) -> dict[str, dict[str, Any]]:
     overlay: dict[str, dict[str, Any]] = {}
+    alias_index = build_ticker_alias_index(ticker_aliases)
     for change in changes:
-        ticker = _clean(change.get("ticker")).upper()
+        match = match_nbim_holding_to_ticker(change, alias_index)
+        ticker = _clean(match.get("ticker")).upper()
         if not ticker:
             continue
         score = score_nbim_change(change)
@@ -189,19 +333,26 @@ def build_nbim_overlay(changes: Sequence[Mapping[str, Any]]) -> dict[str, dict[s
             f"endring {change.get('change_pct') if change.get('change_pct') is not None else 'ukjent'}%; "
             f"eierandel {change.get('ownership_pct') if change.get('ownership_pct') is not None else '-'}%."
         )
+        existing = overlay.get(ticker)
+        if existing and float(existing.get("nbim_ticker_match_score") or 0.0) > float(match.get("score") or 0.0):
+            continue
         overlay[ticker] = {
             "nbim_signal_score": round(score, 1),
             "nbim_change_type": change.get("change_type"),
             "nbim_change_pct": change.get("change_pct"),
             "nbim_market_value_nok": change.get("market_value_nok"),
+            "nbim_market_value_usd": change.get("market_value_usd"),
             "nbim_ownership_pct": change.get("ownership_pct"),
+            "nbim_ticker_match_quality": match.get("quality"),
+            "nbim_ticker_match_alias": match.get("alias"),
+            "nbim_ticker_match_score": match.get("score"),
             "nbim_evidence": [{
                 "type": "Oljefond",
                 "title": title,
                 "source": "NBIM/Oljefondet",
                 "published": str(change.get("detected_at") or ""),
                 "url": NBIM_SOURCE_URL,
-                "detail": detail,
+                "detail": detail + f" Ticker-match: {ticker} via {match.get('quality')} ({match.get('alias') or '-'}).",
             }],
         }
     return overlay
@@ -250,8 +401,11 @@ __all__ = [
     "NBIM_OVERLAY_SETTINGS_KEY",
     "apply_nbim_overlay",
     "build_nbim_overlay",
+    "build_ticker_alias_index",
     "compare_nbim_holdings",
     "load_nbim_overlay",
+    "match_nbim_holding_to_ticker",
+    "nbim_file_diagnostics",
     "nbim_changes_to_json",
     "normalize_nbim_holding",
     "parse_number",

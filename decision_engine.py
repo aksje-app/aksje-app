@@ -136,7 +136,7 @@ def build_decision_case(row: Mapping[str, Any]) -> dict[str, Any]:
     news_count = _evidence_count(row, "news_evidence")
     nbim_count = _evidence_count(row, "nbim_evidence")
     source_count = _evidence_count(row, "evidence_items")
-    source_count_total = source_count + nbim_count
+    source_count_total = max(source_count, nbim_count)
     concrete_bonus = min(20.0, insider_count * 5.0 + bjellesau_count * 5.0 + news_count * 3.0 + nbim_count * 4.0)
 
     ownership_strength = max(insider_score, bjellesau_score, nbim_score * 0.88)

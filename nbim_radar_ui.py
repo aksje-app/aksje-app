@@ -9,6 +9,7 @@ import streamlit as st
 from nbim_radar import (
     build_nbim_overlay,
     compare_nbim_holdings,
+    nbim_file_diagnostics,
     nbim_changes_to_json,
     read_nbim_csv_bytes,
     save_nbim_overlay,
@@ -64,6 +65,7 @@ def render_nbim_radar_panel() -> None:
 
     changes = compare_nbim_holdings(previous_rows, current_rows)
     overlay = build_nbim_overlay(changes)
+    diagnostics = nbim_file_diagnostics(current_rows, overlay)
     summary = {
         "Ny": sum(1 for row in changes if row.get("change_type") == "Ny"),
         "Okt": sum(1 for row in changes if row.get("change_type") == "Okt"),
@@ -76,6 +78,12 @@ def render_nbim_radar_panel() -> None:
     m2.metric("Økt", summary["Okt"])
     m3.metric("Redusert", summary["Redusert"])
     m4.metric("Ticker-overlay", len(overlay))
+    st.caption(
+        f"NBIM-fil lest: {diagnostics['rows']} rader. Matchet {diagnostics['matched_tickers']} tickere mot appens tickerregister. "
+        f"Umatchede NBIM-rader: {diagnostics['unmatched_rows']}."
+    )
+    if current_rows and not overlay:
+        st.warning("NBIM-data er lest, men 0 tickere ble matchet. Sjekk om filen er aksje-CSV og om ticker-/navnregisteret dekker markedene.")
 
     st.dataframe(list(changes)[:250], use_container_width=True, hide_index=True)
     st.caption("NBIM-markedsverdi kan flytte seg med kurs og valuta. Endring i aksjer/eierandel er sterkere signal der filen inneholder dette.")

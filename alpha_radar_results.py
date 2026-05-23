@@ -74,6 +74,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "source_diagnostics",
         "insider_evidence",
         "bjellesau_evidence",
+        "nbim_evidence",
         "news_evidence",
     ]
     buffer = io.StringIO()
@@ -92,6 +93,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         out["source_diagnostics"] = _diagnostic_text(row)
         out["insider_evidence"] = _evidence_text(row.get("insider_evidence"))
         out["bjellesau_evidence"] = _evidence_text(row.get("bjellesau_evidence"))
+        out["nbim_evidence"] = _evidence_text(row.get("nbim_evidence"))
         out["news_evidence"] = _evidence_text(row.get("news_evidence"))
         out["market_cap_display"] = out.get("market_cap_display") or _market_cap_text(row)
         writer.writerow(out)
@@ -324,6 +326,7 @@ def _diagnostic_text(row: Mapping[str, Any]) -> str:
     for key, label in (
         ("alpha_insider_error", "insider"),
         ("alpha_news_error", "nyheter"),
+        ("alpha_financial_search_error", "finanssok"),
         ("alpha_earnings_error", "earnings"),
         ("alpha_result_diagnostic", "vendepunkt"),
     ):

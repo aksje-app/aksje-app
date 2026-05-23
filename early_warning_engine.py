@@ -94,6 +94,7 @@ class EarlyWarningCandidate:
     insider_evidence: list[dict[str, Any]]
     bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
+    nbim_evidence: list[dict[str, Any]]
     source_diagnostics: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
@@ -290,7 +291,12 @@ def _fresh_source_evidence(row: Mapping[str, Any], *, include_news: bool, includ
 def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     news = _news_items(row) if include_news else []
     ownership, insider, bjellesau = _ownership_items(row) if include_insider else ([], [], [])
-    combined = ownership + news
+    financial_insider = [dict(item) for item in row.get("financial_insider_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
+    nbim = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
+    insider = (insider + financial_insider)[:8]
+    if include_insider and nbim:
+        bjellesau = (bjellesau + nbim)[:8]
+    combined = ownership + nbim + financial_insider + news
     return combined[:10], insider, bjellesau, news
 
 
@@ -301,6 +307,7 @@ def _source_diagnostics(row: Mapping[str, Any]) -> list[dict[str, Any]]:
     for key, label in (
         ("alpha_insider_error", "insiderkilde"),
         ("alpha_news_error", "nyhetskilde"),
+        ("alpha_financial_search_error", "finanssøk"),
         ("alpha_earnings_error", "earningskilde"),
         ("alpha_result_diagnostic", "resultat/vendepunkt"),
     ):
@@ -537,6 +544,7 @@ def _score_row(
     for key, label in (
         ("alpha_insider_error", "insiderkilde"),
         ("alpha_news_error", "nyhetskilde"),
+        ("alpha_financial_search_error", "finanssøk"),
         ("alpha_earnings_error", "earningskilde"),
     ):
         if row.get(key):
@@ -544,6 +552,7 @@ def _score_row(
             if warning and warning not in warnings:
                 warnings.append(warning)
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    nbim_evidence = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
     source_diagnostics = _source_diagnostics(row)
     if include_insider and not insider_evidence and not bjellesau_evidence and factors.get("ownership_insider") is None:
         warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")
@@ -605,6 +614,7 @@ def _score_row(
         insider_evidence=insider_evidence,
         bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
+        nbim_evidence=nbim_evidence,
         source_diagnostics=source_diagnostics,
     )
 

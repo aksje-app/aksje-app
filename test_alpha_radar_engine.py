@@ -369,3 +369,38 @@ def test_alpha_radar_emits_progress_events_for_ui():
     assert events[-1]["completed"] == 3
     assert any(event["status"] == "scoret" and event["ticker"] == "MICRO.OL" for event in events)
     assert any(event["status"] == "ekskludert" and event["ticker"] == "STB.OL" for event in events)
+
+
+def test_alpha_radar_balanced_market_output_keeps_non_us_visible():
+    rows = {}
+    for idx in range(1, 5):
+        rows[f"USA{idx}"] = {
+            **FAKE_ROWS["QUAL.ST"],
+            "ticker": f"USA{idx}",
+            "name": f"USA Winner {idx}",
+            "market_cap": 8_000_000_000,
+            "score": 8.8 - idx / 10,
+            "ret_1m": 0.18,
+            "ret_3m": 0.24,
+        }
+    rows["NORDIC.OL"] = {**FAKE_ROWS["MOM.OL"], "ticker": "NORDIC.OL", "score": 6.8}
+    rows["SWED.ST"] = {**FAKE_ROWS["QUAL.ST"], "ticker": "SWED.ST", "score": 6.7}
+
+    def provider(ticker, use_news=False, include_insider=False):
+        return rows.get(ticker)
+
+    result = run_alpha_radar(
+        ["USA1", "USA2", "USA3", "USA4", "NORDIC.OL", "SWED.ST"],
+        horizon="3m",
+        limit=3,
+        max_scan=6,
+        score_provider=provider,
+        balance_markets=True,
+    )
+
+    tickers = [row["ticker"] for row in result["candidates"]]
+    assert any(ticker.endswith(".OL") or ticker.endswith(".ST") for ticker in tickers)
+    assert result["market_balance_enabled"] is True
+    assert result["market_scan_counts"]["USA/annet"] == 4
+    assert result["market_scan_counts"]["Norge"] == 1
+    assert result["market_candidate_counts"]["Norge"] >= 1 or result["market_candidate_counts"]["Sverige"] >= 1

@@ -23,6 +23,16 @@ except Exception:  # pragma: no cover - optional source diagnostics
     merge_source_diagnostics = None
 
 try:
+    from financial_evidence_search import search_financial_evidence
+except Exception:  # pragma: no cover - optional financial search
+    search_financial_evidence = None
+
+try:
+    from nbim_radar import apply_nbim_overlay
+except Exception:  # pragma: no cover - optional NBIM overlay
+    apply_nbim_overlay = None
+
+try:
     import yfinance as yf
 except Exception:  # pragma: no cover - depends on runtime
     yf = None
@@ -311,6 +321,63 @@ def enrich_with_news(
     return row
 
 
+def enrich_with_financial_evidence_search(
+    row: dict[str, Any],
+    *,
+    enabled: bool,
+    news_provider: Callable[..., tuple[Iterable[Mapping[str, Any]], Any]] | None = None,
+    horizon: str = "3m",
+) -> dict[str, Any]:
+    if not enabled or search_financial_evidence is None:
+        return row
+    try:
+        result = search_financial_evidence(
+            row,
+            news_provider=news_provider,
+            days_back=horizon_to_days(horizon),
+            max_queries=4,
+        )
+    except Exception as exc:
+        row["alpha_financial_search_error"] = str(exc)[:180]
+        return row
+
+    articles = list(result.get("articles") or [])
+    if articles:
+        existing = row.get("articles") if isinstance(row.get("articles"), list) else []
+        row["articles"] = (existing + articles)[:16]
+        row["news_count"] = len(row["articles"])
+        row["news_sentiment"] = simple_finance_sentiment(row["articles"])
+        row["local_news_score"] = _clamp(0.40 + min(len(row["articles"]), 10) * 0.04 + (row["news_sentiment"] - 0.5) * 0.8)
+        row["small_news_big_impact_score"] = max(_normalize_unit(row.get("small_news_big_impact_score"), 0.0), row["local_news_score"])
+        row["catalyst_score"] = max(_normalize_unit(row.get("catalyst_score"), 0.5), row["small_news_big_impact_score"])
+        row["alpha_news_quality"] = "ekte"
+
+    actor_evidence = [dict(item) for item in result.get("actor_evidence") or [] if isinstance(item, Mapping)]
+    if actor_evidence:
+        existing_bj = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
+        row["bjellesau_evidence"] = (existing_bj + actor_evidence)[:10]
+        row["bjellesau_signal_score"] = max(_normalize_unit(row.get("bjellesau_signal_score"), 0.0), 0.68 + min(len(actor_evidence), 4) * 0.05)
+        row["bjellesau_score"] = max(_normalize_unit(row.get("bjellesau_score"), 0.0), row["bjellesau_signal_score"])
+        row["smart_money_score"] = row["bjellesau_score"]
+
+    insider_evidence = [dict(item) for item in result.get("insider_evidence") or [] if isinstance(item, Mapping)]
+    if insider_evidence:
+        existing_ins = row.get("financial_insider_evidence") if isinstance(row.get("financial_insider_evidence"), list) else []
+        row["financial_insider_evidence"] = (existing_ins + insider_evidence)[:10]
+        row["insider_signal_score"] = max(_normalize_unit(row.get("insider_signal_score"), 0.0), 0.62 + min(len(insider_evidence), 4) * 0.04)
+        row["insider_quality_score"] = max(_normalize_unit(row.get("insider_quality_score"), 0.0), row["insider_signal_score"])
+
+    diagnostics = [dict(item) for item in result.get("diagnostics") or [] if isinstance(item, Mapping)]
+    if diagnostics:
+        if merge_source_diagnostics is not None:
+            row["source_diagnostics"] = merge_source_diagnostics(row.get("source_diagnostics"), diagnostics)
+        else:
+            row["source_diagnostics"] = diagnostics
+    if result.get("errors"):
+        row["alpha_financial_search_error"] = " | ".join(str(x) for x in result.get("errors") or [])[:180]
+    return row
+
+
 def enrich_with_insider_quality(
     row: dict[str, Any],
     *,
@@ -513,6 +580,17 @@ def enrich_alpha_radar_row(
 
     enriched = dict(row or {})
     enriched.setdefault("ticker", ticker)
+    if apply_nbim_overlay is not None:
+        try:
+            enriched = apply_nbim_overlay(enriched)
+        except Exception:
+            pass
+    nbim_score = _normalize_unit(enriched.get("nbim_signal_score"), None)
+    if nbim_score is not None:
+        enriched["owner_signal"] = max(_normalize_unit(enriched.get("owner_signal"), 0.0), nbim_score)
+        if nbim_score >= 0.55:
+            enriched["bjellesau_score"] = max(_normalize_unit(enriched.get("bjellesau_score"), 0.0), nbim_score)
+            enriched["smart_money_score"] = max(_normalize_unit(enriched.get("smart_money_score"), 0.0), nbim_score)
     signals = set(active_signals or [])
     mode_text = str(mode or "")
     news_on = include_news or "Nyheter/katalysator" in signals
@@ -521,6 +599,7 @@ def enrich_alpha_radar_row(
     results_on = include_results or "Resultater" in signals or "Resultat" in mode_text
 
     enriched = enrich_with_news(enriched, include_news=news_on, news_provider=news_provider, horizon=horizon)
+    enriched = enrich_with_financial_evidence_search(enriched, enabled=(news_on or insider_on), news_provider=news_provider, horizon=horizon)
     enriched = enrich_with_insider_quality(enriched, include_insider=insider_on, insider_provider=insider_provider, horizon=horizon)
     enriched = enrich_with_macro_tailwind(enriched, include_macro=macro_on, commodity_snapshot=commodity_snapshot)
     enriched = enrich_with_results(enriched, include_results=results_on, earnings_provider=earnings_provider, horizon=horizon)

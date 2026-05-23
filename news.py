@@ -26,9 +26,9 @@ NEGATIVE_WORDS = [
 ]
 
 
-def _cache_key(query, limit):
+def _cache_key(query, limit, language=None, domains=None):
     safe = str(query or "").strip().lower()
-    return f"{safe}|{int(limit or 0)}"
+    return f"{safe}|{int(limit or 0)}|lang={language or '*'}|domains={domains or '*'}"
 
 
 def _load_cache():
@@ -70,7 +70,7 @@ def newsapi_status():
     }
 
 
-def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None, days_back=None):
+def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None, days_back=None, language="en", domains=None):
     """Fetch news with a cache and an automatic-call guard.
 
     v18.5.31: NewsAPI should not be consumed silently by ordinary Streamlit
@@ -80,7 +80,7 @@ def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None, da
     """
     ttl = NEWS_CACHE_TTL_HOURS if ttl_hours is None else ttl_hours
     query = str(query or "").strip()
-    key = _cache_key(query, limit)
+    key = _cache_key(query, limit, language=language, domains=domains)
     cache = _load_cache()
     cached = cache.get(key) or {}
     if cached and _fresh(cached, ttl) and not force:
@@ -100,11 +100,14 @@ def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None, da
     try:
         params = {
             "q": query,
-            "language": "en",
             "sortBy": "publishedAt",
             "pageSize": limit,
             "apiKey": api_key,
         }
+        if language:
+            params["language"] = language
+        if domains:
+            params["domains"] = str(domains)
         if days_back:
             try:
                 from_date = dt.date.today() - dt.timedelta(days=max(1, int(days_back)))

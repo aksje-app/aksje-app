@@ -97,3 +97,36 @@ def test_early_warning_emits_progress_events():
     assert events[-1]["status"] == "ferdig"
     assert any(event["status"] == "scoret" and event["ticker"] == "REV.OL" for event in events)
     assert any(event["status"] == "hoppet over" and event["ticker"] == "UNKNOWN.OL" for event in events)
+
+
+def test_early_warning_balanced_market_output_keeps_non_us_visible():
+    rows = {}
+    for idx in range(1, 5):
+        rows[f"US{idx}"] = {
+            **ROWS["PRICE.ST"],
+            "ticker": f"US{idx}",
+            "market": "USA/annet",
+            "score": 8.5 - idx / 10,
+            "ret_1m": 0.18,
+            "ret_3m": 0.25,
+        }
+    rows["REV.OL"] = ROWS["REV.OL"]
+    rows["PRICE.ST"] = ROWS["PRICE.ST"]
+
+    def mixed_provider(ticker, use_news=False, include_insider=False):
+        return rows.get(ticker)
+
+    result = run_early_warning(
+        ["US1", "US2", "US3", "US4", "REV.OL", "PRICE.ST"],
+        horizon="3m",
+        limit=3,
+        max_scan=6,
+        score_provider=mixed_provider,
+        balance_markets=True,
+    )
+
+    tickers = [row["ticker"] for row in result["candidates"]]
+    assert any(ticker.endswith(".OL") or ticker.endswith(".ST") for ticker in tickers)
+    assert result["market_balance_enabled"] is True
+    assert result["market_scan_counts"]["USA/annet"] == 4
+    assert result["market_candidate_counts"]["Norge"] >= 1 or result["market_candidate_counts"]["Sverige"] >= 1

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Mapping, Sequence
 
 import streamlit as st
@@ -8,8 +7,11 @@ import streamlit as st
 from actor_registry import (
     ACTOR_TYPES,
     STRENGTH_LEVELS,
+    actor_registry_to_csv,
+    actor_registry_to_json,
     load_actor_registry,
     normalize_actor_row,
+    parse_actor_registry_upload,
     save_actor_registry,
 )
 
@@ -36,6 +38,26 @@ def render_actor_registry_panel() -> None:
     active_count = sum(1 for row in rows if row.get("active"))
     st.info(f"{len(rows)} aktorer i registeret, {active_count} aktive. Ingen nettverkskall kjores her.")
 
+    upload = st.file_uploader(
+        "Importer aktørregister CSV/JSON",
+        type=["csv", "json", "txt"],
+        key="actor_registry_import_v1863be",
+        help="Kolonner: active, name, aliases, market, actor_type, strength, relevant_tickers, notes, links.",
+    )
+    if upload is not None:
+        try:
+            imported = parse_actor_registry_upload(upload.getvalue(), upload.name)
+            if imported:
+                by_key = {str(row.get("name") or row.get("aliases") or "").lower(): row for row in rows}
+                for row in imported:
+                    by_key[str(row.get("name") or row.get("aliases") or "").lower()] = row
+                rows = list(by_key.values())
+                st.success(f"Importerte {len(imported)} aktorer. Trykk Lagre aktørregister for aa lagre.")
+            else:
+                st.warning("Fant ingen aktorer i importfilen.")
+        except Exception as exc:
+            st.warning(f"Kunne ikke importere aktørregister: {exc}")
+
     edited = st.data_editor(
         rows,
         key="actor_registry_editor_v1863bd",
@@ -49,6 +71,7 @@ def render_actor_registry_panel() -> None:
             "market": st.column_config.TextColumn("Marked", help="Alle, Norge, Sverige, Danmark, Finland, USA, Brasil eller egen tekst."),
             "actor_type": st.column_config.SelectboxColumn("Type", options=list(ACTOR_TYPES)),
             "strength": st.column_config.SelectboxColumn("Styrke", options=list(STRENGTH_LEVELS)),
+            "relevant_tickers": st.column_config.TextColumn("Tickere", help="Valgfritt. Skill tickere med komma eller semikolon."),
             "notes": st.column_config.TextColumn("Notater"),
             "links": st.column_config.TextColumn("Lenker"),
         },
@@ -69,13 +92,20 @@ def render_actor_registry_panel() -> None:
     with c2:
         st.download_button(
             "Last ned JSON",
-            data=json.dumps(clean_rows, ensure_ascii=False, indent=2).encode("utf-8"),
+            data=actor_registry_to_json(clean_rows),
             file_name="aktorregister.json",
             mime="application/json",
             use_container_width=True,
         )
     with c3:
-        st.metric("Aktive", sum(1 for row in clean_rows if row.get("active")))
+        st.download_button(
+            "Last ned CSV",
+            data=actor_registry_to_csv(clean_rows),
+            file_name="aktorregister.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    st.caption(f"Aktive: {sum(1 for row in clean_rows if row.get('active'))}. Registeret overstyrer fallback-regler naar navn/alias matcher.")
 
 
 __all__ = ["render_actor_registry_panel"]

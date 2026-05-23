@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bd"
-APP_VERSION_NAME = "Nordic Sources & NBIM Radar"
-APP_BUILD_ID = "v1863bd-nordic-sources-nbim-radar"
+APP_VERSION = "v18.6.3be"
+APP_VERSION_NAME = "Evidence Search & NBIM Parser"
+APP_BUILD_ID = "v1863be-evidence-search-nbim-parser"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -64,6 +64,11 @@ APP_PATCH_NOTES = [
     "Early Warning bruker resultat-/vendepunkt-proxy naar earnings/revisions mangler, og rapportene viser tydeligere datadiagnostikk for tomme felt.",
     "Oljefond Radar kan importere NBIM CSV, finne nye/okte/reduserte/solgte posisjoner og sende NBIM-spor videre til Beslutningsgrunnlag.",
     "Beslutningsgrunnlag har tydeligere knapper: Vurder hele køen og Tøm kø.",
+    "NBIM-parseren leser naa ekte eq_YYYYMMDD.csv fra Oljefondet i UTF-16/semikolon-format og matcher selskapsnavn/land mot tickerregisteret.",
+    "Tickeruniversene er utvidet for USA, Norge, Sverige, Finland, Danmark og Brasil, og run-preview sier tydelig naar universkilden er mindre enn maks scan.",
+    "Aktørregisteret har import/eksport for CSV/JSON, relevante tickere og NBIM/Oljefondet som aktiv institusjonell aktor.",
+    "Radarene kan bruke finans-/offisiell sokelag ved Kjor, med aktornavn, alias, ticker, selskap og marked, uten tunge kall ved menyvalg.",
+    "NBIM, finanssok, aktorregister og konkrete insider-/bjellesau-spor sendes videre til Alpha Radar, Early Warning, rapporter og Beslutningsgrunnlag.",
 ]
 
 def get_app_version():

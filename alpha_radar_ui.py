@@ -373,6 +373,7 @@ def _render_run_preview(
     ticker_text = f"{len(source_tickers)} preview-tickere klare" if source_tickers else f"ikke hentet ennaa, maks {planned} planlagt"
     news_calls = planned if source_values.get("news") else 0
     insider_calls = planned if source_values.get("insider") else 0
+    finance_search_calls = planned * 4 if (source_values.get("news") or source_values.get("insider")) else 0
     earnings_calls = planned if source_values.get("results") else 0
     macro_calls = 1 if source_values.get("macro") else 0
     st.markdown(
@@ -380,7 +381,7 @@ def _render_run_preview(
         <div class='alpha-radar-run-preview'>
           <b>Kjoringsbudsjett / Run Preview</b><br>
           Motor: {html.escape(str(analysis_engine))} · Univers: {html.escape(str(scope))} · Tickere: {html.escape(ticker_text)}<br>
-          <b>0 tunge kall naa.</b> Ved Kjor: score {planned}, nyheter {news_calls}, insider {insider_calls}, resultater/earnings {earnings_calls}, makro/proxy {macro_calls}.
+          <b>0 tunge kall naa.</b> Ved Kjor: score {planned}, nyheter {news_calls}, finans-/aktorsok opptil {finance_search_calls}, insider {insider_calls}, resultater/earnings {earnings_calls}, makro/proxy {macro_calls}.
         </div>
         """,
         unsafe_allow_html=True,
@@ -1371,7 +1372,7 @@ def render_alpha_radar_panel(
         if len(source_tickers) < int(max_scan):
             st.caption(
                 f"Univers klart: {len(source_tickers)} tickere. Maks scan er {int(max_scan)}, "
-                "men valgt univers har ikke flere tilgjengelige tickere akkurat naa. Enkeltmarked bruker ikke Alle-kvoten. "
+                f"men universkilden har bare {len(source_tickers)} tickere for dette valget akkurat naa. Enkeltmarked bruker ikke Alle-kvoten. "
                 f"Fordeling: {market_count_text}. Eksempel: {', '.join(source_tickers[:10])}"
             )
         else:
@@ -1450,7 +1451,8 @@ def render_alpha_radar_panel(
         balance_markets = _should_balance_markets(scope, source_tickers)
         st.caption(
             f"Ferskt run-univers: {len(source_tickers)} tickere. "
-            f"Fordeling: {_format_market_counts(_market_counts(source_tickers))}."
+            + (f"Universkilden har bare {len(source_tickers)} tickere under maks {int(max_scan)}. " if len(source_tickers) < int(max_scan) else "")
+            + f"Fordeling: {_format_market_counts(_market_counts(source_tickers))}."
         )
         input_context = _alpha_radar_input_context(
             scope=scope,

@@ -68,6 +68,179 @@ BRAZILIAN_STOCKS = [
     "NTCO3.SA", "PETZ3.SA", "CASH3.SA", "LWSA3.SA", "MGLU3.SA"
 ]
 
+
+def _dedupe(values):
+    out, seen = [], set()
+    for raw in values:
+        ticker = str(raw or "").strip().upper()
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(ticker)
+    return out
+
+
+US_FALLBACK = _dedupe(US_FALLBACK + [
+    "TMO", "ABT", "ACN", "ISRG", "MCD", "GE", "CAT", "QCOM", "TXN", "INTU",
+    "AMAT", "NOW", "BKNG", "SPGI", "GS", "RTX", "AXP", "PGR", "LOW", "NEE",
+    "HON", "UNP", "BLK", "SYK", "TJX", "ETN", "VRTX", "LMT", "C", "ADP",
+    "MDT", "CB", "ADI", "MMC", "DE", "PLD", "PANW", "KLAC", "AMT", "GILD",
+    "SBUX", "MU", "FI", "BMY", "SO", "MO", "DUK", "ICE", "SHW", "MCK",
+    "WM", "ZTS", "ELV", "EQIX", "APH", "CDNS", "REGN", "CI", "HCA", "SNPS",
+    "CL", "ORLY", "PH", "CMG", "USB", "MCO", "GD", "EOG", "MAR", "AON",
+    "NOC", "PNC", "ITW", "TDG", "APD", "MSI", "FDX", "ECL", "EMR", "ROP",
+    "TGT", "PYPL", "FCX", "SLB", "CME", "NXPI", "MPC", "PSX", "AFL", "BDX",
+    "CSX", "NSC", "GM", "F", "NKE", "LRCX", "MRVL", "WDAY", "TEAM", "DDOG",
+])
+
+NORWEGIAN_STOCKS = _dedupe(NORWEGIAN_STOCKS + [
+    "AFG.OL", "AKAST.OL", "AKER.OL", "AKSO.OL", "AKH.OL", "ACC.OL", "ADE.OL",
+    "AUSS.OL", "BELCO.OL", "BWLPG.OL", "CADLR.OL", "CRAYN.OL", "DOFG.OL",
+    "ENTRA.OL", "EPR.OL", "FLNG.OL", "GOGL.OL", "GSF.OL", "HAVI.OL",
+    "HBC.OL", "KID.OL", "LINK.OL", "MING.OL", "MOBA.OL", "NAPA.OL",
+    "NOD.OL", "NORAM.OL", "NRC.OL", "NSKOG.OL", "ODL.OL", "OLT.OL",
+    "OTL.OL", "PEXIP.OL", "PROT.OL", "RECSI.OL", "SAGA.OL", "SATS.OL",
+    "SCATC.OL", "SCHA.OL", "SNI.OL", "SOFF.OL", "SPOL.OL", "SRBNK.OL",
+    "VEI.OL", "VISTN.OL", "WSTEP.OL", "WWI.OL", "ZAL.OL",
+])
+
+SWEDISH_STOCKS = _dedupe(SWEDISH_STOCKS + [
+    "INVE-A.ST", "AZA.ST", "BALD-B.ST", "BEIJ-B.ST", "BILL.ST", "CAST.ST",
+    "DOM.ST", "EMBRAC-B.ST", "EPI-A.ST", "EPI-B.ST", "ESSITY-B.ST",
+    "FABG.ST", "HEXA-B.ST", "HOLM-B.ST", "HUSQ-B.ST", "INDU-C.ST",
+    "LIFCO-B.ST", "LUND-B.ST", "LUMI.ST", "MTRS.ST", "MYCR.ST", "PEAB-B.ST",
+    "SECU-B.ST", "SOBI.ST", "TEL2-B.ST", "TREL-B.ST", "VITR.ST", "WIHL.ST",
+    "ALIV-SDB.ST", "ARJO-B.ST", "BICO.ST", "BIOT.ST", "CATE.ST", "DUNI.ST",
+    "EQT.ST", "FING-B.ST", "FOI-B.ST", "HMS.ST", "INTRUM.ST", "JM.ST",
+    "LOOMIS.ST", "MIPS.ST", "NCC-B.ST", "NP3.ST", "RATO-B.ST", "SECT-B.ST",
+    "SKA-B.ST", "STE-R.ST", "SWEC-B.ST", "VBG-B.ST", "VNV.ST",
+])
+
+FINNISH_STOCKS = _dedupe(FINNISH_STOCKS + [
+    "AKTIA.HE", "ALMA.HE", "ANORA.HE", "ATRAV.HE", "BIOBV.HE", "CAPMAN.HE",
+    "CTY1S.HE", "DIGIA.HE", "ENENTO.HE", "FIA1S.HE", "FSKRS.HE", "GOFORE.HE",
+    "HARVIA.HE", "ICP1V.HE", "KEMPOWR.HE", "LEHTO.HE", "METSA.HE",
+    "MUSTI.HE", "NOHO.HE", "OKDAV.HE", "OMASP.HE", "PON1V.HE", "RAIVV.HE",
+    "REG1V.HE", "REMEDY.HE", "ROVIO.HE", "SCANFL.HE", "SSABAH.HE",
+    "TIETO.HE", "TOKMAN.HE", "UPONOR.HE", "VAIAS.HE", "VERK.HE", "WETTERI.HE",
+])
+
+DANISH_STOCKS = _dedupe(DANISH_STOCKS + [
+    "MAERSK-A.CO", "ALMB.CO", "BO.CO", "DFDS.CO", "DRLCO.CO", "FLUG-B.CO",
+    "GUBRA.CO", "HUSCO.CO", "MATAS.CO", "MT-B.CO", "NTG.CO", "RIAS-B.CO",
+    "SCHOU.CO", "SOLAR-B.CO", "SPNO.CO", "SYDB.CO", "TORM.CO", "UIE.CO",
+    "ZEAL.CO", "AOJ-B.CO", "CBRAIN.CO", "CHEMM.CO", "DAB.CO", "DJUR.CO",
+    "FASTPC.CO", "HH.CO", "KRE.CO", "LASP.CO", "LUXOR-B.CO", "MONSO.CO",
+    "NORTHM.CO", "PARKEN.CO", "RILBA.CO", "RTX.CO", "SKAKO.CO", "TRIFOR.CO",
+    "VJBA.CO", "AGILC.CO", "AQUA.CO", "GREENM.CO", "HARB-B.CO", "HOVE.CO",
+    "KONSOL.CO", "LEDIBOND.CO", "MAPS.CO", "MTHH.CO", "NORD.CO", "NTR-B.CO",
+    "ORDERYOYO.CO", "ORPHA.CO", "PAAL-B.CO", "PENNEO.CO", "RISMA.CO",
+])
+
+BRAZILIAN_STOCKS = _dedupe(BRAZILIAN_STOCKS + [
+    "ALOS3.SA", "ALPA4.SA", "ARZZ3.SA", "AZUL4.SA", "BHIA3.SA", "BRAP4.SA",
+    "BRAV3.SA", "CCRO3.SA", "CEAB3.SA", "CIEL3.SA", "COGN3.SA", "CPLE11.SA",
+    "DXCO3.SA", "ECOR3.SA", "ENAT3.SA", "EZTC3.SA", "FLRY3.SA", "GFSA3.SA",
+    "IGTI11.SA", "IRBR3.SA", "LJQQ3.SA", "MRVE3.SA", "QUAL3.SA", "RECV3.SA",
+    "SMTO3.SA", "SOMA3.SA", "TEND3.SA", "TRPL4.SA", "USIM5.SA", "VAMO3.SA",
+    "VIVA3.SA", "VULC3.SA",
+])
+
+TICKER_NAME_ALIASES = {
+    "EQNR.OL": ["Equinor"],
+    "DNB.OL": ["DNB Bank", "DNB Bank ASA"],
+    "NHY.OL": ["Norsk Hydro"],
+    "TEL.OL": ["Telenor"],
+    "ORK.OL": ["Orkla"],
+    "MOWI.OL": ["Mowi"],
+    "AKRBP.OL": ["Aker BP"],
+    "YAR.OL": ["Yara International"],
+    "KOG.OL": ["Kongsberg Gruppen"],
+    "TOM.OL": ["Tomra Systems"],
+    "SALM.OL": ["SalMar"],
+    "GJF.OL": ["Gjensidige Forsikring"],
+    "SUBC.OL": ["Subsea 7"],
+    "FRO.OL": ["Frontline"],
+    "STB.OL": ["Storebrand"],
+    "LSG.OL": ["Leroy Seafood", "Lerøy Seafood"],
+    "ELK.OL": ["Elkem"],
+    "NAS.OL": ["Norwegian Air Shuttle"],
+    "VOLV-B.ST": ["Volvo AB"],
+    "VOLV-A.ST": ["Volvo AB"],
+    "ERIC-B.ST": ["Telefonaktiebolaget LM Ericsson", "Ericsson"],
+    "HM-B.ST": ["H & M Hennes & Mauritz", "Hennes & Mauritz"],
+    "ATCO-A.ST": ["Atlas Copco"],
+    "ATCO-B.ST": ["Atlas Copco"],
+    "ABB.ST": ["ABB Ltd"],
+    "SAND.ST": ["Sandvik"],
+    "SEB-A.ST": ["Skandinaviska Enskilda Banken", "SEB"],
+    "SWED-A.ST": ["Swedbank"],
+    "TELIA.ST": ["Telia Co", "Telia Company"],
+    "SKF-B.ST": ["SKF AB"],
+    "ASSA-B.ST": ["Assa Abloy"],
+    "INVE-B.ST": ["Investor AB"],
+    "INVE-A.ST": ["Investor AB"],
+    "EVO.ST": ["Evolution AB"],
+    "SAAB-B.ST": ["Saab AB"],
+    "NIBE-B.ST": ["NIBE Industrier"],
+    "NOKIA.HE": ["Nokia Oyj"],
+    "NESTE.HE": ["Neste Oyj"],
+    "KNEBV.HE": ["Kone Oyj"],
+    "SAMPO.HE": ["Sampo Oyj"],
+    "UPM.HE": ["UPM-Kymmene"],
+    "FORTUM.HE": ["Fortum"],
+    "WRT1V.HE": ["Wartsila", "Wärtsilä"],
+    "ELISA.HE": ["Elisa Oyj"],
+    "METSO.HE": ["Metso"],
+    "VALMT.HE": ["Valmet"],
+    "KESKOB.HE": ["Kesko"],
+    "TYRES.HE": ["Nokian Renkaat"],
+    "NOVO-B.CO": ["Novo Nordisk"],
+    "MAERSK-B.CO": ["AP Moller - Maersk", "A.P. Moller - Maersk", "Maersk"],
+    "MAERSK-A.CO": ["AP Moller - Maersk", "A.P. Moller - Maersk", "Maersk"],
+    "DSV.CO": ["DSV"],
+    "ORSTED.CO": ["Orsted", "Ørsted"],
+    "CARL-B.CO": ["Carlsberg"],
+    "PNDORA.CO": ["Pandora"],
+    "NZYM-B.CO": ["Novozymes"],
+    "VWS.CO": ["Vestas Wind Systems", "Vestas"],
+    "COLO-B.CO": ["Coloplast"],
+    "GMAB.CO": ["Genmab"],
+    "DANSKE.CO": ["Danske Bank"],
+    "TRYG.CO": ["Tryg"],
+    "ROCK-B.CO": ["Rockwool"],
+    "AMBU-B.CO": ["Ambu"],
+    "DEMANT.CO": ["Demant"],
+    "GN.CO": ["GN Store Nord"],
+    "ISS.CO": ["ISS"],
+    "RBREW.CO": ["Royal Unibrew"],
+    "FLS.CO": ["FLSmidth"],
+    "BAVA.CO": ["Bavarian Nordic"],
+    "ALK-B.CO": ["ALK-Abello", "ALK-Abelló"],
+    "NKT.CO": ["NKT"],
+    "TOP.CO": ["Topdanmark"],
+    "PETR4.SA": ["Petroleo Brasileiro", "Petrobras"],
+    "PETR3.SA": ["Petroleo Brasileiro", "Petrobras"],
+    "VALE3.SA": ["Vale SA"],
+    "ITUB4.SA": ["Itau Unibanco", "Itaú Unibanco"],
+    "BBDC4.SA": ["Banco Bradesco"],
+    "ABEV3.SA": ["Ambev"],
+    "B3SA3.SA": ["B3 SA"],
+    "WEGE3.SA": ["WEG SA"],
+    "BBAS3.SA": ["Banco do Brasil"],
+    "RENT3.SA": ["Localiza"],
+    "PRIO3.SA": ["PRIO SA", "Petro Rio"],
+}
+
+
+def get_ticker_name_aliases():
+    aliases = {ticker: list(TICKER_NAME_ALIASES.get(ticker, [])) for ticker in get_all_tickers(limit_per_market=250)}
+    for ticker in list(aliases):
+        root = ticker.split(".", 1)[0].replace("-", " ")
+        if root and root not in aliases[ticker]:
+            aliases[ticker].append(root)
+    return aliases
+
+
 @lru_cache(maxsize=8)
 def _get_sp500_tickers_cached(limit=150):
     """Fetch S&P 500 with a short timeout and cache it for fast reruns."""

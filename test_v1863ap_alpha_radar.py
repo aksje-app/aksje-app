@@ -11,6 +11,7 @@ for name in [
     "alpha_radar_results.py",
     "actor_registry.py",
     "actor_registry_ui.py",
+    "financial_evidence_search.py",
     "runtime_env.py",
     "data_source_diagnostics.py",
     "nordic_market_sources.py",
@@ -33,8 +34,8 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3bd"' in version
-assert "Nordic Sources & NBIM Radar" in version
+assert 'APP_VERSION = "v18.6.3be"' in version
+assert "Evidence Search & NBIM Parser" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -98,6 +99,9 @@ assert "Datakilde-status / markedstest" in ui
 assert "Test datakilder per marked" in ui
 assert "source_diagnostics" in engine + early + results
 assert "Datadiagnostikk" in results
+assert "search_financial_evidence" in Path("financial_evidence_search.py").read_text(encoding="utf-8", errors="ignore")
+assert "financial_evidence_search" in Path("alpha_radar_enrichment.py").read_text(encoding="utf-8", errors="ignore")
+assert "finans-/aktorsok opptil" in ui
 assert "local_market_source_diagnostics" in Path("nordic_market_sources.py").read_text(encoding="utf-8", errors="ignore")
 assert "horizon_to_months" in ui + Path("data_source_diagnostics.py").read_text(encoding="utf-8", errors="ignore")
 assert "data_window_months" in engine + early + ui + results
@@ -105,6 +109,7 @@ assert "build_decision_cases" in Path("decision_engine.py").read_text(encoding="
 assert "render_decision_support_panel" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Vurder hele køen" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Tøm kø" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "universkilden har bare" in ui
 assert "Enkeltmarked bruker egen grense" in ui
 assert "alpha_news_quality" in engine
 assert "Valgene er endret siden siste" in ui

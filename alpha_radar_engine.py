@@ -230,6 +230,7 @@ class AlphaRadarCandidate:
     insider_evidence: list[dict[str, Any]]
     bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
+    nbim_evidence: list[dict[str, Any]]
     source_diagnostics: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
@@ -465,7 +466,13 @@ def _insider_evidence(row: Mapping[str, Any], limit: int = 6) -> list[dict[str, 
 def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     news = _news_evidence(row) if include_news else []
     ownership, insider, bjellesau = split_ownership_evidence(row, limit=8) if include_insider else ([], [], [])
+    financial_insider = [dict(item) for item in row.get("financial_insider_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
+    nbim = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
+    insider = (insider + financial_insider)[:8]
+    if nbim and include_insider:
+        bjellesau = (bjellesau + nbim)[:8]
     combined = ownership + news
+    combined = (ownership + nbim + financial_insider + news)[:10]
     return combined[:10], insider, bjellesau, news
 
 
@@ -476,6 +483,7 @@ def _source_diagnostics(row: Mapping[str, Any]) -> list[dict[str, Any]]:
     for key, label in (
         ("alpha_insider_error", "insiderkilde"),
         ("alpha_news_error", "nyhetskilde"),
+        ("alpha_financial_search_error", "finanssøk"),
         ("alpha_earnings_error", "earningskilde"),
         ("alpha_result_diagnostic", "resultat/vendepunkt"),
     ):
@@ -1177,12 +1185,14 @@ def _score_candidate(
 
     signals = _signals(row, scoring_factors, risk_level)
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    nbim_evidence = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
     source_diagnostics = _source_diagnostics(row)
     reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, scoring_factors["evidence"])
     warning_reasons = list(row.get("warning_reasons") or [])
     for key, label in (
         ("alpha_insider_error", "insiderkilde"),
         ("alpha_news_error", "nyhetskilde"),
+        ("alpha_financial_search_error", "finanssøk"),
         ("alpha_earnings_error", "earningskilde"),
     ):
         if row.get(key):
@@ -1240,6 +1250,7 @@ def _score_candidate(
         insider_evidence=insider_evidence,
         bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
+        nbim_evidence=nbim_evidence,
         source_diagnostics=source_diagnostics,
     )
 

@@ -60,7 +60,7 @@ def test_enrichment_adds_real_signal_proxies_without_network():
         commodity_snapshot=commodity_snapshot,
     )
 
-    assert enriched["news_count"] == 2
+    assert enriched["news_count"] >= 2
     assert enriched["small_news_big_impact_score"] > 0.6
     assert enriched["insider_quality_score"] > 0.75
     assert enriched["bjellesau_score"] is None

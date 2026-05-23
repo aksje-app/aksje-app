@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import csv
+import io
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -15,12 +17,24 @@ STRENGTH_LEVELS = ("Svak", "Normal", "Sterk")
 
 DEFAULT_ACTOR_ROWS: list[dict[str, Any]] = [
     {
+        "active": True,
+        "name": "Norges Bank Investment Management",
+        "aliases": "Norges Bank Investment Management; NBIM; Oljefondet; Statens pensjonsfond utland; Government Pension Fund Global; Norges Bank",
+        "market": "Alle",
+        "actor_type": "Institusjon",
+        "strength": "Sterk",
+        "relevant_tickers": "",
+        "notes": "Offentlig institusjonell eier. Brukes som sterk institusjonell bjellesau naar NBIM-fil eller nyhetsspor matcher.",
+        "links": "https://www.nbim.no/en/investments/all-investments/",
+    },
+    {
         "active": False,
         "name": "Eksempel Bjellesau",
         "aliases": "Eksempel Bjellesau; Eksempel Invest",
         "market": "Alle",
         "actor_type": "Bjellesau",
         "strength": "Normal",
+        "relevant_tickers": "",
         "notes": "Inaktiv eksempelrad. Legg inn egne navn, alias og marked.",
         "links": "",
     }
@@ -44,6 +58,15 @@ def _split_aliases(value: Any) -> list[str]:
     return out
 
 
+def _split_tickers(value: Any) -> list[str]:
+    tickers = []
+    for part in re.split(r"[,;\s\n]+", _clean(value).upper()):
+        ticker = part.strip()
+        if ticker and ticker not in tickers:
+            tickers.append(ticker)
+    return tickers
+
+
 def _market_matches(actor_market: str, target_market: str | None = None, ticker: str | None = None) -> bool:
     actor = _clean(actor_market).lower()
     target = _clean(target_market).lower()
@@ -65,6 +88,14 @@ def _market_matches(actor_market: str, target_market: str | None = None, ticker:
     return any(check in target or ticker_text.endswith(check) for check in checks)
 
 
+def _ticker_matches(actor_tickers: str, ticker: str | None = None) -> bool:
+    wanted = _split_tickers(actor_tickers)
+    if not wanted:
+        return True
+    current = _clean(ticker).upper()
+    return bool(current and current in wanted)
+
+
 def normalize_actor_row(row: Mapping[str, Any] | None) -> dict[str, Any]:
     raw = dict(row or {})
     name = _clean(raw.get("name") or raw.get("navn") or raw.get("actor") or raw.get("aktor"))
@@ -84,6 +115,7 @@ def normalize_actor_row(row: Mapping[str, Any] | None) -> dict[str, Any]:
         "market": _clean(raw.get("market") or raw.get("marked")) or "Alle",
         "actor_type": actor_type,
         "strength": strength,
+        "relevant_tickers": "; ".join(_split_tickers(raw.get("relevant_tickers") or raw.get("tickers") or raw.get("ticker") or raw.get("selskaper"))),
         "notes": _clean(raw.get("notes") or raw.get("notater")),
         "links": _clean(raw.get("links") or raw.get("lenker") or raw.get("url")),
     }
@@ -166,6 +198,8 @@ def actor_aliases_for_matching(
             continue
         if not _market_matches(item["market"], market, ticker):
             continue
+        if not _ticker_matches(item.get("relevant_tickers", ""), ticker):
+            continue
         for alias in _split_aliases(item["aliases"]):
             alias_l = alias.lower()
             if alias_l and alias_l not in aliases:
@@ -192,6 +226,8 @@ def match_actor_text(
         if not row["active"] or row["actor_type"] not in wanted:
             continue
         if not _market_matches(row["market"], market, ticker):
+            continue
+        if not _ticker_matches(row.get("relevant_tickers", ""), ticker):
             continue
         for alias in _split_aliases(row["aliases"]):
             alias_l = alias.lower()
@@ -229,14 +265,50 @@ def actor_match_evidence(
     return evidence
 
 
+def actor_registry_to_json(rows: Sequence[Mapping[str, Any]]) -> bytes:
+    clean = [normalize_actor_row(row) for row in rows if isinstance(row, Mapping)]
+    return json.dumps(clean, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def actor_registry_to_csv(rows: Sequence[Mapping[str, Any]]) -> bytes:
+    fields = ["active", "name", "aliases", "market", "actor_type", "strength", "relevant_tickers", "notes", "links"]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore", delimiter=";")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(normalize_actor_row(row))
+    return buffer.getvalue().encode("utf-8-sig")
+
+
+def parse_actor_registry_upload(data: bytes, filename: str = "") -> list[dict[str, Any]]:
+    suffix = Path(filename or "").suffix.lower()
+    text = data.decode("utf-8-sig", errors="replace")
+    if suffix == ".json" or text.lstrip().startswith(("[", "{")):
+        raw = json.loads(text)
+        if isinstance(raw, Mapping):
+            raw = raw.get("actors") or raw.get("rows") or []
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+            return []
+        return [normalize_actor_row(row) for row in raw if isinstance(row, Mapping)]
+    try:
+        dialect = csv.Sniffer().sniff(text[:2048], delimiters=",;\t")
+    except Exception:
+        dialect = csv.excel
+        dialect.delimiter = ";"
+    return [normalize_actor_row(row) for row in csv.DictReader(io.StringIO(text), dialect=dialect) if isinstance(row, Mapping)]
+
+
 __all__ = [
     "ACTOR_REGISTRY_SETTINGS_KEY",
     "ACTOR_TYPES",
     "STRENGTH_LEVELS",
     "actor_aliases_for_matching",
     "actor_match_evidence",
+    "actor_registry_to_csv",
+    "actor_registry_to_json",
     "load_actor_registry",
     "match_actor_text",
     "normalize_actor_row",
+    "parse_actor_registry_upload",
     "save_actor_registry",
 ]
