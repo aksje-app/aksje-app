@@ -4,6 +4,7 @@ from dataclasses import dataclass, asdict
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from alpha_radar_currency import market_cap_fields
+from alpha_radar_ownership import ownership_signal_scores, split_ownership_evidence
 
 
 HORIZON_WEIGHTS = {
@@ -66,6 +67,7 @@ class EarlyWarningCandidate:
     underfollowed_score: float | None
     inflection_score: float | None
     insider_score: float | None
+    bjellesau_score: float | None
     volume_score: float | None
     macro_score: float | None
     evidence_score: float
@@ -89,6 +91,7 @@ class EarlyWarningCandidate:
     source: str
     evidence_items: list[dict[str, Any]]
     insider_evidence: list[dict[str, Any]]
+    bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
@@ -252,58 +255,41 @@ def _news_count(row: Mapping[str, Any]) -> int:
 
 
 def _insider_items(row: Mapping[str, Any], limit: int = 6) -> list[dict[str, Any]]:
-    txs = row.get("latest_transactions") if isinstance(row.get("latest_transactions"), list) else []
-    items: list[dict[str, Any]] = []
-    for tx in txs[:limit]:
-        if not isinstance(tx, Mapping):
-            continue
-        name = _clean_text(tx.get("name") or tx.get("person") or tx.get("insider"), "Ukjent insider")
-        relation = _clean_text(tx.get("relation") or tx.get("role"))
-        tx_type = _clean_text(tx.get("type") or tx.get("transaction_type") or tx.get("side"), "transaksjon")
-        date = _clean_text(tx.get("date") or tx.get("published") or tx.get("transaction_date"))
-        shares = _clean_text(tx.get("shares") or tx.get("volume") or tx.get("quantity"))
-        value = _clean_text(tx.get("value") or tx.get("amount") or tx.get("value_nok"))
-        url = _clean_text(tx.get("url") or tx.get("link") or tx.get("source_url"))
-        detail_parts = [part for part in (relation, tx_type, f"aksjer {shares}" if shares else "", f"verdi {value}" if value else "") if part]
-        items.append({
-            "type": "insider/bjellesau",
-            "title": name,
-            "source": _clean_text(tx.get("source"), "Insiderdata"),
-            "published": date,
-            "url": url,
-            "detail": " | ".join(detail_parts) or "Insider-/eierskapsspor maa bekreftes manuelt.",
-        })
-    return items
+    _combined, insider, _bjellesau = split_ownership_evidence(row, limit=limit)
+    return insider
+
+
+def _ownership_items(row: Mapping[str, Any], limit: int = 8) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    return split_ownership_evidence(row, limit=limit)
 
 
 def _fresh_source_evidence(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[float | None, str]:
     news_items = _news_items(row) if include_news else []
-    insider_items = _insider_items(row) if include_insider else []
+    ownership_items, insider_items, bjellesau_items = _ownership_items(row) if include_insider else ([], [], [])
     news_count = len(news_items)
     insider_count = len(insider_items)
-    bjellesau_matches = row.get("bjellesau_match") if isinstance(row.get("bjellesau_match"), list) else []
-    if not news_count and not insider_count and not bjellesau_matches:
+    bjellesau_count = len(bjellesau_items)
+    if not news_count and not insider_count and not bjellesau_count:
         return None, "mangler"
-    score = 0.42 + min(news_count, 5) * 0.055 + min(insider_count, 5) * 0.075 + min(len(bjellesau_matches), 3) * 0.08
-    if any(item.get("url") for item in news_items + insider_items):
+    score = 0.42 + min(news_count, 5) * 0.055 + min(insider_count, 5) * 0.075 + min(bjellesau_count, 4) * 0.08
+    if any(item.get("url") for item in news_items + ownership_items):
         score += 0.05
-    return _clamp(score), "direkte kilde"
+    if insider_count and bjellesau_count:
+        quality = "direkte kilde: insider og bjellesau"
+    elif bjellesau_count:
+        quality = "direkte kilde: bjellesau"
+    elif insider_count:
+        quality = "direkte kilde: insider"
+    else:
+        quality = "direkte kilde: nyhet"
+    return _clamp(score), quality
 
 
-def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     news = _news_items(row) if include_news else []
-    insider = _insider_items(row) if include_insider else []
-    combined = insider + news
-    if row.get("bjellesau_match"):
-        combined.insert(0, {
-            "type": "bjellesau-match",
-            "title": ", ".join(str(x) for x in row.get("bjellesau_match") or []),
-            "source": "Lokal bjellesau-watchlist",
-            "published": "",
-            "url": "",
-            "detail": "Navn fra siste insiderdata matcher lokal watchlist.",
-        })
-    return combined[:10], insider, news
+    ownership, insider, bjellesau = _ownership_items(row) if include_insider else ([], [], [])
+    combined = ownership + news
+    return combined[:10], insider, bjellesau, news
 
 
 def _expectation_change(row: Mapping[str, Any]) -> tuple[float | None, str]:
@@ -365,6 +351,11 @@ def _market_confirmation(row: Mapping[str, Any]) -> tuple[float | None, str]:
 
 
 def _ownership_insider(row: Mapping[str, Any], include_insider: bool) -> tuple[float | None, str]:
+    if not include_insider:
+        return None, "mangler"
+    split = ownership_signal_scores(row)
+    if split["combined_score"] is not None:
+        return float(split["combined_score"]), str(split["quality"])
     values = [
         row.get("insider_quality_score"),
         row.get("bjellesau_score"),
@@ -502,8 +493,8 @@ def _score_row(
     warnings = []
     if missing_focus:
         warnings.append("mangler tidligvarslingsdata: " + ", ".join(missing_focus[:4]))
-    evidence_items, insider_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
-    if include_insider and not insider_evidence and factors.get("ownership_insider") is None:
+    evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    if include_insider and not insider_evidence and not bjellesau_evidence and factors.get("ownership_insider") is None:
         warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")
     if include_news and not news_evidence and factors.get("catalyst_altdata_macro") is None:
         warnings.append("ingen konkrete nyhetslenker funnet")
@@ -513,7 +504,11 @@ def _score_row(
     if risk_level >= 70:
         rejects.append("hoy volatilitet/drawdown")
     data_quality = "Svak" if missing_focus else "OK"
-    evidence_note = f"{len(insider_evidence)} insider/bjellesau-spor og {len(news_evidence)} nyhetsspor" if evidence_items else "ingen direkte kildespor"
+    ownership_scores = ownership_signal_scores(row) if include_insider else {"insider_score": None, "bjellesau_score": None}
+    evidence_note = (
+        f"{len(insider_evidence)} insider-spor, {len(bjellesau_evidence)} bjellesau-spor og {len(news_evidence)} nyhetsspor"
+        if evidence_items else "ingen direkte kildespor"
+    )
     why = f"{ticker}: {', '.join(signals[:3])} peker mest opp i Early Warning; funnet {evidence_note}. Bekreft kildene manuelt foer vurdering."
     cap = _market_cap(row)
     cap_fields = market_cap_fields(ticker, {**dict(row), "market_cap": cap})
@@ -532,7 +527,8 @@ def _score_row(
         catalyst_score=factor_scores.get("catalyst_altdata_macro"),
         underfollowed_score=factor_scores.get("expectation_change"),
         inflection_score=factor_scores.get("earnings_surprise"),
-        insider_score=factor_scores.get("ownership_insider"),
+        insider_score=None if ownership_scores["insider_score"] is None else round(float(ownership_scores["insider_score"]) * 100.0, 1),
+        bjellesau_score=None if ownership_scores["bjellesau_score"] is None else round(float(ownership_scores["bjellesau_score"]) * 100.0, 1),
         volume_score=factor_scores.get("market_confirmation"),
         macro_score=factor_scores.get("fundamental_acceleration"),
         evidence_score=round(100.0 - data_penalty, 1),
@@ -556,6 +552,7 @@ def _score_row(
         source="Early Warning V1",
         evidence_items=evidence_items,
         insider_evidence=insider_evidence,
+        bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
     )
 

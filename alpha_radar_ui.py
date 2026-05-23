@@ -23,9 +23,10 @@ from alpha_radar_results import (
     save_alpha_radar_snapshot,
 )
 from alpha_radar_currency import market_cap_display
+from decision_engine import DECISION_QUEUE_KEY, add_decision_rows, decision_source_rows_from_radar_result
 
 
-RADAR_UI_STATE_VERSION = "v1863az"
+RADAR_UI_STATE_VERSION = "v1863ba"
 LAST_RESULT_KEY = f"alpha_radar_last_result_{RADAR_UI_STATE_VERSION}"
 ACTIVE_SIGNAL_OPTIONS = [
     "Borsverdi",
@@ -629,7 +630,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             key=f"alpha_radar_tickers_v1863au_{basename}",
         )
 
-    a1, a2, a3 = st.columns(3)
+    a1, a2, a3, a4 = st.columns(4)
     with a1:
         if st.button("Lagre snapshot", key="alpha_radar_save_snapshot_v1863au", disabled=disabled, use_container_width=True):
             saved = save_alpha_radar_snapshot(result)
@@ -642,6 +643,21 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
         if st.button("Bruk som aktivt Analyseunivers", key="alpha_radar_active_universe_v1863au", disabled=disabled, use_container_width=True):
             saved = _persist_active_universe_from_alpha(result)
             st.success(f"Alpha Radar-resultatet er satt som aktivt analyseunivers med {saved} tickere.")
+    with a4:
+        default_decision = tickers[: min(8, len(tickers))]
+        decision_tickers = st.multiselect(
+            "Til beslutning",
+            tickers,
+            default=default_decision,
+            key=f"alpha_radar_decision_tickers_v1863ba_{basename}",
+            disabled=disabled,
+            max_selections=min(20, len(tickers)) if tickers else None,
+        )
+        if st.button("Send til Beslutningsgrunnlag", key=f"alpha_radar_decision_queue_v1863ba_{basename}", disabled=disabled or not decision_tickers, use_container_width=True):
+            rows = decision_source_rows_from_radar_result(result, decision_tickers)
+            current = st.session_state.get(DECISION_QUEUE_KEY, [])
+            st.session_state[DECISION_QUEUE_KEY] = add_decision_rows(current, rows)
+            st.success(f"Sendte {len(rows)} kandidater til Beslutningsgrunnlag.")
 
     if tickers:
         st.caption("Tickere i resultatet: " + ", ".join(tickers[:20]))
@@ -694,7 +710,7 @@ def _render_alpha_radar_css() -> None:
         }
         .alpha-radar-metrics {
             display: grid;
-            grid-template-columns: repeat(6, minmax(82px, 1fr));
+            grid-template-columns: repeat(7, minmax(76px, 1fr));
             gap: 0.32rem;
             margin: 0.42rem 0 0.50rem 0;
         }
@@ -920,6 +936,7 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
         {metric("inflection_score", "vendepunkt", "inflection")}
         {metric("catalyst_score", "katalysator", "catalyst")}
         {metric("insider_score", "insider", "insider_bjellesau")}
+        {metric("bjellesau_score", "bjellesau", "insider_bjellesau")}
         {metric("volume_score", "volum", "volume_accumulation")}
         {metric("macro_score", "makro", "macro_second_order")}
       </div>

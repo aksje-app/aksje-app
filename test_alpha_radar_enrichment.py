@@ -63,7 +63,9 @@ def test_enrichment_adds_real_signal_proxies_without_network():
     assert enriched["news_count"] == 2
     assert enriched["small_news_big_impact_score"] > 0.6
     assert enriched["insider_quality_score"] > 0.75
-    assert enriched["bjellesau_score"] >= enriched["insider_quality_score"]
+    assert enriched["bjellesau_score"] is None
+    assert enriched["insider_evidence"]
+    assert not enriched["bjellesau_evidence"]
     assert enriched["macro_tailwind_score"] > 0.6
     assert "oil_service" in enriched["macro_themes"]
     assert enriched["result_inflection_score"] > 0.55

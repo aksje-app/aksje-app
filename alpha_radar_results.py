@@ -49,6 +49,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "inflection_score",
         "catalyst_score",
         "insider_score",
+        "bjellesau_score",
         "volume_score",
         "macro_score",
         "risk_score",
@@ -64,6 +65,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "manual_review",
         "evidence_summary",
         "insider_evidence",
+        "bjellesau_evidence",
         "news_evidence",
     ]
     buffer = io.StringIO()
@@ -79,6 +81,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
                 out[key] = "; ".join(str(item) for item in value)
         out["evidence_summary"] = _evidence_summary(row)
         out["insider_evidence"] = _evidence_text(row.get("insider_evidence"))
+        out["bjellesau_evidence"] = _evidence_text(row.get("bjellesau_evidence"))
         out["news_evidence"] = _evidence_text(row.get("news_evidence"))
         out["market_cap_display"] = out.get("market_cap_display") or _market_cap_text(row)
         writer.writerow(out)
@@ -148,7 +151,7 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
     ]
     candidate_fields = [
         "rank", "ticker", "name", "market", "horizon", "mode", "hidden_potential_score",
-        "underfollowed_score", "inflection_score", "catalyst_score", "insider_score",
+        "underfollowed_score", "inflection_score", "catalyst_score", "insider_score", "bjellesau_score",
         "volume_score", "macro_score", "evidence_score", "risk_score", "market_cap",
         "market_cap_currency", "market_cap_display", "market_cap_nok_estimate",
         "data_quality", "why_now", "signals", "reject_reasons", "warning_reasons", "manual_review",
@@ -264,10 +267,11 @@ def _evidence_text(items: Any) -> str:
 def _evidence_summary(row: Mapping[str, Any]) -> str:
     evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
     insider = row.get("insider_evidence") if isinstance(row.get("insider_evidence"), list) else []
+    bjellesau = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
     news = row.get("news_evidence") if isinstance(row.get("news_evidence"), list) else []
-    if not evidence and not insider and not news:
+    if not evidence and not insider and not bjellesau and not news:
         return "Ingen direkte kildedetaljer i resultatet."
-    return f"{len(insider)} insider/bjellesau-spor, {len(news)} nyhetsspor, {len(evidence)} kildespor totalt."
+    return f"{len(insider)} insider-spor, {len(bjellesau)} bjellesau-spor, {len(news)} nyhetsspor, {len(evidence)} kildespor totalt."
 
 
 def _evidence_html(row: Mapping[str, Any]) -> str:
@@ -312,7 +316,8 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
             ("Oversett/forventning", row.get("underfollowed_score"), qualities.get("underfollowed") or qualities.get("expectation_change")),
             ("Vendepunkt/earnings", row.get("inflection_score"), qualities.get("inflection") or qualities.get("earnings_surprise")),
             ("Katalysator", row.get("catalyst_score"), qualities.get("catalyst") or qualities.get("catalyst_altdata_macro")),
-            ("Insider/eierskap", row.get("insider_score"), qualities.get("insider_bjellesau") or qualities.get("ownership_insider")),
+            ("Insider", row.get("insider_score"), qualities.get("insider_bjellesau") or qualities.get("ownership_insider")),
+            ("Bjellesau", row.get("bjellesau_score"), qualities.get("insider_bjellesau") or qualities.get("ownership_insider")),
             ("Volum/bekreftelse", row.get("volume_score"), qualities.get("volume_accumulation") or qualities.get("market_confirmation")),
             ("Makro/fundamental", row.get("macro_score"), qualities.get("macro_second_order") or qualities.get("fundamental_acceleration")),
             ("Risiko", row.get("risk_score"), "beregnet"),

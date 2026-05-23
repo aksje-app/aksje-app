@@ -5,9 +5,12 @@ import py_compile
 for name in [
     "alpha_radar_engine.py",
     "alpha_radar_ui.py",
+    "alpha_radar_ownership.py",
     "alpha_radar_enrichment.py",
     "alpha_radar_currency.py",
     "alpha_radar_results.py",
+    "decision_engine.py",
+    "decision_ui.py",
     "early_warning_engine.py",
     "app.py",
     "workspace_layout.py",
@@ -23,8 +26,8 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3az"' in version
-assert "Evidence Currency Radar" in version
+assert 'APP_VERSION = "v18.6.3ba"' in version
+assert "Decision Support Radar" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -33,8 +36,11 @@ assert "def render_alpha_radar_control_center_v1863ap" in app
 assert "data_enricher=enrich_alpha_radar_row" in app
 assert "earnings_provider=get_earnings" in app
 assert '("Alpha Radar", render_alpha_radar_control_center_v1863ap)' in app
+assert "from decision_ui import render_decision_support_panel" in app
+assert '("Beslutningsgrunnlag", render_decision_support_panel)' in app
 active_layout_block = layout.split("def _render_ai_control_center_v1863aj", 1)[1]
 assert '"alpha"' in active_layout_block and '"muligheter"' in active_layout_block
+assert '"beslut"' in active_layout_block
 
 # Heavy scanning must stay behind an explicit button.
 button_pos = ui.find("run_clicked = st.button")
@@ -72,6 +78,13 @@ assert "balance_markets=balance_markets" in ui
 assert "market_balance_enabled" in engine + ui + early
 assert "market_cap_display" in engine + ui + results + early
 assert "market_cap_currency" in engine + ui + results + early
+assert "bjellesau_score" in engine + ui + results + early
+assert "bjellesau_evidence" in engine + results + early
+assert "split_ownership_evidence" in engine + early
+assert "Send til Beslutningsgrunnlag" in ui
+assert "DECISION_QUEUE_KEY" in ui
+assert "build_decision_cases" in Path("decision_engine.py").read_text(encoding="utf-8", errors="ignore")
+assert "render_decision_support_panel" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Enkeltmarked bruker egen grense" in ui
 assert "alpha_news_quality" in engine
 assert "Valgene er endret siden siste" in ui

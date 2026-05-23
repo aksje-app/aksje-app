@@ -23,6 +23,7 @@ from market_intelligence_center import render_market_intelligence_center
 from forecast_ui import render_forecast_section
 from alpha_radar_ui import render_alpha_radar_panel
 from alpha_radar_enrichment import enrich_alpha_radar_row
+from decision_ui import render_decision_support_panel
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
@@ -10050,6 +10051,7 @@ def control_center_extra_panels_v18535():
     return [
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
+        ("Beslutningsgrunnlag", render_decision_support_panel),
         ("🚀 IPO", render_ipo),
         ("🧪 Paper Trading", render_paper_trading_dashboard),
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),

@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from alpha_radar_ownership import classify_ownership_item, split_ownership_evidence
+
 try:
     import yfinance as yf
 except Exception:  # pragma: no cover - depends on runtime
@@ -306,7 +308,11 @@ def enrich_with_insider_quality(
     watchlist = load_bjellesau_watchlist()
     relation_boost = 0.0
     matched_names: list[str] = []
-    for tx in latest_transactions[:8]:
+    normalized_transactions: list[dict[str, Any]] = []
+    for raw_tx in latest_transactions[:8]:
+        tx = dict(raw_tx or {}) if isinstance(raw_tx, Mapping) else {}
+        if not tx:
+            continue
         text = f"{tx.get('name', '')} {tx.get('relation', '')}".lower()
         if any(role in text for role in ("ceo", "cfo", "chair", "founder", "director", "board")):
             relation_boost += 0.035
@@ -314,6 +320,10 @@ def enrich_with_insider_quality(
             if name and name in text:
                 matched_names.append(name)
                 relation_boost += 0.08
+        tx["ownership_type"] = classify_ownership_item(tx, watchlist_names=watchlist)
+        normalized_transactions.append(tx)
+    if normalized_transactions:
+        row["latest_transactions"] = normalized_transactions
     quality = base
     if buy_count > sell_count:
         quality += min((buy_count - sell_count) * 0.04, 0.18)
@@ -324,10 +334,19 @@ def enrich_with_insider_quality(
     quality += min(relation_boost, 0.18)
     row["insider_quality_score"] = _clamp(quality)
     row["historical_insider_quality_score"] = row["insider_quality_score"]
-    row["bjellesau_score"] = _clamp(row["insider_quality_score"] + (0.10 if matched_names else 0.0))
+    row["insider_signal_score"] = row["insider_quality_score"]
+    if matched_names:
+        row["bjellesau_signal_score"] = _clamp(0.62 + min(len(set(matched_names)), 4) * 0.06)
+        row["bjellesau_score"] = row["bjellesau_signal_score"]
+    else:
+        row["bjellesau_score"] = _normalize_unit(row.get("bjellesau_score"), None)
     row["smart_money_score"] = row["bjellesau_score"]
     if matched_names:
         row["bjellesau_match"] = sorted(set(matched_names))[:5]
+    combined, insider_items, bjellesau_items = split_ownership_evidence(row, limit=8)
+    row["ownership_evidence"] = combined
+    row["insider_evidence"] = insider_items
+    row["bjellesau_evidence"] = bjellesau_items
     return row
 
 

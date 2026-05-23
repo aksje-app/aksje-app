@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3az"
-APP_VERSION_NAME = "Evidence Currency Radar"
-APP_BUILD_ID = "v1863az-evidence-currency-radar"
+APP_VERSION = "v18.6.3ba"
+APP_VERSION_NAME = "Decision Support Radar"
+APP_BUILD_ID = "v1863ba-decision-support-radar"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -54,6 +54,8 @@ APP_PATCH_NOTES = [
     "Radarene krever naa konkret nyhets-/makro-/resultatevidens foer faktorer merkes ekte, slik at tomme kildesok ikke gir lik 45.0-katalysator paa alle tickere.",
     "Borsverdi vises med punkt som tusenskille og lokal valuta, med ca. NOK-estimat der valuta ikke er NOK.",
     "Enkeltmarked bruker egen skannegrense i Alpha Radar/Early Warning, Brasil-listen er utvidet, og 177 behandles ikke som fast globalt tak.",
+    "Alpha Radar og Early Warning skiller naa Insider fra Bjellesau i scoring, kildespor, CSV, Excel, HTML/PDF og resultatkort.",
+    "AI Kontrollsenter har nytt Beslutningsgrunnlag-panel som tar radarfunn videre til manuell Kjop naa/Vent/Unnga-vurdering uten automatisk handel.",
 ]
 
 def get_app_version():

@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from alpha_radar_currency import market_cap_fields, market_cap_nok_estimate, infer_market_cap_currency
+from alpha_radar_ownership import ownership_signal_scores, split_ownership_evidence
 
 
 ALPHA_RADAR_MODES = [
@@ -202,6 +203,7 @@ class AlphaRadarCandidate:
     underfollowed_score: float
     inflection_score: float
     insider_score: float | None
+    bjellesau_score: float | None
     volume_score: float
     macro_score: float | None
     evidence_score: float
@@ -225,6 +227,7 @@ class AlphaRadarCandidate:
     source: str
     evidence_items: list[dict[str, Any]]
     insider_evidence: list[dict[str, Any]]
+    bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
@@ -450,6 +453,18 @@ def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insid
             "detail": "Navn fra siste insiderdata matcher lokal watchlist.",
         })
     return combined[:10], insider, news
+
+
+def _insider_evidence(row: Mapping[str, Any], limit: int = 6) -> list[dict[str, Any]]:
+    _combined, insider, _bjellesau = split_ownership_evidence(row, limit=limit)
+    return insider
+
+
+def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insider: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    news = _news_evidence(row) if include_news else []
+    ownership, insider, bjellesau = split_ownership_evidence(row, limit=8) if include_insider else ([], [], [])
+    combined = ownership + news
+    return combined[:10], insider, bjellesau, news
 
 
 def _base_score(row: Mapping[str, Any]) -> float:
@@ -703,6 +718,11 @@ def _inflection_score(row: Mapping[str, Any]) -> float:
 
 
 def _insider_bjellesau_score(row: Mapping[str, Any], include_insider: bool) -> float | None:
+    if not include_insider:
+        return None
+    split = ownership_signal_scores(row)
+    if split["combined_score"] is not None:
+        return float(split["combined_score"])
     explicit_values = [
         row.get("bjellesau_score"),
         row.get("smart_money_score"),
@@ -845,7 +865,8 @@ def _evidence_score(row: Mapping[str, Any], include_news: bool, include_insider:
     count = sum(1 for key in keys if row.get(key) is not None)
     if include_news and _news_count(row):
         count += 1
-    if include_insider and row.get("insider_score") is not None:
+    ownership = ownership_signal_scores(row)
+    if include_insider and (ownership["insider_score"] is not None or ownership["bjellesau_score"] is not None):
         count += 1
     if row.get("data_missing"):
         return 0.28
@@ -941,6 +962,9 @@ def _factor_quality(row: Mapping[str, Any], factor: str, value: float | None) ->
             return "proxy"
         return "proxy"
     if factor == "insider_bjellesau":
+        split = ownership_signal_scores(row)
+        if split["quality"] != "mangler":
+            return str(split["quality"])
         if any(row.get(key) is not None for key in ("bjellesau_score", "smart_money_score", "owner_signal", "insider_quality_score", "historical_insider_quality_score", "insider_score")):
             return "ekte"
         if row.get("insider_buy_count") is not None or row.get("buy_count") is not None or row.get("insider_label"):
@@ -1114,7 +1138,7 @@ def _score_candidate(
         hidden = min(hidden, 48.0)
 
     signals = _signals(row, scoring_factors, risk_level)
-    evidence_items, insider_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
+    evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
     reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, scoring_factors["evidence"])
     warning_reasons = list(row.get("warning_reasons") or [])
     if missing_focus:
@@ -1127,6 +1151,7 @@ def _score_candidate(
 
     cap = _known_market_cap(row)
     cap_fields = market_cap_fields(ticker, {**dict(row), "market_cap": cap})
+    ownership_scores = ownership_signal_scores(row) if include_insider else {"insider_score": None, "bjellesau_score": None}
     return AlphaRadarCandidate(
         rank=0,
         ticker=ticker,
@@ -1140,7 +1165,8 @@ def _score_candidate(
         catalyst_score=None if factors["catalyst"] is None else round(float(factors["catalyst"]) * 100.0, 1),
         underfollowed_score=round(scoring_factors["underfollowed"] * 100.0, 1),
         inflection_score=round(scoring_factors["inflection"] * 100.0, 1),
-        insider_score=None if factors["insider_bjellesau"] is None else round(float(factors["insider_bjellesau"]) * 100.0, 1),
+        insider_score=None if ownership_scores["insider_score"] is None else round(float(ownership_scores["insider_score"]) * 100.0, 1),
+        bjellesau_score=None if ownership_scores["bjellesau_score"] is None else round(float(ownership_scores["bjellesau_score"]) * 100.0, 1),
         volume_score=round(scoring_factors["volume_accumulation"] * 100.0, 1),
         macro_score=None if factors["macro_second_order"] is None else round(float(factors["macro_second_order"]) * 100.0, 1),
         evidence_score=round(evidence, 1),
@@ -1164,6 +1190,7 @@ def _score_candidate(
         source="Alpha Radar V2 Contrarian / Hidden Potential",
         evidence_items=evidence_items,
         insider_evidence=insider_evidence,
+        bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
     )
 
@@ -1296,6 +1323,8 @@ def run_alpha_radar(
                     row["insider_label"] = insider.get("label") or insider.get("direction")
                     row["insider_buy_count"] = insider.get("buy_count")
                     row["insider_sell_count"] = insider.get("sell_count")
+                    row["latest_transactions"] = insider.get("latest_transactions", row.get("latest_transactions"))
+                    row["insider_signal_score"] = insider.get("score", row.get("insider_signal_score"))
             except Exception:
                 pass
 
