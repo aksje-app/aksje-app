@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3av"
-APP_VERSION_NAME = "Early Warning Evidence Split"
-APP_BUILD_ID = "v1863av-early-warning-evidence-split"
+APP_VERSION = "v18.6.3aw"
+APP_VERSION_NAME = "Radar Rule Engine Preview"
+APP_BUILD_ID = "v1863aw-radar-rule-engine-preview"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -42,6 +42,9 @@ APP_PATCH_NOTES = [
     "Early Warning er skilt tydeligere fra Alpha Radar med ferske kildebevis, insider-/bjellesau-spor, nyhetskatalysatorer og Euronext/Norden-notat i rapportene.",
     "Alpha Radar/Early Warning-rapportene viser kildespor med titler, kilder, datoer og lenker der datakilden leverer dette.",
     "Mobilvisning for driftkontroll og Alpha Radar Signal-lupe er strammet inn uten aa flytte tunge jobber ut fra eksplisitte Kjor-knapper.",
+    "Alpha Radar og Early Warning bruker felles regelmotor for Signal-lupe, datakilder, laasing, lav-data og overstyringsrekkefolge.",
+    "Radar-panelet viser Kjoringsbudsjett / Run Preview med 0 tunge kall ved menyvalg og planlagt kostnad ved Kjor.",
+    "Neste GO: hvis appen fortsatt dimmer ved menyvalg, profiler hele Kontrollsenter-renderen og flytt gjenvaerende cache-/statuskall ut bak eksplisitte knapper.",
 ]
 
 def get_app_version():
