@@ -3,8 +3,10 @@ from utils import _safe_float  # v18.6.3 centralized helpers
 import os
 from datetime import datetime, timedelta, timezone
 import requests
+from runtime_env import data_source_env_status, env_value, load_app_env, redact_secrets
 
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
+load_app_env()
+FINNHUB_API_KEY = env_value("FINNHUB_API_KEY")
 FINNHUB_TIMEOUT_SECONDS = float(os.getenv("FINNHUB_TIMEOUT_SECONDS", "5") or 5)
 
 
@@ -59,7 +61,8 @@ def fetch_insider_transactions(ticker, months=6, limit=25):
     Henter siste insider-transaksjoner fra Finnhub hvis nøkkel finnes.
     Returnerer normaliserte rader for UI og scoring.
     """
-    if not FINNHUB_API_KEY:
+    api_key = env_value("FINNHUB_API_KEY")
+    if not api_key:
         return {
             "transactions": [],
             "error": "FINNHUB_API_KEY mangler",
@@ -74,7 +77,7 @@ def fetch_insider_transactions(ticker, months=6, limit=25):
         "symbol": ticker,
         "from": from_date.isoformat(),
         "to": to_date.isoformat(),
-        "token": FINNHUB_API_KEY,
+        "token": api_key,
     }
 
     try:
@@ -115,7 +118,7 @@ def fetch_insider_transactions(ticker, months=6, limit=25):
     except Exception as e:
         return {
             "transactions": [],
-            "error": f"Insider API-feil: {type(e).__name__}: {e}",
+            "error": redact_secrets(f"Insider API-feil: {type(e).__name__}: {e}"),
             "source": "Finnhub insider-transactions",
         }
 
@@ -261,3 +264,13 @@ def get_insider_transactions(ticker, months=6):
     except Exception:
         data = get_insider_signal(ticker, months=months)
         return data.get("latest_transactions", [])
+
+
+def insider_api_status():
+    status = data_source_env_status()
+    return {
+        "provider": "Finnhub insider-transactions",
+        "has_key": bool(status.get("finnhub_key")),
+        "env_loaded": bool(status.get("env_loaded")),
+        "env_sources": list(status.get("env_sources") or []),
+    }

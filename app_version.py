@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3ba"
-APP_VERSION_NAME = "Decision Support Radar"
-APP_BUILD_ID = "v1863ba-decision-support-radar"
+APP_VERSION = "v18.6.3bb"
+APP_VERSION_NAME = "Radar Data Source Diagnostics"
+APP_BUILD_ID = "v1863bb-radar-data-source-diagnostics"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -56,6 +56,8 @@ APP_PATCH_NOTES = [
     "Enkeltmarked bruker egen skannegrense i Alpha Radar/Early Warning, Brasil-listen er utvidet, og 177 behandles ikke som fast globalt tak.",
     "Alpha Radar og Early Warning skiller naa Insider fra Bjellesau i scoring, kildespor, CSV, Excel, HTML/PDF og resultatkort.",
     "AI Kontrollsenter har nytt Beslutningsgrunnlag-panel som tar radarfunn videre til manuell Kjop naa/Vent/Unnga-vurdering uten automatisk handel.",
+    "Finnhub- og NewsAPI-nokler lastes naa robust fra work_d/.env eller work_d/.env/.env, og radarene viser trygg datakilde-status uten aa vise nokler.",
+    "Alpha Radar/Early Warning lar 1, 3, 6 og 12 mnd styre datavinduet for insider, nyheter og earnings, og har egen markedstest for USA/Norden-datakilder.",
 ]
 
 def get_app_version():

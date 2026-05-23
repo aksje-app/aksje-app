@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from alpha_radar_ownership import classify_ownership_item, split_ownership_evidence
+from data_source_diagnostics import horizon_to_days, horizon_to_months
 
 try:
     import yfinance as yf
@@ -234,6 +235,7 @@ def enrich_with_news(
     *,
     include_news: bool,
     news_provider: Callable[..., tuple[Iterable[Mapping[str, Any]], Any]] | None = None,
+    horizon: str = "3m",
 ) -> dict[str, Any]:
     if not include_news:
         return row
@@ -249,7 +251,7 @@ def enrich_with_news(
     query = " OR ".join([x for x in query_parts if x])
     try:
         try:
-            articles, error = provider(query, limit=8, source="manual")
+            articles, error = provider(query, limit=8, source="manual", days_back=horizon_to_days(horizon))
         except TypeError:
             articles, error = provider(query, 8)
         articles = list(articles or [])
@@ -278,6 +280,7 @@ def enrich_with_insider_quality(
     *,
     include_insider: bool,
     insider_provider: Callable[..., Mapping[str, Any] | None] | None = None,
+    horizon: str = "3m",
 ) -> dict[str, Any]:
     if not include_insider:
         return row
@@ -285,7 +288,12 @@ def enrich_with_insider_quality(
     insider = None
     if insider_provider is not None:
         try:
-            insider = insider_provider(ticker)
+            insider = insider_provider(ticker, months=horizon_to_months(horizon))
+        except TypeError:
+            try:
+                insider = insider_provider(ticker)
+            except Exception as exc:
+                row["alpha_insider_error"] = str(exc)[:180]
         except Exception as exc:
             row["alpha_insider_error"] = str(exc)[:180]
     if isinstance(insider, Mapping):
@@ -378,6 +386,7 @@ def enrich_with_results(
     *,
     include_results: bool,
     earnings_provider: Callable[..., Mapping[str, Any] | None] | None = None,
+    horizon: str = "3m",
 ) -> dict[str, Any]:
     if not include_results:
         return row
@@ -394,9 +403,20 @@ def enrich_with_results(
     earnings_score = 0.50
     earnings_has_date = False
     ticker = _safe_ticker(row.get("ticker"))
+    earnings = None
     if earnings_provider is not None:
         try:
-            earnings = earnings_provider(ticker)
+            earnings = earnings_provider(ticker, months=horizon_to_months(horizon))
+        except TypeError:
+            try:
+                earnings = earnings_provider(ticker)
+            except Exception as exc:
+                earnings = None
+                row["alpha_earnings_error"] = str(exc)[:180]
+        except Exception as exc:
+            earnings = None
+            row["alpha_earnings_error"] = str(exc)[:180]
+        try:
             if isinstance(earnings, Mapping):
                 row["earnings_days_until"] = earnings.get("days_until")
                 row["earnings_date"] = earnings.get("date")
@@ -431,6 +451,7 @@ def enrich_alpha_radar_row(
     insider_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     earnings_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     commodity_snapshot: Mapping[str, Mapping[str, Any]] | None = None,
+    horizon: str = "3m",
 ) -> dict[str, Any]:
     """Attach real-world signal proxies to an Alpha Radar row.
 
@@ -447,10 +468,10 @@ def enrich_alpha_radar_row(
     macro_on = include_macro or "Ravarer/makro" in signals or "Ravare" in mode_text
     results_on = include_results or "Resultater" in signals or "Resultat" in mode_text
 
-    enriched = enrich_with_news(enriched, include_news=news_on, news_provider=news_provider)
-    enriched = enrich_with_insider_quality(enriched, include_insider=insider_on, insider_provider=insider_provider)
+    enriched = enrich_with_news(enriched, include_news=news_on, news_provider=news_provider, horizon=horizon)
+    enriched = enrich_with_insider_quality(enriched, include_insider=insider_on, insider_provider=insider_provider, horizon=horizon)
     enriched = enrich_with_macro_tailwind(enriched, include_macro=macro_on, commodity_snapshot=commodity_snapshot)
-    enriched = enrich_with_results(enriched, include_results=results_on, earnings_provider=earnings_provider)
+    enriched = enrich_with_results(enriched, include_results=results_on, earnings_provider=earnings_provider, horizon=horizon)
     return enriched
 
 

@@ -8180,7 +8180,7 @@ def render_alpha_radar_control_center_v1863ap():
         resolve_tickers=_resolve,
         score_provider=_score_provider,
         insider_provider=get_insider_data,
-        news_provider=None,
+        news_provider=get_news,
         data_enricher=enrich_alpha_radar_row,
         earnings_provider=get_earnings,
         market_options=market_scope_options(include_aggregate=True),

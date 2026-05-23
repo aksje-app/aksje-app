@@ -23,6 +23,7 @@ from alpha_radar_results import (
     save_alpha_radar_snapshot,
 )
 from alpha_radar_currency import market_cap_display
+from data_source_diagnostics import build_data_source_status, horizon_to_months, probe_market_data_sources
 from decision_engine import DECISION_QUEUE_KEY, add_decision_rows, decision_source_rows_from_radar_result
 
 
@@ -384,6 +385,45 @@ def _render_run_preview(
         """,
         unsafe_allow_html=True,
     )
+
+
+def _render_data_source_status(
+    *,
+    horizon: str,
+    insider_provider: Callable[..., Mapping[str, Any] | None] | None,
+    news_provider: Callable[..., Any] | None,
+    earnings_provider: Callable[..., Mapping[str, Any] | None] | None,
+) -> None:
+    months = horizon_to_months(horizon)
+    rows = build_data_source_status(horizon)
+    with st.expander("Datakilde-status / markedstest", expanded=False):
+        st.caption(
+            f"Valgt horisont bruker {months} mnd datavindu for insider og earnings, "
+            "og tilsvarende datoperiode for nyheter der kilden stoetter det. Nokler vises aldri her."
+        )
+        try:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+        except Exception:
+            st.write(rows)
+
+        if st.button(
+            "Test datakilder per marked",
+            key=f"alpha_radar_probe_sources_{RADAR_UI_STATE_VERSION}_{horizon}",
+            use_container_width=True,
+            help="Kjorer en liten manuell API-sjekk for USA, Norge, Sverige, Danmark og Finland.",
+        ):
+            st.session_state[f"alpha_radar_source_probe_{RADAR_UI_STATE_VERSION}"] = probe_market_data_sources(
+                horizon=horizon,
+                insider_provider=insider_provider,
+                earnings_provider=earnings_provider,
+                news_provider=news_provider,
+            )
+        probe = st.session_state.get(f"alpha_radar_source_probe_{RADAR_UI_STATE_VERSION}")
+        if probe:
+            try:
+                st.dataframe(probe, use_container_width=True, hide_index=True)
+            except Exception:
+                st.write(probe)
 
 
 def _infer_market_from_ticker(ticker: str) -> str:
@@ -1318,6 +1358,12 @@ def render_alpha_radar_panel(
         source_tickers=source_tickers,
         rule_state=rule_state,
     )
+    _render_data_source_status(
+        horizon=horizon,
+        insider_provider=insider_provider,
+        news_provider=news_provider,
+        earnings_provider=earnings_provider,
+    )
 
     input_context = _alpha_radar_input_context(
         scope=scope,
@@ -1433,6 +1479,7 @@ def render_alpha_radar_panel(
                 news_provider=news_provider,
                 insider_provider=insider_provider,
                 earnings_provider=earnings_provider,
+                horizon=horizon,
             )
 
         if analysis_engine == "Early Warning V1":
@@ -1449,6 +1496,7 @@ def render_alpha_radar_panel(
                 score_provider=enriched_score_provider,
                 progress_callback=_progress_callback,
                 balance_markets=balance_markets,
+                data_window_months=horizon_to_months(horizon),
             )
         else:
             result = run_alpha_radar(
@@ -1468,6 +1516,7 @@ def render_alpha_radar_panel(
                 news_provider=news_provider,
                 progress_callback=_progress_callback,
                 balance_markets=balance_markets,
+                data_window_months=horizon_to_months(horizon),
             )
         progress_bar.progress(100, text=f"{analysis_engine} ferdig")
         result = _attach_universe_metadata(
@@ -1482,6 +1531,8 @@ def render_alpha_radar_panel(
         result["input_fingerprint"] = input_fingerprint
         result["source_tickers"] = list(source_tickers)
         result["analysis_engine"] = analysis_engine
+        result["data_source_status"] = build_data_source_status(horizon)
+        result["data_window_months"] = horizon_to_months(horizon)
         st.session_state[LAST_RESULT_KEY] = result
         st.success(
             f"{analysis_engine} ferdig: viser {len(result.get('candidates') or [])} funn "

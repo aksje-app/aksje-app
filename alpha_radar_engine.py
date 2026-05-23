@@ -1141,6 +1141,13 @@ def _score_candidate(
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
     reject_reasons = _reject_reasons(row, risk_level, crowdedness, liquidity, scoring_factors["evidence"])
     warning_reasons = list(row.get("warning_reasons") or [])
+    for key, label in (
+        ("alpha_insider_error", "insiderkilde"),
+        ("alpha_news_error", "nyhetskilde"),
+        ("alpha_earnings_error", "earningskilde"),
+    ):
+        if row.get(key):
+            warning_reasons.append(f"{label}: {str(row.get(key))[:120]}")
     if missing_focus:
         warning_reasons.append("mangler data for valgt signal-lupe: " + ", ".join(missing_focus[:3]))
     why_now = _why_now(row, scoring_factors, signals)
@@ -1213,6 +1220,7 @@ def run_alpha_radar(
     news_provider: Callable[..., Iterable[Mapping[str, Any]]] | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     balance_markets: bool = False,
+    data_window_months: int | None = None,
 ) -> dict[str, Any]:
     """Build a contrarian hidden-potential shortlist from explicit tickers.
 
@@ -1317,7 +1325,10 @@ def run_alpha_radar(
                 row["articles"] = []
         if include_insider and insider_provider is not None and row.get("insider_score") is None:
             try:
-                insider = insider_provider(ticker)
+                try:
+                    insider = insider_provider(ticker, months=data_window_months or 6)
+                except TypeError:
+                    insider = insider_provider(ticker)
                 if isinstance(insider, Mapping):
                     row["insider_score"] = insider.get("score")
                     row["insider_label"] = insider.get("label") or insider.get("direction")
@@ -1396,6 +1407,7 @@ def run_alpha_radar(
         "market_candidate_counts": _market_counts_from_candidates(ranked),
         "market_excluded_counts": dict(sorted(market_excluded_counts.items())),
         "market_balance_enabled": bool(balance_markets),
+        "data_window_months": data_window_months,
         "candidates": [candidate.to_dict() for candidate in ranked],
         "disclaimer": "Hypoteseliste for manuell analyse. Ikke investeringsraad og ikke automatisk handel.",
     }

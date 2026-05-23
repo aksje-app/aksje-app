@@ -147,6 +147,8 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         ["market_candidate_counts", result.get("market_candidate_counts")],
         ["market_excluded_counts", result.get("market_excluded_counts")],
         ["market_balance_enabled", result.get("market_balance_enabled")],
+        ["data_window_months", result.get("data_window_months")],
+        ["data_source_status", result.get("data_source_status")],
         ["disclaimer", result.get("disclaimer")],
     ]
     candidate_fields = [
@@ -304,6 +306,11 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
     scanned = html.escape(str(result.get("scanned_count") or 0))
     scored = html.escape(str(result.get("scored_count") or 0))
     excluded = html.escape(str(result.get("excluded_count") or 0))
+    data_window = html.escape(str(result.get("data_window_months") or ""))
+    source_status = result.get("data_source_status") if isinstance(result.get("data_source_status"), list) else []
+    source_status_text = " | ".join(
+        f"{row.get('Kilde')}: {row.get('Status')}" for row in source_status if isinstance(row, Mapping)
+    )
     rows: list[str] = []
     for row in result.get("candidates") or []:
         if not isinstance(row, Mapping):
@@ -370,6 +377,7 @@ def alpha_radar_result_to_print_html(result: Mapping[str, Any]) -> bytes:
   <h1>{html.escape(title)}</h1>
   <p class="meta">{created} | {scope} | {mode} | {horizon} | {precision} | {market_filter}</p>
   <p class="meta">Scannet {scanned} | scoret {scored} | ekskludert {excluded}</p>
+  <p class="meta">Datavindu: {data_window} mnd | Datakilder: {html.escape(source_status_text or 'ikke lagret')}</p>
   <p class="meta">Euronext/Norden: Norge (.OL), Sverige (.ST), Finland (.HE) og Danmark (.CO) er med naar valgt univers inneholder disse markedene. Kildelenker vises bare der datakilden returnerer URL.</p>
   <p>Hypoteseliste for manuell analyse. Ikke investeringsraad og ikke automatisk handel.</p>
   {body}

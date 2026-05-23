@@ -493,6 +493,13 @@ def _score_row(
     warnings = []
     if missing_focus:
         warnings.append("mangler tidligvarslingsdata: " + ", ".join(missing_focus[:4]))
+    for key, label in (
+        ("alpha_insider_error", "insiderkilde"),
+        ("alpha_news_error", "nyhetskilde"),
+        ("alpha_earnings_error", "earningskilde"),
+    ):
+        if row.get(key):
+            warnings.append(f"{label}: {str(row.get(key))[:120]}")
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
     if include_insider and not insider_evidence and not bjellesau_evidence and factors.get("ownership_insider") is None:
         warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")
@@ -571,6 +578,7 @@ def run_early_warning(
     score_provider: Callable[..., Mapping[str, Any] | None] | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     balance_markets: bool = False,
+    data_window_months: int | None = None,
 ) -> dict[str, Any]:
     horizon = horizon if horizon in HORIZON_WEIGHTS else "3m"
     limit = max(1, min(int(limit or 10), 60))
@@ -660,6 +668,7 @@ def run_early_warning(
         "market_candidate_counts": _market_counts_from_candidates(ranked),
         "market_excluded_counts": {},
         "market_balance_enabled": bool(balance_markets),
+        "data_window_months": data_window_months,
         "scope_limits": {
             "listed_equities": True,
             "ipo_preipo_included": bool(include_ipo),

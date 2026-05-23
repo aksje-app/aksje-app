@@ -2,13 +2,14 @@ import logging
 import json
 import os
 import time
+import datetime as dt
 from pathlib import Path
 
 import requests
-from dotenv import load_dotenv
+from runtime_env import data_source_env_status, env_value, load_app_env, redact_secrets
 
-load_dotenv()
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
+load_app_env()
+NEWSAPI_KEY = env_value("NEWSAPI_KEY")
 NEWS_CACHE_TTL_HOURS = int(os.getenv("NEWSAPI_CACHE_TTL_HOURS", "24") or 24)
 NEWS_ALLOW_AUTO_CALLS = str(os.getenv("NEWSAPI_ALLOW_AUTO_CALLS", "false")).lower() in {"1", "true", "yes", "on"}
 NEWS_CACHE_PATH = Path(os.getenv("NEWSAPI_CACHE_PATH", "data/services/newsapi_cache.json"))
@@ -57,16 +58,19 @@ def _fresh(entry, ttl_hours):
 
 def newsapi_status():
     cache = _load_cache()
+    env_status = data_source_env_status()
     return {
-        "has_key": bool(NEWSAPI_KEY and not NEWSAPI_KEY.startswith("din_")),
-        "auto_calls_allowed": bool(NEWS_ALLOW_AUTO_CALLS),
+        "has_key": bool(env_status.get("newsapi_key")),
+        "auto_calls_allowed": bool(env_status.get("newsapi_auto_calls")),
+        "env_loaded": bool(env_status.get("env_loaded")),
+        "env_sources": list(env_status.get("env_sources") or []),
         "cache_ttl_hours": NEWS_CACHE_TTL_HOURS,
         "cache_entries": len(cache),
         "cache_path": str(NEWS_CACHE_PATH),
     }
 
 
-def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None):
+def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None, days_back=None):
     """Fetch news with a cache and an automatic-call guard.
 
     v18.5.31: NewsAPI should not be consumed silently by ordinary Streamlit
@@ -89,19 +93,27 @@ def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None):
             return list(cached.get("articles") or []), "Bruker cache: automatisk NewsAPI-kall er slått av."
         return [], "NewsAPI automatisk bruk er slått av. Trykk nyhetsknappen eller sett NEWSAPI_ALLOW_AUTO_CALLS=true."
 
-    if not NEWSAPI_KEY or NEWSAPI_KEY.startswith("din_"):
+    api_key = env_value("NEWSAPI_KEY")
+    if not api_key or api_key.startswith("din_"):
         return [], "Mangler NewsAPI-nøkkel. Legg NEWSAPI_KEY i .env"
 
     try:
+        params = {
+            "q": query,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "pageSize": limit,
+            "apiKey": api_key,
+        }
+        if days_back:
+            try:
+                from_date = dt.date.today() - dt.timedelta(days=max(1, int(days_back)))
+                params["from"] = from_date.isoformat()
+            except Exception:
+                pass
         r = requests.get(
             "https://newsapi.org/v2/everything",
-            params={
-                "q": query,
-                "language": "en",
-                "sortBy": "publishedAt",
-                "pageSize": limit,
-                "apiKey": NEWSAPI_KEY,
-            },
+            params=params,
             timeout=12,
         )
         data = r.json()
@@ -122,8 +134,8 @@ def get_news(query, limit=8, *, source="manual", force=False, ttl_hours=None):
         return items, None
     except Exception as e:
         if cached.get("articles"):
-            return list(cached.get("articles") or []), f"Bruker cache etter NewsAPI-feil: {e}"
-        return [], str(e)
+            return list(cached.get("articles") or []), redact_secrets(f"Bruker cache etter NewsAPI-feil: {e}")
+        return [], redact_secrets(str(e))
 
 
 def simple_finance_sentiment(articles):

@@ -9,6 +9,8 @@ for name in [
     "alpha_radar_enrichment.py",
     "alpha_radar_currency.py",
     "alpha_radar_results.py",
+    "runtime_env.py",
+    "data_source_diagnostics.py",
     "decision_engine.py",
     "decision_ui.py",
     "early_warning_engine.py",
@@ -26,8 +28,8 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3ba"' in version
-assert "Decision Support Radar" in version
+assert 'APP_VERSION = "v18.6.3bb"' in version
+assert "Radar Data Source Diagnostics" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -83,6 +85,10 @@ assert "bjellesau_evidence" in engine + results + early
 assert "split_ownership_evidence" in engine + early
 assert "Send til Beslutningsgrunnlag" in ui
 assert "DECISION_QUEUE_KEY" in ui
+assert "Datakilde-status / markedstest" in ui
+assert "Test datakilder per marked" in ui
+assert "horizon_to_months" in ui + Path("data_source_diagnostics.py").read_text(encoding="utf-8", errors="ignore")
+assert "data_window_months" in engine + early + ui + results
 assert "build_decision_cases" in Path("decision_engine.py").read_text(encoding="utf-8", errors="ignore")
 assert "render_decision_support_panel" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Enkeltmarked bruker egen grense" in ui
