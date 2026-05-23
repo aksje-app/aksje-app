@@ -51,7 +51,7 @@ def _manual_load(path: Path, *, override: bool = False) -> bool:
 
 def load_app_env(*, override: bool = False) -> list[str]:
     global _ENV_LOADED, _ENV_SOURCES
-    if _ENV_LOADED and not override:
+    if _ENV_LOADED and _ENV_SOURCES and not override:
         return list(_ENV_SOURCES)
 
     sources: list[str] = []
@@ -91,11 +91,15 @@ def has_configured_key(name: str) -> bool:
 
 def data_source_env_status() -> dict[str, Any]:
     sources = load_app_env()
+    if not sources:
+        sources = [str(path) for path in candidate_env_paths() if path.is_file()]
+    finnhub_key = has_configured_key("FINNHUB_API_KEY")
+    newsapi_key = has_configured_key("NEWSAPI_KEY")
     return {
-        "env_loaded": bool(sources),
+        "env_loaded": bool(sources or finnhub_key or newsapi_key),
         "env_sources": sources,
-        "finnhub_key": has_configured_key("FINNHUB_API_KEY"),
-        "newsapi_key": has_configured_key("NEWSAPI_KEY"),
+        "finnhub_key": finnhub_key,
+        "newsapi_key": newsapi_key,
         "newsapi_auto_calls": env_value("NEWSAPI_ALLOW_AUTO_CALLS", "false").lower() in {"1", "true", "yes", "on"},
     }
 

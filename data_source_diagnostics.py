@@ -29,12 +29,21 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
     env = data_source_env_status()
     months = horizon_to_months(horizon)
     sources = env.get("env_sources") or []
-    source_note = "lastet" if sources else "ikke funnet"
+    any_key = bool(env.get("finnhub_key") or env.get("newsapi_key"))
+    if sources:
+        source_note = "env-fil lest"
+        detail = f"{len(sources)} env-fil(er) funnet"
+    elif any_key:
+        source_note = "nokler i miljo"
+        detail = "aktive API-nokler finnes, env-fil ikke identifisert"
+    else:
+        source_note = "ikke funnet"
+        detail = "0 env-fil(er) og ingen API-nokler funnet"
     return [
         {
-            "Kilde": "Miljo/.env",
+            "Kilde": "Miljo/API-nokler",
             "Status": source_note,
-            "Detalj": f"{len(sources)} env-fil(er) funnet",
+            "Detalj": detail,
             "Vindu": "-",
         },
         {
@@ -63,6 +72,25 @@ def _safe_error(value: Any) -> str:
     if not text:
         return ""
     return text[:160]
+
+
+def summarize_source_error(label: str, error: Any) -> str:
+    text = redact_secrets(error).strip()
+    if not text:
+        return ""
+    low = text.lower()
+    label = str(label or "kilde").strip()
+    if "too many requests" in low or "rate limit" in low or "quota" in low:
+        return f"{label}: API-kvote brukt opp"
+    if "403" in low or "forbidden" in low:
+        return f"{label}: ikke tilgang/dekning for valgt marked"
+    if "mangler" in low and ("key" in low or "nokkel" in low or "nøkkel" in low):
+        return f"{label}: API-nokkel mangler"
+    if "connectionerror" in low or "max retries" in low or "temporarily unavailable" in low:
+        return f"{label}: nettverk/API midlertidig utilgjengelig"
+    if "unsupported" in low or "not supported" in low:
+        return f"{label}: ticker/marked ikke stottet"
+    return f"{label}: {text[:90]}"
 
 
 def probe_market_data_sources(
@@ -95,7 +123,7 @@ def probe_market_data_sources(
                 error = _safe_error((insider or {}).get("error"))
                 row["Insider"] = f"{count} treff" if count else "0 treff"
                 if error:
-                    notes.append(f"insider: {error}")
+                    notes.append(summarize_source_error("insider", error))
             except TypeError:
                 try:
                     insider = insider_provider(ticker)
@@ -114,7 +142,7 @@ def probe_market_data_sources(
                 error = _safe_error((earnings or {}).get("error"))
                 row["Earnings"] = f"{days_until} dager" if days_until is not None else "0 treff"
                 if error:
-                    notes.append(f"earnings: {error}")
+                    notes.append(summarize_source_error("earnings", error))
             except TypeError:
                 try:
                     earnings = earnings_provider(ticker)
@@ -132,14 +160,14 @@ def probe_market_data_sources(
                 count = len(list(articles or []))
                 row["Nyheter"] = f"{count} treff" if count else "0 treff"
                 if error:
-                    notes.append(f"news: {_safe_error(error)}")
+                    notes.append(summarize_source_error("news", error))
             except TypeError:
                 try:
                     articles, error = news_provider(ticker, 3)
                     count = len(list(articles or []))
                     row["Nyheter"] = f"{count} treff" if count else "0 treff"
                     if error:
-                        notes.append(f"news: {_safe_error(error)}")
+                        notes.append(summarize_source_error("news", error))
                 except Exception as exc:
                     row["Nyheter"] = "API feilet"
                     notes.append(f"news: {type(exc).__name__}")
@@ -157,4 +185,5 @@ __all__ = [
     "horizon_to_days",
     "horizon_to_months",
     "probe_market_data_sources",
+    "summarize_source_error",
 ]

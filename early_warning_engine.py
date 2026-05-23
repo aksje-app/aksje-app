@@ -5,6 +5,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from alpha_radar_currency import market_cap_fields
 from alpha_radar_ownership import ownership_signal_scores, split_ownership_evidence
+from data_source_diagnostics import summarize_source_error
 
 
 HORIZON_WEIGHTS = {
@@ -499,7 +500,9 @@ def _score_row(
         ("alpha_earnings_error", "earningskilde"),
     ):
         if row.get(key):
-            warnings.append(f"{label}: {str(row.get(key))[:120]}")
+            warning = summarize_source_error(label, row.get(key))
+            if warning and warning not in warnings:
+                warnings.append(warning)
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
     if include_insider and not insider_evidence and not bjellesau_evidence and factors.get("ownership_insider") is None:
         warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")

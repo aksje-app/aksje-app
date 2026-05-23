@@ -28,8 +28,8 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3bb"' in version
-assert "Radar Data Source Diagnostics" in version
+assert 'APP_VERSION = "v18.6.3bc"' in version
+assert "Radar Status Polish" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app

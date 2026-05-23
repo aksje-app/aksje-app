@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bb"
-APP_VERSION_NAME = "Radar Data Source Diagnostics"
-APP_BUILD_ID = "v1863bb-radar-data-source-diagnostics"
+APP_VERSION = "v18.6.3bc"
+APP_VERSION_NAME = "Radar Status Polish"
+APP_BUILD_ID = "v1863bc-radar-status-polish"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -58,6 +58,7 @@ APP_PATCH_NOTES = [
     "AI Kontrollsenter har nytt Beslutningsgrunnlag-panel som tar radarfunn videre til manuell Kjop naa/Vent/Unnga-vurdering uten automatisk handel.",
     "Finnhub- og NewsAPI-nokler lastes naa robust fra work_d/.env eller work_d/.env/.env, og radarene viser trygg datakilde-status uten aa vise nokler.",
     "Alpha Radar/Early Warning lar 1, 3, 6 og 12 mnd styre datavinduet for insider, nyheter og earnings, og har egen markedstest for USA/Norden-datakilder.",
+    "Datakilde-status viser naa API-nokler i aktivt miljo uten aa hevde at .env mangler, og lange kildefeil komprimeres i kandidatkortene.",
 ]
 
 def get_app_version():

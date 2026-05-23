@@ -7,6 +7,7 @@ from data_source_diagnostics import (
     horizon_to_days,
     horizon_to_months,
     probe_market_data_sources,
+    summarize_source_error,
 )
 from runtime_env import data_source_env_status, load_app_env, redact_secrets
 
@@ -34,6 +35,10 @@ def test_horizon_controls_data_windows():
     status_rows = build_data_source_status("6m")
     assert any(row["Vindu"] == "6 mnd" for row in status_rows)
     assert any(row["Kilde"] == "Finnhub insider" for row in status_rows)
+    assert status_rows[0]["Kilde"] == "Miljo/API-nokler"
+    assert status_rows[0]["Status"] in {"env-fil lest", "nokler i miljo"}
+    assert summarize_source_error("insiderkilde", "403 Forbidden for url token=abc123") == "insiderkilde: ikke tilgang/dekning for valgt marked"
+    assert summarize_source_error("nyhetskilde", "too many requests recently") == "nyhetskilde: API-kvote brukt opp"
 
 
 def test_enrichment_passes_horizon_to_data_providers():
@@ -98,5 +103,5 @@ def test_probe_market_data_sources_classifies_errors_and_empty_results():
 
     assert rows[0]["Insider"] == "1 treff"
     assert rows[1]["Insider"] == "0 treff"
-    assert "unsupported symbol" in rows[1]["Forklaring"]
-    assert "NewsAPI" in rows[0]["Forklaring"]
+    assert "ticker/marked ikke stottet" in rows[1]["Forklaring"]
+    assert "API-nokkel mangler" in rows[0]["Forklaring"]

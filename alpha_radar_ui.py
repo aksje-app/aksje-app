@@ -796,6 +796,10 @@ def _render_alpha_radar_css() -> None:
             color: rgba(255, 229, 178, 0.90);
             font-size: 0.74rem;
             margin-top: 0.42rem;
+            line-height: 1.28;
+            overflow-wrap: anywhere;
+            max-height: 3.9rem;
+            overflow: hidden;
         }
         .alpha-radar-rule-note,
         .alpha-radar-signal-rule,
@@ -951,16 +955,41 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
     cap_nok = candidate.get("market_cap_nok_estimate")
     if cap_nok not in {None, ""} and str(candidate.get("market_cap_currency") or "").upper() != "NOK":
         cap_text = f"{cap_text} (ca. {market_cap_display(cap_nok, 'NOK')})"
-    review = html.escape(str(candidate.get("manual_review") or ""))
-    reject_text = "; ".join(str(x) for x in rejects) if rejects else "ingen harde avslag"
-    warning_text = "; ".join(str(x) for x in warnings) if warnings else "ingen datavarsler"
     tags = "".join(f"<span class='alpha-radar-tag'>{html.escape(str(signal))}</span>" for signal in signals[:6])
     factor_quality = candidate.get("factor_quality") if isinstance(candidate.get("factor_quality"), Mapping) else {}
+
+    def compact_list(values: Sequence[Any], fallback: str, *, max_items: int = 4, max_chars: int = 180) -> str:
+        seen: set[str] = set()
+        clean: list[str] = []
+        for value in values or []:
+            text = " ".join(str(value or "").split())
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            if len(text) > 78:
+                text = text[:75].rstrip() + "..."
+            clean.append(text)
+            if len(clean) >= max_items:
+                break
+        out = "; ".join(clean) if clean else fallback
+        if len(out) > max_chars:
+            out = out[: max_chars - 3].rstrip() + "..."
+        return out
+
+    def compact_text(value: Any, *, max_chars: int = 190) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) > max_chars:
+            return text[: max_chars - 3].rstrip() + "..."
+        return text
 
     def metric(value_key: str, label: str, quality_key: str | None = None) -> str:
         quality = str(factor_quality.get(quality_key or value_key) or "").strip()
         caption = label if not quality else f"{label} Â· {quality}"
         return f"<div class='alpha-radar-metric'><b>{_fmt_score(candidate.get(value_key))}</b><span>{html.escape(caption)}</span></div>"
+
+    reject_text = compact_list(rejects, "ingen harde avslag")
+    warning_text = compact_list(warnings, "ingen datavarsler")
+    review = compact_text(candidate.get("manual_review"))
 
     return f"""
     <div class="alpha-radar-row">
@@ -982,7 +1011,7 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
       </div>
       <div class="alpha-radar-why">{why_now}</div>
       <div class="alpha-radar-tags">{tags}</div>
-      <div class="alpha-radar-reject"><b>Sjekk/avslag:</b> {html.escape(reject_text)}. <b>Datavarsel:</b> {html.escape(warning_text)}. {review}</div>
+      <div class="alpha-radar-reject"><b>Sjekk/avslag:</b> {html.escape(reject_text)}. <b>Datavarsel:</b> {html.escape(warning_text)}. {html.escape(review)}</div>
     </div>
     """
 
