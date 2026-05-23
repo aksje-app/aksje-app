@@ -24,7 +24,8 @@ from alpha_radar_results import (
 )
 
 
-LAST_RESULT_KEY = "alpha_radar_last_result_v1863au"
+RADAR_UI_STATE_VERSION = "v1863ax"
+LAST_RESULT_KEY = f"alpha_radar_last_result_{RADAR_UI_STATE_VERSION}"
 ACTIVE_SIGNAL_OPTIONS = [
     "Borsverdi",
     "Insider/bjellesauer",
@@ -52,34 +53,51 @@ SIGNAL_SOURCE_REQUIREMENTS = {
 
 MODE_RULES = {
     "Skjulte small/mid caps": {
-        "default_signals": ["Borsverdi", "Resultater"],
+        "default_signals": ["Borsverdi"],
         "required_signals": ["Borsverdi"],
         "required_sources": {},
+        "recommended_sources": {"results": "Valgfritt stottebevis: resultatvendepunkt"},
+        "allowed_signals": ["Borsverdi", "Resultater", "Uvanlig volum", "Insider/bjellesauer"],
+        "summary": "Fokus paa underdekket boersverdi og mindre selskaper.",
     },
     "Insider og bjellesauer": {
-        "default_signals": ["Insider/bjellesauer", "Nyheter/katalysator"],
+        "default_signals": ["Insider/bjellesauer"],
         "required_signals": ["Insider/bjellesauer"],
         "required_sources": {"insider": "Radar-modus: Insider og bjellesauer"},
+        "recommended_sources": {"news": "Valgfritt stottebevis: nyhetskatalysator rundt insiderbevegelse"},
+        "allowed_signals": ["Insider/bjellesauer", "Nyheter/katalysator", "Uvanlig volum"],
+        "summary": "Fokus paa insider-/bjellesauspor. Nyheter er bare stotte hvis du legger det til.",
     },
     "Ravare/makro-medvind": {
-        "default_signals": ["Ravarer/makro", "Borsverdi"],
+        "default_signals": ["Ravarer/makro"],
         "required_signals": ["Ravarer/makro"],
         "required_sources": {"macro": "Radar-modus: Ravare/makro-medvind"},
+        "allowed_signals": ["Ravarer/makro", "Arstid/syklus", "Nyheter/katalysator"],
+        "summary": "Fokus paa makro, ravare og andreordens effekter.",
     },
     "Resultat-vendepunkt": {
-        "default_signals": ["Resultater", "Nyheter/katalysator"],
+        "default_signals": ["Resultater"],
         "required_signals": ["Resultater"],
         "required_sources": {"results": "Radar-modus: Resultat-vendepunkt"},
+        "recommended_sources": {"news": "Valgfritt stottebevis: guiding, kontrakter eller revisjoner"},
+        "allowed_signals": ["Resultater", "Nyheter/katalysator", "Uvanlig volum"],
+        "summary": "Fokus paa earnings, revisjoner og fundamental akselerasjon.",
     },
     "Uvanlig volum": {
-        "default_signals": ["Uvanlig volum", "Nyheter/katalysator"],
+        "default_signals": ["Uvanlig volum"],
         "required_signals": ["Uvanlig volum"],
         "required_sources": {},
+        "recommended_sources": {"news": "Valgfritt stottebevis: mulig katalysator bak volumet"},
+        "allowed_signals": ["Uvanlig volum", "Nyheter/katalysator", "Insider/bjellesauer"],
+        "summary": "Fokus paa volum/teknisk akkumulering uten aa kreve nyheter.",
     },
     "Kontraer etter fall": {
         "default_signals": ["Resultater", "Borsverdi"],
         "required_signals": ["Borsverdi"],
         "required_sources": {},
+        "recommended_sources": {"results": "Valgfritt stottebevis: vendepunkt i resultater"},
+        "allowed_signals": ["Borsverdi", "Resultater", "Uvanlig volum", "Nyheter/katalysator"],
+        "summary": "Fokus paa underprising etter fall, med resultatbevis som stotte.",
     },
 }
 
@@ -89,6 +107,8 @@ ENGINE_RULES = {
         "required_signals": [],
         "required_sources": {},
         "recommended_sources": {},
+        "allowed_signals": list(ACTIVE_SIGNAL_OPTIONS),
+        "summary": "Finner skjulte hypoteser og underdekkede vendepunkter.",
     },
     "Early Warning V1": {
         "default_signals": ["Nyheter/katalysator", "Insider/bjellesauer", "Resultater"],
@@ -98,6 +118,8 @@ ENGINE_RULES = {
             "insider": "Sokemotor: Early Warning trenger insider-/bjellesau-spor",
         },
         "recommended_sources": {"results": "Anbefalt for Early Warning: earnings/revisions"},
+        "allowed_signals": ["Nyheter/katalysator", "Insider/bjellesauer", "Resultater", "Uvanlig volum"],
+        "summary": "Tidlig varsling krever ferske nyhets- og insider-/bjellesauspor.",
     },
 }
 
@@ -145,13 +167,38 @@ def _unique_signals(values: Sequence[str], limit: int | None = None) -> list[str
     return out
 
 
+def _rule_for_engine_and_mode(analysis_engine: str, mode: str) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    return ENGINE_RULES.get(analysis_engine, ENGINE_RULES["Alpha Radar"]), MODE_RULES.get(mode, {})
+
+
+def _required_signals_for_rules(analysis_engine: str, mode: str) -> list[str]:
+    engine_rule, mode_rule = _rule_for_engine_and_mode(analysis_engine, mode)
+    return _unique_signals(
+        list(engine_rule.get("required_signals") or []) + list(mode_rule.get("required_signals") or [])
+    )
+
+
+def _signal_options_for_rules(analysis_engine: str, mode: str) -> list[str]:
+    engine_rule, mode_rule = _rule_for_engine_and_mode(analysis_engine, mode)
+    engine_allowed = set(engine_rule.get("allowed_signals") or ACTIVE_SIGNAL_OPTIONS)
+    mode_allowed = set(mode_rule.get("allowed_signals") or ACTIVE_SIGNAL_OPTIONS)
+    required = _required_signals_for_rules(analysis_engine, mode)
+    allowed = [signal for signal in ACTIVE_SIGNAL_OPTIONS if signal in engine_allowed and signal in mode_allowed]
+    return _unique_signals(required + allowed)
+
+
+def _optional_signal_defaults(analysis_engine: str, mode: str, precision_level: str) -> list[str]:
+    required = set(_required_signals_for_rules(analysis_engine, mode))
+    return [signal for signal in _default_signals_for_rules(analysis_engine, mode, precision_level) if signal not in required]
+
+
 def _default_signals_for_rules(analysis_engine: str, mode: str, precision_level: str) -> list[str]:
     limit = _signal_limit_for_precision(precision_level)
-    engine_rule = ENGINE_RULES.get(analysis_engine, ENGINE_RULES["Alpha Radar"])
-    mode_rule = MODE_RULES.get(mode, {})
+    engine_rule, mode_rule = _rule_for_engine_and_mode(analysis_engine, mode)
+    allowed = set(_signal_options_for_rules(analysis_engine, mode))
     defaults = list(mode_rule.get("default_signals") or engine_rule.get("default_signals") or [])
-    required = list(engine_rule.get("required_signals") or []) + list(mode_rule.get("required_signals") or [])
-    return _unique_signals(required + defaults, limit)
+    required = _required_signals_for_rules(analysis_engine, mode)
+    return _unique_signals(required + [signal for signal in defaults if signal in allowed], limit)
 
 
 def _alpha_radar_rule_state(
@@ -174,12 +221,16 @@ def _alpha_radar_rule_state(
     """
 
     limit = _signal_limit_for_precision(precision_level)
-    engine_rule = ENGINE_RULES.get(analysis_engine, ENGINE_RULES["Alpha Radar"])
-    mode_rule = MODE_RULES.get(mode, {})
-    required_signals = _unique_signals(
-        list(engine_rule.get("required_signals") or []) + list(mode_rule.get("required_signals") or [])
-    )
-    effective_signals = _unique_signals(required_signals + list(selected_signals or []), limit)
+    engine_rule, mode_rule = _rule_for_engine_and_mode(analysis_engine, mode)
+    allowed_signals = _signal_options_for_rules(analysis_engine, mode)
+    required_signals = _required_signals_for_rules(analysis_engine, mode)
+    clean_selected = [signal for signal in selected_signals or [] if signal in allowed_signals]
+    blocked_signals = [
+        str(signal)
+        for signal in selected_signals or []
+        if str(signal or "").strip() and str(signal or "").strip() not in allowed_signals
+    ]
+    effective_signals = _unique_signals(required_signals + clean_selected, limit)
     required_sources: dict[str, list[str]] = {key: [] for key in SOURCE_LABELS}
     recommended_sources: dict[str, list[str]] = {key: [] for key in SOURCE_LABELS}
 
@@ -193,6 +244,9 @@ def _alpha_radar_rule_state(
         for source, reason in SIGNAL_SOURCE_REQUIREMENTS.get(signal, {}).items():
             required_sources[source].append(reason)
     for source, reason in dict(engine_rule.get("recommended_sources") or {}).items():
+        if source in recommended_sources:
+            recommended_sources[source].append(str(reason))
+    for source, reason in dict(mode_rule.get("recommended_sources") or {}).items():
         if source in recommended_sources:
             recommended_sources[source].append(str(reason))
 
@@ -226,8 +280,12 @@ def _alpha_radar_rule_state(
     low_data_reason = "Tillatt: Presisjon Utforskende og ingen hard boersverdi-gate" if low_data_allowed else "Blokkert av presisjon/boersverdi: krever Utforskende og ingen hard small/large-gate"
     return {
         "signal_limit": limit,
+        "allowed_signals": allowed_signals,
         "required_signals": required_signals,
+        "blocked_signals": blocked_signals,
         "effective_signals": effective_signals,
+        "engine_summary": str(engine_rule.get("summary") or ""),
+        "mode_summary": str(mode_rule.get("summary") or ""),
         "source_values": source_values,
         "source_locked": source_locked,
         "source_status": source_status,
@@ -257,6 +315,42 @@ def _render_source_rule_summary(rule_state: Mapping[str, Any]) -> None:
         parts.append(f"<b>{html.escape(label)}:</b> {html.escape(state)} · {html.escape(status)} · {html.escape(reason)}")
     st.markdown(
         "<div class='alpha-radar-rule-note'>" + "<br>".join(parts) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_signal_rule_summary(rule_state: Mapping[str, Any]) -> None:
+    required = [str(x) for x in rule_state.get("required_signals") or []]
+    effective = [str(x) for x in rule_state.get("effective_signals") or []]
+    allowed = [str(x) for x in rule_state.get("allowed_signals") or []]
+    optional_active = [signal for signal in effective if signal not in required]
+    optional_available = [signal for signal in allowed if signal not in required]
+    blocked = [str(x) for x in rule_state.get("blocked_signals") or []]
+    mode_summary = str(rule_state.get("mode_summary") or rule_state.get("engine_summary") or "")
+
+    def _chips(values: Sequence[str], cls: str) -> str:
+        if not values:
+            return "<span class='alpha-radar-rule-muted'>Ingen</span>"
+        return "".join(f"<span class='alpha-radar-rule-chip {cls}'>{html.escape(str(value))}</span>" for value in values)
+
+    blocked_html = ""
+    if blocked:
+        blocked_html = (
+            "<div class='alpha-radar-rule-line'><b>Avvist av modus:</b> "
+            + _chips(blocked, "blocked")
+            + "</div>"
+        )
+
+    st.markdown(
+        f"""
+        <div class='alpha-radar-signal-rule'>
+          <div><b>Modusprofil:</b> {html.escape(mode_summary or "Blandet regelsett")}</div>
+          <div class='alpha-radar-rule-line'><b>Laast signal-lupe:</b> {_chips(required, "locked")}</div>
+          <div class='alpha-radar-rule-line'><b>Ekstra signaler:</b> {_chips(optional_active, "optional")}</div>
+          <div class='alpha-radar-rule-line'><b>Kan legges til:</b> {_chips(optional_available, "available")}</div>
+          {blocked_html}
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -532,6 +626,7 @@ def _render_alpha_radar_css() -> None:
             margin-top: 0.42rem;
         }
         .alpha-radar-rule-note,
+        .alpha-radar-signal-rule,
         .alpha-radar-run-preview {
             border: 1px solid rgba(125, 211, 252, 0.28);
             background: rgba(8, 47, 73, 0.30);
@@ -546,6 +641,54 @@ def _render_alpha_radar_css() -> None:
             border-color: rgba(74, 222, 128, 0.32);
             background: rgba(6, 78, 59, 0.24);
         }
+        .alpha-radar-signal-rule {
+            border-color: rgba(125, 211, 252, 0.40);
+            background: rgba(15, 23, 42, 0.72);
+            margin-top: 0.22rem;
+        }
+        .alpha-radar-rule-line {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.28rem;
+            margin-top: 0.30rem;
+        }
+        .alpha-radar-rule-chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 0.12rem 0.46rem;
+            font-size: 0.70rem;
+            font-weight: 850;
+            line-height: 1.15;
+            border: 1px solid rgba(148, 163, 184, 0.34);
+            background: rgba(15, 23, 42, 0.88);
+            color: #e2e8f0;
+        }
+        .alpha-radar-rule-chip.locked {
+            border-color: rgba(34, 197, 94, 0.56);
+            background: rgba(16, 65, 52, 0.56);
+            color: #dcfce7;
+        }
+        .alpha-radar-rule-chip.optional {
+            border-color: rgba(56, 189, 248, 0.50);
+            background: rgba(8, 47, 73, 0.62);
+            color: #e0f2fe;
+        }
+        .alpha-radar-rule-chip.available {
+            border-color: rgba(148, 163, 184, 0.34);
+            background: rgba(30, 41, 59, 0.62);
+            color: #cbd5e1;
+        }
+        .alpha-radar-rule-chip.blocked {
+            border-color: rgba(250, 204, 21, 0.50);
+            background: rgba(120, 53, 15, 0.42);
+            color: #fde68a;
+        }
+        .alpha-radar-rule-muted {
+            color: rgba(203, 213, 225, 0.74);
+            font-size: 0.72rem;
+        }
         @media (max-width: 980px) {
             .alpha-radar-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         }
@@ -559,16 +702,32 @@ def _render_alpha_radar_css() -> None:
             overflow: visible !important;
             height: auto !important;
             min-height: 30px !important;
+            border: 1px solid rgba(56, 189, 248, 0.58) !important;
+            background: rgba(8, 47, 73, 0.76) !important;
+            color: #e0f2fe !important;
         }
         div[data-testid="stMultiSelect"] [data-baseweb="tag"] span {
             white-space: normal !important;
             overflow: visible !important;
             text-overflow: clip !important;
             line-height: 1.14 !important;
+            color: #e0f2fe !important;
+            -webkit-text-fill-color: #e0f2fe !important;
+        }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] svg {
+            color: #bae6fd !important;
+            fill: #bae6fd !important;
         }
         div[data-testid="stMultiSelect"] > div {
             min-height: 44px !important;
             align-items: flex-start !important;
+        }
+        div[data-testid="stCheckbox"] label:has(input:checked) {
+            border-color: rgba(34, 197, 94, 0.46) !important;
+            background: rgba(16, 65, 52, 0.14) !important;
+        }
+        div[data-testid="stCheckbox"] label:has(input:disabled) {
+            opacity: 0.88 !important;
         }
         @media (max-width: 700px) {
             div[data-testid="stMultiSelect"] [data-baseweb="tag"] {
@@ -715,30 +874,51 @@ def render_alpha_radar_panel(
         precision_level = st.selectbox("Presisjon", PRECISION_LEVELS, index=0, key="alpha_radar_precision_v1863au")
     with c6b:
         signal_limit = _signal_limit_for_precision(precision_level)
-        signal_key = f"alpha_radar_signal_lupe_v1863aw_{analysis_engine}_{mode}_{precision_level}"
-        default_signals = _default_signals_for_rules(analysis_engine, mode, precision_level)
+        required_signals = _required_signals_for_rules(analysis_engine, mode)
+        signal_options = [signal for signal in _signal_options_for_rules(analysis_engine, mode) if signal not in required_signals]
+        optional_limit = max(0, signal_limit - len(required_signals))
+        signal_key = f"alpha_radar_signal_lupe_optional_{RADAR_UI_STATE_VERSION}_{analysis_engine}_{mode}_{precision_level}"
+        default_optional_signals = _optional_signal_defaults(analysis_engine, mode, precision_level)[:optional_limit]
+        reset_key = f"alpha_radar_signal_reset_{RADAR_UI_STATE_VERSION}_{analysis_engine}_{mode}_{precision_level}"
+        if st.button("Bruk modusprofil", key=reset_key, use_container_width=True, help="Nullstiller ekstra signaler til det valgt sokemotor og radar-modus krever."):
+            st.session_state[signal_key] = list(default_optional_signals)
         stored_signals = st.session_state.get(signal_key)
         if signal_key not in st.session_state:
-            st.session_state[signal_key] = list(default_signals)
+            st.session_state[signal_key] = list(default_optional_signals)
         elif isinstance(stored_signals, list):
-            normalized_stored = _alpha_radar_rule_state(
+            normalized_stored = [
+                signal
+                for signal in _alpha_radar_rule_state(
+                    analysis_engine=analysis_engine,
+                    mode=mode,
+                    precision_level=precision_level,
+                    market_cap_filter=market_cap_filter,
+                    selected_signals=stored_signals,
+                )["effective_signals"]
+                if signal not in required_signals and signal in signal_options
+            ][:optional_limit]
+            if list(stored_signals) != list(normalized_stored):
+                st.session_state[signal_key] = list(normalized_stored)
+        if optional_limit <= 0:
+            st.caption(f"Signal-lupe er laast av {analysis_engine}/{mode}.")
+            active_optional_signals = []
+        else:
+            active_optional_signals = st.multiselect(
+                "Signal-lupe: ekstra",
+                signal_options,
+                default=list(st.session_state.get(signal_key) or default_optional_signals),
+                key=signal_key,
+                max_selections=optional_limit,
+                help=f"Modus har {len(required_signals)} laaste signaler. Du kan legge til maks {optional_limit} ekstra i {precision_level}.",
+            )
+        active_signals = _alpha_radar_rule_state(
                 analysis_engine=analysis_engine,
                 mode=mode,
                 precision_level=precision_level,
                 market_cap_filter=market_cap_filter,
-                selected_signals=stored_signals,
+                selected_signals=list(active_optional_signals or []),
             )["effective_signals"]
-            if list(stored_signals) != list(normalized_stored):
-                st.session_state[signal_key] = list(normalized_stored)
-        active_signals = st.multiselect(
-            "Signal-lupe",
-            ACTIVE_SIGNAL_OPTIONS,
-            default=list(st.session_state.get(signal_key) or default_signals),
-            key=signal_key,
-            max_selections=signal_limit,
-            help=f"Signal-lupe styrer vektingen. Maks {signal_limit} signaler i {precision_level} presisjon.",
-        )
-        st.caption(f"Signal-lupe = vekting. Maks {signal_limit} signaler i {precision_level}.")
+        st.caption(f"Signal-lupe = vekting. {len(required_signals)} laast av modus, maks {signal_limit} totalt i {precision_level}.")
 
     normalized_preview = normalize_alpha_radar_parameters(
         mode=mode,
@@ -754,10 +934,17 @@ def render_alpha_radar_panel(
     if normalized_preview.get("parameter_warnings"):
         st.warning(" | ".join(normalized_preview["parameter_warnings"]))
 
-    source_keys = {source: f"alpha_radar_source_{source}_v1863aw" for source in SOURCE_LABELS}
+    source_keys = {source: f"alpha_radar_source_{source}_{RADAR_UI_STATE_VERSION}" for source in SOURCE_LABELS}
+    source_profile_key = f"alpha_radar_source_profile_{RADAR_UI_STATE_VERSION}"
+    source_profile = f"{analysis_engine}|{mode}"
+    if st.session_state.get(source_profile_key) != source_profile:
+        for source_key in source_keys.values():
+            st.session_state.pop(source_key, None)
+        st.session_state[source_profile_key] = source_profile
     manual_source_state = {
-        source: bool(st.session_state.get(source_keys[source], False))
+        source: True
         for source in SOURCE_LABELS
+        if bool(st.session_state.get(source_keys[source], False))
     }
     rule_state = _alpha_radar_rule_state(
         analysis_engine=analysis_engine,
@@ -771,6 +958,7 @@ def render_alpha_radar_panel(
     source_values = dict(rule_state["source_values"])
     source_locked = dict(rule_state["source_locked"])
     source_reasons = dict(rule_state["source_reasons"])
+    _render_signal_rule_summary(rule_state)
     st.caption("Datakilder = datagrunnlag. Paa/låst-status styres av sokemotor, modus, presisjon/borsverdi og Signal-lupe i den rekkefolgen.")
 
     c7, c8, c9, c10, c11, c12 = st.columns([0.72, 0.72, 0.72, 0.72, 0.78, 0.90])
@@ -778,57 +966,97 @@ def render_alpha_radar_panel(
         max_scan = st.slider("Maks scan", 5, 250, 120, 5, key="alpha_radar_scan_limit_v1863au")
     with c8:
         if source_locked["news"]:
-            st.session_state[source_keys["news"]] = True
-        elif source_keys["news"] not in st.session_state:
-            st.session_state[source_keys["news"]] = source_values["news"]
-        include_news = st.checkbox(
-            "Nyheter",
-            value=source_values["news"],
-            key=source_keys["news"],
-            disabled=source_locked["news"],
-            help=" | ".join(str(x) for x in source_reasons["news"]),
-        )
+            locked_news_key = f"{source_keys['news']}_locked"
+            st.session_state[locked_news_key] = True
+            include_news = st.checkbox(
+                "Nyheter",
+                value=True,
+                key=locked_news_key,
+                disabled=True,
+                help=" | ".join(str(x) for x in source_reasons["news"]),
+            )
+        else:
+            if source_keys["news"] not in st.session_state:
+                st.session_state[source_keys["news"]] = source_values["news"]
+            include_news = st.checkbox(
+                "Nyheter",
+                value=source_values["news"],
+                key=source_keys["news"],
+                disabled=False,
+                help=" | ".join(str(x) for x in source_reasons["news"]),
+            )
     with c9:
         if source_locked["insider"]:
-            st.session_state[source_keys["insider"]] = True
-        elif source_keys["insider"] not in st.session_state:
-            st.session_state[source_keys["insider"]] = source_values["insider"]
-        include_insider_signal = st.checkbox(
-            "Insider",
-            value=source_values["insider"],
-            key=source_keys["insider"],
-            disabled=source_locked["insider"],
-            help=" | ".join(str(x) for x in source_reasons["insider"]),
-        )
+            locked_insider_key = f"{source_keys['insider']}_locked"
+            st.session_state[locked_insider_key] = True
+            include_insider_signal = st.checkbox(
+                "Insider",
+                value=True,
+                key=locked_insider_key,
+                disabled=True,
+                help=" | ".join(str(x) for x in source_reasons["insider"]),
+            )
+        else:
+            if source_keys["insider"] not in st.session_state:
+                st.session_state[source_keys["insider"]] = source_values["insider"]
+            include_insider_signal = st.checkbox(
+                "Insider",
+                value=source_values["insider"],
+                key=source_keys["insider"],
+                disabled=False,
+                help=" | ".join(str(x) for x in source_reasons["insider"]),
+            )
     with c10:
         if source_locked["macro"]:
-            st.session_state[source_keys["macro"]] = True
-        elif source_keys["macro"] not in st.session_state:
-            st.session_state[source_keys["macro"]] = source_values["macro"]
-        include_macro = st.checkbox(
-            "Ravarer/makro",
-            value=source_values["macro"],
-            key=source_keys["macro"],
-            disabled=source_locked["macro"],
-            help=" | ".join(str(x) for x in source_reasons["macro"]),
-        )
+            locked_macro_key = f"{source_keys['macro']}_locked"
+            st.session_state[locked_macro_key] = True
+            include_macro = st.checkbox(
+                "Ravarer/makro",
+                value=True,
+                key=locked_macro_key,
+                disabled=True,
+                help=" | ".join(str(x) for x in source_reasons["macro"]),
+            )
+        else:
+            if source_keys["macro"] not in st.session_state:
+                st.session_state[source_keys["macro"]] = source_values["macro"]
+            include_macro = st.checkbox(
+                "Ravarer/makro",
+                value=source_values["macro"],
+                key=source_keys["macro"],
+                disabled=False,
+                help=" | ".join(str(x) for x in source_reasons["macro"]),
+            )
     with c11:
         if source_locked["results"]:
-            st.session_state[source_keys["results"]] = True
-        elif source_keys["results"] not in st.session_state:
-            st.session_state[source_keys["results"]] = source_values["results"]
-        include_results = st.checkbox(
-            "Resultater",
-            value=source_values["results"],
-            key=source_keys["results"],
-            disabled=source_locked["results"],
-            help=" | ".join(str(x) for x in source_reasons["results"]),
-        )
+            locked_results_key = f"{source_keys['results']}_locked"
+            st.session_state[locked_results_key] = True
+            include_results = st.checkbox(
+                "Resultater",
+                value=True,
+                key=locked_results_key,
+                disabled=True,
+                help=" | ".join(str(x) for x in source_reasons["results"]),
+            )
+        else:
+            if source_keys["results"] not in st.session_state:
+                st.session_state[source_keys["results"]] = source_values["results"]
+            include_results = st.checkbox(
+                "Resultater",
+                value=source_values["results"],
+                key=source_keys["results"],
+                disabled=False,
+                help=" | ".join(str(x) for x in source_reasons["results"]),
+            )
     manual_source_state = {
-        "news": bool(include_news),
-        "insider": bool(include_insider_signal),
-        "macro": bool(include_macro),
-        "results": bool(include_results),
+        source: True
+        for source, value in {
+            "news": bool(include_news),
+            "insider": bool(include_insider_signal),
+            "macro": bool(include_macro),
+            "results": bool(include_results),
+        }.items()
+        if value
     }
     rule_state = _alpha_radar_rule_state(
         analysis_engine=analysis_engine,
@@ -846,11 +1074,11 @@ def render_alpha_radar_panel(
     low_data_allowed = bool(rule_state["low_data_allowed"])
     with c12:
         if not low_data_allowed:
-            st.session_state["alpha_radar_fill_low_data_v1863aw"] = False
+            st.session_state[f"alpha_radar_fill_low_data_{RADAR_UI_STATE_VERSION}"] = False
         fill_low_data = st.checkbox(
             "Fyll opp lav-data",
             value=False,
-            key="alpha_radar_fill_low_data_v1863aw",
+            key=f"alpha_radar_fill_low_data_{RADAR_UI_STATE_VERSION}",
             disabled=not low_data_allowed,
             help=str(rule_state.get("low_data_reason") or ""),
         )

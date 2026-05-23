@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3aw"
-APP_VERSION_NAME = "Radar Rule Engine Preview"
-APP_BUILD_ID = "v1863aw-radar-rule-engine-preview"
+APP_VERSION = "v18.6.3ax"
+APP_VERSION_NAME = "Radar Menu Logic Hardening"
+APP_BUILD_ID = "v1863ax-radar-menu-logic-hardening"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -45,6 +45,9 @@ APP_PATCH_NOTES = [
     "Alpha Radar og Early Warning bruker felles regelmotor for Signal-lupe, datakilder, laasing, lav-data og overstyringsrekkefolge.",
     "Radar-panelet viser Kjoringsbudsjett / Run Preview med 0 tunge kall ved menyvalg og planlagt kostnad ved Kjor.",
     "Neste GO: hvis appen fortsatt dimmer ved menyvalg, profiler hele Kontrollsenter-renderen og flytt gjenvaerende cache-/statuskall ut bak eksplisitte knapper.",
+    "Radar-menyene er strammet: Radar-modus laaser kjerne-signalene, ekstra Signal-lupe er separat, og datakilder folger samme regelmodell.",
+    "Insider-modus i Alpha Radar starter naa med Insider/bjellesauer alene; nyheter/resultater blir kun stottevalg hvis bruker legger dem til.",
+    "Kontrollsenter avslutter tung-jobb-gaten foer st.stop, slik at Global oppdatering ikke blir hengende igjen og gjor senere menyvalg tunge.",
 ]
 
 def get_app_version():

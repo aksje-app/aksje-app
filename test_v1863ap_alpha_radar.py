@@ -22,8 +22,8 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3aw"' in version
-assert "Radar Rule Engine Preview" in version
+assert 'APP_VERSION = "v18.6.3ax"' in version
+assert "Radar Menu Logic Hardening" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -57,10 +57,12 @@ assert "data_quality" in engine + ui
 assert "warning_reasons" in engine + ui
 assert "progress_callback" in engine + ui
 assert "input_fingerprint" in ui + results
-assert "max_selections=signal_limit" in ui
+assert "max_selections=optional_limit" in ui
 assert "Signal-lupe = vekting" in ui
 assert "Datakilder = datagrunnlag" in ui
 assert "_alpha_radar_rule_state" in ui
+assert "_render_signal_rule_summary" in ui
+assert "Bruk modusprofil" in ui
 assert "Kjoringsbudsjett / Run Preview" in ui
 assert "0 tunge kall naa" in ui
 assert "Valgene er endret siden siste" in ui

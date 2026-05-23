@@ -1250,6 +1250,17 @@ def _finish_global_apply_v161():
     st.session_state["global_apply_all_changes_v161"] = False
 
 
+def _finish_control_center_render_cycle_v1863ax() -> None:
+    """Close the heavy-work gate before Control Center stops the legacy tail.
+
+    The app now stops after AI Kontrollsenter is rendered. Older cleanup below
+    that stop no longer runs, so this guard prevents Global oppdatering from
+    leaving heavy_update_allowed=True on later menu-only reruns.
+    """
+    st.session_state["heavy_update_allowed_v148"] = False
+    _finish_global_apply_v161()
+
+
 def _clear_startup_heavy_update_for_control_center_v1863an() -> None:
     """Do not let first-load setup trigger banner/data work before the Control Center."""
     if not bool(st.session_state.pop("startup_heavy_update_pending_v1863an", False)):
@@ -10739,6 +10750,7 @@ else:
         "<div class='v18-dark-row'>Velg et panel i AI Kontrollsenter. Hovedpanelvelgeren er samlet inn her for å hindre motstridende markedvalg.</div>",
         unsafe_allow_html=True,
     )
+_finish_control_center_render_cycle_v1863ax()
 st.stop()
 
 # v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.

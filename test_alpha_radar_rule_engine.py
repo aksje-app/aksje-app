@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from alpha_radar_ui import _alpha_radar_rule_state, _default_signals_for_rules
+from alpha_radar_ui import _alpha_radar_rule_state, _default_signals_for_rules, _signal_options_for_rules
 
 
 def test_alpha_radar_sources_follow_signal_lupe_without_old_defaults():
@@ -52,6 +52,42 @@ def test_early_warning_overrides_require_news_and_insider():
     assert state["source_locked"]["results"] is True
 
 
+def test_insider_mode_alpha_is_focused_not_news_default():
+    defaults = _default_signals_for_rules("Alpha Radar", "Insider og bjellesauer", "Streng")
+    state = _alpha_radar_rule_state(
+        analysis_engine="Alpha Radar",
+        mode="Insider og bjellesauer",
+        precision_level="Streng",
+        market_cap_filter="Alle",
+        selected_signals=[],
+        manual_sources={},
+    )
+
+    assert defaults == ["Insider/bjellesauer"]
+    assert state["effective_signals"] == ["Insider/bjellesauer"]
+    assert state["source_values"]["insider"] is True
+    assert state["source_locked"]["insider"] is True
+    assert state["source_values"]["news"] is False
+    assert state["source_locked"]["news"] is False
+    assert state["source_status"]["news"] == "Anbefalt"
+
+
+def test_mode_filters_signal_options_and_reports_blocked_signals():
+    state = _alpha_radar_rule_state(
+        analysis_engine="Alpha Radar",
+        mode="Insider og bjellesauer",
+        precision_level="Streng",
+        market_cap_filter="Alle",
+        selected_signals=["Resultater", "Nyheter/katalysator"],
+        manual_sources={},
+    )
+
+    assert "Resultater" not in _signal_options_for_rules("Alpha Radar", "Insider og bjellesauer")
+    assert "Resultater" in state["blocked_signals"]
+    assert state["effective_signals"] == ["Insider/bjellesauer", "Nyheter/katalysator"]
+    assert state["source_values"]["results"] is False
+
+
 def test_mode_required_signal_and_low_data_gate():
     defaults = _default_signals_for_rules("Alpha Radar", "Ravare/makro-medvind", "Streng")
     assert defaults[0] == "Ravarer/makro"
@@ -85,3 +121,11 @@ def test_no_heavy_calls_before_explicit_buttons_static_guard():
     refresh_pos = ui.find("refresh_universe = st.button")
     resolve_pos = ui.find("resolve_tickers(scope")
     assert 0 < refresh_pos < resolve_pos < button_pos
+    assert 'st.session_state[source_keys["news"]] = True' not in ui
+    assert "_locked" in ui
+    assert "alpha_radar_source_profile_" in ui
+    app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+    control_center_pos = app.find("render_ai_control_center(extra_panels=control_center_extra_panels_v18535())")
+    finish_pos = app.find("_finish_control_center_render_cycle_v1863ax()", control_center_pos)
+    stop_pos = app.find("st.stop()", control_center_pos)
+    assert 0 < control_center_pos < finish_pos < stop_pos
