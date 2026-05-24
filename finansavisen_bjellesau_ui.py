@@ -9,6 +9,9 @@ from finansavisen_bjellesau import (
     PERIOD_OPTIONS,
     build_finansavisen_priority_views,
     build_finansavisen_report,
+    build_finansavisen_report_html,
+    build_finansavisen_report_pdf,
+    decision_rows_from_finansavisen,
     finansavisen_status,
     finansavisen_transactions_to_csv,
     finansavisen_transactions_to_json,
@@ -18,8 +21,11 @@ from finansavisen_bjellesau import (
     merge_finansavisen_transactions,
     parse_finansavisen_transaction_xlsx,
     save_finansavisen_transactions,
+    sort_periods,
+    summarize_finansavisen_transactions,
     sync_finansavisen_actors_to_registry,
 )
+from decision_engine import DECISION_QUEUE_KEY, add_decision_rows
 
 
 PERIOD_LABELS = {
@@ -32,6 +38,13 @@ PERIOD_LABELS = {
     "1Y": "1Y",
     "3Y": "3Y",
     "ALLE": "ALLE - historikk/arkiv",
+}
+
+PERIOD_PRESETS = {
+    "Fersk": ["1D", "1U", "1M"],
+    "Trend": ["1M", "3M", "6M"],
+    "Lang": ["6M", "YTD", "1Y", "3Y", "ALLE"],
+    "Alle": list(PERIOD_OPTIONS),
 }
 
 
@@ -54,6 +67,7 @@ def _filter_rows(
     *,
     periods: Sequence[str],
     query: str = "",
+    match_filter: str = "Alle",
 ) -> list[dict[str, Any]]:
     wanted = {str(period) for period in periods}
     needle = str(query or "").strip().lower()
@@ -69,8 +83,48 @@ def _filter_rows(
             ).lower()
             if needle not in blob:
                 continue
+        ticker = str(row.get("matched_ticker") or "").strip()
+        if match_filter == "Radar-klar ticker" and not ticker:
+            continue
+        if match_filter == "Mangler ticker-match" and ticker:
+            continue
         out.append(dict(row))
     return out
+
+
+def _periods_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    return sort_periods([period for row in rows for period in (row.get("source_periods") or [row.get("source_period")])])
+
+
+def _render_report_method(summary: Mapping[str, Any], visible_rows: Sequence[Mapping[str, Any]]) -> None:
+    views = build_finansavisen_priority_views(visible_rows, limit=25)
+    st.markdown("**Rapport og metode**")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Kjøp", f"{summary.get('buy_count', 0)}", format_nok(summary.get("buy_value_nok")))
+    m2.metric("Salg", f"{summary.get('sell_count', 0)}", format_nok(summary.get("sell_value_nok")))
+    m3.metric("Ticker-match", summary.get("matched_tickers", 0))
+    m4.metric("Netto", format_nok(summary.get("net_value_nok")))
+    st.caption(
+        "Score forklares i tabellen. Den vekter ferskhet, verdi, netto kjøp/salg, antall bjellesauer, gjentatte handler og ticker-match."
+    )
+    report_choice = st.selectbox(
+        "Rapportvisning",
+        ["Sammendrag", "Topp kjøp", "Topp salg", "Flere bjellesauer samme aksje", "Ticker-match", "Rådata"],
+        key="finansavisen_bjellesau_report_view_v1863bm",
+    )
+    view_map = {
+        "Sammendrag": views.get("Score per aksje", []),
+        "Topp kjøp": views.get("Storste kjop", []),
+        "Topp salg": views.get("Storste salg", []),
+        "Flere bjellesauer samme aksje": views.get("Flere bjellesauer samme aksje", []),
+        "Ticker-match": views.get("Ticker-match", []),
+        "Rådata": views.get("Raadata", []),
+    }
+    data = view_map.get(report_choice) or []
+    if data:
+        st.dataframe(data, use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen rader i denne rapportvisningen.")
 
 
 def _summary_cards(status: Mapping[str, Any]) -> None:
@@ -196,7 +250,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         st.info("Ingen Finansavisen-data lagret ennaa. Last opp transaction.xlsx og trykk Importer valgte filer.")
         return
 
-    f1, f2 = st.columns([1.5, 1.2])
+    f1, f2, f3 = st.columns([1.35, 1.0, 0.9])
     with f1:
         query = st.text_input(
             "Sok i importerte handler",
@@ -204,18 +258,47 @@ def render_finansavisen_bjellesau_panel() -> None:
             placeholder="Investor, aksje, ticker eller holdingselskap",
         )
     with f2:
-        selected_periods = st.multiselect(
-            "Perioder",
-            list(PERIOD_OPTIONS),
-            default=list(status.get("periods") or PERIOD_OPTIONS),
-            format_func=lambda value: PERIOD_LABELS.get(value, value),
-            key="finansavisen_bjellesau_period_filter_v1863bk",
+        preset = st.radio(
+            "Periodehurtigvalg",
+            list(PERIOD_PRESETS),
+            horizontal=True,
+            key="finansavisen_bjellesau_period_preset_v1863bm",
+            help="Fersk=1D/1U/1M, Trend=1M/3M/6M, Lang=6M/YTD/1Y/3Y/ALLE.",
         )
-    visible_rows = _filter_rows(rows, periods=selected_periods, query=query)
+    with f3:
+        match_filter = st.selectbox(
+            "Ticker-match",
+            ["Alle", "Radar-klar ticker", "Mangler ticker-match"],
+            key="finansavisen_bjellesau_match_filter_v1863bm",
+        )
+    available_periods = _periods_from_rows(rows) or list(PERIOD_OPTIONS)
+    preset_periods = [period for period in PERIOD_PRESETS.get(preset, list(PERIOD_OPTIONS)) if period in available_periods]
+    selected_periods = st.multiselect(
+        "Perioder",
+        list(PERIOD_OPTIONS),
+        default=preset_periods or available_periods,
+        format_func=lambda value: PERIOD_LABELS.get(value, value),
+        key=f"finansavisen_bjellesau_period_filter_v1863bm_{preset}",
+    )
+    visible_rows = _filter_rows(rows, periods=selected_periods, query=query, match_filter=match_filter)
     st.caption(f"Viser {len(visible_rows)} av {len(rows)} lagrede handler. Periodene beholdes separat i eksport og scoring.")
     _render_view(visible_rows)
 
-    c_exp1, c_exp2, c_exp3, c_clear = st.columns([1, 1, 1, 1])
+    decision_options = [
+        row.get("Ticker")
+        for row in build_finansavisen_priority_views(visible_rows, limit=40).get("Ticker-match", [])
+        if row.get("Ticker")
+    ]
+    decision_defaults = decision_options[: min(8, len(decision_options))]
+    selected_decision_tickers = st.multiselect(
+        "Send til Beslutningsgrunnlag",
+        decision_options,
+        default=decision_defaults,
+        key="finansavisen_bjellesau_decision_tickers_v1863bm",
+        max_selections=min(20, len(decision_options)) if decision_options else None,
+    )
+
+    c_exp1, c_exp2, c_exp3, c_exp4, c_decision, c_clear = st.columns([1, 1, 1, 1, 1.25, 1.25])
     with c_exp1:
         st.download_button(
             "Last ned CSV",
@@ -234,12 +317,31 @@ def render_finansavisen_bjellesau_panel() -> None:
         )
     with c_exp3:
         st.download_button(
-            "Last ned rapport",
-            data=build_finansavisen_report(visible_rows).encode("utf-8"),
-            file_name="finansavisen-bjellesauer-rapport.txt",
-            mime="text/plain",
+            "Print/PDF HTML",
+            data=build_finansavisen_report_html(visible_rows),
+            file_name="finansavisen-bjellesauer-rapport.html",
+            mime="text/html",
             use_container_width=True,
         )
+    with c_exp4:
+        st.download_button(
+            "Last ned PDF",
+            data=build_finansavisen_report_pdf(visible_rows),
+            file_name="finansavisen-bjellesauer-rapport.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    with c_decision:
+        if st.button(
+            "Send valgte til Beslutningsgrunnlag",
+            key="finansavisen_bjellesau_send_decision_v1863bm",
+            use_container_width=True,
+            disabled=not selected_decision_tickers,
+        ):
+            decision_rows = decision_rows_from_finansavisen(visible_rows, selected_decision_tickers, limit=20)
+            current = st.session_state.get(DECISION_QUEUE_KEY, [])
+            st.session_state[DECISION_QUEUE_KEY] = add_decision_rows(current, decision_rows)
+            st.success(f"Sendte {len(decision_rows)} Finansavisen-signaler til Beslutningsgrunnlag.")
     with c_clear:
         confirm_clear = st.checkbox("Bekreft tomming", key="finansavisen_bjellesau_confirm_clear_v1863bk")
         if st.button(
@@ -253,7 +355,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             st.rerun()
 
     with st.expander("Rapport / metode", expanded=False):
-        st.text(build_finansavisen_report(visible_rows))
+        _render_report_method(summarize_finansavisen_transactions(visible_rows), visible_rows)
 
 
 __all__ = ["render_finansavisen_bjellesau_panel"]

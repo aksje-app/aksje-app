@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bl"
-APP_VERSION_NAME = "Finansavisen Import Fixes"
-APP_BUILD_ID = "v1863bl-finansavisen-import-fixes"
+APP_VERSION = "v18.6.3bm"
+APP_VERSION_NAME = "Finansavisen Reports And Menu"
+APP_BUILD_ID = "v1863bm-finansavisen-reports-menu"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -90,6 +90,8 @@ APP_PATCH_NOTES = [
     "Norske bjellesau-tickere som NORBIT, Zaptec og Axactor er lagt inn i ticker-/aliasregisteret slik at importerte handler kan treffe radaruniverset.",
     "Finansavisen-importen bruker filnavn og filstorrelse i periodevalg, slik at 1D/1M/3M/6M/ALLE ikke arver gamle valg.",
     "Finansavisen-deduplisering taaler overlappende filer i ulik rekkefolge og beholder alle kildeperioder uten importkrasj.",
+    "Finansavisen Bjellesauer ligger under Marked og signaler, og Andre paneler skjules naar ingen reelle restpaneler finnes.",
+    "Finansavisen Bjellesauer har lesbar rapportseksjon, print/PDF-HTML, nedlastbar PDF, ticker-match-filter og sending til Beslutningsgrunnlag.",
 ]
 
 def get_app_version():

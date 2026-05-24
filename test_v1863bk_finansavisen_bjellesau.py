@@ -12,9 +12,13 @@ from finansavisen_bjellesau import (
     build_finansavisen_overlay_snapshot,
     build_finansavisen_priority_views,
     build_finansavisen_report,
+    build_finansavisen_report_html,
+    build_finansavisen_report_pdf,
+    decision_rows_from_finansavisen,
     infer_period_from_filename,
     merge_finansavisen_transactions,
     parse_finansavisen_transaction_xlsx,
+    sort_periods,
 )
 from source_budget import estimate_source_budget, source_budget_rows
 
@@ -114,6 +118,7 @@ def test_finansavisen_period_inference_uses_filename_tokens():
     assert infer_period_from_filename("transaction 3M.xlsx") == "3M"
     assert infer_period_from_filename("transaction 6M.xlsx") == "6M"
     assert infer_period_from_filename("transaction ALLE.xlsx") == "ALLE"
+    assert sort_periods(["ALLE", "1M", "6M", "1D"]) == ["1D", "1M", "6M", "ALLE"]
 
 
 def test_finansavisen_xlsx_parser_dedupes_periods_and_matches_tickers():
@@ -140,13 +145,21 @@ def test_finansavisen_aggregates_overlay_and_report_feed_radar_evidence():
     enriched = apply_finansavisen_bjellesau_overlay({"ticker": "NORBT.OL", "name": "NORBIT"}, snapshot=snapshot)
     views = build_finansavisen_priority_views(rows)
     report = build_finansavisen_report(rows)
+    html_report = build_finansavisen_report_html(rows)
+    pdf_report = build_finansavisen_report_pdf(rows)
+    decision_rows = decision_rows_from_finansavisen(rows, ["NORBT.OL"])
 
     assert aggregates[0]["score"] >= 50
     assert enriched["finansavisen_bjellesau_evidence"]
     assert enriched["bjellesau_evidence"][0]["source"] == "Finansavisen Bjellesauer"
     assert enriched["bjellesau_score"] > 0
     assert views["Storste kjop"][0]["Investor"] == "Helge Gåsø"
+    assert "Scoreforklaring" in views["Score per aksje"][0]
+    assert "Flere bjellesauer samme aksje" in views
     assert "Finansavisen Bjellesauer" in report
+    assert b"Skriv ut / lagre som PDF" in html_report
+    assert pdf_report.startswith(b"%PDF-1.4")
+    assert decision_rows[0]["decision_source"] == "Finansavisen Bjellesauer"
 
 
 def test_finansavisen_actor_sync_preserves_multiple_roles():
@@ -188,6 +201,9 @@ def test_finansavisen_budget_status_and_light_ui_compile():
     assert "Importer valgte filer" in source
     assert "finansavisen_bjellesau_period_{idx}_v1863bk" not in source
     assert "_file_period_key(upload, idx)" in source
+    assert "Last ned PDF" in source
+    assert "Send valgte til Beslutningsgrunnlag" in source
 
     layout = open("workspace_layout.py", encoding="utf-8").read()
     assert '"finansavisen", "bjellesau"' in layout
+    assert 'group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer")' in layout

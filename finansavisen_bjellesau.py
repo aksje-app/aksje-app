@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import html
 import io
 import json
 import math
@@ -186,6 +187,15 @@ def format_percent(value: Any) -> str:
         return "-"
     text = f"{number:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".").rstrip("0").rstrip(",")
     return f"{text} %"
+
+
+def sort_periods(periods: Sequence[Any]) -> list[str]:
+    seen: list[str] = []
+    for period in periods:
+        normalized = normalize_period(period)
+        if normalized not in seen:
+            seen.append(normalized)
+    return sorted(seen, key=lambda item: PERIOD_OPTIONS.index(item) if item in PERIOD_OPTIONS else 999)
 
 
 def _excel_serial_to_date(value: float) -> str:
@@ -529,9 +539,10 @@ def merge_finansavisen_transactions(
                         if key not in {"source_period", "source_periods"} and _has_value(value)
                     }
                 )
-            current["source_periods"] = merged_periods
-            current["source_period"] = max(merged_periods, key=lambda period: PERIOD_WEIGHTS.get(period, 0.0))
+            current["source_periods"] = sort_periods(merged_periods)
+            current["source_period"] = max(current["source_periods"], key=lambda period: PERIOD_WEIGHTS.get(period, 0.0))
         else:
+            row["source_periods"] = sort_periods(row["source_periods"])
             by_id[tx_id] = row
 
     def sort_key(row: Mapping[str, Any]) -> tuple[str, float, str]:
@@ -631,9 +642,8 @@ def aggregate_finansavisen_by_stock(rows: Sequence[Mapping[str, Any]] | None = N
         gross = buy_value + sell_value
         net = buy_value - sell_value
         investors = sorted({_clean(row.get("investor")) for row in items if _clean(row.get("investor"))})
-        periods = sorted(
-            {normalize_period(period) for row in items for period in (row.get("source_periods") or [row.get("source_period")])},
-            key=lambda period: -PERIOD_WEIGHTS.get(period, 0.0),
+        periods = sort_periods(
+            [period for row in items for period in (row.get("source_periods") or [row.get("source_period")])]
         )
         score, signal, notes = _score_bucket(items)
         sorted_items = sorted(items, key=lambda row: (_period_weight(row), _clean(row.get("estimated_date")), abs(float(row.get("transaction_value_nok") or 0.0))), reverse=True)
@@ -745,7 +755,7 @@ def summarize_finansavisen_transactions(rows: Sequence[Mapping[str, Any]] | None
     investors = {_clean(row.get("investor")) for row in rows if _clean(row.get("investor"))}
     stocks = {_clean(row.get("stock_name")) for row in rows if _clean(row.get("stock_name"))}
     tickers = {_clean(row.get("matched_ticker")).upper() for row in rows if _clean(row.get("matched_ticker"))}
-    periods = sorted({period for row in rows for period in (row.get("source_periods") or [row.get("source_period")])}, key=lambda p: -PERIOD_WEIGHTS.get(normalize_period(p), 0.0))
+    periods = sort_periods([period for row in rows for period in (row.get("source_periods") or [row.get("source_period")])])
     dates = sorted(_clean(row.get("estimated_date")) for row in rows if _clean(row.get("estimated_date")))
     buy_value = sum(max(0.0, float(row.get("transaction_value_nok") or 0.0)) for row in rows)
     sell_value = sum(abs(min(0.0, float(row.get("transaction_value_nok") or 0.0))) for row in rows)
@@ -1006,6 +1016,23 @@ def finansavisen_transactions_to_json(rows: Sequence[Mapping[str, Any]] | None =
     return json.dumps(rows, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
 
+def _score_explanation(item: Mapping[str, Any]) -> str:
+    parts = []
+    if item.get("unique_investors", 0) >= 2:
+        parts.append(f"{item.get('unique_investors')} investorer")
+    if item.get("transaction_count", 0) >= 2:
+        parts.append(f"{item.get('transaction_count')} handler")
+    if abs(float(item.get("net_value_nok") or 0.0)) >= 10_000_000:
+        parts.append("stor nettoverdi")
+    if item.get("latest_date"):
+        parts.append(f"siste {item.get('latest_date')}")
+    if item.get("matched_ticker"):
+        parts.append("radar-klar ticker")
+    else:
+        parts.append("mangler ticker-match")
+    return ", ".join(parts)
+
+
 def finansavisen_aggregates_to_display_rows(rows: Sequence[Mapping[str, Any]] | None = None, limit: int | None = None) -> list[dict[str, Any]]:
     aggregates = aggregate_finansavisen_by_stock(rows)
     selected = aggregates[:limit] if limit else aggregates
@@ -1026,6 +1053,7 @@ def finansavisen_aggregates_to_display_rows(rows: Sequence[Mapping[str, Any]] | 
             "Salgsverdi": format_nok(item.get("sell_value_nok")),
             "Netto": format_nok(item.get("net_value_nok")),
             "Navn": ", ".join(item.get("investors") or []),
+            "Scoreforklaring": _score_explanation(item),
             "Notat": item.get("notes") or "",
         }
         for item in selected
@@ -1070,7 +1098,15 @@ def build_finansavisen_priority_views(rows: Sequence[Mapping[str, Any]] | None =
         "Gjentatte signaler": [
             row for row in finansavisen_aggregates_to_display_rows([tx for item in frequent for tx in item.get("transactions") or []], limit=limit)
         ],
+        "Flere bjellesauer samme aksje": [
+            row
+            for row in finansavisen_aggregates_to_display_rows(
+                [tx for item in aggregates if int(item.get("unique_investors") or 0) >= 2 for tx in item.get("transactions") or []],
+                limit=limit,
+            )
+        ],
         "Ticker-match": [row for row in score_rows if row.get("Ticker")],
+        "Mangler ticker-match": [row for row in score_rows if not row.get("Ticker")],
         "Raadata": display_tx(rows[:limit]),
     }
 
@@ -1104,6 +1140,182 @@ def build_finansavisen_report(rows: Sequence[Mapping[str, Any]] | None = None) -
     return "\n".join(lines)
 
 
+def _html_table(records: Sequence[Mapping[str, Any]], *, limit: int = 25) -> str:
+    rows = [dict(row) for row in records[:limit] if isinstance(row, Mapping)]
+    if not rows:
+        return "<p class='muted'>Ingen rader.</p>"
+    columns = list(rows[0].keys())
+    head = "".join(f"<th>{html.escape(str(col))}</th>" for col in columns)
+    body = []
+    for row in rows:
+        cells = "".join(f"<td>{html.escape(str(row.get(col) or '-'))}</td>" for col in columns)
+        body.append(f"<tr>{cells}</tr>")
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+
+
+def build_finansavisen_report_html(rows: Sequence[Mapping[str, Any]] | None = None) -> bytes:
+    source_rows = load_finansavisen_transactions() if rows is None else rows
+    rows = [dict(row) for row in source_rows if isinstance(row, Mapping)]
+    summary = summarize_finansavisen_transactions(rows)
+    views = build_finansavisen_priority_views(rows, limit=30)
+    score_rows = views.get("Score per aksje", [])
+    buy_rows = views.get("Storste kjop", [])
+    sell_rows = views.get("Storste salg", [])
+    frequent_rows = views.get("Flere bjellesauer samme aksje", [])
+    match_rows = views.get("Ticker-match", [])
+    title = "Finansavisen Bjellesauer - rapport"
+    document = f"""<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 28px; color: #111827; }}
+    button {{ border: 1px solid #0284c7; background: #0ea5e9; color: white; border-radius: 8px; padding: 9px 14px; font-weight: 700; }}
+    h1 {{ margin-bottom: 4px; }}
+    h2 {{ border-top: 1px solid #d1d5db; padding-top: 14px; margin-top: 18px; }}
+    .meta, .muted {{ color: #4b5563; font-size: 13px; }}
+    .cards {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 14px 0; }}
+    .card {{ border: 1px solid #d1d5db; background: #f8fafc; border-radius: 8px; padding: 10px; }}
+    .card b {{ display: block; font-size: 18px; color: #064e3b; margin-top: 4px; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 8px 0 10px 0; }}
+    th, td {{ border: 1px solid #d1d5db; padding: 5px 7px; text-align: left; font-size: 12px; vertical-align: top; }}
+    th {{ background: #f3f4f6; }}
+    .method {{ background: #f8fafc; border: 1px solid #dbeafe; border-radius: 8px; padding: 10px 12px; }}
+    @media print {{ button {{ display: none; }} body {{ margin: 16mm; }} h2 {{ page-break-after: avoid; }} table {{ page-break-inside: auto; }} tr {{ page-break-inside: avoid; }} }}
+  </style>
+</head>
+<body>
+  <button onclick="window.print()">Skriv ut / lagre som PDF</button>
+  <h1>{html.escape(title)}</h1>
+  <p class="meta">Oppdatert: {html.escape(_now_iso())} | Datakilde: lokal XLSX-import fra Finansavisen Bjellesauer</p>
+  <div class="cards">
+    <div class="card">Handler<b>{summary.get('rows', 0)}</b></div>
+    <div class="card">Investorer<b>{summary.get('investors', 0)}</b></div>
+    <div class="card">Aksjer<b>{summary.get('stocks', 0)}</b></div>
+    <div class="card">Ticker-match<b>{summary.get('matched_tickers', 0)}</b></div>
+    <div class="card">Netto<b>{html.escape(format_nok(summary.get('net_value_nok')))}</b></div>
+  </div>
+  <p class="meta">Perioder: {html.escape(', '.join(summary.get('periods') or []) or '-')} | datoer: {html.escape(str(summary.get('first_date') or '-'))} til {html.escape(str(summary.get('last_date') or '-'))}</p>
+  <p class="meta">Kjop: {summary.get('buy_count', 0)} / {html.escape(format_nok(summary.get('buy_value_nok')))} | Salg: {summary.get('sell_count', 0)} / {html.escape(format_nok(summary.get('sell_value_nok')))}</p>
+  <h2>Topp signaler per aksje</h2>
+  {_html_table(score_rows, limit=25)}
+  <h2>Storste bjellesau-kjop</h2>
+  {_html_table(buy_rows, limit=25)}
+  <h2>Storste bjellesau-salg</h2>
+  {_html_table(sell_rows, limit=25)}
+  <h2>Flere bjellesauer samme aksje</h2>
+  {_html_table(frequent_rows, limit=25)}
+  <h2>Ticker-match som radarene kan bruke direkte</h2>
+  {_html_table(match_rows, limit=25)}
+  <h2>Metode</h2>
+  <div class="method">
+    <p>Score vekter ferskhet, transaksjonsverdi, netto kjop/salg, antall kjente investorer, gjentatte handler og om aksjen har ticker-match.</p>
+    <p>Dette er et lokalt evidenslag for Alpha Radar, Early Warning og Beslutningsgrunnlag. Ingen nettverkskall eller Excel-parse kjores ved vanlige menyvalg.</p>
+    <p>Rapporten er ikke investeringsraad. Den viser hva som er funnet i importerte Finansavisen-filer og hva som bor vurderes manuelt videre.</p>
+  </div>
+</body>
+</html>"""
+    return document.encode("utf-8")
+
+
+def _pdf_escape(text: Any) -> str:
+    return str(text).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def build_finansavisen_report_pdf(rows: Sequence[Mapping[str, Any]] | None = None) -> bytes:
+    lines = build_finansavisen_report(rows).splitlines()
+    safe_lines = ["Finansavisen Bjellesauer", "", *lines[:140]]
+    chunks = [safe_lines[idx : idx + 46] for idx in range(0, len(safe_lines), 46)] or [["Finansavisen Bjellesauer"]]
+    objects: list[tuple[int, bytes]] = []
+    page_refs: list[str] = []
+    next_obj = 4
+    for page_idx, chunk in enumerate(chunks, start=1):
+        page_obj = next_obj
+        content_obj = next_obj + 1
+        next_obj += 2
+        page_refs.append(f"{page_obj} 0 R")
+        y = 800
+        commands = ["BT", "/F1 15 Tf", f"50 {y} Td", f"({_pdf_escape(chunk[0])}) Tj", "/F1 9 Tf"]
+        y -= 24
+        for line in chunk[1:]:
+            if y < 45:
+                break
+            trimmed = str(line)[:116]
+            commands.append(f"50 {y} Td")
+            commands.append(f"({_pdf_escape(trimmed)}) Tj")
+            commands.append(f"-50 {-y} Td")
+            y -= 14
+        commands.append("ET")
+        stream = "\n".join(commands).encode("latin-1", errors="replace")
+        objects.append((page_obj, f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_obj} 0 R >>".encode()))
+        objects.append((content_obj, b"<< /Length " + str(len(stream)).encode() + b" >> stream\n" + stream + b"\nendstream"))
+    objects.extend([
+        (1, b"<< /Type /Catalog /Pages 2 0 R >>"),
+        (2, f"<< /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(page_refs)} >>".encode()),
+        (3, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
+    ])
+    objects = sorted(objects, key=lambda item: item[0])
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = [0] * (max(num for num, _ in objects) + 1)
+    for num, body in objects:
+        offsets[num] = len(out)
+        out.extend(f"{num} 0 obj ".encode() + body + b" endobj\n")
+    xref = len(out)
+    out.extend(f"xref\n0 {len(offsets)}\n0000000000 65535 f \n".encode())
+    for off in offsets[1:]:
+        out.extend(f"{off:010d} 00000 n \n".encode())
+    out.extend(f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode())
+    return bytes(out)
+
+
+def decision_rows_from_finansavisen(
+    rows: Sequence[Mapping[str, Any]] | None = None,
+    selected_tickers: Sequence[str] | None = None,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    selected = {str(ticker or "").strip().upper() for ticker in selected_tickers or [] if str(ticker or "").strip()}
+    out: list[dict[str, Any]] = []
+    for item in aggregate_finansavisen_by_stock(rows):
+        ticker = _clean(item.get("matched_ticker")).upper()
+        if not ticker:
+            continue
+        if selected and ticker not in selected:
+            continue
+        score = float(item.get("score") or 0.0)
+        evidence = [_transaction_evidence(row) for row in item.get("transactions") or []]
+        out.append({
+            "ticker": ticker,
+            "name": item.get("stock_name") or ticker,
+            "market": "Norge" if ticker.endswith(".OL") else "",
+            "decision_source": "Finansavisen Bjellesauer",
+            "source_scope": "Lokal Finansavisen-import",
+            "source_horizon": ", ".join(item.get("periods") or []),
+            "score": score,
+            "alpha_score": score,
+            "bjellesau_score": score,
+            "evidence_score": min(100.0, 45.0 + score / 2.0),
+            "insider_score": 0.0,
+            "catalyst_score": 0.0,
+            "why_now": f"{item.get('signal')} med netto {format_nok(item.get('net_value_nok'))}, {item.get('unique_investors')} investorer og {item.get('transaction_count')} handler.",
+            "thesis": _score_explanation(item),
+            "signals": [item.get("signal"), "Finansavisen Bjellesauer"],
+            "finansavisen_bjellesau_evidence": evidence[:10],
+            "bjellesau_evidence": evidence[:10],
+            "source_diagnostics": [{
+                "type": "lokal import",
+                "source": "Finansavisen Bjellesauer",
+                "detail": _score_explanation(item),
+                "url": FINANSAVISEN_LATEST_TRADES_URL,
+            }],
+            "queued_at": _now_iso(),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 __all__ = [
     "FINANSAVISEN_SETTINGS_KEY",
     "PERIOD_OPTIONS",
@@ -1114,12 +1326,16 @@ __all__ = [
     "build_finansavisen_overlay_snapshot",
     "build_finansavisen_priority_views",
     "build_finansavisen_report",
+    "build_finansavisen_report_html",
+    "build_finansavisen_report_pdf",
+    "decision_rows_from_finansavisen",
     "finansavisen_aggregates_to_display_rows",
     "finansavisen_status",
     "finansavisen_transactions_to_csv",
     "finansavisen_transactions_to_json",
     "format_nok",
     "format_percent",
+    "sort_periods",
     "infer_period_from_filename",
     "load_finansavisen_payload",
     "load_finansavisen_transactions",
