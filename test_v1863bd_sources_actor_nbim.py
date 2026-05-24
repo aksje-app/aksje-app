@@ -2,7 +2,15 @@ from actor_registry import actor_aliases_for_matching, actor_registry_to_csv, ma
 from decision_engine import build_decision_case
 from early_warning_engine import run_early_warning
 from financial_evidence_search import build_financial_search_plan, search_financial_evidence
-from nbim_radar import build_nbim_overlay, compare_nbim_holdings, parse_number, read_nbim_csv_bytes
+from nbim_radar import (
+    build_nbim_overlay,
+    build_nbim_priority_views,
+    compare_nbim_holdings,
+    format_nbim_amount,
+    nbim_changes_to_display_rows,
+    parse_number,
+    read_nbim_csv_bytes,
+)
 from nordic_market_sources import local_market_source_diagnostics, local_news_queries
 
 
@@ -106,6 +114,35 @@ def test_nbim_utf16_equity_csv_and_name_matching():
     assert rows[0]["market_value_nok"] == 36836769106.0
     assert overlay["NOVO-B.CO"]["nbim_ticker_match_quality"] == "navn eksakt"
     assert overlay["NOKIA.HE"]["nbim_change_type"] == "Ny"
+
+
+def test_nbim_priority_views_and_display_units():
+    previous = [
+        {"ticker": "AAA", "name": "A", "ownership_pct": 2.0, "market_value_nok": 100_000_000},
+        {"ticker": "SELL", "name": "Sold", "ownership_pct": 1.0, "market_value_nok": 900_000_000},
+    ]
+    current = [
+        {"ticker": "AAA", "name": "A", "ownership_pct": 4.16, "market_value_nok": 2_610_898_841, "market_value_usd": 258_841_843},
+        {"ticker": "NEW", "name": "New", "ownership_pct": 0.2, "market_value_nok": 25_000_000},
+    ]
+
+    changes = compare_nbim_holdings(previous, current)
+    views = build_nbim_priority_views(changes, limit=10)
+    top_display = nbim_changes_to_display_rows(views["Topp signaler"])
+
+    assert format_nbim_amount(2_610_898_841, "NOK") == "2.610.898.841 NOK"
+    assert top_display[0]["Ticker"] == "AAA"
+    assert top_display[0]["Malt verdi"] == "eierandel"
+    assert top_display[0]["Naa-verdi"] == "4,16 %"
+    assert top_display[0]["Markedsverdi NOK"] == "2.610.898.841 NOK"
+    assert views["Solgt ut"][0]["ticker"] == "SELL"
+
+
+def test_nbim_matching_ignores_two_letter_ticker_root_noise():
+    rows = [{"name": "Alpek SAB de CV", "country": "Mexico", "market_value_nok": 611_481_793, "ownership_pct": 5.6}]
+    overlay = build_nbim_overlay(compare_nbim_holdings([], rows))
+
+    assert "DE" not in overlay
 
 
 def test_actor_registry_csv_roundtrip_and_financial_search_plan():

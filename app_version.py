@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3be"
-APP_VERSION_NAME = "Evidence Search & NBIM Parser"
-APP_BUILD_ID = "v1863be-evidence-search-nbim-parser"
+APP_VERSION = "v18.6.3bf"
+APP_VERSION_NAME = "NBIM Priority Views"
+APP_BUILD_ID = "v1863bf-nbim-priority-views"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -69,6 +69,8 @@ APP_PATCH_NOTES = [
     "Aktørregisteret har import/eksport for CSV/JSON, relevante tickere og NBIM/Oljefondet som aktiv institusjonell aktor.",
     "Radarene kan bruke finans-/offisiell sokelag ved Kjor, med aktornavn, alias, ticker, selskap og marked, uten tunge kall ved menyvalg.",
     "NBIM, finanssok, aktorregister og konkrete insider-/bjellesau-spor sendes videre til Alpha Radar, Early Warning, rapporter og Beslutningsgrunnlag.",
+    "Oljefond Radar har prioriterte visninger for topp signaler, storste beholdninger, nye kjop, okninger, reduksjoner med restverdi, solgt ut, ticker-match og land/sektor.",
+    "NBIM-tabeller viser markedsverdi med punkt som tusenskille og enhet, og previous/current value oversettes per metric til prosent, aksjer eller valuta.",
 ]
 
 def get_app_version():
