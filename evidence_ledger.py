@@ -41,6 +41,11 @@ def normalize_evidence_item(
     detail = _clean(raw.get("detail") or raw.get("description") or raw.get("summary") or raw.get("excerpt"))
     actor = _clean(raw.get("actor") or raw.get("actor_type") or raw.get("person") or raw.get("matched_actor"))
     strength = _clean(raw.get("strength") or raw.get("confidence") or raw.get("quality"))
+    actor_roles = raw.get("actor_roles") or raw.get("matched_roles") or raw.get("roles")
+    if isinstance(actor_roles, Sequence) and not isinstance(actor_roles, (str, bytes, bytearray)):
+        actor_roles_text = "; ".join(str(item) for item in actor_roles if str(item or "").strip())
+    else:
+        actor_roles_text = _clean(actor_roles or raw.get("actor_type"))
     normalized = {
         "ticker": _clean(raw.get("ticker") or ticker).upper(),
         "type": evidence_type,
@@ -48,7 +53,9 @@ def normalize_evidence_item(
         "source": source,
         "url": url,
         "actor": actor,
+        "actor_roles": actor_roles_text,
         "strength": strength,
+        "trust_level": _clean(raw.get("trust_level") or raw.get("tillit")),
         "title": title,
         "excerpt": detail[:500],
         "found_by": _clean(raw.get("found_by") or found_by),
@@ -129,7 +136,9 @@ def evidence_ledger_to_text(row: Mapping[str, Any], *, limit: int = 10) -> str:
             _clean(item.get("source")),
             _clean(item.get("date")),
             _clean(item.get("actor")),
+            _clean(item.get("actor_roles")),
             _clean(item.get("strength")),
+            _clean(item.get("trust_level")),
             _clean(item.get("url")),
         ]
         line = " | ".join(part for part in parts if part)

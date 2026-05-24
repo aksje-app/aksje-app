@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bh"
-APP_VERSION_NAME = "Evidence Ledger & Nordic Sources"
-APP_BUILD_ID = "v1863bh-evidence-ledger-nordic-sources"
+APP_VERSION = "v18.6.3bi"
+APP_VERSION_NAME = "Actor Registry Roles Lab"
+APP_BUILD_ID = "v1863bi-actor-registry-roles-lab"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -78,6 +78,10 @@ APP_PATCH_NOTES = [
     "Nordic Actor/Insider Search lager gratis/offisielle sokelenker for Norden og bruker Aktorregisteret automatisk ved insider-/bjellesau- og nyhetssok.",
     "Run Preview viser kildebudsjett/kildeko med NewsAPI, Finnhub, cache, aktorregister og gratis/offisielle sok foer Kjor.",
     "Aktorregisteret har legg-til, slett-valgte, marked-dropdown, teksttest og Unmatched Workbench for navn som maa kobles til alias.",
+    "Aktorregisteret støtter flere roller per aktør, slik at samme person kan være Bjellesau og Insider watch uten dobbeltregistrering.",
+    "Aktorregisteret har søk, sortering, hurtigredigering, alias-forslag, duplikatsjekk, tillitsnivå og lokal trefflogg per aktør.",
+    "Radarene tolker aktørroller strengere: bjellesau-/institusjonsroller går til bjellesau-score, insider-watch/styre/ledelse går til insider-spor.",
+    "Aktorregister-panelet viser tydelig at registeret lagres lokalt, men at navn/alias kan inngå i søk når bruker trykker Kjør.",
 ]
 
 def get_app_version():

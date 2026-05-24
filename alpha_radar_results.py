@@ -195,7 +195,7 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         for factor, quality in qualities.items():
             quality_rows.append([row.get("ticker"), factor, quality])
     excluded_rows = [["ticker", "reasons", "market_cap"]] + [[row.get("ticker"), row.get("reasons"), _market_cap_text(row)] for row in excluded]
-    evidence_rows = [["ticker", "type", "title", "source", "published", "actor", "strength", "detail", "url", "found_by"]]
+    evidence_rows = [["ticker", "type", "title", "source", "published", "actor", "actor_roles", "strength", "trust_level", "detail", "url", "found_by"]]
     for row in candidates:
         for item in _ledger_items(row) or row.get("evidence_items") or []:
             if isinstance(item, Mapping):
@@ -206,7 +206,9 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
                     item.get("source"),
                     item.get("published") or item.get("date"),
                     item.get("actor"),
+                    item.get("actor_roles"),
                     item.get("strength"),
+                    item.get("trust_level"),
                     item.get("detail") or item.get("excerpt"),
                     item.get("url"),
                     item.get("found_by"),
@@ -399,10 +401,12 @@ def _evidence_html(row: Mapping[str, Any]) -> str:
         source = html.escape(str(item.get("source") or "Ukjent kilde"))
         published = html.escape(str(item.get("published") or item.get("date") or ""))
         actor = html.escape(str(item.get("actor") or ""))
+        roles = html.escape(str(item.get("actor_roles") or ""))
         strength = html.escape(str(item.get("strength") or ""))
+        trust = html.escape(str(item.get("trust_level") or ""))
         detail = html.escape(str(item.get("detail") or item.get("excerpt") or ""))
         link = _link_html(item.get("url"), "Apne kilde")
-        meta = " | ".join(part for part in (source, published, actor, strength, link) if part)
+        meta = " | ".join(part for part in (source, published, actor, roles, strength, trust, link) if part)
         items.append(f"<li><b>{kind}:</b> {title}<br><span>{meta}</span><br><em>{detail}</em></li>")
     return "<div class='evidence'><b>Kildespor / hva ble funnet:</b><ul>" + "".join(items) + "</ul></div>"
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import quote_plus
 
-from actor_registry import load_actor_registry, match_actor_text
+from actor_registry import actor_roles, load_actor_registry, match_actor_text, record_actor_hits
 from nordic_market_sources import local_news_queries, market_family, ticker_root
 
 
@@ -200,19 +200,24 @@ def search_financial_evidence(
             actor_matches = match_actor_text(text, market=market, ticker=ticker)
             for actor in actor_matches:
                 actor_name = actor.get("name") or actor.get("matched_alias") or "Ukjent aktor"
+                roles = actor_roles(actor)
+                title_prefix = "Fant bjellesau/insider-watch" if {"Bjellesau", "Insider watch"} <= set(roles) else "Fant bjellesau" if "Bjellesau" in roles else "Fant insider-watch" if "Insider watch" in roles else "Fant aktor"
                 actor_evidence.append({
-                    "type": actor.get("actor_type") or "Bjellesau",
-                    "title": f"Fant bjellesau: {actor_name}",
+                    "type": " + ".join(roles),
+                    "title": f"{title_prefix}: {actor_name}",
                     "source": normalized["source"],
                     "published": normalized["published"],
                     "url": normalized["url"],
                     "detail": f"Finanssøk matchet aktørregister-alias '{actor.get('matched_alias')}' i sak: {normalized['title']}",
                     "actor": actor_name,
                     "actor_type": actor.get("actor_type"),
+                    "actor_roles": roles,
                     "matched_alias": actor.get("matched_alias"),
                     "strength": actor.get("strength"),
+                    "trust_level": actor.get("trust_level"),
                     "found_by": "Financial Evidence Search",
                 })
+            record_actor_hits(actor_matches, ticker=ticker, market=market, source="Financial Evidence Search")
             if any(keyword in text for keyword in INSIDER_KEYWORDS):
                 insider_evidence.append({
                     "type": "Insider",

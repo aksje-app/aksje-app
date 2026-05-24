@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -10,10 +11,12 @@ from alpha_radar_ownership import classify_ownership_item, split_ownership_evide
 from data_source_diagnostics import horizon_to_days, horizon_to_months
 
 try:
-    from actor_registry import actor_aliases_for_matching, match_actor_text
+    from actor_registry import actor_aliases_for_matching, actor_roles, match_actor_text, record_actor_hits
 except Exception:  # pragma: no cover - optional UI registry
     actor_aliases_for_matching = None
+    actor_roles = None
     match_actor_text = None
+    record_actor_hits = None
 
 try:
     from nordic_market_sources import local_market_source_diagnostics, local_news_queries, merge_source_diagnostics
@@ -143,6 +146,40 @@ def _text_blob(row: Mapping[str, Any]) -> str:
         row.get("insider_label"),
     ]
     return " ".join(str(x or "") for x in fields).lower()
+
+
+def _evidence_roles(item: Mapping[str, Any]) -> set[str]:
+    raw = item.get("actor_roles")
+    roles: list[str] = []
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        roles = [str(value) for value in raw if str(value or "").strip()]
+    elif raw:
+        roles = [part.strip() for part in re.split(r"[,;/+]+", str(raw)) if part.strip()]
+    elif item.get("actor_type"):
+        roles = [str(item.get("actor_type"))]
+    elif item.get("type"):
+        roles = [str(item.get("type"))]
+    return {role for role in roles if role}
+
+
+def _bjellesau_actor_items(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in items:
+        roles = _evidence_roles(item)
+        if roles & {"Bjellesau", "Institusjon", "Fond", "Holding"}:
+            out.append(dict(item))
+    return out
+
+
+def _insider_actor_items(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in items:
+        roles = _evidence_roles(item)
+        if roles & {"Insider watch", "Styremedlem", "Ledelse"}:
+            copy = dict(item)
+            copy.setdefault("type", "Insider watch")
+            out.append(copy)
+    return out
 
 
 def load_bjellesau_watchlist(path: Path = BJELLESAU_CONFIG) -> list[str]:
@@ -364,11 +401,19 @@ def enrich_with_financial_evidence_search(
 
     actor_evidence = [dict(item) for item in result.get("actor_evidence") or [] if isinstance(item, Mapping)]
     if actor_evidence:
-        existing_bj = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
-        row["bjellesau_evidence"] = (existing_bj + actor_evidence)[:10]
-        row["bjellesau_signal_score"] = max(_normalize_unit(row.get("bjellesau_signal_score"), 0.0), 0.68 + min(len(actor_evidence), 4) * 0.05)
-        row["bjellesau_score"] = max(_normalize_unit(row.get("bjellesau_score"), 0.0), row["bjellesau_signal_score"])
-        row["smart_money_score"] = row["bjellesau_score"]
+        bjellesau_actor_evidence = _bjellesau_actor_items(actor_evidence)
+        insider_actor_evidence = _insider_actor_items(actor_evidence)
+        if bjellesau_actor_evidence:
+            existing_bj = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
+            row["bjellesau_evidence"] = (existing_bj + bjellesau_actor_evidence)[:10]
+            row["bjellesau_signal_score"] = max(_normalize_unit(row.get("bjellesau_signal_score"), 0.0), 0.68 + min(len(bjellesau_actor_evidence), 4) * 0.05)
+            row["bjellesau_score"] = max(_normalize_unit(row.get("bjellesau_score"), 0.0), row["bjellesau_signal_score"])
+            row["smart_money_score"] = row["bjellesau_score"]
+        if insider_actor_evidence:
+            existing_ins_actor = row.get("financial_insider_evidence") if isinstance(row.get("financial_insider_evidence"), list) else []
+            row["financial_insider_evidence"] = (existing_ins_actor + insider_actor_evidence)[:10]
+            row["insider_signal_score"] = max(_normalize_unit(row.get("insider_signal_score"), 0.0), 0.62 + min(len(insider_actor_evidence), 4) * 0.04)
+            row["insider_quality_score"] = max(_normalize_unit(row.get("insider_quality_score"), 0.0), row["insider_signal_score"])
 
     insider_evidence = [dict(item) for item in result.get("insider_evidence") or [] if isinstance(item, Mapping)]
     if insider_evidence:
@@ -432,13 +477,23 @@ def enrich_with_nordic_actor_search(
 
     actor_evidence = [dict(item) for item in result.get("actor_evidence") or [] if isinstance(item, Mapping)]
     if actor_evidence:
+        bjellesau_actor_evidence = _bjellesau_actor_items(actor_evidence)
+        insider_actor_evidence = _insider_actor_items(actor_evidence)
         existing_actor = row.get("nordic_actor_evidence") if isinstance(row.get("nordic_actor_evidence"), list) else []
         row["nordic_actor_evidence"] = (existing_actor + actor_evidence)[:12]
-        existing_bj = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
-        row["bjellesau_evidence"] = (existing_bj + actor_evidence)[:12]
-        row["bjellesau_signal_score"] = max(_normalize_unit(row.get("bjellesau_signal_score"), 0.0), 0.70 + min(len(actor_evidence), 4) * 0.05)
-        row["bjellesau_score"] = max(_normalize_unit(row.get("bjellesau_score"), 0.0), row["bjellesau_signal_score"])
-        row["smart_money_score"] = row["bjellesau_score"]
+        if bjellesau_actor_evidence:
+            existing_bj = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
+            row["bjellesau_evidence"] = (existing_bj + bjellesau_actor_evidence)[:12]
+            row["bjellesau_signal_score"] = max(_normalize_unit(row.get("bjellesau_signal_score"), 0.0), 0.70 + min(len(bjellesau_actor_evidence), 4) * 0.05)
+            row["bjellesau_score"] = max(_normalize_unit(row.get("bjellesau_score"), 0.0), row["bjellesau_signal_score"])
+            row["smart_money_score"] = row["bjellesau_score"]
+        if insider_actor_evidence:
+            existing_nordic = row.get("nordic_insider_evidence") if isinstance(row.get("nordic_insider_evidence"), list) else []
+            row["nordic_insider_evidence"] = (existing_nordic + insider_actor_evidence)[:12]
+            existing_ins = row.get("financial_insider_evidence") if isinstance(row.get("financial_insider_evidence"), list) else []
+            row["financial_insider_evidence"] = (existing_ins + insider_actor_evidence)[:12]
+            row["insider_signal_score"] = max(_normalize_unit(row.get("insider_signal_score"), 0.0), 0.64 + min(len(insider_actor_evidence), 4) * 0.04)
+            row["insider_quality_score"] = max(_normalize_unit(row.get("insider_quality_score"), 0.0), row["insider_signal_score"])
 
     insider_evidence = [dict(item) for item in result.get("insider_evidence") or [] if isinstance(item, Mapping)]
     if insider_evidence:
@@ -518,13 +573,17 @@ def enrich_with_insider_quality(
                 relation_boost += 0.08
         if match_actor_text is not None:
             try:
-                for actor in match_actor_text(text, market=market, ticker=ticker, actor_types=("Bjellesau", "Institusjon")):
+                actor_matches = match_actor_text(text, market=market, ticker=ticker, actor_types=("Bjellesau", "Institusjon", "Insider watch", "Styremedlem", "Ledelse", "Fond", "Holding"))
+                for actor in actor_matches:
                     actor_name = str(actor.get("name") or actor.get("matched_alias") or "").strip()
                     if actor_name:
                         matched_names.append(actor_name)
                         tx["actor_registry_match"] = actor_name
-                        tx["ownership_type"] = "Bjellesau"
+                        tx["actor_roles"] = actor.get("actor_roles") or actor.get("matched_roles")
+                        tx["ownership_type"] = "Bjellesau" if "Bjellesau" in str(tx.get("actor_roles")) else "Insider"
                         relation_boost += 0.10 if actor.get("strength") == "Sterk" else 0.07
+                if record_actor_hits is not None:
+                    record_actor_hits(actor_matches, ticker=ticker, market=market, source="Insider transactions")
             except Exception:
                 pass
         tx["ownership_type"] = classify_ownership_item(tx, watchlist_names=watchlist)

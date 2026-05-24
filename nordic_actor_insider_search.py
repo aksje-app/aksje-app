@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import quote_plus
 
-from actor_registry import load_actor_registry, match_actor_text, normalize_actor_row
+from actor_registry import actor_roles, load_actor_registry, match_actor_text, normalize_actor_row, record_actor_hits
 from nordic_market_sources import market_family, ticker_root
 
 
@@ -226,19 +226,24 @@ def search_nordic_actor_insider(
                 actor_matches = match_actor_text(text, market=market, ticker=ticker)
                 for actor in actor_matches:
                     actor_name = actor.get("name") or actor.get("matched_alias") or "Ukjent aktor"
+                    roles = actor_roles(actor)
+                    title_prefix = "Fant bjellesau/insider-watch" if {"Bjellesau", "Insider watch"} <= set(roles) else "Fant bjellesau" if "Bjellesau" in roles else "Fant insider-watch" if "Insider watch" in roles else "Fant aktor"
                     actor_evidence.append({
-                        "type": actor.get("actor_type") or "Bjellesau",
-                        "title": f"Fant bjellesau: {actor_name}",
+                        "type": " + ".join(roles),
+                        "title": f"{title_prefix}: {actor_name}",
                         "source": normalized["source"],
                         "published": normalized["published"],
                         "url": normalized["url"],
                         "detail": f"Matchet aktørregister-alias '{actor.get('matched_alias')}' i nordisk søk: {normalized['title']}",
                         "actor": actor_name,
                         "actor_type": actor.get("actor_type"),
+                        "actor_roles": roles,
                         "matched_alias": actor.get("matched_alias"),
                         "strength": actor.get("strength"),
+                        "trust_level": actor.get("trust_level"),
                         "found_by": "Nordic Actor/Insider Search",
                     })
+                record_actor_hits(actor_matches, ticker=ticker, market=market, source="Nordic Actor/Insider Search")
                 if not actor_matches and any(word in text for word in OWNER_WORDS + INSIDER_WORDS):
                     unmatched.append({
                         "name": normalized["title"][:120],
