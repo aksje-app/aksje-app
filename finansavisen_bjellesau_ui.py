@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Sequence
 
 import streamlit as st
@@ -39,6 +40,13 @@ def _period_index(period: str) -> int:
         return list(PERIOD_OPTIONS).index(period)
     except Exception:
         return list(PERIOD_OPTIONS).index("6M")
+
+
+def _file_period_key(upload: Any, idx: int) -> str:
+    name = str(getattr(upload, "name", f"file_{idx}") or f"file_{idx}")
+    size = int(getattr(upload, "size", 0) or 0)
+    safe_name = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:70] or f"file_{idx}"
+    return f"finansavisen_bjellesau_period_{safe_name}_{size}_{idx}_v1863bl"
 
 
 def _filter_rows(
@@ -113,7 +121,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         help="Last ned Bjellesauer -> Siste handler som XLSX for 1D, 1M, 3M, 6M og/eller ALLE. Velg perioden for hver fil under.",
     )
 
-    file_periods: dict[str, str] = {}
+    file_periods: dict[int, str] = {}
     if uploads:
         st.caption("Velg riktig periode for hver fil. Dette brukes i score og rapport, og filene kan importeres samlet.")
         for idx, upload in enumerate(uploads):
@@ -123,9 +131,9 @@ def render_finansavisen_bjellesau_panel() -> None:
                 list(PERIOD_OPTIONS),
                 index=_period_index(guessed),
                 format_func=lambda value: PERIOD_LABELS.get(value, value),
-                key=f"finansavisen_bjellesau_period_{idx}_v1863bk",
+                key=_file_period_key(upload, idx),
             )
-            file_periods[upload.name] = period
+            file_periods[idx] = period
 
     c1, c2, c3 = st.columns([1.2, 1.0, 1.0])
     with c1:
@@ -154,13 +162,14 @@ def render_finansavisen_bjellesau_panel() -> None:
         imported_rows = []
         total = max(1, len(uploads or []))
         for idx, upload in enumerate(uploads or [], start=1):
-            progress.progress(int((idx - 1) / total * 70), text=f"Leser {upload.name}")
+            upload_index = idx - 1
+            progress.progress(int(upload_index / total * 70), text=f"Leser {upload.name}")
             try:
                 imported_rows.extend(
                     parse_finansavisen_transaction_xlsx(
                         upload.getvalue(),
                         upload.name,
-                        source_period=file_periods.get(upload.name),
+                        source_period=file_periods.get(upload_index),
                     )
                 )
             except Exception as exc:

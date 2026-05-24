@@ -51,6 +51,16 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -76,9 +86,13 @@ def normalize_period(value: Any) -> str:
 
 def infer_period_from_filename(filename: str) -> str:
     text = _clean(filename).lower()
+    stem = text.rsplit(".", 1)[0]
+    tokens = set(re.sub(r"[^a-z0-9]+", " ", stem).split())
+    compact_stem = re.sub(r"[^a-z0-9]+", "", stem)
     for marker, period in (
         ("alle", "ALLE"),
         ("all", "ALLE"),
+        ("alt", "ALLE"),
         ("3y", "3Y"),
         ("1y", "1Y"),
         ("ytd", "YTD"),
@@ -89,7 +103,7 @@ def infer_period_from_filename(filename: str) -> str:
         ("1w", "1U"),
         ("1d", "1D"),
     ):
-        if marker in text:
+        if marker in tokens or compact_stem.endswith(marker):
             return period
     return "6M"
 
@@ -506,8 +520,17 @@ def merge_finansavisen_transactions(
             for period in row["source_periods"]:
                 if period not in current["source_periods"]:
                     current["source_periods"].append(period)
+            merged_periods = list(current["source_periods"])
             if PERIOD_WEIGHTS.get(row["source_period"], 0.0) > PERIOD_WEIGHTS.get(current.get("source_period"), 0.0):
-                current.update({key: value for key, value in row.items() if value not in {None, "", []}})
+                current.update(
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key not in {"source_period", "source_periods"} and _has_value(value)
+                    }
+                )
+            current["source_periods"] = merged_periods
+            current["source_period"] = max(merged_periods, key=lambda period: PERIOD_WEIGHTS.get(period, 0.0))
         else:
             by_id[tx_id] = row
 

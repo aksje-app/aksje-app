@@ -12,6 +12,7 @@ from finansavisen_bjellesau import (
     build_finansavisen_overlay_snapshot,
     build_finansavisen_priority_views,
     build_finansavisen_report,
+    infer_period_from_filename,
     merge_finansavisen_transactions,
     parse_finansavisen_transaction_xlsx,
 )
@@ -107,10 +108,19 @@ def _sample_xlsx():
     )
 
 
+def test_finansavisen_period_inference_uses_filename_tokens():
+    assert infer_period_from_filename("transaction 1D.xlsx") == "1D"
+    assert infer_period_from_filename("transaction 1M.xlsx") == "1M"
+    assert infer_period_from_filename("transaction 3M.xlsx") == "3M"
+    assert infer_period_from_filename("transaction 6M.xlsx") == "6M"
+    assert infer_period_from_filename("transaction ALLE.xlsx") == "ALLE"
+
+
 def test_finansavisen_xlsx_parser_dedupes_periods_and_matches_tickers():
     rows_1d = parse_finansavisen_transaction_xlsx(_sample_xlsx(), "transaction_1d.xlsx", source_period="1D")
     rows_6m = parse_finansavisen_transaction_xlsx(_sample_xlsx(), "transaction_6m.xlsx", source_period="6M")
     merged = merge_finansavisen_transactions(rows_1d, rows_6m)
+    reverse_merged = merge_finansavisen_transactions(rows_6m, rows_1d)
 
     assert len(rows_1d) == 3
     assert len(merged) == 3
@@ -118,6 +128,9 @@ def test_finansavisen_xlsx_parser_dedupes_periods_and_matches_tickers():
     assert norbit["matched_ticker"] == "NORBT.OL"
     assert set(norbit["source_periods"]) == {"1D", "6M"}
     assert norbit["transaction_value_nok"] == 19_820_000
+    reverse_norbit = next(row for row in reverse_merged if row["matched_ticker"] == "NORBT.OL")
+    assert set(reverse_norbit["source_periods"]) == {"1D", "6M"}
+    assert reverse_norbit["source_period"] == "1D"
 
 
 def test_finansavisen_aggregates_overlay_and_report_feed_radar_evidence():
@@ -173,3 +186,8 @@ def test_finansavisen_budget_status_and_light_ui_compile():
     source = open("finansavisen_bjellesau_ui.py", encoding="utf-8").read()
     assert "st.data_editor" not in source
     assert "Importer valgte filer" in source
+    assert "finansavisen_bjellesau_period_{idx}_v1863bk" not in source
+    assert "_file_period_key(upload, idx)" in source
+
+    layout = open("workspace_layout.py", encoding="utf-8").read()
+    assert '"finansavisen", "bjellesau"' in layout
