@@ -26,6 +26,23 @@ def horizon_to_days(horizon: str | None) -> int:
     return max(31, horizon_to_months(horizon) * 31)
 
 
+def _finansavisen_status_detail() -> str:
+    try:
+        from finansavisen_bjellesau import finansavisen_status
+
+        status = finansavisen_status()
+        rows = int(status.get("rows") or 0)
+        if rows <= 0:
+            return "ingen importerte handler ennaa"
+        periods = ", ".join(status.get("periods") or [])
+        return (
+            f"{rows} handler, {status.get('investors', 0)} investorer, "
+            f"{status.get('overlay_tickers', status.get('matched_tickers', 0))} ticker-overlay, perioder {periods or '-'}"
+        )
+    except Exception:
+        return "status ikke tilgjengelig"
+
+
 def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]:
     env = data_source_env_status()
     months = horizon_to_months(horizon)
@@ -98,6 +115,12 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
             "Status": "lokal matching",
             "Detalj": "aktivt register brukes til alias/person/fond/holdingselskap for insider- og bjellesau-spor",
             "Vindu": "-",
+        },
+        {
+            "Kilde": "Finansavisen Bjellesauer",
+            "Status": "lokalt snapshot",
+            "Detalj": _finansavisen_status_detail(),
+            "Vindu": "importerte 1D/1M/3M/6M/ALLE-filer",
         },
     ]
 

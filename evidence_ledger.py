@@ -13,6 +13,7 @@ EVIDENCE_COLLECTION_KEYS = (
     "nordic_actor_evidence",
     "nordic_insider_evidence",
     "nbim_evidence",
+    "finansavisen_bjellesau_evidence",
 )
 
 

@@ -46,6 +46,11 @@ except Exception:  # pragma: no cover - optional NBIM overlay
     apply_nbim_overlay = None
 
 try:
+    from finansavisen_bjellesau import apply_finansavisen_bjellesau_overlay
+except Exception:  # pragma: no cover - optional Finansavisen overlay
+    apply_finansavisen_bjellesau_overlay = None
+
+try:
     import yfinance as yf
 except Exception:  # pragma: no cover - depends on runtime
     yf = None
@@ -734,6 +739,11 @@ def enrich_alpha_radar_row(
         if nbim_score >= 0.55:
             enriched["bjellesau_score"] = max(_normalize_unit(enriched.get("bjellesau_score"), 0.0), nbim_score)
             enriched["smart_money_score"] = max(_normalize_unit(enriched.get("smart_money_score"), 0.0), nbim_score)
+    if apply_finansavisen_bjellesau_overlay is not None:
+        try:
+            enriched = apply_finansavisen_bjellesau_overlay(enriched)
+        except Exception:
+            pass
     signals = set(active_signals or [])
     mode_text = str(mode or "")
     news_on = include_news or "Nyheter/katalysator" in signals

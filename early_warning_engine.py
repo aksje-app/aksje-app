@@ -300,6 +300,7 @@ def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insid
     financial_insider = [dict(item) for item in row.get("financial_insider_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
     nordic_insider = [dict(item) for item in row.get("nordic_insider_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
     nordic_actor = [dict(item) for item in row.get("nordic_actor_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
+    finansavisen_bjellesau = [dict(item) for item in row.get("finansavisen_bjellesau_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
     nbim = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
     ledger = [dict(item) for item in row.get("evidence_ledger") or [] if isinstance(item, Mapping)]
     if not ledger and build_evidence_ledger is not None:
@@ -308,11 +309,11 @@ def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insid
         except Exception:
             ledger = []
     insider = (insider + financial_insider + nordic_insider)[:10]
-    if include_insider and nbim:
-        bjellesau = (bjellesau + nordic_actor + nbim)[:10]
+    if include_insider and (nbim or finansavisen_bjellesau):
+        bjellesau = (bjellesau + nordic_actor + finansavisen_bjellesau + nbim)[:10]
     elif include_insider:
         bjellesau = (bjellesau + nordic_actor)[:10]
-    combined = ledger if ledger else (ownership + nbim + financial_insider + nordic_insider + nordic_actor + news)
+    combined = ledger if ledger else (ownership + nbim + finansavisen_bjellesau + financial_insider + nordic_insider + nordic_actor + news)
     return combined[:10], insider, bjellesau, news
 
 

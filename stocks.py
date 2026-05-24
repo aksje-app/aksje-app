@@ -97,10 +97,10 @@ NORWEGIAN_STOCKS = _dedupe(NORWEGIAN_STOCKS + [
     "AUSS.OL", "BELCO.OL", "BWLPG.OL", "CADLR.OL", "CRAYN.OL", "DOFG.OL",
     "ENTRA.OL", "EPR.OL", "FLNG.OL", "GOGL.OL", "GSF.OL", "HAVI.OL",
     "HBC.OL", "KID.OL", "LINK.OL", "MING.OL", "MOBA.OL", "NAPA.OL",
-    "NOD.OL", "NORAM.OL", "NRC.OL", "NSKOG.OL", "ODL.OL", "OLT.OL",
+    "NOD.OL", "NORAM.OL", "NORBT.OL", "NRC.OL", "NSKOG.OL", "ODL.OL", "OLT.OL",
     "OTL.OL", "PEXIP.OL", "PROT.OL", "RECSI.OL", "SAGA.OL", "SATS.OL",
     "SCATC.OL", "SCHA.OL", "SNI.OL", "SOFF.OL", "SPOL.OL", "SRBNK.OL",
-    "VEI.OL", "VISTN.OL", "WSTEP.OL", "WWI.OL", "ZAL.OL",
+    "VEI.OL", "VISTN.OL", "WSTEP.OL", "WWI.OL", "ZAL.OL", "ZAP.OL", "ACR.OL",
 ])
 
 SWEDISH_STOCKS = _dedupe(SWEDISH_STOCKS + [
@@ -197,6 +197,10 @@ TICKER_NAME_ALIASES = {
     "LSG.OL": ["Leroy Seafood", "Lerøy Seafood"],
     "ELK.OL": ["Elkem"],
     "NAS.OL": ["Norwegian Air Shuttle"],
+    "NORBT.OL": ["NORBIT", "Norbit ASA"],
+    "AFG.OL": ["AF Gruppen"],
+    "ZAP.OL": ["Zaptec"],
+    "ACR.OL": ["Axactor"],
     "VOLV-B.ST": ["Volvo AB"],
     "VOLV-A.ST": ["Volvo AB"],
     "ERIC-B.ST": ["Telefonaktiebolaget LM Ericsson", "Ericsson"],

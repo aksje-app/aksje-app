@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bj"
-APP_VERSION_NAME = "Actor Search Evidence Gates"
-APP_BUILD_ID = "v1863bj-actor-search-evidence-gates"
+APP_VERSION = "v18.6.3bk"
+APP_VERSION_NAME = "Finansavisen Bjellesau Import"
+APP_BUILD_ID = "v1863bk-finansavisen-bjellesau-import"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -85,6 +85,9 @@ APP_PATCH_NOTES = [
     "Radarene har harde bevisporter: velges insider/bjellesau og nyheter som kriterier, blir tickere uten konkrete kildespor ekskludert i stedet for å fylle topp 30.",
     "Aktørstyrt søk kjøres først og kan bruke gratis open web via GDELT/Google News RSS som supplement til NewsAPI, slik at lokale finansnyheter og aktørnavn faktisk kan gi treff.",
     "Aktørregisteret bruker lett tabell pluss enkelt skjema for ny/redigert aktør, med flerroller og trefflogg bak knapp for å unngå tung meny-rendering.",
+    "Finansavisen Bjellesauer har egen lokal XLSX-import for 1D/1M/3M/6M/ALLE, deduplisering, periodescoring, rapport, eksport og Aktorregister-synk.",
+    "Alpha Radar og Early Warning bruker Finansavisen-snapshot som billig lokalt bjellesau-evidenslag ved Kjor, uten Excel-parse eller nye nettverkskall ved menyvalg.",
+    "Norske bjellesau-tickere som NORBIT, Zaptec og Axactor er lagt inn i ticker-/aliasregisteret slik at importerte handler kan treffe radaruniverset.",
 ]
 
 def get_app_version():
