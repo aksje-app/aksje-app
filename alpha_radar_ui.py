@@ -25,6 +25,7 @@ from alpha_radar_results import (
 from alpha_radar_currency import market_cap_display
 from data_source_diagnostics import build_data_source_status, horizon_to_months, probe_market_data_sources
 from decision_engine import DECISION_QUEUE_KEY, add_decision_rows, decision_source_rows_from_radar_result
+from source_budget import estimate_source_budget, source_budget_text
 
 
 RADAR_UI_STATE_VERSION = "v1863ba"
@@ -371,17 +372,14 @@ def _render_run_preview(
     source_values = rule_state.get("source_values") if isinstance(rule_state.get("source_values"), Mapping) else {}
     planned = len(source_tickers or []) if source_tickers else int(max_scan or 0)
     ticker_text = f"{len(source_tickers)} preview-tickere klare" if source_tickers else f"ikke hentet ennaa, maks {planned} planlagt"
-    news_calls = planned if source_values.get("news") else 0
-    insider_calls = planned if source_values.get("insider") else 0
-    finance_search_calls = planned * 4 if (source_values.get("news") or source_values.get("insider")) else 0
-    earnings_calls = planned if source_values.get("results") else 0
-    macro_calls = 1 if source_values.get("macro") else 0
+    budget = estimate_source_budget(planned_tickers=planned, source_values=source_values)
+    budget_text = source_budget_text(budget)
     st.markdown(
         f"""
         <div class='alpha-radar-run-preview'>
           <b>Kjoringsbudsjett / Run Preview</b><br>
           Motor: {html.escape(str(analysis_engine))} · Univers: {html.escape(str(scope))} · Tickere: {html.escape(ticker_text)}<br>
-          <b>0 tunge kall naa.</b> Ved Kjor: score {planned}, nyheter {news_calls}, finans-/aktorsok opptil {finance_search_calls}, insider {insider_calls}, resultater/earnings {earnings_calls}, makro/proxy {macro_calls}.
+          <b>0 tunge kall naa.</b> Ved Kjor: {html.escape(budget_text)}. finans-/aktorsok opptil styres av kildeko/cache.
         </div>
         """,
         unsafe_allow_html=True,

@@ -190,7 +190,7 @@ def actor_aliases_for_matching(
     actor_types: Sequence[str] | None = None,
     rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[str]:
-    wanted = {str(item) for item in actor_types or ("Bjellesau", "Institusjon")}
+    wanted = {str(item) for item in actor_types or ("Bjellesau", "Institusjon", "Insider watch")}
     aliases: list[str] = []
     for row in rows or load_actor_registry():
         item = normalize_actor_row(row)
@@ -218,7 +218,7 @@ def match_actor_text(
     haystack = f" {_clean(text).lower()} "
     if not haystack.strip():
         return []
-    wanted = {str(item) for item in actor_types or ("Bjellesau", "Institusjon")}
+    wanted = {str(item) for item in actor_types or ("Bjellesau", "Institusjon", "Insider watch")}
     matches: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for raw in rows or load_actor_registry():

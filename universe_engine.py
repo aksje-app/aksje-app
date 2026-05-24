@@ -481,9 +481,10 @@ def resolve_strict_universe_tickers(
         return (from_scope("Portefølje"), "Portefølje")
     if mode == "Smart AI-utvalg":
         return (from_scope("Smart AI-utvalg"), "Smart AI-utvalg")
-    for source_scope in SOURCE_SCOPE_OPTIONS:
-        if source_scope in scopes:
-            return (from_scope(source_scope), source_scope)
+    if mode != "Markedvalg":
+        for source_scope in SOURCE_SCOPE_OPTIONS:
+            if source_scope in scopes:
+                return (from_scope(source_scope), source_scope)
 
     market_scopes = [scope for scope in scopes if scope in MARKET_SCOPE_OPTIONS]
     if mode == "Multi-marked":
@@ -491,6 +492,8 @@ def resolve_strict_universe_tickers(
 
     # Markedvalg is market-only. Manual ticker is intentionally ignored here;
     # Enkeltaksje is the only mode that should scan a manual single ticker.
+    if not market_scopes:
+        return ([], "Markedvalg")
     return (resolve_universe_tickers(market_scopes, max_count=max_count, manual_ticker="", existing_tickers_by_scope=existing_tickers_by_scope), "Markedvalg")
 
 

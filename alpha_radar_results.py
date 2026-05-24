@@ -12,6 +12,14 @@ from typing import Any, Mapping, Sequence
 from alpha_radar_currency import market_cap_display
 
 try:
+    from evidence_ledger import build_evidence_ledger, evidence_ledger_to_text
+except Exception:  # pragma: no cover - optional evidence layer
+    build_evidence_ledger = None
+
+    def evidence_ledger_to_text(row: Mapping[str, Any], *, limit: int = 10) -> str:
+        return ""
+
+try:
     from runtime_env import redact_secrets
 except Exception:  # pragma: no cover - static fallback
     def redact_secrets(value: Any) -> str:
@@ -72,6 +80,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         "evidence_summary",
         "diagnostics",
         "source_diagnostics",
+        "evidence_ledger",
         "insider_evidence",
         "bjellesau_evidence",
         "nbim_evidence",
@@ -91,6 +100,7 @@ def alpha_radar_result_to_csv(result: Mapping[str, Any]) -> bytes:
         out["evidence_summary"] = _evidence_summary(row)
         out["diagnostics"] = _diagnostic_text(row)
         out["source_diagnostics"] = _diagnostic_text(row)
+        out["evidence_ledger"] = _evidence_ledger_text(row)
         out["insider_evidence"] = _evidence_text(row.get("insider_evidence"))
         out["bjellesau_evidence"] = _evidence_text(row.get("bjellesau_evidence"))
         out["nbim_evidence"] = _evidence_text(row.get("nbim_evidence"))
@@ -169,10 +179,10 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         "volume_score", "macro_score", "evidence_score", "risk_score", "market_cap",
         "market_cap_currency", "market_cap_display", "market_cap_nok_estimate",
         "data_quality", "why_now", "signals", "reject_reasons", "warning_reasons", "manual_review",
-        "evidence_summary", "diagnostics", "source_diagnostics",
+        "evidence_summary", "diagnostics", "source_diagnostics", "evidence_ledger",
     ]
     candidate_rows = [candidate_fields] + [[
-        _evidence_summary(row) if field == "evidence_summary" else _diagnostic_text(row) if field in {"diagnostics", "source_diagnostics"} else _market_cap_text(row) if field == "market_cap_display" else row.get(field)
+        _evidence_summary(row) if field == "evidence_summary" else _diagnostic_text(row) if field in {"diagnostics", "source_diagnostics"} else _evidence_ledger_text(row) if field == "evidence_ledger" else _market_cap_text(row) if field == "market_cap_display" else row.get(field)
         for field in candidate_fields
     ] for row in candidates]
     signal_rows = [["ticker", "factor", "score", "quality"]]
@@ -185,18 +195,21 @@ def alpha_radar_result_to_xlsx(result: Mapping[str, Any]) -> bytes:
         for factor, quality in qualities.items():
             quality_rows.append([row.get("ticker"), factor, quality])
     excluded_rows = [["ticker", "reasons", "market_cap"]] + [[row.get("ticker"), row.get("reasons"), _market_cap_text(row)] for row in excluded]
-    evidence_rows = [["ticker", "type", "title", "source", "published", "detail", "url"]]
+    evidence_rows = [["ticker", "type", "title", "source", "published", "actor", "strength", "detail", "url", "found_by"]]
     for row in candidates:
-        for item in row.get("evidence_items") or []:
+        for item in _ledger_items(row) or row.get("evidence_items") or []:
             if isinstance(item, Mapping):
                 evidence_rows.append([
                     row.get("ticker"),
                     item.get("type"),
                     item.get("title"),
                     item.get("source"),
-                    item.get("published"),
-                    item.get("detail"),
+                    item.get("published") or item.get("date"),
+                    item.get("actor"),
+                    item.get("strength"),
+                    item.get("detail") or item.get("excerpt"),
                     item.get("url"),
+                    item.get("found_by"),
                 ])
     diagnostic_rows = [["ticker", "type", "title", "source", "status", "window", "detail", "url"]]
     for row in candidates:
@@ -293,14 +306,38 @@ def _evidence_text(items: Any) -> str:
     return "\n".join(lines)
 
 
+def _ledger_items(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    ledger = row.get("evidence_ledger") if isinstance(row.get("evidence_ledger"), list) else []
+    if ledger:
+        return [dict(item) for item in ledger if isinstance(item, Mapping)]
+    if build_evidence_ledger is not None:
+        try:
+            return build_evidence_ledger(row, found_by="Resultat")
+        except Exception:
+            return []
+    return []
+
+
+def _evidence_ledger_text(row: Mapping[str, Any]) -> str:
+    try:
+        text = evidence_ledger_to_text(row, limit=20)
+        if text and "Ingen evidence ledger" not in text:
+            return text
+    except Exception:
+        pass
+    return _evidence_text(_ledger_items(row))
+
+
 def _evidence_summary(row: Mapping[str, Any]) -> str:
     evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
+    ledger = _ledger_items(row)
     insider = row.get("insider_evidence") if isinstance(row.get("insider_evidence"), list) else []
     bjellesau = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
     news = row.get("news_evidence") if isinstance(row.get("news_evidence"), list) else []
-    if not evidence and not insider and not bjellesau and not news:
+    if not evidence and not ledger and not insider and not bjellesau and not news:
         return "Ingen direkte kildedetaljer i resultatet."
-    return f"{len(insider)} insider-spor, {len(bjellesau)} bjellesau-spor, {len(news)} nyhetsspor, {len(evidence)} kildespor totalt."
+    total = len(ledger) if ledger else len(evidence)
+    return f"{len(insider)} insider-spor, {len(bjellesau)} bjellesau-spor, {len(news)} nyhetsspor, {total} kildespor totalt."
 
 
 def _diagnostic_text(row: Mapping[str, Any]) -> str:
@@ -327,11 +364,14 @@ def _diagnostic_text(row: Mapping[str, Any]) -> str:
         ("alpha_insider_error", "insider"),
         ("alpha_news_error", "nyheter"),
         ("alpha_financial_search_error", "finanssok"),
+        ("alpha_nordic_search_error", "nordisk aktor-/insidersok"),
         ("alpha_earnings_error", "earnings"),
         ("alpha_result_diagnostic", "vendepunkt"),
     ):
         if row.get(key):
             parts.append(redact_secrets(f"{label}: {row.get(key)}"))
+    if row.get("source_budget_note"):
+        parts.append(redact_secrets(f"kildebudsjett: {row.get('source_budget_note')}"))
     if not parts:
         return "Ingen ekstra datadiagnostikk lagret."
     seen: set[str] = set()
@@ -345,7 +385,9 @@ def _diagnostic_text(row: Mapping[str, Any]) -> str:
 
 
 def _evidence_html(row: Mapping[str, Any]) -> str:
-    evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
+    evidence = _ledger_items(row)
+    if not evidence:
+        evidence = row.get("evidence_items") if isinstance(row.get("evidence_items"), list) else []
     if not evidence:
         return "<p class='muted'><b>Kildespor:</b> Ingen direkte kildedetaljer lagret for denne kandidaten.</p>"
     items: list[str] = []
@@ -355,10 +397,12 @@ def _evidence_html(row: Mapping[str, Any]) -> str:
         kind = html.escape(str(item.get("type") or "kilde"))
         title = html.escape(str(item.get("title") or "Uten tittel"))
         source = html.escape(str(item.get("source") or "Ukjent kilde"))
-        published = html.escape(str(item.get("published") or ""))
-        detail = html.escape(str(item.get("detail") or ""))
+        published = html.escape(str(item.get("published") or item.get("date") or ""))
+        actor = html.escape(str(item.get("actor") or ""))
+        strength = html.escape(str(item.get("strength") or ""))
+        detail = html.escape(str(item.get("detail") or item.get("excerpt") or ""))
         link = _link_html(item.get("url"), "Apne kilde")
-        meta = " | ".join(part for part in (source, published, link) if part)
+        meta = " | ".join(part for part in (source, published, actor, strength, link) if part)
         items.append(f"<li><b>{kind}:</b> {title}<br><span>{meta}</span><br><em>{detail}</em></li>")
     return "<div class='evidence'><b>Kildespor / hva ble funnet:</b><ul>" + "".join(items) + "</ul></div>"
 

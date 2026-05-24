@@ -11,7 +11,10 @@ for name in [
     "alpha_radar_results.py",
     "actor_registry.py",
     "actor_registry_ui.py",
+    "evidence_ledger.py",
     "financial_evidence_search.py",
+    "nordic_actor_insider_search.py",
+    "source_budget.py",
     "runtime_env.py",
     "data_source_diagnostics.py",
     "nordic_market_sources.py",
@@ -36,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3bg"' in version
-assert "NBIM Signal Lab" in version
+assert 'APP_VERSION = "v18.6.3bh"' in version
+assert "Evidence Ledger & Nordic Sources" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -104,6 +107,13 @@ assert "Datadiagnostikk" in results
 assert "search_financial_evidence" in Path("financial_evidence_search.py").read_text(encoding="utf-8", errors="ignore")
 assert "financial_evidence_search" in Path("alpha_radar_enrichment.py").read_text(encoding="utf-8", errors="ignore")
 assert "finans-/aktorsok opptil" in ui
+assert "search_nordic_actor_insider" in Path("alpha_radar_enrichment.py").read_text(encoding="utf-8", errors="ignore")
+assert "evidence_ledger" in engine + early + results
+assert "source_budget_text" in ui
+assert "Legg til aktør" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "Unmatched Workbench" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "Slett valgte" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "Test aktør mot tekst" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "local_market_source_diagnostics" in Path("nordic_market_sources.py").read_text(encoding="utf-8", errors="ignore")
 assert "horizon_to_months" in ui + Path("data_source_diagnostics.py").read_text(encoding="utf-8", errors="ignore")
 assert "data_window_months" in engine + early + ui + results

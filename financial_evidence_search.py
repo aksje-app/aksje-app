@@ -199,14 +199,19 @@ def search_financial_evidence(
             text = _article_text(normalized)
             actor_matches = match_actor_text(text, market=market, ticker=ticker)
             for actor in actor_matches:
+                actor_name = actor.get("name") or actor.get("matched_alias") or "Ukjent aktor"
                 actor_evidence.append({
-                    "type": "Bjellesau",
-                    "title": actor.get("name") or actor.get("matched_alias"),
+                    "type": actor.get("actor_type") or "Bjellesau",
+                    "title": f"Fant bjellesau: {actor_name}",
                     "source": normalized["source"],
                     "published": normalized["published"],
                     "url": normalized["url"],
                     "detail": f"Finanssøk matchet aktørregister-alias '{actor.get('matched_alias')}' i sak: {normalized['title']}",
-                    "actor": actor.get("actor_type"),
+                    "actor": actor_name,
+                    "actor_type": actor.get("actor_type"),
+                    "matched_alias": actor.get("matched_alias"),
+                    "strength": actor.get("strength"),
+                    "found_by": "Financial Evidence Search",
                 })
             if any(keyword in text for keyword in INSIDER_KEYWORDS):
                 insider_evidence.append({
@@ -217,6 +222,7 @@ def search_financial_evidence(
                     "url": normalized["url"],
                     "detail": "Finanssøk fant insider-/primærinnsiderord i tittel/beskrivelse. Bekreft originalkilden manuelt.",
                     "actor": "Insider",
+                    "found_by": "Financial Evidence Search",
                 })
     return {
         "articles": articles[:12],

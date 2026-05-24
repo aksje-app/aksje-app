@@ -7,6 +7,11 @@ from alpha_radar_currency import market_cap_fields
 from alpha_radar_ownership import ownership_signal_scores, split_ownership_evidence
 from data_source_diagnostics import summarize_source_error
 
+try:
+    from evidence_ledger import build_evidence_ledger
+except Exception:  # pragma: no cover - optional evidence layer
+    build_evidence_ledger = None
+
 
 HORIZON_WEIGHTS = {
     "1m": {
@@ -95,6 +100,7 @@ class EarlyWarningCandidate:
     bjellesau_evidence: list[dict[str, Any]]
     news_evidence: list[dict[str, Any]]
     nbim_evidence: list[dict[str, Any]]
+    evidence_ledger: list[dict[str, Any]]
     source_diagnostics: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
@@ -292,11 +298,21 @@ def _evidence_items(row: Mapping[str, Any], *, include_news: bool, include_insid
     news = _news_items(row) if include_news else []
     ownership, insider, bjellesau = _ownership_items(row) if include_insider else ([], [], [])
     financial_insider = [dict(item) for item in row.get("financial_insider_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
+    nordic_insider = [dict(item) for item in row.get("nordic_insider_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
+    nordic_actor = [dict(item) for item in row.get("nordic_actor_evidence") or [] if isinstance(item, Mapping)] if include_insider else []
     nbim = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
-    insider = (insider + financial_insider)[:8]
+    ledger = [dict(item) for item in row.get("evidence_ledger") or [] if isinstance(item, Mapping)]
+    if not ledger and build_evidence_ledger is not None:
+        try:
+            ledger = build_evidence_ledger(row, found_by="Early Warning")
+        except Exception:
+            ledger = []
+    insider = (insider + financial_insider + nordic_insider)[:10]
     if include_insider and nbim:
-        bjellesau = (bjellesau + nbim)[:8]
-    combined = ownership + nbim + financial_insider + news
+        bjellesau = (bjellesau + nordic_actor + nbim)[:10]
+    elif include_insider:
+        bjellesau = (bjellesau + nordic_actor)[:10]
+    combined = ledger if ledger else (ownership + nbim + financial_insider + nordic_insider + nordic_actor + news)
     return combined[:10], insider, bjellesau, news
 
 
@@ -308,6 +324,7 @@ def _source_diagnostics(row: Mapping[str, Any]) -> list[dict[str, Any]]:
         ("alpha_insider_error", "insiderkilde"),
         ("alpha_news_error", "nyhetskilde"),
         ("alpha_financial_search_error", "finanssøk"),
+        ("alpha_nordic_search_error", "nordisk aktor-/insidersok"),
         ("alpha_earnings_error", "earningskilde"),
         ("alpha_result_diagnostic", "resultat/vendepunkt"),
     ):
@@ -320,6 +337,15 @@ def _source_diagnostics(row: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "detail": summarize_source_error(label, row.get(key)) or str(row.get(key)),
                 "url": "",
             })
+    if row.get("source_budget_note"):
+        diagnostics.append({
+            "type": "kildebudsjett",
+            "title": "Kildebudsjett / kildeko",
+            "source": "Radar",
+            "status": "planlagt/brukt",
+            "detail": str(row.get("source_budget_note")),
+            "url": "",
+        })
     clean: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in diagnostics:
@@ -545,6 +571,7 @@ def _score_row(
         ("alpha_insider_error", "insiderkilde"),
         ("alpha_news_error", "nyhetskilde"),
         ("alpha_financial_search_error", "finanssøk"),
+        ("alpha_nordic_search_error", "nordisk aktor-/insidersok"),
         ("alpha_earnings_error", "earningskilde"),
     ):
         if row.get(key):
@@ -553,6 +580,12 @@ def _score_row(
                 warnings.append(warning)
     evidence_items, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(row, include_news=include_news, include_insider=include_insider)
     nbim_evidence = [dict(item) for item in row.get("nbim_evidence") or [] if isinstance(item, Mapping)]
+    evidence_ledger = [dict(item) for item in row.get("evidence_ledger") or [] if isinstance(item, Mapping)]
+    if not evidence_ledger and build_evidence_ledger is not None:
+        try:
+            evidence_ledger = build_evidence_ledger(row, found_by="Early Warning")
+        except Exception:
+            evidence_ledger = []
     source_diagnostics = _source_diagnostics(row)
     if include_insider and not insider_evidence and not bjellesau_evidence and factors.get("ownership_insider") is None:
         warnings.append("ingen konkrete insider-/bjellesaudetaljer funnet")
@@ -615,6 +648,7 @@ def _score_row(
         bjellesau_evidence=bjellesau_evidence,
         news_evidence=news_evidence,
         nbim_evidence=nbim_evidence,
+        evidence_ledger=evidence_ledger,
         source_diagnostics=source_diagnostics,
     )
 

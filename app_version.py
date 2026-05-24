@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bg"
-APP_VERSION_NAME = "NBIM Signal Lab"
-APP_BUILD_ID = "v1863bg-nbim-signal-lab"
+APP_VERSION = "v18.6.3bh"
+APP_VERSION_NAME = "Evidence Ledger & Nordic Sources"
+APP_BUILD_ID = "v1863bh-evidence-ledger-nordic-sources"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -74,6 +74,10 @@ APP_PATCH_NOTES = [
     "Oljefond Radar har progress-status fra filventing til ferdig analyse, uten nye nettverkskall eller meny-tungkjøring.",
     "NBIM Signal Lab finner overbevisning, akkumulering i svakhet, hoy eierandel, stemmerett-avvik, unmatched verdi, radar-overlap og watchlist-kandidater.",
     "NBIM land-/sektorrotasjon viser inn/ut/blandet, ny verdi, okt verdi, redusert restverdi og tidligere solgt-ut verdi.",
+    "Alpha Radar og Early Warning bygger naa en felles Evidence Ledger per ticker med kilde, type, dato, aktor, styrke, lenke og funnet-av.",
+    "Nordic Actor/Insider Search lager gratis/offisielle sokelenker for Norden og bruker Aktorregisteret automatisk ved insider-/bjellesau- og nyhetssok.",
+    "Run Preview viser kildebudsjett/kildeko med NewsAPI, Finnhub, cache, aktorregister og gratis/offisielle sok foer Kjor.",
+    "Aktorregisteret har legg-til, slett-valgte, marked-dropdown, teksttest og Unmatched Workbench for navn som maa kobles til alias.",
 ]
 
 def get_app_version():

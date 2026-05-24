@@ -4,6 +4,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from runtime_env import data_source_env_status
 from runtime_env import redact_secrets
+from source_budget import NEWSAPI_DAILY_FREE_LIMIT
 
 
 MARKET_DIAGNOSTIC_TICKERS = {
@@ -28,6 +29,16 @@ def horizon_to_days(horizon: str | None) -> int:
 def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]:
     env = data_source_env_status()
     months = horizon_to_months(horizon)
+    news_cache_entries = 0
+    news_auto = False
+    try:
+        from news import newsapi_status
+
+        news_status = newsapi_status()
+        news_cache_entries = int(news_status.get("cache_entries") or 0)
+        news_auto = bool(news_status.get("auto_calls_allowed"))
+    except Exception:
+        pass
     sources = env.get("env_sources") or []
     any_key = bool(env.get("finnhub_key") or env.get("newsapi_key"))
     if sources:
@@ -61,8 +72,26 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
         {
             "Kilde": "NewsAPI",
             "Status": "nokkel funnet" if env.get("newsapi_key") else "nokkel mangler",
-            "Detalj": "engelsk global nyhetskilde",
+            "Detalj": f"global nyhetskilde, cache {news_cache_entries}, auto {'paa' if news_auto else 'av'}",
             "Vindu": f"{horizon_to_days(horizon)} dager",
+        },
+        {
+            "Kilde": "NewsAPI budsjett",
+            "Status": "planlegges per Kjor",
+            "Detalj": f"gratisnivaa er normalt {NEWSAPI_DAILY_FREE_LIMIT} requests/dag; en request er ett query-kall, ikke antall tickere i teksten",
+            "Vindu": "cache for gjenbruk",
+        },
+        {
+            "Kilde": "Nordiske/offisielle sok",
+            "Status": "gratis sokelenker",
+            "Detalj": "NewsWeb, Finansinspektionen, Nasdaq Nordic, OAM, FIN-FSA og CVM vises som diagnostikk/lenker til manuell bekreftelse",
+            "Vindu": f"{horizon_to_days(horizon)} dager",
+        },
+        {
+            "Kilde": "Aktorregister",
+            "Status": "lokal matching",
+            "Detalj": "aktivt register brukes til alias/person/fond/holdingselskap for insider- og bjellesau-spor",
+            "Vindu": "-",
         },
     ]
 

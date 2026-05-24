@@ -28,6 +28,16 @@ except Exception:  # pragma: no cover - optional financial search
     search_financial_evidence = None
 
 try:
+    from nordic_actor_insider_search import search_nordic_actor_insider
+except Exception:  # pragma: no cover - optional nordic search
+    search_nordic_actor_insider = None
+
+try:
+    from evidence_ledger import build_evidence_ledger
+except Exception:  # pragma: no cover - optional evidence ledger
+    build_evidence_ledger = None
+
+try:
     from nbim_radar import apply_nbim_overlay
 except Exception:  # pragma: no cover - optional NBIM overlay
     apply_nbim_overlay = None
@@ -335,7 +345,7 @@ def enrich_with_financial_evidence_search(
             row,
             news_provider=news_provider,
             days_back=horizon_to_days(horizon),
-            max_queries=4,
+            max_queries=2,
         )
     except Exception as exc:
         row["alpha_financial_search_error"] = str(exc)[:180]
@@ -375,6 +385,80 @@ def enrich_with_financial_evidence_search(
             row["source_diagnostics"] = diagnostics
     if result.get("errors"):
         row["alpha_financial_search_error"] = " | ".join(str(x) for x in result.get("errors") or [])[:180]
+    return row
+
+
+def enrich_with_nordic_actor_search(
+    row: dict[str, Any],
+    *,
+    enabled: bool,
+    news_provider: Callable[..., tuple[Iterable[Mapping[str, Any]], Any]] | None = None,
+    horizon: str = "3m",
+    include_insider: bool = True,
+    include_news: bool = True,
+) -> dict[str, Any]:
+    if not enabled or search_nordic_actor_insider is None:
+        return row
+    try:
+        result = search_nordic_actor_insider(
+            row,
+            news_provider=news_provider,
+            days_back=horizon_to_days(horizon),
+            include_insider=include_insider,
+            include_news=include_news,
+            max_newsapi_queries=1 if news_provider is not None else 0,
+        )
+    except Exception as exc:
+        row["alpha_nordic_search_error"] = str(exc)[:180]
+        return row
+
+    diagnostics = [dict(item) for item in result.get("diagnostics") or [] if isinstance(item, Mapping)]
+    if diagnostics:
+        if merge_source_diagnostics is not None:
+            row["source_diagnostics"] = merge_source_diagnostics(row.get("source_diagnostics"), diagnostics)
+        else:
+            row["source_diagnostics"] = diagnostics
+
+    articles = [dict(item) for item in result.get("articles") or [] if isinstance(item, Mapping)]
+    if articles:
+        existing = row.get("articles") if isinstance(row.get("articles"), list) else []
+        row["articles"] = (existing + articles)[:18]
+        row["news_count"] = len(row["articles"])
+        row["news_sentiment"] = simple_finance_sentiment(row["articles"])
+        row["local_news_score"] = max(_normalize_unit(row.get("local_news_score"), 0.0), _clamp(0.42 + min(len(row["articles"]), 8) * 0.04))
+        row["small_news_big_impact_score"] = max(_normalize_unit(row.get("small_news_big_impact_score"), 0.0), row["local_news_score"])
+        row["catalyst_score"] = max(_normalize_unit(row.get("catalyst_score"), 0.5), row["small_news_big_impact_score"])
+        row["alpha_news_quality"] = "ekte"
+
+    actor_evidence = [dict(item) for item in result.get("actor_evidence") or [] if isinstance(item, Mapping)]
+    if actor_evidence:
+        existing_actor = row.get("nordic_actor_evidence") if isinstance(row.get("nordic_actor_evidence"), list) else []
+        row["nordic_actor_evidence"] = (existing_actor + actor_evidence)[:12]
+        existing_bj = row.get("bjellesau_evidence") if isinstance(row.get("bjellesau_evidence"), list) else []
+        row["bjellesau_evidence"] = (existing_bj + actor_evidence)[:12]
+        row["bjellesau_signal_score"] = max(_normalize_unit(row.get("bjellesau_signal_score"), 0.0), 0.70 + min(len(actor_evidence), 4) * 0.05)
+        row["bjellesau_score"] = max(_normalize_unit(row.get("bjellesau_score"), 0.0), row["bjellesau_signal_score"])
+        row["smart_money_score"] = row["bjellesau_score"]
+
+    insider_evidence = [dict(item) for item in result.get("insider_evidence") or [] if isinstance(item, Mapping)]
+    if insider_evidence:
+        existing_nordic = row.get("nordic_insider_evidence") if isinstance(row.get("nordic_insider_evidence"), list) else []
+        row["nordic_insider_evidence"] = (existing_nordic + insider_evidence)[:12]
+        existing_ins = row.get("financial_insider_evidence") if isinstance(row.get("financial_insider_evidence"), list) else []
+        row["financial_insider_evidence"] = (existing_ins + insider_evidence)[:12]
+        row["insider_signal_score"] = max(_normalize_unit(row.get("insider_signal_score"), 0.0), 0.64 + min(len(insider_evidence), 4) * 0.04)
+        row["insider_quality_score"] = max(_normalize_unit(row.get("insider_quality_score"), 0.0), row["insider_signal_score"])
+
+    unmatched = [dict(item) for item in result.get("unmatched") or [] if isinstance(item, Mapping)]
+    if unmatched:
+        existing_unmatched = row.get("unmatched_workbench") if isinstance(row.get("unmatched_workbench"), list) else []
+        row["unmatched_workbench"] = (existing_unmatched + unmatched)[:20]
+    if result.get("errors"):
+        row["alpha_nordic_search_error"] = " | ".join(str(x) for x in result.get("errors") or [])[:180]
+    row["source_budget_note"] = (
+        f"Nordic Actor/Insider Search: {result.get('free_official_queries', 0)} gratis/offisielle sokelenker, "
+        f"{result.get('newsapi_requests_used', 0)} NewsAPI-request brukt."
+    )
     return row
 
 
@@ -599,6 +683,14 @@ def enrich_alpha_radar_row(
     results_on = include_results or "Resultater" in signals or "Resultat" in mode_text
 
     enriched = enrich_with_news(enriched, include_news=news_on, news_provider=news_provider, horizon=horizon)
+    enriched = enrich_with_nordic_actor_search(
+        enriched,
+        enabled=(news_on or insider_on),
+        news_provider=news_provider,
+        horizon=horizon,
+        include_insider=insider_on,
+        include_news=news_on,
+    )
     enriched = enrich_with_financial_evidence_search(enriched, enabled=(news_on or insider_on), news_provider=news_provider, horizon=horizon)
     enriched = enrich_with_insider_quality(enriched, include_insider=insider_on, insider_provider=insider_provider, horizon=horizon)
     enriched = enrich_with_macro_tailwind(enriched, include_macro=macro_on, commodity_snapshot=commodity_snapshot)
@@ -613,12 +705,18 @@ def enrich_alpha_radar_row(
                     enriched["source_diagnostics"] = list(diagnostics)
         except Exception:
             pass
+    if build_evidence_ledger is not None:
+        try:
+            enriched["evidence_ledger"] = build_evidence_ledger(enriched, found_by="Alpha Radar/Early Warning")
+        except Exception:
+            pass
     return enriched
 
 
 __all__ = [
     "COMMODITY_PROXIES",
     "enrich_alpha_radar_row",
+    "enrich_with_nordic_actor_search",
     "fetch_market_proxy_snapshot",
     "infer_macro_themes",
     "load_bjellesau_watchlist",
