@@ -90,8 +90,9 @@ def test_actor_registry_ui_roles_search_sort_and_privacy_static_guards():
     ui = Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
     assert "Søk i registeret" in ui
     assert "Sorter etter" in ui
-    assert "Hurtigrediger valgt aktør" in ui
-    assert "Alias-forslag" in ui
+    assert "Velg aktør å redigere" in ui
+    assert "Raske alias-forslag" in ui
     assert "Trefflogg per aktør" in ui
     assert "Lagres lokalt" in ui
     assert "En aktør kan ha flere roller" in ui
+    assert "st.data_editor" not in ui

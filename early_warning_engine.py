@@ -538,6 +538,31 @@ def _signals(factors: Mapping[str, float | None]) -> list[str]:
     return ranked[:6] or ["krever mer datagrunnlag"]
 
 
+def _has_evidence(items: Sequence[Mapping[str, Any]] | None) -> bool:
+    for item in items or []:
+        if not isinstance(item, Mapping):
+            continue
+        if any(str(item.get(key) or "").strip() for key in ("title", "url", "source", "actor")):
+            return True
+    return False
+
+
+def _hard_evidence_reject_reasons(
+    *,
+    include_news: bool,
+    include_insider: bool,
+    insider_evidence: Sequence[Mapping[str, Any]],
+    bjellesau_evidence: Sequence[Mapping[str, Any]],
+    news_evidence: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    reasons: list[str] = []
+    if include_insider and not (_has_evidence(insider_evidence) or _has_evidence(bjellesau_evidence)):
+        reasons.append("mangler konkret insider-/bjellesau-evidence")
+    if include_news and not _has_evidence(news_evidence):
+        reasons.append("mangler konkret nyhets-/katalysator-evidence")
+    return reasons
+
+
 def _score_row(
     row: Mapping[str, Any],
     *,
@@ -685,6 +710,9 @@ def run_early_warning(
 
     candidates: list[EarlyWarningCandidate] = []
     skipped: list[str] = []
+    excluded: list[dict[str, Any]] = []
+    excluded_reason_counts: dict[str, int] = {}
+    market_excluded_counts: dict[str, int] = {}
 
     def progress(completed: int, ticker: str = "", status: str = "scanner") -> None:
         if progress_callback is None:
@@ -696,12 +724,25 @@ def run_early_warning(
                 "ticker": ticker,
                 "status": status,
                 "scored_count": len(candidates),
-                "excluded_count": 0,
+                "excluded_count": len(excluded),
                 "skipped_count": len(skipped),
                 "low_data_count": 0,
             })
         except Exception:
             pass
+
+    def exclude(ticker_value: str, reasons: Sequence[str], row_value: Mapping[str, Any] | None = None) -> None:
+        clean_reasons = [str(reason) for reason in reasons if str(reason).strip()] or ["ukjent aarsak"]
+        for reason in clean_reasons:
+            excluded_reason_counts[reason] = excluded_reason_counts.get(reason, 0) + 1
+        market = str((row_value or {}).get("market") or _infer_market(ticker_value))
+        market_excluded_counts[market] = market_excluded_counts.get(market, 0) + 1
+        excluded.append({
+            "ticker": ticker_value,
+            "reasons": clean_reasons,
+            "market": market,
+        })
+        skipped.append(ticker_value)
 
     progress(0, "", "starter")
     for index, ticker in enumerate(clean, start=1):
@@ -717,6 +758,22 @@ def run_early_warning(
             continue
         row = dict(row)
         row.setdefault("ticker", ticker)
+        _combined_evidence, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(
+            row,
+            include_news=include_news,
+            include_insider=include_insider,
+        )
+        hard_rejects = _hard_evidence_reject_reasons(
+            include_news=include_news,
+            include_insider=include_insider,
+            insider_evidence=insider_evidence,
+            bjellesau_evidence=bjellesau_evidence,
+            news_evidence=news_evidence,
+        )
+        if hard_rejects:
+            exclude(ticker, hard_rejects, row)
+            progress(index, ticker, "ekskludert")
+            continue
         candidate = _score_row(
             row,
             horizon=horizon,
@@ -749,13 +806,13 @@ def run_early_warning(
         "low_data_count": 0,
         "skipped_count": len(skipped),
         "skipped_tickers": skipped[:20],
-        "excluded_count": 0,
-        "excluded_reason_counts": {},
-        "excluded_samples": [],
+        "excluded_count": len(excluded),
+        "excluded_reason_counts": dict(sorted(excluded_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "excluded_samples": excluded[:15],
         "market_scan_counts": _market_counts_from_tickers(clean),
         "market_scored_counts": _market_counts_from_candidates(candidates),
         "market_candidate_counts": _market_counts_from_candidates(ranked),
-        "market_excluded_counts": {},
+        "market_excluded_counts": dict(sorted(market_excluded_counts.items())),
         "market_balance_enabled": bool(balance_markets),
         "data_window_months": data_window_months,
         "scope_limits": {

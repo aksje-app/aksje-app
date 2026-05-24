@@ -88,6 +88,12 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
             "Vindu": f"{horizon_to_days(horizon)} dager",
         },
         {
+            "Kilde": "Open web",
+            "Status": "gratis web-sok ved Kjor",
+            "Detalj": "GDELT og Google News RSS uten lokal API-nokkel; brukes bare under eksplisitt radarkjoring",
+            "Vindu": f"{min(horizon_to_days(horizon), 90)} dager",
+        },
+        {
             "Kilde": "Aktorregister",
             "Status": "lokal matching",
             "Detalj": "aktivt register brukes til alias/person/fond/holdingselskap for insider- og bjellesau-spor",

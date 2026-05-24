@@ -102,4 +102,5 @@ def test_source_budget_and_actor_registry_editor_static_guards():
     assert "Slett valgte" in ui
     assert "Test aktør mot tekst" in ui
     assert "Unmatched Workbench" in ui
-    assert "SelectboxColumn(\"Marked\"" in ui
+    assert "Velg aktør å redigere" in ui
+    assert "Raske alias-forslag" in ui

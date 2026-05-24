@@ -26,6 +26,7 @@ def estimate_source_budget(
     newsapi_calls = planned * max_newsapi_per_ticker if news_on else 0
     financial_calls = planned * max_financial_newsapi_per_ticker if (news_on or insider_on) else 0
     free_official = planned * (5 if insider_on else 2 if news_on else 0)
+    open_web_calls = planned * (3 if (news_on or insider_on) else 0)
     actor_registry = planned if (news_on or insider_on) else 0
     cache_entries = 0
     has_newsapi_key = False
@@ -48,6 +49,8 @@ def estimate_source_budget(
         "newsapi_cache_entries": cache_entries,
         "free_official_queries": free_official,
         "search_engine_links": free_official,
+        "open_web_calls": open_web_calls,
+        "open_web_gdelt_calls": open_web_calls,
         "actor_registry_checks": actor_registry,
         "finnhub_insider_calls": planned if insider_on else 0,
         "finnhub_earnings_calls": planned if results_on else 0,
@@ -60,6 +63,7 @@ def source_budget_text(budget: Mapping[str, Any]) -> str:
     return (
         f"score {budget.get('score_calls', 0)}, "
         f"gratis/offisielle sok {budget.get('free_official_queries', 0)}, "
+        f"open web maks {budget.get('open_web_calls', budget.get('open_web_gdelt_calls', 0))}, "
         f"aktorregister {budget.get('actor_registry_checks', 0)}, "
         f"NewsAPI planlagt maks {budget.get('newsapi_total', 0)}/{budget.get('newsapi_daily_free_limit', NEWSAPI_DAILY_FREE_LIMIT)} daglig gratisgrense, "
         f"cache {budget.get('newsapi_cache_entries', 0)}, "
@@ -72,6 +76,7 @@ def source_budget_text(budget: Mapping[str, Any]) -> str:
 def source_budget_rows(budget: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [
         {"Kilde": "Gratis/offisielle sok", "Planlagt": budget.get("free_official_queries", 0), "Kost": "0 API-kall", "Bruk": "NewsWeb/OAM/FI/Nasdaq/SEC/Google-lenker"},
+        {"Kilde": "Open web", "Planlagt": budget.get("open_web_calls", budget.get("open_web_gdelt_calls", 0)), "Kost": "gratis offentlige kilder", "Bruk": "GDELT/Google News RSS for aktor-/ticker-sok nar NewsAPI ikke finner nok"},
         {"Kilde": "Aktørregister", "Planlagt": budget.get("actor_registry_checks", 0), "Kost": "0 API-kall", "Bruk": "Alias/person/holdingselskap mot ticker/marked"},
         {"Kilde": "NewsAPI", "Planlagt": budget.get("newsapi_total", 0), "Kost": f"teller mot {budget.get('newsapi_daily_free_limit', NEWSAPI_DAILY_FREE_LIMIT)}/dag", "Bruk": f"Kun shortlist/cache der mulig. Cache entries: {budget.get('newsapi_cache_entries', 0)}"},
         {"Kilde": "Finnhub insider", "Planlagt": budget.get("finnhub_insider_calls", 0), "Kost": "Finnhub-kvote", "Bruk": "USA/der API dekker"},

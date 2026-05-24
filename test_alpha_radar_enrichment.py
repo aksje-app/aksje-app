@@ -1,3 +1,4 @@
+import alpha_radar_enrichment as enrichment_mod
 from alpha_radar_enrichment import enrich_alpha_radar_row, infer_macro_themes
 
 
@@ -29,7 +30,11 @@ def fake_earnings_provider(ticker):
     return {"days_until": 21, "date": "2026-06-12", "error": None}
 
 
-def test_enrichment_adds_real_signal_proxies_without_network():
+def test_enrichment_adds_real_signal_proxies_without_network(monkeypatch):
+    monkeypatch.setattr(enrichment_mod, "match_actor_text", lambda *args, **kwargs: [])
+    monkeypatch.setattr(enrichment_mod, "record_actor_hits", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(enrichment_mod, "search_financial_evidence", lambda *args, **kwargs: {"articles": [], "actor_evidence": [], "insider_evidence": [], "diagnostics": [], "errors": []})
+    monkeypatch.setattr(enrichment_mod, "search_nordic_actor_insider", lambda *args, **kwargs: {"articles": [], "actor_evidence": [], "insider_evidence": [], "diagnostics": [], "errors": []})
     row = {
         "ticker": "HIDE.OL",
         "name": "Hidden Offshore Supplier",

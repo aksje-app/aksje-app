@@ -17,6 +17,8 @@ ROWS = {
         "score_parts": {"momentum": 0.78, "trend": 0.74, "volume": 0.72, "quality": 0.67},
         "insider_quality_score": 0.66,
         "macro_tailwind_score": 0.58,
+        "articles": [{"title": "Revision Winner contract", "source": "NewsWeb", "url": "https://example.com/rev-news"}],
+        "latest_transactions": [{"name": "Kari CEO", "relation": "CEO", "type": "BUY", "url": "https://example.com/rev-insider"}],
     },
     "PRICE.ST": {
         "ticker": "PRICE.ST",
@@ -27,6 +29,8 @@ ROWS = {
         "ret_1m": 0.12,
         "ret_3m": 0.20,
         "score_parts": {"momentum": 0.86, "trend": 0.80, "volume": 0.76},
+        "articles": [{"title": "Price Only market update", "source": "Placera", "url": "https://example.com/price-news"}],
+        "latest_transactions": [{"name": "Board Member", "relation": "Director", "type": "BUY", "url": "https://example.com/price-insider"}],
     },
 }
 

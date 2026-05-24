@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bi"
-APP_VERSION_NAME = "Actor Registry Roles Lab"
-APP_BUILD_ID = "v1863bi-actor-registry-roles-lab"
+APP_VERSION = "v18.6.3bj"
+APP_VERSION_NAME = "Actor Search Evidence Gates"
+APP_BUILD_ID = "v1863bj-actor-search-evidence-gates"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -82,6 +82,9 @@ APP_PATCH_NOTES = [
     "Aktorregisteret har søk, sortering, hurtigredigering, alias-forslag, duplikatsjekk, tillitsnivå og lokal trefflogg per aktør.",
     "Radarene tolker aktørroller strengere: bjellesau-/institusjonsroller går til bjellesau-score, insider-watch/styre/ledelse går til insider-spor.",
     "Aktorregister-panelet viser tydelig at registeret lagres lokalt, men at navn/alias kan inngå i søk når bruker trykker Kjør.",
+    "Radarene har harde bevisporter: velges insider/bjellesau og nyheter som kriterier, blir tickere uten konkrete kildespor ekskludert i stedet for å fylle topp 30.",
+    "Aktørstyrt søk kjøres først og kan bruke gratis open web via GDELT/Google News RSS som supplement til NewsAPI, slik at lokale finansnyheter og aktørnavn faktisk kan gi treff.",
+    "Aktørregisteret bruker lett tabell pluss enkelt skjema for ny/redigert aktør, med flerroller og trefflogg bak knapp for å unngå tung meny-rendering.",
 ]
 
 def get_app_version():

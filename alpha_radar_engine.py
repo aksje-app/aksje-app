@@ -1169,6 +1169,35 @@ def _fallback_row(ticker: str) -> dict[str, Any]:
     }
 
 
+def _has_evidence(items: Sequence[Mapping[str, Any]] | None) -> bool:
+    for item in items or []:
+        if not isinstance(item, Mapping):
+            continue
+        if any(str(item.get(key) or "").strip() for key in ("title", "url", "source", "actor")):
+            return True
+    return False
+
+
+def _hard_evidence_reject_reasons(
+    *,
+    active_signals: Sequence[str] | None,
+    mode: str,
+    insider_evidence: Sequence[Mapping[str, Any]],
+    bjellesau_evidence: Sequence[Mapping[str, Any]],
+    news_evidence: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    signals = {str(signal) for signal in active_signals or []}
+    mode_text = str(mode or "").lower()
+    reasons: list[str] = []
+    if ("Insider/bjellesauer" in signals or "insider" in mode_text) and not (
+        _has_evidence(insider_evidence) or _has_evidence(bjellesau_evidence)
+    ):
+        reasons.append("mangler konkret insider-/bjellesau-evidence")
+    if "Nyheter/katalysator" in signals and not _has_evidence(news_evidence):
+        reasons.append("mangler konkret nyhets-/katalysator-evidence")
+    return reasons
+
+
 def _score_candidate(
     row: Mapping[str, Any],
     *,
@@ -1435,6 +1464,23 @@ def run_alpha_radar(
         row = dict(row)
         row["data_quality"] = gate["data_quality"]
         row["warning_reasons"] = list(gate["warning_reasons"])
+
+        _combined_evidence, insider_evidence, bjellesau_evidence, news_evidence = _evidence_items(
+            row,
+            include_news=include_news,
+            include_insider=include_insider,
+        )
+        hard_rejects = _hard_evidence_reject_reasons(
+            active_signals=active_signals,
+            mode=mode,
+            insider_evidence=insider_evidence,
+            bjellesau_evidence=bjellesau_evidence,
+            news_evidence=news_evidence,
+        )
+        if hard_rejects:
+            _exclude(ticker, hard_rejects, row)
+            _progress(index, ticker, "ekskludert")
+            continue
 
         candidate = _score_candidate(
             row,

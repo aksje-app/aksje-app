@@ -71,6 +71,15 @@ def classify_ownership_item(item: Mapping[str, Any], watchlist_names: Sequence[s
         return "Insider"
     if explicit in {"bjellesau", "smart_money", "smart money", "owner", "major_owner"}:
         return "Bjellesau"
+    raw_roles = item.get("actor_roles") or item.get("matched_roles") or item.get("roles")
+    if isinstance(raw_roles, Sequence) and not isinstance(raw_roles, (str, bytes, bytearray)):
+        roles_blob = " ".join(str(role or "") for role in raw_roles).lower()
+    else:
+        roles_blob = str(raw_roles or "").lower()
+    if any(role in roles_blob for role in ("insider watch", "styremedlem", "ledelse", "board", "management")):
+        return "Insider"
+    if any(role in roles_blob for role in ("bjellesau", "institusjon", "fond", "fund", "holding")):
+        return "Bjellesau"
 
     role = _clean(item.get("relation") or item.get("role") or item.get("officerTitle")).lower()
     source = _clean(item.get("source")).lower()

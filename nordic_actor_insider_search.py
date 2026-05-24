@@ -5,6 +5,7 @@ from urllib.parse import quote_plus
 
 from actor_registry import actor_roles, load_actor_registry, match_actor_text, normalize_actor_row, record_actor_hits
 from nordic_market_sources import market_family, ticker_root
+from open_web_news_search import search_open_web_articles
 
 
 NORDIC_MARKETS = {"Norge", "Sverige", "Danmark", "Finland", "Norden"}
@@ -68,6 +69,20 @@ def _search_url(query: str) -> str:
     return "https://www.google.com/search?q=" + quote_plus(query)
 
 
+def _actor_aliases(actor: Mapping[str, Any], *, max_aliases: int = 3) -> list[str]:
+    raw = f"{actor.get('name') or ''}; {actor.get('aliases') or ''}"
+    aliases: list[str] = []
+    for part in raw.replace(",", ";").split(";"):
+        alias = _clean(part)
+        if len(alias) < 3:
+            continue
+        if alias.lower() not in {item.lower() for item in aliases}:
+            aliases.append(alias)
+        if len(aliases) >= max_aliases:
+            break
+    return aliases
+
+
 def _market(row: Mapping[str, Any]) -> str:
     ticker = _clean(row.get("ticker")).upper()
     market = _clean(row.get("market"))
@@ -89,6 +104,7 @@ def _actor_queries(row: Mapping[str, Any], *, max_actor_queries: int = 5) -> lis
         rows = load_actor_registry()
     except Exception:
         rows = []
+    actor_alias_pool: list[str] = []
     for raw in rows:
         actor = normalize_actor_row(raw)
         if not actor.get("active"):
@@ -96,11 +112,18 @@ def _actor_queries(row: Mapping[str, Any], *, max_actor_queries: int = 5) -> lis
         actor_text = f"{actor.get('name') or ''} {actor.get('aliases') or ''}"
         if not match_actor_text(actor_text, market=market, ticker=ticker, rows=[actor]):
             continue
-        alias = _clean((actor.get("aliases") or actor.get("name") or "").split(";")[0])
-        if alias:
-            queries.append(("Aktørregister", f'"{alias}" {root} {name} flagging insider eierandel'))
+        for alias in _actor_aliases(actor, max_aliases=2):
+            if alias.lower() not in {item.lower() for item in actor_alias_pool}:
+                actor_alias_pool.append(alias)
+            queries.append(("Aktørregister", f'"{alias}" "{name or root}" (flagging OR insider OR eierandel OR aksjer)'))
+            queries.append(("Aktørregister", f'"{alias}" {root} (kjøp OR kjøper OR flagging OR primærinnsider OR insynshandel)'))
+            if len(queries) >= max_actor_queries:
+                break
         if len(queries) >= max_actor_queries:
             break
+    if actor_alias_pool:
+        alias_group = " OR ".join(f'"{alias}"' for alias in actor_alias_pool[:12])
+        queries.insert(0, ("Aktørregister", f"({alias_group}) \"{name or root}\" (flagging OR insider OR eierandel OR aksjer)"))
     return queries
 
 
@@ -123,17 +146,6 @@ def build_nordic_actor_search_plan(
     root = ticker_root(ticker)
     templates = OFFICIAL_SOURCE_TERMS.get(market, [])
     plan: list[dict[str, Any]] = []
-    for source, template in templates:
-        query = template.format(root=root, name=name or root)
-        plan.append({
-            "type": "offisiell/gratis",
-            "source": source,
-            "market": market,
-            "query": query,
-            "url": _search_url(query),
-            "api_cost": 0,
-            "status": "søkelink/diagnostikk, ikke hentet automatisk",
-        })
     if include_insider or include_news:
         for source, query in _actor_queries(row, max_actor_queries=max_actor_queries):
             plan.append({
@@ -145,6 +157,17 @@ def build_nordic_actor_search_plan(
                 "api_cost": 0,
                 "status": "aktørstyrt søkelink",
             })
+    for source, template in templates:
+        query = template.format(root=root, name=name or root)
+        plan.append({
+            "type": "offisiell/gratis",
+            "source": source,
+            "market": market,
+            "query": query,
+            "url": _search_url(query),
+            "api_cost": 0,
+            "status": "søkelink/diagnostikk, ikke hentet automatisk",
+        })
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     for item in plan:
@@ -179,6 +202,8 @@ def search_nordic_actor_insider(
     include_insider: bool = True,
     include_news: bool = True,
     max_newsapi_queries: int = 1,
+    use_open_web: bool = True,
+    max_open_web_queries: int = 2,
 ) -> dict[str, Any]:
     plan = build_nordic_actor_search_plan(row, include_insider=include_insider, include_news=include_news)
     diagnostics = [
@@ -201,16 +226,47 @@ def search_nordic_actor_insider(
     market = _market(row)
     ticker = _clean(row.get("ticker")).upper()
     domains = SOURCE_DOMAINS.get(market, [])
-    if news_provider is not None and max_newsapi_queries > 0:
-        for item in plan[:max_newsapi_queries]:
-            found, error = _call_news_provider(news_provider, item["query"], days_back=days_back, domains=domains)
+    try:
+        actor_rows_for_match = load_actor_registry()
+    except Exception:
+        actor_rows_for_match = []
+    open_web_used = 0
+    executed_queries = max(max_newsapi_queries if news_provider is not None else 0, max_open_web_queries if use_open_web else 0)
+    if executed_queries > 0:
+        for index, item in enumerate(plan[:executed_queries]):
+            found: list[Mapping[str, Any]] = []
+            error = None
+            if news_provider is not None and index < max_newsapi_queries:
+                found, error = _call_news_provider(news_provider, item["query"], days_back=days_back, domains=domains)
             for diag in diagnostics:
                 if diag.get("title") == item["query"]:
-                    diag["status"] = f"NewsAPI søkt, {len(found)} treff"
-                    diag["detail"] = f"{diag.get('detail')} | NewsAPI request brukt for shortlist/cache."
+                    if news_provider is not None and index < max_newsapi_queries:
+                        diag["status"] = f"NewsAPI søkt, {len(found)} treff"
+                        diag["detail"] = f"{diag.get('detail')} | NewsAPI request brukt for shortlist/cache."
                     break
             if error:
                 errors.append(str(error)[:180])
+            if use_open_web and open_web_used < max_open_web_queries and len(found or []) < 2:
+                web_found, web_error = search_open_web_articles(
+                    item["query"],
+                    days_back=days_back,
+                    limit=4,
+                    domains=domains,
+                )
+                open_web_used += 1
+                if web_found:
+                    found = list(found or []) + web_found
+                if web_error:
+                    errors.append(web_error[:180])
+                for diag in diagnostics:
+                    if diag.get("title") == item["query"]:
+                        old = str(diag.get("detail") or "")
+                        if news_provider is not None and index < max_newsapi_queries:
+                            diag["status"] = f"NewsAPI+open web søkt, {len(found)} treff"
+                        else:
+                            diag["status"] = f"Open web søkt, {len(found)} treff"
+                        diag["detail"] = f"{old} | Open web gratis søk: {len(web_found)} treff"
+                        break
             for article in found:
                 if not isinstance(article, Mapping):
                     continue
@@ -223,7 +279,9 @@ def search_nordic_actor_insider(
                 }
                 articles.append(normalized)
                 text = _article_text(normalized)
-                actor_matches = match_actor_text(text, market=market, ticker=ticker)
+                actor_matches = match_actor_text(text, market=market, ticker=ticker, rows=actor_rows_for_match)
+                if not actor_matches:
+                    actor_matches = match_actor_text(item["query"], market=market, ticker=ticker, rows=actor_rows_for_match)
                 for actor in actor_matches:
                     actor_name = actor.get("name") or actor.get("matched_alias") or "Ukjent aktor"
                     roles = actor_roles(actor)
@@ -283,6 +341,7 @@ def search_nordic_actor_insider(
         "unmatched": unmatched[:12],
         "errors": errors[:4],
         "newsapi_requests_used": min(max_newsapi_queries, len(plan)) if news_provider is not None else 0,
+        "open_web_requests_used": open_web_used,
         "free_official_queries": len([item for item in plan if int(item.get("api_cost") or 0) == 0]),
     }
 

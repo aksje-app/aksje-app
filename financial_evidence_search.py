@@ -5,6 +5,7 @@ from urllib.parse import quote_plus
 
 from actor_registry import actor_roles, load_actor_registry, match_actor_text, record_actor_hits
 from nordic_market_sources import local_news_queries, market_family, ticker_root
+from open_web_news_search import search_open_web_articles
 
 
 FINANCIAL_DOMAINS = {
@@ -62,6 +63,20 @@ def _article_text(article: Mapping[str, Any]) -> str:
     return " ".join(str(article.get(key) or "") for key in ("title", "description", "content", "source")).lower()
 
 
+def _actor_aliases(actor: Mapping[str, Any], *, max_aliases: int = 3) -> list[str]:
+    raw = f"{actor.get('name') or ''}; {actor.get('aliases') or ''}"
+    aliases: list[str] = []
+    for part in raw.replace(",", ";").split(";"):
+        alias = _clean(part)
+        if len(alias) < 3:
+            continue
+        if alias.lower() not in {item.lower() for item in aliases}:
+            aliases.append(alias)
+        if len(aliases) >= max_aliases:
+            break
+    return aliases
+
+
 def source_domains_for_market(ticker: str, market: str | None = None) -> list[str]:
     family = market_family(ticker, market)
     return list(FINANCIAL_DOMAINS.get(family, FINANCIAL_DOMAINS.get("USA", [])))
@@ -75,7 +90,8 @@ def build_financial_search_plan(row: Mapping[str, Any], *, max_actor_queries: in
     market = _clean(row.get("market"))
     family = market_family(ticker, market)
     root = ticker_root(ticker)
-    queries = list(local_news_queries(ticker, name, market))[:4]
+    actor_queries: list[str] = []
+    generic_queries = list(local_news_queries(ticker, name, market))[:4]
 
     actor_rows = []
     try:
@@ -83,6 +99,7 @@ def build_financial_search_plan(row: Mapping[str, Any], *, max_actor_queries: in
     except Exception:
         actor_rows = []
     added_actor_queries = 0
+    actor_alias_pool: list[str] = []
     for actor in actor_rows:
         if not actor.get("active"):
             continue
@@ -92,17 +109,25 @@ def build_financial_search_plan(row: Mapping[str, Any], *, max_actor_queries: in
         matches_market = match_actor_text(actor_text, market=market, ticker=ticker, rows=[actor])
         if not matches_market:
             continue
-        first_alias = str((actor.get("aliases") or actor.get("name") or "").split(";")[0]).strip()
-        if first_alias:
-            queries.append(f"{first_alias} {name or root} flagging insider ownership")
+        for alias in _actor_aliases(actor, max_aliases=2):
+            if alias.lower() not in {item.lower() for item in actor_alias_pool}:
+                actor_alias_pool.append(alias)
+            target = name or root
+            actor_queries.append(f'"{alias}" "{target}" (flagging OR insider OR ownership OR aksjer)')
+            actor_queries.append(f'"{alias}" {root} (kjop OR kjoper OR flagging OR insider OR eierandel)')
             added_actor_queries += 1
+            if added_actor_queries >= max_actor_queries:
+                break
         if added_actor_queries >= max_actor_queries:
             break
+    if actor_alias_pool:
+        alias_group = " OR ".join(f'"{alias}"' for alias in actor_alias_pool[:12])
+        actor_queries.insert(0, f"({alias_group}) \"{name or root}\" (flagging OR insider OR ownership OR eierandel OR aksjer)")
 
     plan: list[dict[str, str]] = []
     seen: set[str] = set()
     domains = ", ".join(source_domains_for_market(ticker, market)[:4])
-    for query in queries:
+    for query in actor_queries + generic_queries:
         clean = _clean(query)
         if not clean or clean.lower() in seen:
             continue
@@ -139,6 +164,8 @@ def search_financial_evidence(
     news_provider: Callable[..., tuple[Iterable[Mapping[str, Any]], Any]] | None,
     days_back: int,
     max_queries: int = 4,
+    use_open_web: bool = True,
+    max_open_web_queries: int = 1,
 ) -> dict[str, Any]:
     plan = build_financial_search_plan(row)
     diagnostics: list[dict[str, Any]] = [
@@ -153,15 +180,6 @@ def search_financial_evidence(
         }
         for item in plan
     ]
-    if news_provider is None:
-        return {
-            "articles": [],
-            "actor_evidence": [],
-            "insider_evidence": [],
-            "diagnostics": diagnostics,
-            "errors": ["Nyhets-/finanssøk mangler provider"],
-        }
-
     ticker = _clean(row.get("ticker")).upper()
     market = _clean(row.get("market"))
     domains = source_domains_for_market(ticker, market)
@@ -170,8 +188,34 @@ def search_financial_evidence(
     insider_evidence: list[dict[str, Any]] = []
     errors: list[str] = []
     seen_urls: set[str] = set()
+    open_web_used = 0
+    try:
+        actor_rows_for_match = load_actor_registry()
+    except Exception:
+        actor_rows_for_match = []
     for item in plan[:max_queries]:
-        found, error = _call_news_provider(news_provider, item["query"], days_back=days_back, domains=domains)
+        found: list[Mapping[str, Any]] = []
+        error = None
+        if news_provider is not None:
+            found, error = _call_news_provider(news_provider, item["query"], days_back=days_back, domains=domains)
+        elif use_open_web:
+            error = "NewsAPI mangler; bruker gratis web-søk"
+        if use_open_web and open_web_used < max_open_web_queries and len(found or []) < 2:
+            web_found, web_error = search_open_web_articles(
+                item["query"],
+                days_back=days_back,
+                limit=4,
+                domains=domains,
+            )
+            open_web_used += 1
+            if web_found:
+                found = list(found or []) + web_found
+            if web_error:
+                errors.append(web_error[:180])
+            for diag in diagnostics:
+                if diag.get("title") == item["query"]:
+                    diag["detail"] = f"{diag.get('detail') or ''} | Open web gratis søk: {len(web_found)} treff"
+                    break
         for diag in diagnostics:
             if diag.get("title") == item["query"]:
                 diag["status"] = f"søkt, {len(found or [])} treff"
@@ -197,7 +241,9 @@ def search_financial_evidence(
             }
             articles.append(normalized)
             text = _article_text(normalized)
-            actor_matches = match_actor_text(text, market=market, ticker=ticker)
+            actor_matches = match_actor_text(text, market=market, ticker=ticker, rows=actor_rows_for_match)
+            if not actor_matches:
+                actor_matches = match_actor_text(item["query"], market=market, ticker=ticker, rows=actor_rows_for_match)
             for actor in actor_matches:
                 actor_name = actor.get("name") or actor.get("matched_alias") or "Ukjent aktor"
                 roles = actor_roles(actor)
@@ -235,6 +281,7 @@ def search_financial_evidence(
         "insider_evidence": insider_evidence[:8],
         "diagnostics": diagnostics,
         "errors": errors[:4],
+        "open_web_requests_used": open_web_used,
     }
 
 
