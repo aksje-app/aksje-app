@@ -33,9 +33,11 @@ early = Path("early_warning_engine.py").read_text(encoding="utf-8", errors="igno
 app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
+nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
+nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.3bf"' in version
-assert "NBIM Priority Views" in version
+assert 'APP_VERSION = "v18.6.3bg"' in version
+assert "NBIM Signal Lab" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -113,6 +115,14 @@ assert "universkilden har bare" in ui
 assert "Enkeltmarked bruker egen grense" in ui
 assert "alpha_news_quality" in engine
 assert "Valgene er endret siden siste" in ui
+assert "Venter på filer" in nbim_ui
+assert "Matcher tickere / bygger overlay" in nbim_ui
+assert "NBIM-watchlist" in nbim_ui
+assert "Akkumulering svakhet" in nbim_ui
+assert "Radar-overlap" in nbim_ui
+assert "build_nbim_watchlist" in nbim_engine
+assert "nbim_conviction_score" in nbim_engine
+assert "market_value_nok_change_pct" in nbim_engine
 assert "alpha_radar_result_to_csv" in ui + results
 assert "alpha_radar_result_to_print_html" in ui + results
 assert "Bruk som aktivt Analyseunivers" in ui

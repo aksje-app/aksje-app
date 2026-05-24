@@ -177,6 +177,33 @@ def _comparison_value(row: Mapping[str, Any]) -> tuple[str, float | None]:
     return "missing", None
 
 
+def _pct_delta(previous: Any, current: Any, *, sold_out: bool = False) -> float | None:
+    prev_value = parse_number(previous)
+    cur_value = parse_number(current)
+    if sold_out and prev_value not in {None, 0}:
+        return -100.0
+    if prev_value in {None, 0} or cur_value is None:
+        return None
+    return round(((cur_value - float(prev_value)) / abs(float(prev_value))) * 100.0, 2)
+
+
+def _with_metric_deltas(
+    row: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+    current: Mapping[str, Any] | None,
+    *,
+    sold_out: bool = False,
+) -> dict[str, Any]:
+    out = dict(row)
+    for key in ("shares", "ownership_pct", "voting_pct", "market_value_nok", "market_value_usd"):
+        prev_value = parse_number((previous or {}).get(key))
+        cur_value = None if sold_out else parse_number((current or {}).get(key))
+        out[f"previous_{key}"] = prev_value
+        out[f"current_{key}"] = cur_value
+        out[f"{key}_change_pct"] = _pct_delta(prev_value, cur_value, sold_out=sold_out)
+    return out
+
+
 def compare_nbim_holdings(previous: Sequence[Mapping[str, Any]], current: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     prev_map = {_holding_key(row): dict(row) for row in previous if _holding_key(row) != "name:"}
     cur_map = {_holding_key(row): dict(row) for row in current if _holding_key(row) != "name:"}
@@ -200,7 +227,7 @@ def compare_nbim_holdings(previous: Sequence[Mapping[str, Any]], current: Sequen
                 change_type = "Redusert"
             else:
                 change_type = "Uendret"
-        changes.append({
+        changes.append(_with_metric_deltas({
             **cur,
             "change_type": change_type,
             "change_metric": metric,
@@ -208,12 +235,12 @@ def compare_nbim_holdings(previous: Sequence[Mapping[str, Any]], current: Sequen
             "previous_value": prev_value,
             "current_value": cur_value,
             "detected_at": now,
-        })
+        }, prev, cur))
     for key, prev in prev_map.items():
         if key in cur_map:
             continue
         metric, prev_value = _comparison_value(prev)
-        changes.append({
+        changes.append(_with_metric_deltas({
             **prev,
             "change_type": "Solgt ut",
             "change_metric": metric,
@@ -221,7 +248,7 @@ def compare_nbim_holdings(previous: Sequence[Mapping[str, Any]], current: Sequen
             "previous_value": prev_value,
             "current_value": None,
             "detected_at": now,
-        })
+        }, prev, None, sold_out=True))
     priority = {"Ny": 0, "Okt": 1, "Redusert": 2, "Solgt ut": 3, "Uendret": 4}
     return sorted(changes, key=lambda item: (priority.get(str(item.get("change_type")), 9), -abs(float(item.get("change_pct") or 0.0))))
 
@@ -260,7 +287,30 @@ def build_ticker_alias_index(ticker_aliases: Mapping[str, Sequence[str]] | None 
     return index
 
 
-def match_nbim_holding_to_ticker(row: Mapping[str, Any], alias_index: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+def build_ticker_alias_lookup(ticker_aliases: Mapping[str, Sequence[str]] | None = None) -> dict[str, Any]:
+    entries = build_ticker_alias_index(ticker_aliases)
+    exact: dict[str, list[dict[str, Any]]] = {}
+    token: dict[str, list[dict[str, Any]]] = {}
+    first_token: dict[str, list[dict[str, Any]]] = {}
+    for item in entries:
+        alias = _clean(item.get("normalized"))
+        if not alias:
+            continue
+        exact.setdefault(alias, []).append(dict(item))
+        tokens = alias.split()
+        if len(tokens) == 1:
+            token.setdefault(alias, []).append(dict(item))
+        else:
+            first_token.setdefault(tokens[0], []).append(dict(item))
+    return {
+        "entries": entries,
+        "exact": exact,
+        "token": token,
+        "first_token": first_token,
+    }
+
+
+def match_nbim_holding_to_ticker(row: Mapping[str, Any], alias_index: Sequence[Mapping[str, Any]] | Mapping[str, Any] | None = None) -> dict[str, Any]:
     explicit = _clean(row.get("ticker")).upper()
     if explicit:
         return {"ticker": explicit, "quality": "ticker", "alias": explicit}
@@ -270,7 +320,29 @@ def match_nbim_holding_to_ticker(row: Mapping[str, Any], alias_index: Sequence[M
     suffixes = _country_suffix(row.get("country"))
     candidates = []
     generic_single_aliases = {"investor", "capital", "holding", "holdings", "group", "bank", "energy", "de"}
-    for item in alias_index or build_ticker_alias_index():
+    name_tokens = name.split()
+    if isinstance(alias_index, Mapping) and "entries" in alias_index:
+        candidate_items: list[Mapping[str, Any]] = []
+        seen_items: set[tuple[str, str]] = set()
+        for item in alias_index.get("exact", {}).get(name, []):
+            key = (_clean(item.get("ticker")), _clean(item.get("normalized")))
+            if key not in seen_items:
+                seen_items.add(key)
+                candidate_items.append(item)
+        for token_value in name_tokens:
+            for item in alias_index.get("token", {}).get(token_value, []):
+                key = (_clean(item.get("ticker")), _clean(item.get("normalized")))
+                if key not in seen_items:
+                    seen_items.add(key)
+                    candidate_items.append(item)
+            for item in alias_index.get("first_token", {}).get(token_value, []):
+                key = (_clean(item.get("ticker")), _clean(item.get("normalized")))
+                if key not in seen_items:
+                    seen_items.add(key)
+                    candidate_items.append(item)
+    else:
+        candidate_items = list(alias_index or build_ticker_alias_index())
+    for item in candidate_items:
         ticker = _clean(item.get("ticker")).upper()
         if suffixes and ticker.endswith(tuple(suffixes)) is False:
             continue
@@ -278,7 +350,6 @@ def match_nbim_holding_to_ticker(row: Mapping[str, Any], alias_index: Sequence[M
         if not alias:
             continue
         alias_tokens = alias.split()
-        name_tokens = name.split()
         score = 0
         if name == alias:
             score = 100
@@ -406,6 +477,79 @@ def score_nbim_priority(change: Mapping[str, Any], match: Mapping[str, Any] | No
     return round(max(0.0, min(100.0, base + size + delta + owner_bonus + match_bonus)), 1)
 
 
+def _change_delta(row: Mapping[str, Any], key: str) -> float | None:
+    return parse_number(row.get(f"{key}_change_pct"))
+
+
+def _previous_market_value_nok(row: Mapping[str, Any]) -> float:
+    return parse_number(row.get("previous_market_value_nok")) or _market_value_nok(row)
+
+
+def nbim_signal_tags(change: Mapping[str, Any]) -> list[str]:
+    tags: list[str] = []
+    change_type = _clean(change.get("change_type"))
+    market_value = _market_value_nok(change)
+    previous_value = _previous_market_value_nok(change)
+    ownership = parse_number(change.get("ownership_pct")) or 0.0
+    voting = parse_number(change.get("voting_pct")) or 0.0
+    ownership_delta = _change_delta(change, "ownership_pct")
+    market_value_delta = _change_delta(change, "market_value_nok")
+    voting_gap = abs(voting - ownership) if voting or ownership else 0.0
+
+    if change_type == "Ny":
+        tags.append("Nytt kjop")
+    elif change_type == "Okt":
+        tags.append("Okt eierandel")
+    elif change_type == "Redusert":
+        tags.append("Redusert")
+    elif change_type == "Solgt ut":
+        tags.append("Solgt ut")
+
+    if market_value >= 10_000_000_000:
+        tags.append("Stor beholdning")
+    elif market_value >= 1_000_000_000:
+        tags.append("Milliardposisjon")
+    if change_type == "Ny" and market_value >= 1_000_000_000:
+        tags.append("Stort nytt kjop")
+    if ownership_delta is not None and ownership_delta > 0 and market_value_delta is not None and market_value_delta < 0:
+        tags.append("Akkumulering i svakhet")
+    if change_type == "Redusert" and market_value >= 1_000_000_000:
+        tags.append("Redusert med restverdi")
+    if change_type == "Solgt ut" and previous_value >= 1_000_000_000:
+        tags.append("Stor exit")
+    if ownership >= 5.0 or voting >= 5.0:
+        tags.append("Hoy eier/stemmeandel")
+    elif ownership >= 3.0 or voting >= 3.0:
+        tags.append("Betydelig eierandel")
+    if voting_gap >= 0.5:
+        tags.append("Stemmeavvik")
+    if _clean(change.get("matched_ticker")):
+        tags.append("Ticker-match")
+    if change.get("radar_overlap"):
+        tags.append("Radar-overlap")
+    return list(dict.fromkeys(tags))
+
+
+def score_nbim_conviction(change: Mapping[str, Any]) -> float:
+    score = float(change.get("nbim_priority_score") or 0.0)
+    weights = {
+        "Nytt kjop": 4.0,
+        "Okt eierandel": 4.0,
+        "Stort nytt kjop": 8.0,
+        "Akkumulering i svakhet": 10.0,
+        "Redusert med restverdi": 5.0,
+        "Stor exit": 8.0,
+        "Hoy eier/stemmeandel": 8.0,
+        "Betydelig eierandel": 4.0,
+        "Stemmeavvik": 3.0,
+        "Ticker-match": 4.0,
+        "Radar-overlap": 12.0,
+    }
+    for tag in change.get("nbim_signals") or nbim_signal_tags(change):
+        score += weights.get(str(tag), 0.0)
+    return round(max(0.0, min(100.0, score)), 1)
+
+
 def _priority_reason(change: Mapping[str, Any], match: Mapping[str, Any] | None = None) -> str:
     parts = []
     change_type = _clean(change.get("change_type")) or "Holding"
@@ -431,8 +575,10 @@ def _priority_reason(change: Mapping[str, Any], match: Mapping[str, Any] | None 
 def annotate_nbim_changes(
     changes: Sequence[Mapping[str, Any]],
     ticker_aliases: Mapping[str, Sequence[str]] | None = None,
+    radar_tickers: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
-    alias_index = build_ticker_alias_index(ticker_aliases)
+    alias_index = build_ticker_alias_lookup(ticker_aliases)
+    radar_lookup = {str(ticker or "").strip().upper() for ticker in (radar_tickers or []) if str(ticker or "").strip()}
     annotated: list[dict[str, Any]] = []
     for row in changes:
         item = dict(row)
@@ -442,8 +588,28 @@ def annotate_nbim_changes(
         item["ticker_match_alias"] = match.get("alias") or ""
         item["ticker_match_score"] = match.get("score")
         item["nbim_priority_score"] = score_nbim_priority(item, match)
+        item["radar_overlap"] = bool(item["matched_ticker"] and item["matched_ticker"] in radar_lookup)
+        item["nbim_signals"] = nbim_signal_tags(item)
+        item["nbim_conviction_score"] = score_nbim_conviction(item)
         item["nbim_priority_reason"] = _priority_reason(item, match)
+        if item["nbim_signals"]:
+            item["nbim_priority_reason"] += "; signaler: " + ", ".join(item["nbim_signals"][:6])
         annotated.append(item)
+    ticker_change_types: dict[str, set[str]] = {}
+    for item in annotated:
+        ticker = _clean(item.get("matched_ticker")).upper()
+        if not ticker:
+            continue
+        ticker_change_types.setdefault(ticker, set()).add(_clean(item.get("change_type")))
+    for item in annotated:
+        ticker = _clean(item.get("matched_ticker")).upper()
+        types = ticker_change_types.get(ticker) or set()
+        if ticker and "Solgt ut" in types and any(change_type != "Solgt ut" for change_type in types):
+            signals = list(item.get("nbim_signals") or [])
+            if "Mulig navnebytte/dobbeltmatch" not in signals:
+                signals.append("Mulig navnebytte/dobbeltmatch")
+            item["nbim_signals"] = signals
+            item["nbim_priority_reason"] += "; merk: samme ticker har baade aktiv og solgt-ut rad"
     return annotated
 
 
@@ -455,17 +621,57 @@ def build_nbim_priority_views(changes: Sequence[Mapping[str, Any]], limit: int =
 
     active = [row for row in annotated if row.get("change_type") != "Solgt ut"]
     reduced = [row for row in annotated if row.get("change_type") == "Redusert"]
+    unmatched = [row for row in annotated if not row.get("matched_ticker")]
     views = {
-        "Topp signaler": top(annotated, lambda row: float(row.get("nbim_priority_score") or 0.0)),
+        "Topp signaler": top(annotated, lambda row: float(row.get("nbim_conviction_score") or row.get("nbim_priority_score") or 0.0)),
+        "Overbevisning": top(annotated, lambda row: float(row.get("nbim_conviction_score") or 0.0)),
         "Storste beholdninger": top(active, lambda row: _market_value_nok(row)),
         "Storste nye kjop": top([row for row in annotated if row.get("change_type") == "Ny"], lambda row: _market_value_nok(row)),
-        "Storste okninger": top([row for row in annotated if row.get("change_type") == "Okt"], lambda row: (float(row.get("nbim_priority_score") or 0.0), _market_value_nok(row))),
+        "Storste okninger": top([row for row in annotated if row.get("change_type") == "Okt"], lambda row: (float(row.get("nbim_conviction_score") or 0.0), _market_value_nok(row))),
+        "Akkumulering svakhet": top([row for row in annotated if "Akkumulering i svakhet" in (row.get("nbim_signals") or [])], lambda row: float(row.get("nbim_conviction_score") or 0.0)),
         "Redusert med restverdi": top([row for row in reduced if _market_value_nok(row) > 0], lambda row: _market_value_nok(row)),
         "Solgt ut": top([row for row in annotated if row.get("change_type") == "Solgt ut"], lambda row: _market_value_nok(row)),
-        "Ticker-match": top([row for row in annotated if row.get("matched_ticker")], lambda row: float(row.get("nbim_priority_score") or 0.0)),
+        "Hoy eierandel": top([row for row in annotated if "Hoy eier/stemmeandel" in (row.get("nbim_signals") or []) or "Betydelig eierandel" in (row.get("nbim_signals") or [])], lambda row: float(row.get("nbim_conviction_score") or 0.0)),
+        "Stemmerett-avvik": top([row for row in annotated if "Stemmeavvik" in (row.get("nbim_signals") or [])], lambda row: float(row.get("nbim_conviction_score") or 0.0)),
+        "Unmatched verdi": top(unmatched, lambda row: _market_value_nok(row)),
+        "Radar-overlap": top([row for row in annotated if row.get("radar_overlap")], lambda row: float(row.get("nbim_conviction_score") or 0.0)),
+        "Ticker-match": top([row for row in annotated if row.get("matched_ticker")], lambda row: float(row.get("nbim_conviction_score") or 0.0)),
+        "NBIM-watchlist": build_nbim_watchlist(annotated, limit=limit),
         "Radata": [dict(row) for row in annotated[:limit]],
     }
     return views
+
+
+def build_nbim_watchlist(changes: Sequence[Mapping[str, Any]], limit: int = 50) -> list[dict[str, Any]]:
+    annotated = annotate_nbim_changes(changes) if changes and "nbim_signals" not in changes[0] else [dict(row) for row in changes]
+    watch_tags = {
+        "Stort nytt kjop",
+        "Akkumulering i svakhet",
+        "Redusert med restverdi",
+        "Stor exit",
+        "Hoy eier/stemmeandel",
+        "Radar-overlap",
+    }
+    selected = []
+    for row in annotated:
+        signals = set(str(tag) for tag in row.get("nbim_signals") or [])
+        if signals & watch_tags or float(row.get("nbim_conviction_score") or 0.0) >= 78.0:
+            item = dict(row)
+            item["watchlist_reason"] = ", ".join([tag for tag in item.get("nbim_signals") or [] if tag in watch_tags]) or item.get("nbim_priority_reason") or "-"
+            selected.append(item)
+    if not selected:
+        selected = sorted(annotated, key=lambda row: float(row.get("nbim_conviction_score") or 0.0), reverse=True)[:limit]
+    seen: set[str] = set()
+    unique = []
+    for row in sorted(selected, key=lambda item: float(item.get("nbim_conviction_score") or 0.0), reverse=True):
+        key = _clean(row.get("matched_ticker") or row.get("ticker") or row.get("isin") or row.get("name")).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(dict(row))
+        if len(unique) >= limit:
+            break
+    return unique
 
 
 def nbim_changes_to_display_rows(changes: Sequence[Mapping[str, Any]], limit: int | None = None) -> list[dict[str, Any]]:
@@ -474,15 +680,19 @@ def nbim_changes_to_display_rows(changes: Sequence[Mapping[str, Any]], limit: in
     for row in rows:
         metric = row.get("change_metric")
         display.append({
-            "Score": row.get("nbim_priority_score"),
+            "Score": row.get("nbim_conviction_score") or row.get("nbim_priority_score"),
+            "Prioritet": row.get("nbim_priority_score"),
             "Ticker": row.get("matched_ticker") or row.get("ticker") or "",
             "Ticker-match": row.get("ticker_match_quality") or "",
             "Selskap": row.get("name") or "",
             "Land": row.get("country") or "",
             "Region": row.get("region") or "",
             "Sektor": row.get("sector") or "",
+            "Signaler": ", ".join(str(tag) for tag in row.get("nbim_signals") or []),
             "Endring": row.get("change_type") or "",
             "Endring %": format_nbim_percent(row.get("change_pct")),
+            "Eierandel endr.": format_nbim_percent(row.get("ownership_pct_change_pct")),
+            "Markedsverdi endr.": format_nbim_percent(row.get("market_value_nok_change_pct")),
             "Markedsverdi NOK": format_nbim_amount(row.get("market_value_nok"), "NOK"),
             "Markedsverdi USD": format_nbim_amount(row.get("market_value_usd"), "USD"),
             "Eierandel": format_nbim_percent(row.get("ownership_pct")),
@@ -507,6 +717,10 @@ def nbim_group_summary(changes: Sequence[Mapping[str, Any]], group_key: str) -> 
             "Redusert": 0,
             "Solgt ut": 0,
             "Markedsverdi NOK": 0.0,
+            "Ny verdi NOK": 0.0,
+            "Okt verdi NOK": 0.0,
+            "Redusert restverdi NOK": 0.0,
+            "Solgt ut tidligere NOK": 0.0,
             "Score": 0.0,
         })
         change_type = _clean(row.get("change_type"))
@@ -515,11 +729,25 @@ def nbim_group_summary(changes: Sequence[Mapping[str, Any]], group_key: str) -> 
             bucket[change_type] += 1
         if change_type != "Solgt ut":
             bucket["Markedsverdi NOK"] += _market_value_nok(row)
-        bucket["Score"] = max(float(bucket["Score"]), float(row.get("nbim_priority_score") or 0.0))
+        if change_type == "Ny":
+            bucket["Ny verdi NOK"] += _market_value_nok(row)
+        elif change_type == "Okt":
+            bucket["Okt verdi NOK"] += _market_value_nok(row)
+        elif change_type == "Redusert":
+            bucket["Redusert restverdi NOK"] += _market_value_nok(row)
+        elif change_type == "Solgt ut":
+            bucket["Solgt ut tidligere NOK"] += _previous_market_value_nok(row)
+        bucket["Score"] = max(float(bucket["Score"]), float(row.get("nbim_conviction_score") or row.get("nbim_priority_score") or 0.0))
     out = []
     for bucket in groups.values():
         item = dict(bucket)
+        net_bias = float(bucket["Ny"]) + float(bucket["Okt"]) - float(bucket["Redusert"]) - float(bucket["Solgt ut"])
+        item["Rotasjon"] = "Inn" if net_bias > 0 else "Ut" if net_bias < 0 else "Blandet"
         item["Markedsverdi NOK"] = format_nbim_amount(item["Markedsverdi NOK"], "NOK")
+        item["Ny verdi NOK"] = format_nbim_amount(item["Ny verdi NOK"], "NOK")
+        item["Okt verdi NOK"] = format_nbim_amount(item["Okt verdi NOK"], "NOK")
+        item["Redusert restverdi NOK"] = format_nbim_amount(item["Redusert restverdi NOK"], "NOK")
+        item["Solgt ut tidligere NOK"] = format_nbim_amount(item["Solgt ut tidligere NOK"], "NOK")
         item["Score"] = round(float(item["Score"]), 1)
         out.append(item)
     return sorted(out, key=lambda row: (float(row.get("Score") or 0.0), int(row.get("Rader") or 0)), reverse=True)
@@ -530,9 +758,17 @@ def build_nbim_overlay(
     ticker_aliases: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     overlay: dict[str, dict[str, Any]] = {}
-    alias_index = build_ticker_alias_index(ticker_aliases)
+    alias_index = build_ticker_alias_lookup(ticker_aliases)
     for change in changes:
-        match = match_nbim_holding_to_ticker(change, alias_index)
+        if _clean(change.get("matched_ticker")):
+            match = {
+                "ticker": _clean(change.get("matched_ticker")).upper(),
+                "quality": change.get("ticker_match_quality") or "forhandsmatchet",
+                "alias": change.get("ticker_match_alias") or change.get("matched_ticker"),
+                "score": change.get("ticker_match_score") or 0,
+            }
+        else:
+            match = match_nbim_holding_to_ticker(change, alias_index)
         ticker = _clean(match.get("ticker")).upper()
         if not ticker:
             continue
@@ -544,15 +780,30 @@ def build_nbim_overlay(
             f"eierandel {change.get('ownership_pct') if change.get('ownership_pct') is not None else '-'}%."
         )
         existing = overlay.get(ticker)
-        if existing and float(existing.get("nbim_ticker_match_score") or 0.0) > float(match.get("score") or 0.0):
-            continue
+        if existing:
+            existing_type = _clean(existing.get("nbim_change_type"))
+            current_type = _clean(change.get("change_type"))
+            if existing_type != "Solgt ut" and current_type == "Solgt ut":
+                continue
+            if existing_type == "Solgt ut" and current_type != "Solgt ut":
+                pass
+            elif float(existing.get("nbim_conviction_score") or existing.get("nbim_signal_score") or 0.0) > float(change.get("nbim_conviction_score") or score):
+                continue
+            elif float(existing.get("nbim_ticker_match_score") or 0.0) > float(match.get("score") or 0.0):
+                continue
         overlay[ticker] = {
             "nbim_signal_score": round(score, 1),
+            "nbim_priority_score": change.get("nbim_priority_score"),
+            "nbim_conviction_score": change.get("nbim_conviction_score"),
+            "nbim_signals": list(change.get("nbim_signals") or []),
             "nbim_change_type": change.get("change_type"),
             "nbim_change_pct": change.get("change_pct"),
+            "nbim_ownership_change_pct": change.get("ownership_pct_change_pct"),
+            "nbim_market_value_change_pct": change.get("market_value_nok_change_pct"),
             "nbim_market_value_nok": change.get("market_value_nok"),
             "nbim_market_value_usd": change.get("market_value_usd"),
             "nbim_ownership_pct": change.get("ownership_pct"),
+            "nbim_radar_overlap": bool(change.get("radar_overlap")),
             "nbim_ticker_match_quality": match.get("quality"),
             "nbim_ticker_match_alias": match.get("alias"),
             "nbim_ticker_match_score": match.get("score"),
@@ -613,7 +864,9 @@ __all__ = [
     "apply_nbim_overlay",
     "build_nbim_overlay",
     "build_nbim_priority_views",
+    "build_nbim_watchlist",
     "build_ticker_alias_index",
+    "build_ticker_alias_lookup",
     "compare_nbim_holdings",
     "format_nbim_amount",
     "format_nbim_metric_value",
@@ -630,5 +883,7 @@ __all__ = [
     "read_nbim_csv_bytes",
     "save_nbim_overlay",
     "score_nbim_change",
+    "score_nbim_conviction",
     "score_nbim_priority",
+    "nbim_signal_tags",
 ]

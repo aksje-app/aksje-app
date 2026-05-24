@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bf"
-APP_VERSION_NAME = "NBIM Priority Views"
-APP_BUILD_ID = "v1863bf-nbim-priority-views"
+APP_VERSION = "v18.6.3bg"
+APP_VERSION_NAME = "NBIM Signal Lab"
+APP_BUILD_ID = "v1863bg-nbim-signal-lab"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -71,6 +71,9 @@ APP_PATCH_NOTES = [
     "NBIM, finanssok, aktorregister og konkrete insider-/bjellesau-spor sendes videre til Alpha Radar, Early Warning, rapporter og Beslutningsgrunnlag.",
     "Oljefond Radar har prioriterte visninger for topp signaler, storste beholdninger, nye kjop, okninger, reduksjoner med restverdi, solgt ut, ticker-match og land/sektor.",
     "NBIM-tabeller viser markedsverdi med punkt som tusenskille og enhet, og previous/current value oversettes per metric til prosent, aksjer eller valuta.",
+    "Oljefond Radar har progress-status fra filventing til ferdig analyse, uten nye nettverkskall eller meny-tungkjøring.",
+    "NBIM Signal Lab finner overbevisning, akkumulering i svakhet, hoy eierandel, stemmerett-avvik, unmatched verdi, radar-overlap og watchlist-kandidater.",
+    "NBIM land-/sektorrotasjon viser inn/ut/blandet, ny verdi, okt verdi, redusert restverdi og tidligere solgt-ut verdi.",
 ]
 
 def get_app_version():

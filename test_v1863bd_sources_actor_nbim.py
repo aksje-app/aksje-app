@@ -3,11 +3,14 @@ from decision_engine import build_decision_case
 from early_warning_engine import run_early_warning
 from financial_evidence_search import build_financial_search_plan, search_financial_evidence
 from nbim_radar import (
+    annotate_nbim_changes,
     build_nbim_overlay,
     build_nbim_priority_views,
+    build_nbim_watchlist,
     compare_nbim_holdings,
     format_nbim_amount,
     nbim_changes_to_display_rows,
+    nbim_group_summary,
     parse_number,
     read_nbim_csv_bytes,
 )
@@ -143,6 +146,38 @@ def test_nbim_matching_ignores_two_letter_ticker_root_noise():
     overlay = build_nbim_overlay(compare_nbim_holdings([], rows))
 
     assert "DE" not in overlay
+
+
+def test_nbim_advanced_signals_watchlist_overlap_and_us_alias():
+    previous = [
+        {"name": "Weak Accumulator Inc", "country": "United States", "ownership_pct": 1.0, "voting_pct": 1.0, "market_value_nok": 2_000_000_000},
+        {"name": "Caterpillar Inc", "country": "United States", "ownership_pct": 1.2, "voting_pct": 1.2, "market_value_nok": 24_000_000_000},
+        {"name": "Schlumberger NV", "country": "United States", "ownership_pct": 1.3, "voting_pct": 1.3, "market_value_nok": 8_200_000_000},
+    ]
+    current = [
+        {"name": "Weak Accumulator Inc", "country": "United States", "ownership_pct": 1.5, "voting_pct": 2.3, "market_value_nok": 1_500_000_000},
+        {"name": "SLB Ltd", "country": "United States", "ownership_pct": 1.39, "voting_pct": 1.39, "market_value_nok": 8_045_615_678},
+    ]
+
+    changes = compare_nbim_holdings(previous, current)
+    annotated = annotate_nbim_changes(changes, radar_tickers=["SLB"])
+    views = build_nbim_priority_views(annotated, limit=10)
+    watchlist = build_nbim_watchlist(annotated, limit=10)
+    groups = nbim_group_summary(annotated, "country")
+    slb = next(row for row in annotated if row.get("matched_ticker") == "SLB")
+    weak = next(row for row in annotated if row.get("name") == "Weak Accumulator Inc")
+
+    assert slb["radar_overlap"] is True
+    assert "Radar-overlap" in slb["nbim_signals"]
+    assert "Mulig navnebytte/dobbeltmatch" in slb["nbim_signals"]
+    assert "Akkumulering i svakhet" in weak["nbim_signals"]
+    assert "Stemmeavvik" in weak["nbim_signals"]
+    assert any(row.get("change_type") == "Solgt ut" and row.get("matched_ticker") == "CAT" for row in annotated)
+    overlay = build_nbim_overlay(annotated)
+    assert overlay["SLB"]["nbim_change_type"] == "Ny"
+    assert views["Unmatched verdi"]
+    assert watchlist
+    assert groups[0]["Rotasjon"] in {"Inn", "Ut", "Blandet"}
 
 
 def test_actor_registry_csv_roundtrip_and_financial_search_plan():
