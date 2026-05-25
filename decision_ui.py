@@ -31,6 +31,110 @@ def _latest_radar_result_from_state() -> Mapping[str, Any] | None:
     return latest
 
 
+def _decision_rows_from_pipeline() -> list[dict[str, Any]]:
+    try:
+        from datetime import datetime
+        from services.analysis_pipeline_service import get_analysis_pipeline_service
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        pipeline = get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        )
+        package = pipeline.load_stage_input("decision_support") or pipeline.load_stage_output("auto_test_lab")
+        rows: list[dict[str, Any]] = []
+        for item in package.get("candidates") or []:
+            if not isinstance(item, Mapping):
+                continue
+            raw = item.get("raw") if isinstance(item.get("raw"), Mapping) else {}
+            row = dict(raw or item)
+            row["ticker"] = str(row.get("ticker") or item.get("ticker") or "").strip().upper()
+            if not row["ticker"]:
+                continue
+            row["name"] = row.get("name") or item.get("name") or row["ticker"]
+            row["decision_source"] = item.get("source") or package.get("source_label") or "Analyseflyt"
+            row["source_stage"] = package.get("origin_stage_id") or package.get("stage_id") or "analysis_pipeline"
+            row["source_result_created_at"] = package.get("generated_at")
+            row["queued_at"] = datetime.now().isoformat(timespec="seconds")
+            rows.append(row)
+        return rows
+    except Exception:
+        return []
+
+
+def _save_decision_cases_to_pipeline(cases: list[dict[str, Any]], *, mode: str, queue_size: int) -> None:
+    try:
+        from services.analysis_pipeline_service import get_analysis_pipeline_service
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        ).save_stage_output(
+            "decision_support",
+            cases,
+            source_label="Beslutningsgrunnlag",
+            context={"queue": queue_size, "mode": mode},
+            max_items=len(cases) or queue_size,
+            auto_handoff=True,
+        )
+    except Exception:
+        pass
+
+
+def _render_decision_pipeline_bar_v1863bw() -> None:
+    try:
+        from services.analysis_pipeline_service import (
+            PIPELINE_PENDING_NAV_KEY,
+            get_analysis_pipeline_service,
+            stage_wizard_info,
+        )
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        pipeline = get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        )
+        info = stage_wizard_info("decision_support")
+        inp = pipeline.load_stage_input("decision_support")
+        out = pipeline.load_stage_output("decision_support")
+    except Exception as exc:
+        st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
+        return
+
+    st.markdown(
+        f"""
+        <div style="border:1px solid rgba(56,189,248,.52);border-radius:8px;padding:.62rem .72rem;margin:.4rem 0;background:rgba(15,23,42,.72);">
+          <div style="display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;">
+            <b>{html.escape(str(info.get('wizard_label') or 'Test 8 av 10: Beslutningsgrunnlag'))}</b>
+            <span>{int(inp.get('candidate_count') or 0)} inn | {int(out.get('candidate_count') or 0)} ut</span>
+            <span>Auto-kjoring: av</span>
+          </div>
+          <div style="font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;">Hent kandidatpakken, vurder koen, og send ferdig beslutningsgrunnlag videre til portefoljeanalysen.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    disabled = not bool(out)
+    if st.button("Send output til Test 9 og åpne Porteføljeanalyse", key="decision_pipeline_next_v1863bw", use_container_width=True, disabled=disabled):
+        result = pipeline.handoff_latest_output_to_next("decision_support")
+        if not result.ok:
+            st.warning(result.message)
+            return
+        target = stage_wizard_info("portfolio_analysis")
+        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+            "stage_id": "portfolio_analysis",
+            "group": target.get("group") or "",
+            "panel": target.get("panel_label") or "",
+            "defaults": dict(target.get("defaults") or {}),
+            "auto_run": False,
+        }
+        st.rerun()
+
+
 def _case_card(case: Mapping[str, Any]) -> str:
     decision = str(case.get("decision") or "-")
     tone = {
@@ -62,10 +166,11 @@ def _case_card(case: Mapping[str, Any]) -> str:
 def render_decision_support_panel() -> None:
     st.subheader("Beslutningsgrunnlag")
     st.caption("Tar funn fra Alpha Radar/Early Warning videre til manuell kjop/vent/unnga-vurdering. Ingen automatisk handel.")
+    _render_decision_pipeline_bar_v1863bw()
 
     queue = [dict(row) for row in st.session_state.get(DECISION_QUEUE_KEY, []) if isinstance(row, Mapping)]
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         latest = _latest_radar_result_from_state()
         if st.button("Hent siste radarfunn", key="decision_support_import_latest_v1863ba", use_container_width=True, disabled=latest is None):
@@ -74,10 +179,18 @@ def render_decision_support_panel() -> None:
             st.session_state[DECISION_QUEUE_KEY] = queue
             st.success(f"Hentet {len(rows)} radarfunn til beslutningsgrunnlag.")
     with c2:
-        if st.button("Vurder hele køen", key="decision_support_run_v1863ba", use_container_width=True, disabled=not queue):
-            st.session_state[DECISION_CASES_KEY] = build_decision_cases(queue)
-            st.success(f"Vurdert {len(queue)} kandidater.")
+        pipeline_rows = _decision_rows_from_pipeline()
+        if st.button("Hent fra analyseflyt", key="decision_support_import_pipeline_v1863bv", use_container_width=True, disabled=not pipeline_rows):
+            queue = add_decision_rows(queue, pipeline_rows)
+            st.session_state[DECISION_QUEUE_KEY] = queue
+            st.success(f"Hentet {len(pipeline_rows)} kandidater fra analyseflyt.")
     with c3:
+        if st.button("Vurder hele køen", key="decision_support_run_v1863ba", use_container_width=True, disabled=not queue):
+            cases = build_decision_cases(queue)
+            st.session_state[DECISION_CASES_KEY] = cases
+            _save_decision_cases_to_pipeline(cases, mode="hele_koen", queue_size=len(queue))
+            st.success(f"Vurdert {len(queue)} kandidater.")
+    with c4:
         if st.button("Tøm kø", key="decision_support_clear_v1863ba", use_container_width=True, disabled=not queue):
             queue = []
             st.session_state[DECISION_QUEUE_KEY] = []
@@ -101,7 +214,9 @@ def render_decision_support_panel() -> None:
     a1, a2 = st.columns(2)
     with a1:
         if st.button("Vurder valgte", key="decision_support_run_selected_v1863ba", use_container_width=True, disabled=not selected_rows):
-            st.session_state[DECISION_CASES_KEY] = build_decision_cases(selected_rows)
+            cases = build_decision_cases(selected_rows)
+            st.session_state[DECISION_CASES_KEY] = cases
+            _save_decision_cases_to_pipeline(cases, mode="valgte", queue_size=len(queue))
             st.success(f"Vurdert {len(selected_rows)} valgte kandidater.")
     with a2:
         if st.button("Fjern valgte", key="decision_support_remove_selected_v1863ba", use_container_width=True, disabled=not selected_rows):

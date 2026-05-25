@@ -1563,6 +1563,25 @@ def render_alpha_radar_panel(
         result["data_source_status"] = build_data_source_status(horizon)
         result["data_window_months"] = horizon_to_months(horizon)
         st.session_state[LAST_RESULT_KEY] = result
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            stage_id = "early_warning" if analysis_engine == "Early Warning V1" else "alpha_radar"
+            get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            ).save_stage_output(
+                stage_id,
+                result.get("candidates") or [],
+                source_label=str(analysis_engine or stage_id),
+                context={"scope": scope, "horizon": horizon, "mode": mode, "scanned": result.get("scanned_count")},
+                max_items=len(result.get("candidates") or []) or int(limit or 30),
+                auto_handoff=True,
+            )
+        except Exception:
+            pass
         st.success(
             f"{analysis_engine} ferdig: viser {len(result.get('candidates') or [])} funn "
             f"av {int(limit)} onsket fra {result.get('scanned_count', 0)} tickere."

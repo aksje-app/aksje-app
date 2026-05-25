@@ -77,5 +77,16 @@ def build_top_picks(results, min_score=6.5, max_items=10):
     Velger automatisk de sterkeste kandidatene basert på score.
     Dette er en enkel top-picks-liste, ikke investeringsråd.
     """
+    try:
+        from ranking_universe_adapters import build_shared_top_picks
+
+        return build_shared_top_picks(
+            results or [],
+            min_score=min_score,
+            max_items=max_items,
+            source="Top Picks",
+        )
+    except Exception:
+        pass
     picks = [r for r in results if r.get("score", 0) >= min_score]
     return sorted(picks, key=lambda x: x.get("score", 0), reverse=True)[:max_items]

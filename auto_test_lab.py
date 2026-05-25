@@ -486,6 +486,190 @@ def compute_decision_quality(
     )
 
 
+def _risk_pressure_from_lab_row(row: Mapping[str, Any]) -> float:
+    """Translate Auto Test Lab's risk quality into shared risk pressure.
+
+    Auto Test Lab uses high risk_score/event_score as good/safe values. The
+    shared ranking service expects risk_score as pressure where high means risk.
+    """
+    risk_quality = _safe_float(row.get("risk_score"), 50.0) or 50.0
+    event_quality = _safe_float(row.get("event_score"), 72.0) or 72.0
+    return _clamp(max(0.0, 100.0 - risk_quality, (100.0 - event_quality) * 0.85))
+
+
+def _strength_from_grade(grade: Any, score: Any) -> str:
+    text = str(grade or "").strip().lower()
+    value = _safe_float(score, 0.0) or 0.0
+    if "h" in text or value >= 76:
+        return "Sterk"
+    if "middels" in text or value >= 62:
+        return "Normal"
+    return "Svak"
+
+
+def auto_lab_rows_to_ranking_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    source: str = "Auto Test Lab",
+    scope: str = "",
+    target: str = "",
+    test_mode: str = "",
+) -> List[Dict[str, Any]]:
+    """Convert Auto Test Lab output rows to shared ranking-service rows.
+
+    This is a pure adapter. It does not call score providers, event providers,
+    news APIs, Streamlit or storage.
+    """
+    out: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, Mapping):
+            continue
+        ticker = normalize_ticker(row.get("ticker") or row.get("symbol"))
+        if not ticker:
+            continue
+        decision_quality = _score_0_100(row.get("decision_quality"))
+        grade = str(row.get("grade") or "")
+        action = str(row.get("action") or "")
+        strength = _strength_from_grade(grade, decision_quality)
+        evidence = {
+            "type": "Auto Test Lab",
+            "title": f"Decision Quality {decision_quality:.1f}/100 - {grade or 'ukjent'}",
+            "source": source,
+            "actor": "",
+            "strength": strength,
+            "trust_level": "Intern test",
+            "direction": action,
+            "value": decision_quality,
+            "metadata": {
+                "target": target or row.get("target"),
+                "test_mode": test_mode or row.get("test_mode"),
+                "positive": list(row.get("reasons_positive") or [])[:4],
+                "caution": list(row.get("reasons_caution") or [])[:4],
+                "no_trade": list(row.get("no_trade_reasons") or [])[:4],
+            },
+        }
+        tags = [grade, action, test_mode or row.get("test_mode"), target]
+        out.append({
+            **dict(row),
+            "ticker": ticker,
+            "name": row.get("name") or ticker,
+            "source": source,
+            "decision_source": source,
+            "source_scope": scope,
+            "score": decision_quality,
+            "alpha_score": decision_quality,
+            "ai_score": _score_0_100(row.get("ai_score")),
+            "smart_score": _score_0_100(row.get("smart_score")),
+            "timing_score": _score_0_100(row.get("momentum_score")),
+            "ownership_score": _score_0_100(row.get("insider_score")),
+            "quality_score": _score_0_100(row.get("data_quality")),
+            "risk_score": _risk_pressure_from_lab_row(row),
+            "signals": [str(tag) for tag in tags if str(tag or "").strip()],
+            "evidence_items": [evidence],
+            "data_quality": row.get("data_quality"),
+        })
+    return out
+
+
+def rank_auto_lab_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    source: str = "Auto Test Lab",
+    scope: str = "",
+    target: str = "",
+    test_mode: str = "",
+    max_count: int = 30,
+) -> Dict[str, Any]:
+    from ranking_service import rank_candidates
+
+    ranking_rows = auto_lab_rows_to_ranking_rows(
+        rows,
+        source=source,
+        scope=scope,
+        target=target,
+        test_mode=test_mode,
+    )
+    result = rank_candidates(
+        ranking_rows,
+        {
+            "max_count": max_count,
+            "label": f"{source} felles ranking",
+            "dedupe_by_ticker": True,
+            "require_evidence": False,
+        },
+    )
+    return result.as_dict()
+
+
+def _attach_shared_rows(original_rows: Sequence[Mapping[str, Any]], shared_ranking: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    originals: Dict[str, Dict[str, Any]] = {}
+    for row in original_rows or []:
+        if not isinstance(row, Mapping):
+            continue
+        ticker = normalize_ticker(row.get("ticker") or row.get("symbol"))
+        if ticker and ticker not in originals:
+            originals[ticker] = dict(row)
+
+    enriched: List[Dict[str, Any]] = []
+    for ranked in shared_ranking.get("ranked", []) or []:
+        if not isinstance(ranked, Mapping):
+            continue
+        ticker = normalize_ticker(ranked.get("ticker") or (ranked.get("candidate") or {}).get("ticker"))
+        row = dict(originals.get(ticker) or {})
+        row.setdefault("ticker", ticker)
+        row.setdefault("name", ranked.get("name") or (ranked.get("candidate") or {}).get("name"))
+        row["shared_rank"] = ranked.get("rank")
+        row["shared_score"] = ranked.get("score")
+        row["shared_confidence"] = ranked.get("confidence")
+        row["shared_recommended_action"] = ranked.get("recommended_action")
+        row["shared_score_components"] = ranked.get("score_components") or []
+        row["shared_evidence_summary"] = ranked.get("evidence_summary") or {}
+        row["shared_risk_flags"] = ranked.get("risk_flags") or []
+        enriched.append(row)
+    return enriched
+
+
+def attach_shared_ranking_to_auto_lab_result(
+    result: Mapping[str, Any],
+    *,
+    source: str = "Auto Test Lab",
+    rows_key: str = "ranked",
+) -> Dict[str, Any]:
+    """Attach shared ranking output to an Auto Test Lab result payload."""
+    out = dict(result or {})
+    rows = list(out.get(rows_key) or out.get("best_single") or [])
+    if not rows:
+        rows = list(out.get("test_further") or [])
+    scope = str(out.get("scope") or "")
+    target = str(out.get("target") or "")
+    test_mode = str(out.get("test_mode") or "")
+    shared = rank_auto_lab_rows(
+        rows,
+        source=source,
+        scope=scope,
+        target=target,
+        test_mode=test_mode,
+        max_count=max(1, len(rows) or 30),
+    )
+    enriched = _attach_shared_rows(rows, shared)
+    out["shared_ranking"] = shared
+    out["shared_ranking_rows"] = enriched
+    if enriched and rows_key == "ranked":
+        out["ranked"] = enriched
+        out["best_single"] = enriched[:10]
+        out["test_further"] = [
+            row for row in enriched
+            if str(row.get("grade")) in {"Høy", "Hoy", "Middels", "HÃ¸y"}
+        ][:15]
+    summary = dict(out.get("summary") or {})
+    summary["shared_ranking_status"] = shared.get("status")
+    summary["shared_ranked_candidates"] = (shared.get("summary") or {}).get("ranked_candidates", len(enriched))
+    summary["shared_top_ticker"] = enriched[0].get("ticker") if enriched else None
+    summary["shared_top_score"] = enriched[0].get("shared_score") if enriched else None
+    out["summary"] = summary
+    return out
+
+
 def _candidate_sector(row: Mapping[str, Any]) -> str:
     sector = str(row.get("sector") or "Ukjent").strip()
     if sector and sector != "Ukjent":
@@ -736,7 +920,7 @@ def run_auto_test_lab(
         message="Auto Test Lab avbrutt." if interrupted else "Auto Test Lab ferdig.",
     )
 
-    return {
+    result = {
         "version": get_app_version(),
         "status": status,
         "target": target,
@@ -749,6 +933,7 @@ def run_auto_test_lab(
         "requested_tickers": clean_tickers,
         "scanned": scanned,
         "analyzed": len(rows),
+        "ranked": rows,
         "best_single": best_single,
         "test_further": test_further[:15],
         "combinations": combinations_out,
@@ -763,6 +948,11 @@ def run_auto_test_lab(
             "total_tests": total_tests,
         },
     }
+    try:
+        result = attach_shared_ranking_to_auto_lab_result(result, source="Auto Test Lab Aksjer")
+    except Exception as exc:
+        result["shared_ranking"] = {"status": "unavailable", "error": str(exc)[:180]}
+    return result
 
 
 # v18.5.43: Fund / ETF mode for Auto Test Lab -------------------------------
@@ -868,4 +1058,12 @@ def run_auto_test_lab_fund_mode(
     summary["core_satellite_positions"] = len(core_satellite.get("portfolio") or [])
     summary["comparator_count"] = comparator.get("count", len(ranked))
     result["summary"] = summary
+    try:
+        result = attach_shared_ranking_to_auto_lab_result(
+            result,
+            source="Auto Test Lab Fond/ETF",
+            rows_key="ranked",
+        )
+    except Exception as exc:
+        result["shared_ranking"] = {"status": "unavailable", "error": str(exc)[:180]}
     return result

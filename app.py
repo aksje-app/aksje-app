@@ -1689,7 +1689,38 @@ def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_
         return []
     data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch, include_insider=include_insider)
     data = _ranked_for_display(data)
+    try:
+        from ranking_universe_adapters import enrich_existing_ranking_rows, rank_existing_rows
+
+        data = _ranked_for_display(enrich_existing_ranking_rows(data, source=label, max_count=max_count))
+        shared_result = rank_existing_rows(
+            data,
+            source=label,
+            request={"max_count": max_count, "label": f"{label} felles ranking"},
+        ).as_dict()
+        st.session_state.setdefault("latest_shared_rankings_v1863br", {})[label] = shared_result
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     _rank_cache_store(label, fp, data)
+    try:
+        if data and force_manual_fetch and not str(label or "").startswith("TopPicks_"):
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            ).save_stage_output(
+                "market_ranking",
+                data,
+                source_label=str(label or "Marked/rangering"),
+                context={"label": label, "max_count": max_count, "use_news": bool(use_news), "include_insider": bool(include_insider)},
+                max_items=int(max_count or len(data) or 30),
+                auto_handoff=True,
+            )
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return data
 
 
@@ -7193,6 +7224,7 @@ def render_paper_trading_dashboard():
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
     st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
     st.caption("Auto-trading handler bare når relevant marked er åpent. Utenfor åpningstid brukes visning/cache, ikke nye auto-handler.")
+    _render_pipeline_stage_bar_v1863bw("paper_trading")
 
     portfolio = load_portfolio()
 
@@ -8012,6 +8044,7 @@ def render_market_ranking_control_center_v18535():
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
+    _render_pipeline_stage_bar_v1863bw("market_ranking")
     market = st.selectbox("Marked", [NO_UNIVERSE_SELECTION_LABEL] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
     limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     source_tickers = []
@@ -8054,6 +8087,19 @@ def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_
         return []
     if scope == "Aktivt univers":
         return _source_tickers_for_interactive("Smart Universe Picker", max_fallback=limit)[:limit]
+    if scope == "Analyseflyt input":
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            return _dedupe_text_list([row.get("ticker") for row in pipeline.candidates_for_stage("top_picks")])[:limit]
+        except Exception:
+            return []
     if scope in MARKET_SCOPE_OPTIONS:
         return resolve_universe_tickers([scope], max_count=limit)
     if scope == "Watchlist":
@@ -8067,12 +8113,13 @@ def render_top_picks_control_center_v1863s():
     """Top Picks as a first-class AI Kontrollsenter panel."""
     st.subheader("⭐ Top Picks")
     st.caption("Bygger Top Picks fra samme universmotor som rangering, analyse, varsler og testpaneler.")
+    _render_pipeline_stage_bar_v1863bw("top_picks")
 
     c1, c2 = st.columns([1.25, 1])
     with c1:
         scope = st.selectbox(
             "Univers / marked",
-            [NO_UNIVERSE_SELECTION_LABEL, "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"],
+            [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"],
             key="cc_top_picks_scope_v1863s",
         )
     with c2:
@@ -8123,6 +8170,24 @@ def render_top_picks_control_center_v1863s():
         latest[storage_key] = top_rows or []
         if scope in MARKET_SCOPE_OPTIONS:
             latest[scope] = ranked or []
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            ).save_stage_output(
+                "top_picks",
+                top_rows or [],
+                source_label=f"Top Picks {scope}",
+                context={"scope": scope, "storage_key": storage_key, "source_count": len(source_tickers)},
+                max_items=len(top_rows or []) or 15,
+                auto_handoff=True,
+            )
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         st.success(f"Top Picks ferdig: {len(top_rows or [])} kandidater fra {scope}.")
 
     top_picks = _ranked_for_display(latest.get(storage_key, []) or [])
@@ -8167,8 +8232,24 @@ def render_top_picks_control_center_v1863s():
 
 def render_alpha_radar_control_center_v1863ap():
     """Explicit-run Alpha Radar panel for unusual opportunity hypotheses."""
+    radar_engine = str(st.session_state.get("alpha_radar_engine_v1863au") or "Alpha Radar")
+    _render_pipeline_stage_bar_v1863bw("early_warning" if radar_engine == "Early Warning V1" else "alpha_radar")
 
     def _resolve(scope: str, limit: int, manual_text: str = "") -> list[str]:
+        if str(scope or "").strip() == "Analyseflyt input":
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+                from services.state_service import get_state_service
+                from services.storage_service import get_storage_service
+
+                pipeline = get_analysis_pipeline_service(
+                    state_service=get_state_service(st.session_state),
+                    storage_service=get_storage_service(),
+                )
+                rows = pipeline.candidates_for_stage("early_warning") or pipeline.candidates_for_stage("alpha_radar")
+                return _dedupe_text_list([row.get("ticker") for row in rows])[: max(1, int(limit or 30))]
+            except Exception:
+                return []
         return _resolve_control_center_scope_tickers_v1863s(scope, limit, manual_text=manual_text)
 
     def _score_provider(ticker: str, use_news: bool = False, include_insider: bool = False):
@@ -8186,7 +8267,7 @@ def render_alpha_radar_control_center_v1863ap():
         news_provider=get_news,
         data_enricher=enrich_alpha_radar_row,
         earnings_provider=get_earnings,
-        market_options=market_scope_options(include_aggregate=True),
+        market_options=["Analyseflyt input"] + market_scope_options(include_aggregate=True),
         no_selection_label=NO_UNIVERSE_SELECTION_LABEL,
     )
 
@@ -8543,6 +8624,19 @@ def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""
 
     if scope == "Manuell liste":
         return _dedupe(parse_ticker_list(manual_text))
+    if scope == "Analyseflyt input":
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            return _dedupe(pipeline.candidates_for_stage("auto_test_lab"))
+        except Exception:
+            return []
     if scope in MARKET_SCOPE_OPTIONS:
         return _dedupe(resolve_universe_tickers([scope], max_count=limit))
     if scope == "Multi-marked":
@@ -8607,6 +8701,7 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
         composite_score = (
             row.get("composite_score")
             or row.get("fund_intelligence_score")
+            or row.get("shared_score")
             or row.get("ai_score")
             or row.get("decision_quality")
             or "-"
@@ -8636,6 +8731,9 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
               </div>
               <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>
                 {action} · AI {ai} · Momentum {mom} · Risiko {risk} · Event {event}
+              </div>
+              <div style='font-size:.76rem; color:rgba(191,219,254,.86); margin-top:.14rem;'>
+                Felles ranking: #{_html.escape(str(row.get('shared_rank') or '-'))} Â· score {_html.escape(str(row.get('shared_score') or '-'))} Â· {_html.escape(str(row.get('shared_recommended_action') or '-'))}
               </div>
               <div style='font-size:.74rem; color:rgba(209,250,229,.86); margin-top:.18rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
               <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
@@ -8676,6 +8774,7 @@ def render_auto_test_lab_control_center_v18536():
     """On-demand research lab for testing many tickers/funds against the decision stack."""
     st.subheader("🔬 Auto Test Lab")
     st.caption("Velg én modus og ett univers. Panelet tester kandidater automatisk når du trykker Kjør; skjulte moduser starter ingen tunge jobber.")
+    _render_pipeline_stage_bar_v1863bw("auto_test_lab")
 
     lab_mode = st.radio(
         "Auto Test Lab-modus",
@@ -8692,7 +8791,7 @@ def render_auto_test_lab_control_center_v18536():
     with col_a:
         scope = st.selectbox(
             "Univers",
-            [NO_UNIVERSE_SELECTION_LABEL, "Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading"] + market_scope_options(include_aggregate=True) + ["Multi-marked", "Manuell liste"],
+            [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading"] + market_scope_options(include_aggregate=True) + ["Multi-marked", "Manuell liste"],
             key="auto_lab_scope_v18537",
         )
     with col_b:
@@ -8741,6 +8840,14 @@ def render_auto_test_lab_control_center_v18536():
         """,
         unsafe_allow_html=True,
     )
+
+    try:
+        from module_overlap_audit import assess_module_overlap, format_overlap_markdown
+
+        with st.expander("Modul-overlapp / sammenslaing", expanded=False):
+            st.markdown(format_overlap_markdown(assess_module_overlap()))
+    except Exception as exc:
+        st.caption(f"Modul-overlapp kunne ikke vises: {exc}")
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
@@ -8820,12 +8927,40 @@ def render_auto_test_lab_control_center_v18536():
         )
         result["scope"] = scope
         result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        try:
+            from auto_test_lab import attach_shared_ranking_to_auto_lab_result
+
+            result = attach_shared_ranking_to_auto_lab_result(result, source="Auto Test Lab Aksjer")
+        except Exception as exc:
+            result["shared_ranking"] = {"status": "unavailable", "error": str(exc)[:180]}
         st.session_state["auto_test_lab_last_result_v18536"] = result
+        if result.get("shared_ranking"):
+            st.session_state.setdefault("latest_shared_rankings_v1863br", {})["Auto Test Lab"] = result.get("shared_ranking")
         try:
             storage = get_storage_service()
             storage.write_json("auto_test_lab/latest.json", result)
+            if result.get("shared_ranking"):
+                storage.write_json("auto_test_lab/latest_shared_ranking.json", result.get("shared_ranking"))
             storage.append_jsonl("auto_test_lab/history.jsonl", result)
             result["storage_backend"] = storage.backend()
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+                from services.state_service import get_state_service
+
+                auto_rows = result.get("shared_ranking_rows") or result.get("best_single") or result.get("ranked") or []
+                get_analysis_pipeline_service(
+                    state_service=get_state_service(st.session_state),
+                    storage_service=storage,
+                ).save_stage_output(
+                    "auto_test_lab",
+                    auto_rows,
+                    source_label="Auto Test Lab Aksjer",
+                    context={"scope": scope, "target": target, "test_mode": test_mode, "analyzed": result.get("analyzed")},
+                    max_items=len(auto_rows) or int(limit or 20),
+                    auto_handoff=True,
+                )
+            except Exception as exc:
+                result["pipeline_error"] = str(exc)[:180]
         except Exception as exc:
             result["storage_error"] = str(exc)[:180]
         progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
@@ -8846,6 +8981,7 @@ def render_auto_test_lab_control_center_v18536():
         cols[4].metric("Kombinasjoner", summary.get("combinations", 0))
         if result.get("interrupted"):
             st.warning("Siste Auto Test Lab ble avbrutt. Resultatene under er foreløpige.")
+        _render_auto_lab_decision_rows_v18536(result.get("shared_ranking_rows"), title="Felles ranking / testbenk", limit=8)
         _render_auto_lab_decision_rows_v18536(result.get("best_single"), title="Beste enkeltaksjer", limit=8)
         _render_auto_lab_combination_rows_v18536(result.get("combinations"), limit=6)
         rejected = result.get("rejected") or []
@@ -9942,11 +10078,12 @@ def render_mixed_portfolio_control_center_v18544():
     """Analyze portfolio health across stocks, funds and ETFs without hidden fetches."""
     st.subheader("📊 Porteføljeanalyse")
     st.caption("Analyserer aksjer + fond/ETF samlet. Panelet bruker eksisterende resultater/manuell input og henter ikke nye markedsdata før du eksplisitt kjører andre moduler.")
+    _render_pipeline_stage_bar_v1863bw("portfolio_analysis")
     from portfolio_mixed_analyzer import build_holdings_from_sources, analyze_mixed_portfolio
 
     c1, c2, c3 = st.columns([1.1, 1.1, 1.0])
     with c1:
-        stock_source = st.selectbox("Aksjekilde", ["Manuell", "Auto Test Lab aksjer", "Paper trading", "Siste Smart AI-resultat"], key="mixed_portfolio_stock_source_v18544")
+        stock_source = st.selectbox("Aksjekilde", ["Manuell", "Analyseflyt input", "Auto Test Lab aksjer", "Paper trading", "Siste Smart AI-resultat"], key="mixed_portfolio_stock_source_v18544")
     with c2:
         fund_source = st.selectbox("Fondkilde", ["Manuell", "Siste Fond / ETF-analyse", "Auto Test Lab fondmodus", "Ingen"], key="mixed_portfolio_fund_source_v18544")
     with c3:
@@ -9977,7 +10114,20 @@ def render_mixed_portfolio_control_center_v18544():
         manual_funds = st.text_area("Manuelle fond/ETF", value="VOO 50 ETF\nQQQ 20 ETF", height=76, key="mixed_portfolio_manual_funds_v18544", help="Format: SYMBOL vekt type. Eksempel: VOO 60 ETF")
 
     stock_rows = []
-    if stock_source == "Auto Test Lab aksjer":
+    if stock_source == "Analyseflyt input":
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            stock_rows = [dict(row.get("raw") or row) for row in pipeline.candidates_for_stage("portfolio_analysis")][: int(max_rows)]
+        except Exception:
+            stock_rows = []
+    elif stock_source == "Auto Test Lab aksjer":
         stock_rows = _portfolio_analyzer_result_rows_v18544("auto_test_lab_last_result_v18536", ["best_single", "test_further"], limit=int(max_rows))
     elif stock_source == "Paper trading":
         stock_rows = _paper_trading_holdings_v18544(limit=None)
@@ -10057,6 +10207,23 @@ def render_mixed_portfolio_control_center_v18544():
             storage.write_json("portfolio_analysis/latest.json", result)
             storage.append_jsonl("portfolio_analysis/history.jsonl", result)
             result["storage_backend"] = storage.backend()
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+                from services.state_service import get_state_service
+
+                get_analysis_pipeline_service(
+                    state_service=get_state_service(st.session_state),
+                    storage_service=storage,
+                ).save_stage_output(
+                    "portfolio_analysis",
+                    holdings_preview,
+                    source_label="Portefoljeanalyse",
+                    context={"profile": profile, "stock_source": stock_source, "fund_source": fund_source, "grade": result.get("grade")},
+                    max_items=len(holdings_preview) or int(max_rows or 12),
+                    auto_handoff=True,
+                )
+            except Exception as exc:
+                result["pipeline_error"] = str(exc)[:180]
         except Exception as exc:
             result["storage_error"] = str(exc)[:180]
         progress.progress(100, text="Ferdig")
@@ -10069,8 +10236,231 @@ def render_mixed_portfolio_control_center_v18544():
     else:
         st.info("Ingen porteføljeanalyse ennå. Velg kilder eller manuell portefølje og trykk Kjør.")
 
+def _analysis_pipeline_service_v1863bw():
+    from services.analysis_pipeline_service import get_analysis_pipeline_service
+    from services.state_service import get_state_service
+    from services.storage_service import get_storage_service
+
+    return get_analysis_pipeline_service(
+        state_service=get_state_service(st.session_state),
+        storage_service=get_storage_service(),
+    )
+
+
+def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
+    from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, stage_wizard_info
+
+    info = stage_wizard_info(stage_id)
+    if not info:
+        st.warning("Ukjent analyseflyt-steg.")
+        return
+    defaults = dict(info.get("defaults") or {})
+    if stage_id == "paper_trading":
+        try:
+            pipeline = _analysis_pipeline_service_v1863bw()
+            rows = pipeline.candidates_for_stage("paper_trading")
+            first_ticker = next((str(row.get("ticker") or "").strip().upper() for row in rows if row.get("ticker")), "")
+            if first_ticker:
+                defaults["paper_stock_symbol_v1863y"] = first_ticker
+                defaults.setdefault("paper_stock_fetch_status_v1863z", ("info", "Ticker er hentet fra analyseflyt. Hent aksjekurs manuelt for paper-kjop."))
+        except Exception:
+            pass
+    st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+        "stage_id": stage_id,
+        "group": info.get("group") or "",
+        "panel": info.get("panel_label") or "",
+        "defaults": defaults,
+        "auto_run": False,
+    }
+    st.rerun()
+
+
+def _pipeline_send_and_open_next_v1863bw(stage_id: str, *, max_items: int | None = None) -> None:
+    from services.analysis_pipeline_service import next_stage_id
+
+    target_stage = next_stage_id(stage_id)
+    if not target_stage:
+        st.info("Dette er siste test i flyten.")
+        return
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        if stage_id == "data_foundation":
+            pipeline.save_stage_output(
+                "data_foundation",
+                [{"name": "Datagrunnlag godkjent", "score": 100, "source": "Datagrunnlag", "reason": "Manuelt kontrollpunkt uten tung kjoring."}],
+                source_label="Datagrunnlag",
+                context={"manual_checkpoint": True},
+                auto_handoff=False,
+            )
+        else:
+            result = pipeline.handoff_latest_output_to_next(stage_id, max_items=max_items)
+            if not result.ok:
+                st.warning(result.message)
+                return
+    except Exception as exc:
+        st.warning(f"Kunne ikke sende kandidatpakke videre: {exc}")
+        return
+    _pipeline_open_stage_v1863bw(target_stage)
+
+
+def _pipeline_defaults_label_v1863bw(defaults: dict) -> str:
+    if not defaults:
+        return "Ingen spesielle standardvalg."
+    parts = []
+    for key, value in defaults.items():
+        if key.endswith("_scope_v1863s") or key.endswith("_scope_v1863au") or key.endswith("_scope_v18537") or key.endswith("_source_v18544"):
+            parts.append(str(value))
+        elif key.endswith("_engine_v1863au"):
+            parts.append(str(value))
+        elif key.endswith("_market_v18535"):
+            parts.append(f"Marked {value}")
+    return ", ".join(dict.fromkeys(parts)) or f"{len(defaults)} trygge standardvalg settes."
+
+
+def _render_pipeline_stage_bar_v1863bw(stage_id: str) -> None:
+    try:
+        from services.analysis_pipeline_service import stage_wizard_info
+
+        pipeline = _analysis_pipeline_service_v1863bw()
+        info = stage_wizard_info(stage_id)
+        if not info:
+            return
+        inp = pipeline.load_stage_input(stage_id)
+        out = pipeline.load_stage_output(stage_id)
+    except Exception as exc:
+        st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
+        return
+
+    next_label = info.get("next_label") or ""
+    defaults_label = _pipeline_defaults_label_v1863bw(dict(info.get("defaults") or {}))
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(56,189,248,.52);'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <b>{html.escape(str(info.get('wizard_label') or 'Analyseflyt'))}</b>
+            <span>{int(inp.get('candidate_count') or 0)} inn | {int(out.get('candidate_count') or 0)} ut</span>
+            <span>Auto-kjoring: av</span>
+          </div>
+          <div style='font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>
+            {html.escape(str(info.get('purpose') or ''))}
+          </div>
+          <div style='font-size:.78rem;color:rgba(191,219,254,.90);margin-top:.16rem;'>
+            Standardvalg ved veiviser: {html.escape(defaults_label)}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns([1.0, 1.0])
+    with c1:
+        if stage_id == "data_foundation":
+            if st.button("Start her: godkjenn datagrunnlag og åpne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
+                _pipeline_send_and_open_next_v1863bw("data_foundation")
+        else:
+            if st.button(f"Åpne {info.get('test_label')} med standardvalg", key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
+                _pipeline_open_stage_v1863bw(stage_id)
+    with c2:
+        if next_label:
+            disabled = stage_id != "data_foundation" and not bool(out)
+            label = f"Send output til Test {info.get('next_test_number')} og åpne {next_label}"
+            if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True, disabled=disabled):
+                _pipeline_send_and_open_next_v1863bw(stage_id)
+        else:
+            st.markdown("<div class='v18-dark-row'>Siste test i flyten. Bruk Paper Trading-resultatet som praktisk oppfolging.</div>", unsafe_allow_html=True)
+
+    if stage_id == "data_foundation":
+        st.info("Start med Test 1. Kontroller tickerlister, Aktørregister, Finansavisen, Oljefond/NBIM og API-status, og gå deretter videre til Test 2.")
+    elif not out and stage_id != "paper_trading":
+        st.caption("Når testen er kjørt ferdig, dukker send-knappen opp aktivert for neste test.")
+
+
+def render_analysis_pipeline_control_center_v1863bv():
+    """Visual workflow for staged analysis without starting heavy jobs."""
+    st.subheader("Test 1 Datagrunnlag")
+    st.caption("Start her. Test 1 kontrollerer datagrunnlaget og åpner resten av flyten fra Test 2 til Test 10 Paper Trading uten å starte tunge analyser automatisk.")
+    try:
+        from services.analysis_pipeline_service import (
+            STAGES_BY_ID,
+            next_stage_id,
+            standard_report_outline,
+        )
+
+        pipeline = _analysis_pipeline_service_v1863bw()
+        status_rows = pipeline.stage_status()
+    except Exception as exc:
+        st.warning(f"Analyseflyt kunne ikke lastes: {exc}")
+        return
+
+    _render_pipeline_stage_bar_v1863bw("data_foundation")
+    st.markdown(
+        "<div class='v18-dark-row'><b>Prinsipp:</b> automatisk overføring av kandidatpakker, ikke automatisk kjøring. Neste steg får input klart og bruker trygt siste lagrede kandidater.</div>",
+        unsafe_allow_html=True,
+    )
+    try:
+        status_df = pd.DataFrame(status_rows)
+        st.dataframe(
+            status_df[["nr", "steg", "status", "input", "output", "neste"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+    except Exception:
+        for row in status_rows:
+            st.caption(f"{row.get('nr')}. {row.get('steg')}: {row.get('status')} | input {row.get('input')} | output {row.get('output')}")
+
+    labels = [f"{row.get('nr')}. {row.get('steg')}" for row in status_rows]
+    selected_label = st.selectbox("Vis / send videre", labels, key="analysis_pipeline_stage_select_v1863bv")
+    selected_idx = max(0, labels.index(selected_label)) if selected_label in labels else 0
+    selected_stage = status_rows[selected_idx]["stage_id"]
+    selected_stage_def = STAGES_BY_ID.get(selected_stage)
+    selected_output = pipeline.load_stage_output(selected_stage)
+    selected_input = pipeline.load_stage_input(selected_stage)
+    target_stage = next_stage_id(selected_stage)
+
+    c1, c2, c3 = st.columns([1.2, 1.2, 1.0])
+    with c1:
+        disabled = not bool(selected_output and target_stage)
+        if st.button("Send siste output videre og åpne neste test", key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=disabled):
+            res = pipeline.handoff_latest_output_to_next(selected_stage)
+            if res.ok:
+                _pipeline_open_stage_v1863bw(target_stage)
+            else:
+                st.warning(res.message)
+    with c2:
+        st.metric("Input klar", int(selected_input.get("candidate_count") or 0) if selected_input else 0)
+    with c3:
+        st.metric("Output ferdig", int(selected_output.get("candidate_count") or 0) if selected_output else 0)
+
+    if selected_stage_def:
+        st.caption(f"{selected_stage_def.label}: {selected_stage_def.purpose}")
+    if target_stage in STAGES_BY_ID:
+        st.caption(f"Neste steg: {STAGES_BY_ID[target_stage].label}. Kandidater legges klare, men analysen starter ikke automatisk.")
+
+    package_view = st.radio("Pakkevisning", ["Input til steg", "Output fra steg"], horizontal=True, key="analysis_pipeline_package_view_v1863bv")
+    package = selected_input if package_view == "Input til steg" else selected_output
+    candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)] if package else []
+    if candidates:
+        display_rows = [
+            {
+                "rank": row.get("pipeline_rank") or row.get("rank"),
+                "ticker": row.get("ticker"),
+                "navn": row.get("name"),
+                "score": row.get("score"),
+                "kilde": row.get("source"),
+                "handling": row.get("recommended_action"),
+            }
+            for row in candidates[:30]
+        ]
+        st.dataframe(display_rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen kandidatpakke for valgt steg ennå.")
+
+    with st.expander("Felles rapportmal for alle steg", expanded=False):
+        for line in standard_report_outline(selected_stage):
+            st.markdown(f"- {html.escape(str(line))}")
+
 def control_center_extra_panels_v18535():
     return [
+        ("Test 1 Datagrunnlag", render_analysis_pipeline_control_center_v1863bv),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),

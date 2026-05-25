@@ -1538,6 +1538,48 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         unsafe_allow_html=True,
     )
 
+    try:
+        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, get_analysis_pipeline_service, stage_wizard_info
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        pipeline = get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        )
+        info = stage_wizard_info("smart_ai")
+        inp = pipeline.load_stage_input("smart_ai")
+        out = pipeline.load_stage_output("smart_ai")
+        st.markdown(
+            f"""
+            <div style="border:1px solid rgba(56,189,248,.52);border-radius:8px;padding:.62rem .72rem;margin:.4rem 0;background:rgba(15,23,42,.72);">
+              <div style="display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;">
+                <b>{escape(str(info.get('wizard_label') or 'Test 3 av 10: Smart AI-filter'))}</b>
+                <span>{int(inp.get('candidate_count') or 0)} inn | {int(out.get('candidate_count') or 0)} ut</span>
+                <span>Auto-kjoring: av</span>
+              </div>
+              <div style="font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;">Kjor Smart AI-utvalg eksplisitt, og send ferdige kandidater videre til Top Picks.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Send output til Test 4 og åpne Top Picks", key="smart_ai_pipeline_next_v1863bw", use_container_width=True, disabled=not bool(out)):
+            result = pipeline.handoff_latest_output_to_next("smart_ai")
+            if not result.ok:
+                st.warning(result.message)
+            else:
+                target = stage_wizard_info("top_picks")
+                st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+                    "stage_id": "top_picks",
+                    "group": target.get("group") or "",
+                    "panel": target.get("panel_label") or "",
+                    "defaults": dict(target.get("defaults") or {}),
+                    "auto_run": False,
+                }
+                st.rerun()
+    except Exception as exc:
+        st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
+
     saved_config = st.session_state.get(AI_UNIVERSE_STATE_KEY, {}) if isinstance(st.session_state.get(AI_UNIVERSE_STATE_KEY, {}), Mapping) else {}
     saved_mode = str(saved_config.get("mode") or "ikke lagret")
     st.markdown(

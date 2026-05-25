@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.3bn"
-APP_VERSION_NAME = "Finansavisen Details And Portfolio Fix"
-APP_BUILD_ID = "v1863bn-finansavisen-details-portfolio"
+APP_VERSION = "v18.6.3bw"
+APP_VERSION_NAME = "Analyseflyt Wizard Clean Zip"
+APP_BUILD_ID = "v1863bw-analyseflyt-wizard"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Analyseflyt er gjort om til Test 1 Datagrunnlag med veiviser videre til Test 10 Paper Trading.",
+    "Hvert hovedsteg viser input/output-status, anbefalt standardvalg og knapp for aa sende ferdig kandidatpakke videre uten automatisk tung kjoring.",
+    "Veiviseren hopper til riktig Kontrollsenter-panel og setter Analyseflyt input der det er relevant, mens selve motorene fortsatt krever eksplisitt Kjor.",
     "Felles markedsvalg er videreført i AI Kontrollsenter, Top Picks, Smart Universe, banner og Fond/ETF.",
     "Finland, Danmark og Brasil er synlige valg der markedsmotoren brukes, mens Norden samler Norge, Sverige, Finland og Danmark.",
     "Smart Universe-tabeller viser selskap, land, børs, status, score, risiko og forklaring i stedet for bare ticker.",
