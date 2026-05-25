@@ -61,3 +61,10 @@ runtime_audit_log.jsonl
 
 # Local Render/env helper files
 .render/
+
+# Local archives / generated delivery folders
+old_work_d/
+patch_v18_*/
+zip_stage*/
+*_changed_files_only.zip
+*_qa.png
