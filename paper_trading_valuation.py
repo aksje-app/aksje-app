@@ -10,6 +10,39 @@ from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional
 
 
+def _security_context_from_ticker(ticker: Any, row: Mapping[str, Any] | None = None) -> Dict[str, str]:
+    """Best-effort local metadata for rows created before metadata logging existed."""
+    raw = dict(row or {}) if isinstance(row, Mapping) else {}
+    symbol = str(raw.get("ticker") or ticker or "").strip().upper()
+    if not symbol:
+        return {"country": "", "market": "", "sector": "", "industry": ""}
+    try:
+        from security_metadata import infer_security_listing, resolve_security_metadata
+
+        meta = resolve_security_metadata(symbol, raw)
+        listing = infer_security_listing(symbol, meta)
+        sector = str(raw.get("sector") or meta.get("sector") or "").strip()
+        industry = str(raw.get("industry") or raw.get("bransje") or sector or "").strip()
+        return {
+            "country": str(raw.get("country") or raw.get("land") or listing.get("country") or "").strip(),
+            "market": str(raw.get("market") or listing.get("market") or "").strip(),
+            "sector": sector,
+            "industry": industry,
+        }
+    except Exception:
+        if symbol.endswith(".OL"):
+            return {"country": "Norge", "market": "Norge", "sector": "", "industry": ""}
+        if symbol.endswith(".ST"):
+            return {"country": "Sverige", "market": "Sverige", "sector": "", "industry": ""}
+        if symbol.endswith(".CO"):
+            return {"country": "Danmark", "market": "Danmark", "sector": "", "industry": ""}
+        if symbol.endswith(".HE"):
+            return {"country": "Finland", "market": "Finland", "sector": "", "industry": ""}
+        if symbol.endswith(".SA"):
+            return {"country": "Brasil", "market": "Brasil", "sector": "", "industry": ""}
+        return {"country": "USA", "market": "USA", "sector": "", "industry": ""}
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "":
@@ -110,13 +143,14 @@ def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapp
     normalized = normalize_paper_portfolio(portfolio, latest_prices)
     rows: List[Dict[str, Any]] = []
     for ticker, pos in normalized.get("positions", {}).items():
+        context = _security_context_from_ticker(ticker, pos)
         rows.append({
             "ticker": ticker,
             "type": pos.get("asset_type", "Aksje"),
-            "land": pos.get("country", ""),
-            "marked": pos.get("market", ""),
-            "sektor": pos.get("sector", ""),
-            "bransje": pos.get("industry", "") or pos.get("sector", ""),
+            "land": pos.get("country", "") or context.get("country", ""),
+            "marked": pos.get("market", "") or context.get("market", ""),
+            "sektor": pos.get("sector", "") or context.get("sector", ""),
+            "bransje": pos.get("industry", "") or pos.get("sector", "") or context.get("industry", ""),
             "units": round(_safe_float(pos.get("shares")), 4),
             "unit_label": pos.get("units_label", "shares"),
             "avg_price": round(_safe_float(pos.get("avg_price")), 4),
@@ -142,12 +176,13 @@ def paper_trade_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
         if not isinstance(trade, Mapping):
             continue
         row = dict(trade)
+        context = _security_context_from_ticker(row.get("ticker"), row)
         row["type"] = "PAPER-KJØP" if str(row.get("type", "")).upper() == "BUY" else ("PAPER-SALG" if str(row.get("type", "")).upper() == "SELL" else row.get("type", ""))
         row["reason"] = paper_reason_label(row.get("reason"), str(trade.get("type", "")))
-        row["land"] = row.get("country", "")
-        row["marked"] = row.get("market", "")
-        row["sektor"] = row.get("sector", "")
-        row["bransje"] = row.get("industry", "") or row.get("sector", "")
+        row["land"] = row.get("country", "") or context.get("country", "")
+        row["marked"] = row.get("market", "") or context.get("market", "")
+        row["sektor"] = row.get("sector", "") or context.get("sector", "")
+        row["bransje"] = row.get("industry", "") or row.get("sector", "") or context.get("industry", "")
         row["regel"] = row.get("rule_used", "")
         row["grense"] = row.get("rule_limit", "")
         row["maalt_verdi"] = row.get("measured_value", "")

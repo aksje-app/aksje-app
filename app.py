@@ -7163,6 +7163,45 @@ def _paper_fund_symbol_changed_v1863ac():
     st.session_state["paper_fund_last_type_v1863ac"] = asset_type
 
 
+def _select_paper_position_for_trade_v1863by(ticker: str, price: float, units: float, action: str = "sell", asset_type: str = "Aksje") -> None:
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return
+    try:
+        selected_price = float(price or 0.0)
+    except Exception:
+        selected_price = 0.0
+    try:
+        selected_units = float(units or 0.0)
+    except Exception:
+        selected_units = 0.0
+    st.session_state["paper_selected_position_v1863by"] = {
+        "ticker": symbol,
+        "price": selected_price,
+        "units": selected_units,
+        "action": action,
+        "asset_type": str(asset_type or "Aksje"),
+    }
+    stock_types = {"", "Aksje", "Stock", "Equity"}
+    if str(asset_type or "Aksje") in stock_types:
+        st.session_state["paper_stock_symbol_v1863y"] = symbol
+        st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_stock_price_input_v1863y"] = selected_price
+        st.session_state["paper_stock_sell_symbol_v1863y"] = symbol
+        st.session_state["paper_stock_sell_price_v1863y"] = selected_price
+    else:
+        st.session_state["paper_fund_symbol_v18545"] = symbol
+        st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_fund_price_v18545"] = selected_price
+        st.session_state["paper_fund_price_input_v18545"] = selected_price
+        st.session_state["paper_fund_sell_symbol_v18545"] = symbol
+        st.session_state["paper_fund_sell_price_v18545"] = selected_price
+    st.session_state["paper_stock_fetch_status_v1863z"] = (
+        "info",
+        f"{symbol} er valgt fra posisjoner. Kjop/salg-feltene er fylt med lagret siste kurs.",
+    )
+
+
 def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
     rows = paper_position_rows(portfolio, latest_prices)
     if not rows:
@@ -7211,12 +7250,36 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
                 <span>Snitt <b>{row.get('avg_price')}</b></span>
                 <span>Siste <b>{row.get('last_price')}</b></span>
                 <span>Verdi <b>{float(row.get('value') or 0):,.2f}</b></span>
+                <span>Land <b>{html.escape(str(row.get('land') or '-'))}</b></span>
+                <span>Marked <b>{html.escape(str(row.get('marked') or '-'))}</b></span>
+                <span>Sektor <b>{html.escape(str(row.get('sektor') or '-'))}</b></span>
+                <span>Bransje <b>{html.escape(str(row.get('bransje') or '-'))}</b></span>
                 <span>Oppdatert <b>{updated}</b></span>
               </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+        key_base = "".join(ch if ch.isalnum() else "_" for ch in str(row.get("ticker") or "pos"))
+        action_cols = st.columns([0.9, 0.9, 2.0])
+        with action_cols[0]:
+            st.button(
+                "Velg for salg",
+                key=f"paper_position_select_sell_v1863by_{key_base}",
+                use_container_width=True,
+                on_click=_select_paper_position_for_trade_v1863by,
+                args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "sell", str(row.get("type") or "Aksje")),
+            )
+        with action_cols[1]:
+            st.button(
+                "Velg for kjop/ok",
+                key=f"paper_position_select_buy_v1863by_{key_base}",
+                use_container_width=True,
+                on_click=_select_paper_position_for_trade_v1863by,
+                args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "buy", str(row.get("type") or "Aksje")),
+            )
+        with action_cols[2]:
+            st.caption("Fyller ticker og lagret siste kurs i aksje-kjop/salg-feltene paa neste rerun.")
 
 
 def render_paper_trading_dashboard():
@@ -7346,6 +7409,14 @@ def render_paper_trading_dashboard():
 
     st.markdown("#### 🟢 Simulert kjøp av aksjer")
     st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
+    selected_position = st.session_state.get("paper_selected_position_v1863by") or {}
+    if selected_position.get("ticker"):
+        st.info(
+            f"Valgt posisjon: {selected_position.get('ticker')} | "
+            f"siste kurs {float(selected_position.get('price') or 0.0):,.2f} | "
+            f"antall {float(selected_position.get('units') or 0.0):,.4f}. "
+            "Kontroller pris og trykk kjop eller salg."
+        )
     with st.container():
         st.session_state.setdefault("paper_stock_price_input_v1863y", 0.0)
         st.session_state.setdefault("paper_stock_confidence_v1863y", 0)
@@ -10317,7 +10388,144 @@ def _pipeline_defaults_label_v1863bw(defaults: dict) -> str:
     return ", ".join(dict.fromkeys(parts)) or f"{len(defaults)} trygge standardvalg settes."
 
 
-def _render_pipeline_stage_bar_v1863bw(stage_id: str) -> None:
+def _pipeline_go_to_panel_v1863by(group: str, panel: str, defaults: dict | None = None) -> None:
+    from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY
+
+    st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+        "stage_id": "",
+        "group": group,
+        "panel": panel,
+        "defaults": dict(defaults or {}),
+        "auto_run": False,
+    }
+    st.rerun()
+
+
+def _data_foundation_source_rows_v1863by() -> list[dict]:
+    rows: list[dict] = []
+    try:
+        tickers = get_all_tickers()
+        rows.append({
+            "Omraade": "Tickerlister / univers",
+            "Status": "klar",
+            "Detalj": f"{len(tickers or [])} tickere i felles univers",
+            "Handling": "Brukes av Test 2 og radarene",
+        })
+    except Exception as exc:
+        rows.append({"Omraade": "Tickerlister / univers", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller stocks.py"})
+    try:
+        from actor_registry import load_actor_registry
+
+        actors = load_actor_registry()
+        active = sum(1 for row in actors if row.get("active", True))
+        rows.append({
+            "Omraade": "Aktoerregister",
+            "Status": "klar" if active else "mangler aktive",
+            "Detalj": f"{len(actors)} aktoerer, {active} aktive",
+            "Handling": "Importer/rediger navn, alias og roller",
+        })
+    except Exception as exc:
+        rows.append({"Omraade": "Aktoerregister", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Aktoerregister"})
+    try:
+        from finansavisen_bjellesau import PERIOD_OPTIONS, finansavisen_status
+
+        status = finansavisen_status()
+        periods = ", ".join(status.get("periods") or [])
+        rows.append({
+            "Omraade": "Finansavisen Bjellesauer",
+            "Status": "importert" if int(status.get("rows") or 0) else "venter paa import",
+            "Detalj": f"{status.get('rows', 0)} handler, {status.get('investors', 0)} investorer, perioder {periods or '-'}",
+            "Handling": "Kan importere flere periodefiler samtidig: " + ", ".join(PERIOD_OPTIONS),
+        })
+    except Exception as exc:
+        rows.append({"Omraade": "Finansavisen Bjellesauer", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Finansavisen-import"})
+    try:
+        from nbim_radar import load_nbim_overlay
+
+        overlay = load_nbim_overlay()
+        rows.append({
+            "Omraade": "Oljefond/NBIM",
+            "Status": "overlay lagret" if overlay else "venter paa import",
+            "Detalj": f"{len(overlay or {})} tickere i NBIM-overlay",
+            "Handling": "Importer ny og forrige NBIM CSV for endringer",
+        })
+    except Exception as exc:
+        rows.append({"Omraade": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Oljefond Radar"})
+    try:
+        from data_source_diagnostics import build_data_source_status
+
+        diagnostics = build_data_source_status("3m")
+        key_count = sum(1 for row in diagnostics if "nokkel funnet" in str(row.get("Status", "")).lower() or "nokler" in str(row.get("Status", "")).lower())
+        rows.append({
+            "Omraade": "API-status / kilder",
+            "Status": "klar" if key_count else "delvis",
+            "Detalj": f"{len(diagnostics)} kildesjekker tilgjengelig",
+            "Handling": "Vises under datakilde-status i radarene",
+        })
+    except Exception as exc:
+        rows.append({"Omraade": "API-status / kilder", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller .env og kilder"})
+    return rows
+
+
+def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
+    st.markdown("#### Datakilder som skal kontrolleres foer Test 2")
+    st.caption("Dette panelet starter ingen tunge analyser. Bruk knappene under for aa hente/importere data, kom tilbake hit, og godkjenn foerst naar grunnlaget ser riktig ut.")
+    source_rows = _data_foundation_source_rows_v1863by()
+    st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("Importer Finansavisen-filer", key="data_foundation_open_finansavisen_v1863by", use_container_width=True, type="primary"):
+            _pipeline_go_to_panel_v1863by("Marked og signaler", "Finansavisen Bjellesauer")
+        st.caption("Stotter flere periodefiler: 1D, 1U, 1M, 3M, 6M, YTD, 1Y, 3Y og ALLE.")
+    with c2:
+        if st.button("Rediger Aktoerregister", key="data_foundation_open_actor_v1863by", use_container_width=True):
+            _pipeline_go_to_panel_v1863by("Marked og signaler", "Aktørregister")
+        st.caption("Navn, alias, roller, styrke, ticker og marked.")
+    with c3:
+        if st.button("Importer Oljefond/NBIM", key="data_foundation_open_nbim_v1863by", use_container_width=True):
+            _pipeline_go_to_panel_v1863by("Marked og signaler", "Oljefond Radar")
+        st.caption("Nyeste og forrige NBIM CSV gir nye/okte/reduserte/solgte signaler.")
+    with c4:
+        if st.button("Aapne radar/kildetest", key="data_foundation_open_alpha_sources_v1863by", use_container_width=True):
+            _pipeline_go_to_panel_v1863by("Marked og signaler", "Alpha Radar")
+        st.caption("API-status og kildedekning vises uten at menyvalg starter scan.")
+
+    st.markdown("#### Status for Test 1-10")
+    st.caption("Dette er en funksjonssjekk av flyten. Testene skal ha egne handlinger/kjoering i panelet sitt; send videre kommer etter output.")
+    stage_display = []
+    for row in status_rows:
+        nr = int(row.get("nr") or 0)
+        stage_display.append({
+            "nr": nr,
+            "test": row.get("steg"),
+            "status": row.get("status"),
+            "input": row.get("input"),
+            "output": row.get("output"),
+            "har arbeidsflate": "ja",
+            "send videre": "etter output" if nr > 1 else "etter godkjent datagrunnlag",
+            "neste": row.get("neste"),
+        })
+    st.dataframe(pd.DataFrame(stage_display), use_container_width=True, hide_index=True)
+
+
+def _render_data_foundation_approval_v1863by(status_rows: list[dict]) -> None:
+    st.markdown("#### Godkjenn datagrunnlag")
+    st.caption("Bruk denne foerst naar datakilder/importer er kontrollert. Den lager kun en liten output-pakke og aapner Test 2; ingen tung analyse starter automatisk.")
+    source_rows = _data_foundation_source_rows_v1863by()
+    missing = [row for row in source_rows if str(row.get("Status", "")).lower() in {"feil", "venter paa import", "mangler aktive"}]
+    if missing:
+        st.warning("Noen datakilder er ikke komplette. Du kan likevel gaa videre, men Test 2 faar bedre grunnlag naar kildene er oppdatert.")
+    c1, c2 = st.columns([1.0, 1.0])
+    with c1:
+        if st.button("Godkjenn datagrunnlag og aapne Test 2", key="analysis_pipeline_approve_data_foundation_v1863by", use_container_width=True, type="primary"):
+            _pipeline_send_and_open_next_v1863bw("data_foundation")
+    with c2:
+        if st.button("Aapne Test 2 uten aa endre grunnlag", key="analysis_pipeline_open_test2_only_v1863by", use_container_width=True):
+            _pipeline_open_stage_v1863bw("market_ranking")
+
+
+def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = True) -> None:
     try:
         from services.analysis_pipeline_service import stage_wizard_info
 
@@ -10351,10 +10559,12 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+    if not show_actions:
+        return
     c1, c2 = st.columns([1.0, 1.0])
     with c1:
         if stage_id == "data_foundation":
-            if st.button("Start her: godkjenn datagrunnlag og åpne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
+            if st.button("Godkjenn datagrunnlag og aapne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
                 _pipeline_send_and_open_next_v1863bw("data_foundation")
         else:
             if st.button(f"Åpne {info.get('test_label')} med standardvalg", key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
@@ -10391,7 +10601,8 @@ def render_analysis_pipeline_control_center_v1863bv():
         st.warning(f"Analyseflyt kunne ikke lastes: {exc}")
         return
 
-    _render_pipeline_stage_bar_v1863bw("data_foundation")
+    _render_pipeline_stage_bar_v1863bw("data_foundation", show_actions=False)
+    _render_data_foundation_workspace_v1863by(status_rows)
     st.markdown(
         "<div class='v18-dark-row'><b>Prinsipp:</b> automatisk overføring av kandidatpakker, ikke automatisk kjøring. Neste steg får input klart og bruker trygt siste lagrede kandidater.</div>",
         unsafe_allow_html=True,
@@ -10426,9 +10637,11 @@ def render_analysis_pipeline_control_center_v1863bv():
             else:
                 st.warning(res.message)
     with c2:
-        st.metric("Input klar", int(selected_input.get("candidate_count") or 0) if selected_input else 0)
+        st.metric("Kandidatpakke inn", int(selected_input.get("candidate_count") or 0) if selected_input else 0)
+        st.caption("Statusfelt, ikke knapp.")
     with c3:
-        st.metric("Output ferdig", int(selected_output.get("candidate_count") or 0) if selected_output else 0)
+        st.metric("Ferdig output", int(selected_output.get("candidate_count") or 0) if selected_output else 0)
+        st.caption("Send videre blir aktivt etter output.")
 
     if selected_stage_def:
         st.caption(f"{selected_stage_def.label}: {selected_stage_def.purpose}")
@@ -10453,6 +10666,9 @@ def render_analysis_pipeline_control_center_v1863bv():
         st.dataframe(display_rows, use_container_width=True, hide_index=True)
     else:
         st.info("Ingen kandidatpakke for valgt steg ennå.")
+
+    if selected_stage == "data_foundation":
+        _render_data_foundation_approval_v1863by(status_rows)
 
     with st.expander("Felles rapportmal for alle steg", expanded=False):
         for line in standard_report_outline(selected_stage):
