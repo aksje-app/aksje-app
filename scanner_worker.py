@@ -354,6 +354,24 @@ def run_once(force=False):
             if PAPER_TRADING_ENABLED and auto_trading_enabled:
                 signal_text = str(result["signal"]).upper()
                 allow_trade = True
+                open_positions = (load_portfolio() or {}).get("positions", {}) or {}
+                has_existing_position = str(result["ticker"]).upper() in {str(t).upper() for t in open_positions.keys()}
+
+                if has_existing_position:
+                    traded, msg = auto_trade(
+                        result["ticker"],
+                        result["price"],
+                        result["signal"],
+                        confidence=result["confidence"],
+                        rsi=result.get("rsi"),
+                        prev_rsi=result.get("prev_rsi"),
+                    )
+                    print(f"Auto risk check {ticker}: {msg}")
+
+                    if traded:
+                        trades_executed += 1
+                        print("Trade-varsling hÃ¥ndteres av trading_engine")
+                    continue
 
                 if "BUY" in signal_text:
                     if result["score"] < min_buy_score:

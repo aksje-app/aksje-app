@@ -113,6 +113,10 @@ def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapp
         rows.append({
             "ticker": ticker,
             "type": pos.get("asset_type", "Aksje"),
+            "land": pos.get("country", ""),
+            "marked": pos.get("market", ""),
+            "sektor": pos.get("sector", ""),
+            "bransje": pos.get("industry", "") or pos.get("sector", ""),
             "units": round(_safe_float(pos.get("shares")), 4),
             "unit_label": pos.get("units_label", "shares"),
             "avg_price": round(_safe_float(pos.get("avg_price")), 4),
@@ -128,13 +132,31 @@ def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapp
 
 def paper_trade_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    preferred_order = [
+        "time", "type", "ticker", "land", "marked", "sektor", "bransje",
+        "price", "shares", "amount", "confidence", "pnl_pct",
+        "reason", "regel", "grense", "maalt_verdi", "hvorfor",
+        "asset_type", "currency", "nav_date", "order_kind",
+    ]
     for trade in list(trades or [])[: max(1, int(limit or 50))]:
         if not isinstance(trade, Mapping):
             continue
         row = dict(trade)
         row["type"] = "PAPER-KJØP" if str(row.get("type", "")).upper() == "BUY" else ("PAPER-SALG" if str(row.get("type", "")).upper() == "SELL" else row.get("type", ""))
         row["reason"] = paper_reason_label(row.get("reason"), str(trade.get("type", "")))
-        rows.append(row)
+        row["land"] = row.get("country", "")
+        row["marked"] = row.get("market", "")
+        row["sektor"] = row.get("sector", "")
+        row["bransje"] = row.get("industry", "") or row.get("sector", "")
+        row["regel"] = row.get("rule_used", "")
+        row["grense"] = row.get("rule_limit", "")
+        row["maalt_verdi"] = row.get("measured_value", "")
+        row["hvorfor"] = row.get("trade_explanation", "")
+        ordered = {key: row.get(key, "") for key in preferred_order if key in row}
+        for key, value in row.items():
+            if key not in ordered and key not in {"country", "market", "sector", "industry", "rule_used", "rule_limit", "measured_value", "trade_explanation"}:
+                ordered[key] = value
+        rows.append(ordered)
     return rows
 
 

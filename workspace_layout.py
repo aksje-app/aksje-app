@@ -1614,6 +1614,99 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
         return active_label
 
 
+def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> None:
+    """Visible entry point for the staged Test 1 -> Test 10 workflow."""
+    data_panel = next(
+        (
+            label for label in group_map.get("Marked og signaler", [])
+            if label in panel_map and ("datagrunnlag" in str(label).lower() or "test 1" in str(label).lower())
+        ),
+        "",
+    )
+    if not data_panel:
+        return
+
+    status_by_stage = {}
+    stages = []
+    try:
+        from services.analysis_pipeline_service import get_analysis_pipeline_service, stage_definitions
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        pipeline = get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        )
+        status_by_stage = {str(row.get("stage_id") or ""): row for row in pipeline.stage_status()}
+        stages = stage_definitions()
+    except Exception:
+        stages = [
+            {"stage_id": "data_foundation", "label": "Datagrunnlag"},
+            {"stage_id": "market_ranking", "label": "Marked/rangering"},
+            {"stage_id": "smart_ai", "label": "Smart AI"},
+            {"stage_id": "top_picks", "label": "Top Picks"},
+            {"stage_id": "early_warning", "label": "Early Warning"},
+            {"stage_id": "alpha_radar", "label": "Alpha Radar"},
+            {"stage_id": "auto_test_lab", "label": "Auto Test Lab"},
+            {"stage_id": "decision_support", "label": "Beslutning"},
+            {"stage_id": "portfolio_analysis", "label": "Portefolje"},
+            {"stage_id": "paper_trading", "label": "Paper Trading"},
+        ]
+
+    chips = []
+    for idx, stage in enumerate(stages[:10], start=1):
+        stage_id = str(stage.get("stage_id") or "")
+        status = status_by_stage.get(stage_id, {})
+        output_count = int(status.get("output") or 0)
+        input_count = int(status.get("input") or 0)
+        if output_count > 0:
+            bg, border, fg = "rgba(22,163,74,.24)", "rgba(34,197,94,.70)", "#dcfce7"
+            suffix = f"{output_count} ut"
+        elif input_count > 0:
+            bg, border, fg = "rgba(2,132,199,.22)", "rgba(56,189,248,.66)", "#e0f2fe"
+            suffix = f"{input_count} inn"
+        elif idx == 1:
+            bg, border, fg = "rgba(14,165,233,.26)", "rgba(125,211,252,.78)", "#eff6ff"
+            suffix = "start"
+        else:
+            bg, border, fg = "rgba(15,23,42,.68)", "rgba(148,163,184,.34)", "#cbd5e1"
+            suffix = "venter"
+        label = html.escape(str(stage.get("label") or stage_id))
+        chips.append(
+            f"<span style='display:inline-flex;align-items:center;gap:.28rem;padding:.28rem .48rem;"
+            f"border-radius:999px;border:1px solid {border};background:{bg};color:{fg};"
+            f"font-size:.76rem;font-weight:800;white-space:nowrap;'>Test {idx}: {label}"
+            f"<small style='opacity:.82;font-weight:700;'> {html.escape(suffix)}</small></span>"
+        )
+
+    st.markdown(
+        """
+        <div class="ptw-control-note-strong" style="border-color:rgba(56,189,248,.52);">
+          <b>Start anbefalt arbeidsflyt:</b> Begynn med Test 1 Datagrunnlag, send resultatet videre, og jobb deg stegvis til Test 10 Paper Trading.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c_start, c_flow = st.columns([0.34, 0.66])
+    with c_start:
+        if st.button("Start her: Test 1 Datagrunnlag", key="analysis_pipeline_quick_start_v1863bx", use_container_width=True, type="primary"):
+            st.session_state["analysis_pipeline_pending_nav_v1863bw"] = {
+                "stage_id": "data_foundation",
+                "group": "Marked og signaler",
+                "panel": data_panel,
+                "defaults": {},
+                "auto_run": False,
+            }
+            st.rerun()
+    with c_flow:
+        st.markdown(
+            "<div style='display:flex;gap:.34rem;flex-wrap:wrap;align-items:center;margin:.12rem 0 .3rem 0;'>"
+            + "".join(chips)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+
 def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
     """Stable radio-based control center navigation."""
     with st.expander("AI KONTROLLSENTER - samlet arbeidsflate", expanded=True):
@@ -1647,12 +1740,13 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
 
         group_map = {
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
+            "Marked og signaler": _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
         }
+        data_foundation_labels = _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1")
         group_map["Marked og signaler"] = list(dict.fromkeys(
-            group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer")
+            data_foundation_labels + group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer")
         ))
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
@@ -1692,6 +1786,14 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Ingen valgt"))}</div>
               </div>
             </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        _render_pipeline_quick_start_v1863bx(panel_map, group_map)
+
+        st.markdown(
+            """
             <div class="ptw-control-selector-shell">
               <div class="ptw-control-selector-title">Hovedvalg</div>
             """,

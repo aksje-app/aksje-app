@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Any, Mapping
 from signal_engine import score_signal
 from notifier import notify_trade
 from trading_settings import load_rules
@@ -201,7 +202,81 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
         return False
 
 
-def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
+TRADE_CONTEXT_KEYS = (
+    "country",
+    "market",
+    "sector",
+    "industry",
+    "rule_used",
+    "rule_limit",
+    "measured_value",
+    "trade_explanation",
+)
+
+
+def resolve_trade_security_context(ticker: Any, item: Mapping[str, Any] | None = None) -> dict:
+    """Local ticker metadata used in paper positions and trade logs."""
+    row = dict(item or {}) if isinstance(item, Mapping) else {}
+    symbol = str(row.get("ticker") or row.get("symbol") or ticker or "").strip().upper()
+    meta = dict(row)
+    listing = {}
+    try:
+        from security_metadata import infer_security_listing, resolve_security_metadata
+
+        meta = resolve_security_metadata(symbol, row)
+        listing = infer_security_listing(symbol, meta)
+    except Exception:
+        listing = {}
+
+    sector = str(row.get("sector") or row.get("Sector") or meta.get("sector") or "").strip()
+    industry = str(row.get("industry") or row.get("Industry") or row.get("bransje") or sector or "").strip()
+    return {
+        "country": str(row.get("country") or row.get("land") or listing.get("country") or "").strip(),
+        "market": str(row.get("market") or listing.get("market") or "").strip(),
+        "sector": sector,
+        "industry": industry,
+        "asset_type": str(row.get("asset_type") or row.get("type") or "Aksje").strip() or "Aksje",
+    }
+
+
+def _merge_trade_context(ticker: Any, trade_context: Mapping[str, Any] | None = None, *, source: Mapping[str, Any] | None = None) -> dict:
+    source_row = dict(source or {}) if isinstance(source, Mapping) else {}
+    ctx = resolve_trade_security_context(ticker, source_row)
+    if isinstance(trade_context, Mapping):
+        for key, value in trade_context.items():
+            if value not in (None, ""):
+                ctx[str(key)] = value
+    return {key: ctx.get(key, "") for key in set(TRADE_CONTEXT_KEYS + ("asset_type",))}
+
+
+def _default_trade_explanation(trade_type: str, reason: str, ctx: Mapping[str, Any] | None = None) -> str:
+    ctx = ctx or {}
+    existing = str(ctx.get("trade_explanation") or "").strip()
+    if existing:
+        return existing
+    rule = str(ctx.get("rule_used") or "").strip()
+    limit = str(ctx.get("rule_limit") or "").strip()
+    measured = str(ctx.get("measured_value") or "").strip()
+    if str(trade_type or "").upper() == "SELL":
+        if rule and limit and measured:
+            return f"Solgt fordi {rule} ble utlost: malt {measured}, grense {limit}."
+        if rule:
+            return f"Solgt fordi {rule} ble utlost."
+        if reason:
+            return f"Solgt fordi {reason}."
+    if str(trade_type or "").upper() == "BUY":
+        if rule and measured:
+            return f"Kjopt fordi {rule}: {measured}."
+        if reason:
+            return f"Kjopt fordi {reason}."
+    return ""
+
+
+def _format_pct(value: float) -> str:
+    return f"{float(value):.2f}%"
+
+
+def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None):
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
     max_trades_per_day = int(rules.get("max_trades_per_day", 3))
@@ -210,6 +285,12 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
     portfolio = load_portfolio()
     before = build_paper_state_snapshot(portfolio, rules=rules)
     ticker = str(ticker).upper()
+    trade_ctx = _merge_trade_context(ticker, trade_context)
+    if not trade_ctx.get("rule_used"):
+        trade_ctx["rule_used"] = "BUY signal"
+    if not trade_ctx.get("measured_value"):
+        trade_ctx["measured_value"] = f"confidence {int(confidence or 0)}"
+    trade_ctx["trade_explanation"] = _default_trade_explanation("BUY", reason, trade_ctx)
     reason = paper_reason_label(reason, "BUY") or "PAPER-KJØP"
     try:
         price = float(price)
@@ -242,15 +323,22 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal"):
         "last_price": price, "highest_price": price, "stop_loss": sl,
         "take_profit": tp, "trailing_stop": tr, "confidence": int(confidence or 0), "reason": reason,
         "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
+        "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
+        "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
     }
-    add_trade(portfolio, {"type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason, "order_kind":"paper"})
+    add_trade(portfolio, {
+        "type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
+        "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason,
+        "order_kind":"paper", "asset_type": "Aksje",
+        **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
+    })
     after = build_paper_state_snapshot(portfolio, rules=rules)
     audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason})
     notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
     return True, f"PAPER-KJØP {ticker} @ {price:.2f}"
 
 
-def paper_sell(ticker, price, reason="SELL signal"):
+def paper_sell(ticker, price, reason="SELL signal", trade_context=None):
     portfolio = load_portfolio()
     before = build_paper_state_snapshot(portfolio)
     ticker = str(ticker).upper()
@@ -264,14 +352,22 @@ def paper_sell(ticker, price, reason="SELL signal"):
         audit_state_transition("paper_sell_blocked", before, detail={"ticker": ticker, "reason": "missing_position"}, level="WARNING")
         return False, f"Ingen posisjon i {ticker}"
     reason = paper_reason_label(reason, "SELL") or "PAPER-SALG"
+    trade_ctx = _merge_trade_context(ticker, trade_context, source=pos)
     normalized_pos = normalize_paper_position(ticker, pos, latest_price=price)
     shares = float(normalized_pos.get("shares", 0))
     entry = float(normalized_pos.get("entry_price", normalized_pos.get("avg_price", price)))
     amount = shares * price
     pnl_pct = ((price-entry)/entry*100) if entry else 0
+    trade_ctx["trade_explanation"] = _default_trade_explanation("SELL", reason, trade_ctx)
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
     del portfolio["positions"][ticker]
-    add_trade(portfolio, {"type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6), "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0), "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper"})
+    add_trade(portfolio, {
+        "type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
+        "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0),
+        "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper",
+        "asset_type": pos.get("asset_type", "Aksje"),
+        **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
+    })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
     notify_executed_trade("SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason)
@@ -280,6 +376,7 @@ def paper_sell(ticker, price, reason="SELL signal"):
 
 def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
     portfolio = load_portfolio()
+    rules = load_rules()
     ticker = str(ticker).upper()
     price = float(price)
     sig = str(signal or "").upper()
@@ -292,22 +389,63 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
         portfolio["positions"][ticker] = pos
         save_portfolio(portfolio)
         pnl_pct = ((price-entry)/entry*100) if entry else 0
-        if "SELL" in sig or "AVOID" in sig:
-            return paper_sell(ticker, price, "SELL signal")
+        stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT))
+        take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT))
+        trailing_stop_pct = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT))
+        rsi_exit_level = float(rules.get("rsi_exit_level", 75))
+        rsi_must_fall = bool(rules.get("rsi_must_fall", True))
+
         if price <= sl:
-            return paper_sell(ticker, price, f"Stop loss {pnl_pct:.2f}%")
+            return paper_sell(ticker, price, f"Stop loss {pnl_pct:.2f}%", {
+                "rule_used": "Stop-loss",
+                "rule_limit": _format_pct(-stop_loss_pct),
+                "measured_value": _format_pct(pnl_pct),
+                "trade_explanation": f"Solgt fordi tapet var {pnl_pct:.2f}%, som er lik eller under stop-loss {stop_loss_pct:.2f}%.",
+            })
         if price >= tp:
-            return paper_sell(ticker, price, f"Take profit {pnl_pct:.2f}%")
+            return paper_sell(ticker, price, f"Take profit {pnl_pct:.2f}%", {
+                "rule_used": "Take-profit",
+                "rule_limit": _format_pct(take_profit_pct),
+                "measured_value": _format_pct(pnl_pct),
+                "trade_explanation": f"Solgt fordi gevinsten var {pnl_pct:.2f}%, som er lik eller over take-profit {take_profit_pct:.2f}%.",
+            })
         if high > entry and price <= tr:
-            return paper_sell(ticker, price, f"Trailing stop {pnl_pct:.2f}%")
+            drop_from_high = ((price - high) / high * 100) if high else 0
+            return paper_sell(ticker, price, f"Trailing stop {pnl_pct:.2f}%", {
+                "rule_used": "Trailing stop",
+                "rule_limit": _format_pct(-trailing_stop_pct),
+                "measured_value": _format_pct(drop_from_high),
+                "trade_explanation": f"Solgt fordi kursen falt {abs(drop_from_high):.2f}% fra topp etter at posisjonen hadde vaert i pluss.",
+            })
         try:
-            if rsi is not None and float(rsi) > 75 and (prev_rsi is None or float(rsi) < float(prev_rsi)):
-                return paper_sell(ticker, price, f"RSI sell {float(rsi):.1f}")
+            current_rsi = float(rsi) if rsi is not None else None
+            previous_rsi = float(prev_rsi) if prev_rsi is not None else None
+            rsi_is_falling = previous_rsi is not None and current_rsi is not None and current_rsi < previous_rsi
+            if current_rsi is not None and current_rsi >= rsi_exit_level and (not rsi_must_fall or rsi_is_falling):
+                return paper_sell(ticker, price, f"RSI sell {current_rsi:.1f}", {
+                    "rule_used": "RSI exit",
+                    "rule_limit": f"{rsi_exit_level:.1f}",
+                    "measured_value": f"{current_rsi:.1f}",
+                    "trade_explanation": (
+                        f"Solgt fordi RSI var {current_rsi:.1f} mot grense {rsi_exit_level:.1f}"
+                        + (" og RSI falt fra forrige topp." if rsi_must_fall else ".")
+                    ),
+                })
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
+        if "SELL" in sig or "AVOID" in sig:
+            return paper_sell(ticker, price, "SELL signal", {
+                "rule_used": "SELL/AVOID signal",
+                "rule_limit": "signal",
+                "measured_value": sig,
+                "trade_explanation": f"Solgt fordi signalmotoren ga {sig or 'SELL/AVOID'} etter risikosjekk.",
+            })
         return False, f"HOLD {ticker}"
     if "BUY" in sig:
-        return paper_buy(ticker, price, confidence, "BUY signal")
+        return paper_buy(ticker, price, confidence, "BUY signal", {
+            "rule_used": "BUY signal",
+            "measured_value": f"confidence {int(confidence or 0)}",
+        })
     return False, "Ingen trade"
 
 

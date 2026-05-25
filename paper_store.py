@@ -64,7 +64,11 @@ def init_db():
         highest_price REAL,
         confidence INTEGER,
         reason TEXT,
-        opened_at TEXT
+        opened_at TEXT,
+        country TEXT,
+        market TEXT,
+        sector TEXT,
+        industry TEXT
     );""")
 
     cur.execute("""
@@ -78,7 +82,15 @@ def init_db():
         amount REAL NOT NULL,
         confidence INTEGER,
         pnl_pct REAL,
-        reason TEXT
+        reason TEXT,
+        country TEXT,
+        market TEXT,
+        sector TEXT,
+        industry TEXT,
+        rule_used TEXT,
+        rule_limit TEXT,
+        measured_value TEXT,
+        trade_explanation TEXT
     );""")
 
     # Add all possible columns used by old/new versions
@@ -100,6 +112,10 @@ def init_db():
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS currency TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS nav_date TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS purchase_mode TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS country TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS market TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS sector TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS industry TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS confidence INTEGER;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;",
@@ -107,6 +123,14 @@ def init_db():
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS currency TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS nav_date TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS order_kind TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS country TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS market TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS sector TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS industry TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS rule_used TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS rule_limit TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS measured_value TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS trade_explanation TEXT;",
     ]
     for q in migrations:
         cur.execute(q)
@@ -201,7 +225,11 @@ def load_portfolio():
                    COALESCE(units_label, 'shares') AS units_label,
                    COALESCE(currency, '') AS currency,
                    COALESCE(nav_date, '') AS nav_date,
-                   COALESCE(purchase_mode, '') AS purchase_mode
+                   COALESCE(purchase_mode, '') AS purchase_mode,
+                   COALESCE(country, '') AS country,
+                   COALESCE(market, '') AS market,
+                   COALESCE(sector, '') AS sector,
+                   COALESCE(industry, '') AS industry
             FROM paper_positions
             ORDER BY ticker
         """)
@@ -227,6 +255,10 @@ def load_portfolio():
                 "currency": r[13] or "",
                 "nav_date": r[14] or "",
                 "purchase_mode": r[15] or "",
+                "country": r[16] or "",
+                "market": r[17] or "",
+                "sector": r[18] or "",
+                "industry": r[19] or "",
             }
 
         cur.execute("""
@@ -234,7 +266,15 @@ def load_portfolio():
                    COALESCE(asset_type, '') AS asset_type,
                    COALESCE(currency, '') AS currency,
                    COALESCE(nav_date, '') AS nav_date,
-                   COALESCE(order_kind, '') AS order_kind
+                   COALESCE(order_kind, '') AS order_kind,
+                   COALESCE(country, '') AS country,
+                   COALESCE(market, '') AS market,
+                   COALESCE(sector, '') AS sector,
+                   COALESCE(industry, '') AS industry,
+                   COALESCE(rule_used, '') AS rule_used,
+                   COALESCE(rule_limit, '') AS rule_limit,
+                   COALESCE(measured_value, '') AS measured_value,
+                   COALESCE(trade_explanation, '') AS trade_explanation
             FROM paper_trades
             ORDER BY id DESC
             LIMIT 300
@@ -255,6 +295,14 @@ def load_portfolio():
                 "currency": r[10] or "",
                 "nav_date": r[11] or "",
                 "order_kind": r[12] or "",
+                "country": r[13] or "",
+                "market": r[14] or "",
+                "sector": r[15] or "",
+                "industry": r[16] or "",
+                "rule_used": r[17] or "",
+                "rule_limit": r[18] or "",
+                "measured_value": r[19] or "",
+                "trade_explanation": r[20] or "",
             })
 
         conn.close()
@@ -292,8 +340,9 @@ def save_portfolio(portfolio):
             cur.execute("""
                 INSERT INTO paper_positions
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
-                 trailing_stop, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 trailing_stop, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode,
+                 country, market, sector, industry)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 ticker,
                 float(pos.get("shares", 0)),
@@ -312,6 +361,10 @@ def save_portfolio(portfolio):
                 pos.get("currency", ""),
                 pos.get("nav_date", ""),
                 pos.get("purchase_mode", ""),
+                pos.get("country", ""),
+                pos.get("market", ""),
+                pos.get("sector", ""),
+                pos.get("industry", ""),
             ))
 
         conn.commit()
@@ -342,8 +395,9 @@ def add_trade(portfolio, trade):
 
         cur.execute("""
             INSERT INTO paper_trades
-            (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason, asset_type, currency, nav_date, order_kind)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason, asset_type, currency, nav_date, order_kind,
+             country, market, sector, industry, rule_used, rule_limit, measured_value, trade_explanation)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             next_id,
             trade["time"],
@@ -359,6 +413,14 @@ def add_trade(portfolio, trade):
             trade.get("currency", ""),
             trade.get("nav_date", ""),
             trade.get("order_kind", ""),
+            trade.get("country", ""),
+            trade.get("market", ""),
+            trade.get("sector", ""),
+            trade.get("industry", ""),
+            trade.get("rule_used", ""),
+            trade.get("rule_limit", ""),
+            trade.get("measured_value", ""),
+            trade.get("trade_explanation", ""),
         ))
         conn.commit()
         conn.close()

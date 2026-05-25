@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.3bw"
-APP_VERSION_NAME = "Analyseflyt Wizard Clean Zip"
-APP_BUILD_ID = "v1863bw-analyseflyt-wizard"
+APP_VERSION = "v18.6.3bx"
+APP_VERSION_NAME = "Synlig Datagrunnlag og Paper Risk Fix"
+APP_BUILD_ID = "v1863bx-datagrunnlag-paper-risk"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Test 1 Datagrunnlag er flyttet til Marked og signaler og har synlig startknapp med Test 1-10 statusrad i AI Kontrollsenter.",
+    "Paper Trading sjekker naa aapne posisjoner for stop-loss, take-profit, trailing stop og RSI-exit foer nye BUY-signaler kan overstyre.",
+    "Handelsloggen viser land, marked, sektor/bransje, regel, grense, maalt verdi og en kort forklaring paa hvorfor en handel ble gjort eller solgt.",
     "Analyseflyt er gjort om til Test 1 Datagrunnlag med veiviser videre til Test 10 Paper Trading.",
     "Hvert hovedsteg viser input/output-status, anbefalt standardvalg og knapp for aa sende ferdig kandidatpakke videre uten automatisk tung kjoring.",
     "Veiviseren hopper til riktig Kontrollsenter-panel og setter Analyseflyt input der det er relevant, mens selve motorene fortsatt krever eksplisitt Kjor.",
