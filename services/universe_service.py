@@ -489,6 +489,21 @@ class UniverseService:
                     "reason": row.get("reason"),
                 })
 
+        try:
+            from ranking_universe_adapters import enrich_existing_ranking_rows, rank_existing_rows
+
+            rows = enrich_existing_ranking_rows(rows, source="Smart AI", max_count=len(rows) or 30)
+            shared = rank_existing_rows(rows, source="Smart AI", request={"max_count": len(rows) or 30, "label": "Smart AI lagret ranking"}).as_dict()
+            shared_map = self.state.get("latest_shared_rankings_v1863br", {}) or {}
+            if not isinstance(shared_map, dict):
+                shared_map = {}
+            shared_map["SmartAI"] = shared
+            shared_map["Smart AI"] = shared
+            self.state.set("latest_shared_rankings_v1863br", shared_map)
+            self.storage.write_json("latest_shared_rankings_v1863br.json", shared_map)
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
+
         latest_rankings = self.state.get("latest_rankings_v148", {}) or {}
         if not isinstance(latest_rankings, dict):
             latest_rankings = {}
@@ -496,6 +511,20 @@ class UniverseService:
         latest_rankings["Smart AI"] = rows
         self.state.set("latest_rankings_v148", latest_rankings)
         self.storage.write_json("latest_rankings_v148.json", latest_rankings)
+
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+
+            get_analysis_pipeline_service(state_service=self.state, storage_service=self.storage).save_stage_output(
+                "smart_ai",
+                rows,
+                source_label="Smart AI",
+                context={"origin": "UniverseService.store_result_as_rankings"},
+                max_items=len(rows) or 30,
+                auto_handoff=True,
+            )
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         # v18.5.16: Persist score explanations so Testing & Learning can show
         # the explanation after a Render/session restart, not only immediately
