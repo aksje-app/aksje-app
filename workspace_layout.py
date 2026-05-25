@@ -1332,7 +1332,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
 
         group_map = {
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
+            "Marked og signaler": _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
         }
@@ -1658,6 +1658,19 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
+
+        pending_nav = st.session_state.pop("analysis_pipeline_pending_nav_v1863bw", None)
+        if isinstance(pending_nav, dict):
+            for key, value in (pending_nav.get("defaults") or {}).items():
+                if key:
+                    st.session_state[key] = value
+            pending_group = str(pending_nav.get("group") or "")
+            pending_panel = str(pending_nav.get("panel") or "")
+            if pending_group in group_map and pending_panel in group_map.get(pending_group, []) and pending_panel in panel_map:
+                st.session_state["ai_control_center_group_v1863aj"] = pending_group
+                st.session_state["ai_control_center_active_panel_v1863aj"] = pending_panel
+                st.session_state.pop("ai_control_center_group_radio_v1863aj", None)
+                st.session_state.pop(f"ai_control_center_panel_radio_v1863aj_{pending_group}", None)
 
         group_options = ["Ingen valgt"] + [f"{name} ({len([x for x in labels if x in panel_map])})" for name, labels in group_map.items()]
         group_by_option = {"Ingen valgt": ""}

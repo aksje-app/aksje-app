@@ -594,7 +594,7 @@ def run_smart_ai_universe(
     top_picks = ranked[:top_pick_limit]
     status = "ok" if ranked else ("empty_after_filter" if raw_candidates else "empty")
 
-    return {
+    result = {
         "version": get_app_version(),
         "strict_source": strict_source,
         "status": status,
@@ -620,6 +620,13 @@ def run_smart_ai_universe(
             },
         },
     }
+    try:
+        from ranking_universe_adapters import attach_shared_ranking_to_smart_result
+
+        result = attach_shared_ranking_to_smart_result(result, max_count=max_count)
+    except Exception:
+        result["shared_ranking"] = {"status": "unavailable"}
+    return result
 
 
 def candidate_dicts_for_app(result: Mapping[str, Any]) -> List[Dict[str, Any]]:
