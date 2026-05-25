@@ -450,7 +450,7 @@ def analyze_mixed_portfolio(
         score -= min(12.0, active_pct * 0.35 + len(active_unproven) * 2)
         suggestions.append("Aktive fond uten godkjent merverdi bør holdes små eller flyttes til 'krever mer bevis'.")
 
-    score = round(_clamp(score), 1)
+    score = round(_clamp(score, 0.0, 100.0), 1)
     if score >= 78:
         grade = "Sterk"
     elif score >= 62:

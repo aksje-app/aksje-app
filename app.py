@@ -9808,7 +9808,7 @@ def _portfolio_analyzer_result_rows_v18544(result_key: str, row_keys: list[str],
     return rows[: int(limit or 12)]
 
 
-def _paper_trading_holdings_v18544(limit: int = 20):
+def _paper_trading_holdings_v18544(limit: int | None = None):
     """Resolve paper trading positions as portfolio rows without price/network calls."""
     try:
         portfolio = load_portfolio() or {}
@@ -9836,7 +9836,9 @@ def _paper_trading_holdings_v18544(limit: int = 20):
         if total_value > 0:
             for r in rows:
                 r["weight_pct"] = round((float(r.get("position_value") or 0.0) / total_value) * 100.0, 2)
-        return rows[: int(limit or 20)]
+        if limit is None:
+            return rows
+        return rows[: int(limit or len(rows))]
     except Exception:
         return []
 
@@ -9950,11 +9952,22 @@ def render_mixed_portfolio_control_center_v18544():
     with c3:
         profile = st.selectbox("Profil", ["Balansert", "Lav risiko", "Lav kostnad", "Grunnmur", "Vekst"], key="mixed_portfolio_profile_v18544")
 
-    c4, c5 = st.columns([1.0, 1.0])
-    with c4:
-        stock_budget = st.slider("Aksjeandel ved auto-forslag", 0, 80, 30, 5, key="mixed_portfolio_stock_budget_v18544")
-    with c5:
-        max_rows = st.slider("Maks posisjoner", 3, 30, 12, 1, key="mixed_portfolio_max_rows_v18544")
+    is_paper_source = stock_source == "Paper trading"
+    stock_budget = 30
+    max_rows = 12
+    if is_paper_source:
+        st.markdown(
+            "<div class='v18-dark-row'><b>Paper trading analyseres komplett.</b> Maks posisjoner og aksjeandel ved auto-forslag brukes ikke i denne modusen.</div>",
+            unsafe_allow_html=True,
+        )
+        stock_budget = 100
+        max_rows = 9999
+    else:
+        c4, c5 = st.columns([1.0, 1.0])
+        with c4:
+            stock_budget = st.slider("Aksjeandel ved auto-forslag", 0, 80, 30, 5, key="mixed_portfolio_stock_budget_v18544")
+        with c5:
+            max_rows = st.slider("Maks posisjoner", 3, 30, 12, 1, key="mixed_portfolio_max_rows_v18544")
 
     manual_stocks = ""
     manual_funds = ""
@@ -9967,7 +9980,7 @@ def render_mixed_portfolio_control_center_v18544():
     if stock_source == "Auto Test Lab aksjer":
         stock_rows = _portfolio_analyzer_result_rows_v18544("auto_test_lab_last_result_v18536", ["best_single", "test_further"], limit=int(max_rows))
     elif stock_source == "Paper trading":
-        stock_rows = _paper_trading_holdings_v18544(limit=int(max_rows))
+        stock_rows = _paper_trading_holdings_v18544(limit=None)
     elif stock_source == "Siste Smart AI-resultat":
         try:
             from services.universe_service import SMART_RESULT_KEY
@@ -9994,13 +10007,14 @@ def render_mixed_portfolio_control_center_v18544():
 
     auto_stock_weight = None
     auto_fund_weight = None
-    if stock_source != "Manuell" and stock_rows:
+    if stock_source != "Manuell" and not is_paper_source and stock_rows:
         auto_stock_weight = float(stock_budget) / max(1, len(stock_rows))
     if fund_source != "Manuell" and fund_rows:
         auto_fund_weight = float(100 - stock_budget) / max(1, len(fund_rows))
 
+    stock_rows_for_analysis = stock_rows if is_paper_source else stock_rows[: int(max_rows)]
     holdings_preview = build_holdings_from_sources(
-        stock_rows=stock_rows[: int(max_rows)],
+        stock_rows=stock_rows_for_analysis,
         fund_rows=fund_rows[: int(max_rows)],
         manual_stock_text=manual_stocks,
         manual_fund_text=manual_funds,
@@ -10014,6 +10028,11 @@ def render_mixed_portfolio_control_center_v18544():
     if holdings_preview:
         preview = ", ".join(f"{h.get('symbol')} {h.get('weight_pct')}%" for h in holdings_preview[:8])
         st.markdown(f"<div class='v18-dark-row' style='font-size:.78rem;'>Preview: {html.escape(preview)}</div>", unsafe_allow_html=True)
+        if is_paper_source:
+            st.markdown(
+                f"<div class='v18-dark-row' style='font-size:.78rem;'>Paper trading analyseres komplett: {len(stock_rows)} posisjoner fra portefoljen.</div>",
+                unsafe_allow_html=True,
+            )
     else:
         st.markdown("<div class='v18-dark-row'>Ingen posisjoner funnet. Bruk manuell input eller kjør Auto Test Lab / Fondanalyse først.</div>", unsafe_allow_html=True)
 

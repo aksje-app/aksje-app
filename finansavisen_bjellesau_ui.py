@@ -11,7 +11,9 @@ from finansavisen_bjellesau import (
     build_finansavisen_report,
     build_finansavisen_report_html,
     build_finansavisen_report_pdf,
+    build_finansavisen_stock_detail_views,
     decision_rows_from_finansavisen,
+    finansavisen_stock_detail_options,
     finansavisen_status,
     finansavisen_transactions_to_csv,
     finansavisen_transactions_to_json,
@@ -125,6 +127,27 @@ def _render_report_method(summary: Mapping[str, Any], visible_rows: Sequence[Map
         st.dataframe(data, use_container_width=True, hide_index=True)
     else:
         st.info("Ingen rader i denne rapportvisningen.")
+
+    detail_options = finansavisen_stock_detail_options(visible_rows, limit=80)
+    if not detail_options:
+        st.info("Ingen aksjedetaljer aa vise for gjeldende filter.")
+        return
+    labels = [str(option.get("label") or option.get("key")) for option in detail_options]
+    chosen_label = st.selectbox(
+        "Aksjedetalj med dato/person/transaksjoner",
+        labels,
+        key="finansavisen_bjellesau_stock_detail_v1863bn",
+    )
+    chosen = detail_options[labels.index(chosen_label)]
+    details = build_finansavisen_stock_detail_views(visible_rows, str(chosen.get("key") or ""))
+    st.caption("Detaljene under er bygget fra lagret import og oppdateres kun mot gjeldende filter, uten Excel-parse eller nettverkskall.")
+    for title in ("Sammendrag", "Gruppert per dato", "Samlet per person", "Transaksjoner"):
+        rows = details.get(title) or []
+        st.markdown(f"**{title}**")
+        if rows:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("Ingen rader.")
 
 
 def _summary_cards(status: Mapping[str, Any]) -> None:

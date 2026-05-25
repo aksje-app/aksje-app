@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bm"
-APP_VERSION_NAME = "Finansavisen Reports And Menu"
-APP_BUILD_ID = "v1863bm-finansavisen-reports-menu"
+APP_VERSION = "v18.6.3bn"
+APP_VERSION_NAME = "Finansavisen Details And Portfolio Fix"
+APP_BUILD_ID = "v1863bn-finansavisen-details-portfolio"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
@@ -92,6 +92,8 @@ APP_PATCH_NOTES = [
     "Finansavisen-deduplisering taaler overlappende filer i ulik rekkefolge og beholder alle kildeperioder uten importkrasj.",
     "Finansavisen Bjellesauer ligger under Marked og signaler, og Andre paneler skjules naar ingen reelle restpaneler finnes.",
     "Finansavisen Bjellesauer har lesbar rapportseksjon, print/PDF-HTML, nedlastbar PDF, ticker-match-filter og sending til Beslutningsgrunnlag.",
+    "Finansavisen Bjellesauer viser naa aksjedetaljer per dato, person og transaksjonslinje, og rapport/PDF tar med detaljene for viktige aksjer.",
+    "Portefoljeanalyse analyserer Paper Trading-portefoljen komplett uten maksposisjon-slider og retter _clamp-krasjen.",
 ]
 
 def get_app_version():

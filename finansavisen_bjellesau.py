@@ -1060,6 +1060,196 @@ def finansavisen_aggregates_to_display_rows(rows: Sequence[Mapping[str, Any]] | 
     ]
 
 
+def _stock_key_from_transaction(row: Mapping[str, Any]) -> str:
+    return _clean(row.get("matched_ticker")).upper() or _normalize_company(row.get("stock_name"))
+
+
+def _format_integer(value: Any) -> str:
+    number = _parse_number(value)
+    if number is None:
+        return "-"
+    return f"{int(round(number)):,}".replace(",", ".")
+
+
+def _side_label(row: Mapping[str, Any]) -> str:
+    side = _clean(row.get("side")).lower()
+    if side == "buy":
+        return "Kjop"
+    if side == "sell":
+        return "Salg"
+    return "Ukjent"
+
+
+def _period_text(row: Mapping[str, Any]) -> str:
+    return ", ".join(sort_periods(row.get("source_periods") or [row.get("source_period")]))
+
+
+def finansavisen_stock_detail_options(
+    rows: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    limit: int = 80,
+) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    for item in aggregate_finansavisen_by_stock(rows)[:limit]:
+        key = _clean(item.get("stock_key"))
+        if not key:
+            continue
+        ticker = _clean(item.get("matched_ticker")).upper()
+        name = _clean(item.get("stock_name")) or key
+        label_main = ticker or name
+        options.append(
+            {
+                "key": key,
+                "label": f"{label_main} | score {item.get('score')} | netto {format_nok(item.get('net_value_nok'))}",
+                "ticker": ticker,
+                "stock_name": name,
+                "score": item.get("score"),
+                "net_value_nok": item.get("net_value_nok"),
+            }
+        )
+    return options
+
+
+def _transactions_for_stock(
+    rows: Sequence[Mapping[str, Any]] | None,
+    stock_key: str,
+) -> list[dict[str, Any]]:
+    source_rows = load_finansavisen_transactions() if rows is None else rows
+    key = _clean(stock_key)
+    selected = [
+        dict(row)
+        for row in source_rows
+        if isinstance(row, Mapping) and _stock_key_from_transaction(row) == key
+    ]
+    return sorted(
+        selected,
+        key=lambda row: (
+            _clean(row.get("estimated_date")),
+            _period_weight(row),
+            abs(float(row.get("transaction_value_nok") or 0.0)),
+            _clean(row.get("investor")),
+        ),
+        reverse=True,
+    )
+
+
+def finansavisen_stock_transaction_rows(
+    rows: Sequence[Mapping[str, Any]] | None,
+    stock_key: str,
+    *,
+    limit: int = 250,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "Dato": row.get("estimated_date") or "",
+            "Investor": row.get("investor") or "",
+            "Side": _side_label(row),
+            "Endring aksjer": _format_integer(row.get("change_shares")),
+            "Verdi": format_nok(row.get("transaction_value_nok")),
+            "Rel endring": format_percent(row.get("relative_change_pct")),
+            "Ny eierandel": format_percent(row.get("new_ownership_pct")),
+            "Ny beholdning": _format_integer(row.get("new_holding")),
+            "Utfort av": row.get("performed_by") or "",
+            "Perioder": _period_text(row),
+        }
+        for row in _transactions_for_stock(rows, stock_key)[:limit]
+    ]
+
+
+def finansavisen_stock_date_rows(
+    rows: Sequence[Mapping[str, Any]] | None,
+    stock_key: str,
+    *,
+    limit: int = 120,
+) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in _transactions_for_stock(rows, stock_key):
+        buckets.setdefault(_clean(row.get("estimated_date")) or "Ukjent dato", []).append(row)
+    out: list[dict[str, Any]] = []
+    for day, items in buckets.items():
+        buy_value = sum(max(0.0, float(row.get("transaction_value_nok") or 0.0)) for row in items)
+        sell_value = sum(abs(min(0.0, float(row.get("transaction_value_nok") or 0.0))) for row in items)
+        share_net = sum(float(row.get("change_shares") or 0.0) for row in items)
+        largest = max(items, key=lambda row: abs(float(row.get("transaction_value_nok") or 0.0)))
+        buyers = sorted({_clean(row.get("investor")) for row in items if row.get("side") == "buy" and _clean(row.get("investor"))})
+        sellers = sorted({_clean(row.get("investor")) for row in items if row.get("side") == "sell" and _clean(row.get("investor"))})
+        periods = sort_periods([period for row in items for period in (row.get("source_periods") or [row.get("source_period")])])
+        out.append(
+            {
+                "Dato": day,
+                "Handler": len(items),
+                "Kjop": sum(1 for row in items if row.get("side") == "buy"),
+                "Salg": sum(1 for row in items if row.get("side") == "sell"),
+                "Kjopsverdi": format_nok(buy_value),
+                "Salgsverdi": format_nok(sell_value),
+                "Netto": format_nok(buy_value - sell_value),
+                "Netto aksjer": _format_integer(share_net),
+                "Kjopere": ", ".join(buyers[:8]),
+                "Selgere": ", ".join(sellers[:8]),
+                "Storste handel": f"{largest.get('investor') or '-'} {_side_label(largest)} {format_nok(largest.get('transaction_value_nok'))}",
+                "Perioder": ", ".join(periods),
+            }
+        )
+    return sorted(out, key=lambda row: _clean(row.get("Dato")), reverse=True)[:limit]
+
+
+def finansavisen_stock_person_rows(
+    rows: Sequence[Mapping[str, Any]] | None,
+    stock_key: str,
+    *,
+    limit: int = 120,
+) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in _transactions_for_stock(rows, stock_key):
+        investor = _clean(row.get("investor")) or "Ukjent investor"
+        buckets.setdefault(investor, []).append(row)
+    out: list[dict[str, Any]] = []
+    for investor, items in buckets.items():
+        buy_value = sum(max(0.0, float(row.get("transaction_value_nok") or 0.0)) for row in items)
+        sell_value = sum(abs(min(0.0, float(row.get("transaction_value_nok") or 0.0))) for row in items)
+        share_net = sum(float(row.get("change_shares") or 0.0) for row in items)
+        dates = sorted(_clean(row.get("estimated_date")) for row in items if _clean(row.get("estimated_date")))
+        largest = max(items, key=lambda row: abs(float(row.get("transaction_value_nok") or 0.0)))
+        performed_by = sorted({_clean(row.get("performed_by")) for row in items if _clean(row.get("performed_by"))})
+        periods = sort_periods([period for row in items for period in (row.get("source_periods") or [row.get("source_period")])])
+        out.append(
+            {
+                "Investor": investor,
+                "Forste dato": dates[0] if dates else "",
+                "Siste dato": dates[-1] if dates else "",
+                "Handler": len(items),
+                "Kjop": sum(1 for row in items if row.get("side") == "buy"),
+                "Salg": sum(1 for row in items if row.get("side") == "sell"),
+                "Kjopsverdi": format_nok(buy_value),
+                "Salgsverdi": format_nok(sell_value),
+                "Netto": format_nok(buy_value - sell_value),
+                "Netto aksjer": _format_integer(share_net),
+                "Storste handel": f"{largest.get('estimated_date') or '-'} {_side_label(largest)} {format_nok(largest.get('transaction_value_nok'))}",
+                "Utfort av": ", ".join(performed_by[:6]),
+                "Perioder": ", ".join(periods),
+            }
+        )
+    return sorted(out, key=lambda row: (_parse_number(str(row.get("Netto")).replace(" NOK", "")) or 0.0, row.get("Siste dato") or ""), reverse=True)[:limit]
+
+
+def build_finansavisen_stock_detail_views(
+    rows: Sequence[Mapping[str, Any]] | None,
+    stock_key: str,
+) -> dict[str, list[dict[str, Any]]]:
+    stock_rows = [
+        row
+        for row in (load_finansavisen_transactions() if rows is None else rows)
+        if isinstance(row, Mapping) and _stock_key_from_transaction(row) == _clean(stock_key)
+    ]
+    summary = finansavisen_aggregates_to_display_rows(stock_rows, limit=1)
+    return {
+        "Sammendrag": summary[:1],
+        "Gruppert per dato": finansavisen_stock_date_rows(rows, stock_key),
+        "Samlet per person": finansavisen_stock_person_rows(rows, stock_key),
+        "Transaksjoner": finansavisen_stock_transaction_rows(rows, stock_key),
+    }
+
+
 def build_finansavisen_priority_views(rows: Sequence[Mapping[str, Any]] | None = None, limit: int = 75) -> dict[str, list[dict[str, Any]]]:
     source_rows = load_finansavisen_transactions() if rows is None else rows
     rows = [dict(row) for row in source_rows if isinstance(row, Mapping)]
@@ -1131,6 +1321,24 @@ def build_finansavisen_report(rows: Sequence[Mapping[str, Any]] | None = None) -
             f"- {row.get('Score')} | {row.get('Signal')} | {row.get('Ticker') or row.get('Aksje')} | "
             f"netto {row.get('Netto')} | investorer {row.get('Investorer')} | {row.get('Navn')}"
         )
+    lines.extend(["", "Detalj per aksje (topp 5):"])
+    for option in finansavisen_stock_detail_options(rows, limit=5):
+        details = build_finansavisen_stock_detail_views(rows, option["key"])
+        summary_row = (details.get("Sammendrag") or [{}])[0]
+        lines.append(
+            f"- {option.get('ticker') or option.get('stock_name')} | {summary_row.get('Signal', '-')} | "
+            f"netto {summary_row.get('Netto', '-')} | handler {summary_row.get('Handler', '-')}"
+        )
+        for day_row in (details.get("Gruppert per dato") or [])[:3]:
+            lines.append(
+                f"  Dato {day_row.get('Dato')}: kjop {day_row.get('Kjop')} / salg {day_row.get('Salg')} | "
+                f"netto {day_row.get('Netto')} | storste {day_row.get('Storste handel')}"
+            )
+        for person_row in (details.get("Samlet per person") or [])[:4]:
+            lines.append(
+                f"  Person {person_row.get('Investor')}: handler {person_row.get('Handler')} | "
+                f"netto {person_row.get('Netto')} | {person_row.get('Forste dato')} til {person_row.get('Siste dato')}"
+            )
     lines.extend([
         "",
         "Metode:",
@@ -1153,6 +1361,27 @@ def _html_table(records: Sequence[Mapping[str, Any]], *, limit: int = 25) -> str
     return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
 
+def _finansavisen_detail_html_sections(rows: Sequence[Mapping[str, Any]], *, limit_stocks: int = 5) -> str:
+    sections: list[str] = []
+    for option in finansavisen_stock_detail_options(rows, limit=limit_stocks):
+        details = build_finansavisen_stock_detail_views(rows, option["key"])
+        title = option.get("ticker") or option.get("stock_name") or option["key"]
+        sections.append(
+            f"""
+  <h2>Detalj per aksje: {html.escape(str(title))}</h2>
+  <h3>Sammendrag</h3>
+  {_html_table(details.get("Sammendrag") or [], limit=1)}
+  <h3>Gruppert per dato</h3>
+  {_html_table(details.get("Gruppert per dato") or [], limit=15)}
+  <h3>Samlet per person i perioden</h3>
+  {_html_table(details.get("Samlet per person") or [], limit=15)}
+  <h3>Transaksjonslinjer</h3>
+  {_html_table(details.get("Transaksjoner") or [], limit=30)}
+"""
+        )
+    return "\n".join(sections)
+
+
 def build_finansavisen_report_html(rows: Sequence[Mapping[str, Any]] | None = None) -> bytes:
     source_rows = load_finansavisen_transactions() if rows is None else rows
     rows = [dict(row) for row in source_rows if isinstance(row, Mapping)]
@@ -1163,6 +1392,7 @@ def build_finansavisen_report_html(rows: Sequence[Mapping[str, Any]] | None = No
     sell_rows = views.get("Storste salg", [])
     frequent_rows = views.get("Flere bjellesauer samme aksje", [])
     match_rows = views.get("Ticker-match", [])
+    detail_sections = _finansavisen_detail_html_sections(rows, limit_stocks=5)
     title = "Finansavisen Bjellesauer - rapport"
     document = f"""<!doctype html>
 <html lang="no">
@@ -1174,6 +1404,7 @@ def build_finansavisen_report_html(rows: Sequence[Mapping[str, Any]] | None = No
     button {{ border: 1px solid #0284c7; background: #0ea5e9; color: white; border-radius: 8px; padding: 9px 14px; font-weight: 700; }}
     h1 {{ margin-bottom: 4px; }}
     h2 {{ border-top: 1px solid #d1d5db; padding-top: 14px; margin-top: 18px; }}
+    h3 {{ margin: 10px 0 4px 0; font-size: 15px; }}
     .meta, .muted {{ color: #4b5563; font-size: 13px; }}
     .cards {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 14px 0; }}
     .card {{ border: 1px solid #d1d5db; background: #f8fafc; border-radius: 8px; padding: 10px; }}
@@ -1200,6 +1431,7 @@ def build_finansavisen_report_html(rows: Sequence[Mapping[str, Any]] | None = No
   <p class="meta">Kjop: {summary.get('buy_count', 0)} / {html.escape(format_nok(summary.get('buy_value_nok')))} | Salg: {summary.get('sell_count', 0)} / {html.escape(format_nok(summary.get('sell_value_nok')))}</p>
   <h2>Topp signaler per aksje</h2>
   {_html_table(score_rows, limit=25)}
+  {detail_sections}
   <h2>Storste bjellesau-kjop</h2>
   {_html_table(buy_rows, limit=25)}
   <h2>Storste bjellesau-salg</h2>
@@ -1328,9 +1560,14 @@ __all__ = [
     "build_finansavisen_report",
     "build_finansavisen_report_html",
     "build_finansavisen_report_pdf",
+    "build_finansavisen_stock_detail_views",
     "decision_rows_from_finansavisen",
     "finansavisen_aggregates_to_display_rows",
     "finansavisen_status",
+    "finansavisen_stock_date_rows",
+    "finansavisen_stock_detail_options",
+    "finansavisen_stock_person_rows",
+    "finansavisen_stock_transaction_rows",
     "finansavisen_transactions_to_csv",
     "finansavisen_transactions_to_json",
     "format_nok",

@@ -14,7 +14,9 @@ from finansavisen_bjellesau import (
     build_finansavisen_report,
     build_finansavisen_report_html,
     build_finansavisen_report_pdf,
+    build_finansavisen_stock_detail_views,
     decision_rows_from_finansavisen,
+    finansavisen_stock_detail_options,
     infer_period_from_filename,
     merge_finansavisen_transactions,
     parse_finansavisen_transaction_xlsx,
@@ -144,6 +146,8 @@ def test_finansavisen_aggregates_overlay_and_report_feed_radar_evidence():
     snapshot = build_finansavisen_overlay_snapshot(rows)
     enriched = apply_finansavisen_bjellesau_overlay({"ticker": "NORBT.OL", "name": "NORBIT"}, snapshot=snapshot)
     views = build_finansavisen_priority_views(rows)
+    detail_options = finansavisen_stock_detail_options(rows)
+    detail_views = build_finansavisen_stock_detail_views(rows, detail_options[0]["key"])
     report = build_finansavisen_report(rows)
     html_report = build_finansavisen_report_html(rows)
     pdf_report = build_finansavisen_report_pdf(rows)
@@ -156,8 +160,13 @@ def test_finansavisen_aggregates_overlay_and_report_feed_radar_evidence():
     assert views["Storste kjop"][0]["Investor"] == "Helge Gåsø"
     assert "Scoreforklaring" in views["Score per aksje"][0]
     assert "Flere bjellesauer samme aksje" in views
+    assert detail_views["Gruppert per dato"][0]["Dato"] == "2026-05-20"
+    assert detail_views["Samlet per person"][0]["Investor"]
+    assert "Endring aksjer" in detail_views["Transaksjoner"][0]
     assert "Finansavisen Bjellesauer" in report
+    assert "Detalj per aksje" in report
     assert b"Skriv ut / lagre som PDF" in html_report
+    assert b"Detalj per aksje" in html_report
     assert pdf_report.startswith(b"%PDF-1.4")
     assert decision_rows[0]["decision_source"] == "Finansavisen Bjellesauer"
 
