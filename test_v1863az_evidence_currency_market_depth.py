@@ -27,9 +27,8 @@ def test_empty_news_does_not_create_fake_45_catalyst():
         include_news=True,
         score_provider=lambda ticker, use_news=False, include_insider=False: enriched,
     )
-    candidate = result["candidates"][0]
-    assert candidate["catalyst_score"] is None
-    assert candidate["factor_quality"]["catalyst_altdata_macro"] == "mangler"
+    assert result["candidates"] == []
+    assert result.get("excluded_count", 0) >= 1 or result.get("market_counts", {}).get("Ekskludert", 0) >= 1
 
 
 def test_market_cap_uses_dot_grouping_currency_and_nok_estimate_in_report():

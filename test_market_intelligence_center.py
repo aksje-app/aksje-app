@@ -9,12 +9,21 @@ class ExpanderMock:
         return self
     def __exit__(self, *args):
         return None
+    def metric(self, *a, **k):
+        return None
+
+def columns_mock(spec, **kwargs):
+    count = len(spec) if isinstance(spec, (list, tuple)) else int(spec)
+    return [ExpanderMock() for _ in range(count)]
 
 streamlit_mock = types.SimpleNamespace(
     session_state=SessionState(),
     expander=lambda *a, **k: ExpanderMock(),
     caption=lambda *a, **k: None,
-    columns=lambda n, **k: [types.SimpleNamespace(metric=lambda *a, **k: None) for _ in range(n)],
+    columns=columns_mock,
+    selectbox=lambda label, options, *a, **k: options[0],
+    checkbox=lambda *a, **k: False,
+    button=lambda *a, **k: False,
     metric=lambda *a, **k: None,
     markdown=lambda *a, **k: None,
     dataframe=lambda *a, **k: None,

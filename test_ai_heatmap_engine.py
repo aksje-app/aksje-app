@@ -11,11 +11,11 @@ assert summary["counts"]["red"] == 1
 assert summary["counts"]["yellow"] == 1
 assert summary["counts"]["green"] == 1
 
-state = {"portfolio": {"AAPL": {"value": 100}, "MSFT": {"value": 50}}, "watchlist": ["NVDA"]}
+state = {"portfolio": {"EQNR.OL": {"value": 100}, "DNB.OL": {"value": 50}}, "watchlist": ["NOVO-B.CO"]}
 tickers = extract_tickers_from_app_state(state)
-assert "AAPL" in tickers
-assert "MSFT" in tickers
-assert "NVDA" in tickers
+assert "EQNR.OL" in tickers
+assert "DNB.OL" in tickers
+assert "NOVO-B.CO" in tickers
 
 print("ai_heatmap_engine smoke test OK")
 

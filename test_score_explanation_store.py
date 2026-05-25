@@ -1,7 +1,9 @@
+import tempfile
+
 from services.storage_service import StorageService
 from score_explanation_store import capture_score_explanations, score_explanations_for_ui
 
-storage = StorageService(base_dir="/tmp/score_explanation_store_test", database_url="")
+storage = StorageService(base_dir=tempfile.mkdtemp(prefix="score_explanation_store_test_"), database_url="")
 rows = [
     {
         "ticker": "TEST",

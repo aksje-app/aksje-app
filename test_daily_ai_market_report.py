@@ -7,13 +7,23 @@ class SessionState(dict):
 class ExpanderMock:
     def __enter__(self): return self
     def __exit__(self, *args): return None
+    def metric(self, *a, **k): return None
+
+def columns_mock(spec, **kwargs):
+    count = len(spec) if isinstance(spec, (list, tuple)) else int(spec)
+    return [ExpanderMock() for _ in range(count)]
 
 streamlit_mock = types.SimpleNamespace(
     session_state=SessionState(),
     expander=lambda *a, **k: ExpanderMock(),
     caption=lambda *a, **k: None,
     button=lambda *a, **k: False,
-    columns=lambda n, **k: [types.SimpleNamespace(metric=lambda *a, **k: None) for _ in range(n)],
+    selectbox=lambda label, options, *a, **k: options[0],
+    multiselect=lambda label, options, *a, **k: k.get("default", []),
+    text_input=lambda *a, **k: "",
+    number_input=lambda *a, **k: k.get("value", 0),
+    checkbox=lambda *a, **k: k.get("value", False),
+    columns=columns_mock,
     markdown=lambda *a, **k: None,
     write=lambda *a, **k: None,
     dataframe=lambda *a, **k: None,
