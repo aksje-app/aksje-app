@@ -12,7 +12,25 @@ from data_source_diagnostics import (
 from runtime_env import data_source_env_status, load_app_env, redact_secrets
 
 
-def test_runtime_env_loads_nested_env_file_without_exposing_secret():
+def _reset_runtime_env(monkeypatch):
+    import runtime_env
+
+    monkeypatch.setattr(runtime_env, "_ENV_LOADED", False)
+    monkeypatch.setattr(runtime_env, "_ENV_SOURCES", [])
+
+
+def test_runtime_env_loads_nested_env_file_without_exposing_secret(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "FINNHUB_API_KEY=test_finnhub_secret_123456\n"
+        "NEWSAPI_KEY=test_newsapi_secret_987654\n",
+        encoding="utf-8",
+    )
+    _reset_runtime_env(monkeypatch)
+    monkeypatch.setattr("runtime_env.candidate_env_paths", lambda: [env_file])
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("NEWSAPI_KEY", raising=False)
+
     load_app_env()
     status = data_source_env_status()
 
@@ -25,7 +43,11 @@ def test_runtime_env_loads_nested_env_file_without_exposing_secret():
     assert "token=***" in redacted
 
 
-def test_horizon_controls_data_windows():
+def test_horizon_controls_data_windows(monkeypatch):
+    _reset_runtime_env(monkeypatch)
+    monkeypatch.setenv("FINNHUB_API_KEY", "test_finnhub_key")
+    monkeypatch.setenv("NEWSAPI_KEY", "test_newsapi_key")
+
     assert horizon_to_months("1m") == 1
     assert horizon_to_months("3m") == 3
     assert horizon_to_months("6m") == 6
