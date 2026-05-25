@@ -300,11 +300,11 @@ class UniverseService:
             tickers = resolve_universe_tickers(
                 scopes=scopes,
                 max_count=max_count,
-                manual_ticker=manual_ticker if mode in {"Markedvalg", "Multi-marked"} else "",
+                manual_ticker="",
                 existing_tickers_by_scope=existing,
             )
         except Exception:
-            tickers = _dedupe_tickers([manual_ticker])[:max_count] if manual_ticker else []
+            tickers = []
 
         source = "Multi-marked" if mode == "Multi-marked" or len(scopes) > 1 else "Marked"
         return (tickers[:max_count], source, f"Kilder: {', '.join(scopes)}")
