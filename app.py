@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 # v18.5.12 Render import-path guard
 import os as _render_os
 import sys as _render_sys
@@ -41,8 +41,7 @@ import requests
 import html
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
-from app_version import get_app_build_label, get_app_version
-from analysis_universe_ai import render_ai_analysis_universe_workspace
+from app_version import get_app_build_label
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
 from governance_registry import get_changelog, get_protected_zones
 from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
@@ -566,7 +565,7 @@ button[kind="primary"] p {
     font-weight: 900 !important;
     white-space: nowrap !important;
 }
-/* SmÃ¥ rÃ¸de/grÃ¸nne/gule markÃ¸rer pÃ¥ toppstatus-chipene */
+/* Små røde/grønne/gule markører på toppstatus-chipene */
 .mini-status-chip.green::before,
 .mini-status-chip.red::before,
 .mini-status-chip.yellow::before {
@@ -594,7 +593,7 @@ button[kind="primary"] p {
 
 st.markdown("""
 <style>
-/* v18.1: reparerer sidebar-kontrast og global knapp uten Ã¥ blokkere klikk */
+/* v18.1: reparerer sidebar-kontrast og global knapp uten å blokkere klikk */
 section[data-testid="stSidebar"] {
     background: #070d1d !important;
 }
@@ -1064,13 +1063,6 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 .v1863m-quick-action [data-testid="stProgress"] { margin-bottom:.10rem !important; }
 .v1863m-quick-action [data-testid="stCaptionContainer"] { max-width:760px !important; line-height:1.55 !important; margin:.12rem 0 .18rem 0 !important; color:rgba(226,232,240,.88) !important; }
 .v1863m-quick-action-note { font-size:.86rem; line-height:1.48; color:rgba(226,232,240,.92); min-height:1.55rem; margin:.10rem 0 .14rem 0; }
-.v1863m-quick-action + div[data-testid="stButton"] > button,
-.v1863m-quick-action .stButton > button {
-    min-height:38px !important;
-    width:auto !important;
-    min-width:168px !important;
-    padding:.42rem .84rem !important;
-}
 @media (max-width:900px) {
     .v18574-quick-title { font-size:1rem !important; }
     .v18574-quick-sub { font-size:.82rem !important; }
@@ -1083,8 +1075,8 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 _runtime_settings = load_settings()
 UI_REFRESH_MINUTES = int(_runtime_settings.get("ui_refresh_minutes", 5) or 5)
 UI_REFRESH_MINUTES = max(1, min(UI_REFRESH_MINUTES, 60))
-# V13 / Oppgave 35: Ikke kjÃ¸r automatisk rerun nÃ¥r auto-oppdatering er slÃ¥tt av.
-# Periodisk refresh mÃ¥ aktiveres eksplisitt i banner-innstillingene.
+# V13 / Oppgave 35: Ikke kjør automatisk rerun når auto-oppdatering er slått av.
+# Periodisk refresh må aktiveres eksplisitt i banner-innstillingene.
 UI_AUTO_REFRESH_ENABLED = bool(_runtime_settings.get("ui_auto_refresh_enabled", False))
 if UI_AUTO_REFRESH_ENABLED:
     st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
@@ -1116,7 +1108,7 @@ def _save_setting_patch(**updates):
 
 
 def _full_stop_active():
-    """Ã‰n kilde for Full stopp/ferie-status."""
+    """Én kilde for Full stopp/ferie-status."""
     try:
         _cron = cron_status_text()
         return bool((_cron or {}).get("vacation_mode"))
@@ -1139,7 +1131,7 @@ def _auto_state(settings=None):
 
 
 def _paper_state(full_stop=None):
-    """Paper-portefÃ¸ljen kan vises nÃ¥r Full stopp er aktiv, men nye auto-paper-kjÃ¸p skal ikke fremstÃ¥ som aktive."""
+    """Paper-porteføljen kan vises når Full stopp er aktiv, men nye auto-paper-kjøp skal ikke fremstå som aktive."""
     if bool(_full_stop_active() if full_stop is None else full_stop):
         return "VISNING", "yellow"
     return "AKTIV", "green"
@@ -1170,7 +1162,7 @@ def _set_auto_state(state):
 
 
 def _reset_emergency_stop_v157():
-    """V15.7: NÃ¸dstopp er en egen sikkerhetslÃ¥s og mÃ¥ oppheves eksplisitt."""
+    """V15.7: Nødstopp er en egen sikkerhetslås og må oppheves eksplisitt."""
     _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=False)
     st.session_state["auto_control_notice_v153"] = "Nødstopp er tilbakestilt. Trykk Start når du vil aktivere Auto trading."
     st.session_state["auto_control_notice_level_v153"] = "info"
@@ -1201,7 +1193,7 @@ def _auto_block_reason(settings=None):
 
 
 def _clear_stops_ready_v158():
-    """V15.8: trygg hovedknapp. Opphever vanlig full stopp/pause, men starter ikke trading og nullstiller ikke nÃ¸dstopp."""
+    """V15.8: trygg hovedknapp. Opphever vanlig full stopp/pause, men starter ikke trading og nullstiller ikke nødstopp."""
     _s = load_settings()
     if bool(_s.get("auto_trading_emergency_stop", False)):
         st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan gjøres klar."
@@ -1217,14 +1209,14 @@ def _clear_stops_ready_v158():
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
     _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
-    st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV - trykk Start for å starte."
+    st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV – trykk Start for å starte."
     st.session_state["auto_control_notice_level_v153"] = "success"
     st.rerun()
 
 
 def _fmt_dt_short(value):
     if not value:
-        return "ikke kjÃ¸rt"
+        return "ikke kjørt"
     try:
         return str(value).replace("T", " ")[:16]
     except Exception:
@@ -1236,18 +1228,18 @@ def _now_short():
 
 
 def _set_update_reason(reason: str):
-    """Lagrer synlig forklaring pÃ¥ hvorfor tung analyse/refresh ble kjÃ¸rt."""
+    """Lagrer synlig forklaring på hvorfor tung analyse/refresh ble kjørt."""
     st.session_state["last_update_started_by_v148"] = reason
     st.session_state["last_update_started_at_v148"] = _now_short()
 
 
 def _global_apply_requested_v161():
-    """V16.1: Ã©n sentral Global oppdateringsknapp styrer lagring/bruk av endringer."""
+    """V16.1: én sentral Global oppdateringsknapp styrer lagring/bruk av endringer."""
     return bool(st.session_state.get("global_apply_all_changes_v161", False))
 
 
 def _mark_pending_global_change_v161():
-    """Lett statusflagg. Widget-rerun er greit, men tung jobb skal vente pÃ¥ Global oppdatering."""
+    """Lett statusflagg. Widget-rerun er greit, men tung jobb skal vente på Global oppdatering."""
     st.session_state["pending_manual_changes_v16"] = True
 
 
@@ -1289,7 +1281,7 @@ def _clear_startup_heavy_update_for_control_center_v1863an() -> None:
 def _last_update_label():
     reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
     at = st.session_state.get("last_update_started_at_v148", "-")
-    return f"{reason} - {at}"
+    return f"{reason} · {at}"
 
 
 
@@ -1398,10 +1390,10 @@ def _global_update_state_text_v1862():
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
-        return "Oppdaterer", "Jobber - tung oppdatering er aktiv"
+        return "🔄", "Jobber – tung oppdatering er aktiv"
     if pending:
-        return "Venter", "Endringer venter"
-    return "Klar", "Klar"
+        return "⚠️", "Endringer venter"
+    return "✅", "Klar"
 
 
 def _click_global_update_v1862():
@@ -1415,7 +1407,7 @@ def _click_global_update_v1862():
 
 
 def render_global_update_bar_v18548() -> None:
-    """v18.6.3: compact status only. The action button is rendered in the trading control row after GjÃ¸r klar."""
+    """v18.6.3: compact status only. The action button is rendered in the trading control row after Gjør klar."""
     icon, state_txt = _global_update_state_text_v1862()
     st.markdown(
         f"""
@@ -1489,7 +1481,7 @@ def render_global_update_action_panel_v1863g() -> None:
         <div class='v1863g-global-action-card'>
             <div class='v1863g-global-action-title'>{icon} Global oppdatering</div>
             <div class='v1863g-global-action-sub'>
-                Status: {html.escape(state_txt)} - Sist: {html.escape(_last_update_label())}<br/>
+                Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}<br/>
                 Bruk denne når du vil lagre valg og kjøre tung oppdatering av appen.
             </div>
         </div>
@@ -1506,7 +1498,7 @@ def render_global_update_action_panel_v1863g() -> None:
         _click_global_update_v1862()
 
 
-_PANEL_OPTIONS_V18531 = ["ðŸ‡ºðŸ‡¸ USA", "ðŸ‡³ðŸ‡´ Norge", "ðŸ‡¸ðŸ‡ª Sverige", "Norden", "Aktivt univers", "â­ Top Picks", "ðŸš€ IPO", "ðŸ§ª Paper Trading"]
+_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Norden", "Aktivt univers", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
 
 
 def _on_active_panel_change_v18531():
@@ -1519,19 +1511,19 @@ def _render_active_main_panel_selector_v18531():
         st.session_state.get("active_main_panel_radio_v15")
         or st.session_state.get("active_main_panel_persist_v15")
         or st.session_state.get("active_main_panel_persist_v1412")
-        or "ðŸ‡ºðŸ‡¸ USA"
+        or "🇺🇸 USA"
     )
     if saved not in _PANEL_OPTIONS_V18531:
-        saved = "ðŸ‡ºðŸ‡¸ USA"
+        saved = "🇺🇸 USA"
     panel_help_v1863m = {
-        "ðŸ‡ºðŸ‡¸ USA": "Viser USA-rangering og amerikanske kandidater.",
-        "ðŸ‡³ðŸ‡´ Norge": "Viser Norge-rangering og norske kandidater.",
-        "ðŸ‡¸ðŸ‡ª Sverige": "Viser Sverige-rangering og svenske kandidater.",
+        "🇺🇸 USA": "Viser USA-rangering og amerikanske kandidater.",
+        "🇳🇴 Norge": "Viser Norge-rangering og norske kandidater.",
+        "🇸🇪 Sverige": "Viser Sverige-rangering og svenske kandidater.",
         "Norden": "Viser samlet rangering for Norge og Sverige.",
         "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
-        "â­ Top Picks": "Samlet hurtigliste basert pÃ¥ valgt marked under Top Picks.",
-        "ðŸš€ IPO": "Nye og kommende bÃ¸rsnoteringer.",
-        "ðŸ§ª Paper Trading": "Simulert handel og testportefÃ¸lje.",
+        "⭐ Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
+        "🚀 IPO": "Nye og kommende børsnoteringer.",
+        "🧪 Paper Trading": "Simulert handel og testportefølje.",
     }
     st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Hovedpanel</div>", unsafe_allow_html=True)
     active = st.selectbox(
@@ -1551,7 +1543,7 @@ def _render_active_main_panel_selector_v18531():
 
 
 def _market_status_chips_html():
-    """Kompakt bÃ¸rsstatus til Kontrollsenter/sidebar uten ekstra widget-reruns."""
+    """Kompakt børsstatus til Kontrollsenter/sidebar uten ekstra widget-reruns."""
     chips = []
     try:
         statuses = market_statuses()
@@ -1562,21 +1554,21 @@ def _market_status_chips_html():
         short = {"USA": "USA", "Norge": "Norge", "Sverige": "Sverige"}.get(name, name)
         is_open = bool(status.get("is_open"))
         cls = "green" if is_open else "red"
-        txt = "Ã…pent" if is_open else "Stengt"
+        txt = "Åpent" if is_open else "Stengt"
         chips.append(f"<span class='mini-status-chip {cls}'>{html.escape(str(short))}: <b>{txt}</b></span>")
     if not chips:
-        chips.append("<span class='mini-status-chip'>BÃ¸rsstatus: <b>ukjent</b></span>")
+        chips.append("<span class='mini-status-chip'>Børsstatus: <b>ukjent</b></span>")
     return "".join(chips)
 
 
 def _session_status_html(user=None):
     username = (user or {}).get("username", "-")
-    remember = "PÃ¥" if st.session_state.get("auth_remember_me") else "Av"
+    remember = "På" if st.session_state.get("auth_remember_me") else "Av"
     expires = _fmt_dt_short(st.session_state.get("auth_expires_at"))
     return (
         f"<span class='mini-status-chip'>Bruker: <b>{html.escape(str(username))}</b></span>"
-        f"<span class='mini-status-chip {'green' if remember == 'PÃ¥' else 'red'}'>Husk meg: <b>{remember}</b></span>"
-        f"<span class='mini-status-chip'>UtlÃ¸per: <b>{html.escape(str(expires))}</b></span>"
+        f"<span class='mini-status-chip {'green' if remember == 'På' else 'red'}'>Husk meg: <b>{remember}</b></span>"
+        f"<span class='mini-status-chip'>Utløper: <b>{html.escape(str(expires))}</b></span>"
     )
 
 
@@ -1585,10 +1577,10 @@ def _controls_differ(a, b):
 
 
 def _manual_update_mode_enabled(settings=None):
-    """True nÃ¥r bruker har slÃ¥tt AV auto-oppdatering.
+    """True når bruker har slått AV auto-oppdatering.
 
-    Streamlit vil fortsatt rerende skjermen nÃ¥r widgets endres, men i manuell
-    modus skal appen ikke gjÃ¸re tung datahenting/analyse fÃ¸r bruker trykker
+    Streamlit vil fortsatt rerende skjermen når widgets endres, men i manuell
+    modus skal appen ikke gjøre tung datahenting/analyse før bruker trykker
     Oppdater hele appen.
     """
     _s = settings or load_settings()
@@ -1596,10 +1588,10 @@ def _manual_update_mode_enabled(settings=None):
 
 
 def _heavy_update_allowed():
-    """Ã‰n hard gate for tung datahenting/analyse.
+    """Én hard gate for tung datahenting/analyse.
 
-    V16: Denne skal sjekkes fÃ¸r alt som kan hente markedsdata, bygge ranking,
-    scanne watchlist, hente bannerdata eller gjÃ¸re ekstern analyse.
+    V16: Denne skal sjekkes før alt som kan hente markedsdata, bygge ranking,
+    scanne watchlist, hente bannerdata eller gjøre ekstern analyse.
     """
     settings = load_settings()
     return (not _manual_update_mode_enabled(settings)) or bool(st.session_state.get("heavy_update_allowed_v148", False))
@@ -1623,8 +1615,8 @@ def _cache_key_safe(*parts):
 def cached_score_stock_manual(ticker, use_news=False, force=False, include_insider=True):
     """score_stock med manuell-modus cache.
 
-    NÃ¥r Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
-    hentes ikke data fÃ¸r bruker trykker Oppdater hele appen.
+    Når Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
+    hentes ikke data før bruker trykker Oppdater hele appen.
     """
     ticker = normalize_user_ticker(ticker)
     key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news), bool(include_insider))}"
@@ -1677,23 +1669,23 @@ def _rank_cache_get(label, fp):
 
 
 def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
-    """Cache rundt auto_rank_market. V15.8: nÃ¥r Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
+    """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
 
-    Draft-verdier kan endres fritt; aktiv rangering oppdateres fÃ¸rst via
+    Draft-verdier kan endres fritt; aktiv rangering oppdateres først via
     Oppdater hele appen, Auto-oppdater eller manuell scan.
     """
     safe_tickers = list(tickers or [])
     fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch), bool(include_insider))
     cached = _rank_cache_get(label, fp)
     # V17 / Oppgave 133: eksplisitt manuell henting skal overstyre markedsstengt/cache-blokkering.
-    # Vanlige widget-reruns skal fortsatt ikke starte tung jobb nÃ¥r manuell modus er aktiv.
+    # Vanlige widget-reruns skal fortsatt ikke starte tung jobb når manuell modus er aktiv.
     if (not force_manual_fetch) and (not _heavy_update_allowed()):
         if cached is not None:
             return cached
         latest = (st.session_state.get("latest_rankings_v148") or {}).get(label)
         if latest is not None:
             return latest
-        # Ingen cache ennÃ¥: ikke start tung jobb ved vanlig widget-rerun.
+        # Ingen cache ennå: ikke start tung jobb ved vanlig widget-rerun.
         return []
     data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch, include_insider=include_insider)
     data = _ranked_for_display(data)
@@ -1733,9 +1725,9 @@ def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_
 
 
 def _sort_ranked_items(items):
-    """Sorter etter anbefaling fÃ¸rst, deretter score/confidence.
+    """Sorter etter anbefaling først, deretter score/confidence.
 
-    BUY/KjÃ¸p nÃ¥ Ã¸verst, HOLD/WAIT etterpÃ¥ og SELL/AVOID nederst.
+    BUY/Kjøp nå øverst, HOLD/WAIT etterpå og SELL/AVOID nederst.
     """
     return _ranked_for_display(items)
 
@@ -1755,9 +1747,9 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
 
     Viktig for oppgave 76/76B:
     - USA/Norge/Sverige/Top Picks bruker siste lagrede rangering fra appen.
-    - Hvis listen mangler, faller vi bare tilbake til gjeldende resultater nÃ¥r
+    - Hvis listen mangler, faller vi bare tilbake til gjeldende resultater når
       gjeldende panel faktisk er samme kilde.
-    - Det skal ikke stilltiende byttes til AAPL nÃ¥r brukeren har valgt Norge/Sverige.
+    - Det skal ikke stilltiende byttes til AAPL når brukeren har valgt Norge/Sverige.
     """
     latest = st.session_state.get("latest_rankings_v148", {}) or {}
     fallback_results = fallback_results or []
@@ -1812,9 +1804,9 @@ def _latest_ranked_results_for_source(source_label, fallback_results=None, curre
 
 
 def _source_tickers_for_interactive(source_label, max_fallback=30):
-    """Ticker-univers for Interaktiv analyse nÃ¥r lagret rangering mangler.
+    """Ticker-univers for Interaktiv analyse når lagret rangering mangler.
 
-    Brukes bare nÃ¥r bruker aktivt trykker pÃ¥ Oppdater-listen-knappen.
+    Brukes bare når bruker aktivt trykker på Oppdater-listen-knappen.
     Den skal ikke trigge tung rangering automatisk ved menyvalg.
     """
     try:
@@ -1858,9 +1850,9 @@ def _source_tickers_for_interactive(source_label, max_fallback=30):
 
 
 def _build_interactive_source_ranking_now(source_label):
-    """Bygg valgt kilde pÃ¥ eksplisitt knappetrykk og lagre i siste rangering.
+    """Bygg valgt kilde på eksplisitt knappetrykk og lagre i siste rangering.
 
-    Dette er hotfix v14.10 for 76/76B/78: nÃ¥r Norge/USA/Sverige mangler lagret
+    Dette er hotfix v14.10 for 76/76B/78: når Norge/USA/Sverige mangler lagret
     dynamisk rangering, skal brukeren kunne bygge den aktuelle listen uten at appen
     faller tilbake til AAPL eller starter automatisk tung jobb.
     """
@@ -1883,7 +1875,7 @@ def _build_interactive_source_ranking_now(source_label):
         key = source_label
     latest = st.session_state.setdefault("latest_rankings_v148", {})
     latest[key] = data or []
-    # Lagre ogsÃ¥ under normal kildenÃ¸kkel nÃ¥r relevant, slik at dropdownen finner listen direkte.
+    # Lagre også under normal kildenøkkel når relevant, slik at dropdownen finner listen direkte.
     if source_label in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
         latest[source_label] = data or []
     st.session_state[f"rank_cache_v148_{key}"] = {"fp": ("manual_build", tuple(tickers[:limit])), "data": data or [], "updated_at": _now_short()}
@@ -1897,7 +1889,7 @@ def _clean_manual_ticker_input(value: str) -> str:
     examples = {"EQNR.OL / VOLV-B.ST / NOVO-B.CO", "EQNR.OL / NOKIA.HE / PETR4.SA"}
     if raw.upper() in {x.upper() for x in examples}:
         return ""
-    # Interaktiv analyse er for Ã©n ticker. Hvis bruker limer inn en liste, bruk fÃ¸rste og vis info.
+    # Interaktiv analyse er for én ticker. Hvis bruker limer inn en liste, bruk første og vis info.
     for sep in [",", ";", "/", "|"]:
         if sep in raw:
             raw = raw.split(sep)[0].strip()
@@ -1926,7 +1918,7 @@ MARKET_CATEGORY_OPTIONS = [
 MARKET_CATEGORY_TO_MODE = {
     "US Markets": "USA / S&P 500",
     "Europe Markets": "Alle",
-    "Norway / Oslo": "Norge / Oslo BÃ¸rs",
+    "Norway / Oslo": "Norge / Oslo Børs",
     "Sweden / Stockholm": "Sverige / Stockholm",
     "Finland / Helsinki": "Finland / Helsinki",
     "Denmark / Copenhagen": "Danmark / Copenhagen",
@@ -1968,7 +1960,7 @@ def render_market_category_selector():
         }
         </style>
         <div class="market-category-card">
-            <div class="market-category-title">â—Ž Markedskategori</div>
+            <div class="market-category-title">◎ Markedskategori</div>
             <div class="market-category-sub">Velg hvilket univers appen skal analysere.</div>
         </div>
         """,
@@ -1988,10 +1980,10 @@ def render_market_category_selector():
     if selected_category in {"Cryptocurrencies", "Rates", "Commodities", "Currencies"}:
         st.sidebar.info(
             f"{selected_category}: kategori er lagt inn i menyen, men full analysemodell for dette universet kommer senere. "
-            "ForelÃ¸pig brukes aksjeuniverset som fallback."
+            "Foreløpig brukes aksjeuniverset som fallback."
         )
     elif selected_category == "Europe Markets":
-        st.sidebar.caption("Europe Markets bruker forelÃ¸pig samlet aksjeunivers/fallback. Norge og Sverige kan velges separat.")
+        st.sidebar.caption("Europe Markets bruker foreløpig samlet aksjeunivers/fallback. Norge og Sverige kan velges separat.")
 
     return selected_category, mode
 
@@ -2038,31 +2030,31 @@ def render_interactive_chart(fig, *args, **kwargs):
 def render_graph_explanation(kind):
     texts = {
         "price": (
-            "ðŸ“˜ Prisgraf",
-            "Viser kursutvikling og gjeldende kurs. Bruk musehjul for zoom og dra i grafen for Ã¥ panorere."
+            "📘 Prisgraf",
+            "Viser kursutvikling og gjeldende kurs. Bruk musehjul for zoom og dra i grafen for å panorere."
         ),
         "ta": (
-            "ðŸ“˜ Teknisk graf",
-            "Viser pris, Bollinger-bÃ¥nd, stÃ¸tte/motstand og eventuelle mÃ¸nstre. Brudd over motstand kan vÃ¦re positivt, mens brudd under stÃ¸tte er et risikoflagg."
+            "📘 Teknisk graf",
+            "Viser pris, Bollinger-bånd, støtte/motstand og eventuelle mønstre. Brudd over motstand kan være positivt, mens brudd under støtte er et risikoflagg."
         ),
         "rsi": (
-            "ðŸ“˜ RSI",
-            "RSI under 30 kan indikere oversolgt. RSI over 70 er overkjÃ¸pt, og over 80 er ekstremt overkjÃ¸pt. HÃ¸y RSI kan forklare HOLD/SELL selv om aksjen har hÃ¸y total score."
+            "📘 RSI",
+            "RSI under 30 kan indikere oversolgt. RSI over 70 er overkjøpt, og over 80 er ekstremt overkjøpt. Høy RSI kan forklare HOLD/SELL selv om aksjen har høy total score."
         ),
         "equity": (
-            "ðŸ“˜ Strategi / equity curve",
-            "Viser hvordan den historiske strategien ville utviklet portefÃ¸ljeverdien. Brukes som test, ikke garanti for fremtidig avkastning."
+            "📘 Strategi / equity curve",
+            "Viser hvordan den historiske strategien ville utviklet porteføljeverdien. Brukes som test, ikke garanti for fremtidig avkastning."
         ),
         "backtest": (
-            "ðŸ“˜ Backtest",
-            "Sammenligner strategi mot benchmark. Se sÃ¦rlig pÃ¥ drawdown, jevnhet og om strategien slÃ¥r benchmark over tid."
+            "📘 Backtest",
+            "Sammenligner strategi mot benchmark. Se særlig på drawdown, jevnhet og om strategien slår benchmark over tid."
         ),
         "drawdown": (
-            "ðŸ“˜ Drawdown",
+            "📘 Drawdown",
             "Viser hvor mye strategien faller fra tidligere topp. Lavere og kortere drawdown betyr normalt lavere risiko."
         ),
     }
-    title, body = texts.get(kind, ("ðŸ“˜ Graf", "Interaktiv graf med zoom, pan og hover."))
+    title, body = texts.get(kind, ("📘 Graf", "Interaktiv graf med zoom, pan og hover."))
     st.markdown(
         f"""
         <div class="graph-explain-box">
@@ -2107,7 +2099,7 @@ st.markdown("""
 }
 
 /* V14.12 / Oppgave 81-83: mobil skal ikke ha en halv sidebar synlig.
-   Streamlit fÃ¥r bruke sin egen drawer-knapp pÃ¥ mobil, mens hovedsiden har et kompakt
+   Streamlit får bruke sin egen drawer-knapp på mobil, mens hovedsiden har et kompakt
    Kontrollsenter som funksjonell fallback. */
 [data-testid="stSidebar"] * { box-sizing: border-box; }
 @media (max-width: 900px) {
@@ -2917,8 +2909,8 @@ div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="popover"
 }
 
 
-/* --- V14 FIX: diskrete hjelpeikoner og mÃ¸rke tooltips (oppgave 28/32) --- */
-/* Den generelle button-stilen i appen skal ikke gjÃ¸re Streamlit sine ?-hjelpeikoner blÃ¥/store. */
+/* --- V14 FIX: diskrete hjelpeikoner og mørke tooltips (oppgave 28/32) --- */
+/* Den generelle button-stilen i appen skal ikke gjøre Streamlit sine ?-hjelpeikoner blå/store. */
 [data-testid="stTooltipIcon"],
 [data-testid="stTooltipIcon"] *,
 button[aria-label="Help"],
@@ -3207,7 +3199,7 @@ div[role="tooltip"] *,
 
 
 
-/* --- V14.12: mobil/drawer cleanup, kontrollrad, bruker/bÃ¸rsstatus --- */
+/* --- V14.12: mobil/drawer cleanup, kontrollrad, bruker/børsstatus --- */
 .control-center-wide {
     display:grid;
     grid-template-columns: minmax(220px,1.1fr) minmax(220px,1.25fr) minmax(220px,1.1fr) minmax(240px,1.4fr);
@@ -3354,12 +3346,12 @@ section[data-testid="stSidebar"] .stButton > button {
     background:rgba(148,163,184,0.12);
     margin:6px 0 8px 0;
 }
-/* Ikke vis PC-statusstrip pÃ¥ mobil; mobil bruker sidebar/drawer. */
+/* Ikke vis PC-statusstrip på mobil; mobil bruker sidebar/drawer. */
 @media (max-width: 900px) {
     .v15-desktop-status-strip { display:none !important; }
     .top-app-header { margin-top:0.25rem !important; }
 }
-/* Sidebaren skal vÃ¦re kompakt; ingen enorme blÃ¥ knapper. */
+/* Sidebaren skal være kompakt; ingen enorme blå knapper. */
 section[data-testid="stSidebar"] .stButton > button,
 section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
     min-height:28px !important;
@@ -3391,7 +3383,7 @@ section[data-testid="stSidebar"] hr {
 """, unsafe_allow_html=True)
 
 
-# V14.8 / Oppgave 67-69: strammere desktop-layout, mÃ¸rk topp og tydeligere status.
+# V14.8 / Oppgave 67-69: strammere desktop-layout, mørk topp og tydeligere status.
 st.markdown(
     """
     <style>
@@ -3563,7 +3555,7 @@ st.markdown(
 )
 
 
-# V15.2 / Oppgave 93-98: ryddet topbar, Ã©n statuskilde, stÃ¸rre tekst og tett Auto trading-gruppe.
+# V15.2 / Oppgave 93-98: ryddet topbar, én statuskilde, større tekst og tett Auto trading-gruppe.
 st.markdown(
     """
     <style>
@@ -3627,158 +3619,16 @@ st.markdown(
 # Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
 if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
     st.session_state["global_view_mode_v145"] = "Full"
-
-APP_SHELL_PAGE_KEY_V1865 = "app_shell_page_v1865"
-APP_SHELL_SUBPAGE_KEY_V1865C = "app_shell_subpage_v1865c"
-APP_SHELL_ACTIVE_STAGE_KEY_V1865A = "app_shell_active_pipeline_stage_v1865a"
-PIPELINE_MAX_CANDIDATES_V1865D = 60
-APP_SHELL_PAGES_V1865 = [
-    ("Hjem", "home", "Hjem"),
-    ("Dataunderlag", "database", "Dataunderlag"),
-    ("Marked", "globe", "Marked"),
-    ("Analyse", "search", "Analyse"),
-    ("Testflyt", "flow", "Testflyt"),
-    ("Portefolje", "pie", "Portefolje"),
-    ("Beslutning", "diamond", "Beslutning"),
-    ("Rapporter", "book", "Rapporter"),
-    ("Admin", "settings", "Admin"),
-]
-APP_SHELL_SUBPAGES_V1865C = {
-    "Hjem": ["Dashboard"],
-    "Dataunderlag": ["Datakilder / Test 1"],
-    "Marked": ["Markedsoversikt", "Rangering / Test 2", "Heatmap", "Regime", "Makro/renter", "Nyheter", "Finansavisen Bjellesauer", "Oljefond/NBIM", "Aktorregister", "IPO"],
-    "Analyse": ["Smart AI-filter / Test 3", "Interaktiv analyse", "Alpha Radar", "Early Warning", "Valutavarsler"],
-    "Testflyt": ["Pipeline 1-10", "Test 1 Dataunderlag", "Test 2 Marked/rangering", "Test 3 Smart AI-filter", "Test 4 Top Picks", "Test 5 Early Warning", "Test 6 Alpha Radar", "Test 7 Auto Test Lab", "Test 8 Beslutningsgrunnlag", "Test 9 Portefoljeanalyse", "Test 10 Paper Trading"],
-    "Portefolje": ["Portefoljeanalyse", "Paper Trading", "Watchlist/signaler", "Fond / ETF"],
-    "Beslutning": ["Beslutningsgrunnlag"],
-    "Rapporter": ["Daglig rapport"],
-    "Admin": ["Drift", "Global oppdatering", "Systemstatus", "Gammelt Kontrollsenter"],
-}
-
-
-def _query_value_v1865e(name: str) -> str:
-    try:
-        value = st.query_params.get(name, "")
-        if isinstance(value, list):
-            value = value[0] if value else ""
-        return str(value or "").strip()
-    except Exception:
-        return ""
-
-
-def _shell_icon_svg_v1865e(icon: str) -> str:
-    icons = {
-        "home": "<path d='M3 11 L12 4 L21 11'/><path d='M5 10 V21 H19 V10'/><path d='M9 21 V14 H15 V21'/>",
-        "database": "<ellipse cx='12' cy='6' rx='8' ry='3'/><path d='M4 6 V18 C4 20 8 22 12 22 C16 22 20 20 20 18 V6'/><path d='M4 12 C4 14 8 16 12 16 C16 16 20 14 20 12'/>",
-        "globe": "<circle cx='12' cy='12' r='9'/><path d='M3 12 H21'/><path d='M12 3 C15 6 15 18 12 21'/><path d='M12 3 C9 6 9 18 12 21'/>",
-        "search": "<circle cx='10.5' cy='10.5' r='6.5'/><path d='M15.5 15.5 L21 21'/>",
-        "flow": "<path d='M4 5 H20'/><path d='M4 12 H20'/><path d='M4 19 H20'/><path d='M7 3 V7'/><path d='M12 10 V14'/><path d='M17 17 V21'/>",
-        "pie": "<path d='M12 3 V12 H21'/><path d='M21 12 A9 9 0 1 1 12 3'/><path d='M12 12 L18 18'/>",
-        "diamond": "<path d='M12 3 L21 12 L12 21 L3 12 Z'/>",
-        "book": "<path d='M4 5 C7 4 10 4 12 6 V21 C10 19 7 18 4 19 Z'/><path d='M20 5 C17 4 14 4 12 6 V21 C14 19 17 18 20 19 Z'/>",
-        "settings": "<circle cx='12' cy='12' r='3'/><path d='M12 2 V5'/><path d='M12 19 V22'/><path d='M2 12 H5'/><path d='M19 12 H22'/><path d='M4.9 4.9 L7 7'/><path d='M17 17 L19.1 19.1'/><path d='M19.1 4.9 L17 7'/><path d='M7 17 L4.9 19.1'/>",
-    }
-    body = icons.get(icon, icons["diamond"])
-    return f"<svg class='akse-nav-svg' viewBox='0 0 24 24' aria-hidden='true'>{body}</svg>"
-
-
-def _render_app_shell_sidebar_v1865() -> str:
-    """Primary app shell navigation using Streamlit state, never browser links."""
-    valid = {page for page, _icon, _label in APP_SHELL_PAGES_V1865}
-    current = str(st.session_state.get(APP_SHELL_PAGE_KEY_V1865) or "Marked")
-    if current not in valid:
-        current = "Marked"
-    subpages = APP_SHELL_SUBPAGES_V1865C.get(current, ["Oversikt"])
-    current_sub = str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
-    if current_sub not in subpages:
-        current_sub = subpages[0]
-    st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
-    st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
-    st.sidebar.markdown(
-        """
-        <style>
-        section[data-testid="stSidebar"] { min-width: 104px !important; max-width: 310px !important; background:#070d19 !important; overflow:visible !important; }
-        section[data-testid="stSidebar"]:hover { min-width: 286px !important; }
-        .akse-shell-title {
-            margin:.35rem 0 .55rem 0;
-            color:#38bdf8;
-            font-size:.72rem;
-            font-weight:1000;
-            letter-spacing:.10em;
-            text-transform:uppercase;
-        }
-        section[data-testid="stSidebar"] .stButton > button {
-            justify-content:flex-start !important;
-            min-height:30px !important;
-            height:auto !important;
-            width:100% !important;
-            padding:.28rem .42rem !important;
-            border-radius:8px !important;
-            border:1px solid rgba(56,189,248,.35) !important;
-            background:rgba(8,47,73,.48) !important;
-            color:#f8fafc !important;
-            font-size:.75rem !important;
-            font-weight:950 !important;
-            line-height:1.12 !important;
-            white-space:normal !important;
-            text-align:left !important;
-            box-shadow:none !important;
-        }
-        section[data-testid="stSidebar"] .stButton > button:hover {
-            background:rgba(14,165,233,.72) !important;
-            border-color:rgba(125,211,252,.82) !important;
-        }
-        .akse-shell-active {
-            margin:.12rem 0 .18rem 0;
-            padding:.34rem .46rem;
-            border:1px solid rgba(34,197,94,.52);
-            border-radius:9px;
-            background:rgba(5,150,105,.18);
-            color:#dcfce7;
-            font-size:.72rem;
-            font-weight:950;
-            line-height:1.15;
-        }
-        .akse-shell-subtitle {
-            margin:.42rem 0 .18rem 0;
-            color:#bae6fd;
-            font-size:.68rem;
-            font-weight:1000;
-            text-transform:uppercase;
-            letter-spacing:.06em;
-        }
-        </style>
-        <div class="akse-shell-title">VERKTOY</div>
-        """,
-        unsafe_allow_html=True,
-    )
-    for page, _icon, label in APP_SHELL_PAGES_V1865:
-        prefix = "● " if page == current else "○ "
-        if st.sidebar.button(prefix + label, key=f"app_shell_main_btn_v1865g_{page}", use_container_width=True):
-            page_subs = APP_SHELL_SUBPAGES_V1865C.get(page, ["Oversikt"])
-            st.session_state[APP_SHELL_PAGE_KEY_V1865] = page
-            st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = page_subs[0] if page_subs else ""
-            st.rerun()
-
-    st.sidebar.markdown(
-        f"<div class='akse-shell-active'>Aktiv side: {html.escape(current)}<br>Valg: {html.escape(current_sub)}</div>",
-        unsafe_allow_html=True,
-    )
-    st.sidebar.markdown("<div class='akse-shell-subtitle'>Undermeny</div>", unsafe_allow_html=True)
-    for sub in subpages:
-        prefix = "● " if sub == current_sub else "○ "
-        if st.sidebar.button(prefix + sub, key=f"app_shell_sub_btn_v1865g_{current}_{sub}", use_container_width=True):
-            st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = sub
-            st.rerun()
-    return current
-
-
-APP_SHELL_PAGE_V1865 = _render_app_shell_sidebar_v1865()
-APP_VIEW_MODE = st.session_state.get("global_view_mode_v145", "Full")
-if APP_VIEW_MODE not in ["Kompakt", "Full"]:
-    APP_VIEW_MODE = "Full"
-    st.session_state["global_view_mode_v145"] = "Full"
+APP_VIEW_MODE = st.sidebar.radio(
+    "Visning",
+    ["Kompakt", "Full"],
+    index=1,
+    horizontal=False,
+    key="global_view_mode_v145",
+    help="Kompakt gir mindre scrolling. Full viser alle detaljer.",
+)
 st.session_state["app_view_mode"] = APP_VIEW_MODE
+st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
@@ -3820,7 +3670,7 @@ if APP_VIEW_MODE == "Kompakt":
         unsafe_allow_html=True,
     )
 elif APP_VIEW_MODE == "Full":
-    # Full skal faktisk vÃ¦re mer detaljert enn Normal: mer luft, stÃ¸rre hovedtitler og synlige forklaringsblokker.
+    # Full skal faktisk være mer detaljert enn Normal: mer luft, større hovedtitler og synlige forklaringsblokker.
     st.markdown(
         """
         <style>
@@ -3841,7 +3691,7 @@ elif APP_VIEW_MODE == "Full":
 
 
 
-# V15.7 / Oppgave 112: KPI-kort harmoniseres med resten av UI-et, ogsÃ¥ i Full-visning.
+# V15.7 / Oppgave 112: KPI-kort harmoniseres med resten av UI-et, også i Full-visning.
 st.markdown(
     """
     <style>
@@ -3961,7 +3811,7 @@ LIVE_BANNER_DEFAULT_TICKERS = {
 
 
 def _is_weak_banner_name(name, ticker):
-    """Returnerer True nÃ¥r Yahoo-navnet egentlig bare er ticker eller tom tekst."""
+    """Returnerer True når Yahoo-navnet egentlig bare er ticker eller tom tekst."""
     try:
         name = str(name or "").strip()
         ticker = str(ticker or "").strip().upper()
@@ -3980,7 +3830,7 @@ def _is_weak_banner_name(name, ticker):
 def resolve_live_banner_label(ticker, fallback_label=None):
     """
     Finner penere navn til bannerkort.
-    PrÃ¸ver Yahoo-navn fÃ¸rst, deretter egen fallback-liste for indeks, futures, rÃ¥varer, valuta og krypto.
+    Prøver Yahoo-navn først, deretter egen fallback-liste for indeks, futures, råvarer, valuta og krypto.
     """
     ticker = str(ticker or "").strip().upper()
     fallback_label = str(fallback_label or "").strip()
@@ -4013,7 +3863,7 @@ def resolve_live_banner_label(ticker, fallback_label=None):
 def parse_banner_tickers(settings=None):
     """
     Leser tickere fra settings.
-    Brukeren kan legge til/fjerne ved Ã¥ redigere tekstfeltene i sidepanelet.
+    Brukeren kan legge til/fjerne ved å redigere tekstfeltene i sidepanelet.
     V9: banneret kan filtreres til valgte markeder.
     """
     settings = settings or load_settings()
@@ -4213,7 +4063,7 @@ def render_live_market_banner():
     if not _heavy_update_allowed():
         banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
         if not banner_cards:
-            st.caption("ðŸ“¡ Ticker-banner bruker manuell modus. Trykk Oppdater hele appen for Ã¥ hente nye bannerdata.")
+            st.caption("📡 Ticker-banner bruker manuell modus. Trykk Oppdater hele appen for å hente nye bannerdata.")
             return
     else:
         banner_cards = fetch_live_banner_snapshot(banner_items)
@@ -4254,7 +4104,7 @@ def render_live_market_banner():
     speed_seconds = max(10, min(speed_seconds, 300))
 
     # IMPORTANT:
-    # CSS ligger i vanlig string, ikke f-string, for Ã¥ unngÃ¥ SyntaxError fra CSS-klammer.
+    # CSS ligger i vanlig string, ikke f-string, for å unngå SyntaxError fra CSS-klammer.
     banner_html = """
     <style>
     .ticker-tape-wrap {
@@ -4390,7 +4240,7 @@ def render_live_market_banner():
 
     st.markdown(banner_html, unsafe_allow_html=True)
     st.caption(
-        f"ðŸ“¡ Banner: {len(banner_cards)} kort Â· {speed_seconds}s Â· data ca. hver {refresh_minutes}. min."
+        f"📡 Banner: {len(banner_cards)} kort · {speed_seconds}s · data ca. hver {refresh_minutes}. min."
     )
 
 
@@ -4412,7 +4262,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
         visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
     visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
 
-    st_obj.caption("Endringer i ticker-banner lagres her. Banneret oppdateres etter lagring/ny kjÃ¸ring, ikke fra venstremenyen.")
+    st_obj.caption("Endringer i ticker-banner lagres her. Banneret oppdateres etter lagring/ny kjøring, ikke fra venstremenyen.")
 
     with st_obj.form(form_key, clear_on_submit=False):
         c_enable, c_speed, c_refresh = st.columns([1.1, 1.1, 1.1])
@@ -4430,7 +4280,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
                 value=int(settings.get("live_banner_speed_seconds", 70) or 70),
                 step=5,
                 key=f"{form_key}_speed",
-                help="Lavere tall = raskere bevegelse. HÃ¸yere tall = saktere banner.",
+                help="Lavere tall = raskere bevegelse. Høyere tall = saktere banner.",
             )
         with c_refresh:
             ui_refresh_minutes = st.number_input(
@@ -4440,7 +4290,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
                 value=int(settings.get("ui_refresh_minutes", 60) or 60),
                 step=1,
                 key=f"{form_key}_refresh",
-                help="Hvor ofte bannerdata kan oppdateres nÃ¥r auto-refresh er aktivert.",
+                help="Hvor ofte bannerdata kan oppdateres når auto-refresh er aktivert.",
             )
 
         st.markdown("**Markeder som vises i banneret**")
@@ -4477,7 +4327,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
             "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
         })
         save_settings(settings)
-        st.success("Ticker-banner lagret som ventende endringer âœ…")
+        st.success("Ticker-banner lagret som ventende endringer ✅")
 
 
 def render_banner_sidebar_controls(expanded=False):
@@ -4488,10 +4338,10 @@ def render_banner_sidebar_controls(expanded=False):
 def render_banner_main_controls():
     """Oppgave 111 / v15.8.2: Rediger ticker-banner rett under selve banneret.
 
-    Hard fix: form-renderingen er lagt direkte her, sÃ¥ appen ikke kan krasje med
+    Hard fix: form-renderingen er lagt direkte her, så appen ikke kan krasje med
     NameError hvis en hjelpefunksjon ikke er lastet i runtime.
     """
-    with st.expander("ðŸ“º Rediger ticker-banner", expanded=False):
+    with st.expander("📺 Rediger ticker-banner", expanded=False):
         settings = load_settings()
         raw = settings.get("live_banner_tickers", {}) or {}
         if not isinstance(raw, dict):
@@ -4502,7 +4352,7 @@ def render_banner_main_controls():
             visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
         visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
 
-        st.caption("Endre flere bannerfelt uten at appen oppdaterer tungt. Trykk fÃ¸rst Â«Lagre banner som ventendeÂ», deretter Â«Oppdater hele appenÂ» nÃ¥r du er klar.")
+        st.caption("Endre flere bannerfelt uten at appen oppdaterer tungt. Trykk først «Lagre banner som ventende», deretter «Oppdater hele appen» når du er klar.")
 
         with st.form("banner_settings_form_v17", clear_on_submit=False):
             c_enable, c_speed, c_refresh = st.columns(3)
@@ -4520,7 +4370,7 @@ def render_banner_main_controls():
                     value=int(settings.get("live_banner_speed_seconds", 70) or 70),
                     step=5,
                     key="banner_v1582_speed",
-                    help="Lavere tall = raskere bevegelse. HÃ¸yere tall = saktere banner.",
+                    help="Lavere tall = raskere bevegelse. Høyere tall = saktere banner.",
                 )
             with c_refresh:
                 ui_refresh_minutes = st.number_input(
@@ -4550,7 +4400,7 @@ def render_banner_main_controls():
                         key=f"banner_v1582_{market.lower()}_tickers",
                     )
 
-            submitted = st.form_submit_button("ðŸ’¾ Lagre banner som ventende", use_container_width=True)
+            submitted = st.form_submit_button("💾 Lagre banner som ventende", use_container_width=True)
 
         if submitted:
             new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
@@ -4566,37 +4416,37 @@ def render_banner_main_controls():
             })
             save_settings(settings)
             _mark_pending_manual_change("Ticker-banner endret")
-            st.success("Ticker-banner lagret som ventende endringer âœ…")
+            st.success("Ticker-banner lagret som ventende endringer ✅")
 
 
 def render_system_admin_workspace(expanded=False):
-    """Fase 3: Cron/bakgrunnssÃ¸k og systemdrift samlet i Kontrollsenter."""
-    with st.expander("ðŸ›  System / admin Â· BakgrunnssÃ¸k / Cron", expanded=bool(expanded)):
+    """Fase 3: Cron/bakgrunnssøk og systemdrift samlet i Kontrollsenter."""
+    with st.expander("🛠 System / admin · Bakgrunnssøk / Cron", expanded=bool(expanded)):
 
-        st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjÃ¸p. Start auto opphever ikke sikkerhetslÃ¥ser.")
+        st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjøp. Start auto opphever ikke sikkerhetslåser.")
         _cron_settings = load_settings()
         _cron_status = cron_status_text()
         _is_full_stop = bool(_cron_status.get("vacation_mode"))
         _is_allowed = bool(_cron_status.get("allowed"))
         if _is_full_stop:
-            st.warning("Status: Full stopp / ferie er aktiv â›”")
+            st.warning("Status: Full stopp / ferie er aktiv ⛔")
         elif not _is_allowed:
-            st.info("Status: Pauset / hopper over â¸")
+            st.info("Status: Pauset / hopper over ⏸")
         else:
-            st.success("Status: Aktiv âœ…")
+            st.success("Status: Aktiv ✅")
         st.caption(_cron_status.get("reason", ""))
 
         with st.form("system_admin_cron_form_v17", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)
             with c1:
-                _cron_enabled = st.checkbox("BakgrunnssÃ¸k aktiv", value=bool(_cron_settings.get("background_scanning_enabled", True)), key="main_cron_background_enabled_v157")
+                _cron_enabled = st.checkbox("Bakgrunnssøk aktiv", value=bool(_cron_settings.get("background_scanning_enabled", True)), key="main_cron_background_enabled_v157")
             with c2:
-                _cron_interval = st.number_input("SÃ¸kintervall minutter", min_value=1, max_value=1440, value=int(_cron_settings.get("scan_interval_minutes", 15)), step=1, key="main_cron_scan_interval_v157")
+                _cron_interval = st.number_input("Søkintervall minutter", min_value=1, max_value=1440, value=int(_cron_settings.get("scan_interval_minutes", 15)), step=1, key="main_cron_scan_interval_v157")
             with c3:
-                _pause_choice = st.selectbox("Pause sÃ¸k", ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"], key="main_cron_pause_choice_v157")
-            _save_cron = st.form_submit_button("ðŸ’¾ Lagre sÃ¸k/cron som ventende", use_container_width=True)
+                _pause_choice = st.selectbox("Pause søk", ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"], key="main_cron_pause_choice_v157")
+            _save_cron = st.form_submit_button("💾 Lagre søk/cron som ventende", use_container_width=True)
         if _save_cron:
-            _mark_pending_manual_change("SÃ¸k/cron endret")
+            _mark_pending_manual_change("Søk/cron endret")
             _new_settings = load_settings()
             _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
             _new_settings["scan_interval_minutes"] = int(_cron_interval)
@@ -4611,40 +4461,40 @@ def render_system_admin_workspace(expanded=False):
                 pause_until(rest_of_day=True)
             elif _pause_choice == "Ingen pause":
                 clear_pause()
-            st.success("SÃ¸k/cron lagret som ventende âœ…")
+            st.success("Søk/cron lagret som ventende ✅")
 
         s1, s2, s3, s4 = st.columns([1, 1, 1, 2.2])
         with s1:
             if _is_full_stop:
-                if st.button("ðŸ”“ SlÃ¥ av Full stopp", key="main_disable_full_stop_v157", use_container_width=True):
+                if st.button("🔓 Slå av Full stopp", key="main_disable_full_stop_v157", use_container_width=True):
                     _deactivate_full_stop_v157()
             else:
-                if st.button("â›” Full stopp / ferie", key="main_activate_full_stop_v157", use_container_width=True):
+                if st.button("⛔ Full stopp / ferie", key="main_activate_full_stop_v157", use_container_width=True):
                     activate_full_stop()
                     st.rerun()
         with s2:
             if _cron_status.get("pause_until"):
-                if st.button("â–¶ï¸ Gjenoppta nÃ¥", key="main_resume_pause_v157", use_container_width=True):
+                if st.button("▶️ Gjenoppta nå", key="main_resume_pause_v157", use_container_width=True):
                     clear_pause()
                     st.rerun()
             else:
                 st.caption("Ingen aktiv pause")
         with s3:
-            if st.button("âš¡ KjÃ¸r auto-kjÃ¸p nÃ¥", key="main_force_auto_buy_now_v157", use_container_width=True, disabled=_is_full_stop):
+            if st.button("⚡ Kjør auto-kjøp nå", key="main_force_auto_buy_now_v157", use_container_width=True, disabled=_is_full_stop):
                 try:
                     from scanner_worker import run_once
-                    with st.spinner("KjÃ¸rer auto-kjÃ¸p-motor..."):
+                    with st.spinner("Kjører auto-kjøp-motor..."):
                         _trades = run_once(force=True)
                     st.success(f"Auto-motor ferdig. Trades: {_trades}")
                     st.rerun()
                 except Exception as _e:
-                    st.error(f"Auto-kjÃ¸p feilet: {_e}")
+                    st.error(f"Auto-kjøp feilet: {_e}")
         with s4:
-            st.caption("Auto-kjÃ¸p nÃ¥ er en engangskjÃ¸ring. Den starter ikke fast Auto trading, og blokkeres av Full stopp / ferie.")
+            st.caption("Auto-kjøp nå er en engangskjøring. Den starter ikke fast Auto trading, og blokkeres av Full stopp / ferie.")
 
 
 def render_analysis_universe_workspace():
-    """Legacy wrapper: Analyseunivers er nÃ¥ flyttet inn i AI Kontrollsenter."""
+    """Legacy wrapper: Analyseunivers er nå flyttet inn i AI Kontrollsenter."""
     try:
         from analysis_universe_ai import render_ai_analysis_universe_workspace
         return render_ai_analysis_universe_workspace(expanded=False)
@@ -4656,13 +4506,13 @@ def render_decision_explanation(decision):
     try:
         reasons = _dedupe_text_list(decision.get("reasons", []))
         warnings = _dedupe_text_list(decision.get("warnings", []))
-        st.markdown("#### ðŸ§  Hvorfor dette signalet?")
+        st.markdown("#### 🧠 Hvorfor dette signalet?")
         if reasons:
             for r in reasons:
-                st.success(f"âœ… {r}")
+                st.success(f"✅ {r}")
         if warnings:
             for w in warnings:
-                st.warning(f"âš ï¸ {w}")
+                st.warning(f"⚠️ {w}")
         if not reasons and not warnings:
             st.caption("Ingen detaljert forklaring tilgjengelig for dette signalet.")
     except Exception as e:
@@ -4677,25 +4527,25 @@ def render_rsi_box(rsi_value):
         rsi_float = 50.0
 
     if rsi_float >= 80:
-        status = "Ekstremt overkjÃ¸pt"
+        status = "Ekstremt overkjøpt"
         cls = "rsi-status-bad"
     elif rsi_float >= 70:
-        status = "OverkjÃ¸pt"
+        status = "Overkjøpt"
         cls = "rsi-status-bad"
     elif rsi_float <= 30:
         status = "Oversolgt"
         cls = "rsi-status-good"
     else:
-        status = "NÃ¸ytral"
+        status = "Nøytral"
         cls = "rsi-status-mid"
 
     st.markdown(
         f"""
         <div class="rsi-box">
-            <div class="rsi-title">ðŸ“Š RSI-boks</div>
+            <div class="rsi-title">📊 RSI-boks</div>
             <div class="rsi-value">{rsi_float:.1f}</div>
             <div class="{cls}">{status}</div>
-            <div class="small">30 = oversolgt Â· 70 = overkjÃ¸pt Â· 80 = ekstremt overkjÃ¸pt</div>
+            <div class="small">30 = oversolgt · 70 = overkjøpt · 80 = ekstremt overkjøpt</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -4706,10 +4556,10 @@ def render_rsi_box(rsi_value):
 def render_signal_badge(signal):
     s = str(signal or "").upper()
     if "BUY" in s:
-        return "<span class='status-live'>ðŸŸ¢ BUY</span>"
+        return "<span class='status-live'>🟢 BUY</span>"
     if "SELL" in s or "AVOID" in s:
-        return "<span class='status-danger'>ðŸ”´ SELL / AVOID</span>"
-    return "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.5);color:#fde68a;font-weight:900;'>ðŸŸ¡ HOLD</span>"
+        return "<span class='status-danger'>🔴 SELL / AVOID</span>"
+    return "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.5);color:#fde68a;font-weight:900;'>🟡 HOLD</span>"
 
 
 
@@ -4725,7 +4575,7 @@ if not PUSHOVER_USER_KEY:
     PUSHOVER_USER_KEY = None
 
 def _mask_secret_v18585(value, keep=4):
-    """Maskerer token/user-key i UI og logger uten Ã¥ lekke hemmeligheter."""
+    """Maskerer token/user-key i UI og logger uten å lekke hemmeligheter."""
     value = str(value or "")
     if not value:
         return "MISSING"
@@ -4738,7 +4588,7 @@ from notifier import send_pushover_alert  # v18.6.3 centralized notifier
 
 
 def verify_pushover_credentials_v18585():
-    """Validerer Pushover token + user-key mot Pushover API uten Ã¥ sende varsel."""
+    """Validerer Pushover token + user-key mot Pushover API uten å sende varsel."""
     result = {
         "token_present": bool(PUSHOVER_APP_TOKEN),
         "user_present": bool(PUSHOVER_USER_KEY),
@@ -4769,7 +4619,7 @@ def verify_pushover_credentials_v18585():
 def maybe_send_signal_alert(ticker, decision):
     """
     Deaktivert i Pushover trade-fix:
-    Varsler skal kun sendes fra trading_engine.py nÃ¥r faktisk BUY/SELL skjer.
+    Varsler skal kun sendes fra trading_engine.py når faktisk BUY/SELL skjer.
     Dette hindrer mobil-spam ved vanlig signalendring/refresh.
     """
     return None
@@ -4779,15 +4629,15 @@ def maybe_send_signal_alert(ticker, decision):
 def get_dynamic_watchlist(mode, max_count, tickers_us=None, tickers_no=None, tickers_se=None, tickers_all=None):
     """Lager dynamisk watchlist fra siste lagrede/rangerte markedsliste.
 
-    V17: Hvis en rangering finnes, brukes BUY/HOLD/SELL-sortert rekkefÃ¸lge.
-    Hvis ikke finnes cache ennÃ¥, brukes tickerunivers som fallback uten Ã¥ starte tung scan.
+    V17: Hvis en rangering finnes, brukes BUY/HOLD/SELL-sortert rekkefølge.
+    Hvis ikke finnes cache ennå, brukes tickerunivers som fallback uten å starte tung scan.
     """
     latest = st.session_state.get("latest_rankings_v148", {}) or {}
     source_key = None
     fallback = tickers_all
     if mode == "USA / S&P 500":
         source_key, fallback = "USA", tickers_us or resolve_universe_tickers(["USA"], max_count=max_count)
-    elif mode == "Norge / Oslo BÃ¸rs":
+    elif mode == "Norge / Oslo Børs":
         source_key, fallback = "Norge", tickers_no or resolve_universe_tickers(["Norge"], max_count=max_count)
     elif mode == "Sverige / Stockholm":
         source_key, fallback = "Sverige", tickers_se or resolve_universe_tickers(["Sverige"], max_count=max_count)
@@ -4817,8 +4667,8 @@ def parse_watchlist(text):
 
 def scan_watchlist_and_alert(tickers):
     """
-    Scanner watchlist og sender Pushover-varsel nÃ¥r BUY/SELL signal endrer seg.
-    KjÃ¸rer nÃ¥r appen refresher, men unngÃ¥r spam ved Ã¥ lagre siste signal i session_state.
+    Scanner watchlist og sender Pushover-varsel når BUY/SELL signal endrer seg.
+    Kjører når appen refresher, men unngår spam ved å lagre siste signal i session_state.
     """
     _alert_settings = load_settings()
     if not bool(_alert_settings.get("notify_watchlist_signal_changes", True)):
@@ -4916,14 +4766,14 @@ def scan_watchlist_and_alert(tickers):
 
 
 def score_color(score):
-    if score >= 7: return "good", "ðŸŸ¢"
-    if score >= 4: return "mid", "ðŸŸ¡"
-    return "bad", "ðŸ”´"
+    if score >= 7: return "good", "🟢"
+    if score >= 4: return "mid", "🟡"
+    return "bad", "🔴"
 
 
 def add_right_side_price_label(fig, x, y, text, color=None, yshift=0):
     """
-    Legger kurs-label pÃ¥ hÃ¸yre side uten Ã¥ krasje med selve grafen.
+    Legger kurs-label på høyre side uten å krasje med selve grafen.
     """
     fig.add_annotation(
         x=x,
@@ -4966,7 +4816,7 @@ def plot_price(hist, title):
             annotations=[
                 *fig.layout.annotations,
                 dict(
-                    text=f"ðŸ’¹ Gjeldende kurs: <b>{last_price:.2f}</b>",
+                    text=f"💹 Gjeldende kurs: <b>{last_price:.2f}</b>",
                     xref="paper",
                     yref="paper",
                     x=0.01,
@@ -5050,7 +4900,7 @@ def add_pattern_markers(fig, pattern, name):
             y=ys,
             mode="markers+lines+text",
             name=name,
-            text=["Venstre", "Hode", "HÃ¸yre"],
+            text=["Venstre", "Hode", "Høyre"],
             textposition="top center",
             marker=dict(size=10),
             line=dict(width=3, dash="dash"),
@@ -5065,7 +4915,7 @@ def _safe_html_value(value):
 
 
 def render_compact_stat_grid(items, columns=4):
-    """Kompakt statusgrid som gjÃ¸r tydelig forskjell pÃ¥ Kompakt/Normal/Full.
+    """Kompakt statusgrid som gjør tydelig forskjell på Kompakt/Normal/Full.
 
     items: liste med (label, value[, delta])
     """
@@ -5096,10 +4946,10 @@ def render_decision_banner(decision, item, adj_score):
     """Kompakt Trading engine-status (v14 / oppgave 29B).
 
     Tidligere viste appen samme BUY/HOLD-info tre ganger i store bokser.
-    Denne varianten viser Ã©n kompakt statuslinje og legger detaljene i en lukket forklaring.
+    Denne varianten viser én kompakt statuslinje og legger detaljene i en lukket forklaring.
     """
     decision_text = str(decision.get("decision", "HOLD / WAIT"))
-    emoji = str(decision.get("emoji", "ðŸŸ¡"))
+    emoji = str(decision.get("emoji", "🟡"))
     confidence = decision.get("confidence", "N/A")
     score = decision.get("decision_score", "N/A")
     color = "#86efac" if "BUY" in decision_text.upper() else ("#fecaca" if "SELL" in decision_text.upper() else "#fde68a")
@@ -5123,9 +4973,9 @@ def render_decision_banner(decision, item, adj_score):
             f"""
             <div class="trading-engine-details">
                 <b>{html.escape(emoji)} {html.escape(decision_text)}</b><br>
-                Original score: <b>{html.escape(str(item.get('score', 'N/A')))}/10</b> Â·
+                Original score: <b>{html.escape(str(item.get('score', 'N/A')))}/10</b> ·
                 Pattern-justert score: <b>{html.escape(str(adj_score))}/10</b><br>
-                Dette er analysehjelp, ikke investeringsrÃ¥d.
+                Dette er analysehjelp, ikke investeringsråd.
             </div>
             """,
             unsafe_allow_html=True,
@@ -5189,24 +5039,24 @@ def card_decision_for_item(item):
             "confidence": 0,
             "risk": "Middels",
             "reasons": [],
-            "warnings": ["Teknisk signal kunne ikke beregnes pÃ¥ kortet"],
+            "warnings": ["Teknisk signal kunne ikke beregnes på kortet"],
             "final_score": item.get("score", 0),
         }
 
     text = str(decision.get("decision", "HOLD / WAIT")).upper()
 
     if "BUY" in text:
-        decision["action_now"] = "KJÃ˜P NÃ…"
+        decision["action_now"] = "KJØP NÅ"
         decision["action_class"] = "action-buy"
-        decision["action_icon"] = "ðŸŸ¢"
+        decision["action_icon"] = "🟢"
     elif "SELL" in text or "AVOID" in text:
-        decision["action_now"] = "UNNGÃ… NÃ…"
+        decision["action_now"] = "UNNGÅ NÅ"
         decision["action_class"] = "action-sell"
-        decision["action_icon"] = "ðŸ”´"
+        decision["action_icon"] = "🔴"
     else:
         decision["action_now"] = "VENT"
         decision["action_class"] = "action-hold"
-        decision["action_icon"] = "ðŸŸ¡"
+        decision["action_icon"] = "🟡"
 
     return decision
 
@@ -5216,7 +5066,7 @@ def render_action_chips(decision):
         f"""
         <div class="action-chip-row">
             <span class="action-chip action-info">Teknisk: {decision.get("decision", "HOLD / WAIT")}</span>
-            <span class="action-chip {decision.get("action_class", "action-hold")}">{decision.get("action_icon", "ðŸŸ¡")} {decision.get("action_now", "VENT")}</span>
+            <span class="action-chip {decision.get("action_class", "action-hold")}">{decision.get("action_icon", "🟡")} {decision.get("action_now", "VENT")}</span>
             <span class="action-chip action-info">Conf: {decision.get("confidence", 0)}%</span>
             <span class="action-chip action-info">Risiko: {decision.get("risk", "Middels")}</span>
         </div>
@@ -5226,17 +5076,17 @@ def render_action_chips(decision):
 
 
 def is_buy_now_item(item):
-    return card_decision_for_item(item).get("action_now") == "KJÃ˜P NÃ…"
+    return card_decision_for_item(item).get("action_now") == "KJØP NÅ"
 
 
 # V17 / Oppgave 132: felles rangering for dynamisk watchlist, Top Picks og hurtiglister.
 def _signal_group_priority(decision_text: str, action_text: str = "") -> int:
     text = f"{decision_text} {action_text}".upper()
-    if "KJÃ˜P" in text or "BUY" in text:
+    if "KJØP" in text or "BUY" in text:
         return 0
     if "HOLD" in text or "WAIT" in text or "VENT" in text:
         return 1
-    if "SELL" in text or "AVOID" in text or "UNNGÃ…" in text:
+    if "SELL" in text or "AVOID" in text or "UNNGÅ" in text:
         return 2
     return 3
 
@@ -5310,7 +5160,7 @@ def _fund_display_label_v18574(row_or_symbol, maybe_row=None):
         return fund_display_label(symbol, row) if symbol else "-"
     except Exception:
         name = str(row.get("name") or row.get("fund_name") or row.get("longName") or "").strip()
-        return f"{symbol} â€” {name}" if symbol and name and name.upper() != symbol else (symbol or name or "-")
+        return f"{symbol} — {name}" if symbol and name and name.upper() != symbol else (symbol or name or "-")
 
 
 def _ranked_for_display(items):
@@ -5355,8 +5205,8 @@ def safe_widget_key(text):
 
 def save_latest_buy_now_candidates(candidates, market_label=""):
     """
-    Lagrer siste UI-KjÃ¸p nÃ¥ kandidater til DB/settings.
-    Cron prioriterer disse fÃ¸rst ved neste kjÃ¸ring.
+    Lagrer siste UI-Kjøp nå kandidater til DB/settings.
+    Cron prioriterer disse først ved neste kjøring.
     """
     try:
         rows = []
@@ -5381,7 +5231,7 @@ def save_latest_buy_now_candidates(candidates, market_label=""):
         save_settings(settings)
         return rows
     except Exception as e:
-        st.caption(f"Kunne ikke lagre KjÃ¸p nÃ¥-kandidater til Cron: {e}")
+        st.caption(f"Kunne ikke lagre Kjøp nå-kandidater til Cron: {e}")
         return []
 
 
@@ -5408,7 +5258,7 @@ def render_ranking(results, title):
         st.markdown("""
         <div class='visual-truth-empty-state'>
             <b>Ingen rangeringsdata tilgjengelig.</b><br/>
-            Mulige Ã¥rsaker: markedet er ikke oppdatert, scan/watchlist er ikke kjÃ¸rt, eller aktivt filter gir ingen treff.
+            Mulige årsaker: markedet er ikke oppdatert, scan/watchlist er ikke kjørt, eller aktivt filter gir ingen treff.
             Trykk <b>Global oppdatering</b> eller velg/skriv en ticker manuelt.
         </div>
         """, unsafe_allow_html=True)
@@ -5436,26 +5286,10 @@ def render_ranking(results, title):
             ("Beste handling", best_decision.get("action_now", "VENT")),
         ], columns=4)
 
-    st.markdown("#### âš¡ Hurtigliste med kurs")
-    st.caption("Top Picks = sterk kandidat totalt. Handling nÃ¥ = teknisk timing akkurat nÃ¥.")
+    st.markdown("#### ⚡ Hurtigliste med kurs")
+    st.caption("Top Picks = sterk kandidat totalt. Handling nå = teknisk timing akkurat nå.")
 
-    total_results = len(results)
-    display_options = [x for x in [15, 30, 60] if x < total_results] + [total_results]
-    display_options = list(dict.fromkeys([max(1, int(x)) for x in display_options]))
-    display_default = 15 if total_results > 15 else total_results
-    display_limit = st.selectbox(
-        "Vis antall kandidater",
-        display_options,
-        index=display_options.index(display_default) if display_default in display_options else len(display_options) - 1,
-        key=f"ranking_display_limit_{safe_widget_key(title)}_v1865d",
-        help="Dette styrer bare hvor mange kort som vises. Send videre bruker hele outputpakken.",
-    )
-    st.caption(
-        f"Viser topp {min(int(display_limit), total_results)} av {total_results}. "
-        f"Alle {total_results} kandidatene ligger i outputpakken og kan sendes videre."
-    )
-
-    for idx, item in enumerate(results[: int(display_limit)], start=1):
+    for idx, item in enumerate(results[:15], start=1):
         ticker = item.get("ticker", "N/A")
         score = item.get("score", 0)
         pe_text = _display_pe_v1863ad(item)
@@ -5467,12 +5301,12 @@ def render_ranking(results, title):
 
         price_text = "N/A"
         delta_text = None
-        direction_icon = "âšª"
+        direction_icon = "⚪"
 
         if latest_price is not None:
             price_text = f"{latest_price:.2f} {currency_suffix(ticker)}"
             delta_text = f"{change_pct:+.2f}%"
-            direction_icon = "ðŸŸ¢" if change_pct >= 0 else "ðŸ”´"
+            direction_icon = "🟢" if change_pct >= 0 else "🔴"
 
         with st.container(border=True):
             left, mid, right = st.columns([1.35, 1.05, 2.35])
@@ -5486,7 +5320,7 @@ def render_ranking(results, title):
                     insider_chip = f"<span>Insider {insider_value * 100:.0f}%</span>" if insider_value <= 1 else f"<span>Insider {insider_value:.0f}%</span>"
                 except Exception:
                     insider_chip = ""
-                st.markdown(f"<div class='v18574-quick-sub'>#{idx} Â· {html.escape(str(display_name))}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='v18574-quick-sub'>#{idx} · {html.escape(str(display_name))}</div>", unsafe_allow_html=True)
                 st.markdown(
                     "<div class='v1863m-quick-meta'>"
                     f"<span>{html.escape(str(listing.get('country', 'Ukjent')))}</span>"
@@ -5514,11 +5348,11 @@ def render_ranking(results, title):
                 st.markdown("<div class='v1863m-quick-action'>", unsafe_allow_html=True)
                 st.progress(min(float(score) / 10, 1.0))
                 st.caption(
-                    f"1y: {item.get('ret_1y', 0)*100:.1f}% Â· "
-                    f"6m: {item.get('ret_6m', 0)*100:.1f}% Â· "
-                    f"3m: {item.get('ret_3m', 0)*100:.1f}% Â· "
-                    f"Vol: {item.get('volatility', 0):.4f} Â· "
-                    f"DD: {item.get('max_drawdown', 0)*100:.1f}% Â· "
+                    f"1y: {item.get('ret_1y', 0)*100:.1f}% · "
+                    f"6m: {item.get('ret_6m', 0)*100:.1f}% · "
+                    f"3m: {item.get('ret_3m', 0)*100:.1f}% · "
+                    f"Vol: {item.get('volatility', 0):.4f} · "
+                    f"DD: {item.get('max_drawdown', 0)*100:.1f}% · "
                     f"{pe_text}"
                 )
 
@@ -5526,9 +5360,9 @@ def render_ranking(results, title):
                 reasons = card_decision.get("reasons", [])
 
                 if warnings:
-                    st.markdown(f"<div class='v1863m-quick-action-note'>âš ï¸ {html.escape(str(warnings[0]))}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='v1863m-quick-action-note'>⚠️ {html.escape(str(warnings[0]))}</div>", unsafe_allow_html=True)
                 elif reasons:
-                    st.markdown(f"<div class='v1863m-quick-action-note'>âœ… {html.escape(str(reasons[0]))}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='v1863m-quick-action-note'>✅ {html.escape(str(reasons[0]))}</div>", unsafe_allow_html=True)
                 else:
                     st.markdown("<div class='v1863m-quick-action-note'>Ingen ekstra varseltekst.</div>", unsafe_allow_html=True)
 
@@ -5540,19 +5374,19 @@ def render_ranking(results, title):
                     _conf = int(card_decision.get("confidence", 0) or 0)
                     _btn_key_base = safe_widget_key(f"{title}_{ticker}_{idx}")
 
-                    if latest_price is not None and _action_now == "KJÃ˜P NÃ…":
+                    if latest_price is not None and _action_now == "KJØP NÅ":
                         if _owns:
-                            st.caption("ðŸ“Œ Allerede i paper-portefÃ¸ljen")
-                        elif st.button(f"ðŸŸ¢ Paper-kjÃ¸p {ticker}", key=f"paper_buy_{_btn_key_base}", use_container_width=False):
-                            _ok, _msg = paper_buy(ticker, latest_price, _conf, f"UI KjÃ¸p nÃ¥: {title}")
+                            st.caption("📌 Allerede i paper-porteføljen")
+                        elif st.button(f"🟢 Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}", use_container_width=True):
+                            _ok, _msg = paper_buy(ticker, latest_price, _conf, f"UI Kjøp nå: {title}")
                             if _ok:
                                 st.success(_msg)
                                 st.rerun()
                             else:
                                 st.warning(_msg)
 
-                    elif latest_price is not None and ("UNNGÃ…" in _action_now or "SELL" in _action_now):
-                        if _owns and st.button(f"ðŸ”´ Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}", use_container_width=False):
+                    elif latest_price is not None and ("UNNGÅ" in _action_now or "SELL" in _action_now):
+                        if _owns and st.button(f"🔴 Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}", use_container_width=True):
                             _ok, _msg = paper_sell(ticker, latest_price, f"UI teknisk signal: {_action_now}")
                             if _ok:
                                 st.success(_msg)
@@ -5593,7 +5427,7 @@ def current_price_from_df(df):
 
 def add_rsi_level_labels(fig, rsi_series=None):
     """
-    RSI-graf med nivÃ¥er + tydelig gjeldende RSI-boks.
+    RSI-graf med nivåer + tydelig gjeldende RSI-boks.
     """
     try:
         current_rsi = None
@@ -5610,22 +5444,22 @@ def add_rsi_level_labels(fig, rsi_series=None):
         fig.add_hline(y=80, line_dash="dot", line_color="rgba(255,193,7,0.85)")
 
         fig.add_annotation(xref="paper", yref="y", x=1.01, y=30, text="30 oversolgt", showarrow=False, xanchor="left", font=dict(size=12, color="white"), bgcolor="rgba(11,17,28,0.85)")
-        fig.add_annotation(xref="paper", yref="y", x=1.01, y=70, text="70 overkjÃ¸pt", showarrow=False, xanchor="left", font=dict(size=12, color="white"), bgcolor="rgba(11,17,28,0.85)")
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=70, text="70 overkjøpt", showarrow=False, xanchor="left", font=dict(size=12, color="white"), bgcolor="rgba(11,17,28,0.85)")
         fig.add_annotation(xref="paper", yref="y", x=1.01, y=80, text="80 ekstrem", showarrow=False, xanchor="left", font=dict(size=12, color="#ffc107"), bgcolor="rgba(11,17,28,0.85)")
 
         if current_rsi is not None:
             if current_rsi >= 80:
-                status, icon = "ekstremt overkjÃ¸pt", "ðŸ”¥"
+                status, icon = "ekstremt overkjøpt", "🔥"
             elif current_rsi >= 70:
-                status, icon = "overkjÃ¸pt", "âš ï¸"
+                status, icon = "overkjøpt", "⚠️"
             elif current_rsi <= 30:
-                status, icon = "oversolgt", "ðŸ§Š"
+                status, icon = "oversolgt", "🧊"
             else:
-                status, icon = "nÃ¸ytral", "ðŸ“Š"
+                status, icon = "nøytral", "📊"
 
             fig.add_hline(y=current_rsi, line_dash="dot", line_color="#38bdf8", opacity=0.7)
             fig.add_annotation(
-                text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> Â· {status}",
+                text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> · {status}",
                 xref="paper", yref="paper", x=0.01, y=1.16,
                 showarrow=False, align="left",
                 font=dict(size=14, color="white"),
@@ -5634,7 +5468,7 @@ def add_rsi_level_labels(fig, rsi_series=None):
             )
             fig.add_annotation(
                 xref="paper", yref="y", x=1.01, y=current_rsi,
-                text=f"RSI nÃ¥: {current_rsi:.1f}", showarrow=False, xanchor="left",
+                text=f"RSI nå: {current_rsi:.1f}", showarrow=False, xanchor="left",
                 font=dict(size=12, color="#93c5fd"),
                 bgcolor="rgba(11,17,28,0.90)",
                 bordercolor="rgba(147,197,253,0.45)", borderwidth=1,
@@ -5667,10 +5501,10 @@ def insider_signal_label(score):
     try:
         s = float(score)
     except Exception:
-        return "NÃ¸ytral", "info-warning"
+        return "Nøytral", "info-warning"
 
     if s >= 0.60:
-        return "Netto kjÃ¸p", "info-positive"
+        return "Netto kjøp", "info-positive"
     if s <= 0.40:
         return "Netto salg", "info-negative"
     return "Blandet", "info-warning"
@@ -5683,7 +5517,7 @@ def render_latest_insider_transactions(insider):
         st.caption("Ingen siste insiderhandler funnet.")
         return
 
-    st.markdown("#### ðŸ•µï¸ Siste insiderhandler")
+    st.markdown("#### 🕵️ Siste insiderhandler")
     rows = []
     for tx in txs[:8]:
         value = tx.get("value")
@@ -5697,7 +5531,7 @@ def render_latest_insider_transactions(insider):
 
         rows.append({
             "Dato": tx.get("date", ""),
-            "Type": "KJÃ˜P" if tx.get("type") == "BUY" else "SALG" if tx.get("type") == "SELL" else tx.get("type", ""),
+            "Type": "KJØP" if tx.get("type") == "BUY" else "SALG" if tx.get("type") == "SELL" else tx.get("type", ""),
             "Aksjer": format_big_number(tx.get("shares", 0)),
             "Pris": round(float(tx.get("price", 0) or 0), 2),
             "Verdi": value_txt,
@@ -5726,7 +5560,7 @@ def render_intelligence_cards(insider, analyst, earnings):
     analyst_hold = analyst.get("hold", 0)
     analyst_sell = analyst.get("sell", 0)
 
-    earnings_date = earnings.get("date") or "Ingen nÃ¦r dato"
+    earnings_date = earnings.get("date") or "Ingen nær dato"
     days_until = earnings.get("days_until", "N/A")
 
     c1, c2, c3 = st.columns(3)
@@ -5735,15 +5569,15 @@ def render_intelligence_cards(insider, analyst, earnings):
         st.markdown(
             f"""
             <div class="info-mini-card">
-                <div class="info-mini-title">ðŸ•µï¸ Insider</div>
+                <div class="info-mini-title">🕵️ Insider</div>
                 <div class="info-mini-main {insider_class}">{insider_label}</div>
                 <div class="info-mini-sub">
                     Score: <b>{insider_score}</b><br>
-                    KjÃ¸p: <b>{buy_shares}</b> aksjer<br>
+                    Kjøp: <b>{buy_shares}</b> aksjer<br>
                     Salg: <b>{sell_shares}</b> aksjer
                 </div>
                 <div class="info-mini-small">
-                    Transaksjoner: {transactions} Â· KjÃ¸p: {buy_count} Â· Salg: {sell_count}<br>
+                    Transaksjoner: {transactions} · Kjøp: {buy_count} · Salg: {sell_count}<br>
                     Siste: {insider.get("latest_type", "N/A")} {insider.get("latest_date", "")}<br>Tallene er summerte insider-transaksjoner i aksjer fra siste periode.
                 </div>
             </div>
@@ -5755,7 +5589,7 @@ def render_intelligence_cards(insider, analyst, earnings):
         st.markdown(
             f"""
             <div class="info-mini-card">
-                <div class="info-mini-title">ðŸ“ˆ Analyst</div>
+                <div class="info-mini-title">📈 Analyst</div>
                 <div class="info-mini-main">{analyst_trend}</div>
                 <div class="info-mini-sub">
                     Buy: <b>{analyst_buy}</b><br>
@@ -5763,7 +5597,7 @@ def render_intelligence_cards(insider, analyst, earnings):
                     Sell: <b>{analyst_sell}</b>
                 </div>
                 <div class="info-mini-small">
-                    Analytikerbildet brukes som stÃ¸tte, ikke som eneste beslutningsgrunnlag.
+                    Analytikerbildet brukes som støtte, ikke som eneste beslutningsgrunnlag.
                 </div>
             </div>
             """,
@@ -5774,13 +5608,13 @@ def render_intelligence_cards(insider, analyst, earnings):
         st.markdown(
             f"""
             <div class="info-mini-card">
-                <div class="info-mini-title">â° Earnings</div>
+                <div class="info-mini-title">⏰ Earnings</div>
                 <div class="info-mini-main">{earnings_date}</div>
                 <div class="info-mini-sub">
                     Dager igjen: <b>{days_until}</b>
                 </div>
                 <div class="info-mini-small">
-                    NÃ¦r rapportdato kan gi ekstra volatilitet og hÃ¸yere risiko.
+                    Nær rapportdato kan gi ekstra volatilitet og høyere risiko.
                 </div>
             </div>
             """,
@@ -5795,11 +5629,11 @@ def render_macd_explanation():
     st.markdown(
         """
         <div class="macd-explain-box">
-            <b>ðŸ“˜ MACD forklart</b><br>
-            <b>ðŸ”µ MACD-linje:</b> viser momentum i kursen. NÃ¥r den stiger, Ã¸ker positivt momentum.<br>
-            <b>ðŸ”´ Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
-            <b>ðŸŸ¢/ðŸ”´ Histogram:</b> forskjellen mellom MACD og signallinjen. GrÃ¸nt = MACD over signal, rÃ¸dt = MACD under signal.<br>
-            <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum. Grafene stÃ¸tter musehjul-zoom og panering.
+            <b>📘 MACD forklart</b><br>
+            <b>🔵 MACD-linje:</b> viser momentum i kursen. Når den stiger, øker positivt momentum.<br>
+            <b>🔴 Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
+            <b>🟢/🔴 Histogram:</b> forskjellen mellom MACD og signallinjen. Grønt = MACD over signal, rødt = MACD under signal.<br>
+            <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum. Grafene støtter musehjul-zoom og panering.
         </div>
         """,
         unsafe_allow_html=True,
@@ -5807,7 +5641,7 @@ def render_macd_explanation():
 
 
 def normalize_user_ticker(ticker: str) -> str:
-    """Normaliserer manuell ticker uten Ã¥ falle stille tilbake til AAPL."""
+    """Normaliserer manuell ticker uten å falle stille tilbake til AAPL."""
     value = str(ticker or "").strip().upper().replace(" ", "")
     aliases = {"ORKLY": "ORK.OL", "ORK": "ORK.OL"}
     return aliases.get(value, value)
@@ -5880,10 +5714,10 @@ def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> st
 
 
 def render_analysis(results, label):
-    st.subheader("ðŸ“Š Interaktiv analyse")
+    st.subheader("📊 Interaktiv analyse")
 
     # V14.8 / Oppgave 73: Interaktiv analyse kan hente fra siste lagrede dynamiske rangering,
-    # uten Ã¥ starte en ny scan/rangering bare fordi menyen Ã¥pnes.
+    # uten å starte en ny scan/rangering bare fordi menyen åpnes.
     source_choice = st.selectbox(
         "Aksjekilde",
         ["Aktuell liste", "Smart Universe Picker", "Dynamisk watchlist / best rangerte", "Top Picks", "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"],
@@ -5894,7 +5728,7 @@ def render_analysis(results, label):
     source_results = _latest_ranked_results_for_source(source_choice, results or [], current_label=label)
 
     # Oppgave 76/76B + 78/79: dynamiske, rangerte valg etter valgt aksjekilde.
-    # Panelet starter tomt. Kilder mÃ¥ ha lagret rangering eller bygges eksplisitt
+    # Panelet starter tomt. Kilder må ha lagret rangering eller bygges eksplisitt
     # med egen knapp. Ingen stille fallback til AAPL.
     def _build_options(_source_results):
         result_options = [normalize_user_ticker(r.get("ticker")) for r in (_source_results or []) if isinstance(r, dict) and r.get("ticker")]
@@ -5914,7 +5748,7 @@ def render_analysis(results, label):
                     action = card_decision_for_item(r).get("action_now", "")
                 except Exception:
                     action = ""
-                _labels[t] = f"{t} Â· score {score_txt}" + (f" Â· {action}" if action else "")
+                _labels[t] = f"{t} · score {score_txt}" + (f" · {action}" if action else "")
         for _t in result_options:
             if _t and _t not in _options:
                 _options.append(_t)
@@ -5922,23 +5756,23 @@ def render_analysis(results, label):
 
     options, option_labels = _build_options(source_results)
     if not options and source_choice == "Aktuell liste":
-        st.info("Aktuell liste er tom. KjÃ¸r en rangering, velg et marked, eller skriv Ã©n ticker manuelt.")
+        st.info("Aktuell liste er tom. Kjør en rangering, velg et marked, eller skriv én ticker manuelt.")
 
-    # V14.10: hvis valgt dynamisk kilde mangler liste, gi eksplisitt knapp for Ã¥ bygge akkurat denne kilden.
+    # V14.10: hvis valgt dynamisk kilde mangler liste, gi eksplisitt knapp for å bygge akkurat denne kilden.
     if not options and source_choice != "Aktuell liste":
-        st.info(f"Ingen lagret dynamisk rangering for {source_choice}. Bygg listen nÃ¥, eller skriv Ã©n ticker manuelt.")
+        st.info(f"Ingen lagret dynamisk rangering for {source_choice}. Bygg listen nå, eller skriv én ticker manuelt.")
         build_cols = st.columns([1, 2])
         with build_cols[0]:
-            if st.button(f"ðŸ”„ Oppdater {source_choice}-liste nÃ¥", key=f"build_interactive_source_{label}_{source_choice}_v1410", use_container_width=True):
+            if st.button(f"🔄 Oppdater {source_choice}-liste nå", key=f"build_interactive_source_{label}_{source_choice}_v1410", use_container_width=True):
                 with st.spinner(f"Bygger dynamisk {source_choice}-liste..."):
                     source_results = _build_interactive_source_ranking_now(source_choice)
                 options, option_labels = _build_options(source_results)
                 if options:
-                    st.success(f"{source_choice}-listen er oppdatert med {len(options)} aksjer âœ…")
+                    st.success(f"{source_choice}-listen er oppdatert med {len(options)} aksjer ✅")
                 else:
-                    st.markdown(f"""<div class='visual-truth-empty-state'><b>Ingen data for {source_choice}.</b><br/>PrÃ¸v Global oppdatering / Scan watchlist, sjekk marked/filter, eller skriv ticker manuelt.</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class='visual-truth-empty-state'><b>Ingen data for {source_choice}.</b><br/>Prøv Global oppdatering / Scan watchlist, sjekk marked/filter, eller skriv ticker manuelt.</div>""", unsafe_allow_html=True)
         with build_cols[1]:
-            st.caption("Knappen kjÃ¸rer bare valgt kilde. Den skal ikke starte AAPL-fallback eller skjulte markedspaneler.")
+            st.caption("Knappen kjører bare valgt kilde. Den skal ikke starte AAPL-fallback eller skjulte markedspaneler.")
 
     source_key = re.sub(r"[^A-Za-z0-9]+", "_", source_choice).strip("_") or "source"
     manual_key = f"manual_ticker_{label}_v1410"
@@ -5963,30 +5797,30 @@ def render_analysis(results, label):
                 format_func=lambda x: option_labels.get(x, x),
             )
         else:
-            st.caption("Ingen listevalg tilgjengelig for valgt kilde ennÃ¥.")
+            st.caption("Ingen listevalg tilgjengelig for valgt kilde ennå.")
     with s2:
         manual_ticker_raw = st.text_input(
             "Eller skriv ticker",
-            placeholder="Skriv Ã©n ticker, f.eks. EQNR.OL",
+            placeholder="Skriv én ticker, f.eks. EQNR.OL",
             key=manual_key,
             help="Manuell ticker overstyrer valgt kilde. For flere tickere bruker du Strategi-test.",
         )
-        if st.button("TÃ¸m manuell ticker", key=f"manual_ticker_clear_btn_{label}_v1410", use_container_width=True):
+        if st.button("Tøm manuell ticker", key=f"manual_ticker_clear_btn_{label}_v1410", use_container_width=True):
             st.session_state[manual_key] = ""
             st.rerun()
         st.caption("Eksempel: EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE eller PETR4.SA")
 
     manual_ticker_clean = _clean_manual_ticker_input(manual_ticker_raw)
     if manual_ticker_raw and manual_ticker_clean != normalize_user_ticker(manual_ticker_raw):
-        st.caption(f"Manuell input er tolket som Ã©n ticker: {manual_ticker_clean or 'ingen'}")
+        st.caption(f"Manuell input er tolket som én ticker: {manual_ticker_clean or 'ingen'}")
 
     selected = active_ticker_from_inputs(manual_ticker_raw, selected_from_list)
     if manual_ticker_clean:
-        st.caption(f"Aktiv tickerkilde: Manuell ticker Â· Bruker ticker: {selected}")
+        st.caption(f"Aktiv tickerkilde: Manuell ticker · Bruker ticker: {selected}")
     elif selected:
-        st.caption(f"Aktiv tickerkilde: {source_choice} Â· Bruker ticker: {selected}")
+        st.caption(f"Aktiv tickerkilde: {source_choice} · Bruker ticker: {selected}")
     else:
-        st.warning("Velg en ticker fra listen, bygg valgt kilde, eller skriv Ã©n ticker manuelt.")
+        st.warning("Velg en ticker fra listen, bygg valgt kilde, eller skriv én ticker manuelt.")
         return
 
     item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
@@ -6002,7 +5836,7 @@ def render_analysis(results, label):
 
     if not item:
         if _manual_update_mode_enabled():
-            st.info("Manuell modus er aktiv og det finnes ingen lagret analyse for valgt ticker. Trykk Oppdater hele appen for Ã¥ hente data.")
+            st.info("Manuell modus er aktiv og det finnes ingen lagret analyse for valgt ticker. Trykk Oppdater hele appen for å hente data.")
         else:
             st.warning("Fant ikke data for valgt ticker. Sjekk ticker-symbol, f.eks. EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE eller PETR4.SA.")
         return
@@ -6028,7 +5862,7 @@ def render_analysis(results, label):
             ("Max drawdown", f"{item['max_drawdown']*100:.1f}%"),
         ], columns=4)
 
-    st.markdown("#### ðŸ“ˆ Teknisk analyse")
+    st.markdown("#### 📈 Teknisk analyse")
 
     rsi = calculate_rsi(df)
     macd, macd_signal, macd_hist = calculate_macd(df)
@@ -6089,16 +5923,16 @@ def render_analysis(results, label):
 
     st.markdown("---")
 
-    # UI-signalvarsler er deaktivert for Ã¥ hindre dobbelvarsling.
-    # Varsler styres nÃ¥ fra Varselkontroll:
+    # UI-signalvarsler er deaktivert for å hindre dobbelvarsling.
+    # Varsler styres nå fra Varselkontroll:
     # - faktisk paper BUY/SELL via trading_engine/notifier
     # - watchlist signalendring via scan_watchlist_and_alert
 
-    st.markdown("#### ðŸ¤– Trading engine")
+    st.markdown("#### 🤖 Trading engine")
     render_decision_banner(decision, item, adj_score)
 
     if signal_intelligence:
-        st.markdown("#### ðŸ§  Signal Intelligence")
+        st.markdown("#### 🧠 Signal Intelligence")
         if APP_VIEW_MODE == "Full":
             si1, si2, si3, si4 = st.columns(4)
             si1.metric("Smart score", f"{signal_intelligence.get('final_score', signal_intelligence.get('decision_score', 0))}/10")
@@ -6116,24 +5950,24 @@ def render_analysis(results, label):
 
     with st.expander("Hvorfor dette signalet?"):
         for reason in decision["reasons"]:
-            st.write("â€¢", reason)
+            st.write("•", reason)
 
     t1, t2, t3, t4 = st.columns(4)
     t1.metric("RSI", f"{latest_rsi:.1f}")
     t2.metric("Trend", trend)
-    t3.metric("MACD", "Bullish ðŸŸ¢" if latest_macd > latest_macd_signal else "Bearish ðŸ”´")
+    t3.metric("MACD", "Bullish 🟢" if latest_macd > latest_macd_signal else "Bearish 🔴")
     t4.metric("Breakout", breakout.get("signal", "N/A"))
 
     render_rsi_box(latest_rsi)
 
-    st.markdown("#### ðŸ”” Signal alerts")
+    st.markdown("#### 🔔 Signal alerts")
     for title, desc, kind in alerts:
         if kind == "bullish":
-            st.success(f"ðŸŸ¢ {title}: {desc}")
+            st.success(f"🟢 {title}: {desc}")
         elif kind == "bearish":
-            st.error(f"ðŸ”´ {title}: {desc}")
+            st.error(f"🔴 {title}: {desc}")
         else:
-            st.info(f"âšª {title}: {desc}")
+            st.info(f"⚪ {title}: {desc}")
 
     c1, c2, c3 = st.columns(3)
     chart_currency = currency_suffix(selected)
@@ -6146,7 +5980,7 @@ def render_analysis(results, label):
     c2.metric("Stotte", _level_with_currency_v1863ae(breakout.get("support")))
     c3.metric("Volum boost", breakout.get("volume_boost", "N/A"))
 
-    st.markdown("#### ðŸ§© Pattern detection")
+    st.markdown("#### 🧩 Pattern detection")
     p1, p2 = st.columns(2)
     with p1:
         if hs.get("found"):
@@ -6162,11 +5996,11 @@ def render_analysis(results, label):
     fig_ta = go.Figure()
     fig_ta.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Pris", mode="lines"))
     fig_ta.add_trace(go.Scatter(x=df.index, y=bb_ma, name="BB midt", mode="lines", line=dict(dash="dot")))
-    fig_ta.add_trace(go.Scatter(x=df.index, y=bb_upper, name="BB Ã¸vre", mode="lines", line=dict(dash="dot")))
+    fig_ta.add_trace(go.Scatter(x=df.index, y=bb_upper, name="BB øvre", mode="lines", line=dict(dash="dot")))
     fig_ta.add_trace(go.Scatter(x=df.index, y=bb_lower, name="BB nedre", mode="lines", line=dict(dash="dot")))
 
     if breakout.get("support") != "N/A":
-        fig_ta.add_hline(y=breakout.get("support"), line_dash="dash", annotation_text="StÃ¸tte")
+        fig_ta.add_hline(y=breakout.get("support"), line_dash="dash", annotation_text="Støtte")
     if breakout.get("resistance") != "N/A":
         fig_ta.add_hline(y=breakout.get("resistance"), line_dash="dash", annotation_text="Motstand")
 
@@ -6176,7 +6010,7 @@ def render_analysis(results, label):
         fig_ta = add_pattern_markers(fig_ta, inv_hs, "Invertert hode/skulder")
 
     fig_ta.update_layout(
-        title=f"{selected} - Bollinger, stÃ¸tte/motstand, patterns og breakout",
+        title=f"{selected} - Bollinger, støtte/motstand, patterns og breakout",
         template="plotly_dark",
         height=480,
         paper_bgcolor="#0b111c",
@@ -6208,7 +6042,7 @@ def render_analysis(results, label):
             bb_lower_val = float(bb_lower.dropna().iloc[-1])
 
             add_right_side_price_label(fig_ta, last_x_ta, bb_mid_val, f"BB midt: {bb_mid_val:.2f} {chart_currency}", color="#ff6b4a")
-            add_right_side_price_label(fig_ta, last_x_ta, bb_upper_val, f"BB Ã¸vre: {bb_upper_val:.2f} {chart_currency}", color="#00e6a8")
+            add_right_side_price_label(fig_ta, last_x_ta, bb_upper_val, f"BB øvre: {bb_upper_val:.2f} {chart_currency}", color="#00e6a8")
             add_right_side_price_label(fig_ta, last_x_ta, bb_lower_val, f"BB nedre: {bb_lower_val:.2f} {chart_currency}", color="#b56cff")
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
@@ -6219,7 +6053,7 @@ def render_analysis(results, label):
             annotations=[
                 *fig_ta.layout.annotations,
                 dict(
-                    text=f"ðŸ’¹ Gjeldende kurs: <b>{last_price_ta:.2f} {chart_currency}</b>",
+                    text=f"💹 Gjeldende kurs: <b>{last_price_ta:.2f} {chart_currency}</b>",
                     xref="paper",
                     yref="paper",
                     x=0.01,
@@ -6255,10 +6089,10 @@ def render_analysis(results, label):
         go.Scatter(
             x=df.index,
             y=macd,
-            name="ðŸ”µ MACD-linje",
+            name="🔵 MACD-linje",
             mode="lines",
             line=dict(color="#3b82f6", width=2.6),
-            hovertemplate="<b>ðŸ”µ MACD-linje</b><br>Dato: %{x}<br>Verdi: %{y:.2f}<extra></extra>",
+            hovertemplate="<b>🔵 MACD-linje</b><br>Dato: %{x}<br>Verdi: %{y:.2f}<extra></extra>",
         )
     )
 
@@ -6266,10 +6100,10 @@ def render_analysis(results, label):
         go.Scatter(
             x=df.index,
             y=macd_signal,
-            name="ðŸ”´ Signallinje",
+            name="🔴 Signallinje",
             mode="lines",
             line=dict(color="#ef4444", width=2.4),
-            hovertemplate="<b>ðŸ”´ Signallinje</b><br>Dato: %{x}<br>Verdi: %{y:.2f}<extra></extra>",
+            hovertemplate="<b>🔴 Signallinje</b><br>Dato: %{x}<br>Verdi: %{y:.2f}<extra></extra>",
         )
     )
 
@@ -6277,10 +6111,10 @@ def render_analysis(results, label):
         go.Bar(
             x=df.index,
             y=macd_hist,
-            name="ðŸŸ¢/ðŸ”´ Histogram",
+            name="🟢/🔴 Histogram",
             marker=dict(color=hist_colors),
             opacity=0.78,
-            hovertemplate="<b>ðŸŸ¢/ðŸ”´ Histogram</b><br>Dato: %{x}<br>MACD - signal: %{y:.2f}<extra></extra>",
+            hovertemplate="<b>🟢/🔴 Histogram</b><br>Dato: %{x}<br>MACD - signal: %{y:.2f}<extra></extra>",
         )
     )
 
@@ -6296,7 +6130,7 @@ def render_analysis(results, label):
     fig_macd.add_annotation(
         x=last_x,
         y=macd_last,
-        text=f"ðŸ”µ MACD {macd_last:.2f}",
+        text=f"🔵 MACD {macd_last:.2f}",
         showarrow=True,
         arrowhead=2,
         ax=42,
@@ -6310,7 +6144,7 @@ def render_analysis(results, label):
     fig_macd.add_annotation(
         x=last_x,
         y=signal_last,
-        text=f"ðŸ”´ Signal {signal_last:.2f}",
+        text=f"🔴 Signal {signal_last:.2f}",
         showarrow=True,
         arrowhead=2,
         ax=42,
@@ -6326,7 +6160,7 @@ def render_analysis(results, label):
         yref="paper",
         x=0.01,
         y=1.15,
-        text=f"Histogram nÃ¥: {'ðŸŸ¢ positiv' if hist_last >= 0 else 'ðŸ”´ negativ'} ({hist_last:.2f})",
+        text=f"Histogram nå: {'🟢 positiv' if hist_last >= 0 else '🔴 negativ'} ({hist_last:.2f})",
         showarrow=False,
         align="left",
         bgcolor="rgba(15,23,42,0.88)",
@@ -6336,7 +6170,7 @@ def render_analysis(results, label):
     )
 
     fig_macd.update_layout(
-        title=f"{selected} - MACD: blÃ¥ linje / rÃ¸d signal / grÃ¸nt-rÃ¸dt histogram",
+        title=f"{selected} - MACD: blå linje / rød signal / grønt-rødt histogram",
         template="plotly_dark",
         height=330,
         paper_bgcolor="#0b111c",
@@ -6360,8 +6194,8 @@ def render_analysis(results, label):
 
     fig_rsi = go.Figure()
     fig_rsi.add_trace(go.Scatter(x=df.index, y=rsi, name="RSI", mode="lines"))
-    fig_rsi.add_hline(y=80, line_dash="dot", annotation_text="80 ekstremt overkjÃ¸pt", annotation_position="right")
-    fig_rsi.add_hline(y=70, line_dash="dash", annotation_text="OverkjÃ¸pt")
+    fig_rsi.add_hline(y=80, line_dash="dot", annotation_text="80 ekstremt overkjøpt", annotation_position="right")
+    fig_rsi.add_hline(y=70, line_dash="dash", annotation_text="Overkjøpt")
     fig_rsi.add_hline(y=30, line_dash="dash", annotation_text="Oversolgt")
     fig_rsi.update_layout(
         title=f"{selected} - RSI",
@@ -6380,9 +6214,9 @@ def render_analysis(results, label):
     # Strategi-test, Strategi-test Pro and learning history.
 
     parts = item.get("score_parts", {})
-    with st.expander("ðŸ§  Score-forklaring", expanded=False):
+    with st.expander("🧠 Score-forklaring", expanded=False):
         if parts:
-            st.caption("Ã…pne/lukk denne seksjonen etter behov. Verdiene er normalisert fra 0 til 1.")
+            st.caption("Åpne/lukk denne seksjonen etter behov. Verdiene er normalisert fra 0 til 1.")
             for k, v in parts.items():
                 try:
                     _score_value = max(0.0, min(1.0, float(v)))
@@ -6394,11 +6228,11 @@ def render_analysis(results, label):
         else:
             st.caption("Ingen score-detaljer tilgjengelig for denne aksjen.")
 
-    st.markdown("#### ðŸ“° Nyheter")
-    st.caption("For Ã¥ spare NewsAPI-kall hentes nyheter bare for valgt aksje nÃ¥r du trykker knappen.")
+    st.markdown("#### 📰 Nyheter")
+    st.caption("For å spare NewsAPI-kall hentes nyheter bare for valgt aksje når du trykker knappen.")
 
     if not use_news:
-        st.info("Nyheter/sentiment er slÃ¥tt av i sidepanelet.")
+        st.info("Nyheter/sentiment er slått av i sidepanelet.")
     elif st.button(f"Hent nyheter for {selected}", key=f"news_btn_{label}_{selected}"):
         articles, error = get_news(selected.replace(".OL", ""), limit=6, source="manual", force=True)
 
@@ -6413,21 +6247,21 @@ def render_analysis(results, label):
             for a in articles:
                 st.markdown(
                     f"- **{a.get('title','Uten tittel')}**  \n"
-                    f"  <span class='small'>{a.get('source','')} Â· {a.get('published','')}</span>",
+                    f"  <span class='small'>{a.get('source','')} · {a.get('published','')}</span>",
                     unsafe_allow_html=True,
                 )
     else:
-        st.info("Trykk pÃ¥ knappen over for Ã¥ hente nyheter for valgt aksje.")
+        st.info("Trykk på knappen over for å hente nyheter for valgt aksje.")
 
 
 
-# V15.9 / Oppgave 121: trading-regel-presets mÃ¥ oppdatere bÃ¥de lagrede regler og synlige widget-verdier.
+# V15.9 / Oppgave 121: trading-regel-presets må oppdatere både lagrede regler og synlige widget-verdier.
 def _apply_trading_rule_preset_v159(name: str, values: dict):
-    """Setter trading-regel preset uten Ã¥ trigge tung analyse.
+    """Setter trading-regel preset uten å trigge tung analyse.
 
     Streamlit-widgeter med key beholder ellers gamle verdier i session_state selv om
-    save_rules() oppdaterer fil/database. Derfor mÃ¥ de synlige widget-keyene settes
-    eksplisitt fÃ¸r rerun. Verdiene lagres ogsÃ¥ i trading rules, slik at neste Ã¥pning
+    save_rules() oppdaterer fil/database. Derfor må de synlige widget-keyene settes
+    eksplisitt før rerun. Verdiene lagres også i trading rules, slik at neste åpning
     viser samme preset.
     """
     current = load_rules() or {}
@@ -6453,7 +6287,7 @@ def _apply_trading_rule_preset_v159(name: str, values: dict):
             st.session_state[widget_key] = preset[rule_key]
 
     save_rules(preset)
-    st.session_state["rules_preset_notice_v159"] = f"{name} er lagt inn. Trykk Â«Oppdater hele appenÂ» nÃ¥r du er klar."
+    st.session_state["rules_preset_notice_v159"] = f"{name} er lagt inn. Trykk «Oppdater hele appen» når du er klar."
     st.rerun()
 
 
@@ -6521,9 +6355,9 @@ def _trading_strategy_label_v1863z(rules):
 def _render_trading_strategy_summary_v1863z(rules):
     name = _trading_strategy_label_v1863z(rules)
     if name == "Konservativ":
-        profile, cls = "Lavere risiko, fÃ¦rre kjÃ¸p, strengere confidence.", "green"
+        profile, cls = "Lavere risiko, færre kjøp, strengere confidence.", "green"
     elif name == "Aggressiv":
-        profile, cls = "HÃ¸yere aktivitet, lÃ¸sere kjÃ¸pskrav og videre exits.", "yellow"
+        profile, cls = "Høyere aktivitet, løsere kjøpskrav og videre exits.", "yellow"
     elif name == "Standard":
         profile, cls = "Balansert standardoppsett for normal paper trading.", "green"
     else:
@@ -6537,11 +6371,11 @@ def _render_trading_strategy_summary_v1863z(rules):
               <div style='font-size:.78rem;color:#bae6fd;font-weight:950;text-transform:uppercase;'>Gjeldende trading-strategi</div>
               <div style='font-size:1.08rem;color:#f8fafc;font-weight:950;'>{html.escape(name)}</div>
             </div>
-            <span class='v18-status-chip {cls}'>Aktiv nÃ¥</span>
+            <span class='v18-status-chip {cls}'>Aktiv nå</span>
           </div>
           <div style='display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.45rem;'>
-            <span class='v18-status-chip'>BUY score â‰¥ <b>{float(rules.get("min_buy_score", 0) or 0):.1f}</b></span>
-            <span class='v18-status-chip'>Confidence â‰¥ <b>{int(rules.get("min_buy_confidence", 0) or 0)}</b></span>
+            <span class='v18-status-chip'>BUY score ≥ <b>{float(rules.get("min_buy_score", 0) or 0):.1f}</b></span>
+            <span class='v18-status-chip'>Confidence ≥ <b>{int(rules.get("min_buy_confidence", 0) or 0)}</b></span>
             <span class='v18-status-chip'>Maks RSI <b>{int(rules.get("max_buy_rsi", 0) or 0)}</b></span>
             <span class='v18-status-chip red'>Stop-loss <b>{float(rules.get("stop_loss_pct", 0) or 0):.1f}%</b></span>
             <span class='v18-status-chip green'>Take-profit <b>{float(rules.get("take_profit_pct", 0) or 0):.1f}%</b></span>
@@ -6556,14 +6390,14 @@ def _render_trading_strategy_summary_v1863z(rules):
 
 # V15.5 / Fase 1: flytt store arbeidsinnstillinger ut av venstremenyen og inn i hovedarbeidsflaten.
 def render_trading_rules_workspace():
-    """HovedomrÃ¥de for trading-regler. Erstatter lange KjÃ¸p/Hold/Salg-menyer i venstresiden."""
+    """Hovedområde for trading-regler. Erstatter lange Kjøp/Hold/Salg-menyer i venstresiden."""
     _rules = load_rules()
-    with st.expander("ðŸ“Š Trading-regler", expanded=False):
-        st.caption("Arbeidsflate for kjÃ¸ps-, hold- og salgsregler. Endringer brukes fÃ¸rst nÃ¥r du trykker Â«Oppdater hele appenÂ».")
+    with st.expander("📊 Trading-regler", expanded=False):
+        st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer brukes først når du trykker «Oppdater hele appen».")
         _render_trading_strategy_summary_v1863z(_rules)
         p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
         with p1:
-            if st.button("â†©ï¸ Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
+            if st.button("↩️ Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
                 _apply_trading_rule_preset_v159("Standard trading-regler", {
                     "min_buy_score": 7.5,
                     "min_buy_confidence": 70,
@@ -6579,7 +6413,7 @@ def render_trading_rules_workspace():
                     "rsi_must_fall": True,
                 })
         with p2:
-            if st.button("ðŸ›¡ï¸ Konservativ", key="main_rules_preset_conservative_v156", use_container_width=True):
+            if st.button("🛡️ Konservativ", key="main_rules_preset_conservative_v156", use_container_width=True):
                 _apply_trading_rule_preset_v159("Konservativt preset", {
                     "min_buy_score": 8.0,
                     "min_buy_confidence": 80,
@@ -6595,7 +6429,7 @@ def render_trading_rules_workspace():
                     "ignore_small_moves_pct": 1.0,
                 })
         with p3:
-            if st.button("âš¡ Aggressiv", key="main_rules_preset_aggressive_v156", use_container_width=True):
+            if st.button("⚡ Aggressiv", key="main_rules_preset_aggressive_v156", use_container_width=True):
                 _apply_trading_rule_preset_v159("Aggressivt preset", {
                     "min_buy_score": 7.0,
                     "min_buy_confidence": 60,
@@ -6619,45 +6453,45 @@ def render_trading_rules_workspace():
         with st.form("trading_rules_form_v17", clear_on_submit=False):
             buy_col, hold_col, sell_col = st.columns(3)
             with buy_col:
-                st.markdown("#### ðŸ“ˆ KjÃ¸p")
+                st.markdown("#### 📈 Kjøp")
                 _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules.get("min_buy_score", 7.5)), 0.1, key="main_rules_min_buy_score_v156")
                 _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules.get("min_buy_confidence", 70)), key="main_rules_min_buy_conf_v156")
-                _rules["max_buy_rsi"] = st.slider("Maks RSI for kjÃ¸p", 40, 90, int(_rules.get("max_buy_rsi", 72)), key="main_rules_max_buy_rsi_v156")
-                st.caption("Maks kjÃ¸p per dag styres i Auto trading-oppsett. Gjelder bare nye kjÃ¸p, ikke salg/exit.")
+                _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules.get("max_buy_rsi", 72)), key="main_rules_max_buy_rsi_v156")
+                st.caption("Maks kjøp per dag styres i Auto trading-oppsett. Gjelder bare nye kjøp, ikke salg/exit.")
             with hold_col:
-                st.markdown("#### ðŸŸ¡ Hold")
+                st.markdown("#### 🟡 Hold")
                 _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules.get("min_hold_days", 1)), key="main_rules_min_hold_days_v156")
-                st.caption("StÃ¸yfilter er flyttet til Avanserte salgsregler slik at enkel visning ikke forveksler filter med stop-loss/take-profit.")
+                st.caption("Støyfilter er flyttet til Avanserte salgsregler slik at enkel visning ikke forveksler filter med stop-loss/take-profit.")
             with sell_col:
-                st.markdown("#### ðŸ”´ Salg")
+                st.markdown("#### 🔴 Salg")
                 _rules["enable_sell_signal_exit"] = st.checkbox("Selg ved SELL/AVOID signal", bool(_rules.get("enable_sell_signal_exit", True)), key="main_rules_sell_signal_v156")
                 _rules["stop_loss_pct"] = st.slider("Stop-loss %", 1.0, 25.0, float(_rules.get("stop_loss_pct", 7.0)), 0.5, key="main_rules_stop_loss_v156")
                 _rules["take_profit_pct"] = st.slider("Take-profit %", 1.0, 50.0, float(_rules.get("take_profit_pct", 12.0)), 0.5, key="main_rules_take_profit_v156")
                 _rules["trailing_stop_pct"] = st.slider("Trailing stop %", 1.0, 30.0, float(_rules.get("trailing_stop_pct", 8.0)), 0.5, key="main_rules_trailing_stop_v156")
-                _rules["rsi_exit_level"] = st.slider("RSI exit nivÃ¥", 60, 90, int(_rules.get("rsi_exit_level", 75)), key="main_rules_rsi_exit_v156")
-                _rules["rsi_must_fall"] = st.checkbox("RSI mÃ¥ falle etter topp", bool(_rules.get("rsi_must_fall", True)), key="main_rules_rsi_fall_v156")
-            with st.expander("Avanserte salgsregler / stÃ¸yfilter", expanded=False):
+                _rules["rsi_exit_level"] = st.slider("RSI exit nivå", 60, 90, int(_rules.get("rsi_exit_level", 75)), key="main_rules_rsi_exit_v156")
+                _rules["rsi_must_fall"] = st.checkbox("RSI må falle etter topp", bool(_rules.get("rsi_must_fall", True)), key="main_rules_rsi_fall_v156")
+            with st.expander("Avanserte salgsregler / støyfilter", expanded=False):
                 _rules["use_noise_filter"] = st.checkbox(
-                    "Bruk stÃ¸yfilter",
+                    "Bruk støyfilter",
                     bool(_rules.get("use_noise_filter", False)),
                     key="main_rules_use_noise_filter_v156",
-                    help="Valgfritt filter som kan hindre reaksjon pÃ¥ smÃ¥ signalendringer. Blokkerer aldri stop-loss, take-profit, trailing stop eller RSI-exit.",
+                    help="Valgfritt filter som kan hindre reaksjon på små signalendringer. Blokkerer aldri stop-loss, take-profit, trailing stop eller RSI-exit.",
                 )
                 _rules["ignore_small_moves_pct"] = st.slider(
-                    "StÃ¸yfilter / ignorer smÃ¥ svingninger %",
+                    "Støyfilter / ignorer små svingninger %",
                     0.0,
                     5.0,
                     float(_rules.get("ignore_small_moves_pct", 1.0)),
                     0.25,
                     key="main_rules_ignore_small_v156",
                 )
-                st.caption("Anbefalt: Av som standard. Hvis aktivert: 0.5â€“1.0 %. Stop-loss og andre risikoutganger har alltid prioritet.")
-            save_rules_btn = st.form_submit_button("ðŸ’¾ Lagre trading-regler som ventende", use_container_width=True)
+                st.caption("Anbefalt: Av som standard. Hvis aktivert: 0.5–1.0 %. Stop-loss og andre risikoutganger har alltid prioritet.")
+            save_rules_btn = st.form_submit_button("💾 Lagre trading-regler som ventende", use_container_width=True)
         if save_rules_btn:
             _mark_pending_manual_change("Trading-regler endret")
             saved_db = save_rules(_rules)
             if saved_db:
-                st.success("Trading-regler lagret som ventende i database âœ…")
+                st.success("Trading-regler lagret som ventende i database ✅")
             else:
                 st.warning("Trading-regler lagret lokalt som ventende. DATABASE_URL mangler eller DB feilet.")
 
@@ -6742,11 +6576,11 @@ def _render_pushover_test_panel_v18595() -> None:
     st.markdown(
         f"""
         <div class='visual-truth-pushover-box visual-truth-pushover-box-v18596' data-ui-path='active-pushover-test-v18595' data-ui-patch='active-pushover-test-v18596'>
-            <div class='visual-truth-pushover-title'>ðŸ”” Pushover test / API-status</div>
+            <div class='visual-truth-pushover-title'>🔔 Pushover test / API-status</div>
             <div class='visual-truth-pushover-status'>
-                Status: {'Aktiv âœ…' if _pushover_ready_v18595 else 'Ikke klar âŒ'} Â·
-                Token: {_token_state_v18595} Â· User-key: {_user_state_v18595}<br/>
-                Dette er den aktive testflaten. Knappene under skal vÃ¦re synlige pÃ¥ PC og mobil.
+                Status: {'Aktiv ✅' if _pushover_ready_v18595 else 'Ikke klar ❌'} ·
+                Token: {_token_state_v18595} · User-key: {_user_state_v18595}<br/>
+                Dette er den aktive testflaten. Knappene under skal være synlige på PC og mobil.
             </div>
         </div>
         """,
@@ -6754,7 +6588,7 @@ def _render_pushover_test_panel_v18595() -> None:
     )
     _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
     st.markdown(
-        "<div class='v1863e-pushover-action-card'><b>Pushover handling</b><br/>Velg API-verifisering eller testvarsel, og kjÃ¸r med knappen under.</div>",
+        "<div class='v1863e-pushover-action-card'><b>Pushover handling</b><br/>Velg API-verifisering eller testvarsel, og kjør med knappen under.</div>",
         unsafe_allow_html=True,
     )
     with st.form("pushover_action_form_v1863e", clear_on_submit=False):
@@ -6765,7 +6599,7 @@ def _render_pushover_test_panel_v18595() -> None:
             key="pushover_action_choice_v1863e",
         )
         _pushover_run_clicked = st.form_submit_button(
-            "KjÃ¸r valgt Pushover-handling",
+            "Kjør valgt Pushover-handling",
             use_container_width=True,
             type="primary",
         )
@@ -6774,12 +6608,12 @@ def _render_pushover_test_panel_v18595() -> None:
         _http = _last_pushover_check.get("status_code", "-")
         _kind = _last_pushover_check.get("type", "-")
         st.markdown(
-            f"<div class='v18593-pushover-result'>Siste API-sjekk: {'OK âœ…' if _ok else 'Feil âŒ'} Â· HTTP {_http} Â· {_kind}</div>",
+            f"<div class='v18593-pushover-result'>Siste API-sjekk: {'OK ✅' if _ok else 'Feil ❌'} · HTTP {_http} · {_kind}</div>",
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            "<div class='v18593-pushover-result'>Ingen API-verifisering kjÃ¸rt i denne sesjonen ennÃ¥.</div>",
+            "<div class='v18593-pushover-result'>Ingen API-verifisering kjørt i denne sesjonen ennå.</div>",
             unsafe_allow_html=True,
         )
 
@@ -6787,32 +6621,32 @@ def _render_pushover_test_panel_v18595() -> None:
 
     if _pushover_run_clicked and _pushover_action == "Verifiser token/user":
         if not _pushover_env_ok_v18595:
-            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY fÃ¸r API-verifisering.")
+            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før API-verifisering.")
         else:
             verify_info = verify_pushover_credentials_v18585()
             st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
             if verify_info.get("ok"):
-                st.success(f"Pushover-verifisering OK âœ… HTTP {verify_info.get('status_code')}")
+                st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
             else:
-                st.error(f"Pushover-verifisering feilet âŒ {verify_info.get('response_text')}")
+                st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
     if _pushover_run_clicked and _pushover_action == "Send testvarsel":
         if not _pushover_env_ok_v18595:
-            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY fÃ¸r testvarsel sendes.")
+            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før testvarsel sendes.")
         else:
-            ok, err, info = send_pushover_alert("âœ… Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+            ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
             st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
             if ok:
-                st.success(f"Test sendt âœ… HTTP {(info or {}).get('status_code')}")
+                st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
             else:
-                st.error(f"Testvarsel feilet âŒ {err}")
+                st.error(f"Testvarsel feilet ❌ {err}")
 
 
 def render_auto_trading_workspace():
-    """HovedomrÃ¥de for Auto trading / Auto-kjÃ¸p parametere. Erstatter stor sidebar-meny."""
+    """Hovedområde for Auto trading / Auto-kjøp parametere. Erstatter stor sidebar-meny."""
     _settings = load_settings()
     _markets_settings = _settings.get("markets", {}) or {}
-    with st.expander("âš™ï¸ Auto trading-oppsett", expanded=False):
-        st.caption("Samlet arbeidsflate for Auto trading. Full stopp / ferie og nÃ¸dstopp overstyrer alltid disse innstillingene.")
+    with st.expander("⚙️ Auto trading-oppsett", expanded=False):
+        st.caption("Samlet arbeidsflate for Auto trading. Full stopp / ferie og nødstopp overstyrer alltid disse innstillingene.")
         _render_pushover_test_panel_v18595()
         with st.form("auto_trading_settings_form_v17", clear_on_submit=False):
             st.markdown("<div class='v1863d-auto-form-start'></div>", unsafe_allow_html=True)
@@ -6825,10 +6659,10 @@ def render_auto_trading_workspace():
                     key="main_auto_enabled_v155",
                 )
                 _safe_edit = st.checkbox(
-                    "Pause nÃ¥r parametere lagres",
+                    "Pause når parametere lagres",
                     value=bool(_settings.get("auto_trading_safe_edit_mode", True)),
                     key="main_auto_safe_edit_v155",
-                    help="Ved lagring settes auto trading i pause slik at du kan kontrollere parametere fÃ¸r ny start.",
+                    help="Ved lagring settes auto trading i pause slik at du kan kontrollere parametere før ny start.",
                 )
                 _top_only = st.checkbox(
                     "Kun Top Picks",
@@ -6843,7 +6677,7 @@ def render_auto_trading_workspace():
                 _m_dk = st.checkbox("Danmark", value=bool(_markets_settings.get("DANMARK", True)), key="main_auto_market_dk_v1863t")
                 _m_br = st.checkbox("Brasil", value=bool(_markets_settings.get("BRASIL", False)), key="main_auto_market_br_v1863t")
             with buy_col:
-                st.markdown("#### KjÃ¸psgrenser")
+                st.markdown("#### Kjøpsgrenser")
                 _min_conf = st.number_input(
                     "Min confidence for BUY",
                     0,
@@ -6861,7 +6695,7 @@ def render_auto_trading_workspace():
                     key="main_auto_min_score_v155",
                 )
                 _pos_size = st.number_input(
-                    "PosisjonsstÃ¸rrelse %",
+                    "Posisjonsstørrelse %",
                     1.0,
                     100.0,
                     float(_settings.get("position_size_pct", 10.0)),
@@ -6869,14 +6703,14 @@ def render_auto_trading_workspace():
                     key="main_auto_pos_size_v155",
                 )
                 _cooldown = st.number_input(
-                    "Cooldown mellom kjÃ¸p (min)",
+                    "Cooldown mellom kjøp (min)",
                     0,
                     1440,
                     int(_settings.get("cooldown_minutes", 60)),
                     5,
                     key="main_auto_cooldown_v155",
                 )
-                st.caption("Cooldown og maks kjÃ¸p gjelder bare nye kjÃ¸p. Salg/exit blokkeres ikke.")
+                st.caption("Cooldown og maks kjøp gjelder bare nye kjøp. Salg/exit blokkeres ikke.")
             risk_col, safe_col = st.columns(2)
             with risk_col:
                 st.markdown("#### Kapasitet / risiko")
@@ -6889,7 +6723,7 @@ def render_auto_trading_workspace():
                     key="main_auto_max_tickers_v155",
                 )
                 _max_pos = st.number_input(
-                    "Maks Ã¥pne posisjoner",
+                    "Maks åpne posisjoner",
                     1,
                     30,
                     int(_settings.get("max_open_positions", 5)),
@@ -6897,7 +6731,7 @@ def render_auto_trading_workspace():
                     key="main_auto_max_pos_v155",
                 )
                 _max_buys = st.number_input(
-                    "Maks kjÃ¸p per dag",
+                    "Maks kjøp per dag",
                     1,
                     50,
                     int(_settings.get("max_buys_per_day", _settings.get("max_trades_per_day", 3))),
@@ -6910,23 +6744,23 @@ def render_auto_trading_workspace():
                     "Sikkerhetsmodus",
                     value=bool(_settings.get("auto_buy_safety_mode", True)),
                     key="main_auto_safety_mode_v155",
-                    help="NÃ¥r pÃ¥: nye kjÃ¸p stoppes ved dÃ¥rlig/ugyldig data eller grensebrudd. Salg/exit skal fortsatt fÃ¥ gÃ¥.",
+                    help="Når på: nye kjøp stoppes ved dårlig/ugyldig data eller grensebrudd. Salg/exit skal fortsatt få gå.",
                 )
                 if _safety_mode:
-                    st.markdown("<div class='visual-truth-safe-note'>âœ… <b>Sikkerhetsmodus er aktiv</b><br/>Blokkerer nye kjÃ¸p ved lav cash, dagsgrense, lav confidence eller svak datakvalitet. Salg/exit og nÃ¸dstopp prioriteres fortsatt.</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='visual-truth-safe-note'>✅ <b>Sikkerhetsmodus er aktiv</b><br/>Blokkerer nye kjøp ved lav cash, dagsgrense, lav confidence eller svak datakvalitet. Salg/exit og nødstopp prioriteres fortsatt.</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<div class='visual-truth-safe-note'>âš ï¸ <b>Sikkerhetsmodus er AV</b><br/>Cash- og dagsgrenser gjelder fortsatt. Ekstra blokkering pÃ¥ confidence/datakvalitet er av.</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='visual-truth-safe-note'>⚠️ <b>Sikkerhetsmodus er AV</b><br/>Cash- og dagsgrenser gjelder fortsatt. Ekstra blokkering på confidence/datakvalitet er av.</div>", unsafe_allow_html=True)
                 _push = st.checkbox(
                     "Pushover aktiv",
                     value=bool(_settings.get("pushover_enabled", True)),
                     key="main_auto_push_v155",
                 )
-                st.caption("Full stopp / ferie og nÃ¸dstopp har alltid hÃ¸yest prioritet.")
+                st.caption("Full stopp / ferie og nødstopp har alltid høyest prioritet.")
             b1, b2 = st.columns(2)
             with b1:
-                save_auto_btn = st.form_submit_button("ðŸ’¾ Lagre auto-innstillinger som ventende", use_container_width=True)
+                save_auto_btn = st.form_submit_button("💾 Lagre auto-innstillinger som ventende", use_container_width=True)
             with b2:
-                reset_auto_btn = st.form_submit_button("â†©ï¸ Standard auto-innstillinger", use_container_width=True)
+                reset_auto_btn = st.form_submit_button("↩️ Standard auto-innstillinger", use_container_width=True)
         if save_auto_btn:
             _mark_pending_manual_change("Auto trading-innstillinger endret")
             _current = load_settings()
@@ -6955,15 +6789,15 @@ def render_auto_trading_workspace():
                 save_rules(_r)
             except Exception as e:
                 logging.warning("Silenced exception restored in v18.6.3: %s", e)
-            st.success("Auto-innstillinger lagret som ventende âœ…")
+            st.success("Auto-innstillinger lagret som ventende ✅")
         if reset_auto_btn:
             reset_settings()
-            st.success("Auto-innstillinger tilbakestilt âœ…")
+            st.success("Auto-innstillinger tilbakestilt ✅")
             st.rerun()
         # v18.5.95: Pushover test/API-status moved to the top of this expander for desktop visibility.
 
 
-# V15.6 / Fase 2: Varselkontroll og dynamisk watchlist flyttes fra venstremenyen til hovedomrÃ¥det.
+# V15.6 / Fase 2: Varselkontroll og dynamisk watchlist flyttes fra venstremenyen til hovedområdet.
 def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtime=False):
     """Returnerer (watchlist_tickers, auto_watchlist_alerts, watchlist_scan_limit, manual_watchlist_scan)."""
     _settings = load_settings()
@@ -6980,8 +6814,8 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
     _scan_limit = _default_limit
     _manual_scan = False
 
-    with st.expander("ðŸ”” Varsler og dynamisk watchlist", expanded=False):
-        st.caption("Fase 2: Watchlist- og varselinnstillinger er flyttet hit fra venstremenyen, nÃ¦r signalene de styrer.")
+    with st.expander("🔔 Varsler og dynamisk watchlist", expanded=False):
+        st.caption("Fase 2: Watchlist- og varselinnstillinger er flyttet hit fra venstremenyen, nær signalene de styrer.")
         wl_tab, alert_tab = st.tabs(["Dynamisk watchlist", "Varselkontroll"])
         with wl_tab:
             c1, c2 = st.columns([1.2, 1])
@@ -6990,18 +6824,18 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     "Bruk dynamisk watchlist fra markedet",
                     value=_default_use_dynamic,
                     key="main_use_dynamic_watchlist_v156",
-                    help="NÃ¥r aktiv: watchlisten fÃ¸lger valgt marked og appens egne score/rangeringer.",
+                    help="Når aktiv: watchlisten følger valgt marked og appens egne score/rangeringer.",
                 )
                 if _use_dynamic:
                     _watchlist_tickers = list(dynamic_watchlist or [])
                     st.info(f"Dynamisk watchlist aktiv: {len(_watchlist_tickers)} aksjer")
                     with st.expander("Vis dynamisk watchlist", expanded=False):
-                        st.write(", ".join(_watchlist_tickers) if _watchlist_tickers else "Ingen tickere i listen ennÃ¥.")
+                        st.write(", ".join(_watchlist_tickers) if _watchlist_tickers else "Ingen tickere i listen ennå.")
                 else:
                     _watchlist_text = st.text_area(
-                        "Aksjer Ã¥ overvÃ¥ke",
+                        "Aksjer å overvåke",
                         value=", ".join(list(dynamic_watchlist or [])[:30]),
-                        help="Skriv tickere separert med komma. Norske aksjer mÃ¥ ofte ha .OL og svenske .ST",
+                        help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL og svenske .ST",
                         key="main_watchlist_text_v156",
                     )
                     _watchlist_tickers = parse_watchlist(_watchlist_text)
@@ -7010,30 +6844,30 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     "Auto-scan watchlist ved refresh",
                     value=_default_auto_scan,
                     key="main_auto_watchlist_scan_v156",
-                    help="Sender varsel bare nÃ¥r BUY/SELL-signalet endrer seg.",
+                    help="Sender varsel bare når BUY/SELL-signalet endrer seg.",
                 )
                 _scan_limit = st.slider(
-                    "Maks aksjer Ã¥ scanne for varsler",
+                    "Maks aksjer å scanne for varsler",
                     5,
                     100,
                     _default_limit,
                     key="main_watchlist_scan_limit_v156",
                 )
-                _manual_scan = st.button("Scan watchlist nÃ¥", key="main_scan_watchlist_now_v156")
+                _manual_scan = st.button("Scan watchlist nå", key="main_scan_watchlist_now_v156")
                 if _global_apply_requested_v161():
                     _save = load_settings()
                     _save["use_dynamic_watchlist_from_market"] = bool(_use_dynamic)
                     _save["auto_watchlist_alerts_refresh"] = bool(_auto_scan)
                     _save["watchlist_scan_limit"] = int(_scan_limit)
                     save_settings(_save)
-                    st.success("Watchlist-innstillinger oppdatert via Global oppdatering âœ…")
+                    st.success("Watchlist-innstillinger oppdatert via Global oppdatering ✅")
 
         with alert_tab:
             st.markdown(
                 f"""
                 <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
-                    <div class="alert-status-title">Pushover: {'Aktiv âœ…' if _pushover_ready else 'Ikke klar âŒ'}</div>
-                    <div class="alert-status-sub">Ã…pne markeder nÃ¥: {open_markets()}</div>
+                    <div class="alert-status-title">Pushover: {'Aktiv ✅' if _pushover_ready else 'Ikke klar ❌'}</div>
+                    <div class="alert-status-sub">Åpne markeder nå: {open_markets()}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -7057,7 +6891,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                 )
             with ac2:
                 _high_conf_only = st.checkbox(
-                    "Varsle kun hÃ¸y confidence",
+                    "Varsle kun høy confidence",
                     value=bool(_settings.get("notify_high_confidence_only", True)),
                     key="main_alert_high_conf_only_v156",
                 )
@@ -7069,7 +6903,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     1,
                     key="main_alert_min_conf_v156",
                 )
-                st.caption("Watchlist-varsler bruker denne grensen nÃ¥r hÃ¸y confidence er aktivert.")
+                st.caption("Watchlist-varsler bruker denne grensen når høy confidence er aktivert.")
 
             b1, b2, b3, b4 = st.columns([1, 0.9, 0.9, 0.7])
             with b1:
@@ -7081,37 +6915,37 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     _merged["notify_high_confidence_only"] = bool(_high_conf_only)
                     _merged["notify_min_confidence"] = int(_min_alert_conf)
                     save_settings(_merged)
-                    st.success("Varselkontroll oppdatert via Global oppdatering âœ…")
+                    st.success("Varselkontroll oppdatert via Global oppdatering ✅")
             with b2:
-                if st.button("ðŸ” Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, use_container_width=True):
+                if st.button("🔐 Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, use_container_width=True):
                     verify_info = verify_pushover_credentials_v18585()
                     st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
                     if verify_info.get("ok"):
-                        st.success(f"Pushover-verifisering OK âœ… HTTP {verify_info.get('status_code')}")
+                        st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
                     else:
-                        st.error(f"Pushover-verifisering feilet âŒ {verify_info.get('response_text')}")
+                        st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
             with b3:
-                if st.button("ðŸ“£ Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=True):
-                    ok, err, info = send_pushover_alert("âœ… Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
+                if st.button("📣 Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=True):
+                    ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
                     st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
                     if ok:
-                        st.success(f"Test sendt âœ… HTTP {(info or {}).get('status_code')}")
+                        st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
                     else:
                         st.error(f"Feil: {err}")
             with b4:
                 if st.button("Nullstill", key="main_alert_reset_antispam_v156", use_container_width=True):
                     reset_alert_state()
-                    st.success("Signalhistorikk nullstilt âœ…")
+                    st.success("Signalhistorikk nullstilt ✅")
             with st.expander("Varselinfo / Pushover-status", expanded=False):
-                st.caption("Paper BUY/SELL-varsler sendes bare nÃ¥r en faktisk paper-handel utfÃ¸res.")
-                st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis hÃ¸y confidence er aktivert.")
+                st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
+                st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
                 st.write("TOKEN:", _mask_secret_v18585(PUSHOVER_APP_TOKEN))
                 st.write("USER:", _mask_secret_v18585(PUSHOVER_USER_KEY))
                 _last = st.session_state.get("pushover_last_check_v18585")
                 if _last:
                     st.write("Siste Pushover-sjekk:", _last)
                 else:
-                    st.caption("Ingen API-verifisering kjÃ¸rt i denne sesjonen ennÃ¥.")
+                    st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
 
     st.session_state["latest_watchlist_tickers_v156"] = list(_watchlist_tickers or [])
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
@@ -7124,7 +6958,7 @@ def _render_paper_positions_overview_v18581(portfolio):
     except Exception:
         positions = {}
 
-    st.markdown("<div class='v18581-paper-section-title'>ðŸ“Œ Ã…pne Paper Trading-posisjoner</div>", unsafe_allow_html=True)
+    st.markdown("<div class='v18581-paper-section-title'>📌 Åpne Paper Trading-posisjoner</div>", unsafe_allow_html=True)
     if positions:
         rows = []
         for ticker, pos in positions.items():
@@ -7149,17 +6983,17 @@ def _render_paper_positions_overview_v18581(portfolio):
                 rows.append({"Ticker": ticker, "Type": (pos or {}).get("asset_type", "Aksje") if isinstance(pos, dict) else "Aksje"})
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
-        st.info("Ingen Ã¥pne paper trading-posisjoner.")
+        st.info("Ingen åpne paper trading-posisjoner.")
 
     try:
         trades = list((portfolio or {}).get("trades", []) or [])
     except Exception:
         trades = []
-    st.markdown("<div class='v18581-paper-section-title'>ðŸ§¾ Siste Paper Trading-handler</div>", unsafe_allow_html=True)
+    st.markdown("<div class='v18581-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
     if trades:
         st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=20)), use_container_width=True, hide_index=True)
     else:
-        st.info("Ingen handler ennÃ¥.")
+        st.info("Ingen handler ennå.")
 
 
 def _safe_float_v18581(value, default=0.0):
@@ -7236,7 +7070,7 @@ def _paper_price_candidates_v1863z(symbol: str, *, asset_type: str = "Aksje"):
 
 def _fetch_yfinance_close_v1863z(symbol: str, *, asset_type: str = "Aksje"):
     if yf is None:
-        return None, "", "yfinance er ikke tilgjengelig i miljÃ¸et."
+        return None, "", "yfinance er ikke tilgjengelig i miljøet."
     last_error = ""
     for candidate in _paper_price_candidates_v1863z(symbol, asset_type=asset_type):
         try:
@@ -7253,7 +7087,7 @@ def _fetch_yfinance_close_v1863z(symbol: str, *, asset_type: str = "Aksje"):
 def _paper_fetch_stock_price_v1863z():
     symbol = str(st.session_state.get("paper_stock_symbol_v1863y", "") or "").strip().upper()
     if not symbol:
-        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", "Skriv inn aksjesymbol fÃ¸rst.")
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", "Skriv inn aksjesymbol først.")
         return
     price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type="Aksje")
     if price and price > 0:
@@ -7265,21 +7099,21 @@ def _paper_fetch_stock_price_v1863z():
             conf = int(decision.get("confidence", item.get("confidence", 0)) or 0)
             st.session_state["paper_stock_confidence_v1863y"] = max(0, min(100, conf))
             label = str(decision.get("decision") or decision.get("action") or "").strip()
-            confidence_msg = f" System-confidence: {conf}%{(' Â· ' + label) if label else ''}."
+            confidence_msg = f" System-confidence: {conf}%{(' · ' + label) if label else ''}."
         except Exception as exc:
             st.session_state["paper_stock_confidence_v1863y"] = 0
             confidence_msg = f" System-confidence mangler: {str(exc)[:90]}."
         st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
-        st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. KjÃ¸pspris er oppdatert.{confidence_msg}")
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.{confidence_msg}")
     else:
-        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", f"Fant ikke aksjekurs for {symbol}. {err} PrÃ¸v bÃ¸rs-suffiks, f.eks. .OL, eller skriv pris manuelt.")
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", f"Fant ikke aksjekurs for {symbol}. {err} Prøv børs-suffiks, f.eks. .OL, eller skriv pris manuelt.")
 
 
 def _paper_fetch_fund_price_v1863z():
     symbol = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip().upper()
     asset_type = str(st.session_state.get("paper_fund_type_v18545", "ETF") or "ETF")
     if not symbol:
-        st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", "Skriv inn fond/ETF-symbol fÃ¸rst.")
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", "Skriv inn fond/ETF-symbol først.")
         return
     price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type=asset_type)
     if price and price > 0:
@@ -7312,7 +7146,7 @@ def _paper_stock_symbol_changed_v1863ac():
     if previous and symbol != previous:
         st.session_state["paper_stock_price_input_v1863y"] = 0.0
         st.session_state["paper_stock_confidence_v1863y"] = 0
-        st.session_state["paper_stock_fetch_status_v1863z"] = ("info", "Ticker er endret. Hent ny aksjekurs fÃ¸r paper-kjÃ¸p.")
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("info", "Ticker er endret. Hent ny aksjekurs før paper-kjøp.")
     st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
 
 
@@ -7324,7 +7158,7 @@ def _paper_fund_symbol_changed_v1863ac():
     if (previous_symbol and symbol != previous_symbol) or (previous_type and asset_type != previous_type):
         st.session_state["paper_fund_price_input_v18545"] = 0.0
         st.session_state["paper_fund_price_v18545"] = 0.0
-        st.session_state["paper_fund_fetch_status_v1863z"] = ("info", "Fond/ETF er endret. Hent ny pris/NAV fÃ¸r paper-kjÃ¸p.")
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("info", "Fond/ETF er endret. Hent ny pris/NAV før paper-kjøp.")
     st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
     st.session_state["paper_fund_last_type_v1863ac"] = asset_type
 
@@ -7371,7 +7205,7 @@ def _select_paper_position_for_trade_v1863by(ticker: str, price: float, units: f
 def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
     rows = paper_position_rows(portfolio, latest_prices)
     if not rows:
-        st.info("Ingen Ã¥pne paper trading-posisjoner.")
+        st.info("Ingen åpne paper trading-posisjoner.")
         return
     st.markdown(
         """
@@ -7449,17 +7283,17 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
 
 
 def render_paper_trading_dashboard():
-    st.subheader("ðŸ§ª Paper Trading")
-    st.caption("Felles lagring: " + ("Postgres/DATABASE_URL âœ…" if using_postgres() else "lokal fallback âš ï¸"))
-    st.caption("Simulert handel med fiktive penger. Brukes for Ã¥ teste strategien fÃ¸r ekte penger.")
-    st.caption("Auto-trading handler bare nÃ¥r relevant marked er Ã¥pent. Utenfor Ã¥pningstid brukes visning/cache, ikke nye auto-handler.")
+    st.subheader("🧪 Paper Trading")
+    st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
+    st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
+    st.caption("Auto-trading handler bare når relevant marked er åpent. Utenfor åpningstid brukes visning/cache, ikke nye auto-handler.")
     _render_pipeline_stage_bar_v1863bw("paper_trading")
 
     portfolio = load_portfolio()
 
     status_cols = st.columns([1.1, 1.2, 1.7])
     with status_cols[0]:
-        refresh_prices = st.button("ðŸ”„ Oppdater paper-kurser", key="paper_refresh_prices_v1863v", type="primary", use_container_width=True)
+        refresh_prices = st.button("🔄 Oppdater paper-kurser", key="paper_refresh_prices_v1863v", type="primary", use_container_width=True)
     with status_cols[1]:
         st.markdown("<div class='v18-dark-row'><b>Ekte handel:</b> Ikke aktiv</div>", unsafe_allow_html=True)
     with status_cols[2]:
@@ -7474,11 +7308,11 @@ def render_paper_trading_dashboard():
         }
     refresh_status = st.session_state.get("paper_price_refresh_status_v1863v") or {}
     if refresh_status:
-        st.caption(f"Sist oppdatert: {refresh_status.get('time', '-')} Â· kurser oppdatert: {refresh_status.get('updated', 0)}")
+        st.caption(f"Sist oppdatert: {refresh_status.get('time', '-')} · kurser oppdatert: {refresh_status.get('updated', 0)}")
         if refresh_status.get("errors"):
             st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(refresh_status.get("errors", [])[:5]))
     else:
-        st.caption("Kursene oppdateres nÃ¥r du trykker Oppdater paper-kurser. Lagrede priser brukes ellers.")
+        st.caption("Kursene oppdateres når du trykker Oppdater paper-kurser. Lagrede priser brukes ellers.")
 
     latest_prices = {}
     for ticker, pos in portfolio.get("positions", {}).items():
@@ -7491,34 +7325,34 @@ def render_paper_trading_dashboard():
     _paper_rules = load_rules()
     if APP_VIEW_MODE == "Full":
         p1, p2, p3, p4 = st.columns(4)
-        p1.metric("Cash / kjÃ¸pekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0))))
-        p2.metric("Ã…pne posisjoner", _format_nok_no_decimals_v1827(liq.get('positions_value', 0)))
-        p3.metric("PortefÃ¸ljeverdi", _format_nok_no_decimals_v1827(liq.get('total_value', total_value)))
+        p1.metric("Cash / kjøpekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0))))
+        p2.metric("Åpne posisjoner", _format_nok_no_decimals_v1827(liq.get('positions_value', 0)))
+        p3.metric("Porteføljeverdi", _format_nok_no_decimals_v1827(liq.get('total_value', total_value)))
         p4.metric("Urealisert P/L", _format_nok_no_decimals_v1827(liq.get('unrealized_pnl', 0)))
 
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Total avkastning", f"{stats['total_return_pct']}%")
-        r2.metric("KjÃ¸p i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
+        r2.metric("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}")
         r3.metric("Win rate", f"{stats['win_rate']}%")
         r4.metric("Lukkede trades", stats["closed_trades"])
     else:
         render_compact_stat_grid([
-            ("Cash / kjÃ¸pekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0)))),
-            ("Ã…pne posisjoner", _format_nok_no_decimals_v1827(liq.get('positions_value', 0))),
-            ("PortefÃ¸ljeverdi", _format_nok_no_decimals_v1827(liq.get('total_value', total_value))),
+            ("Cash / kjøpekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0)))),
+            ("Åpne posisjoner", _format_nok_no_decimals_v1827(liq.get('positions_value', 0))),
+            ("Porteføljeverdi", _format_nok_no_decimals_v1827(liq.get('total_value', total_value))),
             ("Urealisert P/L", _format_nok_no_decimals_v1827(liq.get('unrealized_pnl', 0))),
             ("Total avkastning", f"{stats['total_return_pct']}%"),
-            ("KjÃ¸p i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}"),
+            ("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}"),
             ("Win rate", f"{stats['win_rate']}%"),
             ("Lukkede trades", stats["closed_trades"]),
         ], columns=4)
 
     # DO_NOT_TOUCH_ZONE v18.5.87: Paper capital/cash semantics are protected. Patch minimally.
-    with st.expander("ðŸ’¼ Juster Paper Trading startverdier / portefÃ¸ljeverdi", expanded=True):
+    with st.expander("💼 Juster Paper Trading startverdier / porteføljeverdi", expanded=True):
         st.markdown("""
         <div class="paper-edit-card">
             <b>Regulerbare startverdier</b><br>
-            Startkapital brukes bare ved full reset. PortefÃ¸ljeverdi er cash + Ã¥pne posisjoner. Ved "Bruk portefÃ¸ljeverdi" justeres bare cash, mens Ã¥pne posisjoner beholdes. KjÃ¸p bruker kun cash/kjÃ¸pekraft, ikke urealisert gevinst.
+            Startkapital brukes bare ved full reset. Porteføljeverdi er cash + åpne posisjoner. Ved "Bruk porteføljeverdi" justeres bare cash, mens åpne posisjoner beholdes. Kjøp bruker kun cash/kjøpekraft, ikke urealisert gevinst.
         </div>
         """, unsafe_allow_html=True)
         c_start, c_value = st.columns(2)
@@ -7533,7 +7367,7 @@ def render_paper_trading_dashboard():
             )
         with c_value:
             new_portfolio_value = st.number_input(
-                "PortefÃ¸ljeverdi",
+                "Porteføljeverdi",
                 min_value=0,
                 max_value=50_000_000,
                 value=int(float(total_value)),
@@ -7542,39 +7376,39 @@ def render_paper_trading_dashboard():
             )
         c_apply, c_reset = st.columns(2)
         with c_apply:
-            if st.button("ðŸ’¾ Bruk portefÃ¸ljeverdi", key="paper_apply_total_value_v18581", use_container_width=True):
+            if st.button("💾 Bruk porteføljeverdi", key="paper_apply_total_value_v18581", use_container_width=True):
                 target_value = _safe_float_v18581(new_portfolio_value, total_value)
                 current_cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
                 positions_value = _safe_float_v18581(liq.get("positions_value", 0), 0.0)
                 new_cash = round(target_value - positions_value, 2)
                 if new_cash < 0:
-                    st.error(f"Kan ikke sette portefÃ¸ljeverdi lavere enn Ã¥pne posisjoner ({positions_value:,.0f}). Lukk/reduser posisjoner fÃ¸rst, eller velg hÃ¸yere totalverdi.")
+                    st.error(f"Kan ikke sette porteføljeverdi lavere enn åpne posisjoner ({positions_value:,.0f}). Lukk/reduser posisjoner først, eller velg høyere totalverdi.")
                 else:
                     portfolio["cash"] = new_cash
                     _paper_rules["start_cash"] = _safe_float_v18581(new_start_cash, current_cash)
                     save_rules(_paper_rules)
                     save_portfolio(portfolio)
                     add_audit_event("paper_portfolio_value_applied", {"target_value": target_value, "new_cash": new_cash, "positions_value": positions_value})
-                    st.success(f"PortefÃ¸ljeverdi oppdatert til ca. {target_value:,.0f}. Cash/kjÃ¸pekraft er nÃ¥ ca. {new_cash:,.0f} âœ…")
+                    st.success(f"Porteføljeverdi oppdatert til ca. {target_value:,.0f}. Cash/kjøpekraft er nå ca. {new_cash:,.0f} ✅")
                     st.rerun()
         with c_reset:
-            if st.button("â†©ï¸ Reset til startkapital", key="restore_reset_paper_portfolio_v18581", use_container_width=True):
+            if st.button("↩️ Reset til startkapital", key="restore_reset_paper_portfolio_v18581", use_container_width=True):
                 target_start = _safe_float_v18581(new_start_cash, 100000.0)
                 _paper_rules["start_cash"] = target_start
                 save_rules(_paper_rules)
                 reset_portfolio(target_start)
                 add_audit_event("paper_portfolio_reset", {"start_cash": target_start})
-                st.success(f"Paper portfolio nullstilt til {target_start:,.0f} âœ…")
+                st.success(f"Paper portfolio nullstilt til {target_start:,.0f} ✅")
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("âš™ï¸ Auto trading og regler")
-    st.caption("Fase 1: Store innstillinger er flyttet hit fra venstremenyen, slik at du kan jobbe midt pÃ¥ skjermen.")
+    st.subheader("⚙️ Auto trading og regler")
+    st.caption("Fase 1: Store innstillinger er flyttet hit fra venstremenyen, slik at du kan jobbe midt på skjermen.")
     render_auto_trading_workspace()
     render_trading_rules_workspace()
 
-    st.markdown("#### ðŸŸ¢ Simulert kjÃ¸p av aksjer")
-    st.caption("Manuelt paper-kjÃ¸p/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
+    st.markdown("#### 🟢 Simulert kjøp av aksjer")
+    st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
     selected_position = st.session_state.get("paper_selected_position_v1863by") or {}
     if selected_position.get("ticker"):
         st.info(
@@ -7595,7 +7429,7 @@ def render_paper_trading_dashboard():
                 on_change=_paper_stock_symbol_changed_v1863ac,
             ).strip().upper()
         with s2:
-            stock_price = st.number_input("KjÃ¸pspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
+            stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
         with s3:
             stock_confidence = st.number_input(
                 "System-confidence",
@@ -7605,7 +7439,7 @@ def render_paper_trading_dashboard():
                 step=1,
                 key="paper_stock_confidence_v1863y",
                 disabled=True,
-                help="Fylles fra markedsmotoren nÃ¥r du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
+                help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
             )
         with s4:
             st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
@@ -7613,14 +7447,14 @@ def render_paper_trading_dashboard():
 
         buy_col, sell_col = st.columns([1.0, 1.0])
         with buy_col:
-            buy_stock_clicked = st.button("ðŸŸ¢ Paper-kjÃ¸p aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=True)
+            buy_stock_clicked = st.button("🟢 Paper-kjøp aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=True)
             if buy_stock_clicked:
                 if not stock_symbol:
-                    st.error("Skriv inn aksjesymbol fÃ¸rst.")
+                    st.error("Skriv inn aksjesymbol først.")
                 elif float(stock_price or 0.0) <= 0:
-                    st.error("Skriv inn kjÃ¸pspris eller hent aksjekurs fÃ¸rst.")
+                    st.error("Skriv inn kjøpspris eller hent aksjekurs først.")
                 else:
-                    ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjÃ¸p")
+                    ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp")
                     if ok:
                         st.success(msg)
                         st.rerun()
@@ -7630,11 +7464,11 @@ def render_paper_trading_dashboard():
             stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
             sell_stock_symbol = st.selectbox("Selg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1863y")
             sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1863y")
-            sell_stock_clicked = st.button("ðŸ”´ Paper-selg aksje", key="paper_stock_sell_v1863z", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
+            sell_stock_clicked = st.button("🔴 Paper-selg aksje", key="paper_stock_sell_v1863z", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
             if sell_stock_clicked:
                 price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
                 if price_to_use <= 0:
-                    st.error("Skriv inn salgspris fÃ¸rst.")
+                    st.error("Skriv inn salgspris først.")
                 else:
                     ok, msg = paper_sell(sell_stock_symbol, price_to_use, "UI paper aksjesalg")
                     if ok:
@@ -7643,8 +7477,8 @@ def render_paper_trading_dashboard():
                     else:
                         st.error(msg)
 
-    st.markdown("#### ðŸ¦ Simulert kjÃ¸p av fond / ETF")
-    st.caption("Fond/ETF handles som paper trading med belÃ¸p. ETF-er bruker siste pris, mens vanlige fond kan bruke NAV/manuell pris. Ekte handel er ikke aktivert.")
+    st.markdown("#### 🏦 Simulert kjøp av fond / ETF")
+    st.caption("Fond/ETF handles som paper trading med beløp. ETF-er bruker siste pris, mens vanlige fond kan bruke NAV/manuell pris. Ekte handel er ikke aktivert.")
     with st.container():
         f1, f2, f3, f4 = st.columns([1.0, 1.0, 1.0, 0.9])
         with f1:
@@ -7657,7 +7491,7 @@ def render_paper_trading_dashboard():
         with f2:
             fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545", on_change=_paper_fund_symbol_changed_v1863ac)
         with f3:
-            fund_amount = st.number_input("BelÃ¸p", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
+            fund_amount = st.number_input("Beløp", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
         with f4:
             fund_currency = st.selectbox("Valuta", ["NOK", "USD", "EUR", "SEK"], key="paper_fund_currency_v18545")
 
@@ -7666,14 +7500,14 @@ def render_paper_trading_dashboard():
             default_price = float(st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
             fund_price = st.number_input("Pris / NAV", min_value=0.0, max_value=1_000_000.0, value=default_price, step=0.01, key="paper_fund_price_input_v18545")
         with pf2:
-            purchase_mode = st.selectbox("KjÃ¸pstype", ["EngangskjÃ¸p", "MÃ¥nedlig spareplan"], key="paper_fund_purchase_mode_v18545")
+            purchase_mode = st.selectbox("Kjøpstype", ["Engangskjøp", "Månedlig spareplan"], key="paper_fund_purchase_mode_v18545")
         with pf3:
             st.button("Hent pris/NAV", key="paper_fund_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_fund_price_v1863z)
         _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
 
         ba, bb = st.columns([1.0, 1.0])
         with ba:
-            buy_fund_clicked = st.button("ðŸŸ¢ Paper-kjÃ¸p fond/ETF", key="paper_fund_buy_v1863z", type="primary", use_container_width=True)
+            buy_fund_clicked = st.button("🟢 Paper-kjøp fond/ETF", key="paper_fund_buy_v1863z", type="primary", use_container_width=True)
             if buy_fund_clicked:
                 price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
                 ok, msg = paper_buy_instrument(
@@ -7696,8 +7530,8 @@ def render_paper_trading_dashboard():
             fund_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) in {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}}
             sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
             sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v18545")
-            sell_amount = st.number_input("SalgsbelÃ¸p (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
-            sell_fund_clicked = st.button("ðŸ”´ Paper-selg fond/ETF", key="paper_fund_sell_v1863z", use_container_width=True, disabled=(sell_symbol == "Ingen"))
+            sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
+            sell_fund_clicked = st.button("🔴 Paper-selg fond/ETF", key="paper_fund_sell_v1863z", use_container_width=True, disabled=(sell_symbol == "Ingen"))
             if sell_fund_clicked:
                 price_to_use = float(sell_price or (fund_positions.get(sell_symbol, {}) or {}).get("last_price", 0.0) or 0.0)
                 ok, msg = paper_sell_instrument(
@@ -7714,8 +7548,8 @@ def render_paper_trading_dashboard():
                 else:
                     st.error(msg)
 
-        if purchase_mode == "MÃ¥nedlig spareplan":
-            save_fund_plan_clicked = st.button("ðŸ’¾ Lagre spareplan som simulering", key="paper_fund_save_plan_v1863z", use_container_width=True)
+        if purchase_mode == "Månedlig spareplan":
+            save_fund_plan_clicked = st.button("💾 Lagre spareplan som simulering", key="paper_fund_save_plan_v1863z", use_container_width=True)
             if save_fund_plan_clicked:
                 plan = {
                     "symbol": fund_symbol,
@@ -7727,7 +7561,7 @@ def render_paper_trading_dashboard():
                 }
                 portfolio.setdefault("fund_savings_plans", []).append(plan)
                 save_portfolio(portfolio)
-                st.success("Spareplan lagret som simulering âœ…")
+                st.success("Spareplan lagret som simulering ✅")
                 st.rerun()
 
         plans = list(portfolio.get("fund_savings_plans") or [])
@@ -7735,7 +7569,7 @@ def render_paper_trading_dashboard():
             st.markdown("<div class='ptw-control-panel-title'>Simulerte spareplaner</div>", unsafe_allow_html=True)
             for plan in plans[-5:]:
                 st.markdown(
-                    f"<div class='v18-dark-row'><b>{html.escape(str(plan.get('symbol','-')))}</b> Â· {html.escape(str(plan.get('asset_type','Fond')))} Â· {float(plan.get('monthly_amount') or 0):,.0f} {html.escape(str(plan.get('currency','NOK')))} / mnd Â· {html.escape(str(plan.get('status','Simulert')))}</div>",
+                    f"<div class='v18-dark-row'><b>{html.escape(str(plan.get('symbol','-')))}</b> · {html.escape(str(plan.get('asset_type','Fond')))} · {float(plan.get('monthly_amount') or 0):,.0f} {html.escape(str(plan.get('currency','NOK')))} / mnd · {html.escape(str(plan.get('status','Simulert')))}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -7744,13 +7578,13 @@ def render_paper_trading_dashboard():
     if positions:
         _render_paper_positions_cards_v1863ac(portfolio, latest_prices)
     else:
-        st.info("Ingen Ã¥pne paper trading-posisjoner.")
+        st.info("Ingen åpne paper trading-posisjoner.")
 
-    st.markdown("#### ðŸ’° Klar for ekte trading senere")
+    st.markdown("#### 💰 Klar for ekte trading senere")
     st.info(
-        "Systemet er nÃ¥ strukturert for paper trading med risikoregler. "
+        "Systemet er nå strukturert for paper trading med risikoregler. "
         "Ekte handel er IKKE aktivert. Neste steg senere er broker_adapter.py "
-        "med sikker ordrelegging, maksbelÃ¸p, nÃ¸dknapp og manuell godkjenning."
+        "med sikker ordrelegging, maksbeløp, nødknapp og manuell godkjenning."
     )
 
     st.markdown("#### Handelslogg")
@@ -7758,11 +7592,11 @@ def render_paper_trading_dashboard():
     if trades:
         st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=50)), use_container_width=True, hide_index=True)
     else:
-        st.info("Ingen handler ennÃ¥.")
+        st.info("Ingen handler ennå.")
 
 def render_ipo():
-    st.subheader("ðŸš€ Nye og kommende bÃ¸rsnoteringer")
-    st.caption("Offisiell IPO-kalender vises separat fra ryktede/overvÃ¥kede IPO-kandidater.")
+    st.subheader("🚀 Nye og kommende børsnoteringer")
+    st.caption("Offisiell IPO-kalender vises separat fra ryktede/overvåkede IPO-kandidater.")
 
     ipo_list, error = get_ipo_calendar()
     nordic = get_nordic_ipo_calendar()
@@ -7776,13 +7610,13 @@ def render_ipo():
             st.markdown(f"**{ipo.get('name','Ukjent selskap')}** ({ipo.get('symbol','N/A')})")
             parts = [
                 str(ipo.get("date") or ipo.get("expected") or "Ukjent dato"),
-                str(ipo.get("exchange") or ipo.get("region") or "Ukjent bÃ¸rs"),
+                str(ipo.get("exchange") or ipo.get("region") or "Ukjent børs"),
             ]
             if show_status and ipo.get("status"):
                 parts.append(str(ipo.get("status")))
             if ipo.get("source"):
                 parts.append(str(ipo.get("source")))
-            st.caption(" Â· ".join(part for part in parts if part))
+            st.caption(" · ".join(part for part in parts if part))
             if show_status and ipo.get("note"):
                 st.caption(str(ipo.get("note")))
             st.divider()
@@ -7791,58 +7625,58 @@ def render_ipo():
         "USA / global",
         "Norge",
         "Sverige",
-        "OvervÃ¥king",
+        "Overvåking",
         "Forklaring",
     ])
     with tab_global:
         if error:
             st.info(error)
         else:
-            _render_ipo_rows(ipo_list, "Fant ingen IPO-data akkurat nÃ¥.")
+            _render_ipo_rows(ipo_list, "Fant ingen IPO-data akkurat nå.")
 
     with tab_no:
         norway_rows = nordic.get("Norge", [])
-        _render_ipo_rows(norway_rows, "Fant ingen norske IPO-/noteringsdata akkurat nÃ¥.")
+        _render_ipo_rows(norway_rows, "Fant ingen norske IPO-/noteringsdata akkurat nå.")
         st.caption("Norge bruker Euronext Oslo-kilde pluss Finnhub-treff som matcher Oslo/Euronext Oslo.")
 
     with tab_se:
         sweden_rows = nordic.get("Sverige", [])
-        _render_ipo_rows(sweden_rows, "Fant ingen svenske IPO-/noteringsdata akkurat nÃ¥.")
-        st.caption("Sverige vises nÃ¥r IPO-feed returnerer Stockholm/Nasdaq Nordic/First North/Spotlight/NGM-treff.")
+        _render_ipo_rows(sweden_rows, "Fant ingen svenske IPO-/noteringsdata akkurat nå.")
+        st.caption("Sverige vises når IPO-feed returnerer Stockholm/Nasdaq Nordic/First North/Spotlight/NGM-treff.")
 
     with tab_watch:
-        st.caption("Dette er ikke bekreftede kalendernoteringer. Listen brukes for Ã¥ fÃ¸lge private selskaper som kan komme pÃ¥ bÃ¸rs.")
-        _render_ipo_rows(rumored_rows, "Ingen overvÃ¥kede IPO-kandidater lagt inn.", show_status=True)
+        st.caption("Dette er ikke bekreftede kalendernoteringer. Listen brukes for å følge private selskaper som kan komme på børs.")
+        _render_ipo_rows(rumored_rows, "Ingen overvåkede IPO-kandidater lagt inn.", show_status=True)
 
     with tab_help:
         st.markdown(
             """
             **Slik fungerer IPO-fanen**
 
-            Kalender-fanene viser selskaper som finnes i IPO-kilder med dato, ticker eller bÃ¸rs.
+            Kalender-fanene viser selskaper som finnes i IPO-kilder med dato, ticker eller børs.
 
-            **USA / global** bruker Finnhub sin IPO-kalender. Den dekker ofte amerikanske bÃ¸rser best.
+            **USA / global** bruker Finnhub sin IPO-kalender. Den dekker ofte amerikanske børser best.
 
-            **Norge** bruker Euronext Oslo-sÃ¸k i tillegg til Finnhub-treff som matcher Oslo/Euronext.
+            **Norge** bruker Euronext Oslo-søk i tillegg til Finnhub-treff som matcher Oslo/Euronext.
 
             **Sverige** bruker Finnhub-treff som matcher Stockholm, Nasdaq Nordic, First North, Spotlight eller NGM.
 
-            **OvervÃ¥king** er for selskaper som SpaceX, Starlink, Stripe og Databricks. De kan vÃ¦re omtalt i media, men vises ikke som offisiell IPO fÃ¸r dato/ticker/bÃ¸rs er offentlig nok til Ã¥ ligge i kalenderdata.
+            **Overvåking** er for selskaper som SpaceX, Starlink, Stripe og Databricks. De kan være omtalt i media, men vises ikke som offisiell IPO før dato/ticker/børs er offentlig nok til å ligge i kalenderdata.
             """
         )
 
     if nordic.get("errors"):
         with st.expander("Datakilde-status", expanded=False):
-            st.caption("Noen eksterne IPO-kilder svarte ikke akkurat nÃ¥. Kalenderen viser tilgjengelige treff og overvÃ¥kingslisten uansett.")
+            st.caption("Noen eksterne IPO-kilder svarte ikke akkurat nå. Kalenderen viser tilgjengelige treff og overvåkingslisten uansett.")
             for source_error in nordic.get("errors", [])[:2]:
                 st.caption(source_error)
 
 def render_strategy_backtest(tickers, label):
-    st.subheader("ðŸ§ª Smartere strategi-backtest")
-    st.caption("MÃ¥nedlig rebalansering, transaksjonskostnader, drawdown og benchmark.")
+    st.subheader("🧪 Smartere strategi-backtest")
+    st.caption("Månedlig rebalansering, transaksjonskostnader, drawdown og benchmark.")
 
     col_a, col_b, col_c = st.columns(3)
-    months = col_a.slider("Antall mÃ¥neder", 6, 36, 24, key=f"months_{label}")
+    months = col_a.slider("Antall måneder", 6, 36, 24, key=f"months_{label}")
     top_n = col_b.slider("Topp N aksjer", 2, 10, 5, key=f"topn_{label}")
     cost = col_c.slider("Transaksjonskostnad", 0.0, 1.0, 0.2, step=0.1, key=f"cost_{label}") / 100
 
@@ -7851,8 +7685,8 @@ def render_strategy_backtest(tickers, label):
 
     benchmark = "^GSPC" if label == "USA" else "OSEBX.OL"
 
-    if st.button(f"KjÃ¸r smartere backtest ({label})"):
-        with st.spinner("KjÃ¸rer backtest..."):
+    if st.button(f"Kjør smartere backtest ({label})"):
+        with st.spinner("Kjører backtest..."):
             strategy, bench, error = run_monthly_score_strategy(
                 tickers,
                 months=months,
@@ -7888,9 +7722,10 @@ def render_strategy_backtest(tickers, label):
         render_interactive_chart(fig_dd, use_container_width=True, key=f"backtest_drawdown_{label}")
         render_graph_explanation("drawdown")
 
-        st.markdown("#### Valgte aksjer per mÃ¥ned")
+        st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
+st.sidebar.markdown("<div class='sidebar-section-title'>⚙️ Innstillinger</div>", unsafe_allow_html=True)
 render_user_admin(current_user)
 show_drift_controls_v1863cc = st.sidebar.checkbox(
     "Drift: vis Start/Stopp/Global",
@@ -7995,7 +7830,7 @@ st.sidebar.markdown(
 # v18.1 removed Visning heading
 # Watchlist-feltet bygges etter at marked og ticker-lister er klare.
 
-# V15.7 / Fase 3: Analyseunivers er flyttet til hovedomrÃ¥det.
+# V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
 # Verdiene leses fra session_state slik at kontroller kan ligge visuelt senere i hovedflaten.
 selected_market_category = st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0])
 if selected_market_category not in MARKET_CATEGORY_OPTIONS:
@@ -8014,8 +7849,8 @@ search = str(st.session_state.get("search_main_v157", "") or "").strip().upper()
 _cleanup_legacy_session_seed_data_v1863t()
 
 # V14.8 / Oppgave 70 og 72:
-# Menyer skriver fÃ¸rst til draft. Tunge analyser bruker aktive verdier til bruker trykker
-# Oppdater hele appen, med mindre Auto-oppdater er PÃ….
+# Menyer skriver først til draft. Tunge analyser bruker aktive verdier til bruker trykker
+# Oppdater hele appen, med mindre Auto-oppdater er PÅ.
 _draft_analysis_controls_v148 = {
     "selected_market_category": selected_market_category,
     "mode": mode,
@@ -8029,10 +7864,10 @@ if "active_analysis_controls_v148" not in st.session_state:
     st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
     st.session_state["heavy_update_allowed_v148"] = True
     st.session_state["startup_heavy_update_pending_v1863an"] = True
-    _set_update_reason("Oppstart / fÃ¸rste aktive innstillinger")
+    _set_update_reason("Oppstart / første aktive innstillinger")
 
 # V16.1: Auto-oppdater er fjernet fra normal arbeidsflyt.
-# Draft blir fÃ¸rst aktivt nÃ¥r Global oppdatering "Oppdater hele appen" trykkes.
+# Draft blir først aktivt når Global oppdatering "Oppdater hele appen" trykkes.
 
 _active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
 _pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
@@ -8065,7 +7900,7 @@ _top_cron = cron_status_text()
 _top_auto_state, _top_auto_color = _auto_state(_top_settings)
 _top_full_stop = bool(_top_cron.get("vacation_mode"))
 
-# V15.3 / Oppgave 99: Kontrollnotis skal vÃ¦re kompakt fullbredde, ikke smal kolonne.
+# V15.3 / Oppgave 99: Kontrollnotis skal være kompakt fullbredde, ikke smal kolonne.
 st.markdown("""
 <style>
 .v153-control-note{
@@ -8099,7 +7934,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# V15.8: hardere kompakt KPI-stil og anti-vertikal tekst i kontrollomrÃ¥det.
+# V15.8: hardere kompakt KPI-stil og anti-vertikal tekst i kontrollområdet.
 st.markdown("""
 <style>
 [data-testid="stMetric"] {
@@ -8118,7 +7953,7 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-# V15.4: siste hard-override for Ã¥ hindre smale meldingsbokser og for Ã¥ gjÃ¸re toppkontroller mer samlet.
+# V15.4: siste hard-override for å hindre smale meldingsbokser og for å gjøre toppkontroller mer samlet.
 st.markdown(
     """
     <style>
@@ -8143,7 +7978,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.4: Ã©n samlet visningslogikk for Paper nÃ¥r Full stopp er aktiv.
+# V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
@@ -8187,7 +8022,7 @@ st.markdown(
 )
 
 # V15.8 / v18.5.34: kompakt Auto trading-kontrollgruppe flyttet opp.
-# Start opphever aldri Full stopp eller nødstopp.
+# Start opphever aldri Full stopp eller Nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
 st.markdown(
@@ -8199,39 +8034,39 @@ st.markdown(
 )
 if bool(_top_full_stop):
     st.markdown(
-        "<div class='v18534-trading-warning'>Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
+        "<div class='v18534-trading-warning'>⛔ Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
         "Bruk <b>Gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
         unsafe_allow_html=True,
     )
 elif _top_emergency_stop:
     st.markdown(
-        "<div class='v18534-trading-warning'>Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
+        "<div class='v18534-trading-warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
         unsafe_allow_html=True,
     )
 st.markdown("<div class='v18534-control-button-gap'></div>", unsafe_allow_html=True)
 _tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _tq7, _control_spacer = st.columns([0.95, 1.05, 1.05, 1.25, 1.55, 1.35, 1.85, 2.90], gap="small")
 with _tq1:
-    if st.button("Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
+    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
         _set_auto_state("START")
 with _tq2:
-    if st.button("Pause", key="auto_pause_top_v15", use_container_width=True):
+    if st.button("⏸ Pause", key="auto_pause_top_v15", use_container_width=True):
         _set_auto_state("PAUSE")
 with _tq3:
-    if st.button("Stopp", key="auto_stop_top_v15", use_container_width=True):
+    if st.button("⛔ Stopp", key="auto_stop_top_v15", use_container_width=True):
         _set_auto_state("STOPP")
 with _tq4:
-    if st.button("Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
+    if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
         _set_auto_state("NØDSTOPP")
 with _tq5:
     # Hold the column populated so the Global button always lands directly after Gjør klar.
     ready_disabled = not (bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)))
-    if st.button("Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
+    if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
         _clear_stops_ready_v158()
 with _tq6:
     st.empty()
 with _tq7:
     if _top_emergency_stop:
-        if st.button("Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
+        if st.button("🔓 Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
             _reset_emergency_stop_v157()
 
 if bool(globals().get("show_drift_controls_v1863cc", False)):
@@ -8241,7 +8076,7 @@ if bool(globals().get("show_drift_controls_v1863cc", False)):
 if st.session_state.get("auto_control_notice_v153"):
     _notice = html.escape(str(st.session_state.pop("auto_control_notice_v153", "")))
     _level = str(st.session_state.pop("auto_control_notice_level_v153", "info"))
-    _prefix = "OK" if _level == "success" else ("OBS" if _level == "warning" else "Info")
+    _prefix = "✅" if _level == "success" else ("⚠️" if _level == "warning" else "ℹ️")
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 
@@ -8250,15 +8085,15 @@ if st.session_state.get("auto_control_notice_v153"):
 # v18.5.35: ekstra lazy-paneler i AI Kontrollsenter.
 def render_news_control_center_v18535(default_ticker: str = ""):
     """Manual NewsAPI workspace. It never fetches news before the user presses the button."""
-    st.subheader("ðŸ“° Nyheter")
-    st.caption("Live NewsAPI brukes bare nÃ¥r du trykker knappen. Automatiske kall holdes av som standard.")
+    st.subheader("📰 Nyheter")
+    st.caption("Live NewsAPI brukes bare når du trykker knappen. Automatiske kall holdes av som standard.")
     default_ticker = normalize_user_ticker(default_ticker or search or "")
     ticker = st.text_input("Ticker", value=default_ticker, key="cc_news_ticker_v18535")
     limit = st.slider("Antall nyheter", 3, 10, 6, 1, key="cc_news_limit_v18535")
     if st.button("Hent nyheter manuelt", key="cc_news_fetch_v18535", type="primary"):
         clean = normalize_user_ticker(ticker).replace(".OL", "")
         if not clean:
-            st.warning("Skriv inn en ticker fÃ¸rst.")
+            st.warning("Skriv inn en ticker først.")
             return
         with st.spinner(f"Henter nyheter for {clean}..."):
             articles, error = get_news(clean, limit=int(limit), source="manual", force=True)
@@ -8272,24 +8107,24 @@ def render_news_control_center_v18535(default_ticker: str = ""):
             for article in articles:
                 st.markdown(
                     f"- **{article.get('title','Uten tittel')}**  \n"
-                    f"  <span class='small'>{article.get('source','')} Â· {article.get('published','')}</span>",
+                    f"  <span class='small'>{article.get('source','')} · {article.get('published','')}</span>",
                     unsafe_allow_html=True,
                 )
     else:
-        st.info("Ingen nyhetskall kjÃ¸res fÃ¸r du trykker knappen.")
+        st.info("Ingen nyhetskall kjøres før du trykker knappen.")
 
 
 def render_interactive_technical_control_center_v18535():
     """Manual single-ticker analysis panel for interactive/technical/trading-engine views."""
-    st.subheader("ðŸ“Š Interaktiv / teknisk analyse")
-    st.caption("Panelet henter ikke data fÃ¸r du trykker KjÃ¸r analyse. Teknisk analyse og Trading engine vises i samme aksjekort.")
+    st.subheader("📊 Interaktiv / teknisk analyse")
+    st.caption("Panelet henter ikke data før du trykker Kjør analyse. Teknisk analyse og Trading engine vises i samme aksjekort.")
     default_ticker = normalize_user_ticker(search or "")
     ticker = st.text_input("Ticker for analyse", value=default_ticker, key="cc_interactive_ticker_v18535")
-    run = st.button("KjÃ¸r interaktiv analyse", key="cc_interactive_run_v18535", type="primary")
+    run = st.button("Kjør interaktiv analyse", key="cc_interactive_run_v18535", type="primary")
     if run:
         clean = normalize_user_ticker(ticker)
         if not clean:
-            st.warning("Skriv inn Ã©n ticker fÃ¸rst.")
+            st.warning("Skriv inn én ticker først.")
             return
         with st.spinner(f"Henter analyse for {clean}..."):
             item = cached_score_stock_manual(clean, use_news=False)
@@ -8302,33 +8137,22 @@ def render_interactive_technical_control_center_v18535():
     if rows:
         render_analysis(rows, "Kontrollsenter")
     else:
-        st.info("KjÃ¸r en analyse for Ã¥ Ã¥pne teknisk analyse, Trading engine og nyhetspanel for valgt ticker.")
+        st.info("Kjør en analyse for å åpne teknisk analyse, Trading engine og nyhetspanel for valgt ticker.")
 
 
 def render_market_ranking_control_center_v18535(selected_market: str | None = None, selected_limit: int | None = None, *, embedded: bool = False):
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
-    st.subheader("ðŸ† Marked / rangering")
-    st.caption("Rangering kjÃ¸res bare nÃ¥r du trykker knappen. Siste lagrede rangering vises ellers.")
+    st.subheader("🏆 Marked / rangering")
+    st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
     _render_pipeline_stage_bar_v1863bw("market_ranking")
     if selected_market is None:
         market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, "Dataunderlag"] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
     else:
         market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
     if selected_limit is None:
-        current_limit = int(st.session_state.get("cc_ranking_limit_v18535", max_count or 30) or 30)
-        current_limit = max(5, min(current_limit, PIPELINE_MAX_CANDIDATES_V1865D))
-        st.session_state["cc_ranking_limit_v18535"] = current_limit
-        limit = st.slider(
-            "Maks kandidater",
-            5,
-            PIPELINE_MAX_CANDIDATES_V1865D,
-            current_limit,
-            5,
-            key="cc_ranking_limit_v18535",
-            help=f"Test 2 sender maks {PIPELINE_MAX_CANDIDATES_V1865D} kandidater videre i pipeline.",
-        )
+        limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     else:
-        limit = min(int(selected_limit or max_count or 30), PIPELINE_MAX_CANDIDATES_V1865D)
+        limit = int(selected_limit or max_count or 30)
     source_tickers = []
     data_foundation_input = {}
     if market == "Dataunderlag":
@@ -8351,21 +8175,21 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     if source_tickers:
         st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
     else:
-        st.info("Velg marked og trykk KjÃ¸r rangering. Ingen skjult USA/AAPL-fallback kjÃ¸res.")
-    if st.button(f"KjÃ¸r rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
+        st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
+    if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
         progress_box = st.empty()
         progress = st.progress(0, text="Starter Test 2 rangering")
         progress_box.markdown(
-            f"<div class='v18-dark-row'><b>Test 2 kjÃ¸rer</b><br>1/4 Henter univers Â· {len(source_tickers)} tickere</div>",
+            f"<div class='v18-dark-row'><b>Test 2 kjører</b><br>1/4 Henter univers · {len(source_tickers)} tickere</div>",
             unsafe_allow_html=True,
         )
-        progress.progress(25, text=f"1/4 Henter univers Â· {len(source_tickers)} tickere")
+        progress.progress(25, text=f"1/4 Henter univers · {len(source_tickers)} tickere")
         progress.progress(45, text="2/4 Henter/cache aksjedata")
         with st.spinner(f"Rangerer {market}..."):
             ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
         progress.progress(80, text="3/4 Lagrer rangering og pipeline-output")
         latest[storage_key] = ranked or []
-        progress.progress(100, text=f"4/4 Ferdig Â· {len(ranked or [])} kandidater")
+        progress.progress(100, text=f"4/4 Ferdig · {len(ranked or [])} kandidater")
         progress_box.markdown(
             f"<div class='v18-dark-row' style='border-color:rgba(34,197,94,.55);'><b>Test 2 ferdig</b><br>{len(ranked or [])} kandidater klare for Test 3.</div>",
             unsafe_allow_html=True,
@@ -8373,9 +8197,9 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         st.success(f"Rangering ferdig: {len(ranked or [])} kandidater.")
     rows = latest.get(storage_key, []) or []
     if rows:
-        render_ranking(rows, f"ðŸ† {market} rangering")
+        render_ranking(rows, f"🏆 {market} rangering")
     else:
-        st.info("Ingen lagret rangering for dette panelet ennÃ¥.")
+        st.info("Ingen lagret rangering for dette panelet ennå.")
 
 
 def _render_market_room_toolbar_v1863cb() -> dict:
@@ -8448,18 +8272,7 @@ def render_market_room_control_center_v1863cb() -> None:
     config = _render_market_room_toolbar_v1863cb()
     view = str(config.get("view") or "Oversikt")
     if view == "Rangering":
-        current_limit = int(st.session_state.get("market_room_ranking_limit_v1863cb", max_count or 30) or 30)
-        current_limit = max(5, min(current_limit, PIPELINE_MAX_CANDIDATES_V1865D))
-        st.session_state["market_room_ranking_limit_v1863cb"] = current_limit
-        limit = st.slider(
-            "Maks kandidater i Test 2",
-            5,
-            PIPELINE_MAX_CANDIDATES_V1865D,
-            current_limit,
-            5,
-            key="market_room_ranking_limit_v1863cb",
-            help=f"Pipeline-grensen for Test 2 er {PIPELINE_MAX_CANDIDATES_V1865D}.",
-        )
+        limit = st.slider("Maks kandidater i Test 2", 5, 100, int(max_count or 30), 5, key="market_room_ranking_limit_v1863cb")
         render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "Dataunderlag"), selected_limit=int(limit), embedded=True)
     elif view == "Heatmap":
         st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
@@ -8518,7 +8331,7 @@ def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_
 
 def render_top_picks_control_center_v1863s():
     """Top Picks as a first-class AI Kontrollsenter panel."""
-    st.subheader("â­ Top Picks")
+    st.subheader("⭐ Top Picks")
     st.caption("Bygger Top Picks fra samme universmotor som rangering, analyse, varsler og testpaneler.")
     _render_pipeline_stage_bar_v1863bw("top_picks")
 
@@ -8530,21 +8343,7 @@ def render_top_picks_control_center_v1863s():
             key="cc_top_picks_scope_v1863s",
         )
     with c2:
-        scope_input_count = _pipeline_input_count_v1865d("top_picks") if scope == "Analyseflyt input" else 0
-        slider_max = max(1, scope_input_count) if scope == "Analyseflyt input" else PIPELINE_MAX_CANDIDATES_V1865D
-        slider_min = 1 if slider_max < 5 else 5
-        current_limit = int(st.session_state.get("cc_top_picks_limit_v1863s", max_count or 30) or 30)
-        current_limit = max(slider_min, min(current_limit, slider_max))
-        st.session_state["cc_top_picks_limit_v1863s"] = current_limit
-        limit = st.slider(
-            "Maks kandidater",
-            slider_min,
-            slider_max,
-            current_limit,
-            1 if slider_max < 5 else 5,
-            key="cc_top_picks_limit_v1863s",
-            help="Ved Analyseflyt input kan du ikke velge flere enn pakken fra forrige test.",
-        )
+        limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_top_picks_limit_v1863s")
 
     manual_text = ""
     if scope == "Manuell liste":
@@ -8566,11 +8365,11 @@ def render_top_picks_control_center_v1863s():
         if guard:
             st.caption(guard)
     else:
-        st.info("Velg univers/marked og trykk KjÃ¸r Top Picks. Panelet starter tomt og bruker ingen gammel AAPL/STB.OL-cache.")
+        st.info("Velg univers/marked og trykk Kjør Top Picks. Panelet starter tomt og bruker ingen gammel AAPL/STB.OL-cache.")
         return
 
     run_clicked = st.button(
-        f"KjÃ¸r Top Picks for {scope}",
+        f"Kjør Top Picks for {scope}",
         key="cc_top_picks_run_v1863s",
         type="primary",
         use_container_width=True,
@@ -8612,7 +8411,7 @@ def render_top_picks_control_center_v1863s():
 
     top_picks = _ranked_for_display(latest.get(storage_key, []) or [])
     buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
-    view = st.radio("Visning", ["Top Picks", "KjÃ¸p nÃ¥"], horizontal=True, key="cc_top_picks_view_v1863s")
+    view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
     if top_picks:
         st.markdown(
             f"<div class='v18-dark-row'>Top Picks funnet: <b>{len(top_picks)}</b> | Kjoep naa-signaler: <b>{len(buy_now_picks)}</b>. Kjoep naa er et strengere teknisk timingfilter.</div>",
@@ -8620,14 +8419,14 @@ def render_top_picks_control_center_v1863s():
         )
 
     if view == "Top Picks":
-        render_ranking(top_picks, f"â­ Top Picks {scope}")
+        render_ranking(top_picks, f"⭐ Top Picks {scope}")
         if top_picks:
             render_analysis(top_picks, f"TopPicks_{storage_scope}")
     else:
         if buy_now_picks:
             saved = save_latest_buy_now_candidates(buy_now_picks, scope)
-            st.info(f"{len(saved)} kjÃ¸p-nÃ¥-kandidater er lagret til Cron-prioritering. Auto-kjÃ¸p skjer fortsatt bare via reglene dine.")
-            if st.button(f"Paper-kjÃ¸p alle KjÃ¸p nÃ¥ ({len(buy_now_picks)})", key="cc_top_picks_paper_buy_all_v1863s"):
+            st.info(f"{len(saved)} kjøp-nå-kandidater er lagret til Cron-prioritering. Auto-kjøp skjer fortsatt bare via reglene dine.")
+            if st.button(f"Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key="cc_top_picks_paper_buy_all_v1863s"):
                 messages = []
                 for item in buy_now_picks:
                     ticker = item.get("ticker")
@@ -8636,7 +8435,7 @@ def render_top_picks_control_center_v1863s():
                     if price is None:
                         messages.append(f"{ticker}: mangler pris")
                         continue
-                    _ok, msg = paper_buy(ticker, price, int(decision.get("confidence", 0) or 0), f"AI Kontrollsenter KjÃ¸p nÃ¥: {scope}")
+                    _ok, msg = paper_buy(ticker, price, int(decision.get("confidence", 0) or 0), f"AI Kontrollsenter Kjøp nå: {scope}")
                     messages.append(msg)
                 joined = " | ".join(messages[:8])
                 if any("blokkert" in str(m).lower() or "ikke nok" in str(m).lower() or "mangler" in str(m).lower() for m in messages):
@@ -8644,7 +8443,7 @@ def render_top_picks_control_center_v1863s():
                 else:
                     st.success(joined)
                 st.rerun()
-            render_ranking(buy_now_picks, f"ðŸŸ¢ KjÃ¸p nÃ¥ {scope}")
+            render_ranking(buy_now_picks, f"🟢 Kjøp nå {scope}")
             render_analysis(buy_now_picks, f"KjopNa_{storage_scope}")
         else:
             st.warning(f"Top Picks finnes ({len(top_picks)}), men ingen har groent teknisk Kjoep naa-signal akkurat naa. Bytt til Top Picks for aa se kandidatene.")
@@ -8694,7 +8493,7 @@ def render_alpha_radar_control_center_v1863ap():
 
 def render_watchlist_signals_control_center_v18535():
     """Watchlist and signal settings in the control center only."""
-    st.subheader("ðŸ”” Watchlist / signaler")
+    st.subheader("🔔 Watchlist / signaler")
     latest = st.session_state.get("latest_rankings_v148", {}) or {}
     dynamic: list[str] = []
     for rows in latest.values():
@@ -8711,7 +8510,7 @@ def render_watchlist_signals_control_center_v18535():
     if dynamic:
         st.caption(f"Dynamiske kandidater fra siste rangering: {len(dynamic)}")
     else:
-        st.caption("Ingen dynamiske kandidater i cache ennÃ¥. KjÃ¸r rangering eller Smart AI fÃ¸rst.")
+        st.caption("Ingen dynamiske kandidater i cache ennå. Kjør rangering eller Smart AI først.")
     render_watchlist_alerts_workspace(dynamic, pushover_enabled_runtime=pushover_enabled)
 
 
@@ -8767,32 +8566,32 @@ def _paper_control_flags_v1863af(rows, total_value: float):
 def _paper_control_learning_points_v1863af(rows, stats, flags):
     points = []
     if not rows:
-        return ["Ingen paper-posisjoner ennÃ¥. Start med smÃ¥ simulerte kjÃ¸p for Ã¥ bygge testgrunnlag."]
+        return ["Ingen paper-posisjoner ennå. Start med små simulerte kjøp for å bygge testgrunnlag."]
     avg_pnl = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
     loss_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) < 0])
     gain_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) > 0])
     if avg_pnl > 0:
-        points.append(f"Paper-portefÃ¸ljen har positiv snitt-P/L ({avg_pnl:.2f}%). Test om samme regler holder i flere markeder.")
+        points.append(f"Paper-porteføljen har positiv snitt-P/L ({avg_pnl:.2f}%). Test om samme regler holder i flere markeder.")
     else:
-        points.append(f"Paper-portefÃ¸ljen har svak/negativ snitt-P/L ({avg_pnl:.2f}%). Se om inngangene skjer for tidlig eller med for lav confidence.")
+        points.append(f"Paper-porteføljen har svak/negativ snitt-P/L ({avg_pnl:.2f}%). Se om inngangene skjer for tidlig eller med for lav confidence.")
     if loss_count > gain_count:
-        points.append("Flere tapere enn vinnere akkurat nÃ¥. AI-forslag: stram inn kjÃ¸psscore/confidence fÃ¸r nye paper-kjÃ¸p.")
+        points.append("Flere tapere enn vinnere akkurat nå. AI-forslag: stram inn kjøpsscore/confidence før nye paper-kjøp.")
     if stats.get("closed_trades", 0) and stats.get("win_rate", 0) < 45:
-        points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab fÃ¸r ekte ordre.")
+        points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
     if any(f.get("nivaa") == "Konsentrasjon" for f in flags):
-        points.append("Konsentrasjonsvarsel funnet. PortefÃ¸ljeovervÃ¥king bÃ¸r varsle fÃ¸r ett papir dominerer totalrisikoen.")
+        points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
     if any(f.get("nivaa") == "Datakvalitet" for f in flags):
-        points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre nÃ¥r paper-kurser oppdateres fÃ¸rst.")
+        points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
     return points[:5]
 
 
 def render_paper_portfolio_control_center_v1863af():
     """Paper portfolio monitoring, controls and deterministic AI suggestions."""
-    st.subheader("ðŸ§­ Paper-portefÃ¸lje kontroll")
-    st.caption("Bruker Paper Trading-portefÃ¸ljen som trygg testarena for overvÃ¥king, kontroll og AI-forslag. Ingen ekte ordre sendes.")
+    st.subheader("🧭 Paper-portefølje kontroll")
+    st.caption("Bruker Paper Trading-porteføljen som trygg testarena for overvåking, kontroll og AI-forslag. Ingen ekte ordre sendes.")
 
     portfolio = load_portfolio() or {}
-    if st.button("ðŸ”„ Oppdater paper-kurser for kontroll", key="paper_control_refresh_prices_v1863af", type="primary", use_container_width=True):
+    if st.button("🔄 Oppdater paper-kurser for kontroll", key="paper_control_refresh_prices_v1863af", type="primary", use_container_width=True):
         portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=True)
         st.session_state["paper_control_refresh_status_v1863af"] = {
             "time": refreshed_at,
@@ -8802,7 +8601,7 @@ def render_paper_portfolio_control_center_v1863af():
 
     status = st.session_state.get("paper_control_refresh_status_v1863af") or {}
     if status:
-        st.caption(f"Sist kurssjekk: {status.get('time', '-')} Â· oppdatert: {status.get('updated', 0)}")
+        st.caption(f"Sist kurssjekk: {status.get('time', '-')} · oppdatert: {status.get('updated', 0)}")
         if status.get("errors"):
             st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(status.get("errors", [])[:5]))
 
@@ -8817,7 +8616,7 @@ def render_paper_portfolio_control_center_v1863af():
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total verdi", f"{total_value:,.0f} kr")
     m2.metric("Kontant", f"{cash:,.0f} kr")
-    m3.metric("Ã…pne posisjoner", str(len(rows)))
+    m3.metric("Åpne posisjoner", str(len(rows)))
     m4.metric("Urealisert P/L", f"{total_pnl:+,.0f} kr", f"{avg_pnl_pct:+.2f}%")
 
     if rows:
@@ -8829,13 +8628,13 @@ def render_paper_portfolio_control_center_v1863af():
             pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
             weight = (value / total_value * 100.0) if total_value else 0.0
             if pnl_pct <= -5:
-                action = "Krever oppfÃ¸lging"
+                action = "Krever oppfølging"
             elif pnl_pct >= 10:
                 action = "Vurder gevinstsikring"
             elif weight >= 25:
                 action = "Sjekk konsentrasjon"
             else:
-                action = "Hold / overvÃ¥k"
+                action = "Hold / overvåk"
             control_rows.append({
                 "Ticker": ticker,
                 "Valuta": row.get("currency") or currency_suffix(ticker),
@@ -8846,29 +8645,29 @@ def render_paper_portfolio_control_center_v1863af():
             })
         st.dataframe(pd.DataFrame(control_rows), use_container_width=True, hide_index=True)
     else:
-        st.info("Ingen Ã¥pne paper-posisjoner ennÃ¥.")
+        st.info("Ingen åpne paper-posisjoner ennå.")
 
     if flags:
         st.markdown("#### Varsler og kontrollpunkter")
         st.dataframe(pd.DataFrame(flags), use_container_width=True, hide_index=True)
     else:
-        st.success("Ingen tydelige kontrollvarsler i paper-portefÃ¸ljen akkurat nÃ¥.")
+        st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
 
     st.markdown("#### AI-forslag fra paper-testen")
     for point in _paper_control_learning_points_v1863af(rows, stats, flags):
         st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
 
-    if st.button("ðŸ”” Send paper-kontrollrapport til Pushover", key="paper_control_pushover_v1863af", use_container_width=True):
+    if st.button("🔔 Send paper-kontrollrapport til Pushover", key="paper_control_pushover_v1863af", use_container_width=True):
         summary = [
-            "Paper-portefÃ¸lje kontroll",
+            "Paper-portefølje kontroll",
             f"Total verdi: {total_value:,.0f} kr",
-            f"Ã…pne posisjoner: {len(rows)}",
+            f"Åpne posisjoner: {len(rows)}",
             f"Urealisert P/L: {total_pnl:+,.0f} kr ({avg_pnl_pct:+.2f}%)",
             f"Kontrollvarsler: {len(flags)}",
         ]
         for flag in flags[:4]:
             summary.append(f"{flag.get('ticker')}: {flag.get('signal')} - {flag.get('forslag')}")
-        ok, err = _send_pushover_safe_v1863af("\n".join(summary), "Paper-portefÃ¸lje kontroll")
+        ok, err = _send_pushover_safe_v1863af("\n".join(summary), "Paper-portefølje kontroll")
         if ok:
             st.success("Pushover-rapport sendt.")
         else:
@@ -8941,8 +8740,8 @@ def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_hours: i
 
 
 def render_currency_alerts_control_center_v1863af():
-    st.subheader("ðŸ’± Valutavarsler")
-    st.caption("OvervÃ¥ker valutapar med faste Ã¸vre/nedre grenser. BRL/NOK betyr NOK for 1 BRL. Varsel sendes bare nÃ¥r du kjÃ¸rer sjekk eller senere kobler dette til planlagt jobb.")
+    st.subheader("💱 Valutavarsler")
+    st.caption("Overvåker valutapar med faste øvre/nedre grenser. BRL/NOK betyr NOK for 1 BRL. Varsel sendes bare når du kjører sjekk eller senere kobler dette til planlagt jobb.")
 
     alerts = _load_currency_alerts_v1863af()
     current = dict(alerts[0] if alerts else _currency_alert_defaults_v1863af())
@@ -8960,12 +8759,12 @@ def render_currency_alerts_control_center_v1863af():
         with c3:
             lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.4f")
         with c4:
-            upper = st.number_input("Ã˜vre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.4f")
+            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.4f")
         with c5:
             cooldown = st.number_input("Varselpause timer", min_value=1, max_value=168, value=int(current.get("cooldown_hours", 12) or 12), step=1)
         active = st.checkbox("Aktiv", value=bool(current.get("active", True)))
         pushover = st.checkbox("Send Pushover ved brudd", value=bool(current.get("pushover", True)))
-        saved = st.form_submit_button("ðŸ’¾ Lagre valutavarsel", use_container_width=True)
+        saved = st.form_submit_button("💾 Lagre valutavarsel", use_container_width=True)
 
     if saved:
         _save_currency_alerts_v1863af([{
@@ -8982,11 +8781,11 @@ def render_currency_alerts_control_center_v1863af():
 
     alert = _load_currency_alerts_v1863af()[0]
     st.markdown(
-        f"<div class='v18-dark-row'><b>Aktivt varsel:</b> {html.escape(str(alert.get('pair')))} ({html.escape(str(alert.get('symbol')))}), nedre {float(alert.get('lower') or 0):.4f}, Ã¸vre {float(alert.get('upper') or 0):.4f}</div>",
+        f"<div class='v18-dark-row'><b>Aktivt varsel:</b> {html.escape(str(alert.get('pair')))} ({html.escape(str(alert.get('symbol')))}), nedre {float(alert.get('lower') or 0):.4f}, øvre {float(alert.get('upper') or 0):.4f}</div>",
         unsafe_allow_html=True,
     )
 
-    if st.button("ðŸ”Ž Sjekk valutavarsler nÃ¥", key="currency_alert_check_now_v1863af", type="primary", use_container_width=True):
+    if st.button("🔎 Sjekk valutavarsler nå", key="currency_alert_check_now_v1863af", type="primary", use_container_width=True):
         if not alert.get("active", True):
             st.info("Valutavarselet er deaktivert.")
             return
@@ -9002,7 +8801,7 @@ def render_currency_alerts_control_center_v1863af():
         if lower_v and rate <= lower_v:
             breach = f"{pair_label} er under nedre grense: {rate:.4f} <= {lower_v:.4f}"
         elif upper_v and rate >= upper_v:
-            breach = f"{pair_label} er over Ã¸vre grense: {rate:.4f} >= {upper_v:.4f}"
+            breach = f"{pair_label} er over øvre grense: {rate:.4f} >= {upper_v:.4f}"
         if breach:
             st.error(breach)
             if alert.get("pushover", True):
@@ -9017,7 +8816,7 @@ def render_currency_alerts_control_center_v1863af():
                     else:
                         st.warning(f"Pushover ble ikke sendt: {send_err or 'ukjent feil'}")
                 else:
-                    st.info("Grensen er brutt, men varselpause/cooldown hindrer nytt Pushover-varsel akkurat nÃ¥.")
+                    st.info("Grensen er brutt, men varselpause/cooldown hindrer nytt Pushover-varsel akkurat nå.")
         else:
             st.success(f"{pair_label} er innenfor grensene.")
 
@@ -9109,11 +8908,11 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
     rows = list(rows or [])[: int(limit or 8)]
     st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
     if not rows:
-        st.markdown("<div class='v18-dark-row'>Ingen kandidater Ã¥ vise ennÃ¥.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen kandidater å vise ennå.</div>", unsafe_allow_html=True)
         return
     for idx, row in enumerate(rows, start=1):
         grade = str(row.get("grade") or "-")
-        grade_cls = "green" if grade == "HÃ¸y" else ("yellow" if grade == "Middels" else "red")
+        grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
         ticker_raw = str(row.get("ticker") or row.get("symbol") or "-")
         ticker = _html.escape(_security_display_label_v18569(ticker_raw, row))
         action = _html.escape(str(row.get("action") or ""))
@@ -9147,16 +8946,16 @@ def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limi
             <div class='v18-dark-row' style='margin:.25rem 0; padding:.46rem .56rem;'>
               <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
                 <b>#{idx} {ticker}</b>
-                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} Â· {quality}/100</span><span class='v18-status-chip green'>Intelligens {composite_score}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip green'>Intelligens {composite_score}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
               </div>
               <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>
-                {action} Â· AI {ai} Â· Momentum {mom} Â· Risiko {risk} Â· Event {event}
+                {action} · AI {ai} · Momentum {mom} · Risiko {risk} · Event {event}
               </div>
               <div style='font-size:.76rem; color:rgba(191,219,254,.86); margin-top:.14rem;'>
-                Felles ranking: #{_html.escape(str(row.get('shared_rank') or '-'))} Ã‚Â· score {_html.escape(str(row.get('shared_score') or '-'))} Ã‚Â· {_html.escape(str(row.get('shared_recommended_action') or '-'))}
+                Felles ranking: #{_html.escape(str(row.get('shared_rank') or '-'))} Â· score {_html.escape(str(row.get('shared_score') or '-'))} Â· {_html.escape(str(row.get('shared_recommended_action') or '-'))}
               </div>
               <div style='font-size:.74rem; color:rgba(209,250,229,.86); margin-top:.18rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
-              <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>âš  {_html.escape(caution or 'Ingen store rÃ¸de flagg')}</div>
+              <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -9168,7 +8967,7 @@ def _render_auto_lab_combination_rows_v18536(rows, limit=6):
     rows = list(rows or [])[: int(limit or 6)]
     st.markdown("<div class='ptw-control-panel-title'>Beste kombinasjoner</div>", unsafe_allow_html=True)
     if not rows:
-        st.markdown("<div class='v18-dark-row'>Ingen kombinasjoner ennÃ¥. KjÃ¸r minst 3 gode kandidater.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen kombinasjoner ennå. Kjør minst 3 gode kandidater.</div>", unsafe_allow_html=True)
         return
     for idx, row in enumerate(rows, start=1):
         tickers = " + ".join(row.get("tickers") or [])
@@ -9192,8 +8991,8 @@ def _render_auto_lab_combination_rows_v18536(rows, limit=6):
 
 def render_auto_test_lab_control_center_v18536():
     """On-demand research lab for testing many tickers/funds against the decision stack."""
-    st.subheader("ðŸ”¬ Auto Test Lab")
-    st.caption("Velg Ã©n modus og ett univers. Panelet tester kandidater automatisk nÃ¥r du trykker KjÃ¸r; skjulte moduser starter ingen tunge jobber.")
+    st.subheader("🔬 Auto Test Lab")
+    st.caption("Velg én modus og ett univers. Panelet tester kandidater automatisk når du trykker Kjør; skjulte moduser starter ingen tunge jobber.")
     _render_pipeline_stage_bar_v1863bw("auto_test_lab")
 
     lab_mode = st.radio(
@@ -9215,17 +9014,11 @@ def render_auto_test_lab_control_center_v18536():
             key="auto_lab_scope_v18537",
         )
     with col_b:
-        target = st.selectbox("MÃ¥l", ["Balansert", "Momentum", "Lav risiko", "Kortsiktig", "Langsiktig"], key="auto_lab_target_v18537")
+        target = st.selectbox("Mål", ["Balansert", "Momentum", "Lav risiko", "Kortsiktig", "Langsiktig"], key="auto_lab_target_v18537")
     with col_c:
         test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_test_mode_v18537")
     with col_d:
-        scope_input_count = _pipeline_input_count_v1865d("auto_test_lab") if scope == "Analyseflyt input" else 0
-        slider_max = max(1, scope_input_count) if scope == "Analyseflyt input" else PIPELINE_MAX_CANDIDATES_V1865D
-        slider_min = 1 if slider_max < 5 else 5
-        current_limit = int(st.session_state.get("auto_lab_limit_v18537", 20) or 20)
-        current_limit = max(slider_min, min(current_limit, slider_max))
-        st.session_state["auto_lab_limit_v18537"] = current_limit
-        limit = st.slider("Maks", slider_min, slider_max, current_limit, 1 if slider_max < 5 else 5, key="auto_lab_limit_v18537")
+        limit = st.slider("Maks", 5, 60, 20, 5, key="auto_lab_limit_v18537")
 
     manual_text = ""
     if scope == "Manuell liste":
@@ -9235,7 +9028,7 @@ def render_auto_test_lab_control_center_v18536():
     with c1:
         include_event = st.checkbox("Hendelsesrisiko", value=True, key="auto_lab_event_v18537")
     with c2:
-        use_news_for_score = st.checkbox("Nyheter i score", value=False, key="auto_lab_news_v18537", help="Av som standard for Ã¥ spare NewsAPI. Manuelle nyheter ligger i Nyheter-panelet.")
+        use_news_for_score = st.checkbox("Nyheter i score", value=False, key="auto_lab_news_v18537", help="Av som standard for å spare NewsAPI. Manuelle nyheter ligger i Nyheter-panelet.")
     with c3:
         combo_size = st.multiselect("Kombinasjoner", [2, 3, 4, 5, 6, 8], default=[3, 5], key="auto_lab_combo_sizes_v18537")
 
@@ -9248,19 +9041,19 @@ def render_auto_test_lab_control_center_v18536():
 
     if preview_tickers:
         st.markdown(
-            f"<div class='v18-dark-row'>Valgt univers: <b>{html.escape(scope)}</b> Â· {len(preview_tickers)} tickere Â· fÃ¸rste: {html.escape(', '.join(preview_tickers[:8]))}</div>",
+            f"<div class='v18-dark-row'>Valgt univers: <b>{html.escape(scope)}</b> · {len(preview_tickers)} tickere · første: {html.escape(', '.join(preview_tickers[:8]))}</div>",
             unsafe_allow_html=True,
         )
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen tickere funnet i valgt univers ennÃ¥. Velg et annet univers eller bruk Manuell liste.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen tickere funnet i valgt univers ennå. Velg et annet univers eller bruk Manuell liste.</div>", unsafe_allow_html=True)
 
     tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:8])
     st.markdown(
         f"""
         <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
-          <span><b>Planlagt test:</b> {int(budget.get('tickers', len(preview_tickers)) or 0)} tickere Â· {int(budget.get('tests_per_ticker', 0) or 0)} tester per ticker Â· {int(budget.get('total_tests', 0) or 0)} totalt</span>
-          <span class='v18-status-chip {'red' if budget.get('load_label') == 'HÃ¸y' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
-          <span>NewsAPI: {int(budget.get('news_calls', 0) or 0)} Â· Event: {int(budget.get('event_checks', 0) or 0)}</span>
+          <span><b>Planlagt test:</b> {int(budget.get('tickers', len(preview_tickers)) or 0)} tickere · {int(budget.get('tests_per_ticker', 0) or 0)} tester per ticker · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>NewsAPI: {int(budget.get('news_calls', 0) or 0)} · Event: {int(budget.get('event_checks', 0) or 0)}</span>
         </div>
         <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {html.escape(tests_text or 'Ingen')}</div>
         """,
@@ -9277,16 +9070,16 @@ def render_auto_test_lab_control_center_v18536():
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
-        run_clicked = st.button("ðŸ”¬ KjÃ¸r Auto Test Lab", key="auto_lab_run_v18537", type="primary", use_container_width=True, disabled=not bool(preview_tickers), on_click=set_global_busy, kwargs={"label": "KjÃ¸rer Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
+        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", use_container_width=True, disabled=not bool(preview_tickers), on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
     with stop_col:
-        if st.button("â¹ Stopp/avbryt", key="auto_lab_stop_v18537", use_container_width=True, help="Ber kjÃ¸ringen stoppe trygt ved neste kontrollpunkt."):
+        if st.button("⏹ Stopp/avbryt", key="auto_lab_stop_v18537", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
             st.session_state["auto_lab_stop_requested_v18537"] = True
-            st.warning("Stopp er bedt om. PÃ¥gÃ¥ende kjÃ¸ring stopper ved neste trygge kontrollpunkt.")
+            st.warning("Stopp er bedt om. Pågående kjøring stopper ved neste trygge kontrollpunkt.")
 
     if run_clicked:
         st.session_state["auto_lab_stop_requested_v18537"] = False
         if not preview_tickers:
-            st.warning("Ingen tickere Ã¥ teste.")
+            st.warning("Ingen tickere å teste.")
             finish_global_busy("Klar", "Auto Test Lab manglet tickere.")
             return
         from auto_test_lab import run_auto_test_lab
@@ -9297,7 +9090,7 @@ def render_auto_test_lab_control_center_v18536():
 
         status_box = st.empty()
         progress = st.progress(0, text="Starter Auto Test Lab")
-        update_global_busy("KjÃ¸rer Auto Test Lab", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+        update_global_busy("Kjører Auto Test Lab", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
         learning_stats = load_learning_stats()
 
         def _score_provider(ticker, use_news):
@@ -9322,17 +9115,17 @@ def render_auto_test_lab_control_center_v18536():
             test_idx = int(ev.get("test_index") or 0)
             tests_per = int(ev.get("tests_per_ticker") or max(1, int(budget.get("tests_per_ticker", 1) or 1)))
             status = str(ev.get("status") or "running")
-            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester Â· {pct:.0f}%")
-            update_global_busy("KjÃ¸rer Auto Test Lab", f"{ticker} Â· {test_name} Â· {pct:.0f}%", step=completed, total=total)
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Auto Test Lab", f"{ticker} · {test_name} · {pct:.0f}%", step=completed, total=total)
             status_box.markdown(
                 f"""
                 <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
                   <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
-                    <b>ðŸ”„ Auto Test Lab kjÃ¸rer</b>
-                    <span class='v18-status-chip yellow'>{html.escape(status)} Â· {completed}/{total}</span>
+                    <b>🔄 Auto Test Lab kjører</b>
+                    <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
                   </div>
-                  <div style='font-size:.82rem;margin-top:.25rem;'>Aksje: <b>{html.escape(ticker)}</b> Â· Test nÃ¥: <b>{html.escape(test_name)}</b></div>
-                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Ticker {ticker_idx}/{ticker_total} Â· Test {test_idx}/{tests_per} Â· Total fremdrift {pct:.1f}%</div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Aksje: <b>{html.escape(ticker)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Ticker {ticker_idx}/{ticker_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -9392,9 +9185,9 @@ def render_auto_test_lab_control_center_v18536():
         progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
         finish_global_busy("Klar", "Auto Test Lab ferdig." if not result.get("interrupted") else "Auto Test Lab avbrutt.")
         if result.get("interrupted"):
-            st.warning(f"Auto Test Lab avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. ForelÃ¸pig resultat er lagret.")
+            st.warning(f"Auto Test Lab avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
         else:
-            st.success(f"Auto Test Lab ferdig: {result.get('analyzed', 0)} analyserte kandidater Â· {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+            st.success(f"Auto Test Lab ferdig: {result.get('analyzed', 0)} analyserte kandidater · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
 
     result = st.session_state.get("auto_test_lab_last_result_v18536") or {}
     if result:
@@ -9406,7 +9199,7 @@ def render_auto_test_lab_control_center_v18536():
         cols[3].metric("Beste kvalitet", summary.get("best_quality") or "-")
         cols[4].metric("Kombinasjoner", summary.get("combinations", 0))
         if result.get("interrupted"):
-            st.warning("Siste Auto Test Lab ble avbrutt. Resultatene under er forelÃ¸pige.")
+            st.warning("Siste Auto Test Lab ble avbrutt. Resultatene under er foreløpige.")
         _render_auto_lab_decision_rows_v18536(result.get("shared_ranking_rows"), title="Felles ranking / testbenk", limit=8)
         _render_auto_lab_decision_rows_v18536(result.get("best_single"), title="Beste enkeltaksjer", limit=8)
         _render_auto_lab_combination_rows_v18536(result.get("combinations"), limit=6)
@@ -9419,7 +9212,7 @@ def render_auto_test_lab_control_center_v18536():
                 for row in errors[:12]:
                     st.caption(f"{row.get('ticker')}: {row.get('test', '-')}: {row.get('error')}")
     else:
-        st.info("Ingen Auto Test Lab-resultat ennÃ¥. Velg univers og trykk KjÃ¸r.")
+        st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
 
 
 # v18.5.43: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
@@ -9445,7 +9238,7 @@ def _render_fund_result_scope_v18547(result, *, default_limit=8):
             <span class='v18-status-chip yellow'>Tilgjengelig i univers: {_html.escape(str(available))}</span>
             <span>{_html.escape(str(source))}</span>
           </div>
-          <div style='font-size:.78rem;color:rgba(226,232,240,.82);margin-top:.25rem;'>Auto-universet er et starter-univers, ikke hele markedet. Hele starter-universet analyseres fÃ¸rst; deretter vises valgt antall eller alle analyserte.</div>
+          <div style='font-size:.78rem;color:rgba(226,232,240,.82);margin-top:.25rem;'>Auto-universet er et starter-univers, ikke hele markedet. Hele starter-universet analyseres først; deretter vises valgt antall eller alle analyserte.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -9455,11 +9248,11 @@ def _render_fund_result_scope_v18547(result, *, default_limit=8):
 def _render_what_changed_v18555(profile, title="Hva endret seg siden sist?"):
     import html as _html
     prof = dict(profile or {})
-    summary = str(prof.get("summary") or "Ingen endringsanalyse tilgjengelig ennÃ¥.")
+    summary = str(prof.get("summary") or "Ingen endringsanalyse tilgjengelig ennå.")
     st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)}</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='v18-dark-row' style='margin:.35rem 0 .75rem 0;padding:.62rem .70rem;line-height:1.35;'><b>Layer 6:</b> {_html.escape(summary)}</div>", unsafe_allow_html=True)
     if not prof.get("has_previous"):
-        st.caption("FÃ¸rste sammenlignbare snapshot er lagret. Neste kjÃ¸ring kan forklare rang-, score-, risiko- og insiderendringer.")
+        st.caption("Første sammenlignbare snapshot er lagret. Neste kjøring kan forklare rang-, score-, risiko- og insiderendringer.")
         return
     movers = list(prof.get("rank_movers") or [])[:5]
     score_movers = list(prof.get("score_movers") or [])[:5]
@@ -9483,7 +9276,7 @@ def _render_what_changed_v18555(profile, title="Hva endret seg siden sist?"):
             for r in risk:
                 added = ", ".join(r.get("added") or []) or "ingen nye"
                 removed = ", ".join(r.get("removed") or []) or "ingen fjernet"
-                st.caption(f"{r.get('symbol')}: nye: {added} Â· fjernet: {removed}")
+                st.caption(f"{r.get('symbol')}: nye: {added} · fjernet: {removed}")
 
 def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limit=8, allow_view_toggle=True, empty_text=None):
     import html as _html
@@ -9496,14 +9289,14 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
     shown_limit = len(all_rows) if mode == "Vis alle" else int(limit or 8)
     rows = all_rows[:shown_limit]
     suffix = f"Topp {len(rows)} av {len(all_rows)} analyserte" if len(all_rows) > len(rows) else f"{len(rows)} analyserte"
-    st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)} <span style='font-size:.78rem;opacity:.75;'>Â· {_html.escape(suffix)}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)} <span style='font-size:.78rem;opacity:.75;'>· {_html.escape(suffix)}</span></div>", unsafe_allow_html=True)
     if not rows:
-        msg = empty_text or "Ingen fond/ETF-kandidater Ã¥ vise ennÃ¥. KjÃ¸r analysen eller utvid valgt fondunivers."
+        msg = empty_text or "Ingen fond/ETF-kandidater å vise ennå. Kjør analysen eller utvid valgt fondunivers."
         st.markdown(f"<div class='v18-dark-row' style='margin:.35rem 0 .75rem 0;padding:.62rem .70rem;line-height:1.35;'>{_html.escape(msg)}</div>", unsafe_allow_html=True)
         return
     for idx, row in enumerate(rows, start=1):
         grade = str(row.get("grade") or "-")
-        grade_cls = "green" if grade == "HÃ¸y" else ("yellow" if grade == "Middels" else "red")
+        grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
         symbol = _html.escape(str(row.get("symbol") or "-"))
         full_label = _html.escape(_fund_display_label_v18574(row))
         raw_name = str(row.get("name") or "Navn ikke funnet")
@@ -9541,13 +9334,13 @@ def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limi
                   <div style='font-weight:950;font-size:1.00rem;'>#{idx} {full_label}</div>
                   <div style='font-size:.82rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Type: {fund_type}</div>
                 </div>
-                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} Â· {quality}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span><span class='v18-status-chip green'>Scenario {scenario_score}/100</span><span class='v18-status-chip green'>PortefÃ¸lje-fit {portfolio_fit_score}/100</span>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span><span class='v18-status-chip green'>Scenario {scenario_score}/100</span><span class='v18-status-chip green'>Portefølje-fit {portfolio_fit_score}/100</span>
               </div>
-              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.35rem;'>Beslutning: {decision or '-'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 5:</b> {composite_summary or 'Composite intelligence beregnet fra tilgjengelige lag'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 7:</b> {scenario_summary or 'Scenario/regime-profil beregnet fra tilgjengelige data'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 8:</b> {portfolio_fit_summary or 'PortefÃ¸lje-fit vurderer overlapp, hull og diversifisering'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.16rem;'>{base_summary}</div>
+              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.35rem;'>Beslutning: {decision or '-'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 5:</b> {composite_summary or 'Composite intelligence beregnet fra tilgjengelige lag'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 7:</b> {scenario_summary or 'Scenario/regime-profil beregnet fra tilgjengelige data'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 8:</b> {portfolio_fit_summary or 'Portefølje-fit vurderer overlapp, hull og diversifisering'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.16rem;'>{base_summary}</div>
               <div style='font-size:.84rem;color:rgba(226,232,240,.88);margin-top:.22rem;'><b>Forklaring:</b> {explain_short or 'Layer 2 forklaring mangler'}</div>
-              <div style='font-size:.84rem;color:rgba(191,219,254,.88);margin-top:.25rem;'>Kostnad {cost_txt} Â· Avkastning {ret_txt} Â· Max DD {dd_txt} Â· Mot benchmark {excess_txt}</div>
+              <div style='font-size:.84rem;color:rgba(191,219,254,.88);margin-top:.25rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
               <div style='font-size:.82rem;color:rgba(209,250,229,.88);margin-top:.25rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
-              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.18rem;'>âš  {_html.escape(caution or 'Ingen store rÃ¸de flagg')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.18rem;'>⚠ {_html.escape(caution or 'Ingen store røde flagg')}</div>
               <div style='font-size:.82rem;color:rgba(191,219,254,.84);margin-top:.18rem;'>Velges hvis: {_html.escape(select_trigger or 'bedre total score mot alternativer')}</div>
               <div style='font-size:.82rem;color:rgba(254,226,226,.84);margin-top:.12rem;'>Forkastes hvis: {_html.escape(reject_trigger or 'risiko/kostnad forverres uten kompenserende avkastning')}</div>
             </div>
@@ -9561,7 +9354,7 @@ def _render_fund_comparator_v18539(comparator, title="Fond vs fond-sammenligning
     comp = dict(comparator or {})
     st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
     if not comp or not comp.get("rows"):
-        st.markdown("<div class='v18-dark-row'>Ingen sammenligning ennÃ¥. KjÃ¸r Fond / ETF-analyse fÃ¸rst.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen sammenligning ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
         return
     leaders = comp.get("leaders") or {}
     st.markdown(
@@ -9600,12 +9393,12 @@ def _render_fund_comparator_v18539(comparator, title="Fond vs fond-sammenligning
         )
 
 
-def _render_active_evidence_v18539(rows, title="Aktivt fond mÃ¥ bevise merverdi"):
+def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"):
     import html as _html
     active = [dict(r) for r in (rows or []) if dict(r).get("fund_type") == "Aktivt fond"]
     st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
     if not active:
-        st.markdown("<div class='v18-dark-row'>Ingen aktive fond i denne kjÃ¸ringen.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen aktive fond i denne kjøringen.</div>", unsafe_allow_html=True)
         return
     for row in active[:8]:
         symbol = _html.escape(_fund_display_label_v18574(row))
@@ -9620,9 +9413,9 @@ def _render_active_evidence_v18539(rows, title="Aktivt fond mÃ¥ bevise merverd
             <div class='v18-dark-row' style='border-color:rgba(245,158,11,.35);'>
               <div style='display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;'>
                 <b>{symbol}</b>
-                <span class='v18-status-chip {cls}'>{_html.escape(status)} Â· {score if score is not None else '-'}/100</span>
+                <span class='v18-status-chip {cls}'>{_html.escape(status)} · {score if score is not None else '-'}/100</span>
               </div>
-              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>Meravkastning mot benchmark: {excess if excess is not None else 'ukjent'}% Â· Kostnad: {fee if fee is not None else 'ukjent'}%</div>
+              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>Meravkastning mot benchmark: {excess if excess is not None else 'ukjent'}% · Kostnad: {fee if fee is not None else 'ukjent'}%</div>
               <div style='font-size:.76rem;color:rgba(254,226,226,.86);margin-top:.18rem;'>{msg}</div>
             </div>
             """,
@@ -9638,7 +9431,7 @@ def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunns
     dq = dict(summary or {})
     st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
     if not dq or not dq.get("rows"):
-        st.markdown("<div class='v18-dark-row'>Ingen Fond Decision Quality ennÃ¥. KjÃ¸r Fond / ETF-analyse fÃ¸rst.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen Fond Decision Quality ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
         return
     avg = dq.get("average_quality")
     avg_base = dq.get("average_base_score")
@@ -9653,13 +9446,13 @@ def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunns
             <span class='v18-status-chip green'>Decision Quality {avg if avg is not None else '-'}/100</span>
             <span class='v18-status-chip yellow'>Layer 1 grunnscore {avg_base if avg_base is not None else '-'}/100</span>
             <span class='v18-status-chip green'>Best: {best}</span>
-            <span class='v18-status-chip yellow'>HÃ¸y: {_html.escape(str(grade_counts.get('HÃ¸y', 0)))}</span>
+            <span class='v18-status-chip yellow'>Høy: {_html.escape(str(grade_counts.get('Høy', 0)))}</span>
             <span class='v18-status-chip yellow'>Middels: {_html.escape(str(grade_counts.get('Middels', 0)))}</span>
             <span class='v18-status-chip red'>Lav: {_html.escape(str(grade_counts.get('Lav', 0)))}</span>
             <span class='v18-status-chip green'>Grunnmur: {_html.escape(str(role_counts.get('Grunnmur', 0)))}</span>
             <span class='v18-status-chip yellow'>Satellitt: {_html.escape(str(role_counts.get('Satellitt', 0)))}</span>
           </div>
-          <div style='font-size:.77rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>Layer 1 er stabil grunnscore. Layer 2 forklarer hvorfor fondet rangeres slik, hva som mÃ¥ til for valg, og hva som kan fÃ¥ modellen til Ã¥ forkaste fondet.</div>
+          <div style='font-size:.77rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>Layer 1 er stabil grunnscore. Layer 2 forklarer hvorfor fondet rangeres slik, hva som må til for valg, og hva som kan få modellen til å forkaste fondet.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -9674,7 +9467,7 @@ def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunns
         grade = str(row.get("grade") or "-")
         decision = _html.escape(str(row.get("decision") or "-"))
         role = _html.escape(str(row.get("recommended_role") or "-"))
-        cls = "green" if grade == "HÃ¸y" else ("yellow" if grade == "Middels" else "red")
+        cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
         comps = row.get("component_scores") or {}
         role_scores = row.get("role_scores") or {}
         drivers = "; ".join(str(x) for x in (row.get("drivers") or [])[:2])
@@ -9693,16 +9486,16 @@ def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunns
               <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
                 <b>{symbol}</b>
                 <span>{ftype}</span>
-                <span class='v18-status-chip {cls}'>{_html.escape(grade)} Â· {quality}/100</span>
+                <span class='v18-status-chip {cls}'>{_html.escape(grade)} · {quality}/100</span>
                 <span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
                 <span class='v18-status-chip yellow'>Rolle: {role}</span>
                 <span>{decision}</span>
               </div>
-              <div style='font-size:.75rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>Kostnad {cost} Â· Kostnadstid {cost_impact} Â· Risiko {risk} Â· Benchmark {bench} Â· Data {data_q}</div>
+              <div style='font-size:.75rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>Kostnad {cost} · Kostnadstid {cost_impact} · Risiko {risk} · Benchmark {bench} · Data {data_q}</div>
               <div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.10rem;'>{base_summary}</div>
-              <div style='font-size:.75rem;color:rgba(226,232,240,.82);margin-top:.10rem;'>Grunnmur-score {core_score} Â· Satellitt-score {sat_score}</div>
+              <div style='font-size:.75rem;color:rgba(226,232,240,.82);margin-top:.10rem;'>Grunnmur-score {core_score} · Satellitt-score {sat_score}</div>
               <div style='font-size:.82rem;color:rgba(209,250,229,.88);margin-top:.10rem;'>+ {_html.escape(drivers or 'Ingen tydelig hoveddriver')}</div>
-              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.10rem;'>âš  {_html.escape(cautions or why or 'Ingen store rÃ¸de flagg')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.10rem;'>⚠ {_html.escape(cautions or why or 'Ingen store røde flagg')}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -9721,9 +9514,9 @@ def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-fo
     cs = dict(core_satellite or {})
     st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
     if not cs or not cs.get("allocation"):
-        warnings = cs.get("warnings") or ["KjÃ¸r Fond / ETF-analyse fÃ¸rst."]
+        warnings = cs.get("warnings") or ["Kjør Fond / ETF-analyse først."]
         st.markdown(
-            f"<div class='v18-dark-row'>Ingen allokering foreslÃ¥tt ennÃ¥. {_html.escape(' '.join(str(x) for x in warnings[:2]))}</div>",
+            f"<div class='v18-dark-row'>Ingen allokering foreslått ennå. {_html.escape(' '.join(str(x) for x in warnings[:2]))}</div>",
             unsafe_allow_html=True,
         )
         return
@@ -9736,7 +9529,7 @@ def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-fo
         f"""
         <div class='v18-dark-row' style='border-color:rgba(34,197,94,.42);'>
           <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
-            <b>PortefÃ¸ljeforslag: {profile}</b>
+            <b>Porteføljeforslag: {profile}</b>
             <span class='v18-status-chip green'>Grunnmur {core_pct}%</span>
             <span class='v18-status-chip yellow'>Satellitter {sat_pct}%</span>
             <span class='v18-status-chip green'>Kvalitet {avg_q if avg_q is not None else '-'}/100</span>
@@ -9784,9 +9577,9 @@ def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-fo
     if needs or avoid:
         with st.expander("Kandidater uten plass i forslaget", expanded=False):
             for row in needs[:8]:
-                st.caption(f"{row.get('symbol')}: Krever mer bevis Â· {row.get('reason')}")
+                st.caption(f"{row.get('symbol')}: Krever mer bevis · {row.get('reason')}")
             for row in avoid[:8]:
-                st.caption(f"{row.get('symbol')}: UnngÃ¥ Â· {row.get('reason')}")
+                st.caption(f"{row.get('symbol')}: Unngå · {row.get('reason')}")
 
 
 
@@ -9800,11 +9593,11 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
 
     c1, c2, c3, c4 = st.columns([1.0, 1.0, 1.0, 0.9])
     with c1:
-        start_amount = st.number_input("StartbelÃ¸p", min_value=0, max_value=100_000_000, value=100_000, step=10_000, key="fund_cost_start_v18541")
+        start_amount = st.number_input("Startbeløp", min_value=0, max_value=100_000_000, value=100_000, step=10_000, key="fund_cost_start_v18541")
     with c2:
-        monthly_saving = st.number_input("MÃ¥nedlig sparing", min_value=0, max_value=2_000_000, value=2_000, step=500, key="fund_cost_monthly_v18541")
+        monthly_saving = st.number_input("Månedlig sparing", min_value=0, max_value=2_000_000, value=2_000, step=500, key="fund_cost_monthly_v18541")
     with c3:
-        annual_return = st.number_input("Avkastning fÃ¸r kostnad %", min_value=-20.0, max_value=30.0, value=7.0, step=0.25, key="fund_cost_return_v18541")
+        annual_return = st.number_input("Avkastning før kostnad %", min_value=-20.0, max_value=30.0, value=7.0, step=0.25, key="fund_cost_return_v18541")
     with c4:
         years = st.selectbox("Horisont", [10, 20, 30], index=1, key="fund_cost_years_v18541")
 
@@ -9822,12 +9615,12 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
         f"""
         <div class='v18-dark-row' style='border-color:rgba(59,130,246,.48);'>
           <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
-            <b>Kostnadseffekt over {int(impact.get('years') or years)} Ã¥r</b>
+            <b>Kostnadseffekt over {int(impact.get('years') or years)} år</b>
             <span class='v18-status-chip green'>Baseline: {impact.get('baseline_fee_pct')}%</span>
             <span class='v18-status-chip yellow'>Forskjell billigst/dyrest: {diff:,.0f} kr</span>
           </div>
           <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>
-            Start {float(start_amount or 0):,.0f} kr Â· MÃ¥nedlig {float(monthly_saving or 0):,.0f} kr Â· Forventet avkastning fÃ¸r kostnad {float(annual_return or 0):.2f}%.
+            Start {float(start_amount or 0):,.0f} kr · Månedlig {float(monthly_saving or 0):,.0f} kr · Forventet avkastning før kostnad {float(annual_return or 0):.2f}%.
             Dette er en enkel illustrasjon, ikke en garanti for fremtidig avkastning.
           </div>
         </div>
@@ -9859,23 +9652,23 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
         )
 
     if not rows:
-        st.markdown("<div class='v18-dark-row'>KjÃ¸r Fond / ETF-analyse for Ã¥ bruke faktiske fondskostnader. ReferansenivÃ¥ene over viser likevel kostnadseffekten.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Kjør Fond / ETF-analyse for å bruke faktiske fondskostnader. Referansenivåene over viser likevel kostnadseffekten.</div>", unsafe_allow_html=True)
 
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
-    st.subheader("ðŸ¦ Fond / ETF-analyse")
-    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond nÃ¥r du trykker KjÃ¸r. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
+    st.subheader("🏦 Fond / ETF-analyse")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
 
     from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options
     col_src, col_market, col_a, col_b, col_c, col_d = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
     with col_src:
-        selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-univers velger fra fondskatalogen. Manuell liste bruker dine symboler i rekkefÃ¸lge.")
+        selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-univers velger fra fondskatalogen. Manuell liste bruker dine symboler i rekkefølge.")
     with col_market:
         fund_market = st.selectbox("Marked / region", fund_market_options(), key="fund_lab_market_v1863x", help="Bruker samme markedslogikk som resten av AI Kontrollsenter, med ekstra Europa/UCITS for fond.")
     with col_a:
         fund_type = st.selectbox("Fondstype", fund_type_options(), key="fund_lab_type_v18538")
     with col_b:
-        objective = st.selectbox("MÃ¥l", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="fund_lab_objective_v18538")
+        objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="fund_lab_objective_v18538")
     with col_c:
         test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="fund_lab_test_mode_v18538")
     with col_d:
@@ -9900,7 +9693,7 @@ def render_fund_etf_control_center_v18538():
     with c1:
         include_benchmark = st.checkbox("Benchmark-sjekk", value=True, key="fund_lab_include_benchmark_v18538")
     with c2:
-        fetch_costs = st.checkbox("PrÃ¸v Ã¥ hente kostnader", value=True, key="fund_lab_fetch_costs_v18538")
+        fetch_costs = st.checkbox("Prøv å hente kostnader", value=True, key="fund_lab_fetch_costs_v18538")
     with c3:
         store_result = st.checkbox("Lagre resultat", value=True, key="fund_lab_store_result_v18538")
 
@@ -9913,11 +9706,11 @@ def render_fund_etf_control_center_v18538():
     st.markdown(
         f"""
         <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
-          <span><b>Planlagt fondanalyse:</b> {int(budget.get('funds', len(symbols)) or 0)} fond Â· {int(budget.get('tests_per_fund', 0) or 0)} tester per fond Â· {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span><b>Planlagt fondanalyse:</b> {int(budget.get('funds', len(symbols)) or 0)} fond · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
           <span class='v18-status-chip green'>Kilde: {html.escape(str(selection.get('source') or selection_source))}</span>
           <span class='v18-status-chip green'>Marked: {html.escape(str(selection.get('market_scope') or fund_market))}</span>
-          <span class='v18-status-chip {'red' if budget.get('load_label') == 'HÃ¸y' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
-          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} Â· Metadata: {int(budget.get('metadata_calls', 0) or 0)} Â· Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
+          <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
         </div>
         <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {html.escape(tests_text or 'Ingen')}</div>
         """,
@@ -9931,24 +9724,24 @@ def render_fund_etf_control_center_v18538():
             reasons.append(f"<b>{html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({html.escape(str(markets or item.get('bucket') or '-'))}: {html.escape(str(item.get('reason') or 'valgt'))})</span>")
         st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. PrÃ¸v Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. Prøv Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
-        run_clicked = st.button("ðŸ¦ KjÃ¸r Fond / ETF-analyse", key="fund_lab_run_v18538", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "KjÃ¸rer Fond / ETF", "detail": "Tester fond mot kostnad, risiko og benchmark"})
+        run_clicked = st.button("🏦 Kjør Fond / ETF-analyse", key="fund_lab_run_v18538", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Fond / ETF", "detail": "Tester fond mot kostnad, risiko og benchmark"})
     with stop_col:
-        if st.button("â¹ Stopp/avbryt", key="fund_lab_stop_v18538", use_container_width=True):
+        if st.button("⏹ Stopp/avbryt", key="fund_lab_stop_v18538", use_container_width=True):
             st.session_state["fund_lab_stop_requested_v18538"] = True
-            st.warning("Stopp er bedt om. KjÃ¸ringen stopper ved neste trygge kontrollpunkt.")
+            st.warning("Stopp er bedt om. Kjøringen stopper ved neste trygge kontrollpunkt.")
 
     if run_clicked:
         st.session_state["fund_lab_stop_requested_v18538"] = False
         if not symbols:
-            st.warning("Ingen fond/ETF-er Ã¥ teste.")
+            st.warning("Ingen fond/ETF-er å teste.")
             finish_global_busy("Klar", "Fond / ETF-analyse manglet symboler.")
             return
         if yf is None:
-            st.error("yfinance er ikke tilgjengelig i miljÃ¸et. Legg yfinance i requirements/deploy fÃ¸r fonddata kan hentes.")
+            st.error("yfinance er ikke tilgjengelig i miljøet. Legg yfinance i requirements/deploy før fonddata kan hentes.")
             finish_global_busy("Klar", "Fond / ETF-analyse stoppet: yfinance mangler.")
             return
 
@@ -9958,7 +9751,7 @@ def render_fund_etf_control_center_v18538():
 
         status_box = st.empty()
         progress = st.progress(0, text="Starter Fond / ETF-analyse")
-        update_global_busy("KjÃ¸rer Fond / ETF", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+        update_global_busy("Kjører Fond / ETF", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
 
         def _download_symbol(symbol):
             info = {}
@@ -10009,17 +9802,17 @@ def render_fund_etf_control_center_v18538():
             test_idx = int(ev.get("test_index") or 0)
             tests_per = int(ev.get("tests_per_fund") or max(1, int(budget.get("tests_per_fund", 1) or 1)))
             status = str(ev.get("status") or "running")
-            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester Â· {pct:.0f}%")
-            update_global_busy("KjÃ¸rer Fond / ETF", f"{symbol} Â· {test_name} Â· {pct:.0f}%", step=completed, total=total)
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Fond / ETF", f"{symbol} · {test_name} · {pct:.0f}%", step=completed, total=total)
             status_box.markdown(
                 f"""
                 <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
                   <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
-                    <b>ðŸ”„ Fond / ETF-analyse kjÃ¸rer</b>
-                    <span class='v18-status-chip yellow'>{html.escape(status)} Â· {completed}/{total}</span>
+                    <b>🔄 Fond / ETF-analyse kjører</b>
+                    <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
                   </div>
-                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{html.escape(symbol)}</b> Â· Test nÃ¥: <b>{html.escape(test_name)}</b></div>
-                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} Â· Test {test_idx}/{tests_per} Â· Total fremdrift {pct:.1f}%</div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{html.escape(symbol)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -10052,9 +9845,9 @@ def render_fund_etf_control_center_v18538():
         progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
         finish_global_busy("Klar", "Fond / ETF-analyse ferdig." if not result.get("interrupted") else "Fond / ETF-analyse avbrutt.")
         if result.get("interrupted"):
-            st.warning(f"Fond / ETF-analyse avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. ForelÃ¸pig resultat er lagret.")
+            st.warning(f"Fond / ETF-analyse avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
         else:
-            st.success(f"Fond / ETF-analyse ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond Â· {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+            st.success(f"Fond / ETF-analyse ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
 
     result = st.session_state.get("fund_etf_lab_last_result_v18538") or {}
     if result:
@@ -10066,9 +9859,9 @@ def render_fund_etf_control_center_v18538():
         cols[3].metric("Kvalitet", summary.get("best_quality") or "-")
         cols[4].metric("Feil", summary.get("errors", 0))
         if result.get("interrupted"):
-            st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er forelÃ¸pige.")
+            st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er foreløpige.")
         if int(summary.get("analyzed", 0) or 0) == 0 and int(summary.get("errors", 0) or 0) > 0:
-            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste Ã¥rsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under fÃ¸r du endrer strategi.")
+            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste årsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under før du endrer strategi.")
         _render_fund_result_scope_v18547(result, default_limit=8)
         _render_what_changed_v18555(result.get("what_changed_profile"))
         display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
@@ -10077,7 +9870,7 @@ def render_fund_etf_control_center_v18538():
         _render_fund_decision_quality_v18542(result.get("decision_quality_summary"), title="Fondskvalitet og grunnscore")
         _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
         _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
-        _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennÃ¥. KjÃ¸r fondanalyse fÃ¸rst.")
+        _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennå. Kjør fondanalyse først.")
         _render_active_evidence_v18539(result.get("ranked"), title="Vurdering av aktive fond")
         _render_fund_etf_rows_v18538(result.get("active_candidates"), title="Aktive fond som kan vurderes", limit=5)
         _render_fund_etf_rows_v18538(result.get("fixed_income_candidates"), title="Rente-/obligasjonsfond og pengemarked", limit=5)
@@ -10087,11 +9880,11 @@ def render_fund_etf_control_center_v18538():
         if needs or errors:
             with st.expander("Krever mer bevis / mangler data / feil", expanded=False):
                 for row in needs[:12]:
-                    st.caption(f"{row.get('symbol')}: {row.get('decision')} Â· {', '.join(row.get('reasons_caution') or [])}")
+                    st.caption(f"{row.get('symbol')}: {row.get('decision')} · {', '.join(row.get('reasons_caution') or [])}")
                 for row in errors[:12]:
                     st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
     else:
-        st.info("Ingen Fond / ETF-resultat ennÃ¥. Legg inn fond/ETF-er og trykk KjÃ¸r.")
+        st.info("Ingen Fond / ETF-resultat ennå. Legg inn fond/ETF-er og trykk Kjør.")
 
 
 
@@ -10110,14 +9903,14 @@ def render_auto_test_lab_fund_mode_v18543():
             "Utvalgskilde",
             fund_selection_sources(),
             key="auto_lab_fund_source_v18543",
-            help="Auto-kilder velger fond/ETF-er fra et transparent start-univers. Manuell liste bruker dine symboler i rekkefÃ¸lge.",
+            help="Auto-kilder velger fond/ETF-er fra et transparent start-univers. Manuell liste bruker dine symboler i rekkefølge.",
         )
     with col_market:
         fund_market = st.selectbox("Marked / region", fund_market_options(), key="auto_lab_fund_market_v1863x")
     with col_type:
         fund_type = st.selectbox("Fondstype", fund_type_options(), key="auto_lab_fund_type_v18543")
     with col_obj:
-        objective = st.selectbox("MÃ¥l", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="auto_lab_fund_objective_v18543")
+        objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="auto_lab_fund_objective_v18543")
     with col_mode:
         test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_fund_test_mode_v18543")
     with col_max:
@@ -10146,14 +9939,14 @@ def render_auto_test_lab_fund_mode_v18543():
         value=default_list,
         height=72,
         key="auto_lab_fund_manual_v18543",
-        help="Bruk tickere der Yahoo Finance har data. Auto-kilder brukes nÃ¥r Utvalgskilde ikke er Manuell liste. Kraft High Yield D kan skrives som tekst/alias, men krever NAV-datakilde for full data.",
+        help="Bruk tickere der Yahoo Finance har data. Auto-kilder brukes når Utvalgskilde ikke er Manuell liste. Kraft High Yield D kan skrives som tekst/alias, men krever NAV-datakilde for full data.",
     )
 
     c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
     with c1:
         include_benchmark = st.checkbox("Benchmark-sjekk", value=True, key="auto_lab_fund_include_benchmark_v18543")
     with c2:
-        fetch_costs = st.checkbox("PrÃ¸v Ã¥ hente kostnader", value=True, key="auto_lab_fund_fetch_costs_v18543")
+        fetch_costs = st.checkbox("Prøv å hente kostnader", value=True, key="auto_lab_fund_fetch_costs_v18543")
     with c3:
         store_result = st.checkbox("Lagre Auto Test Lab-resultat", value=True, key="auto_lab_fund_store_result_v18543")
 
@@ -10163,15 +9956,15 @@ def render_auto_test_lab_fund_mode_v18543():
     budget = estimate_auto_lab_fund_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
     tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
 
-    load_cls = "red" if budget.get("load_label") == "HÃ¸y" else ("yellow" if budget.get("load_label") == "Medium" else "green")
+    load_cls = "red" if budget.get("load_label") == "Høy" else ("yellow" if budget.get("load_label") == "Medium" else "green")
     st.markdown(
         f"""
         <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
-          <span><b>Planlagt fondmodus:</b> {int(budget.get('funds', len(symbols)) or 0)} fond/ETF Â· {int(budget.get('tests_per_fund', 0) or 0)} tester per fond Â· {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span><b>Planlagt fondmodus:</b> {int(budget.get('funds', len(symbols)) or 0)} fond/ETF · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
           <span class='v18-status-chip green'>Auto Test Lab: Fond / ETF</span>
           <span class='v18-status-chip green'>Marked: {_html.escape(str(selection.get('market_scope') or fund_market))}</span>
           <span class='v18-status-chip {load_cls}'>Databudsjett: {_html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
-          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} Â· Metadata: {int(budget.get('metadata_calls', 0) or 0)} Â· Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
+          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
         </div>
         <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {_html.escape(tests_text or 'Ingen')}</div>
         """,
@@ -10185,31 +9978,31 @@ def render_auto_test_lab_fund_mode_v18543():
             reasons.append(f"<b>{_html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({_html.escape(str(markets or item.get('bucket') or '-'))}: {_html.escape(str(item.get('reason') or 'valgt'))})</span>")
         st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. PrÃ¸v Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. Prøv Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
         run_clicked = st.button(
-            "ðŸ¦ KjÃ¸r Auto Test Lab â€“ Fondmodus",
+            "🏦 Kjør Auto Test Lab – Fondmodus",
             key="auto_lab_fund_run_v18543",
             type="primary",
             use_container_width=True,
             on_click=set_global_busy,
-            kwargs={"label": "KjÃ¸rer Auto Test Lab Fondmodus", "detail": "Tester fond/ETF mot kostnad, benchmark og beslutningskvalitet"},
+            kwargs={"label": "Kjører Auto Test Lab Fondmodus", "detail": "Tester fond/ETF mot kostnad, benchmark og beslutningskvalitet"},
         )
     with stop_col:
-        if st.button("â¹ Stopp/avbryt", key="auto_lab_fund_stop_v18543", use_container_width=True, help="Ber kjÃ¸ringen stoppe trygt ved neste kontrollpunkt."):
+        if st.button("⏹ Stopp/avbryt", key="auto_lab_fund_stop_v18543", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
             st.session_state["auto_lab_fund_stop_requested_v18543"] = True
             st.warning("Stopp er bedt om. Fondmodus stopper ved neste trygge kontrollpunkt.")
 
     if run_clicked:
         st.session_state["auto_lab_fund_stop_requested_v18543"] = False
         if not symbols:
-            st.warning("Ingen fond/ETF-er Ã¥ teste.")
+            st.warning("Ingen fond/ETF-er å teste.")
             finish_global_busy("Klar", "Auto Test Lab Fondmodus manglet symboler.")
             return
         if yf is None:
-            st.error("yfinance er ikke tilgjengelig i miljÃ¸et. Legg yfinance i requirements/deploy fÃ¸r fonddata kan hentes.")
+            st.error("yfinance er ikke tilgjengelig i miljøet. Legg yfinance i requirements/deploy før fonddata kan hentes.")
             finish_global_busy("Klar", "Auto Test Lab Fondmodus stoppet: yfinance mangler.")
             return
 
@@ -10219,7 +10012,7 @@ def render_auto_test_lab_fund_mode_v18543():
 
         status_box = st.empty()
         progress = st.progress(0, text="Starter Auto Test Lab Fondmodus")
-        update_global_busy("KjÃ¸rer Auto Test Lab Fondmodus", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+        update_global_busy("Kjører Auto Test Lab Fondmodus", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
 
         def _download_symbol(symbol):
             info = {}
@@ -10270,17 +10063,17 @@ def render_auto_test_lab_fund_mode_v18543():
             test_idx = int(ev.get("test_index") or 0)
             tests_per = int(ev.get("tests_per_fund") or max(1, int(budget.get("tests_per_fund", 1) or 1)))
             status = str(ev.get("status") or "running")
-            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester Â· {pct:.0f}%")
-            update_global_busy("KjÃ¸rer Auto Test Lab Fondmodus", f"{symbol} Â· {test_name} Â· {pct:.0f}%", step=completed, total=total)
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Auto Test Lab Fondmodus", f"{symbol} · {test_name} · {pct:.0f}%", step=completed, total=total)
             status_box.markdown(
                 f"""
                 <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
                   <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
-                    <b>ðŸ”„ Auto Test Lab Fondmodus kjÃ¸rer</b>
-                    <span class='v18-status-chip yellow'>{_html.escape(status)} Â· {completed}/{total}</span>
+                    <b>🔄 Auto Test Lab Fondmodus kjører</b>
+                    <span class='v18-status-chip yellow'>{_html.escape(status)} · {completed}/{total}</span>
                   </div>
-                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{_html.escape(symbol)}</b> Â· Test nÃ¥: <b>{_html.escape(test_name)}</b></div>
-                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} Â· Test {test_idx}/{tests_per} Â· Total fremdrift {pct:.1f}%</div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{_html.escape(symbol)}</b> · Test nå: <b>{_html.escape(test_name)}</b></div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -10314,9 +10107,9 @@ def render_auto_test_lab_fund_mode_v18543():
         progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
         finish_global_busy("Klar", "Auto Test Lab Fondmodus ferdig." if not result.get("interrupted") else "Auto Test Lab Fondmodus avbrutt.")
         if result.get("interrupted"):
-            st.warning(f"Auto Test Lab Fondmodus avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. ForelÃ¸pig resultat er lagret.")
+            st.warning(f"Auto Test Lab Fondmodus avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
         else:
-            st.success(f"Auto Test Lab Fondmodus ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond Â· {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+            st.success(f"Auto Test Lab Fondmodus ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
 
     result = st.session_state.get("auto_test_lab_last_result_fund_v18543") or {}
     if result:
@@ -10328,9 +10121,9 @@ def render_auto_test_lab_fund_mode_v18543():
         cols[3].metric("Kvalitet", summary.get("best_quality") or "-")
         cols[4].metric("Grunnmur/sat", summary.get("core_satellite_positions", 0))
         if result.get("interrupted"):
-            st.warning("Siste Auto Test Lab Fondmodus ble avbrutt. Resultatene under er forelÃ¸pige.")
+            st.warning("Siste Auto Test Lab Fondmodus ble avbrutt. Resultatene under er foreløpige.")
         if int(summary.get("analyzed", 0) or 0) == 0 and int(summary.get("errors", 0) or 0) > 0:
-            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste Ã¥rsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under fÃ¸r du endrer strategi.")
+            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste årsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under før du endrer strategi.")
         _render_fund_result_scope_v18547(result, default_limit=8)
         _render_what_changed_v18555(result.get("what_changed_profile"))
         display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
@@ -10339,18 +10132,18 @@ def render_auto_test_lab_fund_mode_v18543():
         _render_fund_decision_quality_v18542(result.get("fund_decision_quality_summary") or result.get("decision_quality_summary"), title="Fondskvalitet og grunnscore")
         _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
         _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
-        _render_fund_etf_rows_v18538(result.get("index_candidates") or result.get("best_index_etf"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennÃ¥. KjÃ¸r fondanalyse fÃ¸rst.")
+        _render_fund_etf_rows_v18538(result.get("index_candidates") or result.get("best_index_etf"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennå. Kjør fondanalyse først.")
         _render_active_evidence_v18539(result.get("ranked"), title="Vurdering av aktive fond")
         needs = result.get("requires_more_evidence") or result.get("needs_proof") or []
         errors = result.get("errors") or []
         if needs or errors:
             with st.expander("Krever mer bevis / mangler data / feil", expanded=False):
                 for row in needs[:12]:
-                    st.caption(f"{row.get('symbol')}: {row.get('decision')} Â· {', '.join(row.get('reasons_caution') or [])}")
+                    st.caption(f"{row.get('symbol')}: {row.get('decision')} · {', '.join(row.get('reasons_caution') or [])}")
                 for row in errors[:12]:
                     st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
     else:
-        st.info("Ingen Auto Test Lab-resultat i fondmodus ennÃ¥. Velg fondunivers og trykk KjÃ¸r.")
+        st.info("Ingen Auto Test Lab-resultat i fondmodus ennå. Velg fondunivers og trykk Kjør.")
 
 
 
@@ -10416,8 +10209,8 @@ def _render_portfolio_health_rows_v18544(result):
         f"""
         <div class='v18-dark-row' style='border-color:rgba(59,130,246,.48);'>
           <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
-            <b>ðŸ“Š PortefÃ¸ljehelse</b>
-            <span class='v18-status-chip {grade_cls}'>{_html.escape(str(grade))} Â· {health}/100</span>
+            <b>📊 Porteføljehelse</b>
+            <span class='v18-status-chip {grade_cls}'>{_html.escape(str(grade))} · {health}/100</span>
             <span class='v18-status-chip green'>Fond/ETF {summary.get('fund_pct', 0)}%</span>
             <span class='v18-status-chip yellow'>Aksjer {summary.get('stock_pct', 0)}%</span>
             <span class='v18-status-chip green'>Grunnmur {summary.get('core_pct', 0)}%</span>
@@ -10431,7 +10224,7 @@ def _render_portfolio_health_rows_v18544(result):
     )
     metrics = [
         ("Topp 3", f"{summary.get('top3_pct', '-')}%"),
-        ("StÃ¸rste posisjon", f"{summary.get('max_single_position_pct', '-')}%"),
+        ("Største posisjon", f"{summary.get('max_single_position_pct', '-')}%"),
         ("Vektet fondskostnad", "ukjent" if summary.get("weighted_fund_expense_pct") is None else f"{summary.get('weighted_fund_expense_pct')}%"),
         ("Vektet kvalitet", summary.get("weighted_quality") or "-"),
     ]
@@ -10458,7 +10251,7 @@ def _render_portfolio_health_rows_v18544(result):
             detail.append(f"Kvalitet {q}")
         if cost is not None:
             detail.append(f"Kostnad {cost}%")
-        detail_txt = " Â· ".join(detail) or ""
+        detail_txt = " · ".join(detail) or ""
         st.markdown(
             f"""
             <div class='v18-dark-row' style='margin:.16rem 0;padding:.34rem .48rem;'>
@@ -10472,8 +10265,8 @@ def _render_portfolio_health_rows_v18544(result):
 
     for title, key, icon in [
         ("Styrker", "strengths", "+"),
-        ("Forbedringsforslag", "suggestions", "â†’"),
-        ("Advarsler", "warnings", "âš "),
+        ("Forbedringsforslag", "suggestions", "→"),
+        ("Advarsler", "warnings", "⚠"),
     ]:
         vals = list(res.get(key) or [])
         st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
@@ -10488,12 +10281,12 @@ def _render_portfolio_health_rows_v18544(result):
         st.markdown("<div class='v18-dark-row'>Ingen tydelig overlapp registrert med tilgjengelige data.</div>", unsafe_allow_html=True)
     for r in overlap[:8]:
         level = str(r.get("level") or "-")
-        cls = "red" if level == "HÃ¸y" else "yellow"
+        cls = "red" if level == "Høy" else "yellow"
         st.markdown(
             f"""
             <div class='v18-dark-row'>
               <span class='v18-status-chip {cls}'>{_html.escape(level)}</span>
-              <b>{_html.escape(str(r.get('title') or 'Overlapp'))}</b> Â· {_html.escape(str(r.get('message') or ''))}
+              <b>{_html.escape(str(r.get('title') or 'Overlapp'))}</b> · {_html.escape(str(r.get('message') or ''))}
             </div>
             """,
             unsafe_allow_html=True,
@@ -10502,8 +10295,8 @@ def _render_portfolio_health_rows_v18544(result):
 
 def render_mixed_portfolio_control_center_v18544():
     """Analyze portfolio health across stocks, funds and ETFs without hidden fetches."""
-    st.subheader("ðŸ“Š PortefÃ¸ljeanalyse")
-    st.caption("Analyserer aksjer + fond/ETF samlet. Panelet bruker eksisterende resultater/manuell input og henter ikke nye markedsdata fÃ¸r du eksplisitt kjÃ¸rer andre moduler.")
+    st.subheader("📊 Porteføljeanalyse")
+    st.caption("Analyserer aksjer + fond/ETF samlet. Panelet bruker eksisterende resultater/manuell input og henter ikke nye markedsdata før du eksplisitt kjører andre moduler.")
     _render_pipeline_stage_bar_v1863bw("portfolio_analysis")
     from portfolio_mixed_analyzer import build_holdings_from_sources, analyze_mixed_portfolio
 
@@ -10598,7 +10391,7 @@ def render_mixed_portfolio_control_center_v18544():
         default_fund_weight_pct=auto_fund_weight,
     )
     st.markdown(
-        f"<div class='v18-dark-row'><b>Planlagt analyse:</b> {len(holdings_preview)} posisjoner Â· Aksjekilde: {html.escape(stock_source)} Â· Fondkilde: {html.escape(fund_source)} Â· Profil: {html.escape(profile)}</div>",
+        f"<div class='v18-dark-row'><b>Planlagt analyse:</b> {len(holdings_preview)} posisjoner · Aksjekilde: {html.escape(stock_source)} · Fondkilde: {html.escape(fund_source)} · Profil: {html.escape(profile)}</div>",
         unsafe_allow_html=True,
     )
     if holdings_preview:
@@ -10610,18 +10403,18 @@ def render_mixed_portfolio_control_center_v18544():
                 unsafe_allow_html=True,
             )
     else:
-        st.markdown("<div class='v18-dark-row'>Ingen posisjoner funnet. Bruk manuell input eller kjÃ¸r Auto Test Lab / Fondanalyse fÃ¸rst.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'>Ingen posisjoner funnet. Bruk manuell input eller kjør Auto Test Lab / Fondanalyse først.</div>", unsafe_allow_html=True)
 
-    if st.button("ðŸ“Š KjÃ¸r portefÃ¸ljeanalyse", key="mixed_portfolio_run_v18544", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "KjÃ¸rer portefÃ¸ljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
+    if st.button("📊 Kjør porteføljeanalyse", key="mixed_portfolio_run_v18544", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører porteføljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
         status_box = st.empty()
-        progress = st.progress(0, text="Starter portefÃ¸ljeanalyse")
-        steps = ["Samler beholdninger", "Normaliserer vekter", "MÃ¥ler grunnmur/satellitt", "Sjekker overlapp", "Lager forbedringsforslag"]
+        progress = st.progress(0, text="Starter porteføljeanalyse")
+        steps = ["Samler beholdninger", "Normaliserer vekter", "Måler grunnmur/satellitt", "Sjekker overlapp", "Lager forbedringsforslag"]
         for idx, step in enumerate(steps, start=1):
             pct = int(round((idx - 1) / max(1, len(steps)) * 100))
             progress.progress(pct, text=f"{idx}/{len(steps)} {step}")
-            update_global_busy("KjÃ¸rer portefÃ¸ljeanalyse", f"{idx}/{len(steps)} {step}", step=idx, total=len(steps))
+            update_global_busy("Kjører porteføljeanalyse", f"{idx}/{len(steps)} {step}", step=idx, total=len(steps))
             status_box.markdown(
-                f"<div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'><b>ðŸ”„ PortefÃ¸ljeanalyse kjÃ¸rer</b><br><span style='font-size:.82rem;'>{idx}/{len(steps)} {html.escape(step)}</span></div>",
+                f"<div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'><b>🔄 Porteføljeanalyse kjører</b><br><span style='font-size:.82rem;'>{idx}/{len(steps)} {html.escape(step)}</span></div>",
                 unsafe_allow_html=True,
             )
         result = analyze_mixed_portfolio(holdings_preview, profile=profile)
@@ -10653,14 +10446,14 @@ def render_mixed_portfolio_control_center_v18544():
         except Exception as exc:
             result["storage_error"] = str(exc)[:180]
         progress.progress(100, text="Ferdig")
-        finish_global_busy("Klar", "PortefÃ¸ljeanalyse ferdig.")
-        st.success(f"PortefÃ¸ljeanalyse ferdig: {result.get('portfolio_health', '-')}/100 Â· {result.get('grade', '-')}")
+        finish_global_busy("Klar", "Porteføljeanalyse ferdig.")
+        st.success(f"Porteføljeanalyse ferdig: {result.get('portfolio_health', '-')}/100 · {result.get('grade', '-')}")
 
     result = st.session_state.get("mixed_portfolio_last_result_v18544") or {}
     if result:
         _render_portfolio_health_rows_v18544(result)
     else:
-        st.info("Ingen portefÃ¸ljeanalyse ennÃ¥. Velg kilder eller manuell portefÃ¸lje og trykk KjÃ¸r.")
+        st.info("Ingen porteføljeanalyse ennå. Velg kilder eller manuell portefølje og trykk Kjør.")
 
 def _analysis_pipeline_service_v1863bw():
     from services.analysis_pipeline_service import get_analysis_pipeline_service
@@ -10671,14 +10464,6 @@ def _analysis_pipeline_service_v1863bw():
         state_service=get_state_service(st.session_state),
         storage_service=get_storage_service(),
     )
-
-
-def _pipeline_input_count_v1865d(stage_id: str) -> int:
-    try:
-        package = _analysis_pipeline_service_v1863bw().load_stage_input(stage_id)
-        return int(package.get("candidate_count") or len(package.get("candidates") or []) or 0)
-    except Exception:
-        return 0
 
 
 def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
@@ -10706,19 +10491,6 @@ def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
         "defaults": defaults,
         "auto_run": False,
     }
-    st.session_state["app_shell_active_pipeline_stage_v1865a"] = stage_id
-    st.session_state["app_shell_page_v1865"] = {
-        "data_foundation": "Dataunderlag",
-        "market_ranking": "Testflyt",
-        "smart_ai": "Analyse",
-        "top_picks": "Testflyt",
-        "early_warning": "Testflyt",
-        "alpha_radar": "Testflyt",
-        "auto_test_lab": "Testflyt",
-        "decision_support": "Beslutning",
-        "portfolio_analysis": "Portefolje",
-        "paper_trading": "Testflyt",
-    }.get(stage_id, "Testflyt")
     st.rerun()
 
 
@@ -10863,7 +10635,7 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
         st.caption("Stotter flere periodefiler: 1D, 1U, 1M, 3M, 6M, YTD, 1Y, 3Y og ALLE.")
     with c2:
         if st.button("Rediger Aktoerregister", key="data_foundation_open_actor_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("Marked og signaler", "AktÃ¸rregister")
+            _pipeline_go_to_panel_v1863by("Marked og signaler", "Aktørregister")
         st.caption("Navn, alias, roller, styrke, ticker og marked.")
     with c3:
         if st.button("Importer Oljefond/NBIM", key="data_foundation_open_nbim_v1863by", use_container_width=True):
@@ -11073,7 +10845,7 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
     if stage_id == "data_foundation":
         st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktoerregister, Finansavisen, Oljefond/NBIM og API-status, og gaa deretter videre til Test 2.")
     elif not out and stage_id != "paper_trading":
-        st.caption("NÃ¥r testen er kjÃ¸rt ferdig, dukker send-knappen opp aktivert for neste test.")
+        st.caption("Når testen er kjørt ferdig, dukker send-knappen opp aktivert for neste test.")
 
 
 def render_analysis_pipeline_control_center_v1863bv():
@@ -11157,27 +10929,23 @@ def control_center_extra_panels_v18535():
     return [
         ("1. Dataunderlag", render_analysis_pipeline_control_center_v1863bv),
         ("Marked", render_market_room_control_center_v1863cb),
-        ("â­ Top Picks", render_top_picks_control_center_v1863s),
+        ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
-        ("AktÃ¸rregister", render_actor_registry_panel),
+        ("Aktørregister", render_actor_registry_panel),
         ("Oljefond Radar", render_nbim_radar_panel),
         ("Finansavisen Bjellesauer", render_finansavisen_bjellesau_panel),
         ("Beslutningsgrunnlag", render_decision_support_panel),
-        ("ðŸš€ IPO", render_ipo),
-        ("ðŸ§ª Paper Trading", render_paper_trading_dashboard),
-        ("ðŸ”¬ Auto Test Lab", render_auto_test_lab_control_center_v18536),
-        ("ðŸ¦ Fond / ETF", render_fund_etf_control_center_v18538),
-        ("ðŸ“Š PortefÃ¸ljeanalyse", render_mixed_portfolio_control_center_v18544),
-        ("ðŸ“° Nyheter", render_news_control_center_v18535),
-        ("ðŸ“Š Interaktiv analyse", render_interactive_technical_control_center_v18535),
-        ("ðŸ† Marked/rangering", render_market_ranking_control_center_v18535),
-        ("ðŸ”” Watchlist/signaler", render_watchlist_signals_control_center_v18535),
-        ("ðŸ›  System/admin", lambda: render_system_admin_workspace(expanded=True)),
+        ("🚀 IPO", render_ipo),
+        ("🧪 Paper Trading", render_paper_trading_dashboard),
+        ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
+        ("🏦 Fond / ETF", render_fund_etf_control_center_v18538),
+        ("📊 Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
+        ("📰 Nyheter", render_news_control_center_v18535),
+        ("📊 Interaktiv analyse", render_interactive_technical_control_center_v18535),
+        ("🏆 Marked/rangering", render_market_ranking_control_center_v18535),
+        ("🔔 Watchlist/signaler", render_watchlist_signals_control_center_v18535),
+        ("🛠 System/admin", lambda: render_system_admin_workspace(expanded=True)),
     ]
-
-# Compatibility marker for static regression tests:
-# ("Aktørregister", render_actor_registry_panel)
-# Test 2 kjører
 
 
 
@@ -11187,15 +10955,15 @@ _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
 
 def control_center_extra_panels_v18535():
     panels = list(_control_center_extra_panels_base_v1863af())
-    panels.insert(3, ("ðŸ§­ Paper-portefÃ¸lje kontroll", render_paper_portfolio_control_center_v1863af))
-    panels.insert(4, ("ðŸ’± Valutavarsler", render_currency_alerts_control_center_v1863af))
+    panels.insert(3, ("🧭 Paper-portefølje kontroll", render_paper_portfolio_control_center_v1863af))
+    panels.insert(4, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
     return panels
 
 
 def render_safe_infrastructure_panel_v18587() -> None:
     """Batch E: visible, low-risk governance/status panel."""
     try:
-        with st.expander("ðŸ›¡ï¸ Safe build / governance / changelog", expanded=False):
+        with st.expander("🛡️ Safe build / governance / changelog", expanded=False):
             st.caption(f"Aktiv build: {get_app_build_label()}")
             checks = run_static_regression_checks()
             if checks.get("ok"):
@@ -11216,7 +10984,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
             protected_rows = get_protected_zones()
             if protected_rows:
                 st.markdown("**Protected zones**")
-                st.caption("Kritiske omrÃ¥der som skal patches minimalt, slik at stabile funksjoner ikke forsvinner ved nye GO-runder.")
+                st.caption("Kritiske områder som skal patches minimalt, slik at stabile funksjoner ikke forsvinner ved nye GO-runder.")
                 try:
                     st.dataframe(protected_rows, use_container_width=True, hide_index=True)
                 except Exception:
@@ -11232,13 +11000,13 @@ def render_safe_infrastructure_panel_v18587() -> None:
 
             st.markdown("**UI/data trust**")
             _tokens = ui_consistency_tokens()
-            st.caption("Batch G: standardiserte UI-tokens, datakvalitet og tydeligere blokk-/varslingsforklaringer uten Ã¥ endre analysemotorene.")
+            st.caption("Batch G: standardiserte UI-tokens, datakvalitet og tydeligere blokk-/varslingsforklaringer uten å endre analysemotorene.")
             try:
                 st.dataframe([_tokens], use_container_width=True, hide_index=True)
             except Exception:
                 st.write(_tokens)
             _sample_trust = normalize_data_trust({"data_quality": "CACHED", "confidence": 75, "missing_fields": []})
-            st.caption(f"Datakvalitet-eksempel: {_sample_trust.get('label')} Â· {_sample_trust.get('note')}")
+            st.caption(f"Datakvalitet-eksempel: {_sample_trust.get('label')} · {_sample_trust.get('note')}")
 
             st.markdown("**Audit-logg**")
             recent = read_recent_audit_events(limit=8)
@@ -11248,7 +11016,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
                 except Exception:
                     st.write(recent)
             else:
-                st.caption("Ingen audit-hendelser lagret ennÃ¥ i denne kjÃ¸ringen.")
+                st.caption("Ingen audit-hendelser lagret ennå i denne kjøringen.")
     except Exception as _safe_panel_error:
         st.caption(f"Safe infrastructure-panel kunne ikke vises: {_safe_panel_error}")
 
@@ -11831,272 +11599,13 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
 """, unsafe_allow_html=True)
 
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
-# v18.5.48: Global oppdatering ligger Ã¸verst, fÃ¸r panelvelger og tunge seksjoner.
+# v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 if bool(globals().get("show_drift_controls_v1863cc", False)):
     render_global_update_bar_v18548()
 # GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
 
-# v18.5.34: Hovedpanelvelger ligger fortsatt i toppomrÃ¥det rett over ticker-banneret.
+# v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 # v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
-def _render_home_shell_v1865() -> None:
-    st.subheader("Hjem")
-    st.caption("Kort status og snarveier. Velg Marked eller Testflyt i venstremenyen for arbeid.")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Standard arbeidsflate", "Marked")
-    with c2:
-        st.metric("Testflyt", "1-10")
-    with c3:
-        st.metric("Build", get_app_version())
-    st.info("Ny app-shell er aktiv: hovedrom styres fra venstremenyen. Gammelt Kontrollsenter ligger under Admin.")
-
-
-def _render_reports_shell_v1865() -> None:
-    st.subheader("Rapporter")
-    st.caption("Daglig rapport og felles rapportgrunnlag.")
-    render_daily_ai_market_report()
-
-
-def _render_data_foundation_only_shell_v1865c() -> None:
-    st.subheader("1. Dataunderlag")
-    st.caption("Kun datakilde-cockpit for Test 1: kontroller underlaget og send det videre til Test 2.")
-    try:
-        pipeline = _analysis_pipeline_service_v1863bw()
-        status_rows = pipeline.stage_status()
-    except Exception as exc:
-        st.warning(f"Dataunderlag kunne ikke lastes: {exc}")
-        return
-    _render_pipeline_stage_bar_v1863bw("data_foundation", show_actions=False)
-    _render_data_foundation_workspace_v1863by(status_rows)
-    _render_data_foundation_approval_v1863by(status_rows)
-
-
-def _pipeline_stage_class_v1865c(row: dict, active_stage: str) -> str:
-    stage_id = str(row.get("stage_id") or "")
-    status = str(row.get("status") or "").lower()
-    if stage_id == active_stage:
-        return "active"
-    if status == "ferdig":
-        return "done"
-    if int(row.get("input") or 0) <= 0 and int(row.get("nr") or 0) > 1:
-        return "missing"
-    return "waiting"
-
-
-def _render_pipeline_overview_shell_v1865c() -> None:
-    st.subheader("Testflyt 1-10")
-    st.caption("Hele arbeidslÃ¸ypen: se progress, Ã¥pne hvert teststeg og send output videre uten automatisk tung kjÃ¸ring.")
-    try:
-        pipeline = _analysis_pipeline_service_v1863bw()
-        status_rows = pipeline.stage_status()
-    except Exception as exc:
-        st.warning(f"Testflyt kunne ikke lastes: {exc}")
-        return
-    active_stage = str(st.session_state.get(APP_SHELL_ACTIVE_STAGE_KEY_V1865A) or "data_foundation")
-    st.markdown(
-        """
-        <style>
-        .pipeline-step-grid { display:grid; grid-template-columns:repeat(5,minmax(130px,1fr)); gap:.45rem; margin:.55rem 0 .75rem 0; }
-        .pipeline-step-card { border:1px solid rgba(148,163,184,.24); border-radius:10px; padding:.50rem .55rem; background:rgba(15,23,42,.72); min-height:74px; }
-        .pipeline-step-card.done { border-color:rgba(34,197,94,.55); background:rgba(20,83,45,.22); }
-        .pipeline-step-card.active { border-color:rgba(56,189,248,.95); background:rgba(8,47,73,.72); box-shadow:0 0 0 1px rgba(56,189,248,.24) inset; }
-        .pipeline-step-card.missing { border-color:rgba(245,158,11,.42); background:rgba(69,26,3,.22); }
-        .pipeline-step-nr { font-size:.72rem; color:#93c5fd; font-weight:950; }
-        .pipeline-step-name { font-size:.86rem; font-weight:950; color:#f8fafc; margin-top:.10rem; }
-        .pipeline-step-meta { font-size:.72rem; color:#cbd5e1; margin-top:.20rem; }
-        @media (max-width: 1100px) { .pipeline-step-grid { grid-template-columns:repeat(2,minmax(130px,1fr)); } }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    cards = []
-    for row in status_rows:
-        cls = _pipeline_stage_class_v1865c(row, active_stage)
-        cards.append(
-            f"<div class='pipeline-step-card {cls}'>"
-            f"<div class='pipeline-step-nr'>Test {int(row.get('nr') or 0)}</div>"
-            f"<div class='pipeline-step-name'>{html.escape(str(row.get('test') or row.get('steg') or ''))}</div>"
-            f"<div class='pipeline-step-meta'>{html.escape(str(row.get('status') or 'venter'))} Â· inn {int(row.get('input') or 0)} Â· ut {int(row.get('output') or 0)}</div>"
-            f"</div>"
-        )
-    st.markdown("<div class='pipeline-step-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
-    cols = st.columns(5)
-    for idx, row in enumerate(status_rows):
-        stage_id = str(row.get("stage_id") or "")
-        label = f"{int(row.get('nr') or 0)}. {row.get('test') or row.get('steg')}"
-        with cols[idx % 5]:
-            if st.button(label, key=f"pipeline_quick_open_{stage_id}_v1865c", use_container_width=True):
-                _pipeline_open_stage_v1863bw(stage_id)
-    st.markdown("#### Status for arbeidsflyten")
-    st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
-
-
-def _render_admin_shell_v1865() -> None:
-    st.subheader("Admin / Drift")
-    st.caption("Driftkontroller, systemstatus og gammelt Kontrollsenter for fallback.")
-    render_global_update_bar_v18548()
-    render_global_update_action_panel_v1863g()
-    render_system_admin_workspace(expanded=False)
-    with st.expander("Gammelt Kontrollsenter / fallback", expanded=False):
-        render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
-
-
-def _apply_pending_pipeline_nav_v1865a() -> None:
-    try:
-        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY
-    except Exception:
-        return
-    pending = st.session_state.pop(PIPELINE_PENDING_NAV_KEY, None)
-    if not isinstance(pending, dict):
-        return
-    defaults = pending.get("defaults") if isinstance(pending.get("defaults"), dict) else {}
-    for key, value in defaults.items():
-        st.session_state[key] = value
-    stage_id = str(pending.get("stage_id") or "").strip()
-    if stage_id:
-        st.session_state[APP_SHELL_ACTIVE_STAGE_KEY_V1865A] = stage_id
-        st.session_state[APP_SHELL_PAGE_KEY_V1865] = {
-            "data_foundation": "Dataunderlag",
-            "market_ranking": "Testflyt",
-            "smart_ai": "Analyse",
-            "top_picks": "Testflyt",
-            "early_warning": "Testflyt",
-            "alpha_radar": "Testflyt",
-            "auto_test_lab": "Testflyt",
-            "decision_support": "Beslutning",
-            "portfolio_analysis": "Portefolje",
-            "paper_trading": "Testflyt",
-        }.get(stage_id, "Testflyt")
-
-
-def _render_pipeline_stage_shell_v1865a(stage_id: str) -> bool:
-    stage_id = str(stage_id or "").strip()
-    if stage_id == "market_ranking":
-        render_market_ranking_control_center_v18535()
-        return True
-    if stage_id == "smart_ai":
-        render_ai_analysis_universe_workspace(expanded=True)
-        return True
-    if stage_id == "top_picks":
-        render_top_picks_control_center_v1863s()
-        return True
-    if stage_id in {"early_warning", "alpha_radar"}:
-        render_alpha_radar_control_center_v1863ap()
-        return True
-    if stage_id == "auto_test_lab":
-        render_auto_test_lab_control_center_v18536()
-        return True
-    if stage_id == "decision_support":
-        render_decision_support_panel()
-        return True
-    if stage_id == "portfolio_analysis":
-        render_mixed_portfolio_control_center_v18544()
-        return True
-    if stage_id == "paper_trading":
-        render_paper_trading_dashboard()
-        return True
-    return False
-
-
-_apply_pending_pipeline_nav_v1865a()
-_shell_page_v1865 = str(globals().get("APP_SHELL_PAGE_V1865") or st.session_state.get("app_shell_page_v1865") or "Marked")
-_shell_subpage_v1865c = str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
-_shell_stage_v1865a = str(st.session_state.get(APP_SHELL_ACTIVE_STAGE_KEY_V1865A) or "")
-try:
-    if _shell_page_v1865 == "Hjem":
-        _render_home_shell_v1865()
-    elif _shell_page_v1865 == "Dataunderlag":
-        _render_data_foundation_only_shell_v1865c()
-    elif _shell_page_v1865 == "Marked":
-        if _shell_subpage_v1865c == "Rangering / Test 2":
-            render_market_ranking_control_center_v18535()
-        elif _shell_subpage_v1865c == "Heatmap":
-            render_ai_heatmaps()
-        elif _shell_subpage_v1865c == "Regime":
-            render_market_regime_widget()
-        elif _shell_subpage_v1865c == "Makro/renter":
-            render_macro_rates_breadth_panel()
-        elif _shell_subpage_v1865c == "Nyheter":
-            render_news_control_center_v18535()
-        elif _shell_subpage_v1865c == "Finansavisen Bjellesauer":
-            render_finansavisen_bjellesau_panel()
-        elif _shell_subpage_v1865c == "Oljefond/NBIM":
-            render_nbim_radar_panel()
-        elif _shell_subpage_v1865c == "Aktorregister":
-            render_actor_registry_panel()
-        elif _shell_subpage_v1865c == "IPO":
-            render_ipo()
-        else:
-            render_market_room_control_center_v1863cb()
-    elif _shell_page_v1865 == "Analyse":
-        if _shell_subpage_v1865c == "Interaktiv analyse":
-            render_interactive_technical_control_center_v18535()
-        elif _shell_subpage_v1865c == "Alpha Radar":
-            st.session_state["alpha_radar_engine_v1863au"] = "Alpha Radar"
-            render_alpha_radar_control_center_v1863ap()
-        elif _shell_subpage_v1865c == "Early Warning":
-            st.session_state["alpha_radar_engine_v1863au"] = "Early Warning V1"
-            render_alpha_radar_control_center_v1863ap()
-        elif _shell_subpage_v1865c == "Valutavarsler":
-            render_currency_alerts_control_center_v1863af()
-        elif _shell_stage_v1865a and not _render_pipeline_stage_shell_v1865a(_shell_stage_v1865a):
-            render_ai_analysis_universe_workspace(expanded=True)
-        else:
-            render_ai_analysis_universe_workspace(expanded=True)
-    elif _shell_page_v1865 == "Testflyt":
-        test_stage_map_v1865c = {
-            "Test 1 Dataunderlag": "data_foundation",
-            "Test 2 Marked/rangering": "market_ranking",
-            "Test 3 Smart AI-filter": "smart_ai",
-            "Test 4 Top Picks": "top_picks",
-            "Test 5 Early Warning": "early_warning",
-            "Test 6 Alpha Radar": "alpha_radar",
-            "Test 7 Auto Test Lab": "auto_test_lab",
-            "Test 8 Beslutningsgrunnlag": "decision_support",
-            "Test 9 Portefoljeanalyse": "portfolio_analysis",
-            "Test 10 Paper Trading": "paper_trading",
-        }
-        explicit_stage_v1865c = test_stage_map_v1865c.get(_shell_subpage_v1865c)
-        if explicit_stage_v1865c:
-            st.session_state[APP_SHELL_ACTIVE_STAGE_KEY_V1865A] = explicit_stage_v1865c
-            if explicit_stage_v1865c == "data_foundation":
-                _render_data_foundation_only_shell_v1865c()
-            elif not _render_pipeline_stage_shell_v1865a(explicit_stage_v1865c):
-                _render_pipeline_overview_shell_v1865c()
-        elif _shell_stage_v1865a:
-            if not _render_pipeline_stage_shell_v1865a(_shell_stage_v1865a):
-                _render_pipeline_overview_shell_v1865c()
-        else:
-            _render_pipeline_overview_shell_v1865c()
-    elif _shell_page_v1865 == "Portefolje":
-        if _shell_subpage_v1865c == "Paper Trading":
-            render_paper_trading_dashboard()
-        elif _shell_subpage_v1865c == "Watchlist/signaler":
-            render_watchlist_signals_control_center_v18535()
-        elif _shell_subpage_v1865c == "Fond / ETF":
-            render_fund_etf_control_center_v18538()
-        else:
-            render_mixed_portfolio_control_center_v18544()
-    elif _shell_page_v1865 == "Beslutning":
-        render_decision_support_panel()
-    elif _shell_page_v1865 == "Rapporter":
-        _render_reports_shell_v1865()
-    elif _shell_page_v1865 == "Admin":
-        if _shell_subpage_v1865c == "Global oppdatering":
-            render_global_update_action_panel_v1863g()
-        elif _shell_subpage_v1865c == "Systemstatus":
-            render_system_admin_workspace(expanded=True)
-        elif _shell_subpage_v1865c == "Gammelt Kontrollsenter":
-            render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
-        else:
-            _render_admin_shell_v1865()
-    else:
-        render_market_room_control_center_v1863cb()
-except Exception as _shell_error_v1865:
-    st.warning(f"App-shell kunne ikke vise {_shell_page_v1865}: {_shell_error_v1865}")
-_finish_control_center_render_cycle_v1863ax()
-st.stop()
-
 active_panel = None
 if not st.session_state.get("ai_control_center_active_panel_v1863aj") and not st.session_state.get("ai_control_center_group_v1863aj"):
     st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
@@ -12118,8 +11627,8 @@ try:
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 
-# v18.5.98: AI Kontrollsenter skal vÃ¦re et ekte fokus-/oppgaveomrÃ¥de.
-# NÃ¥r et Kontrollsenter-panel er valgt, mÃ¥ gamle hovedseksjoner ikke lekke inn under panelet.
+# v18.5.98: AI Kontrollsenter skal være et ekte fokus-/oppgaveområde.
+# Når et Kontrollsenter-panel er valgt, må gamle hovedseksjoner ikke lekke inn under panelet.
 # Dette fjerner dobbeltvisning av Dynamisk rangering, Interaktiv analyse og legacy-markedspaneler.
 if _active_control_center_panel_v18598:
     st.markdown(
@@ -12128,14 +11637,14 @@ if _active_control_center_panel_v18598:
     )
 else:
     st.markdown(
-        "<div class='v18-dark-row'>Velg et panel i AI Kontrollsenter. Hovedpanelvelgeren er samlet inn her for Ã¥ hindre motstridende markedvalg.</div>",
+        "<div class='v18-dark-row'>Velg et panel i AI Kontrollsenter. Hovedpanelvelgeren er samlet inn her for å hindre motstridende markedvalg.</div>",
         unsafe_allow_html=True,
     )
 _finish_control_center_render_cycle_v1863ax()
 st.stop()
 
-# v18.5.34: driftstatus, bÃ¸rstatus og trading-kontroller er flyttet til toppomrÃ¥det.
-# Gammel separat statusstripe her er fjernet for Ã¥ unngÃ¥ dupliserte bokser lenger nede.
+# v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
 
 if 'top_picks' in locals():
     market_pulse(top_picks)
@@ -12158,55 +11667,55 @@ else:
 dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
 
 # v18.5.35: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
-# Hovedsiden viser ikke lenger egen watchlist-boks eller scanner skjult; panel/kall kjÃ¸res bare nÃ¥r brukeren Ã¥pner
+# Hovedsiden viser ikke lenger egen watchlist-boks eller scanner skjult; panel/kall kjøres bare når brukeren åpner
 # Kontrollsenter -> Watchlist/signaler og trykker egen knapp.
 watchlist_tickers = list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
 auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
 watchlist_scan_limit = int(_alert_runtime_settings.get("watchlist_scan_limit", 30) or 30)
 manual_watchlist_scan = False
 
-# v18.5.31: aktivt hovedpanel velges nÃ¥ i toppomrÃ¥det over ticker-banneret.
+# v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
 
-if active_panel == "ðŸ‡ºðŸ‡¸ USA":
-    run_main_usa = st.button("KjÃ¸r / oppdater USA-rangering", key="main_panel_run_usa_v1863r", type="primary")
+if active_panel == "🇺🇸 USA":
+    run_main_usa = st.button("Kjør / oppdater USA-rangering", key="main_panel_run_usa_v1863r", type="primary")
     us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False, force_manual_fetch=run_main_usa)
-    render_ranking(us_results, "ðŸ† Dynamisk rangering USA/S&P 500")
+    render_ranking(us_results, "🏆 Dynamisk rangering USA/S&P 500")
     render_analysis(us_results, "USA")
 
-elif active_panel == "ðŸ‡³ðŸ‡´ Norge":
-    run_main_no = st.button("KjÃ¸r / oppdater Norge-rangering", key="main_panel_run_no_v1863r", type="primary")
+elif active_panel == "🇳🇴 Norge":
+    run_main_no = st.button("Kjør / oppdater Norge-rangering", key="main_panel_run_no_v1863r", type="primary")
     no_results = cached_auto_rank_market("Norge", tickers_no, max_count=max_count, use_news=False, force_manual_fetch=run_main_no)
-    render_ranking(no_results, "ðŸ‡³ðŸ‡´ Dynamisk rangering Norge")
+    render_ranking(no_results, "🇳🇴 Dynamisk rangering Norge")
     render_analysis(no_results, "Norge")
 
-elif active_panel == "ðŸ‡¸ðŸ‡ª Sverige":
-    run_main_se = st.button("KjÃ¸r / oppdater Sverige-rangering", key="main_panel_run_se_v1863r", type="primary")
+elif active_panel == "🇸🇪 Sverige":
+    run_main_se = st.button("Kjør / oppdater Sverige-rangering", key="main_panel_run_se_v1863r", type="primary")
     se_results = cached_auto_rank_market("Sverige", tickers_se, max_count=max_count, use_news=False, force_manual_fetch=run_main_se)
-    render_ranking(se_results, "ðŸ‡¸ðŸ‡ª Dynamisk rangering Sverige")
+    render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
     render_analysis(se_results, "Sverige")
 
 elif active_panel == "Norden":
     tickers_nordic = list(tickers_no or []) + list(tickers_se or [])
-    run_main_nordic = st.button("KjÃ¸r / oppdater Norden-rangering", key="main_panel_run_norden_v1863r", type="primary")
+    run_main_nordic = st.button("Kjør / oppdater Norden-rangering", key="main_panel_run_norden_v1863r", type="primary")
     nordic_results = cached_auto_rank_market("Norden", tickers_nordic, max_count=max_count, use_news=False, force_manual_fetch=run_main_nordic)
-    render_ranking(nordic_results, "ðŸŒ Dynamisk rangering Norden")
+    render_ranking(nordic_results, "🌐 Dynamisk rangering Norden")
     render_analysis(nordic_results, "Norden")
 
 elif active_panel == "Aktivt univers":
     active_universe_tickers = _source_tickers_for_interactive("Smart Universe Picker")
     if not active_universe_tickers:
-        st.info("Ingen aktivt univers er lagret ennÃ¥. Ã…pne AI Kontrollsenter -> Analyseunivers og sett Smart Universe Picker som aktivt aksjeunivers.")
+        st.info("Ingen aktivt univers er lagret ennå. Åpne AI Kontrollsenter -> Analyseunivers og sett Smart Universe Picker som aktivt aksjeunivers.")
     else:
-        run_main_active = st.button("KjÃ¸r / oppdater aktivt univers", key="main_panel_run_active_universe_v1863r", type="primary")
+        run_main_active = st.button("Kjør / oppdater aktivt univers", key="main_panel_run_active_universe_v1863r", type="primary")
         active_results = cached_auto_rank_market("Smart Universe Picker", active_universe_tickers, max_count=max_count, use_news=False, force_manual_fetch=run_main_active)
-        render_ranking(active_results, "ðŸŽ¯ Dynamisk rangering aktivt univers")
+        render_ranking(active_results, "🎯 Dynamisk rangering aktivt univers")
         render_analysis(active_results, "Smart Universe Picker")
 
-elif active_panel == "â­ Top Picks":
-    st.subheader("â­ Automatiske Top Picks")
+elif active_panel == "⭐ Top Picks":
+    st.subheader("⭐ Automatiske Top Picks")
     st.caption(
         "Top Picks = beste kandidater totalt. "
-        "KjÃ¸p nÃ¥ = kandidater som ogsÃ¥ har grÃ¸nt teknisk signal akkurat nÃ¥."
+        "Kjøp nå = kandidater som også har grønt teknisk signal akkurat nå."
     )
 
     scan_market = st.radio("Velg marked for Top Picks", market_scope_options(include_aggregate=True), horizontal=True)
@@ -12276,28 +11785,28 @@ elif active_panel == "â­ Top Picks":
         latest = st.session_state.setdefault("latest_rankings_v148", {})
         latest[f"TopPicks_{scan_market}"] = top_picks or []
         if _manual_fetch_closed and top_picks:
-            st.success(f"Manuell henting utfÃ¸rt for {scan_market}: {len(top_picks)} kandidater funnet âœ…")
+            st.success(f"Manuell henting utført for {scan_market}: {len(top_picks)} kandidater funnet ✅")
         elif _manual_fetch_closed and not top_picks:
-            st.warning(f"Manuell henting forsÃ¸kt for {scan_market}, men datakilden ga ingen rangerbare kandidater.")
+            st.warning(f"Manuell henting forsøkt for {scan_market}, men datakilden ga ingen rangerbare kandidater.")
 
     if not top_picks and not _manual_fetch_closed and not _open_now:
         st.info(
             f"Ingen lagret rangering for {_market_labels_v1863j.get(scan_market, scan_market)}. "
-            "Kryss av for 'Hent data manuelt likevel' hvis du vil analysere utenfor Ã¥pningstid. "
+            "Kryss av for 'Hent data manuelt likevel' hvis du vil analysere utenfor åpningstid. "
             "Dette starter ikke auto-trading."
         )
 
-    top_pick_view = st.radio("Top Picks-visning", ["â­ Top Picks", "ðŸŸ¢ KjÃ¸p nÃ¥"], horizontal=True, key=f"top_pick_view_{scan_market}_v148")
+    top_pick_view = st.radio("Top Picks-visning", ["⭐ Top Picks", "🟢 Kjøp nå"], horizontal=True, key=f"top_pick_view_{scan_market}_v148")
 
-    if top_pick_view == "â­ Top Picks":
-        render_ranking(top_picks, f"â­ Top Picks {_market_labels_v1863j.get(scan_market, scan_market)}")
-        st.caption("Merk: En aksje kan vÃ¦re sterk totalt, men fortsatt ha VENT/UNNGÃ… hvis teknisk timing er dÃ¥rlig.")
+    if top_pick_view == "⭐ Top Picks":
+        render_ranking(top_picks, f"⭐ Top Picks {_market_labels_v1863j.get(scan_market, scan_market)}")
+        st.caption("Merk: En aksje kan være sterk totalt, men fortsatt ha VENT/UNNGÅ hvis teknisk timing er dårlig.")
         render_analysis(top_picks, f"TopPicks_{scan_market}")
     else:
         if buy_now_picks:
             _saved_candidates = save_latest_buy_now_candidates(buy_now_picks, scan_market)
-            st.info(f"Disse er kandidater med grÃ¸nt teknisk signal akkurat nÃ¥. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjÃ¸p skjer via Cron, eller knappen 'KjÃ¸r auto-kjÃ¸p nÃ¥'.")
-            if st.button(f"ðŸŸ¢ Paper-kjÃ¸p alle KjÃ¸p nÃ¥ ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
+            st.info(f"Disse er kandidater med grønt teknisk signal akkurat nå. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjøp skjer via Cron, eller knappen 'Kjør auto-kjøp nå'.")
+            if st.button(f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
                 _messages = []
                 for _item in buy_now_picks:
                     _ticker = _item.get("ticker")
@@ -12306,7 +11815,7 @@ elif active_panel == "â­ Top Picks":
                     if _price is None:
                         _messages.append(f"{_ticker}: mangler pris")
                         continue
-                    _ok, _msg = paper_buy(_ticker, _price, int(_decision.get("confidence", 0) or 0), f"UI KjÃ¸p nÃ¥ alle: {scan_market}")
+                    _ok, _msg = paper_buy(_ticker, _price, int(_decision.get("confidence", 0) or 0), f"UI Kjøp nå alle: {scan_market}")
                     _messages.append(_msg)
                 _joined = " | ".join(_messages[:8])
                 if any("blokkert" in str(m).lower() or "ikke nok" in str(m).lower() or "mangler" in str(m).lower() for m in _messages):
@@ -12315,19 +11824,19 @@ elif active_panel == "â­ Top Picks":
                     st.success(_joined)
                 st.rerun()
 
-            render_ranking(buy_now_picks, f"ðŸŸ¢ KjÃ¸p nÃ¥ {_market_labels_v1863j.get(scan_market, scan_market)}")
+            render_ranking(buy_now_picks, f"🟢 Kjøp nå {_market_labels_v1863j.get(scan_market, scan_market)}")
             render_analysis(buy_now_picks, f"KjopNa_{scan_market}")
         else:
-            st.warning("Ingen aksjer har grÃ¸nt teknisk kjÃ¸pssignal akkurat nÃ¥.")
-            st.caption("Systemet tvinger ikke kjÃ¸p nÃ¥r timing/risiko ikke er god nok.")
+            st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
+            st.caption("Systemet tvinger ikke kjøp når timing/risiko ikke er god nok.")
 
-elif active_panel == "ðŸš€ IPO":
+elif active_panel == "🚀 IPO":
     render_ipo()
 
-elif active_panel == "ðŸ§ª Paper Trading":
+elif active_panel == "🧪 Paper Trading":
     render_paper_trading_dashboard()
 
-# Etter fÃ¸rste godkjente kjÃ¸ring slÃ¥s engangsflagget av. Cache brukes ved vanlige widget-reruns.
+# Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.
 st.session_state["heavy_update_allowed_v148"] = False
 _finish_global_apply_v161()
 
@@ -12337,16 +11846,16 @@ def add_rsi_current_box(fig, rsi):
         current_rsi = float(rsi.dropna().iloc[-1])
 
         if current_rsi >= 80:
-            status, icon = "ekstremt overkjÃ¸pt", "ðŸ”¥"
+            status, icon = "ekstremt overkjøpt", "🔥"
         elif current_rsi >= 70:
-            status, icon = "overkjÃ¸pt", "âš ï¸"
+            status, icon = "overkjøpt", "⚠️"
         elif current_rsi <= 30:
-            status, icon = "oversolgt", "ðŸ§Š"
+            status, icon = "oversolgt", "🧊"
         else:
-            status, icon = "nÃ¸ytral", "ðŸ“Š"
+            status, icon = "nøytral", "📊"
 
         fig.add_annotation(
-            text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> Â· {status}",
+            text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> · {status}",
             xref="paper",
             yref="paper",
             x=0.01,
@@ -12373,5 +11882,4 @@ def add_rsi_current_box(fig, rsi):
 # legacy test marker: main_auto_send_test_pushover_v18590
 
 # legacy test marker: top_apply_all_changes_v18590
-
 

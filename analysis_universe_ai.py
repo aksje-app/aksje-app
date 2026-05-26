@@ -117,24 +117,6 @@ FEATURE_STATUS_ROWS = [
 ]
 
 
-def _analysis_flow_input_count_for_smart_ai() -> int:
-    """Count candidates available from the previous pipeline stage."""
-    try:
-        registry = build_service_registry(st.session_state)
-        pipeline = registry.analysis_pipeline
-        rows = pipeline.candidates_for_stage("smart_ai")
-        tickers = []
-        for row in rows or []:
-            if isinstance(row, Mapping):
-                ticker = str(row.get("ticker") or "").strip()
-                if ticker:
-                    tickers.append(ticker.upper())
-        return len(dict.fromkeys(tickers))
-    except Exception as e:
-        logging.warning("Could not count analysis-flow input candidates: %s", e)
-        return 0
-
-
 @dataclass(frozen=True)
 class UniverseCandidate:
     ticker: str
@@ -1528,11 +1510,6 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
     Returns the saved config for callers/tests. Streamlit UI writes to existing
     app session_state keys only after explicit submit.
     """
-    try:
-        st.session_state["app_shell_page_v1865"] = "Analyse"
-        st.session_state["app_shell_active_pipeline_stage_v1865a"] = "smart_ai"
-    except Exception:
-        pass
     _inject_ai_universe_css()
     current = _default_config()
 
@@ -1696,35 +1673,13 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     height=86,
                 )
             with c2:
-                max_count_key = "ai_universe_max_count_draft_v1853"
-                flow_input_count = _analysis_flow_input_count_for_smart_ai() if mode == "Analyseflyt input" else 0
-                if mode == "Analyseflyt input":
-                    slider_min = 1
-                    slider_max = max(1, flow_input_count)
-                    slider_step = 1
-                    slider_help = (
-                        f"Låst til input fra forrige test: {flow_input_count} kandidater. "
-                        "Du kan velge færre, men ikke flere enn pakken som kom inn."
-                    )
-                else:
-                    slider_min = 5
-                    slider_max = 200
-                    slider_step = 5
-                    slider_help = "Maks antall kandidater denne modulen kan hente fra valgt univers."
-                current_max_count = int(st.session_state.get(max_count_key, current["max_count"]) or current["max_count"] or slider_min)
-                current_max_count = max(slider_min, min(current_max_count, slider_max))
-                st.session_state[max_count_key] = current_max_count
                 max_count = st.slider(
                     "Antall kandidater",
-                    slider_min,
-                    slider_max,
-                    current_max_count,
-                    step=slider_step,
-                    key=max_count_key,
-                    help=slider_help,
+                    5,
+                    200,
+                    int(current["max_count"]),
+                    key="ai_universe_max_count_draft_v1853",
                 )
-                if mode == "Analyseflyt input" and flow_input_count <= 0:
-                    st.caption("Ingen input fra forrige test ennå. Kjør og send output fra Test 2 først.")
                 min_top_pick_score = st.slider(
                     "Minimum score for Top Picks",
                     4.0,

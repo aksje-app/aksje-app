@@ -1,23 +1,9 @@
-APP_VERSION = "v18.6.5g"
-APP_VERSION_NAME = "Session Safe Sidebar"
-APP_BUILD_ID = "v1865g-session-safe-sidebar"
+APP_VERSION = "v18.6.4"
+APP_VERSION_NAME = "Pipeline Input, Progress og Marked Shell"
+APP_BUILD_ID = "v1864-pipeline-input-progress-market-shell"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
-    "Venstremenyen bruker naa interne Streamlit-knapper i session_state i stedet for HTML-lenker, slik at menyklikk ikke aapner ny fane eller sender bruker til login.",
-    "Synlige driftknapper, global oppdatering og toppvarsler er ryddet for mojibake, slik at Start/Pause/Stopp/Nødstopp/Gjør klar vises som lesbar norsk tekst.",
-    "Venstremenyen er bygget om fra Streamlit-radio til HTML/SVG-lenker med hover-tekst og undermeny direkte under aktivt ikon.",
-    "Sidebar-ruting bruker page/sub-lenker til reelle rom og teststeg, uten Unicode-ikoner som kan bli mojibake.",
-    "Test 2 og senere analyseflyt-slidere kan ikke lenger settes høyere enn faktisk pipeline-pakke, og rangeringslisten forklarer hvor mange som vises kontra sendes videre.",
-    "Rangeringskortene har mer luft over Paper-knappene, og Paper-kjøp/-selg bruker normal knappstørrelse i stedet for full bred stripe.",
-    "Venstre undermeny er gjort bredere og mer lesbar, og hovedvalg/subvalg holder state bedre ved rerun.",
-    "Venstremenyen har naa hovedrom med undermeny, slik at gamle funksjoner og teststeg ikke forsvinner bak enkle toppknapper.",
-    "Dataunderlag og Testflyt er splittet: Dataunderlag viser Test 1/datacockpit, mens Testflyt viser 1-10 progress og hurtigtaster.",
-    "Hjem og Analyse bruker naa riktige imports i ny app-shell, slik at menyvalg ikke feiler med manglende funksjonsnavn.",
-    "Test 3 Smart AI holder naa aktiv app-shell-side og aktivt pipeline-steg gjennom parameterendringer og ny kjoring, slik at rerun ikke faller tilbake til hovedvinduet.",
-    "Analyseflyt input laaser naa Antall kandidater til faktisk input fra forrige test, slik at Test 3 ikke kan velge flere kandidater enn Test 2 sendte videre.",
-    "Ny app-shell er aktiv: venstremenyen er primær navigasjon, og Marked/Testflyt/Analyse/Portefolje/Beslutning renderes direkte uten gammel Kontrollsenter-wrapper.",
-    "Gammelt AI Kontrollsenter er flyttet til Admin som fallback i stedet for aa vaere startskjerm.",
     "Steg 1 heter naa 1. Dataunderlag, fordi det samler og kontrollerer underlag foer Test 2 uten aa kjoere analyse.",
     "Analyseflyten har hurtigtaster for Test 1-10, synlig aktivt steg, forrige/neste-knapper og bedre synk mellom aktivt panel og undermeny.",
     "Input/output-visningen forklarer input fra forrige steg og output fra dette steg, og Dataunderlag-output viser kontrollrapport i stedet for tom kandidatvisning.",
