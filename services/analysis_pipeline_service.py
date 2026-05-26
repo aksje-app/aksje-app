@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -76,10 +76,10 @@ class PipelineStage:
 STAGE_ORDER: tuple[PipelineStage, ...] = (
     PipelineStage(
         "data_foundation",
-        "Datagrunnlag",
-        "Tickerlister, aktorregister, Finansavisen, Oljefond/NBIM og API-status.",
+        "Dataunderlag",
+        "Kontroller datakilder og gjoer underlaget klart for Test 2. Ingen analyse kjoeres her.",
         next_stage_id="market_ranking",
-        report_focus=("datakilder", "oppdatert dato", "dekning", "mangler"),
+        report_focus=("dataunderlag", "oppdatert dato", "dekning", "mangler"),
     ),
     PipelineStage(
         "market_ranking",
@@ -157,7 +157,7 @@ STAGE_ORDER: tuple[PipelineStage, ...] = (
 STAGES_BY_ID = {stage.stage_id: stage for stage in STAGE_ORDER}
 
 STAGE_PANEL_LABELS: Dict[str, str] = {
-    "data_foundation": "Test 1 Datagrunnlag",
+    "data_foundation": "1. Dataunderlag",
     "market_ranking": "🏆 Marked/rangering",
     "smart_ai": "Analyseunivers",
     "top_picks": "⭐ Top Picks",
@@ -239,8 +239,12 @@ def stage_wizard_info(stage_id: str) -> Dict[str, Any]:
     return {
         "stage_id": stage.stage_id,
         "test_number": nr,
-        "test_label": f"Test {nr}",
-        "wizard_label": f"Test {nr} av {len(STAGE_ORDER)}: {stage.label}",
+        "test_label": f"Test {nr}" if stage.stage_id != "data_foundation" else "Steg 1",
+        "wizard_label": (
+            f"Steg 1 av {len(STAGE_ORDER)}: {stage.label}"
+            if stage.stage_id == "data_foundation"
+            else f"Test {nr} av {len(STAGE_ORDER)}: {stage.label}"
+        ),
         "label": stage.label,
         "purpose": stage.purpose,
         "panel_label": STAGE_PANEL_LABELS.get(stage.stage_id, stage.label),
@@ -571,3 +575,4 @@ __all__ = [
     "stage_wizard_info",
     "standard_report_outline",
 ]
+
