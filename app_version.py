@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.3bz"
-APP_VERSION_NAME = "Dataunderlag og Pipeline Hurtigvalg"
-APP_BUILD_ID = "v1863bz-dataunderlag-pipeline-shortcuts"
+APP_VERSION = "v18.6.4"
+APP_VERSION_NAME = "Pipeline Input, Progress og Marked Shell"
+APP_BUILD_ID = "v1864-pipeline-input-progress-market-shell"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
