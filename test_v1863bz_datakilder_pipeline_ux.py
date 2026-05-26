@@ -49,11 +49,6 @@ def test_pipeline_package_view_explains_input_output_and_datakilder_report():
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.5g"' in version
-    assert "Session Safe Sidebar" in version
+    assert 'APP_VERSION = "v18.6.4"' in version
+    assert "Pipeline Input, Progress og Marked Shell" in version
     assert "hurtigtaster for Test 1-10" in version
-
-
-
-
-
