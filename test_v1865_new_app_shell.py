@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parent
 def test_version_identifies_new_app_shell():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.5c"' in version
-    assert "App Shell Menu Recovery" in version
-    assert "v1865c-app-shell-menu-recovery" in version
+    assert 'APP_VERSION = "v18.6.5d"' in version
+    assert "Pipeline Candidate Caps" in version
+    assert "v1865d-pipeline-candidate-caps" in version
 
 
 def test_left_navigation_routes_directly_to_main_rooms():
@@ -76,5 +76,18 @@ def test_shell_submenus_restore_hidden_tools():
         "Gammelt Kontrollsenter",
     ]:
         assert label in app
+
+
+def test_pipeline_candidate_caps_and_display_count_are_explicit():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+
+    assert "PIPELINE_MAX_CANDIDATES_V1865D = 60" in app
+    assert "cc_ranking_limit_v18535" in app
+    assert "market_room_ranking_limit_v1863cb" in app
+    assert "PIPELINE_MAX_CANDIDATES_V1865D" in app
+    assert "Vis antall kandidater" in app
+    assert "Alle {total_results} kandidatene ligger i outputpakken" in app
+    assert "use_container_width=False" in app
+
 
 

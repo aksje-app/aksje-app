@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.5c"
-APP_VERSION_NAME = "App Shell Menu Recovery"
-APP_BUILD_ID = "v1865c-app-shell-menu-recovery"
+APP_VERSION = "v18.6.5d"
+APP_VERSION_NAME = "Pipeline Candidate Caps"
+APP_BUILD_ID = "v1865d-pipeline-candidate-caps"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Test 2 og senere analyseflyt-slidere kan ikke lenger settes høyere enn faktisk pipeline-pakke, og rangeringslisten forklarer hvor mange som vises kontra sendes videre.",
+    "Rangeringskortene har mer luft over Paper-knappene, og Paper-kjøp/-selg bruker normal knappstørrelse i stedet for full bred stripe.",
+    "Venstre undermeny er gjort bredere og mer lesbar, og hovedvalg/subvalg holder state bedre ved rerun.",
     "Venstremenyen har naa hovedrom med undermeny, slik at gamle funksjoner og teststeg ikke forsvinner bak enkle toppknapper.",
     "Dataunderlag og Testflyt er splittet: Dataunderlag viser Test 1/datacockpit, mens Testflyt viser 1-10 progress og hurtigtaster.",
     "Hjem og Analyse bruker naa riktige imports i ny app-shell, slik at menyvalg ikke feiler med manglende funksjonsnavn.",
