@@ -184,7 +184,7 @@ STAGE_GROUPS: Dict[str, str] = {
 
 STAGE_DEFAULT_WIDGETS: Dict[str, Dict[str, Any]] = {
     "market_ranking": {
-        "cc_ranking_market_v18535": "Alle",
+        "cc_ranking_market_v18535": "Dataunderlag",
         "cc_ranking_limit_v18535": 30,
     },
     "top_picks": {
