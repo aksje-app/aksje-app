@@ -180,6 +180,49 @@ def _render_view(rows: Sequence[Mapping[str, Any]]) -> None:
         st.info("Ingen rader i denne visningen.")
 
 
+def _send_finansavisen_to_dataunderlag(visible_rows: Sequence[Mapping[str, Any]], status: Mapping[str, Any]) -> tuple[bool, str]:
+    try:
+        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, get_analysis_pipeline_service
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        matched_tickers = sorted({
+            str(row.get("matched_ticker") or "").strip().upper()
+            for row in visible_rows
+            if str(row.get("matched_ticker") or "").strip()
+        })
+        get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        ).save_stage_output(
+            "data_foundation",
+            [{
+                "name": "Finansavisen-data oppdatert",
+                "score": 100 if int(status.get("rows") or 0) else 55,
+                "source": "Finansavisen Bjellesauer",
+                "recommended_action": "Fortsett i Dataunderlag",
+                "reason": f"{int(status.get('rows') or 0)} handler importert, {len(matched_tickers)} tickere med match.",
+            }],
+            source_label="Finansavisen Bjellesauer",
+            context={
+                "manual_checkpoint": True,
+                "finansavisen_status": dict(status),
+                "finansavisen_matched_tickers": matched_tickers,
+            },
+            auto_handoff=True,
+        )
+        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+            "stage_id": "data_foundation",
+            "group": "Marked og signaler",
+            "panel": "1. Dataunderlag",
+            "defaults": {},
+            "auto_run": False,
+        }
+        return True, f"Sendte Finansavisen-status til 1. Dataunderlag ({len(matched_tickers)} tickere med match)."
+    except Exception as exc:
+        return False, f"Kunne ikke sende til 1. Dataunderlag: {exc}"
+
+
 def render_finansavisen_bjellesau_panel() -> None:
     st.subheader("Finansavisen Bjellesauer")
     st.caption(
@@ -314,14 +357,14 @@ def render_finansavisen_bjellesau_panel() -> None:
     ]
     decision_defaults = decision_options[: min(8, len(decision_options))]
     selected_decision_tickers = st.multiselect(
-        "Send til Beslutningsgrunnlag",
+        "Velg tickere for direkte Test 8 Beslutningsgrunnlag",
         decision_options,
         default=decision_defaults,
         key="finansavisen_bjellesau_decision_tickers_v1863bm",
         max_selections=min(20, len(decision_options)) if decision_options else None,
     )
 
-    c_exp1, c_exp2, c_exp3, c_exp4, c_decision, c_clear = st.columns([1, 1, 1, 1, 1.25, 1.25])
+    c_exp1, c_exp2, c_exp3, c_exp4, c_data, c_decision, c_clear = st.columns([1, 1, 1, 1, 1.25, 1.35, 1.25])
     with c_exp1:
         st.download_button(
             "Last ned CSV",
@@ -354,9 +397,23 @@ def render_finansavisen_bjellesau_panel() -> None:
             mime="application/pdf",
             use_container_width=True,
         )
+    with c_data:
+        if st.button(
+            "Send til 1. Dataunderlag",
+            key="finansavisen_bjellesau_send_dataunderlag_v1863ca",
+            use_container_width=True,
+            type="primary",
+            disabled=not bool(visible_rows),
+        ):
+            ok, msg = _send_finansavisen_to_dataunderlag(visible_rows, status)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.warning(msg)
     with c_decision:
         if st.button(
-            "Send valgte til Beslutningsgrunnlag",
+            "Send direkte til Test 8 Beslutningsgrunnlag",
             key="finansavisen_bjellesau_send_decision_v1863bm",
             use_container_width=True,
             disabled=not selected_decision_tickers,

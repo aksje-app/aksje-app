@@ -211,7 +211,8 @@ def test_finansavisen_budget_status_and_light_ui_compile():
     assert "finansavisen_bjellesau_period_{idx}_v1863bk" not in source
     assert "_file_period_key(upload, idx)" in source
     assert "Last ned PDF" in source
-    assert "Send valgte til Beslutningsgrunnlag" in source
+    assert "Send til 1. Dataunderlag" in source
+    assert "Send direkte til Test 8 Beslutningsgrunnlag" in source
 
     layout = open("workspace_layout.py", encoding="utf-8").read()
     assert '"finansavisen", "bjellesau"' in layout

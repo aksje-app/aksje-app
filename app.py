@@ -8116,13 +8116,27 @@ def render_market_ranking_control_center_v18535():
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
     _render_pipeline_stage_bar_v1863bw("market_ranking")
-    market = st.selectbox("Marked", [NO_UNIVERSE_SELECTION_LABEL] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
+    market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, "Dataunderlag"] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
     limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
     source_tickers = []
-    if market in MARKET_SCOPE_OPTIONS:
+    data_foundation_input = {}
+    if market == "Dataunderlag":
+        try:
+            pipeline = _analysis_pipeline_service_v1863bw()
+            data_foundation_input = pipeline.load_stage_input("market_ranking") or {}
+        except Exception:
+            data_foundation_input = {}
+        source_tickers = get_all_tickers()[: int(limit)]
+    elif market in MARKET_SCOPE_OPTIONS:
         source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
+    if market == "Dataunderlag":
+        if data_foundation_input:
+            st.success("Input fra 1. Dataunderlag er mottatt. Test 2 bruker kontrollert tickerunivers og datakildestatus fra steg 1.")
+        else:
+            st.warning("Ingen input fra 1. Dataunderlag er lagret ennaa. Gaa tilbake til Dataunderlag og godkjenn underlaget foer du kjoerer Test 2.")
+        st.caption("Dataunderlag-universet bruker felles tickerunivers sammen med kontrollstatus for aktoerregister, Finansavisen, NBIM/Oljefond og API-kilder.")
     if source_tickers:
         st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
     else:
@@ -8210,7 +8224,6 @@ def render_top_picks_control_center_v1863s():
     storage_scope = re.sub(r"[^A-Za-z0-9]+", "_", scope).strip("_") or "Aktivt"
     storage_key = f"TopPicks_{storage_scope}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
-
     if source_tickers:
         st.caption(f"Univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
         guard = market_guard_summary(source_tickers)
@@ -10391,7 +10404,7 @@ def _pipeline_defaults_label_v1863bw(defaults: dict) -> str:
         elif key.endswith("_engine_v1863au"):
             parts.append(str(value))
         elif key.endswith("_market_v18535"):
-            parts.append(f"Marked {value}")
+            parts.append(f"Univers {value}")
     return ", ".join(dict.fromkeys(parts)) or f"{len(defaults)} trygge standardvalg settes."
 
 
@@ -10675,7 +10688,8 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
             if st.button("Godkjenn dataunderlag og aapne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
                 _pipeline_send_and_open_next_v1863bw("data_foundation")
         else:
-            if st.button(f"Aapne {info.get('test_label')} med standardvalg", key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
+            open_label = "Bruk dataunderlag i Test 2" if stage_id == "market_ranking" else f"Aapne {info.get('test_label')} med standardvalg"
+            if st.button(open_label, key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
                 _pipeline_open_stage_v1863bw(stage_id)
     with c2:
         if next_label:
