@@ -72,6 +72,7 @@ AI_UNIVERSE_SMART_RESULT_KEY = AI_UNIVERSE_SMART_RESULT_KEY_V1859
 AI_UNIVERSE_SMART_RESULT_LEGACY_KEY = "ai_analysis_universe_smart_result_v1858"
 
 WORKSPACE_MODES = [
+    "Analyseflyt input",
     "Enkeltaksje",
     "Markedvalg",
     "Multi-marked",
@@ -895,7 +896,7 @@ def build_universe_live_status(
             "kind": "preview",
         },
         {
-            "label": "Datagrunnlag",
+            "label": "Datakilder",
             "value": f"{_count_ranked_items(latest_rankings)} rangerte rader",
             "detail": _rank_source_summary(latest_rankings),
             "kind": "ok" if latest_rankings else "warn",
@@ -1550,6 +1551,11 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         info = stage_wizard_info("smart_ai")
         inp = pipeline.load_stage_input("smart_ai")
         out = pipeline.load_stage_output("smart_ai")
+        if int(inp.get("candidate_count") or 0) > 0 and str(current.get("mode") or "") in {"", "Markedvalg"}:
+            current["mode"] = "Analyseflyt input"
+            current["scopes"] = ["Analyseflyt input"]
+            st.session_state["ai_universe_mode_draft_v1853"] = "Analyseflyt input"
+            st.session_state["ai_universe_scopes_draft_v1853"] = ["Analyseflyt input"]
         st.markdown(
             f"""
             <div style="border:1px solid rgba(56,189,248,.52);border-radius:8px;padding:.62rem .72rem;margin:.4rem 0;background:rgba(15,23,42,.72);">

@@ -37,3 +37,26 @@ def test_marked_room_groups_market_tools_behind_toolbar():
     assert '["Sektor", "Land", "Industri", "Faktorstil", "Risikostil", "Storrelse"]' in app
     assert "render_market_ranking_control_center_v18535(selected_market=" in app
     assert '"marked", "marked/rangering"' in layout
+
+
+def test_test3_to_10_prefer_analysis_pipeline_input_and_specific_send_labels():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    analysis = (ROOT / "analysis_universe_ai.py").read_text(encoding="utf-8")
+    service = (ROOT / "services" / "analysis_pipeline_service.py").read_text(encoding="utf-8")
+    universe = (ROOT / "services" / "universe_service.py").read_text(encoding="utf-8")
+
+    assert '"smart_ai": {' in service
+    assert '"ai_universe_mode_draft_v1853": "Analyseflyt input"' in service
+    assert '"Analyseflyt input"' in analysis
+    assert 'current["mode"] = "Analyseflyt input"' in analysis
+    assert 'mode == "Analyseflyt input" or "Analyseflyt input" in scopes' in universe
+    assert "Send {output_count} kandidater til Test" in app
+    assert "Test 2 kjører" in app
+    assert "kandidater klare for Test 3" in app
+
+
+def test_known_us_names_are_resolved_in_quick_cards():
+    metadata = (ROOT / "security_metadata.py").read_text(encoding="utf-8")
+
+    assert '"MO": {"name": "Altria Group, Inc."' in metadata
+    assert '"AKAM": {"name": "Akamai Technologies, Inc."' in metadata

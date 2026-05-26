@@ -64,6 +64,8 @@ _STOCKS: Dict[str, Dict[str, str]] = {
     "HD": {"name": "The Home Depot, Inc.", "sector": "Consumer", "risk": "Middels"},
     "PG": {"name": "Procter & Gamble Company", "sector": "Consumer", "risk": "Lav"},
     "AMD": {"name": "Advanced Micro Devices, Inc.", "sector": "Technology", "risk": "Høy"},
+    "MO": {"name": "Altria Group, Inc.", "sector": "Consumer", "risk": "Middels"},
+    "AKAM": {"name": "Akamai Technologies, Inc.", "sector": "Technology", "risk": "Middels"},
     "EQNR.OL": {"name": "Equinor ASA", "sector": "Energy", "risk": "Middels"},
     "DNB.OL": {"name": "DNB Bank ASA", "sector": "Financials", "risk": "Lav"},
     "STB.OL": {"name": "Storebrand ASA", "sector": "Financials", "risk": "Middels"},

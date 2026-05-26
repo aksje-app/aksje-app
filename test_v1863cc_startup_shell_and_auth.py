@@ -10,7 +10,8 @@ def test_startup_defaults_to_marked_room_and_hides_drift_controls():
 
     assert '"ai_control_center_active_panel_v1863aj"] = "Marked"' in app
     assert '"ai_control_center_group_v1863aj"] = "Marked og signaler"' in app
-    assert "Vis drift/global-kontroller" in app
+    assert "Drift: vis Start/Stopp/Global" in app
+    assert "Vanlig arbeid starter i Marked/Testflyt" in app
     assert "show_drift_controls_v1863cc" in app
     assert "render_global_update_action_panel_v1863g()" in app
     assert "if bool(globals().get(\"show_drift_controls_v1863cc\", False))" in app

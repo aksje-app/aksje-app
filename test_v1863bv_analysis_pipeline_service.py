@@ -144,5 +144,5 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" in app_source
     assert "smart_ai_pipeline_next_v1863bw" in smart_source
     assert "decision_pipeline_next_v1863bw" in decision_source
-    assert "Send output til Test" in app_source
+    assert "Send {output_count} kandidater til Test" in app_source
     assert "PIPELINE_PENDING_NAV_KEY" in service_source

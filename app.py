@@ -7728,11 +7728,12 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.markdown("<div class='sidebar-section-title'>⚙️ Innstillinger</div>", unsafe_allow_html=True)
 render_user_admin(current_user)
 show_drift_controls_v1863cc = st.sidebar.checkbox(
-    "Vis drift/global-kontroller",
+    "Drift: vis Start/Stopp/Global",
     value=False,
     key="show_drift_controls_v1863cc",
     help="Skjuler Start/Pause/Stopp og Global oppdatering fra startbildet. Bruk ved drift/admin.",
 )
+st.sidebar.caption("Vanlig arbeid starter i Marked/Testflyt. Driftkontroller er skjult til du trenger dem.")
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -8176,9 +8177,23 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     else:
         st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
     if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
+        progress_box = st.empty()
+        progress = st.progress(0, text="Starter Test 2 rangering")
+        progress_box.markdown(
+            f"<div class='v18-dark-row'><b>Test 2 kjører</b><br>1/4 Henter univers · {len(source_tickers)} tickere</div>",
+            unsafe_allow_html=True,
+        )
+        progress.progress(25, text=f"1/4 Henter univers · {len(source_tickers)} tickere")
+        progress.progress(45, text="2/4 Henter/cache aksjedata")
         with st.spinner(f"Rangerer {market}..."):
             ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
+        progress.progress(80, text="3/4 Lagrer rangering og pipeline-output")
         latest[storage_key] = ranked or []
+        progress.progress(100, text=f"4/4 Ferdig · {len(ranked or [])} kandidater")
+        progress_box.markdown(
+            f"<div class='v18-dark-row' style='border-color:rgba(34,197,94,.55);'><b>Test 2 ferdig</b><br>{len(ranked or [])} kandidater klare for Test 3.</div>",
+            unsafe_allow_html=True,
+        )
         st.success(f"Rangering ferdig: {len(ranked or [])} kandidater.")
     rows = latest.get(storage_key, []) or []
     if rows:
@@ -10816,7 +10831,12 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
     with c_next:
         if next_label:
             disabled = stage_id != "data_foundation" and not bool(out)
-            label = f"Send output til Test {info.get('next_test_number')} og aapne {next_label}"
+            output_count = int(out.get("candidate_count") or 0) if out else 0
+            label = (
+                f"Send {output_count} kandidater til Test {info.get('next_test_number')} og aapne {next_label}"
+                if stage_id != "data_foundation"
+                else f"Godkjenn dataunderlag og aapne Test {info.get('next_test_number')}"
+            )
             if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True, disabled=disabled):
                 _pipeline_send_and_open_next_v1863bw(stage_id)
         else:

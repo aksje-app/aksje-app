@@ -17,6 +17,7 @@ MARKET_SCOPE_OPTIONS: List[str] = BASE_MARKET_SCOPES + AGGREGATE_MARKET_SCOPES
 SOURCE_SCOPE_OPTIONS: List[str] = ["Top Picks", "Watchlist", "Paper trading", "Portefolje", "Portefølje", "Manuell liste", "Smart AI-utvalg"]
 NO_MARKET_SELECTION_LABEL = "Velg marked"
 NO_UNIVERSE_SELECTION_LABEL = "Velg univers"
+SOURCE_SCOPE_OPTIONS = ["Analyseflyt input"] + [x for x in SOURCE_SCOPE_OPTIONS if x != "Analyseflyt input"]
 
 
 def market_scope_options(include_aggregate: bool = True) -> List[str]:
