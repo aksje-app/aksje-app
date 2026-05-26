@@ -3666,14 +3666,6 @@ def _query_value_v1865e(name: str) -> str:
         return ""
 
 
-def _shell_href_v1865e(page: str, sub: str = "") -> str:
-    parts = [f"page={str(page).replace(' ', '+')}"]
-    if sub:
-        safe_sub = str(sub).replace(" ", "+").replace("/", "%2F")
-        parts.append(f"sub={safe_sub}")
-    return "?" + "&".join(parts)
-
-
 def _shell_icon_svg_v1865e(icon: str) -> str:
     icons = {
         "home": "<path d='M3 11 L12 4 L21 11'/><path d='M5 10 V21 H19 V10'/><path d='M9 21 V14 H15 V21'/>",
@@ -3691,15 +3683,13 @@ def _shell_icon_svg_v1865e(icon: str) -> str:
 
 
 def _render_app_shell_sidebar_v1865() -> str:
-    """Primary app shell navigation rendered as real links, not Streamlit widgets."""
+    """Primary app shell navigation using Streamlit state, never browser links."""
     valid = {page for page, _icon, _label in APP_SHELL_PAGES_V1865}
-    query_page = _query_value_v1865e("page")
-    query_sub = _query_value_v1865e("sub").replace("+", " ")
-    current = query_page if query_page in valid else str(st.session_state.get(APP_SHELL_PAGE_KEY_V1865) or "Marked")
+    current = str(st.session_state.get(APP_SHELL_PAGE_KEY_V1865) or "Marked")
     if current not in valid:
         current = "Marked"
     subpages = APP_SHELL_SUBPAGES_V1865C.get(current, ["Oversikt"])
-    current_sub = query_sub if query_sub in subpages else str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
+    current_sub = str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
     if current_sub not in subpages:
         current_sub = subpages[0]
     st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
@@ -3707,8 +3697,8 @@ def _render_app_shell_sidebar_v1865() -> str:
     st.sidebar.markdown(
         """
         <style>
-        section[data-testid="stSidebar"] { min-width: 92px !important; max-width: 300px !important; background:#070d19 !important; overflow:visible !important; }
-        section[data-testid="stSidebar"]:hover { min-width: 282px !important; }
+        section[data-testid="stSidebar"] { min-width: 104px !important; max-width: 310px !important; background:#070d19 !important; overflow:visible !important; }
+        section[data-testid="stSidebar"]:hover { min-width: 286px !important; }
         .akse-shell-title {
             margin:.35rem 0 .55rem 0;
             color:#38bdf8;
@@ -3717,96 +3707,69 @@ def _render_app_shell_sidebar_v1865() -> str:
             letter-spacing:.10em;
             text-transform:uppercase;
         }
-        .akse-nav { display:flex; flex-direction:column; gap:.16rem; overflow:visible; }
-        .akse-nav-link {
-            position:relative;
-            display:flex;
-            align-items:center;
-            gap:.72rem;
-            min-height:38px;
-            padding:.36rem .42rem;
-            border-left:3px solid transparent;
-            border-radius:0 10px 10px 0;
-            color:#94a3b8 !important;
-            text-decoration:none !important;
-            font-weight:900;
-            white-space:nowrap;
-        }
-        .akse-nav-link:hover, .akse-nav-link.active {
+        section[data-testid="stSidebar"] .stButton > button {
+            justify-content:flex-start !important;
+            min-height:30px !important;
+            height:auto !important;
+            width:100% !important;
+            padding:.28rem .42rem !important;
+            border-radius:8px !important;
+            border:1px solid rgba(56,189,248,.35) !important;
+            background:rgba(8,47,73,.48) !important;
             color:#f8fafc !important;
-            background:rgba(15,23,42,.90);
-            border-left-color:#38bdf8;
+            font-size:.75rem !important;
+            font-weight:950 !important;
+            line-height:1.12 !important;
+            white-space:normal !important;
+            text-align:left !important;
+            box-shadow:none !important;
         }
-        .akse-nav-svg {
-            width:24px;
-            height:24px;
-            min-width:24px;
-            fill:none;
-            stroke:currentColor;
-            stroke-width:2;
-            stroke-linecap:round;
-            stroke-linejoin:round;
+        section[data-testid="stSidebar"] .stButton > button:hover {
+            background:rgba(14,165,233,.72) !important;
+            border-color:rgba(125,211,252,.82) !important;
         }
-        .akse-nav-label {
-            opacity:0;
-            max-width:0;
-            overflow:hidden;
-            transition:opacity .12s ease, max-width .12s ease;
-            font-size:.92rem;
+        .akse-shell-active {
+            margin:.12rem 0 .18rem 0;
+            padding:.34rem .46rem;
+            border:1px solid rgba(34,197,94,.52);
+            border-radius:9px;
+            background:rgba(5,150,105,.18);
+            color:#dcfce7;
+            font-size:.72rem;
+            font-weight:950;
+            line-height:1.15;
         }
-        section[data-testid="stSidebar"]:hover .akse-nav-label,
-        .akse-nav-link:hover .akse-nav-label,
-        .akse-nav-link.active .akse-nav-label {
-            opacity:1;
-            max-width:190px;
+        .akse-shell-subtitle {
+            margin:.42rem 0 .18rem 0;
+            color:#bae6fd;
+            font-size:.68rem;
+            font-weight:1000;
+            text-transform:uppercase;
+            letter-spacing:.06em;
         }
-        .akse-subnav {
-            margin:.12rem 0 .38rem 2.15rem;
-            padding-left:.46rem;
-            border-left:1px solid rgba(148,163,184,.22);
-            display:flex;
-            flex-direction:column;
-            gap:.10rem;
-        }
-        .akse-subnav a {
-            display:block;
-            padding:.28rem .44rem;
-            border-radius:8px;
-            color:#cbd5e1 !important;
-            text-decoration:none !important;
-            font-size:.78rem;
-            line-height:1.18;
-            white-space:normal;
-            overflow-wrap:anywhere;
-        }
-        .akse-subnav a:hover, .akse-subnav a.active {
-            background:rgba(8,47,73,.86);
-            color:#f8fafc !important;
-        }
-        section[data-testid="stSidebar"]:not(:hover) .akse-subnav { display:none; }
         </style>
         <div class="akse-shell-title">VERKTOY</div>
         """,
         unsafe_allow_html=True,
     )
-    nav_html = ["<nav class='akse-nav' aria-label='App navigation'>"]
-    for page, icon, label in APP_SHELL_PAGES_V1865:
-        page_subs = APP_SHELL_SUBPAGES_V1865C.get(page, ["Oversikt"])
-        default_sub = page_subs[0] if page_subs else ""
-        active = page == current
-        nav_html.append(
-            f"<a class='akse-nav-link {'active' if active else ''}' href='{html.escape(_shell_href_v1865e(page, default_sub))}' title='{html.escape(label)}'>"
-            f"{_shell_icon_svg_v1865e(icon)}<span class='akse-nav-label'>{html.escape(label)}</span></a>"
-        )
-        if active and len(page_subs) > 1:
-            nav_html.append("<div class='akse-subnav'>")
-            for sub in page_subs:
-                nav_html.append(
-                    f"<a class='{'active' if sub == current_sub else ''}' href='{html.escape(_shell_href_v1865e(page, sub))}' title='{html.escape(sub)}'>{html.escape(sub)}</a>"
-                )
-            nav_html.append("</div>")
-    nav_html.append("</nav>")
-    st.sidebar.markdown("".join(nav_html), unsafe_allow_html=True)
+    for page, _icon, label in APP_SHELL_PAGES_V1865:
+        prefix = "● " if page == current else "○ "
+        if st.sidebar.button(prefix + label, key=f"app_shell_main_btn_v1865g_{page}", use_container_width=True):
+            page_subs = APP_SHELL_SUBPAGES_V1865C.get(page, ["Oversikt"])
+            st.session_state[APP_SHELL_PAGE_KEY_V1865] = page
+            st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = page_subs[0] if page_subs else ""
+            st.rerun()
+
+    st.sidebar.markdown(
+        f"<div class='akse-shell-active'>Aktiv side: {html.escape(current)}<br>Valg: {html.escape(current_sub)}</div>",
+        unsafe_allow_html=True,
+    )
+    st.sidebar.markdown("<div class='akse-shell-subtitle'>Undermeny</div>", unsafe_allow_html=True)
+    for sub in subpages:
+        prefix = "● " if sub == current_sub else "○ "
+        if st.sidebar.button(prefix + sub, key=f"app_shell_sub_btn_v1865g_{current}_{sub}", use_container_width=True):
+            st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = sub
+            st.rerun()
     return current
 
 

@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parent
 def test_version_identifies_new_app_shell():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.5f"' in version
-    assert "Visible Text Cleanup" in version
-    assert "v1865f-visible-text-cleanup" in version
+    assert 'APP_VERSION = "v18.6.5g"' in version
+    assert "Session Safe Sidebar" in version
+    assert "v1865g-session-safe-sidebar" in version
 
 
 def test_left_navigation_routes_directly_to_main_rooms():
@@ -90,16 +90,18 @@ def test_pipeline_candidate_caps_and_display_count_are_explicit():
     assert "use_container_width=False" in app
 
 
-def test_sidebar_uses_svg_links_not_streamlit_radio_widgets():
+def test_sidebar_uses_session_state_buttons_not_browser_links():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
 
-    assert "def _shell_icon_svg_v1865e" in app
-    assert "class='akse-nav-link" in app
-    assert "class='akse-subnav'" in app
-    assert "href='{html.escape(_shell_href_v1865e(page, default_sub))}'" in app
+    assert "Primary app shell navigation using Streamlit state, never browser links." in app
+    assert "st.sidebar.button(prefix + label" in app
+    assert "st.sidebar.button(prefix + sub" in app
+    assert "_shell_href_v1865e(page" not in app
+    assert "class='akse-nav-link" not in app
+    assert "href=" not in app
     assert "st.sidebar.radio" not in app
     assert "app_shell_page_radio_v1865c" not in app
-    assert '"home"' in app and '"globe"' in app and '"flow"' in app
+    assert "APP_SHELL_PAGE_KEY_V1865" in app and "APP_SHELL_SUBPAGE_KEY_V1865C" in app
 
 
 def test_top_drift_controls_do_not_render_mojibake():

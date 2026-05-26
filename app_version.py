@@ -1,9 +1,10 @@
-APP_VERSION = "v18.6.5f"
-APP_VERSION_NAME = "Visible Text Cleanup"
-APP_BUILD_ID = "v1865f-visible-text-cleanup"
+APP_VERSION = "v18.6.5g"
+APP_VERSION_NAME = "Session Safe Sidebar"
+APP_BUILD_ID = "v1865g-session-safe-sidebar"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Venstremenyen bruker naa interne Streamlit-knapper i session_state i stedet for HTML-lenker, slik at menyklikk ikke aapner ny fane eller sender bruker til login.",
     "Synlige driftknapper, global oppdatering og toppvarsler er ryddet for mojibake, slik at Start/Pause/Stopp/Nødstopp/Gjør klar vises som lesbar norsk tekst.",
     "Venstremenyen er bygget om fra Streamlit-radio til HTML/SVG-lenker med hover-tekst og undermeny direkte under aktivt ikon.",
     "Sidebar-ruting bruker page/sub-lenker til reelle rom og teststeg, uten Unicode-ikoner som kan bli mojibake.",
