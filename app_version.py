@@ -9,6 +9,8 @@ APP_PATCH_NOTES = [
     "Input/output-visningen forklarer input fra forrige steg og output fra dette steg, og Dataunderlag-output viser kontrollrapport i stedet for tom kandidatvisning.",
     "1. Dataunderlag er datakilde-cockpit med direkte knapper til Finansavisen, Aktoerregister, Oljefond/NBIM og kildestatus.",
     "Test 2 Marked/rangering har Dataunderlag som standard univers, viser om input fra steg 1 er mottatt og forklarer hva universet bruker.",
+    "Analyseflyt-statusen er ryddet til en hovedtabell og en lukket detaljvisning, slik at samme stegstatus ikke vises dobbelt.",
+    "Pipeline-linjen i Test 2-10 viser naa forrige steg, input/output-status og send-videre-knapp; den gamle midtknappen for aa aapne samme test med standardvalg er fjernet.",
     "Finansavisen-panelet kan sende importstatus tilbake til 1. Dataunderlag og hoppe dit, mens direkte snarvei til Beslutningsgrunnlag er merket som Test 8.",
     "Godkjenn og send til Test 2 ligger nederst etter datakildekontroll, ikke oeverst foer brukeren har sett hva som kan kontrolleres.",
     "Paper Trading fyller land, marked, sektor og bransje best-effort for gamle posisjoner/handler og lar posisjoner velges direkte til kjop/salg.",

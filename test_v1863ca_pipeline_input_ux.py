@@ -14,7 +14,7 @@ def test_test2_uses_dataunderlag_as_explicit_default_universe():
     assert '"Dataunderlag"] + market_scope_options' in app
     assert "Input fra 1. Dataunderlag er mottatt" in app
     assert "Dataunderlag-universet bruker felles tickerunivers" in app
-    assert "Bruk dataunderlag i Test 2" in app
+    assert "Bruker input fra 1. Dataunderlag" in app
 
 
 def test_finansavisen_can_return_to_dataunderlag_before_test8_shortcut():

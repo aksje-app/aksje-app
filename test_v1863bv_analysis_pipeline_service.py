@@ -113,7 +113,9 @@ def test_pipeline_ui_and_panels_expose_handoff_without_hidden_run():
     assert "def render_analysis_pipeline_control_center_v1863bv" in app_source
     assert "(\"1. Dataunderlag\", render_analysis_pipeline_control_center_v1863bv)" in app_source
     assert "Analyseflyt input" in app_source
-    assert "Send siste output videre og aapne neste test" in app_source
+    assert "Send valgt output videre og aapne neste test" in app_source
+    assert "Input / output" in app_source
+    assert "Aapne {info.get('test_label')} med standardvalg" not in app_source
     assert "Hent fra analyseflyt" in decision_source
     assert ".save_stage_output(" in alpha_source
     assert "auto_run" in (ROOT / "services" / "analysis_pipeline_service.py").read_text(encoding="utf-8")

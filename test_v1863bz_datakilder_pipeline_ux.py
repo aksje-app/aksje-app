@@ -39,6 +39,11 @@ def test_pipeline_package_view_explains_input_output_and_datakilder_report():
     assert "Forrige:" in app
     assert 'pipeline.save_stage_output(\n                "data_foundation"' in app
     assert "auto_handoff=True" in app
+    assert "Detaljer for valgt steg / send videre" in app
+    assert "Send valgt output videre og aapne neste test" in app
+    assert "Send siste output videre og aapne neste test" not in app
+    assert "Aapne {info.get('test_label')} med standardvalg" not in app
+    assert 'status_df[["nr", "steg", "status", "input", "output", "neste"]]' not in app
 
 
 def test_version_records_datakilder_pipeline_shortcuts():

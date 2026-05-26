@@ -10676,22 +10676,24 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
         return
     prev_stage = str(info.get("previous_stage_id") or "")
     prev_label = str(info.get("previous_label") or "")
-    c_prev, c1, c2 = st.columns([0.70, 1.0, 1.15])
+    c_prev, c_status, c_next = st.columns([0.70, 1.05, 1.15])
     with c_prev:
         if prev_stage:
             if st.button(f"Forrige: {prev_label}", key=f"analysis_pipeline_prev_{stage_id}_v1863bz", use_container_width=True):
                 _pipeline_open_stage_v1863bw(prev_stage)
         else:
             st.markdown("<div class='v18-dark-row'>Forste steg</div>", unsafe_allow_html=True)
-    with c1:
-        if stage_id == "data_foundation":
-            if st.button("Godkjenn dataunderlag og aapne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
-                _pipeline_send_and_open_next_v1863bw("data_foundation")
+    with c_status:
+        input_count = int(inp.get("candidate_count") or 0) if inp else 0
+        output_count = int(out.get("candidate_count") or 0) if out else 0
+        st.metric("Input / output", f"{input_count} / {output_count}")
+        if stage_id == "market_ranking":
+            st.caption("Bruker input fra 1. Dataunderlag og universvalg Dataunderlag som standard.")
+        elif prev_stage:
+            st.caption("Dette er status for pakken fra forrige steg og output fra dette steget.")
         else:
-            open_label = "Bruk dataunderlag i Test 2" if stage_id == "market_ranking" else f"Aapne {info.get('test_label')} med standardvalg"
-            if st.button(open_label, key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
-                _pipeline_open_stage_v1863bw(stage_id)
-    with c2:
+            st.caption("Dette steget lager kontrollrapporten som sendes til Test 2.")
+    with c_next:
         if next_label:
             disabled = stage_id != "data_foundation" and not bool(out)
             label = f"Send output til Test {info.get('next_test_number')} og aapne {next_label}"
@@ -10729,59 +10731,52 @@ def render_analysis_pipeline_control_center_v1863bv():
         "<div class='v18-dark-row'><b>Prinsipp:</b> automatisk overfoering av inputpakker, ikke automatisk kjoering. Dataunderlag sender en kontrollrapport; senere tester sender kandidater/resultater videre.</div>",
         unsafe_allow_html=True,
     )
-    try:
-        status_df = pd.DataFrame(status_rows)
-        st.dataframe(
-            status_df[["nr", "steg", "status", "input", "output", "neste"]],
-            use_container_width=True,
-            hide_index=True,
-        )
-    except Exception:
-        for row in status_rows:
-            st.caption(f"{row.get('nr')}. {row.get('steg')}: {row.get('status')} | input {row.get('input')} | output {row.get('output')}")
+    with st.expander("Detaljer for valgt steg / send videre", expanded=False):
+        labels = [f"{row.get('nr')}. {row.get('steg')}" for row in status_rows]
+        active_stage_for_select = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
+        if active_stage_for_select:
+            active_label_for_select = next((label for label, row in zip(labels, status_rows) if row.get("stage_id") == active_stage_for_select), "")
+            if active_label_for_select:
+                st.session_state["analysis_pipeline_stage_select_v1863bv"] = active_label_for_select
+        selected_label = st.selectbox("Velg steg", labels, key="analysis_pipeline_stage_select_v1863bv")
+        selected_idx = max(0, labels.index(selected_label)) if selected_label in labels else 0
+        selected_stage = status_rows[selected_idx]["stage_id"]
+        selected_stage_def = STAGES_BY_ID.get(selected_stage)
+        selected_output = pipeline.load_stage_output(selected_stage)
+        selected_input = pipeline.load_stage_input(selected_stage)
+        target_stage = next_stage_id(selected_stage)
 
-    labels = [f"{row.get('nr')}. {row.get('steg')}" for row in status_rows]
-    active_stage_for_select = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
-    if active_stage_for_select:
-        active_label_for_select = next((label for label, row in zip(labels, status_rows) if row.get("stage_id") == active_stage_for_select), "")
-        if active_label_for_select:
-            st.session_state["analysis_pipeline_stage_select_v1863bv"] = active_label_for_select
-    selected_label = st.selectbox("Vis / send videre", labels, key="analysis_pipeline_stage_select_v1863bv")
-    selected_idx = max(0, labels.index(selected_label)) if selected_label in labels else 0
-    selected_stage = status_rows[selected_idx]["stage_id"]
-    selected_stage_def = STAGES_BY_ID.get(selected_stage)
-    selected_output = pipeline.load_stage_output(selected_stage)
-    selected_input = pipeline.load_stage_input(selected_stage)
-    target_stage = next_stage_id(selected_stage)
+        c1, c2, c3 = st.columns([1.2, 1.2, 1.0])
+        with c1:
+            disabled = not bool(selected_output and target_stage)
+            if st.button("Send valgt output videre og aapne neste test", key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=disabled):
+                if selected_stage == "data_foundation":
+                    _pipeline_send_and_open_next_v1863bw("data_foundation")
+                else:
+                    res = pipeline.handoff_latest_output_to_next(selected_stage)
+                    if res.ok:
+                        _pipeline_open_stage_v1863bw(target_stage)
+                    else:
+                        st.warning(res.message)
+        with c2:
+            input_label = "Dataunderlag inn" if selected_stage == "data_foundation" else "Input fra forrige steg"
+            st.metric(input_label, int(selected_input.get("candidate_count") or 0) if selected_input else 0)
+            st.caption("Statusfelt, ikke knapp. Viser kandidater/kontrollpunkter dette steget har faatt inn.")
+        with c3:
+            output_label = "Kontrollrapport klar" if selected_stage == "data_foundation" else "Output fra dette steg"
+            st.metric(output_label, int(selected_output.get("candidate_count") or 0) if selected_output else 0)
+            st.caption("Statusfelt, ikke knapp. Viser det dette steget kan sende videre.")
 
-    c1, c2, c3 = st.columns([1.2, 1.2, 1.0])
-    with c1:
-        disabled = not bool(selected_output and target_stage)
-        if st.button("Send siste output videre og aapne neste test", key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=disabled):
-            res = pipeline.handoff_latest_output_to_next(selected_stage)
-            if res.ok:
-                _pipeline_open_stage_v1863bw(target_stage)
-            else:
-                st.warning(res.message)
-    with c2:
-        input_label = "Dataunderlag inn" if selected_stage == "data_foundation" else "Input fra forrige steg"
-        st.metric(input_label, int(selected_input.get("candidate_count") or 0) if selected_input else 0)
-        st.caption("Statusfelt, ikke knapp. Viser kandidater/kontrollpunkter dette steget har faatt inn.")
-    with c3:
-        output_label = "Kontrollrapport klar" if selected_stage == "data_foundation" else "Output fra dette steg"
-        st.metric(output_label, int(selected_output.get("candidate_count") or 0) if selected_output else 0)
-        st.caption("Statusfelt, ikke knapp. Viser det dette steget kan sende videre.")
+        if selected_stage_def:
+            st.caption(f"{selected_stage_def.label}: {selected_stage_def.purpose}")
+        if target_stage in STAGES_BY_ID:
+            st.caption(f"Neste steg: {STAGES_BY_ID[target_stage].label}. Kandidater legges klare, men analysen starter ikke automatisk.")
 
-    if selected_stage_def:
-        st.caption(f"{selected_stage_def.label}: {selected_stage_def.purpose}")
-    if target_stage in STAGES_BY_ID:
-        st.caption(f"Neste steg: {STAGES_BY_ID[target_stage].label}. Kandidater legges klare, men analysen starter ikke automatisk.")
-
-    if selected_output and (selected_stage == "data_foundation" or not selected_input):
-        st.session_state["analysis_pipeline_package_view_v1863bv"] = "Output fra dette steg"
-    package_view = st.radio("Pakkevisning", ["Mottatt fra forrige test", "Output fra dette steg"], horizontal=True, key="analysis_pipeline_package_view_v1863bv")
-    package = selected_input if package_view == "Mottatt fra forrige test" else selected_output
-    _render_pipeline_package_v1863bz(selected_stage, package, package_view)
+        if selected_output and (selected_stage == "data_foundation" or not selected_input):
+            st.session_state["analysis_pipeline_package_view_v1863bv"] = "Output fra dette steg"
+        package_view = st.radio("Pakkevisning", ["Mottatt fra forrige test", "Output fra dette steg"], horizontal=True, key="analysis_pipeline_package_view_v1863bv")
+        package = selected_input if package_view == "Mottatt fra forrige test" else selected_output
+        _render_pipeline_package_v1863bz(selected_stage, package, package_view)
 
     if selected_stage == "data_foundation":
         _render_data_foundation_approval_v1863by(status_rows)
