@@ -8111,13 +8111,19 @@ def render_interactive_technical_control_center_v18535():
         st.info("Kjør en analyse for å åpne teknisk analyse, Trading engine og nyhetspanel for valgt ticker.")
 
 
-def render_market_ranking_control_center_v18535():
+def render_market_ranking_control_center_v18535(selected_market: str | None = None, selected_limit: int | None = None, *, embedded: bool = False):
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
     _render_pipeline_stage_bar_v1863bw("market_ranking")
-    market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, "Dataunderlag"] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
-    limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
+    if selected_market is None:
+        market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, "Dataunderlag"] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
+    else:
+        market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
+    if selected_limit is None:
+        limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
+    else:
+        limit = int(selected_limit or max_count or 30)
     source_tickers = []
     data_foundation_input = {}
     if market == "Dataunderlag":
@@ -8151,6 +8157,92 @@ def render_market_ranking_control_center_v18535():
         render_ranking(rows, f"🏆 {market} rangering")
     else:
         st.info("Ingen lagret rangering for dette panelet ennå.")
+
+
+def _render_market_room_toolbar_v1863cb() -> dict:
+    """Compact Market room toolbar with dropdown-style controls."""
+    market_options = ["Dataunderlag"] + market_scope_options(include_aggregate=True)
+    c_filter, c_market, c_chart, c_group, c_period, c_view = st.columns([0.42, 1.05, 1.05, 1.0, 0.72, 1.45])
+    with c_filter:
+        filter_open = st.toggle("Filter", value=False, key="market_room_filter_open_v1863cb")
+    with c_market:
+        market = st.selectbox("Marked", market_options, key="market_room_market_v1863cb")
+    with c_chart:
+        chart_content = st.multiselect(
+            "Chart",
+            ["Hovedindeks", "Toppindeks", "Valuta", "Strategier", "Toppselskaper"],
+            default=["Hovedindeks", "Toppindeks"],
+            key="market_room_chart_content_v1863cb",
+        )
+    with c_group:
+        grouping = st.selectbox(
+            "Gruppering",
+            ["Sektor", "Land", "Industri", "Faktorstil", "Risikostil", "Storrelse"],
+            key="market_room_grouping_v1863cb",
+        )
+    with c_period:
+        period = st.selectbox("Periode", ["1D", "1U", "1M", "3M", "6M", "1Y"], index=2, key="market_room_period_v1863cb")
+    with c_view:
+        view = st.radio(
+            "Visning",
+            ["Oversikt", "Rangering", "Heatmap", "Regime", "Makro", "Nyheter"],
+            horizontal=True,
+            key="market_room_view_v1863cb",
+        )
+    if filter_open:
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            st.multiselect("Signalfilter", ["Momentum", "Volum", "Relativ styrke", "Lav risiko", "Insider/bjellesau"], default=[], key="market_room_signal_filter_v1863cb")
+        with fc2:
+            st.slider("Min score", 0, 100, 50, 5, key="market_room_min_score_v1863cb")
+        with fc3:
+            st.checkbox("Vis bare kandidater med pipeline-input", value=False, key="market_room_pipeline_only_v1863cb")
+    return {"market": market, "chart_content": chart_content, "grouping": grouping, "period": period, "view": view}
+
+
+def _render_market_room_overview_v1863cb(config: dict) -> None:
+    market = str(config.get("market") or "Dataunderlag")
+    st.markdown("#### Markedsoversikt")
+    st.caption("Oversikten starter ingen tunge analyser. Bruk Rangering for Test 2-kjoering.")
+    try:
+        tickers = get_all_tickers() if market == "Dataunderlag" else resolve_universe_tickers([market], max_count=250)
+    except Exception:
+        tickers = []
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Univers", len(tickers or []))
+    with c2:
+        st.metric("Chart-valg", len(config.get("chart_content") or []))
+    with c3:
+        st.metric("Gruppering", str(config.get("grouping") or "Sektor"))
+    with c4:
+        st.metric("Periode", str(config.get("period") or "1M"))
+    if tickers:
+        st.caption("Eksempel fra valgt univers: " + ", ".join(tickers[:12]))
+    st.info("Velg Rangering for aa kjoere Test 2, Heatmap for markedsbilde, Regime for markedsklima eller Makro for renter/bredde.")
+
+
+def render_market_room_control_center_v1863cb() -> None:
+    """Market room with toolbar, dropdowns and existing market functions grouped together."""
+    st.subheader("Marked")
+    st.caption("Spor markeder, prisendringer, sektortrender og Test 2-rangering fra samme arbeidsflate.")
+    config = _render_market_room_toolbar_v1863cb()
+    view = str(config.get("view") or "Oversikt")
+    if view == "Rangering":
+        limit = st.slider("Maks kandidater i Test 2", 5, 100, int(max_count or 30), 5, key="market_room_ranking_limit_v1863cb")
+        render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "Dataunderlag"), selected_limit=int(limit), embedded=True)
+    elif view == "Heatmap":
+        st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
+        render_ai_heatmaps()
+    elif view == "Regime":
+        st.caption(f"Regime vises sammen med periode {config.get('period')}.")
+        render_market_regime_widget()
+    elif view == "Makro":
+        render_macro_rates_breadth_panel()
+    elif view == "Nyheter":
+        render_news_control_center_v18535()
+    else:
+        _render_market_room_overview_v1863cb(config)
 
 
 def _parse_control_center_tickers_v1863s(text: str) -> list[str]:
@@ -10788,6 +10880,7 @@ def render_analysis_pipeline_control_center_v1863bv():
 def control_center_extra_panels_v18535():
     return [
         ("1. Dataunderlag", render_analysis_pipeline_control_center_v1863bv),
+        ("Marked", render_market_room_control_center_v1863cb),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),
