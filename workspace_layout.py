@@ -1845,7 +1845,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 <div>
                   <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
                   <div class="ptw-control-title">AI Kontrollsenter</div>
-                  <div class="ptw-control-caption">Velg hovedområde og deretter funksjon. Ingen oppgave åpnes automatisk.</div>
+                  <div class="ptw-control-caption">Marked åpnes som standard arbeidsflate. Velg hovedområde og funksjon når du vil bytte rom.</div>
                 </div>
                 <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Ingen valgt"))}</div>
               </div>

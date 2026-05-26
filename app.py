@@ -7727,6 +7727,12 @@ def render_strategy_backtest(tickers, label):
 
 st.sidebar.markdown("<div class='sidebar-section-title'>⚙️ Innstillinger</div>", unsafe_allow_html=True)
 render_user_admin(current_user)
+show_drift_controls_v1863cc = st.sidebar.checkbox(
+    "Vis drift/global-kontroller",
+    value=False,
+    key="show_drift_controls_v1863cc",
+    help="Skjuler Start/Pause/Stopp og Global oppdatering fra startbildet. Bruk ved drift/admin.",
+)
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -7975,6 +7981,27 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
+if not bool(globals().get("show_drift_controls_v1863cc", False)):
+    st.markdown(
+        """
+        <style>
+        html body .stApp .v18532-header-status,
+        html body .stApp .v18534-trading-control-stack,
+        html body .stApp .v18534-control-button-gap,
+        html body .stApp .v18534-trading-warning,
+        html body .stApp .v1863g-global-action-card,
+        html body .stApp .v1862-global-status-line {
+            display:none !important;
+        }
+        html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+        html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+            display:none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
@@ -8041,7 +8068,8 @@ with _tq7:
         if st.button("🔓 Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
             _reset_emergency_stop_v157()
 
-render_global_update_action_panel_v1863g()
+if bool(globals().get("show_drift_controls_v1863cc", False)):
+    render_global_update_action_panel_v1863g()
 
 # V15.8: alle handlingsmeldinger vises fullbredde under kontrollgruppen.
 if st.session_state.get("auto_control_notice_v153"):
@@ -11552,12 +11580,17 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
 
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
 # v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
-render_global_update_bar_v18548()
+if bool(globals().get("show_drift_controls_v1863cc", False)):
+    render_global_update_bar_v18548()
 # GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 # v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
 active_panel = None
+if not st.session_state.get("ai_control_center_active_panel_v1863aj") and not st.session_state.get("ai_control_center_group_v1863aj"):
+    st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
+    st.session_state["ai_control_center_active_panel_v1863aj"] = "Marked"
+    st.session_state["ai_control_center_landed_default_v1863cc"] = True
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None

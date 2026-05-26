@@ -53,6 +53,8 @@ def _remember_storage_bridge(token=None, clear=False):
                 }}
                 if (token) {{
                   window.localStorage.setItem(key, token);
+                  parentUrl.searchParams.delete("remember_token");
+                  window.parent.history.replaceState(null, "", parentUrl.toString());
                   return;
                 }}
                 if (!parentUrl.searchParams.get("remember_token")) {{
@@ -254,6 +256,10 @@ def _restore_from_remember_token():
                     _save_remember_tokens(tokens)
                 st.session_state["remember_token"] = str(token)
                 _set_logged_in(user, remember=True)
+                try:
+                    del st.query_params["remember_token"]
+                except Exception:
+                    pass
                 return user
     except Exception:
         return None
@@ -370,7 +376,6 @@ def render_login():
                 try:
                     token = _create_remember_token(user)
                     st.session_state["remember_token"] = token
-                    st.query_params["remember_token"] = token
                     _remember_storage_bridge(token)
                 except Exception as e:
                     logging.warning("Silenced exception restored in v18.6.3: %s", e)
@@ -391,8 +396,6 @@ def require_login():
         # Hold remember-token synlig i URL når mulig, så refresh/mobil-nettleser ikke mister login.
         try:
             tok = st.session_state.get("remember_token")
-            if tok and not st.query_params.get("remember_token"):
-                st.query_params["remember_token"] = tok
             if tok:
                 _remember_storage_bridge(tok)
         except Exception as e:
