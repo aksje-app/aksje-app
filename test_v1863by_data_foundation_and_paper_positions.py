@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4"' in version
-    assert "Pipeline Input, Progress og Marked Shell" in version
+    assert 'APP_VERSION = "v18.6.5"' in version
+    assert "New App Shell Left Navigation" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():

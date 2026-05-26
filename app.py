@@ -3619,16 +3619,93 @@ st.markdown(
 # Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
 if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
     st.session_state["global_view_mode_v145"] = "Full"
-APP_VIEW_MODE = st.sidebar.radio(
-    "Visning",
-    ["Kompakt", "Full"],
-    index=1,
-    horizontal=False,
-    key="global_view_mode_v145",
-    help="Kompakt gir mindre scrolling. Full viser alle detaljer.",
-)
+
+APP_SHELL_PAGE_KEY_V1865 = "app_shell_page_v1865"
+APP_SHELL_PAGES_V1865 = [
+    ("Hjem", "⌂", "Hjem"),
+    ("Dataunderlag", "◫", "Dataunderlag"),
+    ("Marked", "◎", "Marked"),
+    ("Analyse", "⌕", "Analyse"),
+    ("Testflyt", "▦", "Testflyt"),
+    ("Portefolje", "◷", "Portefølje"),
+    ("Beslutning", "◇", "Beslutning"),
+    ("Rapporter", "▤", "Rapporter"),
+    ("Admin", "⚙", "Admin"),
+]
+
+
+def _render_app_shell_sidebar_v1865() -> str:
+    """Primary app shell navigation. This is now the main navigation surface."""
+    current = str(st.session_state.get(APP_SHELL_PAGE_KEY_V1865) or "Marked")
+    valid = {page for page, _icon, _label in APP_SHELL_PAGES_V1865}
+    if current not in valid:
+        current = "Marked"
+        st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
+    st.sidebar.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] { min-width: 232px !important; }
+        .akse-shell-title {
+            margin:.35rem 0 .45rem 0;
+            color:#38bdf8;
+            font-size:.72rem;
+            font-weight:1000;
+            letter-spacing:.10em;
+            text-transform:uppercase;
+        }
+        .akse-shell-active {
+            border:1px solid rgba(56,189,248,.65);
+            background:rgba(8,47,73,.72);
+            border-radius:12px;
+            padding:.42rem .52rem;
+            margin:.16rem 0 .40rem 0;
+            color:#e0f2fe;
+            font-size:.78rem;
+            font-weight:950;
+        }
+        .akse-shell-note {
+            color:#94a3b8;
+            font-size:.70rem;
+            line-height:1.25;
+            margin:.28rem 0 .55rem 0;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+            justify-content:flex-start !important;
+            min-height:38px !important;
+            border-radius:11px !important;
+            margin:.05rem 0 .10rem 0 !important;
+        }
+        </style>
+        <div class="akse-shell-title">Verktøy</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for page, icon, label in APP_SHELL_PAGES_V1865:
+        active = page == current
+        button_label = f"{icon}  {label}"
+        if st.sidebar.button(button_label, key=f"app_shell_nav_{page}_v1865", use_container_width=True, type="primary" if active else "secondary"):
+            st.session_state[APP_SHELL_PAGE_KEY_V1865] = page
+            st.rerun()
+    st.sidebar.markdown(
+        f"<div class='akse-shell-active'>Aktiv side: {html.escape(current)}</div>"
+        "<div class='akse-shell-note'>Marked og Testflyt åpnes direkte. Gammelt Kontrollsenter ligger under Admin.</div>",
+        unsafe_allow_html=True,
+    )
+    return current
+
+
+APP_SHELL_PAGE_V1865 = _render_app_shell_sidebar_v1865()
+with st.sidebar.expander("Innstillinger", expanded=False):
+    APP_VIEW_MODE = st.radio(
+        "Tetthet",
+        ["Kompakt", "Full"],
+        index=1,
+        horizontal=False,
+        key="global_view_mode_v145",
+        help="Kompakt gir mindre scrolling. Full viser alle detaljer.",
+    )
 st.session_state["app_view_mode"] = APP_VIEW_MODE
-st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div class='view-mode-status'>Tetthet: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
@@ -11606,6 +11683,62 @@ if bool(globals().get("show_drift_controls_v1863cc", False)):
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 # v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
+def _render_home_shell_v1865() -> None:
+    st.subheader("Hjem")
+    st.caption("Kort status og snarveier. Velg Marked eller Testflyt i venstremenyen for arbeid.")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Standard arbeidsflate", "Marked")
+    with c2:
+        st.metric("Testflyt", "1-10")
+    with c3:
+        st.metric("Build", get_app_version())
+    st.info("Ny app-shell er aktiv: hovedrom styres fra venstremenyen. Gammelt Kontrollsenter ligger under Admin.")
+
+
+def _render_reports_shell_v1865() -> None:
+    st.subheader("Rapporter")
+    st.caption("Daglig rapport og felles rapportgrunnlag.")
+    render_daily_ai_market_report()
+
+
+def _render_admin_shell_v1865() -> None:
+    st.subheader("Admin / Drift")
+    st.caption("Driftkontroller, systemstatus og gammelt Kontrollsenter for fallback.")
+    render_global_update_bar_v18548()
+    render_global_update_action_panel_v1863g()
+    render_system_admin_workspace(expanded=False)
+    with st.expander("Gammelt Kontrollsenter / fallback", expanded=False):
+        render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
+
+
+_shell_page_v1865 = str(globals().get("APP_SHELL_PAGE_V1865") or st.session_state.get("app_shell_page_v1865") or "Marked")
+try:
+    if _shell_page_v1865 == "Hjem":
+        _render_home_shell_v1865()
+    elif _shell_page_v1865 == "Dataunderlag":
+        render_analysis_pipeline_control_center_v1863bv()
+    elif _shell_page_v1865 == "Marked":
+        render_market_room_control_center_v1863cb()
+    elif _shell_page_v1865 == "Analyse":
+        render_ai_analysis_universe_workspace(expanded=True)
+    elif _shell_page_v1865 == "Testflyt":
+        render_analysis_pipeline_control_center_v1863bv()
+    elif _shell_page_v1865 == "Portefolje":
+        render_mixed_portfolio_control_center_v18544()
+    elif _shell_page_v1865 == "Beslutning":
+        render_decision_support_panel()
+    elif _shell_page_v1865 == "Rapporter":
+        _render_reports_shell_v1865()
+    elif _shell_page_v1865 == "Admin":
+        _render_admin_shell_v1865()
+    else:
+        render_market_room_control_center_v1863cb()
+except Exception as _shell_error_v1865:
+    st.warning(f"App-shell kunne ikke vise {_shell_page_v1865}: {_shell_error_v1865}")
+_finish_control_center_render_cycle_v1863ax()
+st.stop()
+
 active_panel = None
 if not st.session_state.get("ai_control_center_active_panel_v1863aj") and not st.session_state.get("ai_control_center_group_v1863aj"):
     st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"

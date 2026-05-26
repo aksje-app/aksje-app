@@ -1,9 +1,11 @@
-APP_VERSION = "v18.6.4"
-APP_VERSION_NAME = "Pipeline Input, Progress og Marked Shell"
-APP_BUILD_ID = "v1864-pipeline-input-progress-market-shell"
+APP_VERSION = "v18.6.5"
+APP_VERSION_NAME = "New App Shell Left Navigation"
+APP_BUILD_ID = "v1865-new-app-shell-left-navigation"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Ny app-shell er aktiv: venstremenyen er primær navigasjon, og Marked/Testflyt/Analyse/Portefolje/Beslutning renderes direkte uten gammel Kontrollsenter-wrapper.",
+    "Gammelt AI Kontrollsenter er flyttet til Admin som fallback i stedet for aa vaere startskjerm.",
     "Steg 1 heter naa 1. Dataunderlag, fordi det samler og kontrollerer underlag foer Test 2 uten aa kjoere analyse.",
     "Analyseflyten har hurtigtaster for Test 1-10, synlig aktivt steg, forrige/neste-knapper og bedre synk mellom aktivt panel og undermeny.",
     "Input/output-visningen forklarer input fra forrige steg og output fra dette steg, og Dataunderlag-output viser kontrollrapport i stedet for tom kandidatvisning.",
