@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from paper_trading_valuation import paper_position_rows, paper_trade_rows
 
@@ -6,10 +6,10 @@ from paper_trading_valuation import paper_position_rows, paper_trade_rows
 ROOT = Path(__file__).resolve().parent
 
 
-def test_version_bumped_to_datagrunnlag_cockpit():
+def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.3by"' in version
-    assert "Datagrunnlag Cockpit og Paper Position Actions" in version
+    assert 'APP_VERSION = "v18.6.3bz"' in version
+    assert "Dataunderlag og Pipeline Hurtigvalg" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
@@ -20,7 +20,8 @@ def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
     assert "Importer Finansavisen-filer" in app
     assert "Rediger Aktoerregister" in app
     assert "Importer Oljefond/NBIM" in app
-    assert "Statusfelt, ikke knapp." in app
+    assert "Mottatt fra forrige test" in app
+    assert "Kontrollrapport klar" in app
     assert "Start her: godkjenn datagrunnlag" not in app
 
 

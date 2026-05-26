@@ -114,10 +114,9 @@ def test_scanner_checks_existing_position_before_direct_buy():
     assert "Auto risk check" in text
 
 
-def test_control_center_shows_datagrunnlag_as_visible_start():
+def test_control_center_shows_datakilder_as_visible_start():
     text = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 
     assert "_render_pipeline_quick_start_v1863bx" in text
-    assert '"Start her: Test 1 Datagrunnlag"' in text
-    assert '"Marked og signaler": _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1"' in text
-
+    assert '"Start her: 1. Dataunderlag"' in text
+    assert '"Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1"' in text

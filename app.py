@@ -10356,12 +10356,19 @@ def _pipeline_send_and_open_next_v1863bw(stage_id: str, *, max_items: int | None
     try:
         pipeline = _analysis_pipeline_service_v1863bw()
         if stage_id == "data_foundation":
+            source_rows = _data_foundation_source_rows_v1863by()
             pipeline.save_stage_output(
                 "data_foundation",
-                [{"name": "Datagrunnlag godkjent", "score": 100, "source": "Datagrunnlag", "reason": "Manuelt kontrollpunkt uten tung kjoring."}],
-                source_label="Datagrunnlag",
-                context={"manual_checkpoint": True},
-                auto_handoff=False,
+                [{
+                    "name": "Dataunderlag godkjent",
+                    "score": 100,
+                    "source": "Dataunderlag",
+                    "recommended_action": "Send til Marked/rangering",
+                    "reason": "Datakilder er kontrollert og underlaget er klart for Test 2.",
+                }],
+                source_label="Dataunderlag",
+                context={"manual_checkpoint": True, "source_rows": source_rows},
+                auto_handoff=True,
             )
         else:
             result = pipeline.handoff_latest_output_to_next(stage_id, max_items=max_items)
@@ -10369,7 +10376,7 @@ def _pipeline_send_and_open_next_v1863bw(stage_id: str, *, max_items: int | None
                 st.warning(result.message)
                 return
     except Exception as exc:
-        st.warning(f"Kunne ikke sende kandidatpakke videre: {exc}")
+        st.warning(f"Kunne ikke sende inputpakken videre: {exc}")
         return
     _pipeline_open_stage_v1863bw(target_stage)
 
@@ -10468,8 +10475,8 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
 
 
 def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
-    st.markdown("#### Datakilder som skal kontrolleres foer Test 2")
-    st.caption("Dette panelet starter ingen tunge analyser. Bruk knappene under for aa hente/importere data, kom tilbake hit, og godkjenn foerst naar grunnlaget ser riktig ut.")
+    st.markdown("#### Dataunderlag som skal kontrolleres foer Test 2")
+    st.caption("Kontroller datakilder og gjoer underlaget klart for Test 2. Dette panelet starter ingen tunge analyser.")
     source_rows = _data_foundation_source_rows_v1863by()
     st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
 
@@ -10491,8 +10498,8 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
             _pipeline_go_to_panel_v1863by("Marked og signaler", "Alpha Radar")
         st.caption("API-status og kildedekning vises uten at menyvalg starter scan.")
 
-    st.markdown("#### Status for Test 1-10")
-    st.caption("Dette er en funksjonssjekk av flyten. Testene skal ha egne handlinger/kjoering i panelet sitt; send videre kommer etter output.")
+    st.markdown("#### Status for arbeidsflyten")
+    st.caption("Steg 1 lager underlag. Test 2-10 har egne handlinger/kjoering i panelet sitt; send videre kommer etter output.")
     stage_display = []
     for row in status_rows:
         nr = int(row.get("nr") or 0)
@@ -10503,26 +10510,119 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
             "input": row.get("input"),
             "output": row.get("output"),
             "har arbeidsflate": "ja",
-            "send videre": "etter output" if nr > 1 else "etter godkjent datagrunnlag",
+            "send videre": "etter godkjent dataunderlag" if nr == 1 else "etter output",
             "neste": row.get("neste"),
         })
     st.dataframe(pd.DataFrame(stage_display), use_container_width=True, hide_index=True)
 
 
 def _render_data_foundation_approval_v1863by(status_rows: list[dict]) -> None:
-    st.markdown("#### Godkjenn datagrunnlag")
-    st.caption("Bruk denne foerst naar datakilder/importer er kontrollert. Den lager kun en liten output-pakke og aapner Test 2; ingen tung analyse starter automatisk.")
+    st.markdown("#### Godkjenn dataunderlag")
+    st.caption("Bruk denne foerst naar datakilder/importer er kontrollert. Den lager en kontrollrapport og aapner Test 2; ingen tung analyse starter automatisk.")
     source_rows = _data_foundation_source_rows_v1863by()
     missing = [row for row in source_rows if str(row.get("Status", "")).lower() in {"feil", "venter paa import", "mangler aktive"}]
     if missing:
         st.warning("Noen datakilder er ikke komplette. Du kan likevel gaa videre, men Test 2 faar bedre grunnlag naar kildene er oppdatert.")
     c1, c2 = st.columns([1.0, 1.0])
     with c1:
-        if st.button("Godkjenn datagrunnlag og aapne Test 2", key="analysis_pipeline_approve_data_foundation_v1863by", use_container_width=True, type="primary"):
+        if st.button("Godkjenn dataunderlag og aapne Test 2", key="analysis_pipeline_approve_data_foundation_v1863by", use_container_width=True, type="primary"):
             _pipeline_send_and_open_next_v1863bw("data_foundation")
     with c2:
         if st.button("Aapne Test 2 uten aa endre grunnlag", key="analysis_pipeline_open_test2_only_v1863by", use_container_width=True):
             _pipeline_open_stage_v1863bw("market_ranking")
+
+
+def _pipeline_package_summary_rows_v1863bz(package: dict, stage_id: str) -> list[dict]:
+    if not package:
+        return []
+    next_stage = str(package.get("next_stage_id") or "")
+    previous_stage = str(package.get("previous_stage_id") or "")
+    try:
+        from services.analysis_pipeline_service import STAGES_BY_ID
+
+        next_label = STAGES_BY_ID.get(next_stage).label if next_stage in STAGES_BY_ID else ""
+        previous_label = STAGES_BY_ID.get(previous_stage).label if previous_stage in STAGES_BY_ID else ""
+    except Exception:
+        next_label = next_stage
+        previous_label = previous_stage
+    return [
+        {"Felt": "Pakke", "Verdi": package.get("package_type") or "-"},
+        {"Felt": "Steg", "Verdi": package.get("stage_label") or stage_id},
+        {"Felt": "Status", "Verdi": package.get("status") or "-"},
+        {"Felt": "Kilde", "Verdi": package.get("source_label") or "-"},
+        {"Felt": "Antall", "Verdi": int(package.get("candidate_count") or 0)},
+        {"Felt": "Fra forrige steg", "Verdi": previous_label or previous_stage or "-"},
+        {"Felt": "Sendes til", "Verdi": next_label or next_stage or "-"},
+        {"Felt": "Tidspunkt", "Verdi": package.get("generated_at") or "-"},
+    ]
+
+
+def _render_data_foundation_package_v1863bz(package: dict, package_title: str) -> None:
+    st.markdown(f"#### {package_title}")
+    if not package:
+        st.info("Ingen lagret kontrollrapport for 1. Dataunderlag ennaa.")
+        return
+    st.caption("Dataunderlag sender et kontrollpunkt videre, ikke en aksjeliste. Tabellen under viser hva som er kontrollert og hva Test 2 mottar.")
+    context = package.get("context") if isinstance(package.get("context"), dict) else {}
+    source_rows = context.get("source_rows") if isinstance(context.get("source_rows"), list) else []
+    if not source_rows:
+        source_rows = _data_foundation_source_rows_v1863by()
+    summary_rows = _pipeline_package_summary_rows_v1863bz(package, "data_foundation")
+    try:
+        tickers = get_all_tickers()
+        summary_rows.append({"Felt": "Tickerunivers", "Verdi": f"{len(tickers or [])} tickere"})
+    except Exception:
+        pass
+    for row in source_rows:
+        area = str(row.get("Omraade") or "")
+        detail = str(row.get("Detalj") or "")
+        status = str(row.get("Status") or "")
+        if area:
+            summary_rows.append({"Felt": area, "Verdi": f"{status} - {detail}".strip(" -")})
+    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+    if source_rows:
+        st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+    candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
+    if candidates:
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Output": row.get("name") or row.get("ticker") or "-",
+                    "Score": row.get("score"),
+                    "Kilde": row.get("source"),
+                    "Handling": row.get("recommended_action"),
+                    "Forklaring": row.get("reason"),
+                }
+                for row in candidates
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+def _render_pipeline_package_v1863bz(stage_id: str, package: dict, package_title: str) -> None:
+    if stage_id == "data_foundation":
+        _render_data_foundation_package_v1863bz(package, package_title)
+        return
+    if not package:
+        st.info("Ingen pakke for valgt steg ennaa.")
+        return
+    candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
+    if candidates:
+        display_rows = [
+            {
+                "rank": row.get("pipeline_rank") or row.get("rank"),
+                "ticker": row.get("ticker"),
+                "navn": row.get("name"),
+                "score": row.get("score"),
+                "kilde": row.get("source"),
+                "handling": row.get("recommended_action"),
+            }
+            for row in candidates[:30]
+        ]
+        st.dataframe(display_rows, use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(pd.DataFrame(_pipeline_package_summary_rows_v1863bz(package, stage_id)), use_container_width=True, hide_index=True)
 
 
 def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = True) -> None:
@@ -10561,33 +10661,41 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
     )
     if not show_actions:
         return
-    c1, c2 = st.columns([1.0, 1.0])
+    prev_stage = str(info.get("previous_stage_id") or "")
+    prev_label = str(info.get("previous_label") or "")
+    c_prev, c1, c2 = st.columns([0.70, 1.0, 1.15])
+    with c_prev:
+        if prev_stage:
+            if st.button(f"Forrige: {prev_label}", key=f"analysis_pipeline_prev_{stage_id}_v1863bz", use_container_width=True):
+                _pipeline_open_stage_v1863bw(prev_stage)
+        else:
+            st.markdown("<div class='v18-dark-row'>Forste steg</div>", unsafe_allow_html=True)
     with c1:
         if stage_id == "data_foundation":
-            if st.button("Godkjenn datagrunnlag og aapne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
+            if st.button("Godkjenn dataunderlag og aapne Test 2", key="analysis_pipeline_start_test2_v1863bw", use_container_width=True, type="primary"):
                 _pipeline_send_and_open_next_v1863bw("data_foundation")
         else:
-            if st.button(f"Åpne {info.get('test_label')} med standardvalg", key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
+            if st.button(f"Aapne {info.get('test_label')} med standardvalg", key=f"analysis_pipeline_open_{stage_id}_v1863bw", use_container_width=True):
                 _pipeline_open_stage_v1863bw(stage_id)
     with c2:
         if next_label:
             disabled = stage_id != "data_foundation" and not bool(out)
-            label = f"Send output til Test {info.get('next_test_number')} og åpne {next_label}"
+            label = f"Send output til Test {info.get('next_test_number')} og aapne {next_label}"
             if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True, disabled=disabled):
                 _pipeline_send_and_open_next_v1863bw(stage_id)
         else:
             st.markdown("<div class='v18-dark-row'>Siste test i flyten. Bruk Paper Trading-resultatet som praktisk oppfolging.</div>", unsafe_allow_html=True)
 
     if stage_id == "data_foundation":
-        st.info("Start med Test 1. Kontroller tickerlister, Aktørregister, Finansavisen, Oljefond/NBIM og API-status, og gå deretter videre til Test 2.")
+        st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktoerregister, Finansavisen, Oljefond/NBIM og API-status, og gaa deretter videre til Test 2.")
     elif not out and stage_id != "paper_trading":
         st.caption("Når testen er kjørt ferdig, dukker send-knappen opp aktivert for neste test.")
 
 
 def render_analysis_pipeline_control_center_v1863bv():
     """Visual workflow for staged analysis without starting heavy jobs."""
-    st.subheader("Test 1 Datagrunnlag")
-    st.caption("Start her. Test 1 kontrollerer datagrunnlaget og åpner resten av flyten fra Test 2 til Test 10 Paper Trading uten å starte tunge analyser automatisk.")
+    st.subheader("1. Dataunderlag")
+    st.caption("Dette er forarbeidet til testrekken: kontroller datakilder og gjoer underlaget klart for Test 2. Ingen analyse kjoeres her.")
     try:
         from services.analysis_pipeline_service import (
             STAGES_BY_ID,
@@ -10604,7 +10712,7 @@ def render_analysis_pipeline_control_center_v1863bv():
     _render_pipeline_stage_bar_v1863bw("data_foundation", show_actions=False)
     _render_data_foundation_workspace_v1863by(status_rows)
     st.markdown(
-        "<div class='v18-dark-row'><b>Prinsipp:</b> automatisk overføring av kandidatpakker, ikke automatisk kjøring. Neste steg får input klart og bruker trygt siste lagrede kandidater.</div>",
+        "<div class='v18-dark-row'><b>Prinsipp:</b> automatisk overfoering av inputpakker, ikke automatisk kjoering. Dataunderlag sender en kontrollrapport; senere tester sender kandidater/resultater videre.</div>",
         unsafe_allow_html=True,
     )
     try:
@@ -10619,6 +10727,11 @@ def render_analysis_pipeline_control_center_v1863bv():
             st.caption(f"{row.get('nr')}. {row.get('steg')}: {row.get('status')} | input {row.get('input')} | output {row.get('output')}")
 
     labels = [f"{row.get('nr')}. {row.get('steg')}" for row in status_rows]
+    active_stage_for_select = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
+    if active_stage_for_select:
+        active_label_for_select = next((label for label, row in zip(labels, status_rows) if row.get("stage_id") == active_stage_for_select), "")
+        if active_label_for_select:
+            st.session_state["analysis_pipeline_stage_select_v1863bv"] = active_label_for_select
     selected_label = st.selectbox("Vis / send videre", labels, key="analysis_pipeline_stage_select_v1863bv")
     selected_idx = max(0, labels.index(selected_label)) if selected_label in labels else 0
     selected_stage = status_rows[selected_idx]["stage_id"]
@@ -10630,42 +10743,31 @@ def render_analysis_pipeline_control_center_v1863bv():
     c1, c2, c3 = st.columns([1.2, 1.2, 1.0])
     with c1:
         disabled = not bool(selected_output and target_stage)
-        if st.button("Send siste output videre og åpne neste test", key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=disabled):
+        if st.button("Send siste output videre og aapne neste test", key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=disabled):
             res = pipeline.handoff_latest_output_to_next(selected_stage)
             if res.ok:
                 _pipeline_open_stage_v1863bw(target_stage)
             else:
                 st.warning(res.message)
     with c2:
-        st.metric("Kandidatpakke inn", int(selected_input.get("candidate_count") or 0) if selected_input else 0)
-        st.caption("Statusfelt, ikke knapp.")
+        input_label = "Dataunderlag inn" if selected_stage == "data_foundation" else "Input fra forrige steg"
+        st.metric(input_label, int(selected_input.get("candidate_count") or 0) if selected_input else 0)
+        st.caption("Statusfelt, ikke knapp. Viser kandidater/kontrollpunkter dette steget har faatt inn.")
     with c3:
-        st.metric("Ferdig output", int(selected_output.get("candidate_count") or 0) if selected_output else 0)
-        st.caption("Send videre blir aktivt etter output.")
+        output_label = "Kontrollrapport klar" if selected_stage == "data_foundation" else "Output fra dette steg"
+        st.metric(output_label, int(selected_output.get("candidate_count") or 0) if selected_output else 0)
+        st.caption("Statusfelt, ikke knapp. Viser det dette steget kan sende videre.")
 
     if selected_stage_def:
         st.caption(f"{selected_stage_def.label}: {selected_stage_def.purpose}")
     if target_stage in STAGES_BY_ID:
         st.caption(f"Neste steg: {STAGES_BY_ID[target_stage].label}. Kandidater legges klare, men analysen starter ikke automatisk.")
 
-    package_view = st.radio("Pakkevisning", ["Input til steg", "Output fra steg"], horizontal=True, key="analysis_pipeline_package_view_v1863bv")
-    package = selected_input if package_view == "Input til steg" else selected_output
-    candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)] if package else []
-    if candidates:
-        display_rows = [
-            {
-                "rank": row.get("pipeline_rank") or row.get("rank"),
-                "ticker": row.get("ticker"),
-                "navn": row.get("name"),
-                "score": row.get("score"),
-                "kilde": row.get("source"),
-                "handling": row.get("recommended_action"),
-            }
-            for row in candidates[:30]
-        ]
-        st.dataframe(display_rows, use_container_width=True, hide_index=True)
-    else:
-        st.info("Ingen kandidatpakke for valgt steg ennå.")
+    if selected_output and (selected_stage == "data_foundation" or not selected_input):
+        st.session_state["analysis_pipeline_package_view_v1863bv"] = "Output fra dette steg"
+    package_view = st.radio("Pakkevisning", ["Mottatt fra forrige test", "Output fra dette steg"], horizontal=True, key="analysis_pipeline_package_view_v1863bv")
+    package = selected_input if package_view == "Mottatt fra forrige test" else selected_output
+    _render_pipeline_package_v1863bz(selected_stage, package, package_view)
 
     if selected_stage == "data_foundation":
         _render_data_foundation_approval_v1863by(status_rows)
@@ -10676,7 +10778,7 @@ def render_analysis_pipeline_control_center_v1863bv():
 
 def control_center_extra_panels_v18535():
     return [
-        ("Test 1 Datagrunnlag", render_analysis_pipeline_control_center_v1863bv),
+        ("1. Dataunderlag", render_analysis_pipeline_control_center_v1863bv),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),

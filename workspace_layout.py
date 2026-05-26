@@ -1120,6 +1120,17 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 default_group = group_name
                 break
 
+        try:
+            from services.analysis_pipeline_service import STAGE_PANEL_LABELS
+
+            active_panel_for_sync = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
+            for stage_id, panel_label in STAGE_PANEL_LABELS.items():
+                if str(panel_label) == str(active_panel_for_sync):
+                    st.session_state["analysis_pipeline_active_stage_v1863bz"] = stage_id
+                    break
+        except Exception:
+            pass
+
         st.markdown(
             f"""
             <div class="ptw-control-hero">
@@ -1332,7 +1343,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
 
         group_map = {
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
+            "Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
         }
@@ -1615,11 +1626,11 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
 
 
 def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> None:
-    """Visible entry point for the staged Test 1 -> Test 10 workflow."""
+    """Visible entry point for the staged Dataunderlag -> Test 10 workflow."""
     data_panel = next(
         (
             label for label in group_map.get("Marked og signaler", [])
-            if label in panel_map and ("datagrunnlag" in str(label).lower() or "test 1" in str(label).lower())
+            if label in panel_map and ("dataunderlag" in str(label).lower() or "datakilder" in str(label).lower() or "datagrunnlag" in str(label).lower() or "test 1" in str(label).lower())
         ),
         "",
     )
@@ -1628,11 +1639,13 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
 
     status_by_stage = {}
     stages = []
+    stage_wizard_info_func = None
     try:
-        from services.analysis_pipeline_service import get_analysis_pipeline_service, stage_definitions
+        from services.analysis_pipeline_service import get_analysis_pipeline_service, stage_definitions, stage_wizard_info
         from services.state_service import get_state_service
         from services.storage_service import get_storage_service
 
+        stage_wizard_info_func = stage_wizard_info
         pipeline = get_analysis_pipeline_service(
             state_service=get_state_service(st.session_state),
             storage_service=get_storage_service(),
@@ -1641,7 +1654,7 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
         stages = stage_definitions()
     except Exception:
         stages = [
-            {"stage_id": "data_foundation", "label": "Datagrunnlag"},
+            {"stage_id": "data_foundation", "label": "Dataunderlag"},
             {"stage_id": "market_ranking", "label": "Marked/rangering"},
             {"stage_id": "smart_ai", "label": "Smart AI"},
             {"stage_id": "top_picks", "label": "Top Picks"},
@@ -1653,18 +1666,22 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
             {"stage_id": "paper_trading", "label": "Paper Trading"},
         ]
 
+    active_stage = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
     chips = []
     for idx, stage in enumerate(stages[:10], start=1):
         stage_id = str(stage.get("stage_id") or "")
         status = status_by_stage.get(stage_id, {})
         output_count = int(status.get("output") or 0)
         input_count = int(status.get("input") or 0)
-        if output_count > 0:
+        if active_stage == stage_id:
+            bg, border, fg = "rgba(220,38,38,.32)", "rgba(248,113,113,.92)", "#fee2e2"
+            suffix = "aktiv"
+        elif output_count > 0:
             bg, border, fg = "rgba(22,163,74,.24)", "rgba(34,197,94,.70)", "#dcfce7"
-            suffix = f"{output_count} ut"
+            suffix = f"{output_count} ferdig"
         elif input_count > 0:
-            bg, border, fg = "rgba(2,132,199,.22)", "rgba(56,189,248,.66)", "#e0f2fe"
-            suffix = f"{input_count} inn"
+            bg, border, fg = "rgba(22,163,74,.18)", "rgba(74,222,128,.62)", "#dcfce7"
+            suffix = f"{input_count} klar"
         elif idx == 1:
             bg, border, fg = "rgba(14,165,233,.26)", "rgba(125,211,252,.78)", "#eff6ff"
             suffix = "start"
@@ -1672,24 +1689,25 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
             bg, border, fg = "rgba(15,23,42,.68)", "rgba(148,163,184,.34)", "#cbd5e1"
             suffix = "venter"
         label = html.escape(str(stage.get("label") or stage_id))
+        prefix = "Steg 1" if stage_id == "data_foundation" else f"Test {idx}"
         chips.append(
             f"<span style='display:inline-flex;align-items:center;gap:.28rem;padding:.28rem .48rem;"
             f"border-radius:999px;border:1px solid {border};background:{bg};color:{fg};"
-            f"font-size:.76rem;font-weight:800;white-space:nowrap;'>Test {idx}: {label}"
+            f"font-size:.76rem;font-weight:800;white-space:nowrap;'>{prefix}: {label}"
             f"<small style='opacity:.82;font-weight:700;'> {html.escape(suffix)}</small></span>"
         )
 
     st.markdown(
         """
         <div class="ptw-control-note-strong" style="border-color:rgba(56,189,248,.52);">
-          <b>Start anbefalt arbeidsflyt:</b> Begynn med Test 1 Datagrunnlag, send resultatet videre, og jobb deg stegvis til Test 10 Paper Trading.
+          <b>Start anbefalt arbeidsflyt:</b> Begynn med 1. Dataunderlag, send resultatet videre, og jobb deg stegvis til Test 10 Paper Trading.
         </div>
         """,
         unsafe_allow_html=True,
     )
     c_start, c_flow = st.columns([0.34, 0.66])
     with c_start:
-        if st.button("Start her: Test 1 Datagrunnlag", key="analysis_pipeline_quick_start_v1863bx", use_container_width=True, type="primary"):
+        if st.button("Start her: 1. Dataunderlag", key="analysis_pipeline_quick_start_v1863bx", use_container_width=True, type="primary"):
             st.session_state["analysis_pipeline_pending_nav_v1863bw"] = {
                 "stage_id": "data_foundation",
                 "group": "Marked og signaler",
@@ -1705,6 +1723,29 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
             + "</div>",
             unsafe_allow_html=True,
         )
+    st.caption("Hurtigtaster: åpner valgt steg og setter standardvalg, men starter ikke tunge analyser.")
+    shortcut_cols = st.columns(5)
+    for idx, stage in enumerate(stages[:10], start=1):
+        stage_id = str(stage.get("stage_id") or "")
+        info = stage_wizard_info_func(stage_id) if callable(stage_wizard_info_func) else {}
+        label = str(stage.get("label") or stage_id)
+        button_label = f"{idx}. {label}"
+        if active_stage == stage_id:
+            button_label = f"▶ {button_label}"
+        elif int((status_by_stage.get(stage_id) or {}).get("output") or 0) > 0:
+            button_label = f"✓ {button_label}"
+        col = shortcut_cols[(idx - 1) % len(shortcut_cols)]
+        with col:
+            if st.button(button_label, key=f"analysis_pipeline_shortcut_{stage_id}_v1863bz", use_container_width=True, type="primary" if active_stage == stage_id else "secondary"):
+                st.session_state["analysis_pipeline_pending_nav_v1863bw"] = {
+                    "stage_id": stage_id,
+                    "group": info.get("group") or "Marked og signaler",
+                    "panel": info.get("panel_label") or (data_panel if stage_id == "data_foundation" else label),
+                    "defaults": dict(info.get("defaults") or {}),
+                    "auto_run": False,
+                }
+                st.session_state["analysis_pipeline_active_stage_v1863bz"] = stage_id
+                st.rerun()
 
 
 def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
@@ -1740,11 +1781,11 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
 
         group_map = {
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
+            "Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
         }
-        data_foundation_labels = _matching_panel_labels("datagrunnlag", "analyseflyt", "test 1")
+        data_foundation_labels = _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1")
         group_map["Marked og signaler"] = list(dict.fromkeys(
             data_foundation_labels + group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer")
         ))
@@ -1754,25 +1795,48 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             group_map["Andre paneler"] = extra_labels
 
         pending_nav = st.session_state.pop("analysis_pipeline_pending_nav_v1863bw", None)
+        pending_nav_sync: dict[str, str] = {}
         if isinstance(pending_nav, dict):
             for key, value in (pending_nav.get("defaults") or {}).items():
                 if key:
                     st.session_state[key] = value
             pending_group = str(pending_nav.get("group") or "")
             pending_panel = str(pending_nav.get("panel") or "")
+            pending_stage = str(pending_nav.get("stage_id") or "")
             if pending_group in group_map and pending_panel in group_map.get(pending_group, []) and pending_panel in panel_map:
                 st.session_state["ai_control_center_group_v1863aj"] = pending_group
                 st.session_state["ai_control_center_active_panel_v1863aj"] = pending_panel
-                st.session_state.pop("ai_control_center_group_radio_v1863aj", None)
-                st.session_state.pop(f"ai_control_center_panel_radio_v1863aj_{pending_group}", None)
+                if pending_stage:
+                    st.session_state["analysis_pipeline_active_stage_v1863bz"] = pending_stage
+                pending_nav_sync = {"group": pending_group, "panel": pending_panel}
 
         group_options = ["Ingen valgt"] + [f"{name} ({len([x for x in labels if x in panel_map])})" for name, labels in group_map.items()]
         group_by_option = {"Ingen valgt": ""}
         for name, labels in group_map.items():
             group_by_option[f"{name} ({len([x for x in labels if x in panel_map])})"] = name
 
+        if pending_nav_sync:
+            pending_group = pending_nav_sync.get("group", "")
+            pending_panel = pending_nav_sync.get("panel", "")
+            group_option = next((opt for opt, name in group_by_option.items() if name == pending_group), "")
+            if group_option:
+                st.session_state["ai_control_center_group_radio_v1863aj"] = group_option
+            if pending_group and pending_panel:
+                st.session_state[f"ai_control_center_panel_radio_v1863aj_{pending_group}"] = pending_panel
+
         current_group = st.session_state.get("ai_control_center_group_v1863aj", "")
         current_group_option = next((opt for opt, name in group_by_option.items() if name == current_group), "Ingen valgt")
+
+        try:
+            from services.analysis_pipeline_service import STAGE_PANEL_LABELS
+
+            active_panel_for_sync = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
+            for stage_id, panel_label in STAGE_PANEL_LABELS.items():
+                if str(panel_label) == str(active_panel_for_sync):
+                    st.session_state["analysis_pipeline_active_stage_v1863bz"] = stage_id
+                    break
+        except Exception:
+            pass
 
         st.markdown(
             f"""
@@ -1842,6 +1906,15 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 unsafe_allow_html=True,
             )
             return None
+        try:
+            from services.analysis_pipeline_service import STAGE_PANEL_LABELS
+
+            for stage_id, panel_label in STAGE_PANEL_LABELS.items():
+                if str(panel_label) == str(active_label):
+                    st.session_state["analysis_pipeline_active_stage_v1863bz"] = stage_id
+                    break
+        except Exception:
+            pass
         renderer = panel_map.get(active_label)
         if not renderer:
             st.info("Velg et panel i hovedvalget.")

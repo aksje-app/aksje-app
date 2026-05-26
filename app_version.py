@@ -1,16 +1,19 @@
-APP_VERSION = "v18.6.3by"
-APP_VERSION_NAME = "Datagrunnlag Cockpit og Paper Position Actions"
-APP_BUILD_ID = "v1863by-datagrunnlag-paper-actions"
+APP_VERSION = "v18.6.3bz"
+APP_VERSION_NAME = "Dataunderlag og Pipeline Hurtigvalg"
+APP_BUILD_ID = "v1863bz-dataunderlag-pipeline-shortcuts"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
-    "Test 1 Datagrunnlag er gjort om til datakilde-cockpit med direkte knapper til Finansavisen, Aktoerregister, Oljefond/NBIM og kildestatus.",
+    "Steg 1 heter naa 1. Dataunderlag, fordi det samler og kontrollerer underlag foer Test 2 uten aa kjoere analyse.",
+    "Analyseflyten har hurtigtaster for Test 1-10, synlig aktivt steg, forrige/neste-knapper og bedre synk mellom aktivt panel og undermeny.",
+    "Input/output-visningen forklarer input fra forrige steg og output fra dette steg, og Dataunderlag-output viser kontrollrapport i stedet for tom kandidatvisning.",
+    "1. Dataunderlag er datakilde-cockpit med direkte knapper til Finansavisen, Aktoerregister, Oljefond/NBIM og kildestatus.",
     "Godkjenn og send til Test 2 ligger nederst etter datakildekontroll, ikke oeverst foer brukeren har sett hva som kan kontrolleres.",
     "Paper Trading fyller land, marked, sektor og bransje best-effort for gamle posisjoner/handler og lar posisjoner velges direkte til kjop/salg.",
-    "Test 1 Datagrunnlag ligger synlig under Marked og signaler med Test 1-10 statusrad i AI Kontrollsenter.",
+    "1. Dataunderlag ligger synlig under Marked og signaler med statusrad i AI Kontrollsenter.",
     "Paper Trading sjekker naa aapne posisjoner for stop-loss, take-profit, trailing stop og RSI-exit foer nye BUY-signaler kan overstyre.",
     "Handelsloggen viser land, marked, sektor/bransje, regel, grense, maalt verdi og en kort forklaring paa hvorfor en handel ble gjort eller solgt.",
-    "Analyseflyt er gjort om til Test 1 Datagrunnlag med veiviser videre til Test 10 Paper Trading.",
+    "Analyseflyt starter med 1. Dataunderlag og veiviser videre til Test 10 Paper Trading.",
     "Hvert hovedsteg viser input/output-status, anbefalt standardvalg og knapp for aa sende ferdig kandidatpakke videre uten automatisk tung kjoring.",
     "Veiviseren hopper til riktig Kontrollsenter-panel og setter Analyseflyt input der det er relevant, mens selve motorene fortsatt krever eksplisitt Kjor.",
     "Felles markedsvalg er videreført i AI Kontrollsenter, Top Picks, Smart Universe, banner og Fond/ETF.",
