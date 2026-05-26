@@ -1,9 +1,14 @@
-APP_VERSION = "v18.6.5"
-APP_VERSION_NAME = "New App Shell Left Navigation"
-APP_BUILD_ID = "v1865-new-app-shell-left-navigation"
+APP_VERSION = "v18.6.5c"
+APP_VERSION_NAME = "App Shell Menu Recovery"
+APP_BUILD_ID = "v1865c-app-shell-menu-recovery"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Venstremenyen har naa hovedrom med undermeny, slik at gamle funksjoner og teststeg ikke forsvinner bak enkle toppknapper.",
+    "Dataunderlag og Testflyt er splittet: Dataunderlag viser Test 1/datacockpit, mens Testflyt viser 1-10 progress og hurtigtaster.",
+    "Hjem og Analyse bruker naa riktige imports i ny app-shell, slik at menyvalg ikke feiler med manglende funksjonsnavn.",
+    "Test 3 Smart AI holder naa aktiv app-shell-side og aktivt pipeline-steg gjennom parameterendringer og ny kjoring, slik at rerun ikke faller tilbake til hovedvinduet.",
+    "Analyseflyt input laaser naa Antall kandidater til faktisk input fra forrige test, slik at Test 3 ikke kan velge flere kandidater enn Test 2 sendte videre.",
     "Ny app-shell er aktiv: venstremenyen er primær navigasjon, og Marked/Testflyt/Analyse/Portefolje/Beslutning renderes direkte uten gammel Kontrollsenter-wrapper.",
     "Gammelt AI Kontrollsenter er flyttet til Admin som fallback i stedet for aa vaere startskjerm.",
     "Steg 1 heter naa 1. Dataunderlag, fordi det samler og kontrollerer underlag foer Test 2 uten aa kjoere analyse.",

@@ -417,7 +417,6 @@ def render_user_admin(current_user):
     st.dataframe in the sidebar, because Streamlit's dataframe container can
     create large empty/white boxes in narrow sidebars.
     """
-    st.sidebar.markdown("---")
     username = str(current_user.get("username", "-"))
     role = str(current_user.get("role", "user"))
     remember_on = bool(st.session_state.get("auth_remember_me"))
@@ -434,7 +433,8 @@ def render_user_admin(current_user):
         unsafe_allow_html=True,
     )
 
-    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=True):
+    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=False):
+        st.session_state["auth_last_redirect_reason_v1865c"] = "manual_logout"
         _logout()
 
     if current_user.get("role") != "admin":

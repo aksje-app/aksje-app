@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.5"' in version
-assert "New App Shell Left Navigation" in version
+assert 'APP_VERSION = "v18.6.5c"' in version
+assert "App Shell Menu Recovery" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -166,3 +166,6 @@ for source in [engine, ui]:
 assert "AAPL" not in engine + ui
 assert "MSFT" not in engine + ui
 assert "NVDA" not in engine + ui
+
+
+

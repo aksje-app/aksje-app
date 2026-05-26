@@ -41,7 +41,8 @@ import requests
 import html
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
-from app_version import get_app_build_label
+from app_version import get_app_build_label, get_app_version
+from analysis_universe_ai import render_ai_analysis_universe_workspace
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
 from governance_registry import get_changelog, get_protected_zones
 from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
@@ -3621,6 +3622,8 @@ if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
     st.session_state["global_view_mode_v145"] = "Full"
 
 APP_SHELL_PAGE_KEY_V1865 = "app_shell_page_v1865"
+APP_SHELL_SUBPAGE_KEY_V1865C = "app_shell_subpage_v1865c"
+APP_SHELL_ACTIVE_STAGE_KEY_V1865A = "app_shell_active_pipeline_stage_v1865a"
 APP_SHELL_PAGES_V1865 = [
     ("Hjem", "⌂", "Hjem"),
     ("Dataunderlag", "◫", "Dataunderlag"),
@@ -3632,6 +3635,17 @@ APP_SHELL_PAGES_V1865 = [
     ("Rapporter", "▤", "Rapporter"),
     ("Admin", "⚙", "Admin"),
 ]
+APP_SHELL_SUBPAGES_V1865C = {
+    "Hjem": ["Dashboard"],
+    "Dataunderlag": ["Datakilder / Test 1"],
+    "Marked": ["Markedsoversikt", "Rangering / Test 2", "Heatmap", "Regime", "Makro/renter", "Nyheter", "Finansavisen Bjellesauer", "Oljefond/NBIM", "Aktorregister", "IPO"],
+    "Analyse": ["Smart AI-filter / Test 3", "Interaktiv analyse", "Alpha Radar", "Early Warning", "Valutavarsler"],
+    "Testflyt": ["Pipeline 1-10", "Test 1 Dataunderlag", "Test 2 Marked/rangering", "Test 3 Smart AI-filter", "Test 4 Top Picks", "Test 5 Early Warning", "Test 6 Alpha Radar", "Test 7 Auto Test Lab", "Test 8 Beslutningsgrunnlag", "Test 9 Portefoljeanalyse", "Test 10 Paper Trading"],
+    "Portefolje": ["Portefoljeanalyse", "Paper Trading", "Watchlist/signaler", "Fond / ETF"],
+    "Beslutning": ["Beslutningsgrunnlag"],
+    "Rapporter": ["Daglig rapport"],
+    "Admin": ["Drift", "Global oppdatering", "Systemstatus", "Gammelt Kontrollsenter"],
+}
 
 
 def _render_app_shell_sidebar_v1865() -> str:
@@ -3641,6 +3655,7 @@ def _render_app_shell_sidebar_v1865() -> str:
     if current not in valid:
         current = "Marked"
         st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
+    current_sub = str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
     st.sidebar.markdown(
         """
         <style>
@@ -3669,43 +3684,77 @@ def _render_app_shell_sidebar_v1865() -> str:
             line-height:1.25;
             margin:.28rem 0 .55rem 0;
         }
+        section[data-testid="stSidebar"] div[role="radiogroup"] label {
+            background:transparent !important;
+            border:0 !important;
+            padding:.15rem 0 !important;
+        }
+        section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
+            display:none !important;
+        }
         section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
-            justify-content:flex-start !important;
-            min-height:38px !important;
-            border-radius:11px !important;
-            margin:.05rem 0 .10rem 0 !important;
+            min-height:30px !important;
+            border-radius:9px !important;
+            padding:.22rem .45rem !important;
+            font-size:.78rem !important;
         }
         </style>
         <div class="akse-shell-title">Verktøy</div>
         """,
         unsafe_allow_html=True,
     )
-    for page, icon, label in APP_SHELL_PAGES_V1865:
-        active = page == current
-        button_label = f"{icon}  {label}"
-        if st.sidebar.button(button_label, key=f"app_shell_nav_{page}_v1865", use_container_width=True, type="primary" if active else "secondary"):
-            st.session_state[APP_SHELL_PAGE_KEY_V1865] = page
-            st.rerun()
+    labels = [f"{icon}  {label}" for page, icon, label in APP_SHELL_PAGES_V1865]
+    page_by_label = {label: page for label, (page, _icon, _name) in zip(labels, APP_SHELL_PAGES_V1865)}
+    default_label = next((label for label, row in zip(labels, APP_SHELL_PAGES_V1865) if row[0] == current), labels[0])
+    existing_radio_label = st.session_state.get("app_shell_page_radio_v1865c")
+    if existing_radio_label not in labels or page_by_label.get(str(existing_radio_label)) != current:
+        st.session_state["app_shell_page_radio_v1865c"] = default_label
+    selected_label = st.sidebar.radio(
+        "Verktoy",
+        labels,
+        index=labels.index(default_label),
+        key="app_shell_page_radio_v1865c",
+        label_visibility="collapsed",
+    )
+    selected_page = page_by_label.get(selected_label, current)
+    if selected_page != current:
+        current = selected_page
+        st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
+        st.session_state.pop(APP_SHELL_ACTIVE_STAGE_KEY_V1865A, None)
+        current_sub = ""
+    subpages = APP_SHELL_SUBPAGES_V1865C.get(current, ["Oversikt"])
+    if current_sub not in subpages:
+        current_sub = subpages[0]
+        st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
+    if len(subpages) > 1:
+        with st.sidebar.expander("Undermeny", expanded=False):
+            if st.session_state.get("app_shell_subpage_select_v1865c") not in subpages:
+                st.session_state["app_shell_subpage_select_v1865c"] = current_sub
+            selected_sub = st.selectbox(
+                "Velg funksjon",
+                subpages,
+                index=subpages.index(current_sub),
+                key="app_shell_subpage_select_v1865c",
+            )
+            if selected_sub != current_sub:
+                current_sub = selected_sub
+                st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
+                st.session_state.pop(APP_SHELL_ACTIVE_STAGE_KEY_V1865A, None)
+    else:
+        st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
     st.sidebar.markdown(
-        f"<div class='akse-shell-active'>Aktiv side: {html.escape(current)}</div>"
-        "<div class='akse-shell-note'>Marked og Testflyt åpnes direkte. Gammelt Kontrollsenter ligger under Admin.</div>",
+        f"<div class='akse-shell-active'>Aktiv side: {html.escape(current)}<br><span style='font-weight:750;color:#bae6fd;'>{html.escape(current_sub)}</span></div>",
         unsafe_allow_html=True,
     )
     return current
 
 
 APP_SHELL_PAGE_V1865 = _render_app_shell_sidebar_v1865()
-with st.sidebar.expander("Innstillinger", expanded=False):
-    APP_VIEW_MODE = st.radio(
-        "Tetthet",
-        ["Kompakt", "Full"],
-        index=1,
-        horizontal=False,
-        key="global_view_mode_v145",
-        help="Kompakt gir mindre scrolling. Full viser alle detaljer.",
-    )
+APP_VIEW_MODE = st.session_state.get("global_view_mode_v145", "Full")
+if APP_VIEW_MODE not in ["Kompakt", "Full"]:
+    APP_VIEW_MODE = "Full"
+    st.session_state["global_view_mode_v145"] = "Full"
 st.session_state["app_view_mode"] = APP_VIEW_MODE
-st.sidebar.markdown(f"<div class='view-mode-status'>Tetthet: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
@@ -7802,7 +7851,6 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-st.sidebar.markdown("<div class='sidebar-section-title'>⚙️ Innstillinger</div>", unsafe_allow_html=True)
 render_user_admin(current_user)
 show_drift_controls_v1863cc = st.sidebar.checkbox(
     "Drift: vis Start/Stopp/Global",
@@ -10568,6 +10616,19 @@ def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
         "defaults": defaults,
         "auto_run": False,
     }
+    st.session_state["app_shell_active_pipeline_stage_v1865a"] = stage_id
+    st.session_state["app_shell_page_v1865"] = {
+        "data_foundation": "Dataunderlag",
+        "market_ranking": "Testflyt",
+        "smart_ai": "Analyse",
+        "top_picks": "Testflyt",
+        "early_warning": "Testflyt",
+        "alpha_radar": "Testflyt",
+        "auto_test_lab": "Testflyt",
+        "decision_support": "Beslutning",
+        "portfolio_analysis": "Portefolje",
+        "paper_trading": "Testflyt",
+    }.get(stage_id, "Testflyt")
     st.rerun()
 
 
@@ -11702,6 +11763,80 @@ def _render_reports_shell_v1865() -> None:
     render_daily_ai_market_report()
 
 
+def _render_data_foundation_only_shell_v1865c() -> None:
+    st.subheader("1. Dataunderlag")
+    st.caption("Kun datakilde-cockpit for Test 1: kontroller underlaget og send det videre til Test 2.")
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        status_rows = pipeline.stage_status()
+    except Exception as exc:
+        st.warning(f"Dataunderlag kunne ikke lastes: {exc}")
+        return
+    _render_pipeline_stage_bar_v1863bw("data_foundation", show_actions=False)
+    _render_data_foundation_workspace_v1863by(status_rows)
+    _render_data_foundation_approval_v1863by(status_rows)
+
+
+def _pipeline_stage_class_v1865c(row: dict, active_stage: str) -> str:
+    stage_id = str(row.get("stage_id") or "")
+    status = str(row.get("status") or "").lower()
+    if stage_id == active_stage:
+        return "active"
+    if status == "ferdig":
+        return "done"
+    if int(row.get("input") or 0) <= 0 and int(row.get("nr") or 0) > 1:
+        return "missing"
+    return "waiting"
+
+
+def _render_pipeline_overview_shell_v1865c() -> None:
+    st.subheader("Testflyt 1-10")
+    st.caption("Hele arbeidsløypen: se progress, åpne hvert teststeg og send output videre uten automatisk tung kjøring.")
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        status_rows = pipeline.stage_status()
+    except Exception as exc:
+        st.warning(f"Testflyt kunne ikke lastes: {exc}")
+        return
+    active_stage = str(st.session_state.get(APP_SHELL_ACTIVE_STAGE_KEY_V1865A) or "data_foundation")
+    st.markdown(
+        """
+        <style>
+        .pipeline-step-grid { display:grid; grid-template-columns:repeat(5,minmax(130px,1fr)); gap:.45rem; margin:.55rem 0 .75rem 0; }
+        .pipeline-step-card { border:1px solid rgba(148,163,184,.24); border-radius:10px; padding:.50rem .55rem; background:rgba(15,23,42,.72); min-height:74px; }
+        .pipeline-step-card.done { border-color:rgba(34,197,94,.55); background:rgba(20,83,45,.22); }
+        .pipeline-step-card.active { border-color:rgba(56,189,248,.95); background:rgba(8,47,73,.72); box-shadow:0 0 0 1px rgba(56,189,248,.24) inset; }
+        .pipeline-step-card.missing { border-color:rgba(245,158,11,.42); background:rgba(69,26,3,.22); }
+        .pipeline-step-nr { font-size:.72rem; color:#93c5fd; font-weight:950; }
+        .pipeline-step-name { font-size:.86rem; font-weight:950; color:#f8fafc; margin-top:.10rem; }
+        .pipeline-step-meta { font-size:.72rem; color:#cbd5e1; margin-top:.20rem; }
+        @media (max-width: 1100px) { .pipeline-step-grid { grid-template-columns:repeat(2,minmax(130px,1fr)); } }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    cards = []
+    for row in status_rows:
+        cls = _pipeline_stage_class_v1865c(row, active_stage)
+        cards.append(
+            f"<div class='pipeline-step-card {cls}'>"
+            f"<div class='pipeline-step-nr'>Test {int(row.get('nr') or 0)}</div>"
+            f"<div class='pipeline-step-name'>{html.escape(str(row.get('test') or row.get('steg') or ''))}</div>"
+            f"<div class='pipeline-step-meta'>{html.escape(str(row.get('status') or 'venter'))} · inn {int(row.get('input') or 0)} · ut {int(row.get('output') or 0)}</div>"
+            f"</div>"
+        )
+    st.markdown("<div class='pipeline-step-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+    cols = st.columns(5)
+    for idx, row in enumerate(status_rows):
+        stage_id = str(row.get("stage_id") or "")
+        label = f"{int(row.get('nr') or 0)}. {row.get('test') or row.get('steg')}"
+        with cols[idx % 5]:
+            if st.button(label, key=f"pipeline_quick_open_{stage_id}_v1865c", use_container_width=True):
+                _pipeline_open_stage_v1863bw(stage_id)
+    st.markdown("#### Status for arbeidsflyten")
+    st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+
+
 def _render_admin_shell_v1865() -> None:
     st.subheader("Admin / Drift")
     st.caption("Driftkontroller, systemstatus og gammelt Kontrollsenter for fallback.")
@@ -11712,26 +11847,155 @@ def _render_admin_shell_v1865() -> None:
         render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 
 
+def _apply_pending_pipeline_nav_v1865a() -> None:
+    try:
+        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY
+    except Exception:
+        return
+    pending = st.session_state.pop(PIPELINE_PENDING_NAV_KEY, None)
+    if not isinstance(pending, dict):
+        return
+    defaults = pending.get("defaults") if isinstance(pending.get("defaults"), dict) else {}
+    for key, value in defaults.items():
+        st.session_state[key] = value
+    stage_id = str(pending.get("stage_id") or "").strip()
+    if stage_id:
+        st.session_state[APP_SHELL_ACTIVE_STAGE_KEY_V1865A] = stage_id
+        st.session_state[APP_SHELL_PAGE_KEY_V1865] = {
+            "data_foundation": "Dataunderlag",
+            "market_ranking": "Testflyt",
+            "smart_ai": "Analyse",
+            "top_picks": "Testflyt",
+            "early_warning": "Testflyt",
+            "alpha_radar": "Testflyt",
+            "auto_test_lab": "Testflyt",
+            "decision_support": "Beslutning",
+            "portfolio_analysis": "Portefolje",
+            "paper_trading": "Testflyt",
+        }.get(stage_id, "Testflyt")
+
+
+def _render_pipeline_stage_shell_v1865a(stage_id: str) -> bool:
+    stage_id = str(stage_id or "").strip()
+    if stage_id == "market_ranking":
+        render_market_ranking_control_center_v18535()
+        return True
+    if stage_id == "smart_ai":
+        render_ai_analysis_universe_workspace(expanded=True)
+        return True
+    if stage_id == "top_picks":
+        render_top_picks_control_center_v1863s()
+        return True
+    if stage_id in {"early_warning", "alpha_radar"}:
+        render_alpha_radar_control_center_v1863ap()
+        return True
+    if stage_id == "auto_test_lab":
+        render_auto_test_lab_control_center_v18536()
+        return True
+    if stage_id == "decision_support":
+        render_decision_support_panel()
+        return True
+    if stage_id == "portfolio_analysis":
+        render_mixed_portfolio_control_center_v18544()
+        return True
+    if stage_id == "paper_trading":
+        render_paper_trading_dashboard()
+        return True
+    return False
+
+
+_apply_pending_pipeline_nav_v1865a()
 _shell_page_v1865 = str(globals().get("APP_SHELL_PAGE_V1865") or st.session_state.get("app_shell_page_v1865") or "Marked")
+_shell_subpage_v1865c = str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
+_shell_stage_v1865a = str(st.session_state.get(APP_SHELL_ACTIVE_STAGE_KEY_V1865A) or "")
 try:
     if _shell_page_v1865 == "Hjem":
         _render_home_shell_v1865()
     elif _shell_page_v1865 == "Dataunderlag":
-        render_analysis_pipeline_control_center_v1863bv()
+        _render_data_foundation_only_shell_v1865c()
     elif _shell_page_v1865 == "Marked":
-        render_market_room_control_center_v1863cb()
+        if _shell_subpage_v1865c == "Rangering / Test 2":
+            render_market_ranking_control_center_v18535()
+        elif _shell_subpage_v1865c == "Heatmap":
+            render_ai_heatmaps()
+        elif _shell_subpage_v1865c == "Regime":
+            render_market_regime_widget()
+        elif _shell_subpage_v1865c == "Makro/renter":
+            render_macro_rates_breadth_panel()
+        elif _shell_subpage_v1865c == "Nyheter":
+            render_news_control_center_v18535()
+        elif _shell_subpage_v1865c == "Finansavisen Bjellesauer":
+            render_finansavisen_bjellesau_panel()
+        elif _shell_subpage_v1865c == "Oljefond/NBIM":
+            render_nbim_radar_panel()
+        elif _shell_subpage_v1865c == "Aktorregister":
+            render_actor_registry_panel()
+        elif _shell_subpage_v1865c == "IPO":
+            render_ipo()
+        else:
+            render_market_room_control_center_v1863cb()
     elif _shell_page_v1865 == "Analyse":
-        render_ai_analysis_universe_workspace(expanded=True)
+        if _shell_subpage_v1865c == "Interaktiv analyse":
+            render_interactive_technical_control_center_v18535()
+        elif _shell_subpage_v1865c == "Alpha Radar":
+            st.session_state["alpha_radar_engine_v1863au"] = "Alpha Radar"
+            render_alpha_radar_control_center_v1863ap()
+        elif _shell_subpage_v1865c == "Early Warning":
+            st.session_state["alpha_radar_engine_v1863au"] = "Early Warning V1"
+            render_alpha_radar_control_center_v1863ap()
+        elif _shell_subpage_v1865c == "Valutavarsler":
+            render_currency_alerts_control_center_v1863af()
+        elif _shell_stage_v1865a and not _render_pipeline_stage_shell_v1865a(_shell_stage_v1865a):
+            render_ai_analysis_universe_workspace(expanded=True)
+        else:
+            render_ai_analysis_universe_workspace(expanded=True)
     elif _shell_page_v1865 == "Testflyt":
-        render_analysis_pipeline_control_center_v1863bv()
+        test_stage_map_v1865c = {
+            "Test 1 Dataunderlag": "data_foundation",
+            "Test 2 Marked/rangering": "market_ranking",
+            "Test 3 Smart AI-filter": "smart_ai",
+            "Test 4 Top Picks": "top_picks",
+            "Test 5 Early Warning": "early_warning",
+            "Test 6 Alpha Radar": "alpha_radar",
+            "Test 7 Auto Test Lab": "auto_test_lab",
+            "Test 8 Beslutningsgrunnlag": "decision_support",
+            "Test 9 Portefoljeanalyse": "portfolio_analysis",
+            "Test 10 Paper Trading": "paper_trading",
+        }
+        explicit_stage_v1865c = test_stage_map_v1865c.get(_shell_subpage_v1865c)
+        if explicit_stage_v1865c:
+            st.session_state[APP_SHELL_ACTIVE_STAGE_KEY_V1865A] = explicit_stage_v1865c
+            if explicit_stage_v1865c == "data_foundation":
+                _render_data_foundation_only_shell_v1865c()
+            elif not _render_pipeline_stage_shell_v1865a(explicit_stage_v1865c):
+                _render_pipeline_overview_shell_v1865c()
+        elif _shell_stage_v1865a:
+            if not _render_pipeline_stage_shell_v1865a(_shell_stage_v1865a):
+                _render_pipeline_overview_shell_v1865c()
+        else:
+            _render_pipeline_overview_shell_v1865c()
     elif _shell_page_v1865 == "Portefolje":
-        render_mixed_portfolio_control_center_v18544()
+        if _shell_subpage_v1865c == "Paper Trading":
+            render_paper_trading_dashboard()
+        elif _shell_subpage_v1865c == "Watchlist/signaler":
+            render_watchlist_signals_control_center_v18535()
+        elif _shell_subpage_v1865c == "Fond / ETF":
+            render_fund_etf_control_center_v18538()
+        else:
+            render_mixed_portfolio_control_center_v18544()
     elif _shell_page_v1865 == "Beslutning":
         render_decision_support_panel()
     elif _shell_page_v1865 == "Rapporter":
         _render_reports_shell_v1865()
     elif _shell_page_v1865 == "Admin":
-        _render_admin_shell_v1865()
+        if _shell_subpage_v1865c == "Global oppdatering":
+            render_global_update_action_panel_v1863g()
+        elif _shell_subpage_v1865c == "Systemstatus":
+            render_system_admin_workspace(expanded=True)
+        elif _shell_subpage_v1865c == "Gammelt Kontrollsenter":
+            render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
+        else:
+            _render_admin_shell_v1865()
     else:
         render_market_room_control_center_v1863cb()
 except Exception as _shell_error_v1865:

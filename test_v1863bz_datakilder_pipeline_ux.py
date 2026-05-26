@@ -49,6 +49,9 @@ def test_pipeline_package_view_explains_input_output_and_datakilder_report():
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.5"' in version
-    assert "New App Shell Left Navigation" in version
+    assert 'APP_VERSION = "v18.6.5c"' in version
+    assert "App Shell Menu Recovery" in version
     assert "hurtigtaster for Test 1-10" in version
+
+
+
