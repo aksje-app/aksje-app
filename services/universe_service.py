@@ -270,6 +270,16 @@ class UniverseService:
         if mode == "Manuell liste" or "Manuell liste" in scopes:
             return (manual_list[:max_count], "Manuell liste", "Manuell tickerliste valgt")
 
+        if mode == "Analyseflyt input" or "Analyseflyt input" in scopes:
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+
+                pipeline_rows = get_analysis_pipeline_service(state_service=self.state, storage_service=self.storage).candidates_for_stage("smart_ai")
+                pipeline_tickers = _extract_non_legacy_tickers(pipeline_rows)
+            except Exception:
+                pipeline_tickers = []
+            return (pipeline_tickers[:max_count], "Analyseflyt input", "Kandidater fra Test 2 Marked/rangering")
+
         if mode == "Top Picks":
             return (existing.get("Top Picks", [])[:max_count], "Top Picks", "Lagrede Top Picks brukt som univers")
 

@@ -187,6 +187,10 @@ STAGE_DEFAULT_WIDGETS: Dict[str, Dict[str, Any]] = {
         "cc_ranking_market_v18535": "Dataunderlag",
         "cc_ranking_limit_v18535": 30,
     },
+    "smart_ai": {
+        "ai_universe_mode_draft_v1853": "Analyseflyt input",
+        "ai_universe_scopes_draft_v1853": ["Analyseflyt input"],
+    },
     "top_picks": {
         "cc_top_picks_scope_v1863s": "Analyseflyt input",
         "cc_top_picks_limit_v1863s": 30,
