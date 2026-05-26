@@ -96,7 +96,7 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="ðŸ“ˆ", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 
 
 # v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
@@ -1130,7 +1130,7 @@ def _auto_state(settings=None):
     if _full_stop_active():
         return "BLOKKERT", "red"
     if bool(_s.get("auto_trading_emergency_stop", False)):
-        return "NÃ˜DSTOPP", "red"
+        return "NØDSTOPP", "red"
     if bool(_s.get("auto_trading_paused", False)):
         return "PAUSET", "yellow"
     if bool(_s.get("auto_trading_enabled", False)):
@@ -1150,12 +1150,12 @@ def _set_auto_state(state):
     # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
     _full_stop_is_on = _full_stop_active()
     if state == "START" and _full_stop_is_on:
-        st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Bruk Opphev stopp / gjÃ¸r klar fÃ¸r Auto trading kan startes."
+        st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Bruk Opphev stopp / gjør klar før Auto trading kan startes."
         st.session_state["auto_control_notice_level_v153"] = "warning"
         return
     _settings_for_start = load_settings()
     if state == "START" and bool((_settings_for_start or {}).get("auto_trading_emergency_stop", False)):
-        st.session_state["auto_control_notice_v153"] = "NÃ¸dstopp er aktiv. Tilbakestill nÃ¸dstopp separat fÃ¸r Auto trading kan startes."
+        st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes."
         st.session_state["auto_control_notice_level_v153"] = "warning"
         return
     if state == "START":
@@ -1164,7 +1164,7 @@ def _set_auto_state(state):
         _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=True)
     elif state == "STOPP":
         _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
-    elif state == "NÃ˜DSTOPP":
+    elif state == "NØDSTOPP":
         _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=True)
     st.rerun()
 
@@ -1172,7 +1172,7 @@ def _set_auto_state(state):
 def _reset_emergency_stop_v157():
     """V15.7: NÃ¸dstopp er en egen sikkerhetslÃ¥s og mÃ¥ oppheves eksplisitt."""
     _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=False)
-    st.session_state["auto_control_notice_v153"] = "NÃ¸dstopp er tilbakestilt. Trykk Start nÃ¥r du vil aktivere Auto trading."
+    st.session_state["auto_control_notice_v153"] = "Nødstopp er tilbakestilt. Trykk Start når du vil aktivere Auto trading."
     st.session_state["auto_control_notice_level_v153"] = "info"
     st.rerun()
 
@@ -1183,7 +1183,7 @@ def _deactivate_full_stop_v157():
         deactivate_full_stop()
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er slÃ¥tt av. Auto trading er fortsatt AV. Trykk Start nÃ¥r du vil aktivere den."
+    st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er slått av. Auto trading er fortsatt AV. Trykk Start når du vil aktivere den."
     st.session_state["auto_control_notice_level_v153"] = "success"
     st.rerun()
 
@@ -1194,7 +1194,7 @@ def _auto_block_reason(settings=None):
     if _full_stop_active():
         return "Full stopp / ferie"
     if bool(_s.get("auto_trading_emergency_stop", False)):
-        return "NÃ¸dstopp"
+        return "Nødstopp"
     if bool(_s.get("auto_trading_paused", False)):
         return "Pause"
     return ""
@@ -1204,7 +1204,7 @@ def _clear_stops_ready_v158():
     """V15.8: trygg hovedknapp. Opphever vanlig full stopp/pause, men starter ikke trading og nullstiller ikke nÃ¸dstopp."""
     _s = load_settings()
     if bool(_s.get("auto_trading_emergency_stop", False)):
-        st.session_state["auto_control_notice_v153"] = "NÃ¸dstopp er aktiv. Tilbakestill nÃ¸dstopp separat fÃ¸r Auto trading kan gjÃ¸res klar."
+        st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan gjøres klar."
         st.session_state["auto_control_notice_level_v153"] = "warning"
         st.rerun()
         return
@@ -1217,7 +1217,7 @@ def _clear_stops_ready_v158():
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
     _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
-    st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV â€“ trykk Start for Ã¥ starte."
+    st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV - trykk Start for å starte."
     st.session_state["auto_control_notice_level_v153"] = "success"
     st.rerun()
 
@@ -1289,7 +1289,7 @@ def _clear_startup_heavy_update_for_control_center_v1863an() -> None:
 def _last_update_label():
     reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
     at = st.session_state.get("last_update_started_at_v148", "-")
-    return f"{reason} Â· {at}"
+    return f"{reason} - {at}"
 
 
 
@@ -1398,17 +1398,17 @@ def _global_update_state_text_v1862():
     pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
     running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
     if running:
-        return "ðŸ”„", "Jobber â€“ tung oppdatering er aktiv"
+        return "Oppdaterer", "Jobber - tung oppdatering er aktiv"
     if pending:
-        return "âš ï¸", "Endringer venter"
-    return "âœ…", "Klar"
+        return "Venter", "Endringer venter"
+    return "Klar", "Klar"
 
 
 def _click_global_update_v1862():
     set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
     _apply_global_update_v18548()
     try:
-        st.toast("Global oppdatering aktivert: valgene er lagret.", icon="âœ…")
+        st.toast("Global oppdatering aktivert: valgene er lagret.", icon="✅")
     except Exception:
         st.info("Global oppdatering aktivert: valgene er lagret.")
     st.rerun()
@@ -1489,8 +1489,8 @@ def render_global_update_action_panel_v1863g() -> None:
         <div class='v1863g-global-action-card'>
             <div class='v1863g-global-action-title'>{icon} Global oppdatering</div>
             <div class='v1863g-global-action-sub'>
-                Status: {html.escape(state_txt)} Â· Sist: {html.escape(_last_update_label())}<br/>
-                Bruk denne nÃ¥r du vil lagre valg og kjÃ¸re tung oppdatering av appen.
+                Status: {html.escape(state_txt)} - Sist: {html.escape(_last_update_label())}<br/>
+                Bruk denne når du vil lagre valg og kjøre tung oppdatering av appen.
             </div>
         </div>
         """,
@@ -1498,7 +1498,7 @@ def render_global_update_action_panel_v1863g() -> None:
     )
     with st.form("global_update_action_form_v1863g", clear_on_submit=False):
         _global_run_clicked = st.form_submit_button(
-            "KjÃ¸r Global oppdatering",
+            "Kjør Global oppdatering",
             use_container_width=True,
             type="primary",
         )
@@ -3633,15 +3633,15 @@ APP_SHELL_SUBPAGE_KEY_V1865C = "app_shell_subpage_v1865c"
 APP_SHELL_ACTIVE_STAGE_KEY_V1865A = "app_shell_active_pipeline_stage_v1865a"
 PIPELINE_MAX_CANDIDATES_V1865D = 60
 APP_SHELL_PAGES_V1865 = [
-    ("Hjem", "âŒ‚", "Hjem"),
-    ("Dataunderlag", "â—«", "Dataunderlag"),
-    ("Marked", "â—Ž", "Marked"),
-    ("Analyse", "âŒ•", "Analyse"),
-    ("Testflyt", "â–¦", "Testflyt"),
-    ("Portefolje", "â—·", "PortefÃ¸lje"),
-    ("Beslutning", "â—‡", "Beslutning"),
-    ("Rapporter", "â–¤", "Rapporter"),
-    ("Admin", "âš™", "Admin"),
+    ("Hjem", "home", "Hjem"),
+    ("Dataunderlag", "database", "Dataunderlag"),
+    ("Marked", "globe", "Marked"),
+    ("Analyse", "search", "Analyse"),
+    ("Testflyt", "flow", "Testflyt"),
+    ("Portefolje", "pie", "Portefolje"),
+    ("Beslutning", "diamond", "Beslutning"),
+    ("Rapporter", "book", "Rapporter"),
+    ("Admin", "settings", "Admin"),
 ]
 APP_SHELL_SUBPAGES_V1865C = {
     "Hjem": ["Dashboard"],
@@ -3656,110 +3656,157 @@ APP_SHELL_SUBPAGES_V1865C = {
 }
 
 
+def _query_value_v1865e(name: str) -> str:
+    try:
+        value = st.query_params.get(name, "")
+        if isinstance(value, list):
+            value = value[0] if value else ""
+        return str(value or "").strip()
+    except Exception:
+        return ""
+
+
+def _shell_href_v1865e(page: str, sub: str = "") -> str:
+    parts = [f"page={str(page).replace(' ', '+')}"]
+    if sub:
+        safe_sub = str(sub).replace(" ", "+").replace("/", "%2F")
+        parts.append(f"sub={safe_sub}")
+    return "?" + "&".join(parts)
+
+
+def _shell_icon_svg_v1865e(icon: str) -> str:
+    icons = {
+        "home": "<path d='M3 11 L12 4 L21 11'/><path d='M5 10 V21 H19 V10'/><path d='M9 21 V14 H15 V21'/>",
+        "database": "<ellipse cx='12' cy='6' rx='8' ry='3'/><path d='M4 6 V18 C4 20 8 22 12 22 C16 22 20 20 20 18 V6'/><path d='M4 12 C4 14 8 16 12 16 C16 16 20 14 20 12'/>",
+        "globe": "<circle cx='12' cy='12' r='9'/><path d='M3 12 H21'/><path d='M12 3 C15 6 15 18 12 21'/><path d='M12 3 C9 6 9 18 12 21'/>",
+        "search": "<circle cx='10.5' cy='10.5' r='6.5'/><path d='M15.5 15.5 L21 21'/>",
+        "flow": "<path d='M4 5 H20'/><path d='M4 12 H20'/><path d='M4 19 H20'/><path d='M7 3 V7'/><path d='M12 10 V14'/><path d='M17 17 V21'/>",
+        "pie": "<path d='M12 3 V12 H21'/><path d='M21 12 A9 9 0 1 1 12 3'/><path d='M12 12 L18 18'/>",
+        "diamond": "<path d='M12 3 L21 12 L12 21 L3 12 Z'/>",
+        "book": "<path d='M4 5 C7 4 10 4 12 6 V21 C10 19 7 18 4 19 Z'/><path d='M20 5 C17 4 14 4 12 6 V21 C14 19 17 18 20 19 Z'/>",
+        "settings": "<circle cx='12' cy='12' r='3'/><path d='M12 2 V5'/><path d='M12 19 V22'/><path d='M2 12 H5'/><path d='M19 12 H22'/><path d='M4.9 4.9 L7 7'/><path d='M17 17 L19.1 19.1'/><path d='M19.1 4.9 L17 7'/><path d='M7 17 L4.9 19.1'/>",
+    }
+    body = icons.get(icon, icons["diamond"])
+    return f"<svg class='akse-nav-svg' viewBox='0 0 24 24' aria-hidden='true'>{body}</svg>"
+
+
 def _render_app_shell_sidebar_v1865() -> str:
-    """Primary app shell navigation. This is now the main navigation surface."""
-    current = str(st.session_state.get(APP_SHELL_PAGE_KEY_V1865) or "Marked")
+    """Primary app shell navigation rendered as real links, not Streamlit widgets."""
     valid = {page for page, _icon, _label in APP_SHELL_PAGES_V1865}
+    query_page = _query_value_v1865e("page")
+    query_sub = _query_value_v1865e("sub").replace("+", " ")
+    current = query_page if query_page in valid else str(st.session_state.get(APP_SHELL_PAGE_KEY_V1865) or "Marked")
     if current not in valid:
         current = "Marked"
-        st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
-    current_sub = str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
+    subpages = APP_SHELL_SUBPAGES_V1865C.get(current, ["Oversikt"])
+    current_sub = query_sub if query_sub in subpages else str(st.session_state.get(APP_SHELL_SUBPAGE_KEY_V1865C) or "")
+    if current_sub not in subpages:
+        current_sub = subpages[0]
+    st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
+    st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
     st.sidebar.markdown(
         """
         <style>
-        section[data-testid="stSidebar"] { min-width: 260px !important; }
+        section[data-testid="stSidebar"] { min-width: 92px !important; max-width: 300px !important; background:#070d19 !important; overflow:visible !important; }
+        section[data-testid="stSidebar"]:hover { min-width: 282px !important; }
         .akse-shell-title {
-            margin:.35rem 0 .45rem 0;
+            margin:.35rem 0 .55rem 0;
             color:#38bdf8;
             font-size:.72rem;
             font-weight:1000;
             letter-spacing:.10em;
             text-transform:uppercase;
         }
-        .akse-shell-active {
-            border:1px solid rgba(56,189,248,.65);
-            background:rgba(8,47,73,.72);
-            border-radius:12px;
-            padding:.42rem .52rem;
-            margin:.16rem 0 .40rem 0;
-            color:#e0f2fe;
+        .akse-nav { display:flex; flex-direction:column; gap:.16rem; overflow:visible; }
+        .akse-nav-link {
+            position:relative;
+            display:flex;
+            align-items:center;
+            gap:.72rem;
+            min-height:38px;
+            padding:.36rem .42rem;
+            border-left:3px solid transparent;
+            border-radius:0 10px 10px 0;
+            color:#94a3b8 !important;
+            text-decoration:none !important;
+            font-weight:900;
+            white-space:nowrap;
+        }
+        .akse-nav-link:hover, .akse-nav-link.active {
+            color:#f8fafc !important;
+            background:rgba(15,23,42,.90);
+            border-left-color:#38bdf8;
+        }
+        .akse-nav-svg {
+            width:24px;
+            height:24px;
+            min-width:24px;
+            fill:none;
+            stroke:currentColor;
+            stroke-width:2;
+            stroke-linecap:round;
+            stroke-linejoin:round;
+        }
+        .akse-nav-label {
+            opacity:0;
+            max-width:0;
+            overflow:hidden;
+            transition:opacity .12s ease, max-width .12s ease;
+            font-size:.92rem;
+        }
+        section[data-testid="stSidebar"]:hover .akse-nav-label,
+        .akse-nav-link:hover .akse-nav-label,
+        .akse-nav-link.active .akse-nav-label {
+            opacity:1;
+            max-width:190px;
+        }
+        .akse-subnav {
+            margin:.12rem 0 .38rem 2.15rem;
+            padding-left:.46rem;
+            border-left:1px solid rgba(148,163,184,.22);
+            display:flex;
+            flex-direction:column;
+            gap:.10rem;
+        }
+        .akse-subnav a {
+            display:block;
+            padding:.28rem .44rem;
+            border-radius:8px;
+            color:#cbd5e1 !important;
+            text-decoration:none !important;
             font-size:.78rem;
-            font-weight:950;
+            line-height:1.18;
+            white-space:normal;
+            overflow-wrap:anywhere;
         }
-        .akse-shell-note {
-            color:#94a3b8;
-            font-size:.70rem;
-            line-height:1.25;
-            margin:.28rem 0 .55rem 0;
+        .akse-subnav a:hover, .akse-subnav a.active {
+            background:rgba(8,47,73,.86);
+            color:#f8fafc !important;
         }
-        section[data-testid="stSidebar"] div[role="radiogroup"] label {
-            background:transparent !important;
-            border:0 !important;
-            padding:.15rem 0 !important;
-        }
-        section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
-            display:none !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
-            min-height:30px !important;
-            border-radius:9px !important;
-            padding:.22rem .45rem !important;
-            font-size:.78rem !important;
-        }
-        section[data-testid="stSidebar"] [data-testid="stSelectbox"] div,
-        section[data-testid="stSidebar"] [data-baseweb="select"] div {
-            font-size:.78rem !important;
-            white-space:normal !important;
-            line-height:1.20 !important;
-        }
+        section[data-testid="stSidebar"]:not(:hover) .akse-subnav { display:none; }
         </style>
-        <div class="akse-shell-title">VerktÃ¸y</div>
+        <div class="akse-shell-title">VERKTOY</div>
         """,
         unsafe_allow_html=True,
     )
-    labels = [f"{icon}  {label}" for page, icon, label in APP_SHELL_PAGES_V1865]
-    page_by_label = {label: page for label, (page, _icon, _name) in zip(labels, APP_SHELL_PAGES_V1865)}
-    default_label = next((label for label, row in zip(labels, APP_SHELL_PAGES_V1865) if row[0] == current), labels[0])
-    existing_radio_label = st.session_state.get("app_shell_page_radio_v1865c")
-    if existing_radio_label not in labels or page_by_label.get(str(existing_radio_label)) != current:
-        st.session_state["app_shell_page_radio_v1865c"] = default_label
-    selected_label = st.sidebar.radio(
-        "Verktoy",
-        labels,
-        index=labels.index(default_label),
-        key="app_shell_page_radio_v1865c",
-        label_visibility="collapsed",
-    )
-    selected_page = page_by_label.get(selected_label, current)
-    if selected_page != current:
-        current = selected_page
-        st.session_state[APP_SHELL_PAGE_KEY_V1865] = current
-        st.session_state.pop(APP_SHELL_ACTIVE_STAGE_KEY_V1865A, None)
-        current_sub = ""
-    subpages = APP_SHELL_SUBPAGES_V1865C.get(current, ["Oversikt"])
-    if current_sub not in subpages:
-        current_sub = subpages[0]
-        st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
-    if len(subpages) > 1:
-        with st.sidebar.expander("Undermeny", expanded=False):
-            if st.session_state.get("app_shell_subpage_select_v1865c") not in subpages:
-                st.session_state["app_shell_subpage_select_v1865c"] = current_sub
-            selected_sub = st.selectbox(
-                "Velg funksjon",
-                subpages,
-                index=subpages.index(current_sub),
-                key="app_shell_subpage_select_v1865c",
-            )
-            if selected_sub != current_sub:
-                current_sub = selected_sub
-                st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
-                st.session_state.pop(APP_SHELL_ACTIVE_STAGE_KEY_V1865A, None)
-    else:
-        st.session_state[APP_SHELL_SUBPAGE_KEY_V1865C] = current_sub
-    st.sidebar.markdown(
-        f"<div class='akse-shell-active'>Aktiv side: {html.escape(current)}<br><span style='font-weight:750;color:#bae6fd;'>{html.escape(current_sub)}</span></div>",
-        unsafe_allow_html=True,
-    )
+    nav_html = ["<nav class='akse-nav' aria-label='App navigation'>"]
+    for page, icon, label in APP_SHELL_PAGES_V1865:
+        page_subs = APP_SHELL_SUBPAGES_V1865C.get(page, ["Oversikt"])
+        default_sub = page_subs[0] if page_subs else ""
+        active = page == current
+        nav_html.append(
+            f"<a class='akse-nav-link {'active' if active else ''}' href='{html.escape(_shell_href_v1865e(page, default_sub))}' title='{html.escape(label)}'>"
+            f"{_shell_icon_svg_v1865e(icon)}<span class='akse-nav-label'>{html.escape(label)}</span></a>"
+        )
+        if active and len(page_subs) > 1:
+            nav_html.append("<div class='akse-subnav'>")
+            for sub in page_subs:
+                nav_html.append(
+                    f"<a class='{'active' if sub == current_sub else ''}' href='{html.escape(_shell_href_v1865e(page, sub))}' title='{html.escape(sub)}'>{html.escape(sub)}</a>"
+                )
+            nav_html.append("</div>")
+    nav_html.append("</nav>")
+    st.sidebar.markdown("".join(nav_html), unsafe_allow_html=True)
     return current
 
 
@@ -8177,51 +8224,51 @@ st.markdown(
 )
 
 # V15.8 / v18.5.34: kompakt Auto trading-kontrollgruppe flyttet opp.
-# Start opphever aldri Full stopp eller NÃ¸dstopp.
+# Start opphever aldri Full stopp eller nødstopp.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
 st.markdown(
     "<div class='v18534-trading-control-stack'>"
-    "<div class='v18534-trading-help'><b>Trading-kontroll:</b> Start/Pause/Stopp/NÃ¸dstopp styrer kun auto trading. "
-    "SikkerhetslÃ¥ser oppheves med egne knapper.</div>"
+    "<div class='v18534-trading-help'><b>Trading-kontroll:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
+    "Sikkerhetslåser oppheves med egne knapper.</div>"
     "</div>",
     unsafe_allow_html=True,
 )
 if bool(_top_full_stop):
     st.markdown(
-        "<div class='v18534-trading-warning'>â›” Full stopp / ferie er aktiv. Auto trading og auto-kjÃ¸p er blokkert. "
-        "Bruk <b>GjÃ¸r klar</b> fÃ¸r Start kan brukes. Paper Trading er kun visning.</div>",
+        "<div class='v18534-trading-warning'>Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
+        "Bruk <b>Gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
         unsafe_allow_html=True,
     )
 elif _top_emergency_stop:
     st.markdown(
-        "<div class='v18534-trading-warning'>ðŸš¨ NÃ¸dstopp er aktiv. Tilbakestill nÃ¸dstopp separat fÃ¸r Auto trading kan startes.</div>",
+        "<div class='v18534-trading-warning'>Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
         unsafe_allow_html=True,
     )
 st.markdown("<div class='v18534-control-button-gap'></div>", unsafe_allow_html=True)
 _tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _tq7, _control_spacer = st.columns([0.95, 1.05, 1.05, 1.25, 1.55, 1.35, 1.85, 2.90], gap="small")
 with _tq1:
-    if st.button("â–¶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
+    if st.button("Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
         _set_auto_state("START")
 with _tq2:
-    if st.button("â¸ Pause", key="auto_pause_top_v15", use_container_width=True):
+    if st.button("Pause", key="auto_pause_top_v15", use_container_width=True):
         _set_auto_state("PAUSE")
 with _tq3:
-    if st.button("â›” Stopp", key="auto_stop_top_v15", use_container_width=True):
+    if st.button("Stopp", key="auto_stop_top_v15", use_container_width=True):
         _set_auto_state("STOPP")
 with _tq4:
-    if st.button("ðŸš¨ NÃ¸dstopp", key="auto_emergency_top_v15", use_container_width=True):
-        _set_auto_state("NÃ˜DSTOPP")
+    if st.button("Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
+        _set_auto_state("NØDSTOPP")
 with _tq5:
-    # Hold the column populated so the Global button always lands directly after GjÃ¸r klar.
+    # Hold the column populated so the Global button always lands directly after Gjør klar.
     ready_disabled = not (bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)))
-    if st.button("ðŸ”“ GjÃ¸r klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
+    if st.button("Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
         _clear_stops_ready_v158()
 with _tq6:
     st.empty()
 with _tq7:
     if _top_emergency_stop:
-        if st.button("ðŸ”“ Tilbakestill nÃ¸dstopp", key="reset_emergency_top_v157", use_container_width=True):
+        if st.button("Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
             _reset_emergency_stop_v157()
 
 if bool(globals().get("show_drift_controls_v1863cc", False)):
@@ -8231,7 +8278,7 @@ if bool(globals().get("show_drift_controls_v1863cc", False)):
 if st.session_state.get("auto_control_notice_v153"):
     _notice = html.escape(str(st.session_state.pop("auto_control_notice_v153", "")))
     _level = str(st.session_state.pop("auto_control_notice_level_v153", "info"))
-    _prefix = "âœ…" if _level == "success" else ("âš ï¸" if _level == "warning" else "â„¹ï¸")
+    _prefix = "OK" if _level == "success" else ("OBS" if _level == "warning" else "Info")
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
 

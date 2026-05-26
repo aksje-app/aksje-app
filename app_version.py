@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.5d"
-APP_VERSION_NAME = "Pipeline Candidate Caps"
-APP_BUILD_ID = "v1865d-pipeline-candidate-caps"
+APP_VERSION = "v18.6.5f"
+APP_VERSION_NAME = "Visible Text Cleanup"
+APP_BUILD_ID = "v1865f-visible-text-cleanup"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Synlige driftknapper, global oppdatering og toppvarsler er ryddet for mojibake, slik at Start/Pause/Stopp/Nødstopp/Gjør klar vises som lesbar norsk tekst.",
+    "Venstremenyen er bygget om fra Streamlit-radio til HTML/SVG-lenker med hover-tekst og undermeny direkte under aktivt ikon.",
+    "Sidebar-ruting bruker page/sub-lenker til reelle rom og teststeg, uten Unicode-ikoner som kan bli mojibake.",
     "Test 2 og senere analyseflyt-slidere kan ikke lenger settes høyere enn faktisk pipeline-pakke, og rangeringslisten forklarer hvor mange som vises kontra sendes videre.",
     "Rangeringskortene har mer luft over Paper-knappene, og Paper-kjøp/-selg bruker normal knappstørrelse i stedet for full bred stripe.",
     "Venstre undermeny er gjort bredere og mer lesbar, og hovedvalg/subvalg holder state bedre ved rerun.",

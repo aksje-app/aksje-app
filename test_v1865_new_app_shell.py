@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parent
 def test_version_identifies_new_app_shell():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.5d"' in version
-    assert "Pipeline Candidate Caps" in version
-    assert "v1865d-pipeline-candidate-caps" in version
+    assert 'APP_VERSION = "v18.6.5f"' in version
+    assert "Visible Text Cleanup" in version
+    assert "v1865f-visible-text-cleanup" in version
 
 
 def test_left_navigation_routes_directly_to_main_rooms():
@@ -88,6 +88,37 @@ def test_pipeline_candidate_caps_and_display_count_are_explicit():
     assert "Vis antall kandidater" in app
     assert "Alle {total_results} kandidatene ligger i outputpakken" in app
     assert "use_container_width=False" in app
+
+
+def test_sidebar_uses_svg_links_not_streamlit_radio_widgets():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+
+    assert "def _shell_icon_svg_v1865e" in app
+    assert "class='akse-nav-link" in app
+    assert "class='akse-subnav'" in app
+    assert "href='{html.escape(_shell_href_v1865e(page, default_sub))}'" in app
+    assert "st.sidebar.radio" not in app
+    assert "app_shell_page_radio_v1865c" not in app
+    assert '"home"' in app and '"globe"' in app and '"flow"' in app
+
+
+def test_top_drift_controls_do_not_render_mojibake():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+
+    for broken in [
+        "â–¶ Start",
+        "â¸ Pause",
+        "â›” Stopp",
+        "ðŸš¨ NÃ¸dstopp",
+        "ðŸ”“ GjÃ¸r klar",
+        "SikkerhetslÃ¥ser",
+        "KjÃ¸r Global oppdatering",
+    ]:
+        assert broken not in app
+
+    for label in ["Start", "Pause", "Stopp", "Nødstopp", "Gjør klar", "Kjør Global oppdatering"]:
+        assert label in app
+
 
 
 
