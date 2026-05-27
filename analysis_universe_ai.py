@@ -303,6 +303,21 @@ def _load_paper_positions() -> List[UniverseCandidate]:
     return candidates
 
 
+def _analysis_flow_input_count_for_smart_ai() -> int:
+    try:
+        from services.analysis_pipeline_service import get_analysis_pipeline_service
+        from services.state_service import get_state_service
+        from services.storage_service import get_storage_service
+
+        pipeline = get_analysis_pipeline_service(
+            state_service=get_state_service(st.session_state),
+            storage_service=get_storage_service(),
+        )
+        return len(pipeline.candidates_for_stage("smart_ai"))
+    except Exception:
+        return 0
+
+
 def collect_universe_candidates(session_state: Mapping[str, Any], limit: int = 250) -> List[UniverseCandidate]:
     """Collect only existing app data. Does not run scans or pretend to be an AI picker."""
     seen: set[Tuple[str, str]] = set()
@@ -1673,13 +1688,20 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     height=86,
                 )
             with c2:
+                flow_input_count = _analysis_flow_input_count_for_smart_ai() if mode == "Analyseflyt input" else 0
+                slider_max = max(1, flow_input_count) if mode == "Analyseflyt input" and flow_input_count > 0 else 200
+                slider_min = 1 if slider_max < 5 else 5
+                slider_value = min(max(int(current["max_count"]), slider_min), slider_max)
                 max_count = st.slider(
                     "Antall kandidater",
-                    5,
-                    200,
-                    int(current["max_count"]),
+                    slider_min,
+                    slider_max,
+                    slider_value,
+                    1,
                     key="ai_universe_max_count_draft_v1853",
                 )
+                if mode == "Analyseflyt input" and flow_input_count > 0:
+                    st.caption(f"Maks er låst til inputpakken fra Test 2: {flow_input_count} kandidater.")
                 min_top_pick_score = st.slider(
                     "Minimum score for Top Picks",
                     4.0,
@@ -1874,6 +1896,29 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             update_global_busy("Kjører Smart AI-utvalg", "Rangerer og lagrer resultat kompakt", step=4, total=4)
             _render_progress_step(progress_holder, progress_bar, title="Smart AI-utvalg", step=4, total=4, text="Rangerer og lagrer resultat kompakt")
             if ranked_rows:
+                try:
+                    from services.analysis_pipeline_service import get_analysis_pipeline_service
+                    from services.state_service import get_state_service
+                    from services.storage_service import get_storage_service
+
+                    get_analysis_pipeline_service(
+                        state_service=get_state_service(st.session_state),
+                        storage_service=get_storage_service(),
+                    ).save_stage_output(
+                        "smart_ai",
+                        ranked_rows,
+                        source_label="Smart AI-filter",
+                        context={
+                            "mode": active_mode,
+                            "scopes": list(scopes or []),
+                            "max_count": int(max_count or len(ranked_rows)),
+                            "input_count": _analysis_flow_input_count_for_smart_ai(),
+                        },
+                        max_items=len(ranked_rows),
+                        auto_handoff=True,
+                    )
+                except Exception:
+                    pass
                 _finish_progress(progress_holder, progress_bar, title="Smart AI-utvalg ferdig", text=f"{len(ranked_rows)} kandidater matcher filtrene.", ok=True)
                 finish_global_busy("Klar", f"Smart AI-utvalg ferdig: {len(ranked_rows)} kandidater")
                 st.success(f"Smart AI-utvalg ferdig: {len(ranked_rows)} kandidater matcher filtrene.")

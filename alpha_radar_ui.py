@@ -1078,6 +1078,20 @@ def render_alpha_radar_panel(
             unsafe_allow_html=True,
         )
 
+    def _pipeline_input_count(stage_id: str) -> int:
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            return len(pipeline.candidates_for_stage(stage_id))
+        except Exception:
+            return 0
+
     c1, c2, c3 = st.columns([1.30, 0.88, 0.72])
     with c1:
         scope = st.selectbox(
@@ -1090,7 +1104,13 @@ def render_alpha_radar_panel(
     with c3:
         limit_default = 30 if scope not in {no_selection_label, "Manuell liste"} else 15
         limit_scope_key = hashlib.sha256(str(scope or "").encode("utf-8")).hexdigest()[:8]
-        limit = st.slider("Funn", 1, 60, limit_default, 1, key=f"alpha_radar_limit_{RADAR_UI_STATE_VERSION}_{limit_scope_key}")
+        pipeline_stage_id = "early_warning" if analysis_engine == "Early Warning V1" else "alpha_radar"
+        pipeline_input_count = _pipeline_input_count(pipeline_stage_id) if scope == "Analyseflyt input" else 0
+        limit_max = max(1, pipeline_input_count) if pipeline_input_count > 0 else 60
+        limit_default = min(limit_default, limit_max)
+        limit = st.slider("Funn", 1, limit_max, limit_default, 1, key=f"alpha_radar_limit_{RADAR_UI_STATE_VERSION}_{limit_scope_key}")
+        if pipeline_input_count > 0:
+            st.caption(f"Maks er låst til inputpakken fra forrige test: {pipeline_input_count} kandidater.")
 
     c4, c5, c6, c6b = st.columns([0.78, 0.82, 0.82, 1.28])
     with c4:
@@ -1192,7 +1212,10 @@ def render_alpha_radar_panel(
     c7, c8, c9, c10, c11, c12 = st.columns([0.72, 0.72, 0.72, 0.72, 0.78, 0.90])
     with c7:
         scan_scope_key = hashlib.sha256(str(scope or "").encode("utf-8")).hexdigest()[:8]
-        max_scan = st.slider("Maks scan", 5, 250, _scan_default_for_scope(scope), 5, key=f"alpha_radar_scan_limit_{RADAR_UI_STATE_VERSION}_{scan_scope_key}")
+        scan_max = max(1, pipeline_input_count) if scope == "Analyseflyt input" and pipeline_input_count > 0 else 250
+        scan_min = 1 if scan_max < 5 else 5
+        scan_default = min(max(_scan_default_for_scope(scope), scan_min), scan_max)
+        max_scan = st.slider("Maks scan", scan_min, scan_max, scan_default, 1, key=f"alpha_radar_scan_limit_{RADAR_UI_STATE_VERSION}_{scan_scope_key}")
     with c8:
         if source_locked["news"]:
             locked_news_key = f"{source_keys['news']}_locked"

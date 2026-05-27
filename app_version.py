@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.4"
-APP_VERSION_NAME = "Pipeline Input, Progress og Marked Shell"
-APP_BUILD_ID = "v1864-pipeline-input-progress-market-shell"
+APP_VERSION = "v18.6.4a"
+APP_VERSION_NAME = "Pipeline Dataflow Guard"
+APP_BUILD_ID = "v1864a-pipeline-dataflow-guard"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Test 3 lagrer naa Smart AI-output som pipeline-pakke og sender den videre til Test 4, slik at Top Picks mottar faktisk input i stedet for 0/0.",
+    "Kandidat-slidere for analyseflyt-input laases til faktisk inputpakke, og rangeringsvisning kan velge Topp 10, 15, 20, 30 eller Alle uten aa endre pakken som sendes videre.",
+    "Pipeline-service har regresjonstest for hele dataflyten fra Test 1 Dataunderlag til Test 10 Paper Trading.",
     "Steg 1 heter naa 1. Dataunderlag, fordi det samler og kontrollerer underlag foer Test 2 uten aa kjoere analyse.",
     "Analyseflyten har hurtigtaster for Test 1-10, synlig aktivt steg, forrige/neste-knapper og bedre synk mellom aktivt panel og undermeny.",
     "Input/output-visningen forklarer input fra forrige steg og output fra dette steg, og Dataunderlag-output viser kontrollrapport i stedet for tom kandidatvisning.",

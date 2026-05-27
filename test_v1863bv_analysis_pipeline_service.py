@@ -54,7 +54,7 @@ def test_pipeline_saves_output_and_next_input_without_autorun(tmp_path):
 
 def test_pipeline_status_and_manual_handoff(tmp_path):
     service = _service(tmp_path)
-    service.save_stage_output("top_picks", [{"ticker": "STB.OL", "score": 6.7}], auto_handoff=False)
+    service.save_stage_output("top_picks", [{"ticker": "EQNR.OL", "score": 6.7}], auto_handoff=False)
 
     before = service.load_stage_input("early_warning")
     assert before == {}
@@ -67,6 +67,41 @@ def test_pipeline_status_and_manual_handoff(tmp_path):
     statuses = {row["stage_id"]: row for row in service.stage_status()}
     assert statuses["top_picks"]["status"] == "ferdig"
     assert statuses["early_warning"]["status"] == "klar til kjoring"
+
+
+def test_pipeline_handoff_chain_keeps_counts_from_test_1_to_paper_trading(tmp_path):
+    service = _service(tmp_path)
+    rows = [{"ticker": f"T{i:02d}.OL", "name": f"Test {i}", "score": 80 - i} for i in range(1, 13)]
+
+    current_rows = rows
+    for stage in [
+        "data_foundation",
+        "market_ranking",
+        "smart_ai",
+        "top_picks",
+        "early_warning",
+        "alpha_radar",
+        "auto_test_lab",
+        "decision_support",
+        "portfolio_analysis",
+    ]:
+        output = service.save_stage_output(stage, current_rows, source_label=f"Output {stage}", auto_handoff=True)
+        assert output.ok is True
+        output_package = output.data["output_package"]
+        handoff_package = output.data["handoff_package"]
+        assert output_package["candidate_count"] == len(current_rows)
+        assert handoff_package["candidate_count"] == len(current_rows)
+        next_stage = output_package["next_stage_id"]
+        assert next_stage
+        loaded_next_input = service.load_stage_input(next_stage)
+        assert loaded_next_input["origin_stage_id"] == stage
+        assert loaded_next_input["source_package_id"] == output_package["package_id"]
+        assert loaded_next_input["candidate_count"] == len(current_rows)
+        current_rows = loaded_next_input["candidates"]
+
+    paper_input = service.load_stage_input("paper_trading")
+    assert paper_input["candidate_count"] == len(rows)
+    assert [row["ticker"] for row in service.candidates_for_stage("paper_trading")] == [row["ticker"] for row in rows]
 
 
 def test_candidate_normalization_and_report_outline():
@@ -143,6 +178,11 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_render_pipeline_stage_bar_v1863bw(\"portfolio_analysis\")" in app_source
     assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" in app_source
     assert "smart_ai_pipeline_next_v1863bw" in smart_source
+    assert ".save_stage_output(" in smart_source
+    assert '"smart_ai"' in smart_source
+    assert "_analysis_flow_input_count_for_smart_ai()" in smart_source
+    assert "_pipeline_candidate_count_for_stage_v1864(\"top_picks\")" in app_source
+    assert "build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit))" in app_source
     assert "decision_pipeline_next_v1863bw" in decision_source
     assert "Send {output_count} kandidater til Test" in app_source
     assert "PIPELINE_PENDING_NAV_KEY" in service_source

@@ -5250,6 +5250,17 @@ def _display_pe_v1863ad(item):
     except Exception:
         return "P/E N/A"
 
+
+def _ranking_display_limit_choice_v1864(title: str, total: int) -> tuple[str, int]:
+    safe_title = re.sub(r"[^A-Za-z0-9]+", "_", str(title or "ranking")).strip("_")[:44] or "ranking"
+    options = ["Topp 10", "Topp 15", "Topp 20", "Topp 30", "Alle"]
+    default_idx = 1 if int(total or 0) > 15 else 4
+    choice = st.selectbox("Vis antall kandidater", options, index=default_idx, key=f"ranking_display_limit_{safe_title}_v1864")
+    if choice == "Alle":
+        return choice, int(total or 0)
+    return choice, int(choice.replace("Topp ", ""))
+
+
 def render_ranking(results, title):
     st.subheader(title)
     results = _ranked_for_display(results)
@@ -5289,7 +5300,14 @@ def render_ranking(results, title):
     st.markdown("#### ⚡ Hurtigliste med kurs")
     st.caption("Top Picks = sterk kandidat totalt. Handling nå = teknisk timing akkurat nå.")
 
-    for idx, item in enumerate(results[:15], start=1):
+    display_choice, display_limit = _ranking_display_limit_choice_v1864(title, len(results))
+    display_rows = results[:display_limit]
+    if len(display_rows) < len(results):
+        st.caption(f"Viser {display_choice.lower()} av {len(results)}. Hele kandidatpakken beholdes for send videre.")
+    else:
+        st.caption(f"Viser alle {len(results)} kandidater. Hele kandidatpakken beholdes for send videre.")
+
+    for idx, item in enumerate(display_rows, start=1):
         ticker = item.get("ticker", "N/A")
         score = item.get("score", 0)
         pe_text = _display_pe_v1863ad(item)
@@ -8150,9 +8168,11 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     else:
         market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
     if selected_limit is None:
-        limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_ranking_limit_v18535")
+        limit_max = 60 if market == "Dataunderlag" else 100
+        limit_default = min(max(int(max_count or 30), 5), limit_max)
+        limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key="cc_ranking_limit_v18535")
     else:
-        limit = int(selected_limit or max_count or 30)
+        limit = min(int(selected_limit or max_count or 30), 60 if market == "Dataunderlag" else 100)
     source_tickers = []
     data_foundation_input = {}
     if market == "Dataunderlag":
@@ -8272,7 +8292,9 @@ def render_market_room_control_center_v1863cb() -> None:
     config = _render_market_room_toolbar_v1863cb()
     view = str(config.get("view") or "Oversikt")
     if view == "Rangering":
-        limit = st.slider("Maks kandidater i Test 2", 5, 100, int(max_count or 30), 5, key="market_room_ranking_limit_v1863cb")
+        limit_max = 60 if str(config.get("market") or "") == "Dataunderlag" else 100
+        limit_default = min(max(int(max_count or 30), 5), limit_max)
+        limit = st.slider("Maks kandidater i Test 2", 5, limit_max, limit_default, 1, key="market_room_ranking_limit_v1863cb")
         render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "Dataunderlag"), selected_limit=int(limit), embedded=True)
     elif view == "Heatmap":
         st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
@@ -8329,6 +8351,14 @@ def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_
     return []
 
 
+def _pipeline_candidate_count_for_stage_v1864(stage_id: str) -> int:
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        return len(pipeline.candidates_for_stage(stage_id))
+    except Exception:
+        return 0
+
+
 def render_top_picks_control_center_v1863s():
     """Top Picks as a first-class AI Kontrollsenter panel."""
     st.subheader("⭐ Top Picks")
@@ -8343,7 +8373,13 @@ def render_top_picks_control_center_v1863s():
             key="cc_top_picks_scope_v1863s",
         )
     with c2:
-        limit = st.slider("Maks kandidater", 5, 100, int(max_count or 30), 5, key="cc_top_picks_limit_v1863s")
+        input_count = _pipeline_candidate_count_for_stage_v1864("top_picks") if scope == "Analyseflyt input" else 0
+        limit_max = max(1, input_count) if input_count > 0 else 100
+        limit_min = 1 if limit_max < 5 else 5
+        limit_default = min(max(int(max_count or 30), limit_min), limit_max)
+        limit = st.slider("Maks kandidater", limit_min, limit_max, limit_default, 1, key="cc_top_picks_limit_v1863s")
+        if input_count > 0:
+            st.caption(f"Maks er låst til inputpakken fra Test 3: {input_count} kandidater.")
 
     manual_text = ""
     if scope == "Manuell liste":
@@ -8385,7 +8421,7 @@ def render_top_picks_control_center_v1863s():
                 force_manual_fetch=True,
                 include_insider=True,
             )
-        top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
+        top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit)))
         latest[storage_key] = top_rows or []
         if scope in MARKET_SCOPE_OPTIONS:
             latest[scope] = ranked or []
@@ -9018,7 +9054,13 @@ def render_auto_test_lab_control_center_v18536():
     with col_c:
         test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_test_mode_v18537")
     with col_d:
-        limit = st.slider("Maks", 5, 60, 20, 5, key="auto_lab_limit_v18537")
+        input_count = _pipeline_candidate_count_for_stage_v1864("auto_test_lab") if scope == "Analyseflyt input" else 0
+        limit_max = max(1, input_count) if input_count > 0 else 60
+        limit_min = 1 if limit_max < 5 else 5
+        limit_default = min(max(20, limit_min), limit_max)
+        limit = st.slider("Maks", limit_min, limit_max, limit_default, 1, key="auto_lab_limit_v18537")
+        if input_count > 0:
+            st.caption(f"Maks er låst til inputpakken fra Test 6: {input_count} kandidater.")
 
     manual_text = ""
     if scope == "Manuell liste":
@@ -10323,7 +10365,13 @@ def render_mixed_portfolio_control_center_v18544():
         with c4:
             stock_budget = st.slider("Aksjeandel ved auto-forslag", 0, 80, 30, 5, key="mixed_portfolio_stock_budget_v18544")
         with c5:
-            max_rows = st.slider("Maks posisjoner", 3, 30, 12, 1, key="mixed_portfolio_max_rows_v18544")
+            input_count = _pipeline_candidate_count_for_stage_v1864("portfolio_analysis") if stock_source == "Analyseflyt input" else 0
+            row_max = max(1, input_count) if input_count > 0 else 30
+            row_min = 1 if row_max < 3 else 3
+            row_default = min(max(12, row_min), row_max)
+            max_rows = st.slider("Maks posisjoner", row_min, row_max, row_default, 1, key="mixed_portfolio_max_rows_v18544")
+            if input_count > 0:
+                st.caption(f"Maks er låst til inputpakken fra Test 8: {input_count} kandidater.")
 
     manual_stocks = ""
     manual_funds = ""
