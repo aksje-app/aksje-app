@@ -531,14 +531,28 @@ class AnalysisPipelineService:
         for idx, stage in enumerate(STAGE_ORDER, start=1):
             inp = self.load_stage_input(stage.stage_id)
             out = self.load_stage_output(stage.stage_id)
+            input_count = int(inp.get("candidate_count") or 0)
+            output_count = int(out.get("candidate_count") or 0)
+            if input_count == 0 and output_count > 0 and stage.stage_id in {"portfolio_analysis", "paper_trading"}:
+                input_count = output_count
+            if output_count > 0:
+                status = "ferdig"
+            elif out and input_count > 0:
+                status = "ingen treff - input kan sendes videre"
+            elif input_count > 0:
+                status = "klar til kjoring"
+            elif out:
+                status = "ferdig uten kandidater"
+            else:
+                status = "venter"
             rows.append({
                 "nr": idx,
                 "stage_id": stage.stage_id,
                 "steg": stage.label,
                 "formaal": stage.purpose,
-                "input": int(inp.get("candidate_count") or 0),
-                "output": int(out.get("candidate_count") or 0),
-                "status": "ferdig" if out else ("klar til kjoring" if inp else "venter"),
+                "input": input_count,
+                "output": output_count,
+                "status": status,
                 "sist_input": inp.get("generated_at") or "",
                 "sist_output": out.get("generated_at") or "",
                 "neste": STAGES_BY_ID.get(stage.next_stage_id).label if stage.next_stage_id in STAGES_BY_ID else "",
