@@ -1108,7 +1108,10 @@ def render_alpha_radar_panel(
         pipeline_input_count = _pipeline_input_count(pipeline_stage_id) if scope == "Analyseflyt input" else 0
         limit_max = max(1, pipeline_input_count) if pipeline_input_count > 0 else 60
         limit_default = min(limit_default, limit_max)
-        limit = st.slider("Funn", 1, limit_max, limit_default, 1, key=f"alpha_radar_limit_{RADAR_UI_STATE_VERSION}_{limit_scope_key}")
+        limit_key = f"alpha_radar_limit_{RADAR_UI_STATE_VERSION}_{limit_scope_key}"
+        if int(st.session_state.get(limit_key, limit_default) or limit_default) > int(limit_max):
+            st.session_state[limit_key] = int(limit_default)
+        limit = st.slider("Funn", 1, limit_max, limit_default, 1, key=limit_key)
         if pipeline_input_count > 0:
             st.caption(f"Maks er låst til inputpakken fra forrige test: {pipeline_input_count} kandidater.")
 
@@ -1215,7 +1218,11 @@ def render_alpha_radar_panel(
         scan_max = max(1, pipeline_input_count) if scope == "Analyseflyt input" and pipeline_input_count > 0 else 250
         scan_min = 1 if scan_max < 5 else 5
         scan_default = min(max(_scan_default_for_scope(scope), scan_min), scan_max)
-        max_scan = st.slider("Maks scan", scan_min, scan_max, scan_default, 1, key=f"alpha_radar_scan_limit_{RADAR_UI_STATE_VERSION}_{scan_scope_key}")
+        scan_key = f"alpha_radar_scan_limit_{RADAR_UI_STATE_VERSION}_{scan_scope_key}"
+        stored_scan = int(st.session_state.get(scan_key, scan_default) or scan_default)
+        if stored_scan < int(scan_min) or stored_scan > int(scan_max):
+            st.session_state[scan_key] = int(scan_default)
+        max_scan = st.slider("Maks scan", scan_min, scan_max, scan_default, 1, key=scan_key)
     with c8:
         if source_locked["news"]:
             locked_news_key = f"{source_keys['news']}_locked"
