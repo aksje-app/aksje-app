@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -55,3 +55,4 @@ def test_top_picks_control_center_remains_button_gated():
     assert "run_clicked = st.button" in block
     assert "if run_clicked and source_tickers:" in block
     assert block.find("cached_auto_rank_market") > block.find("if run_clicked and source_tickers:")
+

@@ -1,4 +1,4 @@
-import alpha_radar_enrichment as enrichment_mod
+﻿import alpha_radar_enrichment as enrichment_mod
 from alpha_radar_enrichment import enrich_alpha_radar_row, infer_macro_themes
 
 
@@ -80,3 +80,4 @@ def test_enrichment_adds_real_signal_proxies_without_network(monkeypatch):
 def test_macro_theme_inference_uses_second_order_sector_text():
     themes = infer_macro_themes({"ticker": "SHIP.ST", "name": "Nordic Shipping", "industry": "Dry bulk shipping"})
     assert "shipping" in themes
+

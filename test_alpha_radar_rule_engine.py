@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from alpha_radar_ui import _alpha_radar_rule_state, _default_signals_for_rules, _signal_options_for_rules
 
@@ -129,3 +129,4 @@ def test_no_heavy_calls_before_explicit_buttons_static_guard():
     finish_pos = app.find("_finish_control_center_render_cycle_v1863ax()", control_center_pos)
     stop_pos = app.find("st.stop()", control_center_pos)
     assert 0 < control_center_pos < finish_pos < stop_pos
+

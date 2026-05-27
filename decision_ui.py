@@ -84,6 +84,33 @@ def _save_decision_cases_to_pipeline(cases: list[dict[str, Any]], *, mode: str, 
         pass
 
 
+def _decision_package_count(package: Mapping[str, Any] | None) -> int:
+    try:
+        return int((package or {}).get("candidate_count") or 0)
+    except Exception:
+        return 0
+
+
+def _send_decision_input_bypass_to_portfolio(pipeline, inp: Mapping[str, Any]) -> bool:
+    rows = [dict(row) for row in (inp.get("candidates") or []) if isinstance(row, Mapping)]
+    if not rows:
+        st.warning("Ingen inputpakke aa sende videre fra Beslutningsgrunnlag.")
+        return False
+    pipeline.save_stage_output(
+        "decision_support",
+        rows,
+        source_label="Beslutningsgrunnlag bypass",
+        context={
+            "bypass_from_input": True,
+            "reason": "Ingen ferdige beslutningscase, men mottatt kandidatpakke sendes videre.",
+            "input_package_id": str(inp.get("package_id") or ""),
+        },
+        max_items=len(rows),
+        auto_handoff=True,
+    )
+    return True
+
+
 def _render_decision_pipeline_bar_v1863bw() -> None:
     try:
         from services.analysis_pipeline_service import (
@@ -110,7 +137,7 @@ def _render_decision_pipeline_bar_v1863bw() -> None:
         <div style="border:1px solid rgba(56,189,248,.52);border-radius:8px;padding:.62rem .72rem;margin:.4rem 0;background:rgba(15,23,42,.72);">
           <div style="display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;">
             <b>{html.escape(str(info.get('wizard_label') or 'Test 8 av 10: Beslutningsgrunnlag'))}</b>
-            <span>{int(inp.get('candidate_count') or 0)} inn | {int(out.get('candidate_count') or 0)} ut</span>
+            <span>{_decision_package_count(inp)} inn | {_decision_package_count(out)} ut</span>
             <span>Auto-kjoring: av</span>
           </div>
           <div style="font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;">Hent kandidatpakken, vurder koen, og send ferdig beslutningsgrunnlag videre til portefoljeanalysen.</div>
@@ -118,12 +145,29 @@ def _render_decision_pipeline_bar_v1863bw() -> None:
         """,
         unsafe_allow_html=True,
     )
-    disabled = not bool(out)
-    if st.button("Send output til Test 9 og åpne Porteføljeanalyse", key="decision_pipeline_next_v1863bw", use_container_width=True, disabled=disabled):
-        result = pipeline.handoff_latest_output_to_next("decision_support")
-        if not result.ok:
-            st.warning(result.message)
-            return
+    input_count = _decision_package_count(inp)
+    output_count = _decision_package_count(out)
+    if output_count > 0:
+        label = f"Send {output_count} beslutningscase til Test 9 og aapne Portefoljeanalyse"
+        action = "output"
+        disabled = False
+    elif input_count > 0:
+        label = f"Send raa input ({input_count}) til Test 9 og aapne Portefoljeanalyse"
+        action = "bypass"
+        disabled = False
+    else:
+        label = "Ingen input/output aa sende til Test 9"
+        action = ""
+        disabled = True
+    if st.button(label, key="decision_pipeline_next_v1863bw", use_container_width=True, disabled=disabled, type="primary" if action == "bypass" else "secondary"):
+        if action == "bypass":
+            if not _send_decision_input_bypass_to_portfolio(pipeline, inp):
+                return
+        else:
+            result = pipeline.handoff_latest_output_to_next("decision_support")
+            if not result.ok:
+                st.warning(result.message)
+                return
         target = stage_wizard_info("portfolio_analysis")
         st.session_state[PIPELINE_PENDING_NAV_KEY] = {
             "stage_id": "portfolio_analysis",

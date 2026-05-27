@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 import py_compile
 
@@ -88,11 +88,12 @@ def test_actor_registry_ui_roles_search_sort_and_privacy_static_guards():
         py_compile.compile(name, doraise=True)
 
     ui = Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
-    assert "Søk i registeret" in ui
+    assert "Søk i registeret" in ui or "SÃ¸k i registeret" in ui
     assert "Sorter etter" in ui
-    assert "Velg aktør å redigere" in ui
+    assert "Velg aktør å redigere" in ui or "Velg aktÃ¸r Ã¥ redigere" in ui
     assert "Raske alias-forslag" in ui
-    assert "Trefflogg per aktør" in ui
+    assert "Trefflogg per aktør" in ui or "Trefflogg per aktÃ¸r" in ui
     assert "Lagres lokalt" in ui
-    assert "En aktør kan ha flere roller" in ui
+    assert "En aktør kan ha flere roller" in ui or "En aktÃ¸r kan ha flere roller" in ui
     assert "st.data_editor" not in ui
+

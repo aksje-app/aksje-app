@@ -1,4 +1,4 @@
-from alpha_radar_currency import market_cap_display
+﻿from alpha_radar_currency import market_cap_display
 from alpha_radar_enrichment import enrich_alpha_radar_row
 from alpha_radar_results import alpha_radar_result_to_print_html
 from early_warning_engine import run_early_warning
@@ -62,3 +62,4 @@ def test_single_brazil_scope_can_request_more_than_old_25_cap():
 
     assert len(tickers) > 25
     assert all(ticker.endswith(".SA") for ticker in tickers)
+

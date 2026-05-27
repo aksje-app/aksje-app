@@ -1,4 +1,4 @@
-from ranking_evidence_adapters import (
+﻿from ranking_evidence_adapters import (
     radar_result_to_ranking_rows,
     radar_results_to_ranking_result,
     rank_local_evidence_sources,
@@ -187,3 +187,4 @@ def test_rank_local_sources_dedupes_radar_finansavisen_and_nbim_evidence():
     assert "Oljefond/NBIM" in row["source"]
     assert row["evidence_summary"]["totalt"] >= 4
     assert row["score"] >= 60
+

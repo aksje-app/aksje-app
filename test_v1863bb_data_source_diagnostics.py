@@ -1,4 +1,4 @@
-import os
+﻿import os
 from pathlib import Path
 
 from alpha_radar_enrichment import enrich_alpha_radar_row
@@ -127,3 +127,4 @@ def test_probe_market_data_sources_classifies_errors_and_empty_results():
     assert rows[1]["Insider"] == "0 treff"
     assert "ticker/marked ikke stottet" in rows[1]["Forklaring"]
     assert "API-nokkel mangler" in rows[0]["Forklaring"]
+

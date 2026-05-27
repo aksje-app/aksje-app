@@ -46,12 +46,30 @@ def test_pipeline_package_view_explains_input_output_and_datakilder_report():
     assert 'status_df[["nr", "steg", "status", "input", "output", "neste"]]' not in app
 
 
+def test_finansavisen_dataunderlag_sends_to_test2_not_same_stage():
+    finance_ui = (ROOT / "finansavisen_bjellesau_ui.py").read_text(encoding="utf-8")
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+
+    assert "Input Finansavisen" in finance_ui
+    assert "Output til Test 2" in finance_ui
+    assert "Send valgt dataunderlag til Test 2" in finance_ui
+    assert "Send hele dataunderlaget til Test 2" in finance_ui
+    assert "stage_wizard_info(\"market_ranking\")" in finance_ui
+    assert '"stage_id": "market_ranking"' in finance_ui
+    assert "finansavisen_bjellesau_send_dataunderlag_v1863ca" not in finance_ui
+    assert "Send til 1. Dataunderlag" not in finance_ui
+    assert "data_foundation_tickers" in app
+    assert "source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]" in app
+
+
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4e"' in version
-    assert "Dynamic Slider Guard" in version
+    assert 'APP_VERSION = "v18.6.4h"' in version
+    assert "Pipeline Bypass Status Guard" in version
     assert "hurtigtaster for Test 1-10" in version
+
+
 
 
 

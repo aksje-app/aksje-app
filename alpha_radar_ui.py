@@ -1055,6 +1055,7 @@ def render_alpha_radar_panel(
         key="alpha_radar_engine_v1863au",
         help="Alpha Radar leter etter skjulte hypoteser. Early Warning V1 rangerer forventningsendring, earnings, fundamental akselerasjon og markedsbekreftelse.",
     )
+    st.session_state["analysis_pipeline_active_stage_v1863bz"] = "early_warning" if analysis_engine == "Early Warning V1" else "alpha_radar"
     if analysis_engine == "Early Warning V1":
         st.subheader("Early Warning V1")
         st.caption("Tidligvarslingsmotor for ferske insider-/bjellesau-spor, nyheter, forventningsendring og tidlig bekreftelse.")

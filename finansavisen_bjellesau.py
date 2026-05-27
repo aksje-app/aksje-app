@@ -455,7 +455,7 @@ def normalize_finansavisen_transaction(
     relative_change = _parse_number(_first(row, ("Rel.endring", "Rel endring", "Relativ endring", "Relative change")))
     new_ownership = _parse_number(_first(row, ("Ny eierandel", "New ownership", "Eierandel")))
     new_holding = _parse_number(_first(row, ("Ny beholding", "Ny beholdning", "New holding", "Beholdning")))
-    performed_by = _clean(_first(row, ("Utført av", "Utfort av", "Performed by", "Gjennomfort av")))
+    performed_by = _clean(_first(row, ("Utført av", "UtfÃ¸rt av", "Utfort av", "Performed by", "Gjennomfort av", "GjennomfÃ¸rt av")))
     estimated_date = _parse_date(_first(row, ("Estimert dato", "Dato", "Date")))
     if tx_value is not None:
         side = "buy" if tx_value > 0 else "sell" if tx_value < 0 else "flat"

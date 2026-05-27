@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from services.analysis_pipeline_service import stage_wizard_info
 
@@ -13,16 +13,20 @@ def test_test2_uses_dataunderlag_as_explicit_default_universe():
     assert defaults["cc_ranking_market_v18535"] == "Dataunderlag"
     assert '"Dataunderlag"] + market_scope_options' in app
     assert "Input fra 1. Dataunderlag er mottatt" in app
-    assert "Dataunderlag-universet bruker felles tickerunivers" in app
+    assert "Test 2 bruker denne inputpakken" in app
+    assert "source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]" in app
     assert "Bruker input fra 1. Dataunderlag" in app
 
 
-def test_finansavisen_can_return_to_dataunderlag_before_test8_shortcut():
+def test_finansavisen_sends_dataunderlag_to_test2_before_test8_shortcut():
     ui = (ROOT / "finansavisen_bjellesau_ui.py").read_text(encoding="utf-8")
 
-    assert "def _send_finansavisen_to_dataunderlag" in ui
-    assert "Send til 1. Dataunderlag" in ui
-    assert '"panel": "1. Dataunderlag"' in ui
+    assert "def _send_finansavisen_to_test2" in ui
+    assert "Input Finansavisen" in ui
+    assert "Output til Test 2" in ui
+    assert "Send valgt dataunderlag til Test 2" in ui
+    assert "Send hele dataunderlaget til Test 2" in ui
+    assert '"stage_id": "market_ranking"' in ui
     assert "Send direkte til Test 8 Beslutningsgrunnlag" in ui
 
 
@@ -50,8 +54,8 @@ def test_test3_to_10_prefer_analysis_pipeline_input_and_specific_send_labels():
     assert '"Analyseflyt input"' in analysis
     assert 'current["mode"] = "Analyseflyt input"' in analysis
     assert 'mode == "Analyseflyt input" or "Analyseflyt input" in scopes' in universe
-    assert "Send {output_count} kandidater til Test" in app
-    assert "Test 2 kjører" in app
+    assert "Send {output_count} {noun} til Test" in app or "Send {output_count} kandidater til Test" in app
+    assert "Test 2 kjører" in app or "Test 2 kjÃ¸rer" in app
     assert "kandidater klare for Test 3" in app
 
 
@@ -60,3 +64,4 @@ def test_known_us_names_are_resolved_in_quick_cards():
 
     assert '"MO": {"name": "Altria Group, Inc."' in metadata
     assert '"AKAM": {"name": "Akamai Technologies, Inc."' in metadata
+

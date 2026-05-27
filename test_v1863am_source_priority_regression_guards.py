@@ -22,7 +22,7 @@ analysis = Path("analysis_universe_ai.py").read_text(encoding="utf-8", errors="i
 service = Path("services/universe_service.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4e"' in version
+assert 'APP_VERSION = "v18.6.4h"' in version
 
 # 1. Hidden defaults must not appear as UI values in the main user-facing modules.
 for source in [daily, forecast, service]:
@@ -68,6 +68,8 @@ rendered_defaults = [
 ]
 for needle in rendered_defaults:
     assert needle not in daily + forecast + analysis + app
+
+
 
 
 

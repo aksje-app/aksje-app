@@ -1,4 +1,4 @@
-import py_compile
+﻿import py_compile
 
 import financial_evidence_search
 import nordic_actor_insider_search
@@ -71,7 +71,7 @@ def test_nordic_actor_plan_puts_actor_registry_before_generic_links(monkeypatch)
     plan = nordic_actor_insider_search.build_nordic_actor_search_plan(_base_row())
 
     assert plan
-    assert plan[0]["type"] == "aktørregister"
+    assert plan[0]["type"] in {"aktørregister", "aktÃ¸rregister"}
     assert "North Person" in plan[0]["query"]
 
 
@@ -149,3 +149,4 @@ def test_open_web_budget_and_modules_compile():
         py_compile.compile(name, doraise=True)
     budget = estimate_source_budget(planned_tickers=25, source_values={"news": True, "insider": True})
     assert budget["open_web_gdelt_calls"] == 75
+

@@ -1794,6 +1794,15 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
 
+        def _stage_for_active_panel_v1864h(active_panel_label: str, stage_labels: dict[str, str]) -> str:
+            if active_panel_label == "Alpha Radar":
+                engine = str(st.session_state.get("alpha_radar_engine_v1863au") or "Alpha Radar")
+                return "early_warning" if engine == "Early Warning V1" else "alpha_radar"
+            for stage_id, panel_label in stage_labels.items():
+                if str(panel_label) == str(active_panel_label):
+                    return str(stage_id)
+            return ""
+
         pending_nav = st.session_state.pop("analysis_pipeline_pending_nav_v1863bw", None)
         pending_nav_sync: dict[str, str] = {}
         if isinstance(pending_nav, dict):
@@ -1831,10 +1840,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             from services.analysis_pipeline_service import STAGE_PANEL_LABELS
 
             active_panel_for_sync = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
-            for stage_id, panel_label in STAGE_PANEL_LABELS.items():
-                if str(panel_label) == str(active_panel_for_sync):
-                    st.session_state["analysis_pipeline_active_stage_v1863bz"] = stage_id
-                    break
+            active_stage_for_sync = _stage_for_active_panel_v1864h(str(active_panel_for_sync), STAGE_PANEL_LABELS)
+            if active_stage_for_sync:
+                st.session_state["analysis_pipeline_active_stage_v1863bz"] = active_stage_for_sync
         except Exception:
             pass
 
@@ -1909,10 +1917,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         try:
             from services.analysis_pipeline_service import STAGE_PANEL_LABELS
 
-            for stage_id, panel_label in STAGE_PANEL_LABELS.items():
-                if str(panel_label) == str(active_label):
-                    st.session_state["analysis_pipeline_active_stage_v1863bz"] = stage_id
-                    break
+            active_stage_for_sync = _stage_for_active_panel_v1864h(str(active_label), STAGE_PANEL_LABELS)
+            if active_stage_for_sync:
+                st.session_state["analysis_pipeline_active_stage_v1863bz"] = active_stage_for_sync
         except Exception:
             pass
         renderer = panel_map.get(active_label)

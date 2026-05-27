@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from security_metadata import infer_security_listing, resolve_security_metadata
 from stocks import BRAZILIAN_STOCKS, DANISH_STOCKS, FINNISH_STOCKS, NORWEGIAN_STOCKS, SWEDISH_STOCKS
@@ -29,3 +29,4 @@ for ticker in NORWEGIAN_STOCKS + SWEDISH_STOCKS + FINNISH_STOCKS + DANISH_STOCKS
 assert infer_security_listing("UPM.HE")["market"] == "Finland"
 assert infer_security_listing("NOVO-B.CO")["market"] == "Danmark"
 assert infer_security_listing("PETR4.SA")["market"] == "Brasil"
+

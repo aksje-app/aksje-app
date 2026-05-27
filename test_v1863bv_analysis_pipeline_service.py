@@ -69,6 +69,17 @@ def test_pipeline_status_and_manual_handoff(tmp_path):
     assert statuses["early_warning"]["status"] == "klar til kjoring"
 
 
+def test_pipeline_status_uses_effective_input_for_portfolio_output(tmp_path):
+    service = _service(tmp_path)
+    service.save_stage_output("portfolio_analysis", [{"ticker": "DNB.OL", "score": 80}], auto_handoff=True)
+
+    statuses = {row["stage_id"]: row for row in service.stage_status()}
+
+    assert statuses["portfolio_analysis"]["input"] == 1
+    assert statuses["portfolio_analysis"]["output"] == 1
+    assert statuses["paper_trading"]["input"] == 1
+
+
 def test_pipeline_handoff_chain_keeps_counts_from_test_1_to_paper_trading(tmp_path):
     service = _service(tmp_path)
     rows = [{"ticker": f"T{i:02d}.OL", "name": f"Test {i}", "score": 80 - i} for i in range(1, 13)]
@@ -150,8 +161,12 @@ def test_pipeline_ui_and_panels_expose_handoff_without_hidden_run():
     assert "Analyseflyt input" in app_source
     assert "Send valgt output videre og aapne neste test" in app_source
     assert "Input / output" in app_source
+    assert "_PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H" in app_source
+    assert "_pipeline_send_raw_input_and_open_next_v1864h" in app_source
+    assert "Send raa input" in app_source
     assert "Aapne {info.get('test_label')} med standardvalg" not in app_source
     assert "Hent fra analyseflyt" in decision_source
+    assert "Beslutningsgrunnlag bypass" in decision_source
     assert ".save_stage_output(" in alpha_source
     assert "auto_run" in (ROOT / "services" / "analysis_pipeline_service.py").read_text(encoding="utf-8")
 
@@ -171,6 +186,8 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert stage_wizard_info("portfolio_analysis")["defaults"]["mixed_portfolio_stock_source_v18544"] == "Analyseflyt input"
 
     assert "analysis_pipeline_pending_nav_v1863bw" in layout_source
+    assert "_stage_for_active_panel_v1864h" in layout_source
+    assert "alpha_radar_engine_v1863au" in layout_source
     assert "dataunderlag" in layout_source.lower()
     assert "_render_pipeline_stage_bar_v1863bw(\"market_ranking\")" in app_source
     assert "_render_pipeline_stage_bar_v1863bw(\"top_picks\")" in app_source
@@ -179,10 +196,12 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" in app_source
     assert "smart_ai_pipeline_prev_v1864b" in smart_source
     assert "Forrige: Test 2 Marked/rangering" in smart_source
-    assert "smart_ai_pipeline_next_v1864b" in smart_source
     assert "smart_ai_pipeline_run_now_v1864c" in smart_source
-    assert "smart_ai_pipeline_bypass_to_top_picks_v1864c" in smart_source
-    assert "Fortsett med {inp_count} input-kandidater til Test 4" in smart_source
+    assert "Videre til Test 4" in smart_source
+    assert "smart_ai_pipeline_send_findings_to_top_picks_v1864g" in smart_source
+    assert "smart_ai_pipeline_send_raw_input_to_top_picks_v1864g" in smart_source
+    assert "Send raa input fra Test 2 ({inp_count}) til Test 4" in smart_source
+    assert "Send {out_count} Smart AI-funn til Test 4" in smart_source
     assert "Smart AI-filter bypass" in smart_source
     assert "_display_limit_choice_v1864d" in smart_source
     assert 'default = "Alle" if int(total_rows or 0) <= 60 else "30"' in smart_source
@@ -201,10 +220,12 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit))" in app_source
     assert "max_items=15" not in app_source
     assert "decision_pipeline_next_v1863bw" in decision_source
-    assert "Send {output_count} kandidater til Test" in app_source
+    assert "Send {output_count} {noun} til Test" in app_source
+    assert "analysis_pipeline_active_stage_v1863bz" in smart_source + layout_source
     assert "PIPELINE_PENDING_NAV_KEY" in service_source
     assert "_clamp_slider_state_v1864e" in app_source
     assert "cc_top_picks_limit_v1863s" in app_source
     assert "auto_lab_limit_v18537" in app_source
     assert "mixed_portfolio_max_rows_v18544" in app_source
     assert "_clamp_slider_state_v1864e" in smart_source
+

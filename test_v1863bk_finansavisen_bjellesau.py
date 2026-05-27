@@ -1,4 +1,4 @@
-import py_compile
+﻿import py_compile
 import zipfile
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -104,10 +104,10 @@ def _sample_xlsx():
                 "Transaksjonverdi",
                 "Ny eierandel",
                 "Ny beholding",
-                "Utført av",
+                "UtfÃ¸rt av",
                 "Estimert dato",
             ],
-            ["Helge Gåsø", "NORBIT", "105000", "100%", "19,82 M", "0,16419%", "105000", "FROY KAPITAL AS", "20.05.2026"],
+            ["Helge GÃ¥sÃ¸", "NORBIT", "105000", "100%", "19,82 M", "0,16419%", "105000", "FROY KAPITAL AS", "20.05.2026"],
             ["Egil Stenshagen", "AF Gruppen", "85000", "11,49%", "15,53 M", "0,72576%", "824977", "STENSHAGEN INVEST", "20.05.2026"],
             ["Sverre Bjerkeli", "LINK", "-468094", "-6,79%", "-13,00 M", "2,09959%", "6422680", "HVALER INVEST AS", "20.05.2026"],
         ]
@@ -131,7 +131,7 @@ def test_finansavisen_xlsx_parser_dedupes_periods_and_matches_tickers():
 
     assert len(rows_1d) == 3
     assert len(merged) == 3
-    norbit = next(row for row in merged if row["investor"] == "Helge Gåsø")
+    norbit = next(row for row in merged if row["investor"] == "Helge GÃ¥sÃ¸")
     assert norbit["matched_ticker"] == "NORBT.OL"
     assert set(norbit["source_periods"]) == {"1D", "6M"}
     assert norbit["transaction_value_nok"] == 19_820_000
@@ -157,7 +157,7 @@ def test_finansavisen_aggregates_overlay_and_report_feed_radar_evidence():
     assert enriched["finansavisen_bjellesau_evidence"]
     assert enriched["bjellesau_evidence"][0]["source"] == "Finansavisen Bjellesauer"
     assert enriched["bjellesau_score"] > 0
-    assert views["Storste kjop"][0]["Investor"] == "Helge Gåsø"
+    assert views["Storste kjop"][0]["Investor"] == "Helge GÃ¥sÃ¸"
     assert "Scoreforklaring" in views["Score per aksje"][0]
     assert "Flere bjellesauer samme aksje" in views
     assert detail_views["Gruppert per dato"][0]["Dato"] == "2026-05-20"
@@ -177,8 +177,8 @@ def test_finansavisen_actor_sync_preserves_multiple_roles():
         normalize_actor_row(
             {
                 "active": True,
-                "name": "Helge Gåsø",
-                "aliases": "Helge Gåsø",
+                "name": "Helge GÃ¥sÃ¸",
+                "aliases": "Helge GÃ¥sÃ¸",
                 "market": "Norge",
                 "actor_roles": "Insider watch",
             }
@@ -186,7 +186,7 @@ def test_finansavisen_actor_sync_preserves_multiple_roles():
     ]
 
     merged = actor_rows_from_finansavisen_transactions(rows, existing_rows=existing)
-    helge = next(row for row in merged if row["name"] == "Helge Gåsø")
+    helge = next(row for row in merged if row["name"] == "Helge GÃ¥sÃ¸")
 
     assert {"Bjellesau", "Insider watch"} <= set(actor_roles(helge))
     assert "NORBT.OL" in helge["relevant_tickers"]
@@ -211,9 +211,23 @@ def test_finansavisen_budget_status_and_light_ui_compile():
     assert "finansavisen_bjellesau_period_{idx}_v1863bk" not in source
     assert "_file_period_key(upload, idx)" in source
     assert "Last ned PDF" in source
-    assert "Send til 1. Dataunderlag" in source
+    assert "Send valgt dataunderlag til Test 2" in source
+    assert "Send hele dataunderlaget til Test 2" in source
     assert "Send direkte til Test 8 Beslutningsgrunnlag" in source
 
     layout = open("workspace_layout.py", encoding="utf-8").read()
     assert '"finansavisen", "bjellesau"' in layout
     assert 'group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer")' in layout
+
+
+def test_finansavisen_test2_candidate_rows_use_selected_tickers():
+    from finansavisen_bjellesau_ui import _finansavisen_candidate_rows_for_tickers
+
+    rows = parse_finansavisen_transaction_xlsx(_sample_xlsx(), "transaction_1d.xlsx", source_period="1D")
+    candidates = _finansavisen_candidate_rows_for_tickers(rows, ["NORBT.OL", "MISSING.OL"])
+
+    assert len(candidates) == 1
+    assert candidates[0]["ticker"] == "NORBT.OL"
+    assert candidates[0]["source"] == "Finansavisen Bjellesauer"
+    assert "Kjor Test 2" in candidates[0]["recommended_action"]
+

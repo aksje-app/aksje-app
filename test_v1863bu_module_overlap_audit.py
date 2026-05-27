@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from module_overlap_audit import assess_module_overlap, format_overlap_markdown, get_module_roles
 
@@ -73,4 +73,5 @@ def test_auto_test_lab_ui_shows_static_audit_without_moving_run_gate():
 
     assert audit_idx < run_button_idx < run_gate_idx < heavy_import_idx
     assert "st.expander(\"Modul-overlapp / sammenslaing\"" in segment
+
 

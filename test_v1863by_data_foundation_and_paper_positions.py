@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4e"' in version
-    assert "Dynamic Slider Guard" in version
+    assert 'APP_VERSION = "v18.6.4h"' in version
+    assert "Pipeline Bypass Status Guard" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
@@ -36,6 +36,17 @@ def test_paper_positions_can_fill_trade_fields_from_position_cards():
     assert "Marked <b>" in app
     assert "Sektor <b>" in app
     assert "Bransje <b>" in app
+
+
+def test_portfolio_analysis_positions_render_as_readable_table():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert "def _portfolio_position_table_rows_v1864h" in app
+    assert '"Ticker / selskap"' in app
+    assert '"Sektor"' in app
+    assert '"Marked"' in app
+    assert "resolve_security_metadata(symbol, row)" in app
+    assert "infer_security_listing(symbol, meta)" in app
+    assert "st.dataframe(pd.DataFrame(_portfolio_position_table_rows_v1864h(rows))" in app
 
 
 def test_paper_position_rows_backfill_market_context_for_old_positions():
@@ -68,6 +79,8 @@ def test_paper_trade_rows_backfill_market_context_for_old_trades():
     assert by_ticker["DNB.OL"]["marked"] == "Norge"
     assert by_ticker["NVDA"]["land"] == "USA"
     assert by_ticker["NVDA"]["marked"] == "USA"
+
+
 
 
 

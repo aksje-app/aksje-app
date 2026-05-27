@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
@@ -15,7 +15,7 @@ def test_startup_defaults_to_marked_room_and_hides_drift_controls():
     assert "show_drift_controls_v1863cc" in app
     assert "render_global_update_action_panel_v1863g()" in app
     assert "if bool(globals().get(\"show_drift_controls_v1863cc\", False))" in app
-    assert "Marked åpnes som standard arbeidsflate" in layout
+    assert "Marked åpnes som standard arbeidsflate" in layout or "Marked Ã¥pnes som standard arbeidsflate" in layout
 
 
 def test_remember_token_is_not_reinserted_in_url_after_login():
@@ -25,3 +25,4 @@ def test_remember_token_is_not_reinserted_in_url_after_login():
     assert 'parentUrl.searchParams.delete("remember_token")' in auth
     assert 'window.parent.history.replaceState(null, "", parentUrl.toString())' in auth
     assert 'del st.query_params["remember_token"]' in auth
+

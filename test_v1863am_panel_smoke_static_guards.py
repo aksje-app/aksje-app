@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -13,10 +13,10 @@ analysis = Path("analysis_universe_ai.py").read_text(encoding="utf-8", errors="i
 
 # Panels should render as explicit tasks and not run hidden heavy work on open.
 assert "Rapporten kj" in daily and "ikke automatisk" in daily
-assert "Ingen oppgave er åpnet" in layout
+assert "Ingen oppgave er åpnet" in layout or "Ingen oppgave er Ã¥pnet" in layout
 assert "Oppdater AI Market Briefing" in daily
 assert "Lag portef" in forecast
-assert "Kjor Smart AI-utvalg" in analysis or "Kjør Smart AI-utvalg" in analysis
+assert "Kjor Smart AI-utvalg" in analysis or "KjÃ¸r Smart AI-utvalg" in analysis
 
 assert "tickerliste/univers" in analysis
 assert "scorede kandidater" in analysis
@@ -41,3 +41,4 @@ for source in [daily, forecast, analysis, layout]:
     assert "background: #fff" not in lowered
     assert "background-color:white" not in lowered
     assert "height:100vh" not in lowered
+

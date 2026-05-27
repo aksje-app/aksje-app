@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from ranking_service import (
     EvidenceItem,
@@ -176,3 +176,4 @@ def test_evidence_item_serializes_roles_without_ui_dependency():
 
     source = Path(__import__("ranking_service").__file__).read_text(encoding="utf-8")
     assert "streamlit" not in source.lower()
+

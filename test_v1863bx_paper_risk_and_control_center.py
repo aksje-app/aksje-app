@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 
 def _rules():
@@ -120,3 +120,4 @@ def test_control_center_shows_datakilder_as_visible_start():
     assert "_render_pipeline_quick_start_v1863bx" in text
     assert '"Start her: 1. Dataunderlag"' in text
     assert '"Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1"' in text
+

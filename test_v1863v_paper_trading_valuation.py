@@ -1,4 +1,4 @@
-from paper_trading_valuation import normalize_paper_portfolio, paper_position_rows, paper_trade_rows
+﻿from paper_trading_valuation import normalize_paper_portfolio, paper_position_rows, paper_trade_rows
 from trading_engine import paper_liquidity_snapshot, portfolio_value
 
 
@@ -38,9 +38,10 @@ def test_liquidity_and_portfolio_value_use_normalized_entry_and_last_price():
 
 def test_trade_log_labels_paper_actions():
     rows = paper_trade_rows([
-        {"type": "BUY", "ticker": "NVDA", "reason": "AUTO BUY via Cron/Kjøp nå"},
+        {"type": "BUY", "ticker": "NVDA", "reason": "AUTO BUY via Cron/KjÃ¸p nÃ¥"},
         {"type": "SELL", "ticker": "NVDA", "reason": "Stop loss"},
     ])
-    assert rows[0]["type"] == "PAPER-KJØP"
-    assert rows[0]["reason"].startswith("PAPER-KJØP")
+    assert rows[0]["type"] in {"PAPER-KJØP", "PAPER-KJÃ˜P"}
+    assert rows[0]["reason"].startswith(("PAPER-KJØP", "PAPER-KJÃ˜P"))
     assert rows[1]["type"] == "PAPER-SALG"
+

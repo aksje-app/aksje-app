@@ -7306,6 +7306,26 @@ def render_paper_trading_dashboard():
     st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
     st.caption("Auto-trading handler bare når relevant marked er åpent. Utenfor åpningstid brukes visning/cache, ikke nye auto-handler.")
     _render_pipeline_stage_bar_v1863bw("paper_trading")
+    try:
+        paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
+    except Exception:
+        paper_flow_rows = []
+    if paper_flow_rows:
+        st.markdown("<div class='v18-dark-row'><b>Mottatt fra Test 9:</b> kandidatene under kan brukes som paper-hypoteser. Ingen ekte ordre sendes.</div>", unsafe_allow_html=True)
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Ticker": row.get("ticker"),
+                    "Selskap": row.get("name"),
+                    "Score": row.get("score"),
+                    "Kilde": row.get("source"),
+                    "Handling": row.get("recommended_action") or "Bruk som paper-hypotese",
+                }
+                for row in paper_flow_rows[:12]
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     portfolio = load_portfolio()
 
@@ -8167,33 +8187,48 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, "Dataunderlag"] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
     else:
         market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
+    data_foundation_input = {}
+    data_foundation_tickers = []
+    if market == "Dataunderlag":
+        try:
+            pipeline = _analysis_pipeline_service_v1863bw()
+            data_foundation_input = pipeline.load_stage_input("market_ranking") or {}
+            data_foundation_tickers = [
+                str(ticker or "").strip().upper()
+                for ticker in (data_foundation_input.get("tickers") or [])
+                if str(ticker or "").strip()
+            ]
+            if not data_foundation_tickers:
+                data_foundation_tickers = [
+                    str(row.get("ticker") or "").strip().upper()
+                    for row in (data_foundation_input.get("candidates") or [])
+                    if isinstance(row, dict) and str(row.get("ticker") or "").strip()
+                ]
+        except Exception:
+            data_foundation_input = {}
+            data_foundation_tickers = []
     if selected_limit is None:
-        limit_max = 60 if market == "Dataunderlag" else 100
+        limit_max = max(1, len(data_foundation_tickers)) if market == "Dataunderlag" and data_foundation_tickers else (60 if market == "Dataunderlag" else 100)
         limit_default = min(max(int(max_count or 30), 5), limit_max)
         limit_key = "cc_ranking_limit_v18535"
         limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
         limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key=limit_key)
     else:
-        limit = min(int(selected_limit or max_count or 30), 60 if market == "Dataunderlag" else 100)
+        limit_cap = max(1, len(data_foundation_tickers)) if market == "Dataunderlag" and data_foundation_tickers else (60 if market == "Dataunderlag" else 100)
+        limit = min(int(selected_limit or max_count or 30), limit_cap)
     source_tickers = []
-    data_foundation_input = {}
     if market == "Dataunderlag":
-        try:
-            pipeline = _analysis_pipeline_service_v1863bw()
-            data_foundation_input = pipeline.load_stage_input("market_ranking") or {}
-        except Exception:
-            data_foundation_input = {}
-        source_tickers = get_all_tickers()[: int(limit)]
+        source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]
     elif market in MARKET_SCOPE_OPTIONS:
         source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
     if market == "Dataunderlag":
         if data_foundation_input:
-            st.success("Input fra 1. Dataunderlag er mottatt. Test 2 bruker kontrollert tickerunivers og datakildestatus fra steg 1.")
+            st.success(f"Input fra 1. Dataunderlag er mottatt: {len(data_foundation_tickers or [])} tickere. Test 2 bruker denne inputpakken.")
         else:
             st.warning("Ingen input fra 1. Dataunderlag er lagret ennaa. Gaa tilbake til Dataunderlag og godkjenn underlaget foer du kjoerer Test 2.")
-        st.caption("Dataunderlag-universet bruker felles tickerunivers sammen med kontrollstatus for aktoerregister, Finansavisen, NBIM/Oljefond og API-kilder.")
+        st.caption("Dataunderlag-universet bruker inputpakken fra Test 1 naar den finnes, ellers felles tickerunivers sammen med kontrollstatus for datakilder.")
     if source_tickers:
         st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
     else:
@@ -10263,6 +10298,47 @@ def _paper_trading_holdings_v18544(limit: int | None = None):
         return []
 
 
+def _portfolio_position_table_rows_v1864h(rows: list[dict]) -> list[dict]:
+    sector_labels = {
+        "Financials": "Finans",
+        "Healthcare": "Healthcare",
+        "Consumer": "Consumer",
+        "Technology": "Technology",
+        "Communication": "Communication",
+        "Energy": "Energy",
+        "Materials": "Materials",
+        "Industrials": "Industrials",
+        "Utilities": "Utilities",
+    }
+    table_rows: list[dict] = []
+    for row in rows:
+        symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
+        meta = resolve_security_metadata(symbol, row)
+        listing = infer_security_listing(symbol, meta)
+        label = _fund_display_label_v18574(meta)
+        sector_raw = str(row.get("sector") or meta.get("sector") or "").strip()
+        if not sector_raw or sector_raw in {"-", "Unknown", "Ukjent"}:
+            sector_raw = str(meta.get("sector") or "-")
+        market_raw = str(row.get("market") or row.get("geography") or "").strip()
+        if not market_raw or market_raw in {"-", "Unknown", "Ukjent", "USA/Global"}:
+            market_raw = str(listing.get("market") or listing.get("country") or "-")
+        detail = []
+        if row.get("decision_quality") is not None:
+            detail.append(f"Kvalitet {row.get('decision_quality')}")
+        if row.get("expense_ratio_pct") is not None:
+            detail.append(f"Kostnad {row.get('expense_ratio_pct')}%")
+        table_rows.append({
+            "Ticker / selskap": label,
+            "Vekt": f"{row.get('weight_pct', '-')}%",
+            "Type": row.get("asset_type") or "-",
+            "Kategori": row.get("role") or "-",
+            "Sektor": sector_labels.get(sector_raw, sector_raw or "-"),
+            "Marked": market_raw or "-",
+            "Detalj": " | ".join(detail) or "-",
+        })
+    return table_rows
+
+
 def _render_portfolio_health_rows_v18544(result):
     import html as _html
     res = dict(result or {})
@@ -10302,31 +10378,7 @@ def _render_portfolio_health_rows_v18544(result):
     rows = list(res.get("holdings") or [])[:14]
     if rows:
         st.markdown("<div class='ptw-control-panel-title'>Posisjoner</div>", unsafe_allow_html=True)
-    for row in rows:
-        symbol = _html.escape(_fund_display_label_v18574(row))
-        typ = _html.escape(str(row.get("asset_type") or "-"))
-        weight = row.get("weight_pct", "-")
-        role = _html.escape(str(row.get("role") or "-"))
-        sector = _html.escape(str(row.get("sector") or "-"))
-        geo = _html.escape(str(row.get("geography") or "-"))
-        q = row.get("decision_quality")
-        cost = row.get("expense_ratio_pct")
-        detail = []
-        if q is not None:
-            detail.append(f"Kvalitet {q}")
-        if cost is not None:
-            detail.append(f"Kostnad {cost}%")
-        detail_txt = " · ".join(detail) or ""
-        st.markdown(
-            f"""
-            <div class='v18-dark-row' style='margin:.16rem 0;padding:.34rem .48rem;'>
-              <div style='display:flex;justify-content:space-between;gap:.45rem;flex-wrap:wrap;align-items:center;'>
-                <b>{symbol}</b><span>{weight}%</span><span>{typ}</span><span>{role}</span><span>{sector}</span><span>{geo}</span><span>{_html.escape(detail_txt)}</span>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.dataframe(pd.DataFrame(_portfolio_position_table_rows_v1864h(rows)), use_container_width=True, hide_index=True)
 
     for title, key, icon in [
         ("Styrker", "strengths", "+"),
@@ -10537,6 +10589,73 @@ def _analysis_pipeline_service_v1863bw():
         state_service=get_state_service(st.session_state),
         storage_service=get_storage_service(),
     )
+
+
+_PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H = {
+    "top_picks",
+    "early_warning",
+    "alpha_radar",
+    "auto_test_lab",
+    "decision_support",
+    "portfolio_analysis",
+}
+
+
+def _pipeline_candidate_count_from_package_v1864h(package: dict | None) -> int:
+    if not package:
+        return 0
+    try:
+        return int(package.get("candidate_count") or 0)
+    except Exception:
+        return 0
+
+
+def _pipeline_input_rows_from_package_v1864h(package: dict | None) -> list[dict]:
+    if not package:
+        return []
+    return [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
+
+
+def _pipeline_effective_input_count_v1864h(stage_id: str, inp: dict | None, out: dict | None) -> int:
+    input_count = _pipeline_candidate_count_from_package_v1864h(inp)
+    if input_count > 0:
+        return input_count
+    if stage_id in {"portfolio_analysis", "paper_trading"}:
+        return _pipeline_candidate_count_from_package_v1864h(out)
+    return 0
+
+
+def _pipeline_send_raw_input_and_open_next_v1864h(stage_id: str) -> None:
+    from services.analysis_pipeline_service import next_stage_id, stage_wizard_info
+
+    target_stage = next_stage_id(stage_id)
+    if not target_stage:
+        st.info("Dette er siste test i flyten.")
+        return
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        inp = pipeline.load_stage_input(stage_id)
+        rows = _pipeline_input_rows_from_package_v1864h(inp)
+        if not rows:
+            st.warning("Ingen inputpakke aa sende videre fra dette steget.")
+            return
+        info = stage_wizard_info(stage_id)
+        pipeline.save_stage_output(
+            stage_id,
+            rows,
+            source_label=f"Raa input via {info.get('label') or stage_id}",
+            context={
+                "bypass_from_input": True,
+                "reason": "Steget ga ingen output, men inputpakken skal kunne vurderes i neste test.",
+                "input_package_id": str(inp.get("package_id") or ""),
+            },
+            max_items=len(rows),
+            auto_handoff=True,
+        )
+    except Exception as exc:
+        st.warning(f"Kunne ikke sende inputpakken videre: {exc}")
+        return
+    _pipeline_open_stage_v1863bw(target_stage)
 
 
 def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
@@ -10860,6 +10979,9 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
         st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
         return
 
+    input_count = _pipeline_effective_input_count_v1864h(stage_id, inp, out)
+    true_input_count = _pipeline_candidate_count_from_package_v1864h(inp)
+    output_count = _pipeline_candidate_count_from_package_v1864h(out)
     next_label = info.get("next_label") or ""
     defaults_label = _pipeline_defaults_label_v1863bw(dict(info.get("defaults") or {}))
     st.markdown(
@@ -10867,7 +10989,7 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
         <div class='v18-dark-row' style='border-color:rgba(56,189,248,.52);'>
           <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
             <b>{html.escape(str(info.get('wizard_label') or 'Analyseflyt'))}</b>
-            <span>{int(inp.get('candidate_count') or 0)} inn | {int(out.get('candidate_count') or 0)} ut</span>
+            <span>{input_count} inn | {output_count} ut</span>
             <span>Auto-kjoring: av</span>
           </div>
           <div style='font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>
@@ -10892,33 +11014,53 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
         else:
             st.markdown("<div class='v18-dark-row'>Forste steg</div>", unsafe_allow_html=True)
     with c_status:
-        input_count = int(inp.get("candidate_count") or 0) if inp else 0
-        output_count = int(out.get("candidate_count") or 0) if out else 0
         st.metric("Input / output", f"{input_count} / {output_count}")
         if stage_id == "market_ranking":
             st.caption("Bruker input fra 1. Dataunderlag og universvalg Dataunderlag som standard.")
+        elif stage_id == "portfolio_analysis" and true_input_count == 0 and output_count > 0:
+            st.caption("Viser effektiv input fra portefoljepanelet. Outputen ble laget fra Analyseflyt/manuell kilde.")
+        elif stage_id == "paper_trading":
+            st.caption("Siste steg. Input er kandidatene som kan brukes til praktisk paper-oppfolging.")
         elif prev_stage:
             st.caption("Dette er status for pakken fra forrige steg og output fra dette steget.")
         else:
             st.caption("Dette steget lager kontrollrapporten som sendes til Test 2.")
     with c_next:
         if next_label:
-            disabled = stage_id != "data_foundation" and not bool(out)
-            output_count = int(out.get("candidate_count") or 0) if out else 0
-            label = (
-                f"Send {output_count} kandidater til Test {info.get('next_test_number')} og aapne {next_label}"
-                if stage_id != "data_foundation"
-                else f"Godkjenn dataunderlag og aapne Test {info.get('next_test_number')}"
-            )
-            if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True, disabled=disabled):
-                _pipeline_send_and_open_next_v1863bw(stage_id)
+            if stage_id == "data_foundation":
+                label = f"Godkjenn dataunderlag og aapne Test {info.get('next_test_number')}"
+                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True):
+                    _pipeline_send_and_open_next_v1863bw(stage_id)
+            elif output_count > 0:
+                noun = "portefoljeanalyserte kandidater" if stage_id == "portfolio_analysis" else "kandidater"
+                label = f"Send {output_count} {noun} til Test {info.get('next_test_number')} og aapne {next_label}"
+                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True):
+                    _pipeline_send_and_open_next_v1863bw(stage_id)
+            elif true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
+                label = f"Send raa input ({true_input_count}) til Test {info.get('next_test_number')} og aapne {next_label}"
+                if st.button(label, key=f"analysis_pipeline_next_raw_{stage_id}_v1864h", use_container_width=True, type="primary"):
+                    _pipeline_send_raw_input_and_open_next_v1864h(stage_id)
+            else:
+                st.button(
+                    f"Ingen input/output aa sende til Test {info.get('next_test_number')}",
+                    key=f"analysis_pipeline_next_disabled_{stage_id}_v1864h",
+                    use_container_width=True,
+                    disabled=True,
+                )
         else:
-            st.markdown("<div class='v18-dark-row'>Siste test i flyten. Bruk Paper Trading-resultatet som praktisk oppfolging.</div>", unsafe_allow_html=True)
+            final_text = (
+                f"Siste test i flyten. Mottatt {input_count} kandidater; Paper Trading lager ikke neste pipeline-output."
+                if input_count > 0
+                else "Siste test i flyten. Ingen kandidatpakke er mottatt ennaa."
+            )
+            st.markdown(f"<div class='v18-dark-row'>{html.escape(final_text)}</div>", unsafe_allow_html=True)
 
     if stage_id == "data_foundation":
         st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktoerregister, Finansavisen, Oljefond/NBIM og API-status, og gaa deretter videre til Test 2.")
-    elif not out and stage_id != "paper_trading":
-        st.caption("Når testen er kjørt ferdig, dukker send-knappen opp aktivert for neste test.")
+    elif output_count == 0 and true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
+        st.caption("Ingen output fra dette steget ennaa. Hvis testen ikke finner treff, kan raa input sendes videre som bypass.")
+    elif output_count == 0 and stage_id != "paper_trading":
+        st.caption("Naar testen er kjoert ferdig, dukker send-knappen opp aktivert for neste test.")
 
 
 def render_analysis_pipeline_control_center_v1863bv():
@@ -10958,13 +11100,19 @@ def render_analysis_pipeline_control_center_v1863bv():
         selected_output = pipeline.load_stage_output(selected_stage)
         selected_input = pipeline.load_stage_input(selected_stage)
         target_stage = next_stage_id(selected_stage)
+        selected_input_count = _pipeline_candidate_count_from_package_v1864h(selected_input)
+        selected_output_count = _pipeline_candidate_count_from_package_v1864h(selected_output)
 
         c1, c2, c3 = st.columns([1.2, 1.2, 1.0])
         with c1:
-            disabled = not bool(selected_output and target_stage)
-            if st.button("Send valgt output videre og aapne neste test", key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=disabled):
+            can_output = bool(target_stage and (selected_stage == "data_foundation" or selected_output_count > 0))
+            can_bypass = bool(target_stage and selected_stage in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H and selected_input_count > 0 and selected_output_count == 0)
+            send_label = "Send mottatt input videre og aapne neste test" if can_bypass else "Send valgt output videre og aapne neste test"
+            if st.button(send_label, key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=not (can_output or can_bypass)):
                 if selected_stage == "data_foundation":
                     _pipeline_send_and_open_next_v1863bw("data_foundation")
+                elif can_bypass:
+                    _pipeline_send_raw_input_and_open_next_v1864h(selected_stage)
                 else:
                     res = pipeline.handoff_latest_output_to_next(selected_stage)
                     if res.ok:
@@ -10973,11 +11121,11 @@ def render_analysis_pipeline_control_center_v1863bv():
                         st.warning(res.message)
         with c2:
             input_label = "Dataunderlag inn" if selected_stage == "data_foundation" else "Input fra forrige steg"
-            st.metric(input_label, int(selected_input.get("candidate_count") or 0) if selected_input else 0)
+            st.metric(input_label, selected_input_count)
             st.caption("Statusfelt, ikke knapp. Viser kandidater/kontrollpunkter dette steget har faatt inn.")
         with c3:
             output_label = "Kontrollrapport klar" if selected_stage == "data_foundation" else "Output fra dette steg"
-            st.metric(output_label, int(selected_output.get("candidate_count") or 0) if selected_output else 0)
+            st.metric(output_label, selected_output_count)
             st.caption("Statusfelt, ikke knapp. Viser det dette steget kan sende videre.")
 
         if selected_stage_def:
