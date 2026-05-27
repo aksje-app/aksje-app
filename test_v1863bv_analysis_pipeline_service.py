@@ -203,3 +203,8 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "decision_pipeline_next_v1863bw" in decision_source
     assert "Send {output_count} kandidater til Test" in app_source
     assert "PIPELINE_PENDING_NAV_KEY" in service_source
+    assert "_clamp_slider_state_v1864e" in app_source
+    assert "cc_top_picks_limit_v1863s" in app_source
+    assert "auto_lab_limit_v18537" in app_source
+    assert "mixed_portfolio_max_rows_v18544" in app_source
+    assert "_clamp_slider_state_v1864e" in smart_source

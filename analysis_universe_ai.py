@@ -612,6 +612,20 @@ def _display_limit_choice_v1864d(key: str, total_rows: int) -> tuple[str, int]:
     return choice, int(total_rows or 0) if choice == "Alle" else int(choice)
 
 
+def _clamp_slider_state_v1864e(key: str, minimum: int, maximum: int, fallback: int) -> int:
+    safe_min = int(minimum)
+    safe_max = max(safe_min, int(maximum))
+    safe_fallback = min(max(int(fallback), safe_min), safe_max)
+    try:
+        current_int = int(st.session_state.get(key, safe_fallback))
+    except Exception:
+        current_int = safe_fallback
+    clamped = min(max(current_int, safe_min), safe_max)
+    if st.session_state.get(key) != clamped:
+        st.session_state[key] = clamped
+    return clamped
+
+
 
 AI_UNIVERSE_VISIBLE_PROGRESS_KEY = "ai_universe_visible_progress_v18526"
 
@@ -1786,7 +1800,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     "Antall kandidater",
                     slider_min,
                     slider_max,
-                    slider_value,
+                    _clamp_slider_state_v1864e("ai_universe_max_count_draft_v1853", slider_min, slider_max, slider_value),
                     1,
                     key="ai_universe_max_count_draft_v1853",
                 )

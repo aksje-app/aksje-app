@@ -1,9 +1,11 @@
-APP_VERSION = "v18.6.4d"
-APP_VERSION_NAME = "Preview Limit Audit"
-APP_BUILD_ID = "v1864d-preview-limit-audit"
+APP_VERSION = "v18.6.4e"
+APP_VERSION_NAME = "Dynamic Slider Guard"
+APP_BUILD_ID = "v1864e-dynamic-slider-guard"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Dynamiske analyseflyt-slidere nuller naa gamle session-verdier som ligger over ny inputpakke, slik at Test 4 ikke krasjer med 30 > 18.",
+    "Test 2, Test 4, Test 7, Test 9 og Alpha/Early Warning har slider-guard mot gamle verdier naar inputpakken blir mindre.",
     "Analyseunivers-tabeller har naa Vis antall rader 10/15/20/30/Alle, med Alle som standard naar pakken er 60 eller mindre.",
     "Smart Universe Picker viser ikke lenger score-/styrke-/1M-/3M-kolonner foer Smart AI faktisk er kjoert.",
     "Smart AI- og Picker-knapper sender valgt maks-antall videre, ikke gamle hardkodede 10/30-grenser.",

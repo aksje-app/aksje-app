@@ -8170,7 +8170,9 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     if selected_limit is None:
         limit_max = 60 if market == "Dataunderlag" else 100
         limit_default = min(max(int(max_count or 30), 5), limit_max)
-        limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key="cc_ranking_limit_v18535")
+        limit_key = "cc_ranking_limit_v18535"
+        limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
+        limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key=limit_key)
     else:
         limit = min(int(selected_limit or max_count or 30), 60 if market == "Dataunderlag" else 100)
     source_tickers = []
@@ -8294,7 +8296,9 @@ def render_market_room_control_center_v1863cb() -> None:
     if view == "Rangering":
         limit_max = 60 if str(config.get("market") or "") == "Dataunderlag" else 100
         limit_default = min(max(int(max_count or 30), 5), limit_max)
-        limit = st.slider("Maks kandidater i Test 2", 5, limit_max, limit_default, 1, key="market_room_ranking_limit_v1863cb")
+        limit_key = "market_room_ranking_limit_v1863cb"
+        limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
+        limit = st.slider("Maks kandidater i Test 2", 5, limit_max, limit_default, 1, key=limit_key)
         render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "Dataunderlag"), selected_limit=int(limit), embedded=True)
     elif view == "Heatmap":
         st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
@@ -8359,6 +8363,21 @@ def _pipeline_candidate_count_for_stage_v1864(stage_id: str) -> int:
         return 0
 
 
+def _clamp_slider_state_v1864e(key: str, minimum: int, maximum: int, fallback: int) -> int:
+    """Keep Streamlit's stored widget value inside a dynamic slider range."""
+    safe_min = int(minimum)
+    safe_max = max(safe_min, int(maximum))
+    safe_fallback = min(max(int(fallback), safe_min), safe_max)
+    try:
+        current_int = int(st.session_state.get(key, safe_fallback))
+    except Exception:
+        current_int = safe_fallback
+    clamped = min(max(current_int, safe_min), safe_max)
+    if st.session_state.get(key) != clamped:
+        st.session_state[key] = clamped
+    return clamped
+
+
 def render_top_picks_control_center_v1863s():
     """Top Picks as a first-class AI Kontrollsenter panel."""
     st.subheader("⭐ Top Picks")
@@ -8377,7 +8396,9 @@ def render_top_picks_control_center_v1863s():
         limit_max = max(1, input_count) if input_count > 0 else 100
         limit_min = 1 if limit_max < 5 else 5
         limit_default = min(max(int(max_count or 30), limit_min), limit_max)
-        limit = st.slider("Maks kandidater", limit_min, limit_max, limit_default, 1, key="cc_top_picks_limit_v1863s")
+        limit_key = "cc_top_picks_limit_v1863s"
+        limit_default = _clamp_slider_state_v1864e(limit_key, limit_min, limit_max, limit_default)
+        limit = st.slider("Maks kandidater", limit_min, limit_max, limit_default, 1, key=limit_key)
         if input_count > 0:
             st.caption(f"Maks er låst til inputpakken fra Test 3: {input_count} kandidater.")
 
@@ -9058,7 +9079,9 @@ def render_auto_test_lab_control_center_v18536():
         limit_max = max(1, input_count) if input_count > 0 else 60
         limit_min = 1 if limit_max < 5 else 5
         limit_default = min(max(20, limit_min), limit_max)
-        limit = st.slider("Maks", limit_min, limit_max, limit_default, 1, key="auto_lab_limit_v18537")
+        limit_key = "auto_lab_limit_v18537"
+        limit_default = _clamp_slider_state_v1864e(limit_key, limit_min, limit_max, limit_default)
+        limit = st.slider("Maks", limit_min, limit_max, limit_default, 1, key=limit_key)
         if input_count > 0:
             st.caption(f"Maks er låst til inputpakken fra Test 6: {input_count} kandidater.")
 
@@ -10369,7 +10392,9 @@ def render_mixed_portfolio_control_center_v18544():
             row_max = max(1, input_count) if input_count > 0 else 30
             row_min = 1 if row_max < 3 else 3
             row_default = min(max(12, row_min), row_max)
-            max_rows = st.slider("Maks posisjoner", row_min, row_max, row_default, 1, key="mixed_portfolio_max_rows_v18544")
+            row_key = "mixed_portfolio_max_rows_v18544"
+            row_default = _clamp_slider_state_v1864e(row_key, row_min, row_max, row_default)
+            max_rows = st.slider("Maks posisjoner", row_min, row_max, row_default, 1, key=row_key)
             if input_count > 0:
                 st.caption(f"Maks er låst til inputpakken fra Test 8: {input_count} kandidater.")
 
