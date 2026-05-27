@@ -1566,6 +1566,8 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         info = stage_wizard_info("smart_ai")
         inp = pipeline.load_stage_input("smart_ai")
         out = pipeline.load_stage_output("smart_ai")
+        inp_count = int(inp.get("candidate_count") or 0)
+        out_count = int(out.get("candidate_count") or 0)
         if int(inp.get("candidate_count") or 0) > 0 and str(current.get("mode") or "") in {"", "Markedvalg"}:
             current["mode"] = "Analyseflyt input"
             current["scopes"] = ["Analyseflyt input"]
@@ -1576,7 +1578,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             <div style="border:1px solid rgba(56,189,248,.52);border-radius:8px;padding:.62rem .72rem;margin:.4rem 0;background:rgba(15,23,42,.72);">
               <div style="display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;">
                 <b>{escape(str(info.get('wizard_label') or 'Test 3 av 10: Smart AI-filter'))}</b>
-                <span>{int(inp.get('candidate_count') or 0)} inn | {int(out.get('candidate_count') or 0)} ut</span>
+                <span>{inp_count} inn | {out_count} ut</span>
                 <span>Auto-kjoring: av</span>
               </div>
               <div style="font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;">Kjor Smart AI-utvalg eksplisitt, og send ferdige kandidater videre til Top Picks.</div>
@@ -1584,20 +1586,41 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Send output til Test 4 og åpne Top Picks", key="smart_ai_pipeline_next_v1863bw", use_container_width=True, disabled=not bool(out)):
-            result = pipeline.handoff_latest_output_to_next("smart_ai")
-            if not result.ok:
-                st.warning(result.message)
-            else:
-                target = stage_wizard_info("top_picks")
+        nav_prev_col, nav_status_col, nav_next_col = st.columns([1.15, 1.65, 2.15])
+        with nav_prev_col:
+            if st.button("Forrige: Test 2 Marked/rangering", key="smart_ai_pipeline_prev_v1864b", use_container_width=True):
+                previous = stage_wizard_info("market_ranking")
                 st.session_state[PIPELINE_PENDING_NAV_KEY] = {
-                    "stage_id": "top_picks",
-                    "group": target.get("group") or "",
-                    "panel": target.get("panel_label") or "",
-                    "defaults": dict(target.get("defaults") or {}),
+                    "stage_id": "market_ranking",
+                    "group": previous.get("group") or "",
+                    "panel": previous.get("panel_label") or "",
+                    "defaults": dict(previous.get("defaults") or {}),
                     "auto_run": False,
                 }
                 st.rerun()
+        with nav_status_col:
+            st.metric("Input / output", f"{inp_count} / {out_count}")
+            st.caption("Input er kandidatpakken fra Test 2. Output lages foerst naar Smart AI-utvalg er kjoert.")
+        with nav_next_col:
+            if st.button(
+                f"Send {out_count} kandidater til Test 4 og aapne Top Picks",
+                key="smart_ai_pipeline_next_v1864b",
+                use_container_width=True,
+                disabled=out_count <= 0,
+            ):
+                result = pipeline.handoff_latest_output_to_next("smart_ai")
+                if not result.ok:
+                    st.warning(result.message)
+                else:
+                    target = stage_wizard_info("top_picks")
+                    st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+                        "stage_id": "top_picks",
+                        "group": target.get("group") or "",
+                        "panel": target.get("panel_label") or "",
+                        "defaults": dict(target.get("defaults") or {}),
+                        "auto_run": False,
+                    }
+                    st.rerun()
     except Exception as exc:
         st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
 
@@ -1667,31 +1690,38 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                             unsafe_allow_html=True,
                         )
                 st.session_state["ai_universe_scopes_draft_v1853"] = scopes
-                manual_ticker = st.text_input(
-                    "Manuell ticker / enkeltaksje",
-                    value=str(current["manual_ticker"] or ""),
-                    placeholder="F.eks. EQNR.OL, VOLV-B.ST, NOKIA.HE, NOVO-B.CO eller PETR4.SA",
-                    key="ai_universe_manual_ticker_draft_v18523",
-                )
+                manual_ticker = str(current["manual_ticker"] or "")
+                if mode == "Enkeltaksje":
+                    manual_ticker = st.text_input(
+                        "Manuell ticker / enkeltaksje",
+                        value=manual_ticker,
+                        placeholder="F.eks. EQNR.OL, VOLV-B.ST, NOKIA.HE, NOVO-B.CO eller PETR4.SA",
+                        key="ai_universe_manual_ticker_draft_v18523",
+                    )
                 _manual_ticker_preview = _normalize_ticker(manual_ticker)
                 if mode == "Enkeltaksje":
                     st.markdown(
                         f'<div style="display:inline-flex;align-items:center;gap:.35rem;margin:.12rem 0 .35rem 0;padding:.28rem .55rem;border-radius:999px;border:1px solid rgba(34,197,94,.50);background:rgba(16,65,52,.62);color:#bbf7d0;font-weight:950;font-size:.78rem;">Aktiv ticker: {escape(_manual_ticker_preview or "ingen")}</div>',
                         unsafe_allow_html=True,
                     )
-                manual_list_text = st.text_area(
-                    "Manuell liste",
-                    value=str(current.get("manual_list") or ""),
-                    placeholder="EQNR.OL, VOLV-B.ST, NOKIA.HE\nNOVO-B.CO, PETR4.SA",
-                    key="ai_universe_manual_list_draft_v18517",
-                    help="Brukes når modus er Manuell liste. Du kan skille tickere med komma, mellomrom eller linjeskift.",
-                    height=86,
-                )
+                manual_list_text = str(current.get("manual_list") or "")
+                if mode == "Manuell liste":
+                    manual_list_text = st.text_area(
+                        "Manuell liste",
+                        value=manual_list_text,
+                        placeholder="EQNR.OL, VOLV-B.ST, NOKIA.HE\nNOVO-B.CO, PETR4.SA",
+                        key="ai_universe_manual_list_draft_v18517",
+                        help="Brukes naar modus er Manuell liste. Du kan skille tickere med komma, mellomrom eller linjeskift.",
+                        height=86,
+                    )
             with c2:
                 flow_input_count = _analysis_flow_input_count_for_smart_ai() if mode == "Analyseflyt input" else 0
                 slider_max = max(1, flow_input_count) if mode == "Analyseflyt input" and flow_input_count > 0 else 200
                 slider_min = 1 if slider_max < 5 else 5
-                slider_value = min(max(int(current["max_count"]), slider_min), slider_max)
+                if mode == "Analyseflyt input" and flow_input_count > 0:
+                    slider_value = slider_max
+                else:
+                    slider_value = min(max(int(current["max_count"]), slider_min), slider_max)
                 max_count = st.slider(
                     "Antall kandidater",
                     slider_min,
@@ -1972,7 +2002,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         # native empty containers entirely.
         show_roadmap = st.checkbox("Vis roadmap / detaljstatus for funksjonene", value=False, key="ai_universe_show_roadmap_v18526")
         if show_roadmap:
-            _render_feature_status_panel()
+            st.info("Roadmap/detaljstatus er midlertidig vist kompakt i denne QA-versjonen for aa hindre stor hvit/tom flate.")
 
         st.markdown("#### Preview av eksisterende scorede/cache-kandidater")
         if preview:

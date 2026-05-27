@@ -177,10 +177,15 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_render_pipeline_stage_bar_v1863bw(\"auto_test_lab\")" in app_source
     assert "_render_pipeline_stage_bar_v1863bw(\"portfolio_analysis\")" in app_source
     assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" in app_source
-    assert "smart_ai_pipeline_next_v1863bw" in smart_source
+    assert "smart_ai_pipeline_prev_v1864b" in smart_source
+    assert "Forrige: Test 2 Marked/rangering" in smart_source
+    assert "smart_ai_pipeline_next_v1864b" in smart_source
+    assert 'st.metric("Input / output"' in smart_source
     assert ".save_stage_output(" in smart_source
     assert '"smart_ai"' in smart_source
     assert "_analysis_flow_input_count_for_smart_ai()" in smart_source
+    assert "slider_value = slider_max" in smart_source
+    assert "Roadmap/detaljstatus er midlertidig vist kompakt" in smart_source
     assert "_pipeline_candidate_count_for_stage_v1864(\"top_picks\")" in app_source
     assert "build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit))" in app_source
     assert "decision_pipeline_next_v1863bw" in decision_source

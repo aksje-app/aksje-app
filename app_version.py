@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.4a"
-APP_VERSION_NAME = "Pipeline Dataflow Guard"
-APP_BUILD_ID = "v1864a-pipeline-dataflow-guard"
+APP_VERSION = "v18.6.4b"
+APP_VERSION_NAME = "Test 3 Layout Guard"
+APP_BUILD_ID = "v1864b-test3-layout-guard"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Test 3 viser naa Forrige-knapp, tydelig Input/output-status og Send videre til Test 4 i samme flytbar.",
+    "Analyseflyt input i Test 3 bruker hele mottatt kandidatpakke som standard og slideren kan ikke gaa over antall kandidater fra Test 2.",
+    "Manuell ticker og manuell liste skjules i Test 3 naar valgt modus ikke bruker dem.",
+    "Roadmap/detaljstatus i Analyseunivers er midlertidig gjort kompakt for aa hindre stor hvit/tom flate.",
     "Test 3 lagrer naa Smart AI-output som pipeline-pakke og sender den videre til Test 4, slik at Top Picks mottar faktisk input i stedet for 0/0.",
     "Kandidat-slidere for analyseflyt-input laases til faktisk inputpakke, og rangeringsvisning kan velge Topp 10, 15, 20, 30 eller Alle uten aa endre pakken som sendes videre.",
     "Pipeline-service har regresjonstest for hele dataflyten fra Test 1 Dataunderlag til Test 10 Paper Trading.",
