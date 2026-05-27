@@ -490,7 +490,7 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
             listing = {"country": "Ukjent", "exchange": "Ukjent", "market": row.get("market") or row.get("source") or "Ukjent"}
         rows.append(
             {
-                "Nr" if is_picker_only else "Rank": row.get("rank") or idx,
+                "Nr": idx,
                 "Ticker": meta.get("ticker") or row.get("ticker"),
                 "Selskap": meta.get("name") or row.get("name"),
                 "Land": listing.get("country"),
@@ -508,7 +508,11 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
                 "Forklaring": _reason_value(row, listing),
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if is_picker_only and not df.empty:
+        picker_columns = ["Nr", "Ticker", "Selskap", "Land", "BÃ¸rs", "Marked", "Sektor", "Status", "Risiko", "Forklaring"]
+        return df[[col for col in picker_columns if col in df.columns]]
+    return df
 
 
 
@@ -593,6 +597,19 @@ def _render_dark_table(
         f'{overflow_note}'
     )
     st.markdown(html, unsafe_allow_html=True)
+
+
+def _display_limit_choice_v1864d(key: str, total_rows: int) -> tuple[str, int]:
+    options = ["10", "15", "20", "30", "Alle"]
+    default = "Alle" if int(total_rows or 0) <= 60 else "30"
+    choice = st.selectbox(
+        "Vis antall rader",
+        options,
+        index=options.index(default),
+        key=f"{key}_display_limit_v1864d",
+        help="Endrer bare visningen. Pakken som sendes videre endres ikke.",
+    )
+    return choice, int(total_rows or 0) if choice == "Alle" else int(choice)
 
 
 
@@ -1586,7 +1603,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             """,
             unsafe_allow_html=True,
         )
-        nav_prev_col, nav_status_col, nav_next_col = st.columns([1.15, 1.65, 2.15])
+        nav_prev_col, nav_status_col, nav_run_col, nav_next_col = st.columns([1.1, 1.45, 1.25, 2.05])
         with nav_prev_col:
             if st.button("Forrige: Test 2 Marked/rangering", key="smart_ai_pipeline_prev_v1864b", use_container_width=True):
                 previous = stage_wizard_info("market_ranking")
@@ -1601,26 +1618,69 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         with nav_status_col:
             st.metric("Input / output", f"{inp_count} / {out_count}")
             st.caption("Input er kandidatpakken fra Test 2. Output lages foerst naar Smart AI-utvalg er kjoert.")
-        with nav_next_col:
+        with nav_run_col:
             if st.button(
-                f"Send {out_count} kandidater til Test 4 og aapne Top Picks",
-                key="smart_ai_pipeline_next_v1864b",
+                "Kjor Smart AI-utvalg naa",
+                key="smart_ai_pipeline_run_now_v1864c",
                 use_container_width=True,
-                disabled=out_count <= 0,
+                disabled=inp_count <= 0,
             ):
-                result = pipeline.handoff_latest_output_to_next("smart_ai")
-                if not result.ok:
-                    st.warning(result.message)
-                else:
-                    target = stage_wizard_info("top_picks")
-                    st.session_state[PIPELINE_PENDING_NAV_KEY] = {
-                        "stage_id": "top_picks",
-                        "group": target.get("group") or "",
-                        "panel": target.get("panel_label") or "",
-                        "defaults": dict(target.get("defaults") or {}),
-                        "auto_run": False,
-                    }
-                    st.rerun()
+                st.session_state["ai_universe_smart_run_pending_v18524"] = True
+                st.rerun()
+        with nav_next_col:
+            if out_count > 0:
+                if st.button(
+                    f"Send {out_count} kandidater til Test 4 og aapne Top Picks",
+                    key="smart_ai_pipeline_next_v1864b",
+                    use_container_width=True,
+                ):
+                    result = pipeline.handoff_latest_output_to_next("smart_ai")
+                    if not result.ok:
+                        st.warning(result.message)
+                    else:
+                        target = stage_wizard_info("top_picks")
+                        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+                            "stage_id": "top_picks",
+                            "group": target.get("group") or "",
+                            "panel": target.get("panel_label") or "",
+                            "defaults": dict(target.get("defaults") or {}),
+                            "auto_run": False,
+                        }
+                        st.rerun()
+            elif inp_count > 0:
+                if st.button(
+                    f"Fortsett med {inp_count} input-kandidater til Test 4",
+                    key="smart_ai_pipeline_bypass_to_top_picks_v1864c",
+                    use_container_width=True,
+                    help="Bruk dette hvis Smart AI-filteret gir 0 treff, men du vil sende inputpakken videre ufiltrert.",
+                ):
+                    input_rows = pipeline.candidates_for_stage("smart_ai", prefer_output=False)
+                    result = pipeline.save_stage_output(
+                        "smart_ai",
+                        input_rows,
+                        source_label="Smart AI-filter bypass",
+                        context={
+                            "bypass_reason": "zero_output_or_manual_continue",
+                            "input_count": inp_count,
+                            "note": "Bruker sendte inputpakken videre uten Smart AI-filter.",
+                        },
+                        max_items=len(input_rows),
+                        auto_handoff=True,
+                    )
+                    if not result.ok:
+                        st.warning(result.message)
+                    else:
+                        target = stage_wizard_info("top_picks")
+                        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+                            "stage_id": "top_picks",
+                            "group": target.get("group") or "",
+                            "panel": target.get("panel_label") or "",
+                            "defaults": dict(target.get("defaults") or {}),
+                            "auto_run": False,
+                        }
+                        st.rerun()
+            else:
+                st.button("Ingen input aa sende videre", key="smart_ai_pipeline_no_input_v1864c", use_container_width=True, disabled=True)
     except Exception as exc:
         st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
 
@@ -1845,7 +1905,10 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
         )
         _render_selection_summary_panel(_picker_result_summary_rows(picker_result))
         if picker_result.get("candidates"):
-            _render_dark_table(_smart_result_dataframe(picker_result), empty_message="Picker-resultatet er tomt.", max_rows=30, max_height_px=260)
+            picker_df = _smart_result_dataframe(picker_result)
+            picker_choice, picker_limit = _display_limit_choice_v1864d("smart_picker", len(picker_df.index))
+            _render_dark_table(picker_df, empty_message="Picker-resultatet er tomt.", max_rows=picker_limit, max_height_px=420)
+            st.caption(f"Viser {picker_choice.lower()} av {len(picker_df.index)} tickere. Hele tickerlisten/universet beholdes for send videre.")
         else:
             st.markdown(
                 '<div class="ai-universe-empty-note">Picker-resultatet er tomt. Velg en kilde med data, skriv enkeltaksje, eller lim inn en manuell liste.</div>',
@@ -1860,12 +1923,12 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 st.success(service_result.message or "Smart Universe Picker er satt som aktivt aksjeunivers.")
         with picker_b:
             if st.button("🔔 Send aktivt valg til watchlist", key="smart_universe_picker_to_watchlist_v18517", use_container_width=True):
-                service_result = services.watchlist.set_from_candidates(picker_result, limit=int(max_count or 30))
+                service_result = services.watchlist.set_from_candidates(picker_result, limit=int(max_count or len(picker_result.get("candidates") or []) or 30))
                 _set_pending_change("Smart Universe Picker sendt til watchlist")
                 st.success(service_result.message or "Picker-resultatet er lagt inn som watchlist.")
         with picker_c:
             if st.button("⭐ Send aktivt valg til Top Picks", key="smart_universe_picker_to_top_picks_v18517", use_container_width=True):
-                service_result = services.top_picks.save_from_universe_result(picker_result, limit=min(10, int(max_count or 10)), list_name="TopPicks_Picker")
+                service_result = services.top_picks.save_from_universe_result(picker_result, limit=int(max_count or len(picker_result.get("candidates") or []) or 10), list_name="TopPicks_Picker")
                 _set_pending_change("Smart Universe Picker sendt til Top Picks")
                 st.success(service_result.message or "Picker-resultatet er lagret som TopPicks_Picker.")
 
@@ -1955,23 +2018,27 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             else:
                 _finish_progress(progress_holder, progress_bar, title="Smart AI-utvalg ferdig", text="Ingen kandidater matchet filtrene.", ok=False)
                 finish_global_busy("Klar", "Smart AI-utvalg ferdig uten kandidater")
+                st.info("Du kan senke filtrene og kjoere paa nytt, eller bruke knappen oppe i flytbaren for aa fortsette til Test 4 med inputpakken ufiltrert.")
                 st.warning("Smart AI-utvalg ble kjørt, men ingen kandidater matchet filtrene eller datakilden returnerte ikke score.")
 
         smart_result = st.session_state.get(AI_UNIVERSE_SMART_RESULT_KEY, {}) or st.session_state.get(AI_UNIVERSE_SMART_RESULT_LEGACY_KEY, {}) or {}
         _render_selection_summary_panel(_smart_result_summary_rows(smart_result))
         if smart_result and smart_result.get("candidates"):
-            _render_dark_table(_smart_result_dataframe(smart_result), empty_message="Smart AI-resultatet er tomt.", max_rows=30, max_height_px=280)
+            smart_df = _smart_result_dataframe(smart_result)
+            smart_choice, smart_limit = _display_limit_choice_v1864d("smart_result", len(smart_df.index))
+            _render_dark_table(smart_df, empty_message="Smart AI-resultatet er tomt.", max_rows=smart_limit, max_height_px=440)
+            st.caption(f"Viser {smart_choice.lower()} av {len(smart_df.index)} scorede kandidater. Visningsvalg endrer ikke pakken.")
             action_a, action_b = st.columns(2)
             with action_a:
                 if st.button("⭐ Bruk Smart AI-resultat som Top Picks", key="smart_ai_to_top_picks_v1859", use_container_width=True):
                     services = build_service_registry(st.session_state)
-                    service_result = services.top_picks.save_from_universe_result(smart_result, limit=10, list_name="TopPicks_SmartAI")
+                    service_result = services.top_picks.save_from_universe_result(smart_result, limit=int(max_count or len(smart_result.get("candidates") or []) or 10), list_name="TopPicks_SmartAI")
                     _set_pending_change("Smart AI-resultat sendt til Top Picks")
                     st.success(service_result.message or "Smart AI-resultatet er lagt inn som TopPicks_SmartAI.")
             with action_b:
                 if st.button("🔔 Bruk Smart AI-resultat som watchlist", key="smart_ai_to_watchlist_v1859", use_container_width=True):
                     services = build_service_registry(st.session_state)
-                    service_result = services.watchlist.set_from_candidates(smart_result, limit=int(max_count or 30))
+                    service_result = services.watchlist.set_from_candidates(smart_result, limit=int(max_count or len(smart_result.get("candidates") or []) or 30))
                     _set_pending_change("Smart AI-resultat sendt til watchlist")
                     st.success(service_result.message or "Smart AI-resultatet er lagt inn som watchlist.")
             if smart_result.get("errors"):
@@ -2006,7 +2073,10 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         st.markdown("#### Preview av eksisterende scorede/cache-kandidater")
         if preview:
-            _render_dark_table(_candidate_dataframe(preview[:50]), empty_message="Ingen eksisterende kandidater å forhåndsvise.", max_rows=50, max_height_px=300)
+            preview_df = _candidate_dataframe(preview)
+            preview_choice, preview_limit = _display_limit_choice_v1864d("cache_preview", len(preview_df.index))
+            _render_dark_table(preview_df, empty_message="Ingen eksisterende kandidater å forhåndsvise.", max_rows=preview_limit, max_height_px=420)
+            st.caption(f"Viser {preview_choice.lower()} av {len(preview_df.index)} preview-rader. Dette er bare visning.")
             st.caption(
                 "Preview bruker bare eksisterende rangeringer, watchlist og paper-posisjoner som allerede finnes i appen. "
                 "Den kjører ikke ny AI-scan og er ikke samme ting som valgt tickerliste/univers."

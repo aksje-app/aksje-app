@@ -1,9 +1,16 @@
-APP_VERSION = "v18.6.4b"
-APP_VERSION_NAME = "Test 3 Layout Guard"
-APP_BUILD_ID = "v1864b-test3-layout-guard"
+APP_VERSION = "v18.6.4d"
+APP_VERSION_NAME = "Preview Limit Audit"
+APP_BUILD_ID = "v1864d-preview-limit-audit"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Analyseunivers-tabeller har naa Vis antall rader 10/15/20/30/Alle, med Alle som standard naar pakken er 60 eller mindre.",
+    "Smart Universe Picker viser ikke lenger score-/styrke-/1M-/3M-kolonner foer Smart AI faktisk er kjoert.",
+    "Smart AI- og Picker-knapper sender valgt maks-antall videre, ikke gamle hardkodede 10/30-grenser.",
+    "Eldre Top Picks-kodevei bruker valgt max_count i stedet for hardkodet 15.",
+    "Smart AI-tabeller bruker visningsnummer i faktisk sorteringsrekkefolge, slik at gamle rank-tall ikke hopper i venstre kolonne.",
+    "Test 3 har naa tydelig Kjor-knapp i flytbaren og en aktiv Fortsett med inputpakken-knapp naar Smart AI-filteret gir 0 output.",
+    "Fortsett med inputpakken lagrer Test 3-output som ufiltrert bypass og sender kandidatene videre til Test 4 uten automatisk tung analyse.",
     "Test 3 viser naa Forrige-knapp, tydelig Input/output-status og Send videre til Test 4 i samme flytbar.",
     "Analyseflyt input i Test 3 bruker hele mottatt kandidatpakke som standard og slideren kan ikke gaa over antall kandidater fra Test 2.",
     "Manuell ticker og manuell liste skjules i Test 3 naar valgt modus ikke bruker dem.",

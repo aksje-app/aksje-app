@@ -180,6 +180,17 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "smart_ai_pipeline_prev_v1864b" in smart_source
     assert "Forrige: Test 2 Marked/rangering" in smart_source
     assert "smart_ai_pipeline_next_v1864b" in smart_source
+    assert "smart_ai_pipeline_run_now_v1864c" in smart_source
+    assert "smart_ai_pipeline_bypass_to_top_picks_v1864c" in smart_source
+    assert "Fortsett med {inp_count} input-kandidater til Test 4" in smart_source
+    assert "Smart AI-filter bypass" in smart_source
+    assert "_display_limit_choice_v1864d" in smart_source
+    assert 'default = "Alle" if int(total_rows or 0) <= 60 else "30"' in smart_source
+    assert '"Nr": idx' in smart_source
+    assert '"Rank": row.get("rank")' not in smart_source
+    assert "picker_columns" in smart_source
+    assert "max_rows=30" not in smart_source
+    assert "preview[:50]" not in smart_source
     assert 'st.metric("Input / output"' in smart_source
     assert ".save_stage_output(" in smart_source
     assert '"smart_ai"' in smart_source
@@ -188,6 +199,7 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "Roadmap/detaljstatus er midlertidig vist kompakt" in smart_source
     assert "_pipeline_candidate_count_for_stage_v1864(\"top_picks\")" in app_source
     assert "build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit))" in app_source
+    assert "max_items=15" not in app_source
     assert "decision_pipeline_next_v1863bw" in decision_source
     assert "Send {output_count} kandidater til Test" in app_source
     assert "PIPELINE_PENDING_NAV_KEY" in service_source

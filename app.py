@@ -11793,7 +11793,7 @@ elif active_panel == "⭐ Top Picks":
             combined.extend(_latest_market_rows_v1863j(name))
         if not combined:
             return []
-        return _ranked_for_display(build_top_picks(combined, min_score=min_top_pick_score, max_items=15))
+        return _ranked_for_display(build_top_picks(combined, min_score=min_top_pick_score, max_items=int(max_count or len(combined) or 15)))
 
     _guard_summary = market_guard_summary(source_tickers)
     st.caption(_guard_summary)
@@ -11828,7 +11828,7 @@ elif active_panel == "⭐ Top Picks":
         if not _manual_fetch_closed and not _open_now:
             top_picks = _ranked_for_display(ranked)
         else:
-            top_picks = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=15))
+            top_picks = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(max_count or len(ranked or []) or 15)))
         buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
         latest = st.session_state.setdefault("latest_rankings_v148", {})
         latest[f"TopPicks_{scan_market}"] = top_picks or []
