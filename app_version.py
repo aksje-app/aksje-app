@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.4j"
-APP_VERSION_NAME = "Pipeline UI Contract Guard"
-APP_BUILD_ID = "v1864j-pipeline-ui-contract"
+APP_VERSION = "v18.6.4k"
+APP_VERSION_NAME = "Source Foundation Contract"
+APP_BUILD_ID = "v1864k-source-foundation-contract"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Test 1 behandler naa Finansavisen, Oljefond/NBIM og Folketrygdfondet som datakilder/overlays, ikke som raa filer som sendes gjennom hele Test 1-10-flyten.",
+    "Folketrygdfondet har nytt importpanel for .xls/.xlsx som bygger institusjonelt eier-overlay til senere tester.",
+    "Test 3 viser en aktiv Fortsett med raa input fra Test 2-knapp naar Smart AI-filteret gir 0 funn, slik at Test 4 ikke blir visuelt skjult.",
+    "Globale Streamlit-knapper er strammet ned til kompakt hoyde, mindre padding og mindre tekst.",
     "Tickeruttrekk fra Analyseflyt ignorerer naa metadatafelt som raw, score_parts og mangler-felt, slik at de ikke blir falske aksjesymboler i Test 3 og videre.",
     "Pipeline-pakker filtrerer bort ugyldige tickerverdier fra Test 2-10, men lar Dataunderlag fortsatt sende kontrollrapport uten aksjeticker.",
     "Store bla knapper er strammet til normal knappestorrelse globalt, med tekstbrytning for lange handlingsknapper.",

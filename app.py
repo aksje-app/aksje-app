@@ -27,6 +27,7 @@ from actor_registry_ui import render_actor_registry_panel
 from decision_ui import render_decision_support_panel
 from nbim_radar_ui import render_nbim_radar_panel
 from finansavisen_bjellesau_ui import render_finansavisen_bjellesau_panel
+from folketrygdfondet_ui import render_folketrygdfondet_panel
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
 from settings_store import load_settings, save_settings, reset_settings
@@ -982,7 +983,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 .v18572-global-status span { color:#f8fbff !important; opacity:1 !important; }
 .v18572-global-update-shell .stButton > button,
 .v18572-global-update-shell button[kind="primary"] {
-    min-height:44px !important;
+    min-height:32px !important;
     width:100% !important;
     min-width:230px !important;
     padding:.45rem 1.1rem !important;
@@ -10802,6 +10803,18 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
     except Exception as exc:
         rows.append({"Omraade": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Oljefond Radar"})
     try:
+        from folketrygdfondet import load_folketrygdfondet_overlay
+
+        overlay = load_folketrygdfondet_overlay()
+        rows.append({
+            "Omraade": "Folketrygdfondet",
+            "Status": "overlay lagret" if overlay else "venter paa import",
+            "Detalj": f"{len(overlay or {})} tickere i Folketrygdfondet-overlay",
+            "Handling": "Importer Folketrygdfondet XLS som eierkilde",
+        })
+    except Exception as exc:
+        rows.append({"Omraade": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Folketrygdfondet"})
+    try:
         from data_source_diagnostics import build_data_source_status
 
         diagnostics = build_data_source_status("3m")
@@ -10823,7 +10836,11 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
     source_rows = _data_foundation_source_rows_v1863by()
     st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    st.info(
+        "Finansavisen, Oljefond/NBIM og Folketrygdfondet behandles som datakilder. "
+        "Test 1 lagrer status/overlay; senere tester henter bare relevant evidens naar de trenger den."
+    )
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         if st.button("Importer Finansavisen-filer", key="data_foundation_open_finansavisen_v1863by", use_container_width=True, type="primary"):
             _pipeline_go_to_panel_v1863by("Marked og signaler", "Finansavisen Bjellesauer")
@@ -10837,6 +10854,10 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
             _pipeline_go_to_panel_v1863by("Marked og signaler", "Oljefond Radar")
         st.caption("Nyeste og forrige NBIM CSV gir nye/okte/reduserte/solgte signaler.")
     with c4:
+        if st.button("Importer Folketrygdfondet XLS", key="data_foundation_open_folketrygdfondet_v1864k", use_container_width=True):
+            _pipeline_go_to_panel_v1863by("Marked og signaler", "Folketrygdfondet")
+        st.caption("XLS/XLSX lagres som institusjonelt eier-overlay.")
+    with c5:
         if st.button("Aapne radar/kildetest", key="data_foundation_open_alpha_sources_v1863by", use_container_width=True):
             _pipeline_go_to_panel_v1863by("Marked og signaler", "Alpha Radar")
         st.caption("API-status og kildedekning vises uten at menyvalg starter scan.")
@@ -10861,7 +10882,7 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
 
 def _render_data_foundation_approval_v1863by(status_rows: list[dict]) -> None:
     st.markdown("#### Godkjenn dataunderlag")
-    st.caption("Bruk denne foerst naar datakilder/importer er kontrollert. Den lager en kontrollrapport og aapner Test 2; ingen tung analyse starter automatisk.")
+    st.caption("Bruk denne foerst naar datakilder/importer er kontrollert. Den lager en kontrollrapport og aapner Test 2; ingen tung analyse starter automatisk, og raa importfiler sendes ikke gjennom Test 1-10.")
     source_rows = _data_foundation_source_rows_v1863by()
     missing = [row for row in source_rows if str(row.get("Status", "")).lower() in {"feil", "venter paa import", "mangler aktive"}]
     if missing:
@@ -11059,7 +11080,7 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
             st.markdown(f"<div class='v18-dark-row'>{html.escape(final_text)}</div>", unsafe_allow_html=True)
 
     if stage_id == "data_foundation":
-        st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktoerregister, Finansavisen, Oljefond/NBIM og API-status, og gaa deretter videre til Test 2.")
+        st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktoerregister, Finansavisen, Oljefond/NBIM, Folketrygdfondet og API-status, og gaa deretter videre til Test 2.")
     elif output_count == 0 and true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
         st.caption("Ingen output fra dette steget ennaa. Hvis testen ikke finner treff, kan raa input sendes videre som bypass.")
     elif output_count == 0 and stage_id != "paper_trading":
@@ -11157,6 +11178,7 @@ def control_center_extra_panels_v18535():
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),
         ("Oljefond Radar", render_nbim_radar_panel),
+        ("Folketrygdfondet", render_folketrygdfondet_panel),
         ("Finansavisen Bjellesauer", render_finansavisen_bjellesau_panel),
         ("Beslutningsgrunnlag", render_decision_support_panel),
         ("🚀 IPO", render_ipo),
@@ -11595,9 +11617,9 @@ html body .stApp div[data-testid="stFormSubmitButton"] > button {
     min-height:44px !important;
     height:auto !important;
     max-height:none !important;
-    padding:.56rem .88rem !important;
-    margin:.10rem 0 .18rem 0 !important;
-    border-radius:13px !important;
+    padding:.30rem .58rem !important;
+    margin:.04rem 0 .08rem 0 !important;
+    border-radius:8px !important;
     box-sizing:border-box !important;
     text-align:center !important;
     white-space:normal !important;
@@ -11612,9 +11634,9 @@ html body .stApp div[data-testid="stButton"] > button *,
 html body .stApp div[data-testid="stFormSubmitButton"] > button * {
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    font-size:.96rem !important;
-    font-weight:1000 !important;
-    line-height:1.14 !important;
+    font-size:.82rem !important;
+    font-weight:850 !important;
+    line-height:1.08 !important;
     white-space:normal !important;
     overflow:visible !important;
     text-overflow:clip !important;

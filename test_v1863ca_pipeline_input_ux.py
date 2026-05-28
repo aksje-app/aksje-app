@@ -58,6 +58,21 @@ def test_test3_to_10_prefer_analysis_pipeline_input_and_specific_send_labels():
     assert "Send {output_count} {noun} til Test" in app or "Send {output_count} kandidater til Test" in app
     assert "Test 2 kjører" in app or "Test 2 kjÃ¸rer" in app
     assert "kandidater klare for Test 3" in app
+    assert "Fortsett med raa input fra Test 2" in analysis
+
+
+def test_folketrygdfondet_is_source_overlay_not_pipeline_payload():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    ui = (ROOT / "folketrygdfondet_ui.py").read_text(encoding="utf-8")
+    source = (ROOT / "folketrygdfondet.py").read_text(encoding="utf-8")
+
+    assert "Folketrygdfondet" in app
+    assert "render_folketrygdfondet_panel" in app
+    assert "Importer Folketrygdfondet XLS" in app
+    assert "ikke som raa regneark gjennom hele Test 1-10-flyten" in ui
+    assert "read_folketrygdfondet_xls_bytes" in source
+    assert "build_folketrygdfondet_overlay" in source
+    assert "xlrd" in (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
 
 def test_analysis_pipeline_ticker_extraction_does_not_read_metadata_keys():

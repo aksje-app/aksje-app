@@ -1659,54 +1659,46 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             """,
             unsafe_allow_html=True,
         )
-        send_findings_col, send_raw_col = st.columns(2)
-        with send_findings_col:
-            if out_count > 0:
-                if st.button(
-                    f"Send {out_count} Smart AI-funn til Test 4 og aapne Top Picks",
-                    key="smart_ai_pipeline_send_findings_to_top_picks_v1864g",
-                    use_container_width=True,
-                    type="primary",
-                ):
-                    result = pipeline.handoff_latest_output_to_next("smart_ai")
-                    if not result.ok:
-                        st.warning(result.message)
-                    else:
-                        _open_top_picks_stage_v1864g()
-            else:
-                st.button(
-                    "Ingen Smart AI-funn aa sende ennaa",
-                    key="smart_ai_pipeline_send_findings_disabled_v1864g",
-                    use_container_width=True,
-                    disabled=True,
+        if out_count > 0:
+            if st.button(
+                f"Send {out_count} Smart AI-funn til Test 4 og aapne Top Picks",
+                key="smart_ai_pipeline_send_findings_to_top_picks_v1864k",
+                use_container_width=True,
+                type="primary",
+            ):
+                result = pipeline.handoff_latest_output_to_next("smart_ai")
+                if not result.ok:
+                    st.warning(result.message)
+                else:
+                    _open_top_picks_stage_v1864g()
+        elif inp_count > 0:
+            st.caption("Smart AI har 0 funn. Fortsett likevel med inputpakken fra Test 2 for aa komme videre til Test 4.")
+            if st.button(
+                f"Fortsett med raa input fra Test 2 ({inp_count}) til Test 4",
+                key="smart_ai_pipeline_send_raw_input_to_top_picks_v1864k",
+                use_container_width=True,
+                type="primary",
+                help="Bruk dette hvis Smart AI-filteret gir 0 treff, eller hvis du vil sende hele inputpakken videre ufiltrert.",
+            ):
+                input_rows = pipeline.candidates_for_stage("smart_ai", prefer_output=False)
+                result = pipeline.save_stage_output(
+                    "smart_ai",
+                    input_rows,
+                    source_label="Smart AI-filter bypass",
+                    context={
+                        "bypass_reason": "zero_output_or_manual_continue",
+                        "input_count": inp_count,
+                        "note": "Bruker sendte inputpakken videre uten Smart AI-filter.",
+                    },
+                    max_items=len(input_rows),
+                    auto_handoff=True,
                 )
-        with send_raw_col:
-            if inp_count > 0:
-                if st.button(
-                    f"Send raa input fra Test 2 ({inp_count}) til Test 4 og aapne Top Picks",
-                    key="smart_ai_pipeline_send_raw_input_to_top_picks_v1864g",
-                    use_container_width=True,
-                    help="Bruk dette hvis Smart AI-filteret gir 0 treff, eller hvis du vil sende hele inputpakken videre ufiltrert.",
-                ):
-                    input_rows = pipeline.candidates_for_stage("smart_ai", prefer_output=False)
-                    result = pipeline.save_stage_output(
-                        "smart_ai",
-                        input_rows,
-                        source_label="Smart AI-filter bypass",
-                        context={
-                            "bypass_reason": "zero_output_or_manual_continue",
-                            "input_count": inp_count,
-                            "note": "Bruker sendte inputpakken videre uten Smart AI-filter.",
-                        },
-                        max_items=len(input_rows),
-                        auto_handoff=True,
-                    )
-                    if not result.ok:
-                        st.warning(result.message)
-                    else:
-                        _open_top_picks_stage_v1864g()
-            else:
-                st.button("Ingen raa input aa sende videre", key="smart_ai_pipeline_no_input_v1864g", use_container_width=True, disabled=True)
+                if not result.ok:
+                    st.warning(result.message)
+                else:
+                    _open_top_picks_stage_v1864g()
+        else:
+            st.button("Ingen input/output aa sende videre", key="smart_ai_pipeline_no_input_v1864k", use_container_width=True, disabled=True)
     except Exception as exc:
         st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
 

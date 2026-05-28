@@ -227,9 +227,9 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "smart_ai_pipeline_run_now_v1864c" not in smart_source
     assert "Kjor-knappen ligger i Smart AI-utvalg-seksjonen under" in smart_source
     assert "Videre til Test 4" in smart_source
-    assert "smart_ai_pipeline_send_findings_to_top_picks_v1864g" in smart_source
-    assert "smart_ai_pipeline_send_raw_input_to_top_picks_v1864g" in smart_source
-    assert "Send raa input fra Test 2 ({inp_count}) til Test 4" in smart_source
+    assert "smart_ai_pipeline_send_findings_to_top_picks_v1864k" in smart_source
+    assert "smart_ai_pipeline_send_raw_input_to_top_picks_v1864k" in smart_source
+    assert "Fortsett med raa input fra Test 2 ({inp_count}) til Test 4" in smart_source
     assert "Send {out_count} Smart AI-funn til Test 4" in smart_source
     assert "Smart AI-filter bypass" in smart_source
     assert "_display_limit_choice_v1864d" in smart_source

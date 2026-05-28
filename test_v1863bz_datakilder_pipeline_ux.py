@@ -37,6 +37,8 @@ def test_pipeline_package_view_explains_input_output_and_datakilder_report():
     assert "def _render_data_foundation_package_v1863bz" in app
     assert "Dataunderlag sender et kontrollpunkt videre, ikke en aksjeliste" in app
     assert "Godkjenn dataunderlag og aapne Test 2" in app
+    assert "raa importfiler sendes ikke gjennom Test 1-10" in app
+    assert "Importer Folketrygdfondet XLS" in app
     assert "Forrige:" in app
     assert 'pipeline.save_stage_output(\n                "data_foundation"' in app
     assert "auto_handoff=True" in app
@@ -77,9 +79,9 @@ def test_finansavisen_import_uses_one_actor_sync_control():
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4j"' in version
-    assert "Pipeline UI Contract Guard" in version
-    assert "Test 1-10-knappene er naa eneste pipeline-hurtigvalg" in version
+    assert 'APP_VERSION = "v18.6.4k"' in version
+    assert "Source Foundation Contract" in version
+    assert "Folketrygdfondet har nytt importpanel" in version
 
 
 
