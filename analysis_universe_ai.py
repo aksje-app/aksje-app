@@ -1617,7 +1617,18 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             """,
             unsafe_allow_html=True,
         )
-        nav_prev_col, nav_status_col, nav_run_col, nav_next_col = st.columns([1.1, 1.45, 1.25, 2.05])
+        def _open_top_picks_stage_v1864g() -> None:
+            target = stage_wizard_info("top_picks")
+            st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+                "stage_id": "top_picks",
+                "group": target.get("group") or "",
+                "panel": target.get("panel_label") or "",
+                "defaults": dict(target.get("defaults") or {}),
+                "auto_run": False,
+            }
+            st.rerun()
+
+        nav_prev_col, nav_status_col = st.columns([1.0, 1.05])
         with nav_prev_col:
             if st.button("Forrige: Test 2 Marked/rangering", key="smart_ai_pipeline_prev_v1864b", use_container_width=True):
                 previous = stage_wizard_info("market_ranking")
@@ -1631,42 +1642,51 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 st.rerun()
         with nav_status_col:
             st.metric("Input / output", f"{inp_count} / {out_count}")
-            st.caption("Input er kandidatpakken fra Test 2. Output lages foerst naar Smart AI-utvalg er kjoert.")
-        with nav_run_col:
-            if st.button(
-                "Kjor Smart AI-utvalg naa",
-                key="smart_ai_pipeline_run_now_v1864c",
-                use_container_width=True,
-                disabled=inp_count <= 0,
-            ):
-                st.session_state["ai_universe_smart_run_pending_v18524"] = True
-                st.rerun()
-        with nav_next_col:
+            st.caption("Input er kandidatpakken fra Test 2. Kjor-knappen ligger i Smart AI-utvalg-seksjonen under, slik at samme jobb ikke har to like knapper.")
+
+        if out_count > 0:
+            next_text = f"Smart AI-output er klar: {out_count} funn kan sendes til Test 4. Du kan ogsaa sende raa Test 2-input hvis du vil overstyre filteret."
+        elif inp_count > 0:
+            next_text = f"Ingen Smart AI-funn er klare. Du kan kjoere Smart AI, eller sende raa input fra Test 2 videre til Test 4."
+        else:
+            next_text = "Ingen inputpakke fra Test 2 er mottatt. Gaa tilbake til Test 2 og send kandidater hit forst."
+        st.markdown(
+            f"""
+            <div style="border:1px solid rgba(56,189,248,.45);border-radius:8px;padding:.62rem .72rem;margin:.50rem 0;background:rgba(8,47,73,.34);">
+              <b>Videre til Test 4</b>
+              <div style="font-size:.82rem;color:rgba(226,232,240,.88);margin-top:.18rem;">{escape(next_text)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        send_findings_col, send_raw_col = st.columns(2)
+        with send_findings_col:
             if out_count > 0:
                 if st.button(
-                    f"Send {out_count} kandidater til Test 4 og aapne Top Picks",
-                    key="smart_ai_pipeline_next_v1864b",
+                    f"Send {out_count} Smart AI-funn til Test 4 og aapne Top Picks",
+                    key="smart_ai_pipeline_send_findings_to_top_picks_v1864g",
                     use_container_width=True,
+                    type="primary",
                 ):
                     result = pipeline.handoff_latest_output_to_next("smart_ai")
                     if not result.ok:
                         st.warning(result.message)
                     else:
-                        target = stage_wizard_info("top_picks")
-                        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
-                            "stage_id": "top_picks",
-                            "group": target.get("group") or "",
-                            "panel": target.get("panel_label") or "",
-                            "defaults": dict(target.get("defaults") or {}),
-                            "auto_run": False,
-                        }
-                        st.rerun()
-            elif inp_count > 0:
-                if st.button(
-                    f"Fortsett med {inp_count} input-kandidater til Test 4",
-                    key="smart_ai_pipeline_bypass_to_top_picks_v1864c",
+                        _open_top_picks_stage_v1864g()
+            else:
+                st.button(
+                    "Ingen Smart AI-funn aa sende ennaa",
+                    key="smart_ai_pipeline_send_findings_disabled_v1864g",
                     use_container_width=True,
-                    help="Bruk dette hvis Smart AI-filteret gir 0 treff, men du vil sende inputpakken videre ufiltrert.",
+                    disabled=True,
+                )
+        with send_raw_col:
+            if inp_count > 0:
+                if st.button(
+                    f"Send raa input fra Test 2 ({inp_count}) til Test 4 og aapne Top Picks",
+                    key="smart_ai_pipeline_send_raw_input_to_top_picks_v1864g",
+                    use_container_width=True,
+                    help="Bruk dette hvis Smart AI-filteret gir 0 treff, eller hvis du vil sende hele inputpakken videre ufiltrert.",
                 ):
                     input_rows = pipeline.candidates_for_stage("smart_ai", prefer_output=False)
                     result = pipeline.save_stage_output(
@@ -1684,17 +1704,9 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     if not result.ok:
                         st.warning(result.message)
                     else:
-                        target = stage_wizard_info("top_picks")
-                        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
-                            "stage_id": "top_picks",
-                            "group": target.get("group") or "",
-                            "panel": target.get("panel_label") or "",
-                            "defaults": dict(target.get("defaults") or {}),
-                            "auto_run": False,
-                        }
-                        st.rerun()
+                        _open_top_picks_stage_v1864g()
             else:
-                st.button("Ingen input aa sende videre", key="smart_ai_pipeline_no_input_v1864c", use_container_width=True, disabled=True)
+                st.button("Ingen raa input aa sende videre", key="smart_ai_pipeline_no_input_v1864g", use_container_width=True, disabled=True)
     except Exception as exc:
         st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
 
@@ -1813,7 +1825,9 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     float(current["min_top_pick_score"]),
                     0.1,
                     key="ai_universe_min_top_pick_score_draft_v1853",
+                    help="Standard 6.50. Kandidater under denne AI-scoreterskelen filtreres bort foer Top Picks.",
                 )
+                st.caption("Standard 6.50: streng nok til aa kutte svake kandidater, men slipper fortsatt normale funn videre.")
                 min_strength = st.slider(
                     "Momentum / strength-filter",
                     0.0,
@@ -1823,6 +1837,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     key="ai_universe_min_strength_v1853",
                     help="Operativt filter. Smart AI-motoren beregner strength fra score_parts/avkastning eller eksisterende strength.",
                 )
+                st.caption("Standard 0: ingen momentumkrav. Oek bare naar du vil kreve tydelig trend/styrke i tillegg til score.")
             with c3:
                 max_risk = st.selectbox(
                     "Maks risiko",

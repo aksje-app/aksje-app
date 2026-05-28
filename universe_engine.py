@@ -590,7 +590,7 @@ def run_smart_ai_universe(
 
     filtered = filter_smart_candidates(raw_candidates, sectors, max_risk, min_score, min_strength)
     ranked = _rank(filtered[:max_count])
-    top_pick_limit = max(1, min(10, max_count))
+    top_pick_limit = max_count
     top_picks = ranked[:top_pick_limit]
     status = "ok" if ranked else ("empty_after_filter" if raw_candidates else "empty")
 

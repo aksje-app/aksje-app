@@ -136,6 +136,34 @@ def test_candidate_normalization_and_report_outline():
     assert next_stage_id("decision_support") == "portfolio_analysis"
 
 
+def test_pipeline_rejects_metadata_tokens_as_tickers():
+    rows = normalize_candidate_rows(
+        [
+            {"ticker": "PEXIP.OL", "name": "Pexip", "score": 8.2},
+            {"ticker": "RAW", "name": "raw metadata", "score": 9.9},
+            {"ticker": "SCORE_PARTS", "name": "score parts", "score": 9.8},
+            {"ticker": "MANGLERDIREKTEEVIDENS", "name": "mangler evidens", "score": 9.7},
+            {"name": "Navn uten ticker", "score": 9.6},
+        ],
+        source_stage_id="smart_ai",
+        source_label="Smart AI",
+    )
+
+    assert [row["ticker"] for row in rows] == ["PEXIP.OL"]
+
+
+def test_dataunderlag_control_report_can_have_no_ticker():
+    rows = normalize_candidate_rows(
+        [{"name": "Dataunderlag godkjent", "score": 100, "source": "Dataunderlag"}],
+        source_stage_id="data_foundation",
+        source_label="Dataunderlag",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["ticker"] == ""
+    assert rows[0]["name"] == "Dataunderlag godkjent"
+
+
 def test_unknown_stage_is_rejected(tmp_path):
     service = _service(tmp_path)
 
@@ -196,7 +224,8 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" in app_source
     assert "smart_ai_pipeline_prev_v1864b" in smart_source
     assert "Forrige: Test 2 Marked/rangering" in smart_source
-    assert "smart_ai_pipeline_run_now_v1864c" in smart_source
+    assert "smart_ai_pipeline_run_now_v1864c" not in smart_source
+    assert "Kjor-knappen ligger i Smart AI-utvalg-seksjonen under" in smart_source
     assert "Videre til Test 4" in smart_source
     assert "smart_ai_pipeline_send_findings_to_top_picks_v1864g" in smart_source
     assert "smart_ai_pipeline_send_raw_input_to_top_picks_v1864g" in smart_source
@@ -219,6 +248,7 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_pipeline_candidate_count_for_stage_v1864(\"top_picks\")" in app_source
     assert "build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit))" in app_source
     assert "max_items=15" not in app_source
+    assert "top_pick_limit = max_count" in (ROOT / "universe_engine.py").read_text(encoding="utf-8")
     assert "decision_pipeline_next_v1863bw" in decision_source
     assert "Send {output_count} {noun} til Test" in app_source
     assert "analysis_pipeline_active_stage_v1863bz" in smart_source + layout_source

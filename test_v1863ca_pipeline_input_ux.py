@@ -60,6 +60,25 @@ def test_test3_to_10_prefer_analysis_pipeline_input_and_specific_send_labels():
     assert "kandidater klare for Test 3" in app
 
 
+def test_analysis_pipeline_ticker_extraction_does_not_read_metadata_keys():
+    from services.universe_service import _extract_tickers
+
+    rows = [
+        {
+            "ticker": "PEXIP.OL",
+            "name": "Pexip",
+            "raw": {"RAW": {"ticker": "SHOULDNOT.OL"}, "SCORE_PARTS": {"value": 1}},
+            "score_parts": {"momentum": 70},
+        },
+        {"ticker": "RAW", "name": "metadata token"},
+        {"ticker": "SCORE_PARTS", "name": "metadata token"},
+        {"ticker": "MANGLERDIREKTEEVIDENS", "name": "metadata token"},
+        {"DNB.OL": {"qty": 1}},
+    ]
+
+    assert _extract_tickers(rows) == ["PEXIP.OL", "DNB.OL"]
+
+
 def test_known_us_names_are_resolved_in_quick_cards():
     metadata = (ROOT / "security_metadata.py").read_text(encoding="utf-8")
 

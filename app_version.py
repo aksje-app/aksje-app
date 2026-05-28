@@ -1,9 +1,17 @@
-﻿APP_VERSION = "v18.6.4i"
-APP_VERSION_NAME = "Test1 Send Limit Guard"
-APP_BUILD_ID = "v1864i-test1-send-limit"
+APP_VERSION = "v18.6.4j"
+APP_VERSION_NAME = "Pipeline UI Contract Guard"
+APP_BUILD_ID = "v1864j-pipeline-ui-contract"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Tickeruttrekk fra Analyseflyt ignorerer naa metadatafelt som raw, score_parts og mangler-felt, slik at de ikke blir falske aksjesymboler i Test 3 og videre.",
+    "Pipeline-pakker filtrerer bort ugyldige tickerverdier fra Test 2-10, men lar Dataunderlag fortsatt sende kontrollrapport uten aksjeticker.",
+    "Store bla knapper er strammet til normal knappestorrelse globalt, med tekstbrytning for lange handlingsknapper.",
+    "Finansavisen-import har bare avhuking for Aktorregister-synk; den dupliserte Synk lagret import-knappen er fjernet.",
+    "Smart AI har bare en Kjor Smart AI-utvalg-knapp i selve Smart AI-utvalg-seksjonen; flytbaren viser status og viderevalg.",
+    "Analyseunivers forklarer standardverdiene for Top Picks-score og momentum/strength-filter direkte ved sliderne.",
+    "Kontrollsenteret viser en egen Testflyt-meny for aktivt steg, slik at relevante paneler/tester ligger samlet uten aa blande inn alt annet som standard.",
+    "Smart AI/Top Picks-resultater respekterer valgt maks-antall i stedet for skjulte 10/15-grenser.",
     "Fjernet den doble Start her: 1. Dataunderlag-knappen; Test 1-10-knappene er naa eneste pipeline-hurtigvalg.",
     "Finansavisen-knappene sier eksplisitt Test 2 Marked/rangering og bruker nye widget-nokler slik at gamle Streamlit-knapper ikke henger igjen.",
     "Direkte Test 8-valg fra Finansavisen kan naa velge alle matchede tickere i visningen, ikke et gammelt 20/60-tak.",

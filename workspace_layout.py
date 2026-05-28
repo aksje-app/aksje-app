@@ -346,12 +346,16 @@ def inject_workspace_css() -> None:
             font-weight:850;
         }
         .ptw-control-selector-shell div[data-testid="stButton"] button {
-            min-height: 44px !important;
-            border-radius: 12px !important;
+            min-height: 34px !important;
+            border-radius: 10px !important;
+            padding: .30rem .62rem !important;
             border: 1px solid rgba(125,211,252,.70) !important;
             background: linear-gradient(180deg, rgba(14,165,233,.38), rgba(8,47,73,.92)) !important;
             color: #e0f2fe !important;
             font-weight: 950 !important;
+            font-size: .82rem !important;
+            line-height: 1.14 !important;
+            overflow-wrap: anywhere !important;
             box-shadow: 0 8px 20px rgba(14,165,233,.14), 0 0 0 1px rgba(125,211,252,.10) inset !important;
         }
         .ptw-control-selector-shell div[data-testid="stButton"] button[kind="primary"] {
@@ -370,7 +374,8 @@ def inject_workspace_css() -> None:
             border-color: rgba(125,211,252,.84) !important;
             background: linear-gradient(180deg, rgba(14,165,233,.55), rgba(8,47,73,.96)) !important;
             color:#f0f9ff !important;
-            min-height:42px !important;
+            min-height:34px !important;
+            padding:.30rem .62rem !important;
             font-weight:950 !important;
         }
         .ptw-control-submenu {
@@ -1111,6 +1116,19 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
+        active_stage_hint = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
+        stage_relevant_labels = _pipeline_relevant_panel_labels_v1864j(active_stage_hint, panels)
+        stage_group_name = ""
+        if stage_relevant_labels:
+            stage_label = active_stage_hint
+            try:
+                from services.analysis_pipeline_service import stage_wizard_info
+
+                stage_label = str(stage_wizard_info(active_stage_hint).get("label") or active_stage_hint)
+            except Exception:
+                pass
+            stage_group_name = f"Testflyt: {stage_label}"
+            group_map = {stage_group_name: stage_relevant_labels, **group_map}
 
         first_real_panel = next((labels[0] for labels in group_map.values() if labels), None)
         previous_label = st.session_state.get("ai_control_center_active_real_panel_v18598") or first_real_panel or AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598
@@ -1736,6 +1754,31 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
                 st.rerun()
 
 
+def _pipeline_relevant_panel_labels_v1864j(active_stage: str, panels: Sequence[Tuple[str, Callable[[], None]]]) -> list[str]:
+    """Return the panels that are actually useful for the active pipeline step."""
+    stage_needles: dict[str, tuple[str, ...]] = {
+        "data_foundation": ("dataunderlag", "datakilder", "datagrunnlag", "finansavisen", "bjellesau", "aktor", "aktør", "oljefond", "nbim", "kildetest"),
+        "market_ranking": ("marked/rangering", "marked", "heatmaps", "regime", "makro", "nyheter"),
+        "smart_ai": ("analyseunivers",),
+        "top_picks": ("top picks", "marked/rangering"),
+        "early_warning": ("alpha", "early warning", "nyheter", "finansavisen", "bjellesau"),
+        "alpha_radar": ("alpha", "intelligence", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau"),
+        "auto_test_lab": ("auto test lab", "testing", "learning", "fond / etf"),
+        "decision_support": ("beslut",),
+        "portfolio_analysis": ("portef", "fond / etf"),
+        "paper_trading": ("paper",),
+    }
+    needles = stage_needles.get(str(active_stage or ""), ())
+    if not needles:
+        return []
+    out: list[str] = []
+    for label, _renderer in panels:
+        text = str(label or "").lower()
+        if any(needle in text for needle in needles):
+            out.append(label)
+    return list(dict.fromkeys(out))
+
+
 def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
     """Stable radio-based control center navigation."""
     with st.expander("AI KONTROLLSENTER - samlet arbeidsflate", expanded=True):
@@ -1807,6 +1850,20 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                     st.session_state["analysis_pipeline_active_stage_v1863bz"] = pending_stage
                 pending_nav_sync = {"group": pending_group, "panel": pending_panel}
 
+        active_stage_hint = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
+        stage_relevant_labels = _pipeline_relevant_panel_labels_v1864j(active_stage_hint, panels)
+        stage_group_name = ""
+        if stage_relevant_labels:
+            stage_label = active_stage_hint
+            try:
+                from services.analysis_pipeline_service import stage_wizard_info
+
+                stage_label = str(stage_wizard_info(active_stage_hint).get("label") or active_stage_hint)
+            except Exception:
+                pass
+            stage_group_name = f"Testflyt: {stage_label}"
+            group_map = {stage_group_name: stage_relevant_labels, **group_map}
+
         group_options = ["Ingen valgt"] + [f"{name} ({len([x for x in labels if x in panel_map])})" for name, labels in group_map.items()]
         group_by_option = {"Ingen valgt": ""}
         for name, labels in group_map.items():
@@ -1822,6 +1879,10 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 st.session_state[f"ai_control_center_panel_radio_v1863aj_{pending_group}"] = pending_panel
 
         current_group = st.session_state.get("ai_control_center_group_v1863aj", "")
+        if stage_group_name and st.session_state.get("ai_control_center_last_stage_menu_v1864j") != active_stage_hint:
+            st.session_state["ai_control_center_group_v1863aj"] = stage_group_name
+            st.session_state["ai_control_center_last_stage_menu_v1864j"] = active_stage_hint
+            current_group = stage_group_name
         current_group_option = next((opt for opt, name in group_by_option.items() if name == current_group), "Ingen valgt")
 
         try:
@@ -1842,6 +1903,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                   <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
                   <div class="ptw-control-title">AI Kontrollsenter</div>
                   <div class="ptw-control-caption">Marked åpnes som standard arbeidsflate. Velg hovedområde og funksjon når du vil bytte rom.</div>
+                  <div class="ptw-control-caption">Aktiv test viser en egen Testflyt-meny med de panelene som faktisk hører til steget. Øvrige paneler ligger fortsatt i hovedgruppene.</div>
                 </div>
                 <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Ingen valgt"))}</div>
               </div>

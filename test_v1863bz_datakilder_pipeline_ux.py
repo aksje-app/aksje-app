@@ -65,11 +65,20 @@ def test_finansavisen_dataunderlag_sends_to_test2_not_same_stage():
     assert "source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]" in app
 
 
+def test_finansavisen_import_uses_one_actor_sync_control():
+    finance_ui = (ROOT / "finansavisen_bjellesau_ui.py").read_text(encoding="utf-8")
+
+    assert "Oppdater Aktorregister fra import" in finance_ui
+    assert "sync_finansavisen_actors_to_registry(merged)" in finance_ui
+    assert "Synk lagret import til Aktorregister" not in finance_ui
+    assert "finansavisen_bjellesau_sync_saved" not in finance_ui
+
+
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4i"' in version
-    assert "Test1 Send Limit Guard" in version
+    assert 'APP_VERSION = "v18.6.4j"' in version
+    assert "Pipeline UI Contract Guard" in version
     assert "Test 1-10-knappene er naa eneste pipeline-hurtigvalg" in version
 
 

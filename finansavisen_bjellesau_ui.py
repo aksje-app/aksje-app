@@ -282,7 +282,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             )
             file_periods[idx] = period
 
-    c1, c2, c3 = st.columns([1.2, 1.0, 1.0])
+    c1, c2 = st.columns([1.2, 1.0])
     with c1:
         update_actors = st.checkbox(
             "Oppdater Aktorregister fra import",
@@ -298,10 +298,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             use_container_width=True,
             disabled=not bool(uploads),
         )
-    with c3:
-        if st.button("Synk lagret import til Aktorregister", key="finansavisen_bjellesau_sync_saved_v1863bk", use_container_width=True):
-            count = sync_finansavisen_actors_to_registry(load_finansavisen_transactions())
-            st.success(f"Aktorregister oppdatert: {count} rader lagret.")
+    st.caption("Aktorregister synkes ved import naar avhukingen er paa. Lagret import synkes ikke med en egen ekstra knapp.")
 
     if import_clicked:
         progress = st.progress(0, text="Starter Finansavisen-import")

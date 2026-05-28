@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 import sys
 import types
@@ -12,7 +12,7 @@ daily = Path("daily_ai_market_report.py").read_text(encoding="utf-8", errors="ig
 forecast = Path("forecast_ui.py").read_text(encoding="utf-8", errors="ignore")
 bridge = Path("ai_service_bridge.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4i"' in version
+assert 'APP_VERSION = "v18.6.4j"' in version
 
 for source in [daily, forecast, bridge]:
     assert 'else "AAPL,MSFT,NVDA"' not in source

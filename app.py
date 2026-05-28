@@ -187,13 +187,15 @@ def _inject_ui_path_cleanup_css_v18590():
     .v18590-global-action .stButton > button {
         width:100% !important;
         min-width:0 !important;
-        min-height:50px !important;
-        border-radius:14px !important;
+        min-height:36px !important;
+        padding:.34rem .72rem !important;
+        border-radius:10px !important;
         background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
         border:1px solid rgba(224,242,254,.98) !important;
         color:#ffffff !important;
         -webkit-text-fill-color:#ffffff !important;
         font-weight:950 !important;
+        overflow-wrap:anywhere !important;
         opacity:1 !important;
         filter:none !important;
         box-shadow:0 0 0 1px rgba(255,255,255,.14),0 8px 22px rgba(14,165,233,.24) !important;
@@ -202,7 +204,7 @@ def _inject_ui_path_cleanup_css_v18590():
     .v18590-global-action .stButton > button p {
         color:#ffffff !important;
         -webkit-text-fill-color:#ffffff !important;
-        font-size:1.02rem !important;
+        font-size:.84rem !important;
         font-weight:950 !important;
         line-height:1.15 !important;
         white-space:normal !important;
@@ -395,9 +397,9 @@ def _inject_visual_truth_fix_css_v18591():
         justify-content:center !important;
         width:100% !important;
         min-width:0 !important;
-        min-height:50px !important;
-        padding:.58rem .95rem !important;
-        border-radius:15px !important;
+        min-height:36px !important;
+        padding:.34rem .72rem !important;
+        border-radius:10px !important;
         background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
         border:1px solid rgba(224,242,254,1) !important;
         box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
@@ -405,6 +407,7 @@ def _inject_visual_truth_fix_css_v18591():
         filter:none !important;
         overflow:visible !important;
         white-space:normal !important;
+        overflow-wrap:anywhere !important;
     }
     html body .stApp div:has(> .visual-truth-global-box) + div button[kind="primary"] p,
     html body .stApp div:has(.visual-truth-global-box) + div button[kind="primary"] p {
@@ -11322,12 +11325,12 @@ html body .stApp button[kind="primary"] {
     width:100% !important;
     max-width:100% !important;
     min-width:0 !important;
-    min-height:50px !important;
+    min-height:36px !important;
     height:auto !important;
     max-height:none !important;
-    padding:.62rem 1.05rem !important;
-    margin:.18rem 0 .32rem 0 !important;
-    border-radius:15px !important;
+    padding:.34rem .72rem !important;
+    margin:.10rem 0 .16rem 0 !important;
+    border-radius:10px !important;
     border:1px solid rgba(224,242,254,1) !important;
     background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
     color:#ffffff !important;
@@ -11336,6 +11339,7 @@ html body .stApp button[kind="primary"] {
     text-shadow:0 1px 0 rgba(0,0,0,.25) !important;
     font-weight:1000 !important;
     white-space:normal !important;
+    overflow-wrap:anywhere !important;
     overflow:visible !important;
     opacity:1 !important;
     filter:none !important;
@@ -11347,10 +11351,11 @@ html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] 
 html body .stApp button[kind="primary"] * {
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    font-size:.98rem !important;
+    font-size:.84rem !important;
     font-weight:1000 !important;
-    line-height:1.14 !important;
+    line-height:1.16 !important;
     white-space:normal !important;
+    overflow-wrap:anywhere !important;
     overflow:visible !important;
     text-overflow:clip !important;
     opacity:1 !important;

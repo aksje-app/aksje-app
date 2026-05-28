@@ -27,3 +27,15 @@ def test_remember_token_is_not_reinserted_in_url_after_login():
     assert 'del st.query_params["remember_token"]' in auth
 
 
+def test_primary_buttons_are_normal_height_globally():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8")
+
+    assert "min-height:36px !important;" in app
+    assert "padding:.34rem .72rem !important;" in app
+    assert "overflow-wrap:anywhere !important;" in app
+    assert "min-height:50px !important;" not in app
+    assert ".ptw-control-selector-shell div[data-testid=\"stButton\"] button" in layout
+    assert "min-height: 34px !important;" in layout
+
+
