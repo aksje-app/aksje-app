@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from core_models import ServiceResult
@@ -27,6 +28,34 @@ def _clean(value: Any) -> str:
 
 def _norm_ticker(value: Any) -> str:
     return _clean(value).upper().replace(" ", "")
+
+
+INVALID_PIPELINE_TICKERS = {
+    "RAW", "RAW_DATA", "SCORE", "SCORES", "SCORE_PARTS", "SHARED_SCORE",
+    "SMART_SCORE", "AI_SCORE", "STRENGTH", "MOMENTUM_STRENGTH", "RISK",
+    "RISK_SCORE", "QUALITY_SCORE", "DATA_QUALITY", "STATUS", "SOURCE",
+    "REASON", "NOTE", "NOTES", "INPUT", "OUTPUT", "CANDIDATE", "CANDIDATES",
+    "CONTEXT", "METADATA", "CONFIG", "REQUEST", "SUMMARY", "ERRORS",
+    "EVIDENCE", "EVIDENCE_ITEMS", "POSITIONS", "HOLDINGS", "TRADES",
+}
+INVALID_PIPELINE_TICKER_FRAGMENTS = ("SCORE_PART", "MANGLER", "MISSING", "RAW_")
+
+
+def _is_valid_pipeline_ticker(value: Any) -> bool:
+    ticker = _norm_ticker(value)
+    if not ticker or ticker in INVALID_PIPELINE_TICKERS:
+        return False
+    if any(fragment in ticker for fragment in INVALID_PIPELINE_TICKER_FRAGMENTS):
+        return False
+    if len(ticker) > 18:
+        return False
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,17}", ticker):
+        return False
+    if not any(ch.isalpha() for ch in ticker):
+        return False
+    if "." not in ticker and "-" not in ticker and len(ticker) > 6:
+        return False
+    return True
 
 
 def _first(row: Mapping[str, Any], keys: Sequence[str], default: Any = None) -> Any:
@@ -311,6 +340,10 @@ def normalize_candidate_rows(
         candidate = raw.get("candidate") if isinstance(raw.get("candidate"), Mapping) else {}
         ticker = _norm_ticker(_first(raw, ("ticker", "symbol", "Ticker"), _first(candidate, ("ticker", "symbol"), "")))
         name = _clean(_first(raw, ("name", "company", "Selskap"), _first(candidate, ("name", "company"), ticker)))
+        if ticker and not _is_valid_pipeline_ticker(ticker):
+            continue
+        if not ticker and source_stage_id != "data_foundation":
+            continue
         if not ticker and not name:
             continue
         identity = f"ticker:{ticker}" if ticker else f"name:{name.lower()}"

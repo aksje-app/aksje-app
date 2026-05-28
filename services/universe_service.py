@@ -25,6 +25,28 @@ LEGACY_SEED_TICKERS = {
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
     "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO",
 }
+PIPELINE_METADATA_KEYS = {
+    "ticker", "symbol", "name", "risk", "sector", "source", "reason", "status",
+    "metadata", "config", "request", "summary", "errors", "raw", "raw_data",
+    "score", "scores", "score_parts", "shared_score", "smart_score", "ai_score",
+    "strength", "momentum_strength", "risk_score", "quality_score", "data_quality",
+    "recommended_action", "decision", "signal", "evidence", "evidence_items",
+    "context", "package", "package_id", "package_type", "stage_id", "stage_label",
+    "origin_stage_id", "source_stage_id", "source_label", "candidates", "top_picks",
+    "ranked", "ranked_rows", "shared_ranking", "shared_ranking_rows", "tickers",
+    "rows", "columns", "input", "output", "note", "notes", "market", "country",
+    "exchange", "industry", "rank", "pipeline_rank", "positions", "holdings",
+    "trades", "quantity", "qty", "price", "value", "amount",
+}
+INVALID_EXTRACTED_TICKERS = {
+    "RAW", "RAW_DATA", "SCORE", "SCORES", "SCORE_PARTS", "SHARED_SCORE",
+    "SMART_SCORE", "AI_SCORE", "STRENGTH", "MOMENTUM_STRENGTH", "RISK",
+    "RISK_SCORE", "QUALITY_SCORE", "DATA_QUALITY", "STATUS", "SOURCE",
+    "REASON", "NOTE", "NOTES", "INPUT", "OUTPUT", "CANDIDATE", "CANDIDATES",
+    "CONTEXT", "METADATA", "CONFIG", "REQUEST", "SUMMARY", "ERRORS",
+    "EVIDENCE", "EVIDENCE_ITEMS", "POSITIONS", "HOLDINGS", "TRADES",
+}
+INVALID_TICKER_FRAGMENTS = ("SCORE_PART", "MANGLER", "MISSING", "RAW_")
 ScoreProvider = Callable[[str, bool], Optional[Mapping[str, Any]]]
 
 
@@ -36,6 +58,30 @@ def _fail(message: str, status: str = "error") -> ServiceResult:
     return ServiceResult(ok=False, status=status, message=message, data={}, errors=[{"error": message}])
 
 
+def _is_valid_extracted_ticker(value: Any) -> bool:
+    ticker = normalize_ticker(value)
+    if not ticker or ticker in INVALID_EXTRACTED_TICKERS:
+        return False
+    if any(fragment in ticker for fragment in INVALID_TICKER_FRAGMENTS):
+        return False
+    if len(ticker) > 18:
+        return False
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,17}", ticker):
+        return False
+    if not any(ch.isalpha() for ch in ticker):
+        return False
+    # Long plain words without market suffix are usually field names, not symbols.
+    if "." not in ticker and "-" not in ticker and len(ticker) > 6:
+        return False
+    return True
+
+
+def _append_ticker(out: List[str], value: Any) -> None:
+    ticker = normalize_ticker(value)
+    if _is_valid_extracted_ticker(ticker) and ticker not in out:
+        out.append(ticker)
+
+
 def _extract_tickers(value: Any) -> List[str]:
     out: List[str] = []
 
@@ -44,27 +90,22 @@ def _extract_tickers(value: Any) -> List[str]:
             return
         if isinstance(v, str):
             for p in v.split(","):
-                t = normalize_ticker(p)
-                if t and t not in out:
-                    out.append(t)
+                _append_ticker(out, p)
         elif isinstance(v, Mapping):
             # Row-like dict: prefer explicit ticker/symbol and do not treat
             # fields such as risk=Lav or sector=Technology as tickers.
-            ticker = normalize_ticker(v.get("ticker") or v.get("symbol"))
-            if ticker and ticker not in out:
-                out.append(ticker)
+            _append_ticker(out, v.get("ticker") or v.get("symbol"))
 
             for k, val in v.items():
                 key = str(k).strip()
                 key_l = key.lower()
-                if key_l in {"ticker", "symbol", "name", "risk", "sector", "source", "reason", "status", "metadata", "config", "request", "summary", "errors"}:
+                if key_l in PIPELINE_METADATA_KEYS:
                     continue
 
                 # Position maps often use ticker as key: {"AAPL": {position...}}.
                 if isinstance(val, Mapping):
-                    key_ticker = normalize_ticker(key)
-                    if val and key_ticker and len(key_ticker) <= 12 and key_ticker not in {"POSITIONS", "HOLDINGS", "TRADES"} and key_ticker not in out:
-                        out.append(key_ticker)
+                    if val:
+                        _append_ticker(out, key)
                     add(val)
                 elif isinstance(val, (list, tuple, set)):
                     add(val)
@@ -91,9 +132,7 @@ def _split_ticker_text(value: Any) -> List[str]:
 def _dedupe_tickers(values: Iterable[Any]) -> List[str]:
     out: List[str] = []
     for value in values or []:
-        ticker = normalize_ticker(value)
-        if ticker and ticker not in out:
-            out.append(ticker)
+        _append_ticker(out, value)
     return out
 
 
@@ -334,7 +373,7 @@ class UniverseService:
             result = UniverseResult(
                 request=req,
                 candidates=candidates,
-                top_picks=candidates[: min(10, len(candidates))],
+                top_picks=candidates[: max_count],
                 status="ok" if candidates else "empty",
                 universe_size=len(tickers),
                 scanned=0,
@@ -425,7 +464,7 @@ class UniverseService:
             result = UniverseResult(
                 request=req,
                 candidates=candidates,
-                top_picks=candidates[: min(10, len(candidates))],
+                top_picks=candidates[: max_count],
                 status="ok" if candidates else "empty",
                 universe_size=len(tickers),
                 scanned=0,
