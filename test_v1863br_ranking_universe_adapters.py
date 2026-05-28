@@ -104,3 +104,4 @@ def test_universe_adapter_stays_pure_and_lightweight():
     for forbidden in ("streamlit", "requests", "yfinance", "score_stock", "auto_rank_market", "rank_stocks"):
         assert forbidden not in lowered
 
+

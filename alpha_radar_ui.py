@@ -688,9 +688,10 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             "Til beslutning",
             tickers,
             default=default_decision,
-            key=f"alpha_radar_decision_tickers_v1863ba_{basename}",
+            key=f"alpha_radar_decision_tickers_v1864i_{basename}",
             disabled=disabled,
-            max_selections=min(20, len(tickers)) if tickers else None,
+            max_selections=len(tickers) if tickers else None,
+            help="Kan sende alle kandidatene fra resultatet videre til Beslutningsgrunnlag.",
         )
         if st.button("Send til Beslutningsgrunnlag", key=f"alpha_radar_decision_queue_v1863ba_{basename}", disabled=disabled or not decision_tickers, use_container_width=True):
             rows = decision_source_rows_from_radar_result(result, decision_tickers)

@@ -23,7 +23,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scop
 from security_metadata import infer_security_listing, resolve_security_metadata
 
 
-assert APP_VERSION.startswith("v18.6.4h")
+assert APP_VERSION.startswith("v18.6.4i")
 assert any("Finland" in note and "Brasil" in note for note in get_app_patch_notes())
 
 assert BASE_MARKET_SCOPES == ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
@@ -86,6 +86,7 @@ assert '"Selskap"' in analysis
 assert '"Datakvalitet"' in analysis
 assert '"Ikke analysert' in analysis
 assert "Velg flere markeder uten nedtrekksmeny" in analysis
+
 
 
 

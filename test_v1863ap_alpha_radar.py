@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4h"' in version
-assert "Pipeline Bypass Status Guard" in version
+assert 'APP_VERSION = "v18.6.4i"' in version
+assert "Test1 Send Limit Guard" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -100,6 +100,9 @@ assert "bjellesau_evidence" in engine + results + early
 assert "split_ownership_evidence" in engine + early
 assert "Send til Beslutningsgrunnlag" in ui
 assert "DECISION_QUEUE_KEY" in ui
+assert "alpha_radar_decision_tickers_v1864i" in ui
+assert "max_selections=len(tickers)" in ui
+assert "max_selections=min(20" not in ui
 assert "Datakilde-status / markedstest" in ui
 assert "Test datakilder per marked" in ui
 assert "source_diagnostics" in engine + early + results
@@ -166,6 +169,7 @@ for source in [engine, ui]:
 assert "AAPL" not in engine + ui
 assert "MSFT" not in engine + ui
 assert "NVDA" not in engine + ui
+
 
 
 

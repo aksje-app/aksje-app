@@ -180,47 +180,74 @@ def _render_view(rows: Sequence[Mapping[str, Any]]) -> None:
         st.info("Ingen rader i denne visningen.")
 
 
-def _send_finansavisen_to_dataunderlag(visible_rows: Sequence[Mapping[str, Any]], status: Mapping[str, Any]) -> tuple[bool, str]:
+def _finansavisen_candidate_rows_for_tickers(visible_rows: Sequence[Mapping[str, Any]], tickers: Sequence[str]) -> list[dict[str, Any]]:
+    wanted = {str(ticker or "").strip().upper() for ticker in tickers if str(ticker or "").strip()}
+    if not wanted:
+        return []
+    rows = []
+    for item in build_finansavisen_priority_views(visible_rows, limit=1000).get("Ticker-match", []):
+        ticker = str(item.get("Ticker") or "").strip().upper()
+        if not ticker or ticker not in wanted:
+            continue
+        rows.append({
+            "ticker": ticker,
+            "name": item.get("Aksje") or ticker,
+            "score": item.get("Score") or 0,
+            "source": "Finansavisen Bjellesauer",
+            "recommended_action": "Kjor Test 2 rangering",
+            "reason": f"{item.get('Signal') or 'Finansavisen-signal'} | {item.get('Scoreforklaring') or ''}".strip(" |"),
+            "market": "",
+            "raw": dict(item),
+        })
+    return rows
+
+
+def _send_finansavisen_to_test2(
+    visible_rows: Sequence[Mapping[str, Any]],
+    status: Mapping[str, Any],
+    tickers: Sequence[str],
+    *,
+    selected_only: bool,
+) -> tuple[bool, str]:
     try:
-        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, get_analysis_pipeline_service
+        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, get_analysis_pipeline_service, stage_wizard_info
         from services.state_service import get_state_service
         from services.storage_service import get_storage_service
 
-        matched_tickers = sorted({
-            str(row.get("matched_ticker") or "").strip().upper()
-            for row in visible_rows
-            if str(row.get("matched_ticker") or "").strip()
-        })
+        candidate_rows = _finansavisen_candidate_rows_for_tickers(visible_rows, tickers)
+        if not candidate_rows:
+            return False, "Ingen tickere med match aa sende til Test 2."
+        matched_tickers = [str(row.get("ticker") or "").strip().upper() for row in candidate_rows if row.get("ticker")]
         get_analysis_pipeline_service(
             state_service=get_state_service(st.session_state),
             storage_service=get_storage_service(),
         ).save_stage_output(
             "data_foundation",
-            [{
-                "name": "Finansavisen-data oppdatert",
-                "score": 100 if int(status.get("rows") or 0) else 55,
-                "source": "Finansavisen Bjellesauer",
-                "recommended_action": "Fortsett i Dataunderlag",
-                "reason": f"{int(status.get('rows') or 0)} handler importert, {len(matched_tickers)} tickere med match.",
-            }],
+            candidate_rows,
             source_label="Finansavisen Bjellesauer",
             context={
                 "manual_checkpoint": True,
+                "send_target": "market_ranking",
+                "send_mode": "selected" if selected_only else "all",
                 "finansavisen_status": dict(status),
                 "finansavisen_matched_tickers": matched_tickers,
+                "visible_transaction_count": len(visible_rows),
             },
+            max_items=len(candidate_rows),
             auto_handoff=True,
         )
+        target = stage_wizard_info("market_ranking")
         st.session_state[PIPELINE_PENDING_NAV_KEY] = {
-            "stage_id": "data_foundation",
-            "group": "Marked og signaler",
-            "panel": "1. Dataunderlag",
-            "defaults": {},
+            "stage_id": "market_ranking",
+            "group": target.get("group") or "Marked og signaler",
+            "panel": target.get("panel_label") or "🏆 Marked/rangering",
+            "defaults": dict(target.get("defaults") or {}),
             "auto_run": False,
         }
-        return True, f"Sendte Finansavisen-status til 1. Dataunderlag ({len(matched_tickers)} tickere med match)."
+        mode_text = "valgte" if selected_only else "hele"
+        return True, f"Sendte {len(candidate_rows)} tickere fra {mode_text} Finansavisen-dataunderlag til Test 2."
     except Exception as exc:
-        return False, f"Kunne ikke sende til 1. Dataunderlag: {exc}"
+        return False, f"Kunne ikke sende Finansavisen-data til Test 2: {exc}"
 
 
 def render_finansavisen_bjellesau_panel() -> None:
@@ -350,21 +377,44 @@ def render_finansavisen_bjellesau_panel() -> None:
     st.caption(f"Viser {len(visible_rows)} av {len(rows)} lagrede handler. Periodene beholdes separat i eksport og scoring.")
     _render_view(visible_rows)
 
-    decision_options = [
+    ticker_match_rows = build_finansavisen_priority_views(visible_rows, limit=1000).get("Ticker-match", [])
+    dataunderlag_options = [
         row.get("Ticker")
-        for row in build_finansavisen_priority_views(visible_rows, limit=40).get("Ticker-match", [])
+        for row in ticker_match_rows
         if row.get("Ticker")
     ]
-    decision_defaults = decision_options[: min(8, len(decision_options))]
+    dataunderlag_options = list(dict.fromkeys(str(ticker).strip().upper() for ticker in dataunderlag_options if str(ticker).strip()))
+    default_dataunderlag_tickers = dataunderlag_options[: min(60, len(dataunderlag_options))]
+    selected_dataunderlag_tickers = st.multiselect(
+        "Velg tickere for Test 2 Marked/rangering",
+        dataunderlag_options,
+        default=default_dataunderlag_tickers,
+        key="finansavisen_bjellesau_test2_tickers_v1864f",
+        help="Bruk valgte tickere til Test 2, eller send hele filtrerte dataunderlaget med knappen under.",
+    )
+    io1, io2, io3, io4 = st.columns(4)
+    io1.metric("Input Finansavisen", f"{len(visible_rows)} handler")
+    io2.metric("Tickere med match", len(dataunderlag_options))
+    io3.metric("Valgt til Test 2", len(selected_dataunderlag_tickers))
+    io4.metric("Output til Test 2", f"{len(selected_dataunderlag_tickers)} valgt / {len(dataunderlag_options)} hele")
+
+    decision_options = [
+        row.get("Ticker")
+        for row in ticker_match_rows
+        if row.get("Ticker")
+    ]
+    decision_options = list(dict.fromkeys(str(ticker).strip().upper() for ticker in decision_options if str(ticker).strip()))
+    decision_defaults = decision_options[: min(20, len(decision_options))]
     selected_decision_tickers = st.multiselect(
         "Velg tickere for direkte Test 8 Beslutningsgrunnlag",
         decision_options,
         default=decision_defaults,
-        key="finansavisen_bjellesau_decision_tickers_v1863bm",
-        max_selections=min(20, len(decision_options)) if decision_options else None,
+        key="finansavisen_bjellesau_decision_tickers_v1864i",
+        max_selections=len(decision_options) if decision_options else None,
+        help="Kan velge alle matchede tickere fra visningen. Standard er foerste 20 for aa unngaa utilsiktet stor ko.",
     )
 
-    c_exp1, c_exp2, c_exp3, c_exp4, c_data, c_decision, c_clear = st.columns([1, 1, 1, 1, 1.25, 1.35, 1.25])
+    c_exp1, c_exp2, c_exp3, c_exp4 = st.columns(4)
     with c_exp1:
         st.download_button(
             "Last ned CSV",
@@ -397,15 +447,30 @@ def render_finansavisen_bjellesau_panel() -> None:
             mime="application/pdf",
             use_container_width=True,
         )
-    with c_data:
+    c_selected, c_all, c_decision, c_clear = st.columns([1.2, 1.2, 1.35, 1.1])
+    with c_selected:
         if st.button(
-            "Send til 1. Dataunderlag",
-            key="finansavisen_bjellesau_send_dataunderlag_v1863ca",
+            "Send valgte tickere til Test 2 Marked/rangering",
+            key="finansavisen_bjellesau_send_selected_test2_v1864i",
             use_container_width=True,
             type="primary",
-            disabled=not bool(visible_rows),
+            disabled=not bool(selected_dataunderlag_tickers),
         ):
-            ok, msg = _send_finansavisen_to_dataunderlag(visible_rows, status)
+            ok, msg = _send_finansavisen_to_test2(visible_rows, status, selected_dataunderlag_tickers, selected_only=True)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.warning(msg)
+    with c_all:
+        if st.button(
+            "Send hele dataunderlaget til Test 2 Marked/rangering",
+            key="finansavisen_bjellesau_send_all_test2_v1864i",
+            use_container_width=True,
+            type="primary",
+            disabled=not bool(dataunderlag_options),
+        ):
+            ok, msg = _send_finansavisen_to_test2(visible_rows, status, dataunderlag_options, selected_only=False)
             if ok:
                 st.success(msg)
                 st.rerun()
@@ -414,11 +479,11 @@ def render_finansavisen_bjellesau_panel() -> None:
     with c_decision:
         if st.button(
             "Send direkte til Test 8 Beslutningsgrunnlag",
-            key="finansavisen_bjellesau_send_decision_v1863bm",
+            key="finansavisen_bjellesau_send_decision_v1864i",
             use_container_width=True,
             disabled=not selected_decision_tickers,
         ):
-            decision_rows = decision_rows_from_finansavisen(visible_rows, selected_decision_tickers, limit=20)
+            decision_rows = decision_rows_from_finansavisen(visible_rows, selected_decision_tickers, limit=len(selected_decision_tickers))
             current = st.session_state.get(DECISION_QUEUE_KEY, [])
             st.session_state[DECISION_QUEUE_KEY] = add_decision_rows(current, decision_rows)
             st.success(f"Sendte {len(decision_rows)} Finansavisen-signaler til Beslutningsgrunnlag.")

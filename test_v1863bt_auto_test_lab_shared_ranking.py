@@ -138,3 +138,4 @@ def test_auto_test_lab_shared_ranking_static_guards():
     assert "if run_clicked:" in block
     assert block.find("run_auto_test_lab(") > block.find("if run_clicked:")
 
+

@@ -97,3 +97,4 @@ def test_actor_registry_ui_roles_search_sort_and_privacy_static_guards():
     assert "En aktør kan ha flere roller" in ui or "En aktÃ¸r kan ha flere roller" in ui
     assert "st.data_editor" not in ui
 
+

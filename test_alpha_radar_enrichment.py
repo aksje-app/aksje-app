@@ -81,3 +81,4 @@ def test_macro_theme_inference_uses_second_order_sector_text():
     themes = infer_macro_themes({"ticker": "SHIP.ST", "name": "Nordic Shipping", "industry": "Dry bulk shipping"})
     assert "shipping" in themes
 
+

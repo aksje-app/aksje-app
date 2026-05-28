@@ -53,3 +53,4 @@ def test_picker_empty_scope_stays_empty(tmp_path):
     assert resolved.status == "empty"
     assert resolved.data["tickers"] == []
 
+

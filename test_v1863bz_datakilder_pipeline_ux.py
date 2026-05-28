@@ -18,8 +18,9 @@ def test_datakilder_is_the_first_pipeline_stage_name():
 def test_control_center_has_clickable_pipeline_shortcuts_and_synced_active_stage():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8")
 
-    assert "Start her: 1. Dataunderlag" in layout
+    assert "Start her: 1. Dataunderlag" not in layout
     assert "analysis_pipeline_shortcut_" in layout
+    assert "analysis_pipeline_shortcut_{stage_id}_v1863bz" in layout
     assert "analysis_pipeline_active_stage_v1863bz" in layout
     assert "pending_nav_sync" in layout
     assert "ai_control_center_panel_radio_v1863aj_" in layout
@@ -52,11 +53,13 @@ def test_finansavisen_dataunderlag_sends_to_test2_not_same_stage():
 
     assert "Input Finansavisen" in finance_ui
     assert "Output til Test 2" in finance_ui
-    assert "Send valgt dataunderlag til Test 2" in finance_ui
-    assert "Send hele dataunderlaget til Test 2" in finance_ui
+    assert "Send valgte tickere til Test 2 Marked/rangering" in finance_ui
+    assert "Send hele dataunderlaget til Test 2 Marked/rangering" in finance_ui
     assert "stage_wizard_info(\"market_ranking\")" in finance_ui
     assert '"stage_id": "market_ranking"' in finance_ui
     assert "finansavisen_bjellesau_send_dataunderlag_v1863ca" not in finance_ui
+    assert "finansavisen_bjellesau_send_selected_test2_v1864i" in finance_ui
+    assert "finansavisen_bjellesau_send_all_test2_v1864i" in finance_ui
     assert "Send til 1. Dataunderlag" not in finance_ui
     assert "data_foundation_tickers" in app
     assert "source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]" in app
@@ -65,9 +68,10 @@ def test_finansavisen_dataunderlag_sends_to_test2_not_same_stage():
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4h"' in version
-    assert "Pipeline Bypass Status Guard" in version
-    assert "hurtigtaster for Test 1-10" in version
+    assert 'APP_VERSION = "v18.6.4i"' in version
+    assert "Test1 Send Limit Guard" in version
+    assert "Test 1-10-knappene er naa eneste pipeline-hurtigvalg" in version
+
 
 
 

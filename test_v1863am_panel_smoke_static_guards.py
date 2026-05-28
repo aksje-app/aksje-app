@@ -42,3 +42,4 @@ for source in [daily, forecast, analysis, layout]:
     assert "background-color:white" not in lowered
     assert "height:100vh" not in lowered
 
+

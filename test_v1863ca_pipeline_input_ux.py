@@ -24,10 +24,11 @@ def test_finansavisen_sends_dataunderlag_to_test2_before_test8_shortcut():
     assert "def _send_finansavisen_to_test2" in ui
     assert "Input Finansavisen" in ui
     assert "Output til Test 2" in ui
-    assert "Send valgt dataunderlag til Test 2" in ui
-    assert "Send hele dataunderlaget til Test 2" in ui
+    assert "Send valgte tickere til Test 2 Marked/rangering" in ui
+    assert "Send hele dataunderlaget til Test 2 Marked/rangering" in ui
     assert '"stage_id": "market_ranking"' in ui
     assert "Send direkte til Test 8 Beslutningsgrunnlag" in ui
+    assert "max_selections=len(decision_options)" in ui
 
 
 def test_marked_room_groups_market_tools_behind_toolbar():
@@ -64,4 +65,5 @@ def test_known_us_names_are_resolved_in_quick_cards():
 
     assert '"MO": {"name": "Altria Group, Inc."' in metadata
     assert '"AKAM": {"name": "Akamai Technologies, Inc."' in metadata
+
 

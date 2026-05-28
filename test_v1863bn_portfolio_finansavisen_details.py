@@ -30,3 +30,4 @@ def test_paper_trading_portfolio_ui_uses_full_portfolio_without_limit_slider():
     for module in ["app.py", "portfolio_mixed_analyzer.py", "finansavisen_bjellesau.py", "finansavisen_bjellesau_ui.py"]:
         py_compile.compile(module, doraise=True)
 
+

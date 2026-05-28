@@ -63,3 +63,4 @@ def test_single_brazil_scope_can_request_more_than_old_25_cap():
     assert len(tickers) > 25
     assert all(ticker.endswith(".SA") for ticker in tickers)
 
+

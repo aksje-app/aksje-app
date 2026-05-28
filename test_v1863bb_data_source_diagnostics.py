@@ -128,3 +128,4 @@ def test_probe_market_data_sources_classifies_errors_and_empty_results():
     assert "ticker/marked ikke stottet" in rows[1]["Forklaring"]
     assert "API-nokkel mangler" in rows[0]["Forklaring"]
 
+

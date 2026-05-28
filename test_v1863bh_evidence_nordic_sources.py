@@ -105,3 +105,4 @@ def test_source_budget_and_actor_registry_editor_static_guards():
     assert "Velg aktør å redigere" in ui or "Velg aktÃ¸r Ã¥ redigere" in ui
     assert "Raske alias-forslag" in ui
 
+

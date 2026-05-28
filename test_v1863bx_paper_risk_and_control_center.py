@@ -118,6 +118,8 @@ def test_control_center_shows_datakilder_as_visible_start():
     text = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 
     assert "_render_pipeline_quick_start_v1863bx" in text
-    assert '"Start her: 1. Dataunderlag"' in text
+    assert '"Start her: 1. Dataunderlag"' not in text
+    assert "analysis_pipeline_shortcut_{stage_id}_v1863bz" in text
     assert '"Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1"' in text
+
 

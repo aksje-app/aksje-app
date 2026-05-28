@@ -45,3 +45,4 @@ def test_trade_log_labels_paper_actions():
     assert rows[0]["reason"].startswith(("PAPER-KJØP", "PAPER-KJÃ˜P"))
     assert rows[1]["type"] == "PAPER-SALG"
 
+

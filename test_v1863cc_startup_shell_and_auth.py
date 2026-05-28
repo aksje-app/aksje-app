@@ -26,3 +26,4 @@ def test_remember_token_is_not_reinserted_in_url_after_login():
     assert 'window.parent.history.replaceState(null, "", parentUrl.toString())' in auth
     assert 'del st.query_params["remember_token"]' in auth
 
+

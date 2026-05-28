@@ -75,3 +75,4 @@ def test_auto_test_lab_ui_shows_static_audit_without_moving_run_gate():
     assert "st.expander(\"Modul-overlapp / sammenslaing\"" in segment
 
 
+

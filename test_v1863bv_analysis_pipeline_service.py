@@ -229,3 +229,4 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "mixed_portfolio_max_rows_v18544" in app_source
     assert "_clamp_slider_state_v1864e" in smart_source
 
+

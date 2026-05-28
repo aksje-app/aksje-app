@@ -1705,24 +1705,12 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
         """,
         unsafe_allow_html=True,
     )
-    c_start, c_flow = st.columns([0.34, 0.66])
-    with c_start:
-        if st.button("Start her: 1. Dataunderlag", key="analysis_pipeline_quick_start_v1863bx", use_container_width=True, type="primary"):
-            st.session_state["analysis_pipeline_pending_nav_v1863bw"] = {
-                "stage_id": "data_foundation",
-                "group": "Marked og signaler",
-                "panel": data_panel,
-                "defaults": {},
-                "auto_run": False,
-            }
-            st.rerun()
-    with c_flow:
-        st.markdown(
-            "<div style='display:flex;gap:.34rem;flex-wrap:wrap;align-items:center;margin:.12rem 0 .3rem 0;'>"
-            + "".join(chips)
-            + "</div>",
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        "<div style='display:flex;gap:.34rem;flex-wrap:wrap;align-items:center;margin:.12rem 0 .3rem 0;'>"
+        + "".join(chips)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
     st.caption("Hurtigtaster: åpner valgt steg og setter standardvalg, men starter ikke tunge analyser.")
     shortcut_cols = st.columns(5)
     for idx, stage in enumerate(stages[:10], start=1):

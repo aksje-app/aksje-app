@@ -56,3 +56,4 @@ def test_top_picks_control_center_remains_button_gated():
     assert "if run_clicked and source_tickers:" in block
     assert block.find("cached_auto_rank_market") > block.find("if run_clicked and source_tickers:")
 
+

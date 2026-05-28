@@ -22,3 +22,4 @@ def test_testing_learning_is_manual_ticker_input_not_seed_dropdown():
     assert 'st.selectbox("Ticker for testing"' not in text
     assert 'def render_strategy_testing_workspace(ticker: str = "")' in text
 
+

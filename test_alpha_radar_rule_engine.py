@@ -130,3 +130,4 @@ def test_no_heavy_calls_before_explicit_buttons_static_guard():
     stop_pos = app.find("st.stop()", control_center_pos)
     assert 0 < control_center_pos < finish_pos < stop_pos
 
+

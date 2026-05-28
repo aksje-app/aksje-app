@@ -195,3 +195,4 @@ def test_actor_registry_csv_roundtrip_and_financial_search_plan():
     assert result["articles"]
     assert result["insider_evidence"]
 
+

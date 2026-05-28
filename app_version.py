@@ -1,9 +1,13 @@
-﻿APP_VERSION = "v18.6.4h"
-APP_VERSION_NAME = "Pipeline Bypass Status Guard"
-APP_BUILD_ID = "v1864h-pipeline-bypass-status"
+﻿APP_VERSION = "v18.6.4i"
+APP_VERSION_NAME = "Test1 Send Limit Guard"
+APP_BUILD_ID = "v1864i-test1-send-limit"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Fjernet den doble Start her: 1. Dataunderlag-knappen; Test 1-10-knappene er naa eneste pipeline-hurtigvalg.",
+    "Finansavisen-knappene sier eksplisitt Test 2 Marked/rangering og bruker nye widget-nokler slik at gamle Streamlit-knapper ikke henger igjen.",
+    "Direkte Test 8-valg fra Finansavisen kan naa velge alle matchede tickere i visningen, ikke et gammelt 20/60-tak.",
+    "Alpha Radar-beslutningsvalg kan naa sende alle kandidater i resultatet videre til Beslutningsgrunnlag.",
     "Pipelinebaren kan naa sende raa input videre naar en test har input men 0 funn, slik at flyten ikke stopper i Test 3-8.",
     "Input/output-tall viser effektiv input for Portefoljeanalyse og Paper Trading naar resultatpakken allerede finnes.",
     "Alpha Radar og Early Warning V1 synker naa aktivt steg riktig i hovedflyten naar du bytter sokemotor.",
@@ -158,4 +162,5 @@ def get_app_version_label():
 
 def get_app_patch_notes():
     return list(APP_PATCH_NOTES)
+
 

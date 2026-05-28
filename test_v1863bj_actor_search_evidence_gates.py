@@ -150,3 +150,4 @@ def test_open_web_budget_and_modules_compile():
     budget = estimate_source_budget(planned_tickers=25, source_values={"news": True, "insider": True})
     assert budget["open_web_gdelt_calls"] == 75
 
+
