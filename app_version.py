@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.4m"
-APP_VERSION_NAME = "AI Candidate Cockpit"
-APP_BUILD_ID = "v1864m-ai-candidate-cockpit"
+APP_VERSION = "v18.6.4n"
+APP_VERSION_NAME = "AI Candidate Hub"
+APP_BUILD_ID = "v1864n-ai-candidate-hub"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest er naa eget hovedvalg i Kontrollsenteret og aapner kandidatesten direkte.",
+    "Dataunderlag, Aktoerregister, Oljefond/NBIM, Finansavisen, Folketrygdfondet og Alpha Radar ligger samlet som kilder og stottepaneler under AI Kandidattest.",
+    "Folketrygdfondet-importen er registrert i riktig menygruppe slik at XLS-knappen aapner importpanelet i stedet for aa falle tilbake til start.",
+    "Den gamle flyt-etiketten er erstattet av Analyseflyt i kontrollsenteret.",
     "AI Kandidattest er videreutviklet til kandidat-cockpit med Land, faktisk Marked, Bors og valgt Univers per rad.",
     "AI Kandidattest viser Kildestyrke, Endring fra forrige kjoring og en kort Forklaring per kandidat.",
     "AI Kandidattest har valg-tabell med avhuking og kan sende valgte kandidater til Top Picks, Beslutningsgrunnlag, Paper Trading eller Watchlist.",
@@ -15,7 +19,7 @@ APP_PATCH_NOTES = [
     "Yfinance-cache legges i lokal arbeidsmappe for aa unngaa databasefeil ved webkjoring.",
     "Appen starter naa med Ingen valgt i Kontrollsenteret i stedet for aa aapne Marked automatisk.",
     "Sidepanelets Visning-valg er fjernet fordi Kompakt og Full var like i praksis.",
-    "Testflyt-hovedvalg med bare ett relevant panel aapner panelet direkte uten ekstra undermeny.",
+    "Analyseflyt-hovedvalg med bare ett relevant panel aapner panelet direkte uten ekstra undermeny.",
     "Interaktiv ticker-input ryddes ikke lenger bort av gammel demo-/seed-cleanup.",
     "Test 1 behandler naa Finansavisen, Oljefond/NBIM og Folketrygdfondet som datakilder/overlays, ikke som raa filer som sendes gjennom hele Test 1-10-flyten.",
     "Folketrygdfondet har nytt importpanel for .xls/.xlsx som bygger institusjonelt eier-overlay til senere tester.",
@@ -27,7 +31,7 @@ APP_PATCH_NOTES = [
     "Finansavisen-import har bare avhuking for Aktorregister-synk; den dupliserte Synk lagret import-knappen er fjernet.",
     "Smart AI har bare en Kjor Smart AI-utvalg-knapp i selve Smart AI-utvalg-seksjonen; flytbaren viser status og viderevalg.",
     "Analyseunivers forklarer standardverdiene for Top Picks-score og momentum/strength-filter direkte ved sliderne.",
-    "Kontrollsenteret viser en egen Testflyt-meny for aktivt steg, slik at relevante paneler/tester ligger samlet uten aa blande inn alt annet som standard.",
+    "Kontrollsenteret viser en egen Analyseflyt-meny for aktivt steg, slik at relevante paneler/tester ligger samlet uten aa blande inn alt annet som standard.",
     "Smart AI/Top Picks-resultater respekterer valgt maks-antall i stedet for skjulte 10/15-grenser.",
     "Fjernet den doble Start her: 1. Dataunderlag-knappen; Test 1-10-knappene er naa eneste pipeline-hurtigvalg.",
     "Finansavisen-knappene sier eksplisitt Test 2 Marked/rangering og bruker nye widget-nokler slik at gamle Streamlit-knapper ikke henger igjen.",

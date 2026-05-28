@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -13,8 +13,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4m"' in version
-    assert "AI Candidate Cockpit" in version
+    assert 'APP_VERSION = "v18.6.4n"' in version
+    assert "AI Candidate Hub" in version
     assert "AI Kandidattest samler fersk kandidatfangst" in version
     assert "printvennlig HTML" in version
 
@@ -45,7 +45,13 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
 
     active_layout_block = layout[layout.index("def _render_ai_control_center_v1863aj") :]
     assert '"ai kandidattest", "kandidattest"' in active_layout_block
-    assert "Testflyt-valg med bare ett relevant panel" in layout
+    assert "AI Kandidattest er hovedarbeidsflaten" in layout
+    assert "AI Kandidattest: analyse, kilder og radarer" in layout
+    assert 'ai_candidate_group_name = "AI Kandidattest"' in active_layout_block
+    assert "selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels" in active_layout_block
+    assert '"folketrygdfondet"' in active_layout_block
+    assert '_matching_panel_labels("finansavisen", "bjellesauer", "folketrygdfondet")' in active_layout_block
+    assert "Testflyt" not in layout
     assert "if len(direct_panels) == 1:" in layout
     assert "if len(direct_panels) > 1:" in layout
     assert 'pending_nav_sync["group"] = stage_group_name' in active_layout_block

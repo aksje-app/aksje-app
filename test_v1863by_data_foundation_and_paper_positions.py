@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from paper_trading_valuation import paper_position_rows, paper_trade_rows
 
@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4m"' in version
-    assert "AI Candidate Cockpit" in version
+    assert 'APP_VERSION = "v18.6.4n"' in version
+    assert "AI Candidate Hub" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():

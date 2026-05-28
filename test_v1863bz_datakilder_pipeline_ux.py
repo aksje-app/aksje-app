@@ -79,8 +79,8 @@ def test_finansavisen_import_uses_one_actor_sync_control():
 def test_version_records_datakilder_pipeline_shortcuts():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4m"' in version
-    assert "AI Candidate Cockpit" in version
+    assert 'APP_VERSION = "v18.6.4n"' in version
+    assert "AI Candidate Hub" in version
     assert "Folketrygdfondet har nytt importpanel" in version
 
 
