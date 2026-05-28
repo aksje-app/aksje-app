@@ -4,18 +4,21 @@
 ROOT = Path(__file__).resolve().parent
 
 
-def test_startup_defaults_to_marked_room_and_hides_drift_controls():
+def test_startup_defaults_to_no_selected_panel_and_hides_drift_controls():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8")
 
-    assert '"ai_control_center_active_panel_v1863aj"] = "Marked"' in app
-    assert '"ai_control_center_group_v1863aj"] = "Marked og signaler"' in app
+    assert 'st.session_state.setdefault("ai_control_center_active_panel_v1863aj", "")' in app
+    assert 'st.session_state.setdefault("ai_control_center_group_v1863aj", "")' in app
+    startup_block = app[app.index("ai_control_center_landed_default_v1864l") - 250 : app.index("ai_control_center_landed_default_v1864l") + 420]
+    assert '"Marked"' not in startup_block
+    assert "Marked og signaler" not in startup_block
     assert "Drift: vis Start/Stopp/Global" in app
-    assert "Vanlig arbeid starter i Marked/Testflyt" in app
+    assert "Vanlig arbeid starter uten valgt panel" in app
     assert "show_drift_controls_v1863cc" in app
     assert "render_global_update_action_panel_v1863g()" in app
     assert "if bool(globals().get(\"show_drift_controls_v1863cc\", False))" in app
-    assert "Marked åpnes som standard arbeidsflate" in layout or "Marked Ã¥pnes som standard arbeidsflate" in layout
+    assert "Starttilstand er Ingen valgt" in layout
 
 
 def test_remember_token_is_not_reinserted_in_url_after_login():

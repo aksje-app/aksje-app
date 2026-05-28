@@ -1,9 +1,18 @@
-APP_VERSION = "v18.6.4k"
-APP_VERSION_NAME = "Source Foundation Contract"
-APP_BUILD_ID = "v1864k-source-foundation-contract"
+APP_VERSION = "v18.6.4l"
+APP_VERSION_NAME = "Unified AI Candidate Test"
+APP_BUILD_ID = "v1864l-unified-ai-candidate-test"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest samler fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport i ett hovedpanel.",
+    "AI Kandidattest lagrer siste analyseresultat og tilbyr CSV, JSON og printvennlig HTML som kan lagres til PDF.",
+    "AI Kandidattest viser datakildestatus slik at ferske markedskjøringer skilles fra lokale importerte overlay-data.",
+    "AI Kandidattest tilbyr eksport og printvennlig rapport ogsaa naar en kjoring ender med 0 kandidater.",
+    "Yfinance-cache legges i lokal arbeidsmappe for aa unngaa databasefeil ved webkjoring.",
+    "Appen starter naa med Ingen valgt i Kontrollsenteret i stedet for aa aapne Marked automatisk.",
+    "Sidepanelets Visning-valg er fjernet fordi Kompakt og Full var like i praksis.",
+    "Testflyt-hovedvalg med bare ett relevant panel aapner panelet direkte uten ekstra undermeny.",
+    "Interaktiv ticker-input ryddes ikke lenger bort av gammel demo-/seed-cleanup.",
     "Test 1 behandler naa Finansavisen, Oljefond/NBIM og Folketrygdfondet som datakilder/overlays, ikke som raa filer som sendes gjennom hele Test 1-10-flyten.",
     "Folketrygdfondet har nytt importpanel for .xls/.xlsx som bygger institusjonelt eier-overlay til senere tester.",
     "Test 3 viser en aktiv Fortsett med raa input fra Test 2-knapp naar Smart AI-filteret gir 0 funn, slik at Test 4 ikke blir visuelt skjult.",
@@ -56,7 +65,7 @@ APP_PATCH_NOTES = [
     "Analyseflyt-statusen er ryddet til en hovedtabell og en lukket detaljvisning, slik at samme stegstatus ikke vises dobbelt.",
     "Pipeline-linjen i Test 2-10 viser naa forrige steg, input/output-status og send-videre-knapp; den gamle midtknappen for aa aapne samme test med standardvalg er fjernet.",
     "Nytt Marked-rom samler marked, chart-valg, gruppering, periode og visning i en terminal-lignende toolbar med Oversikt, Rangering, Heatmap, Regime, Makro og Nyheter.",
-    "Oppstarten gaar naa rett til Marked som standard arbeidsflate, mens Start/Pause/Stopp og Global oppdatering skjules bak drift-valg i sidepanelet.",
+    "Start/Pause/Stopp og Global oppdatering skjules bak drift-valg i sidepanelet.",
     "Husk-meg-token lagres i browser storage uten aa bli liggende synlig som remember_token i adresselinjen.",
     "Test 3 Smart AI-filter velger Analyseflyt input automatisk naar Test 2 har sendt kandidater videre, og videre-knapper viser antall kandidater som sendes.",
     "Test 2 Marked/rangering har synlig progress med faser for univers, data/cache, lagring og ferdig kandidatpakke.",

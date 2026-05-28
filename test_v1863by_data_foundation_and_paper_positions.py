@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4k"' in version
-    assert "Source Foundation Contract" in version
+    assert 'APP_VERSION = "v18.6.4l"' in version
+    assert "Unified AI Candidate Test" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():

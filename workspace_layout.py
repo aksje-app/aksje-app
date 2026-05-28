@@ -1103,7 +1103,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         # Build groups from the actual panel labels. This avoids the mobile/encoding
         # fallback where "Marked og signaler" only showed normal hovedpanel.
         group_map = {
-            "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
+            "Analyse og prognose": _matching_panel_labels("ai kandidattest", "kandidattest", "analyseunivers", "prognose", "daily report", "interaktiv analyse"),
             "Marked og signaler": _matching_panel_labels("top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist"),
             "Testing og portefølje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
@@ -1360,7 +1360,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
             return out
 
         group_map = {
-            "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
+            "Analyse og prognose": _matching_panel_labels("ai kandidattest", "kandidattest", "analyseunivers", "prognose", "daily report", "interaktiv analyse"),
             "Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
@@ -1550,7 +1550,7 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
             return out
 
         group_map = {
-            "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
+            "Analyse og prognose": _matching_panel_labels("ai kandidattest", "kandidattest", "analyseunivers", "prognose", "daily report", "interaktiv analyse"),
             "Marked og signaler": _matching_panel_labels("top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
@@ -1811,7 +1811,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             return out
 
         group_map = {
-            "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
+            "Analyse og prognose": _matching_panel_labels("ai kandidattest", "kandidattest", "analyseunivers", "prognose", "daily report", "interaktiv analyse"),
             "Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
@@ -1836,6 +1836,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
 
         pending_nav = st.session_state.pop("analysis_pipeline_pending_nav_v1863bw", None)
         pending_nav_sync: dict[str, str] = {}
+        pending_stage = ""
         if isinstance(pending_nav, dict):
             for key, value in (pending_nav.get("defaults") or {}).items():
                 if key:
@@ -1863,6 +1864,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 pass
             stage_group_name = f"Testflyt: {stage_label}"
             group_map = {stage_group_name: stage_relevant_labels, **group_map}
+            if pending_nav_sync and pending_stage == active_stage_hint and pending_nav_sync.get("panel") in stage_relevant_labels:
+                st.session_state["ai_control_center_group_v1863aj"] = stage_group_name
+                pending_nav_sync["group"] = stage_group_name
 
         group_options = ["Ingen valgt"] + [f"{name} ({len([x for x in labels if x in panel_map])})" for name, labels in group_map.items()]
         group_by_option = {"Ingen valgt": ""}
@@ -1902,8 +1906,8 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 <div>
                   <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
                   <div class="ptw-control-title">AI Kontrollsenter</div>
-                  <div class="ptw-control-caption">Marked åpnes som standard arbeidsflate. Velg hovedområde og funksjon når du vil bytte rom.</div>
-                  <div class="ptw-control-caption">Aktiv test viser en egen Testflyt-meny med de panelene som faktisk hører til steget. Øvrige paneler ligger fortsatt i hovedgruppene.</div>
+                  <div class="ptw-control-caption">Starttilstand er Ingen valgt. Velg hovedområde for aa åpne relevant arbeidsflate.</div>
+                  <div class="ptw-control-caption">Testflyt-valg med bare ett relevant panel åpnes direkte uten ekstra undermeny.</div>
                 </div>
                 <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Ingen valgt"))}</div>
               </div>
@@ -1934,26 +1938,34 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             st.session_state["ai_control_center_group_v1863aj"] = selected_group
             st.session_state["ai_control_center_active_panel_v1863aj"] = ""
             current_group = selected_group
+            direct_panels = [label for label in group_map.get(selected_group, []) if label in panel_map]
+            if len(direct_panels) == 1:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0]
 
         active_label = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
         if selected_group:
-            panel_options = ["Ingen valgt"] + [label for label in group_map.get(selected_group, []) if label in panel_map]
+            direct_panels = [label for label in group_map.get(selected_group, []) if label in panel_map]
+            if len(direct_panels) == 1:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0]
+                active_label = direct_panels[0]
+            panel_options = ["Ingen valgt"] + direct_panels
             current_panel_option = active_label if active_label in panel_options else "Ingen valgt"
-            st.markdown(
-                f"<div class='ptw-control-submenu'><div class='ptw-control-submenu-title'>Undermeny: {html.escape(selected_group)}</div>",
-                unsafe_allow_html=True,
-            )
-            selected_panel = st.radio(
-                "Velg funksjon",
-                panel_options,
-                index=panel_options.index(current_panel_option),
-                horizontal=True,
-                key=f"ai_control_center_panel_radio_v1863aj_{selected_group}",
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-            if selected_panel != current_panel_option:
-                st.session_state["ai_control_center_active_panel_v1863aj"] = "" if selected_panel == "Ingen valgt" else selected_panel
-                active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
+            if len(direct_panels) > 1:
+                st.markdown(
+                    f"<div class='ptw-control-submenu'><div class='ptw-control-submenu-title'>Undermeny: {html.escape(selected_group)}</div>",
+                    unsafe_allow_html=True,
+                )
+                selected_panel = st.radio(
+                    "Velg funksjon",
+                    panel_options,
+                    index=panel_options.index(current_panel_option),
+                    horizontal=True,
+                    key=f"ai_control_center_panel_radio_v1863aj_{selected_group}",
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
+                if selected_panel != current_panel_option:
+                    st.session_state["ai_control_center_active_panel_v1863aj"] = "" if selected_panel == "Ingen valgt" else selected_panel
+                    active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
 
         st.markdown("</div>", unsafe_allow_html=True)
 

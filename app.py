@@ -10,6 +10,7 @@ if _render_root not in _render_sys.path:
 from ui_components import market_pulse, top_movers
 import os
 import re
+import json
 import streamlit as st
 from sticky_topbar import render_sticky_topbar
 from workspace_layout import inject_workspace_css, render_workspace_title, render_ai_control_center
@@ -3619,20 +3620,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V14.5 / v18.5.74: Global visningsmodus.
-# Normal og Full var identiske i praksis. Behold bare Kompakt/Full og migrer gammel normal-state til Full.
-if str(st.session_state.get("global_view_mode_v145", "")).lower() == "normal":
-    st.session_state["global_view_mode_v145"] = "Full"
-APP_VIEW_MODE = st.sidebar.radio(
-    "Visning",
-    ["Kompakt", "Full"],
-    index=1,
-    horizontal=False,
-    key="global_view_mode_v145",
-    help="Kompakt gir mindre scrolling. Full viser alle detaljer.",
-)
+# V18.6.4l: Kompakt/Full var likt i praksis. Ikke vis et valg som ikke endrer arbeidsflyten.
+st.session_state["global_view_mode_v145"] = "Full"
+APP_VIEW_MODE = "Full"
 st.session_state["app_view_mode"] = APP_VIEW_MODE
-st.sidebar.markdown(f"<div class='view-mode-status'>Aktiv: {APP_VIEW_MODE}</div>", unsafe_allow_html=True)
 st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
 
 if APP_VIEW_MODE == "Kompakt":
@@ -5708,7 +5699,7 @@ def _legacy_seed_only_v1863t(value) -> bool:
 def _cleanup_legacy_session_seed_data_v1863t() -> None:
     """Ignore old demo/seed data so it cannot masquerade as current market data."""
     try:
-        for key in ["latest_watchlist_tickers_v156", "watchlist", "watchlist_items", "search_main_v157", "cc_interactive_ticker_v18535"]:
+        for key in ["latest_watchlist_tickers_v156", "watchlist", "watchlist_items", "search_main_v157"]:
             if _legacy_seed_only_v1863t(st.session_state.get(key)):
                 st.session_state[key] = "" if "ticker" in key or key == "search_main_v157" else []
 
@@ -7775,7 +7766,7 @@ show_drift_controls_v1863cc = st.sidebar.checkbox(
     key="show_drift_controls_v1863cc",
     help="Skjuler Start/Pause/Stopp og Global oppdatering fra startbildet. Bruk ved drift/admin.",
 )
-st.sidebar.caption("Vanlig arbeid starter i Marked/Testflyt. Driftkontroller er skjult til du trenger dem.")
+st.sidebar.caption("Vanlig arbeid starter uten valgt panel. Driftkontroller er skjult til du trenger dem.")
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -11170,9 +11161,313 @@ def render_analysis_pipeline_control_center_v1863bv():
         for line in standard_report_outline(selected_stage):
             st.markdown(f"- {html.escape(str(line))}")
 
+
+def _ai_candidate_dedupe_tickers_v1864l(values) -> list[str]:
+    out, seen = [], set()
+    for raw in values or []:
+        ticker = normalize_user_ticker(raw)
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(ticker)
+    return out
+
+
+def _ai_candidate_import_tickers_v1864l(source: str) -> list[str]:
+    source = str(source or "")
+    tickers: list[str] = []
+    if source in {"Finansavisen", "Kombiner kilder"}:
+        try:
+            from finansavisen_bjellesau import build_finansavisen_overlay
+
+            tickers.extend(list((build_finansavisen_overlay() or {}).keys()))
+        except Exception:
+            pass
+    if source in {"Oljefond/NBIM", "Kombiner kilder"}:
+        try:
+            from nbim_radar import load_nbim_overlay
+
+            tickers.extend(list((load_nbim_overlay() or {}).keys()))
+        except Exception:
+            pass
+    if source in {"Folketrygdfondet", "Kombiner kilder"}:
+        try:
+            from folketrygdfondet import load_folketrygdfondet_overlay
+
+            tickers.extend(list((load_folketrygdfondet_overlay() or {}).keys()))
+        except Exception:
+            pass
+    return _ai_candidate_dedupe_tickers_v1864l(tickers)
+
+
+def _ai_candidate_source_tickers_v1864l(source: str, market: str, limit: int, manual_text: str = "") -> list[str]:
+    source = str(source or "Marked")
+    limit = max(1, min(int(limit or 30), 250))
+    if source == "Manuell liste":
+        return _parse_control_center_tickers_v1863s(manual_text)[:limit]
+    if source == "Kombiner kilder":
+        market_tickers = resolve_universe_tickers([market], max_count=limit)
+        import_tickers = _ai_candidate_import_tickers_v1864l(source)
+        return _ai_candidate_dedupe_tickers_v1864l(import_tickers + market_tickers)[:limit]
+    if source in {"Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"}:
+        return _ai_candidate_import_tickers_v1864l(source)[:limit]
+    return resolve_universe_tickers([market], max_count=limit)
+
+
+def _ai_candidate_overlay_maps_v1864l() -> dict:
+    maps = {"finansavisen": {}, "nbim": {}, "folketrygdfondet": {}}
+    try:
+        from finansavisen_bjellesau import build_finansavisen_overlay
+
+        maps["finansavisen"] = build_finansavisen_overlay() or {}
+    except Exception:
+        pass
+    try:
+        from nbim_radar import load_nbim_overlay
+
+        maps["nbim"] = load_nbim_overlay() or {}
+    except Exception:
+        pass
+    try:
+        from folketrygdfondet import load_folketrygdfondet_overlay
+
+        maps["folketrygdfondet"] = load_folketrygdfondet_overlay() or {}
+    except Exception:
+        pass
+    return maps
+
+
+def _ai_candidate_source_status_v1864l() -> list[dict]:
+    rows = [{
+        "Kilde": "Marked",
+        "Oppdatert": "Ny run naar testen kjoeres",
+        "Tickere": "Valgt marked",
+        "Databruk": "Fersk score/kurs-run",
+    }]
+    try:
+        from finansavisen_bjellesau import finansavisen_status
+
+        status = finansavisen_status() or {}
+        rows.append({
+            "Kilde": "Finansavisen",
+            "Oppdatert": status.get("updated_at") or "Ikke importert",
+            "Tickere": str(status.get("overlay_tickers") or 0),
+            "Databruk": "Lokalt importert overlay",
+        })
+    except Exception:
+        rows.append({"Kilde": "Finansavisen", "Oppdatert": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    try:
+        from settings_store import load_settings
+        from nbim_radar import NBIM_OVERLAY_SETTINGS_KEY
+        from folketrygdfondet import FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY
+
+        settings = load_settings() or {}
+        for label, key in [
+            ("Oljefond/NBIM", NBIM_OVERLAY_SETTINGS_KEY),
+            ("Folketrygdfondet", FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY),
+        ]:
+            raw = settings.get(key) if isinstance(settings, dict) else {}
+            overlay = raw.get("overlay") if isinstance(raw, dict) else {}
+            rows.append({
+                "Kilde": label,
+                "Oppdatert": (raw.get("updated_at") if isinstance(raw, dict) else "") or "Ikke importert",
+                "Tickere": str(len(overlay or {}) if isinstance(overlay, dict) else 0),
+                "Databruk": "Lokalt importert overlay",
+            })
+    except Exception:
+        rows.append({"Kilde": "Oljefond/NBIM", "Oppdatert": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+        rows.append({"Kilde": "Folketrygdfondet", "Oppdatert": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    return rows
+
+
+def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, market: str) -> list[dict]:
+    overlays = _ai_candidate_overlay_maps_v1864l()
+    rows: list[dict] = []
+    for idx, item in enumerate(ranked_rows or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        ticker = normalize_user_ticker(item.get("ticker") or item.get("symbol"))
+        if not ticker:
+            continue
+        evidence = []
+        if ticker in overlays.get("finansavisen", {}):
+            evidence.append("Finansavisen")
+        if ticker in overlays.get("nbim", {}):
+            evidence.append("Oljefond/NBIM")
+        if ticker in overlays.get("folketrygdfondet", {}):
+            evidence.append("Folketrygdfondet")
+        score = item.get("score")
+        try:
+            score_num = float(score)
+        except Exception:
+            score_num = 0.0
+        try:
+            decision = card_decision_for_item(item)
+            anbefaling = decision.get("action_now") or decision.get("label") or ""
+        except Exception:
+            anbefaling = ""
+        if not anbefaling:
+            anbefaling = "Folg med" if score_num >= 7.0 else "Vent" if score_num >= 5.5 else "Unnga"
+        confidence = item.get("confidence") or item.get("system_confidence")
+        if confidence in (None, ""):
+            confidence = min(95, max(35, int(round(score_num * 10)))) if score_num else ""
+        risk = item.get("risk") or item.get("risk_label") or item.get("shared_risk_label") or "-"
+        alert = "Varsel" if score_num >= 7.5 or evidence else ""
+        reason_bits = [str(source or "Marked")]
+        if evidence:
+            reason_bits.append("Kildebevis: " + ", ".join(evidence))
+        if item.get("reason"):
+            reason_bits.append(str(item.get("reason")))
+        rows.append({
+            "Rank": idx,
+            "Ticker": ticker,
+            "Navn": item.get("name") or item.get("company") or ticker,
+            "Marked": item.get("market") or market,
+            "Hvorfor med": " | ".join(reason_bits),
+            "Ferskhet": "Ny run",
+            "Kilder": ", ".join(evidence) if evidence else "Marked",
+            "Score": round(score_num, 2) if score_num else "",
+            "Confidence": f"{confidence}%" if isinstance(confidence, int) else confidence,
+            "Risiko": risk,
+            "Anbefaling": anbefaling,
+            "Varsel": alert,
+            "Neste handling": "Send til portefolje/paper" if score_num >= 7.0 else "Overvak / vent",
+        })
+    return rows
+
+
+def _ai_candidate_basename_v1864l(result: dict) -> str:
+    stamp = str(result.get("created_at") or datetime.now().isoformat(timespec="seconds")).replace(":", "").replace("-", "")
+    return f"ai_kandidattest_{stamp[:15]}"
+
+
+def _ai_candidate_csv_v1864l(result: dict) -> bytes:
+    return pd.DataFrame(result.get("rows") or []).to_csv(index=False).encode("utf-8-sig")
+
+
+def _ai_candidate_json_v1864l(result: dict) -> bytes:
+    return json.dumps(result, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+
+
+def _ai_candidate_html_v1864l(result: dict) -> bytes:
+    rows = result.get("rows") or []
+    table = pd.DataFrame(rows).to_html(index=False, escape=True) if rows else "<p>Ingen kandidater.</p>"
+    title = "AI Kandidattest"
+    created = html.escape(str(result.get("created_at") or ""))
+    source = html.escape(str(result.get("source") or ""))
+    market = html.escape(str(result.get("market") or ""))
+    body = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; color: #111827; }}
+button {{ padding: 8px 12px; margin-bottom: 16px; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
+th, td {{ border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; vertical-align: top; }}
+th {{ background: #e5f3ff; }}
+@media print {{ button {{ display:none; }} body {{ margin: 14mm; }} tr {{ page-break-inside: avoid; }} }}
+</style></head>
+<body><button onclick="window.print()">Skriv ut / lagre som PDF</button>
+<h1>{title}</h1>
+<p><b>Opprettet:</b> {created} | <b>Kilde:</b> {source} | <b>Marked:</b> {market}</p>
+{table}
+</body></html>"""
+    return body.encode("utf-8")
+
+
+def _save_ai_candidate_result_v1864l(result: dict) -> None:
+    st.session_state["ai_candidate_test_last_result_v1864l"] = result
+    try:
+        from services.storage_service import get_storage_service
+
+        storage = get_storage_service()
+        storage.write_json("analysis_snapshots/ai_candidate_test_latest.json", result)
+        storage.append_jsonl("analysis_snapshots/ai_candidate_test_runs.jsonl", {
+            "created_at": result.get("created_at"),
+            "source": result.get("source"),
+            "market": result.get("market"),
+            "candidate_count": len(result.get("rows") or []),
+        })
+    except Exception:
+        pass
+
+
+def render_ai_candidate_test_control_center_v1864l() -> None:
+    st.subheader("AI Kandidattest")
+    st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
+    source = st.selectbox(
+        "Kandidatkilde",
+        ["Marked", "Kombiner kilder", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"],
+        key="ai_candidate_source_v1864l",
+    )
+    c1, c2, c3 = st.columns([1.0, 0.7, 1.4])
+    with c1:
+        market = st.selectbox("Marked", market_scope_options(include_aggregate=True), index=0, key="ai_candidate_market_v1864l")
+    with c2:
+        limit = st.slider("Maks kandidater", 5, 100, 30, 1, key="ai_candidate_limit_v1864l")
+    with c3:
+        manual_text = st.text_input("Manuell liste", key="ai_candidate_manual_v1864l", placeholder="EQNR.OL, NVDA, VOLV-B.ST")
+
+    source_status = _ai_candidate_source_status_v1864l()
+    with st.expander("Datakildestatus / ferskhet", expanded=False):
+        st.dataframe(pd.DataFrame(source_status), use_container_width=True, hide_index=True)
+
+    preview_tickers = _ai_candidate_source_tickers_v1864l(source, market, int(limit), manual_text)
+    if preview_tickers:
+        st.caption(f"Input: {len(preview_tickers)} tickere. Eksempel: {', '.join(preview_tickers[:10])}")
+    else:
+        st.warning("Ingen kandidater funnet for valgt kilde. Importer datakilde, velg marked eller skriv manuell liste.")
+
+    if st.button("Kjor AI Kandidattest", key="ai_candidate_run_v1864l", type="primary", use_container_width=True, disabled=not bool(preview_tickers)):
+        progress = st.progress(0, text="Starter AI Kandidattest")
+        progress.progress(25, text="Henter ferske kurs-/scoredatasett")
+        ranked = cached_auto_rank_market(
+            f"AIKandidat_{source}_{market}",
+            preview_tickers,
+            max_count=int(limit),
+            use_news=False,
+            force_manual_fetch=True,
+            include_insider=True,
+        )
+        progress.progress(70, text="Kobler importert kildeevidens")
+        rows = _ai_candidate_result_rows_v1864l(list(ranked or []), source=source, market=market)
+        result = {
+            "version": get_app_build_label(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "source": source,
+            "market": market,
+            "input_tickers": preview_tickers,
+            "source_status": source_status,
+            "rows": rows,
+        }
+        _save_ai_candidate_result_v1864l(result)
+        progress.progress(100, text=f"Ferdig: {len(rows)} kandidater")
+        st.success(f"AI Kandidattest ferdig: {len(rows)} kandidater.")
+
+    result = st.session_state.get("ai_candidate_test_last_result_v1864l") or {}
+    rows = result.get("rows") if isinstance(result, dict) else []
+    if isinstance(result, dict) and result.get("created_at"):
+        st.markdown("#### Resultat")
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("Kjoringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
+        basename = _ai_candidate_basename_v1864l(result)
+        st.markdown("#### Lagre / print / eksport")
+        st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+        with d2:
+            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+        with d3:
+            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+    else:
+        st.info("Kjor testen for aa lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
+
+
 def control_center_extra_panels_v18535():
     return [
         ("1. Dataunderlag", render_analysis_pipeline_control_center_v1863bv),
+        ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
         ("Marked", render_market_room_control_center_v1863cb),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
@@ -11855,10 +12150,10 @@ if bool(globals().get("show_drift_controls_v1863cc", False)):
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 # v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
 active_panel = None
-if not st.session_state.get("ai_control_center_active_panel_v1863aj") and not st.session_state.get("ai_control_center_group_v1863aj"):
-    st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
-    st.session_state["ai_control_center_active_panel_v1863aj"] = "Marked"
-    st.session_state["ai_control_center_landed_default_v1863cc"] = True
+if not st.session_state.get("ai_control_center_landed_default_v1864l"):
+    st.session_state.setdefault("ai_control_center_group_v1863aj", "")
+    st.session_state.setdefault("ai_control_center_active_panel_v1863aj", "")
+    st.session_state["ai_control_center_landed_default_v1864l"] = True
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None

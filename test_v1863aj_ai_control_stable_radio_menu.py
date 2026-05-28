@@ -8,8 +8,8 @@ for name in ["workspace_layout.py", "app_version.py"]:
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4k"' in version
-assert "Source Foundation Contract" in version
+assert 'APP_VERSION = "v18.6.4l"' in version
+assert "Unified AI Candidate Test" in version
 assert "return _render_ai_control_center_v1863aj(extra_panels)" in layout
 assert "def _render_ai_control_center_v1863aj" in layout
 assert "def _pipeline_relevant_panel_labels_v1864j" in layout
@@ -19,6 +19,9 @@ assert "ai_control_center_group_radio_v1863aj" in layout
 assert "ai_control_center_panel_radio_v1863aj" in layout
 assert "Ingen oppgave er" in layout and "pnet" in layout
 assert "Ingen valgt" in layout
+assert "Testflyt-valg med bare ett relevant panel" in layout
+assert "if len(direct_panels) == 1:" in layout
+assert "if len(direct_panels) > 1:" in layout
 
 
 

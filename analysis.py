@@ -8,6 +8,20 @@ import yfinance as yf
 from alpha_radar_currency import market_cap_fields
 from news import get_news, simple_finance_sentiment
 
+try:
+    import yfinance.cache as _yf_cache
+
+    _yf_cache_dir = os.getenv("YFINANCE_CACHE_DIR") or os.path.join(os.getcwd(), ".yfinance_cache")
+    os.makedirs(_yf_cache_dir, exist_ok=True)
+    _yf_cache.set_cache_location(_yf_cache_dir)
+except Exception:
+    try:
+        _yf_cache_dir = os.getenv("YFINANCE_CACHE_DIR") or os.path.join(os.getcwd(), ".yfinance_cache")
+        os.makedirs(_yf_cache_dir, exist_ok=True)
+        yf.set_tz_cache_location(_yf_cache_dir)
+    except Exception:
+        pass
+
 FAST_CACHE_TTL_SECONDS = int(os.getenv("APP_SCORE_FAST_CACHE_TTL_SECONDS", "900") or 900)
 INSIDER_SCORE_MAX_ADJUSTMENT = float(os.getenv("APP_INSIDER_SCORE_MAX_ADJUSTMENT", "0.6") or 0.6)
 INSIDER_RANKING_LIMIT = int(os.getenv("APP_INSIDER_RANKING_LIMIT", "12") or 12)
