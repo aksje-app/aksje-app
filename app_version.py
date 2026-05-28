@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.4l"
-APP_VERSION_NAME = "Unified AI Candidate Test"
-APP_BUILD_ID = "v1864l-unified-ai-candidate-test"
+APP_VERSION = "v18.6.4m"
+APP_VERSION_NAME = "AI Candidate Cockpit"
+APP_BUILD_ID = "v1864m-ai-candidate-cockpit"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest er videreutviklet til kandidat-cockpit med Land, faktisk Marked, Bors og valgt Univers per rad.",
+    "AI Kandidattest viser Kildestyrke, Endring fra forrige kjoring og en kort Forklaring per kandidat.",
+    "AI Kandidattest har valg-tabell med avhuking og kan sende valgte kandidater til Top Picks, Beslutningsgrunnlag, Paper Trading eller Watchlist.",
+    "Anbefalingene i AI Kandidattest bruker mer profesjonelle etiketter som Sterk kandidat, Vurder, Vent og Unnga.",
     "AI Kandidattest samler fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport i ett hovedpanel.",
     "AI Kandidattest lagrer siste analyseresultat og tilbyr CSV, JSON og printvennlig HTML som kan lagres til PDF.",
     "AI Kandidattest viser datakildestatus slik at ferske markedskjøringer skilles fra lokale importerte overlay-data.",

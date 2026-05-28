@@ -11279,8 +11279,118 @@ def _ai_candidate_source_status_v1864l() -> list[dict]:
     return rows
 
 
-def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, market: str) -> list[dict]:
+def _ai_candidate_previous_rank_map_v1864m() -> dict[str, dict]:
+    previous = st.session_state.get("ai_candidate_test_last_result_v1864l") or {}
+    if not isinstance(previous, dict) or not previous.get("rows"):
+        try:
+            from services.storage_service import get_storage_service
+
+            previous = get_storage_service().read_json("analysis_snapshots/ai_candidate_test_latest.json", {}) or {}
+        except Exception:
+            previous = {}
+    out: dict[str, dict] = {}
+    for row in previous.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        ticker = normalize_user_ticker(row.get("Ticker") or row.get("ticker"))
+        if ticker:
+            out[ticker] = dict(row)
+    return out
+
+
+def _ai_candidate_change_label_v1864m(ticker: str, rank: int, score_num: float, previous_map: dict[str, dict]) -> str:
+    previous = previous_map.get(ticker) or {}
+    if not previous:
+        return "Ny"
+    try:
+        old_rank = int(previous.get("Rank") or previous.get("rank") or 0)
+    except Exception:
+        old_rank = 0
+    try:
+        old_score = float(previous.get("Score") or previous.get("score") or 0.0)
+    except Exception:
+        old_score = 0.0
+    parts: list[str] = []
+    if old_rank > 0:
+        delta = old_rank - int(rank)
+        if delta > 0:
+            parts.append(f"Opp {delta}")
+        elif delta < 0:
+            parts.append(f"Ned {abs(delta)}")
+        else:
+            parts.append("Uendret rank")
+    if old_score:
+        score_delta = round(float(score_num or 0.0) - old_score, 2)
+        if abs(score_delta) >= 0.05:
+            parts.append(f"score {score_delta:+.2f}")
+    return " / ".join(parts) or "Uendret"
+
+
+def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float) -> str:
+    label = str(raw_label or "").strip()
+    normalized = label.upper()
+    if "KJ" in normalized and "N" in normalized:
+        return "Sterk kandidat"
+    if "BUY" in normalized:
+        return "Sterk kandidat"
+    if "SELL" in normalized or "SELG" in normalized or "UNNG" in normalized:
+        return "Unnga"
+    if "VENT" in normalized or "WAIT" in normalized:
+        return "Vent"
+    if label:
+        return label
+    if score_num >= 7.4:
+        return "Sterk kandidat"
+    if score_num >= 6.3:
+        return "Vurder"
+    if score_num >= 5.2:
+        return "Vent"
+    return "Unnga"
+
+
+def _ai_candidate_source_strength_v1864m(evidence: list[str]) -> str:
+    count = len([item for item in evidence if item])
+    if count >= 3:
+        return "Svaert sterk"
+    if count == 2:
+        return "Sterk"
+    if count == 1:
+        return "Stotte"
+    return "Marked"
+
+
+def _ai_candidate_listing_v1864m(ticker: str, item: dict, selected_market: str) -> dict[str, str]:
+    try:
+        meta = resolve_security_metadata(ticker, item)
+        listing = infer_security_listing(ticker, {**dict(item or {}), **dict(meta or {})})
+    except Exception:
+        listing = infer_security_listing(ticker, {"ticker": ticker})
+    country = str(listing.get("country") or "").strip() or "Ukjent"
+    actual_market = str(listing.get("market") or "").strip() or str(item.get("market") or selected_market or "").strip()
+    if actual_market in {"", "Alle", "Norden", "Dataunderlag", "Kombiner kilder"}:
+        actual_market = country
+    return {
+        "land": country,
+        "market": actual_market or country,
+        "exchange": str(listing.get("exchange") or "").strip() or "Ukjent",
+    }
+
+
+def _ai_candidate_score_explanation_v1864m(score_num: float, confidence, risk: str, evidence: list[str], change: str) -> str:
+    bits = [f"Score {score_num:.2f}" if score_num else "Score mangler"]
+    if confidence not in (None, ""):
+        bits.append(f"confidence {confidence}")
+    if risk and risk != "-":
+        bits.append(f"risiko {risk}")
+    bits.append("kilder " + (", ".join(evidence) if evidence else "marked"))
+    if change:
+        bits.append(f"endring {change}")
+    return " | ".join(bits)
+
+
+def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, market: str, previous_map: dict[str, dict] | None = None) -> list[dict]:
     overlays = _ai_candidate_overlay_maps_v1864l()
+    previous_map = previous_map or {}
     rows: list[dict] = []
     for idx, item in enumerate(ranked_rows or [], start=1):
         if not isinstance(item, dict):
@@ -11312,6 +11422,9 @@ def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, ma
             confidence = min(95, max(35, int(round(score_num * 10)))) if score_num else ""
         risk = item.get("risk") or item.get("risk_label") or item.get("shared_risk_label") or "-"
         alert = "Varsel" if score_num >= 7.5 or evidence else ""
+        listing = _ai_candidate_listing_v1864m(ticker, item, market)
+        change = _ai_candidate_change_label_v1864m(ticker, idx, score_num, previous_map)
+        source_strength = _ai_candidate_source_strength_v1864m(evidence)
         reason_bits = [str(source or "Marked")]
         if evidence:
             reason_bits.append("Kildebevis: " + ", ".join(evidence))
@@ -11321,16 +11434,22 @@ def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, ma
             "Rank": idx,
             "Ticker": ticker,
             "Navn": item.get("name") or item.get("company") or ticker,
-            "Marked": item.get("market") or market,
+            "Land": listing.get("land") or "Ukjent",
+            "Marked": listing.get("market") or item.get("market") or market,
+            "Bors": listing.get("exchange") or "Ukjent",
+            "Univers": market,
             "Hvorfor med": " | ".join(reason_bits),
             "Ferskhet": "Ny run",
             "Kilder": ", ".join(evidence) if evidence else "Marked",
+            "Kildestyrke": source_strength,
             "Score": round(score_num, 2) if score_num else "",
             "Confidence": f"{confidence}%" if isinstance(confidence, int) else confidence,
             "Risiko": risk,
-            "Anbefaling": anbefaling,
+            "Anbefaling": _ai_candidate_action_label_v1864m(anbefaling, score_num),
             "Varsel": alert,
-            "Neste handling": "Send til portefolje/paper" if score_num >= 7.0 else "Overvak / vent",
+            "Endring": change,
+            "Forklaring": _ai_candidate_score_explanation_v1864m(score_num, f"{confidence}%" if isinstance(confidence, int) else confidence, str(risk), evidence, change),
+            "Neste handling": "Send til vurdering/paper" if score_num >= 7.0 else "Overvak / vent",
         })
     return rows
 
@@ -11390,6 +11509,125 @@ def _save_ai_candidate_result_v1864l(result: dict) -> None:
         pass
 
 
+def _load_ai_candidate_latest_result_v1864m() -> dict:
+    try:
+        from services.storage_service import get_storage_service
+
+        result = get_storage_service().read_json("analysis_snapshots/ai_candidate_test_latest.json", {}) or {}
+        return dict(result) if isinstance(result, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ai_candidate_selected_rows_from_editor_v1864m(edited_rows) -> list[dict]:
+    try:
+        records = pd.DataFrame(edited_rows).to_dict("records")
+    except Exception:
+        records = list(edited_rows or []) if isinstance(edited_rows, list) else []
+    selected: list[dict] = []
+    for row in records:
+        if isinstance(row, dict) and bool(row.get("Velg")):
+            clean = {key: value for key, value in row.items() if key != "Velg"}
+            selected.append(clean)
+    return selected
+
+
+def _ai_candidate_pipeline_rows_v1864m(rows: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        ticker = normalize_user_ticker(row.get("Ticker") or row.get("ticker"))
+        if not ticker:
+            continue
+        out.append({
+            "ticker": ticker,
+            "name": row.get("Navn") or row.get("name") or ticker,
+            "market": row.get("Marked") or row.get("market") or "",
+            "country": row.get("Land") or row.get("country") or "",
+            "exchange": row.get("Bors") or row.get("exchange") or "",
+            "score": row.get("Score") or row.get("score") or 0,
+            "confidence": row.get("Confidence") or row.get("confidence") or "",
+            "risk": row.get("Risiko") or row.get("risk") or "",
+            "recommended_action": row.get("Anbefaling") or row.get("recommended_action") or "",
+            "reason": row.get("Forklaring") or row.get("Hvorfor med") or "",
+            "source": "AI Kandidattest",
+            "source_strength": row.get("Kildestyrke") or "",
+            "source_evidence": row.get("Kilder") or "",
+            "change_label": row.get("Endring") or "",
+        })
+    return out
+
+
+def _ai_candidate_open_stage_v1864m(stage_id: str, rows: list[dict]) -> None:
+    pipeline_rows = _ai_candidate_pipeline_rows_v1864m(rows)
+    if not pipeline_rows:
+        st.warning("Velg minst en kandidat forst.")
+        return
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        pipeline.save_stage_input(
+            stage_id,
+            pipeline_rows,
+            origin_stage_id="ai_candidate_test",
+            source_label="AI Kandidattest",
+            context={"from_ai_candidate_test": True, "manual_selection": True},
+            max_items=len(pipeline_rows),
+        )
+    except Exception as exc:
+        st.warning(f"Kunne ikke sende kandidatene videre: {exc}")
+        return
+    _pipeline_open_stage_v1863bw(stage_id)
+
+
+def _ai_candidate_send_watchlist_v1864m(rows: list[dict]) -> None:
+    tickers = [normalize_user_ticker(row.get("Ticker") or row.get("ticker")) for row in rows or []]
+    tickers = [ticker for ticker in tickers if ticker]
+    if not tickers:
+        st.warning("Velg minst en kandidat forst.")
+        return
+    existing = [normalize_user_ticker(ticker) for ticker in (st.session_state.get("latest_watchlist_tickers_v156") or [])]
+    merged = list(dict.fromkeys([ticker for ticker in existing + tickers if ticker]))
+    st.session_state["latest_watchlist_tickers_v156"] = merged
+    st.session_state["watchlist"] = merged
+    st.success(f"La {len(tickers)} valgte kandidater i watchlist.")
+
+
+def _render_ai_candidate_selection_v1864m(rows: list[dict]) -> list[dict]:
+    st.markdown("#### Velg kandidater")
+    st.caption("Kryss av radene du vil sende videre. Kandidatene kan rutes direkte til resten av appen uten aa kjorere ny test.")
+    display_rows = []
+    for row in rows or []:
+        display_rows.append({"Velg": False, **dict(row)})
+    display_df = pd.DataFrame(display_rows)
+    edited = st.data_editor(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        key="ai_candidate_selection_editor_v1864m",
+        disabled=[col for col in display_df.columns if col != "Velg"],
+        column_config={
+            "Velg": st.column_config.CheckboxColumn("Velg", help="Velg kandidat for sending videre.", default=False),
+        },
+    )
+    selected = _ai_candidate_selected_rows_from_editor_v1864m(edited)
+    st.caption(f"Valgt: {len(selected)} av {len(rows or [])} kandidater.")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("Send valgte til Top Picks", key="ai_candidate_send_top_picks_v1864m", use_container_width=True, disabled=not selected):
+            _ai_candidate_open_stage_v1864m("top_picks", selected)
+    with c2:
+        if st.button("Send til Beslutningsgrunnlag", key="ai_candidate_send_decision_v1864m", use_container_width=True, disabled=not selected):
+            _ai_candidate_open_stage_v1864m("decision_support", selected)
+    with c3:
+        if st.button("Send til Paper Trading", key="ai_candidate_send_paper_v1864m", use_container_width=True, disabled=not selected):
+            _ai_candidate_open_stage_v1864m("paper_trading", selected)
+    with c4:
+        if st.button("Legg i Watchlist", key="ai_candidate_send_watchlist_v1864m", use_container_width=True, disabled=not selected):
+            _ai_candidate_send_watchlist_v1864m(selected)
+    return selected
+
+
 def render_ai_candidate_test_control_center_v1864l() -> None:
     st.subheader("AI Kandidattest")
     st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
@@ -11428,7 +11666,8 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             include_insider=True,
         )
         progress.progress(70, text="Kobler importert kildeevidens")
-        rows = _ai_candidate_result_rows_v1864l(list(ranked or []), source=source, market=market)
+        previous_map = _ai_candidate_previous_rank_map_v1864m()
+        rows = _ai_candidate_result_rows_v1864l(list(ranked or []), source=source, market=market, previous_map=previous_map)
         result = {
             "version": get_app_build_label(),
             "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -11442,12 +11681,22 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         progress.progress(100, text=f"Ferdig: {len(rows)} kandidater")
         st.success(f"AI Kandidattest ferdig: {len(rows)} kandidater.")
 
-    result = st.session_state.get("ai_candidate_test_last_result_v1864l") or {}
+    result = st.session_state.get("ai_candidate_test_last_result_v1864l") or _load_ai_candidate_latest_result_v1864m()
     rows = result.get("rows") if isinstance(result, dict) else []
     if isinstance(result, dict) and result.get("created_at"):
+        if "ai_candidate_test_last_result_v1864l" not in st.session_state:
+            st.caption("Viser sist lagrede AI Kandidattest. Kjor testen paa nytt for fersk kandidatfangst.")
         st.markdown("#### Resultat")
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            country_counts = pd.Series([row.get("Land") or "Ukjent" for row in rows]).value_counts().to_dict()
+            source_counts = pd.Series([row.get("Kildestyrke") or "Marked" for row in rows]).value_counts().to_dict()
+            st.caption(
+                "Land: "
+                + ", ".join(f"{key}: {value}" for key, value in country_counts.items())
+                + " | Kildestyrke: "
+                + ", ".join(f"{key}: {value}" for key, value in source_counts.items())
+            )
+            _render_ai_candidate_selection_v1864m(rows)
         else:
             st.info("Kjoringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
         basename = _ai_candidate_basename_v1864l(result)

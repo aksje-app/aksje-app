@@ -5,7 +5,7 @@ import py_compile
 ROOT = Path(__file__).resolve().parent
 
 
-def test_v1864l_version_and_unified_ai_candidate_test_contract():
+def test_v1864m_version_and_ai_candidate_cockpit_contract():
     for name in ["app.py", "workspace_layout.py", "app_version.py", "analysis.py"]:
         py_compile.compile(str(ROOT / name), doraise=True)
 
@@ -13,8 +13,8 @@ def test_v1864l_version_and_unified_ai_candidate_test_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4l"' in version
-    assert "Unified AI Candidate Test" in version
+    assert 'APP_VERSION = "v18.6.4m"' in version
+    assert "AI Candidate Cockpit" in version
     assert "AI Kandidattest samler fersk kandidatfangst" in version
     assert "printvennlig HTML" in version
 
@@ -31,6 +31,16 @@ def test_v1864l_version_and_unified_ai_candidate_test_contract():
     assert "Datakildestatus / ferskhet" in app
     assert "source_status" in app
     assert "Kjoringen er lagret, men ga 0 kandidater" in app
+    assert "Land" in app and "Bors" in app and "Univers" in app
+    assert "Kildestyrke" in app and "Endring" in app and "Forklaring" in app
+    assert "def _load_ai_candidate_latest_result_v1864m" in app
+    assert "Viser sist lagrede AI Kandidattest" in app
+    assert "def _render_ai_candidate_selection_v1864m" in app
+    assert "Send valgte til Top Picks" in app
+    assert "Send til Beslutningsgrunnlag" in app
+    assert "Send til Paper Trading" in app
+    assert "Legg i Watchlist" in app
+    assert "Sterk kandidat" in app and "Vurder" in app
     assert "set_cache_location" in (ROOT / "analysis.py").read_text(encoding="utf-8", errors="ignore")
 
     active_layout_block = layout[layout.index("def _render_ai_control_center_v1863aj") :]
@@ -41,7 +51,7 @@ def test_v1864l_version_and_unified_ai_candidate_test_contract():
     assert 'pending_nav_sync["group"] = stage_group_name' in active_layout_block
 
 
-def test_v1864l_start_empty_sidebar_view_removed_and_ticker_input_kept():
+def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     app = (ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
 
     view_block = app[app.index('st.session_state["global_view_mode_v145"] = "Full"') - 250 : app.index('st.session_state["global_view_mode_v145"] = "Full"') + 250]
