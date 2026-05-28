@@ -1814,6 +1814,8 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         ai_candidate_primary_labels = _matching_panel_labels("ai kandidattest", "kandidattest")
         ai_candidate_primary_label = next((label for label in ai_candidate_primary_labels if label in panel_map), "")
         ai_candidate_source_labels = _matching_panel_labels(
+            "kilder",
+            "import",
             "dataunderlag",
             "datakilder",
             "datagrunnlag",
@@ -1831,14 +1833,10 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         group_map = {
             ai_candidate_group_name: ai_candidate_labels,
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1", "top picks", "alpha", "aktor", "aktør", "register", "oljefond", "nbim", "folketrygdfondet", "finansavisen", "bjellesau", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist", "valutavarsler"),
+            "Marked og signaler": _matching_panel_labels("top picks", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist", "valutavarsler"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("services", "system/admin"),
         }
-        data_foundation_labels = _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1")
-        group_map["Marked og signaler"] = list(dict.fromkeys(
-            data_foundation_labels + group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer", "folketrygdfondet")
-        ))
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:
@@ -1870,25 +1868,11 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                     st.session_state["analysis_pipeline_active_stage_v1863bz"] = pending_stage
                 pending_nav_sync = {"group": pending_group, "panel": pending_panel}
 
-        active_stage_hint = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
-        stage_relevant_labels = _pipeline_relevant_panel_labels_v1864j(active_stage_hint, panels)
+        active_stage_hint = ""
+        stage_relevant_labels: list[str] = []
         stage_group_name = ""
-        if stage_relevant_labels:
-            stage_label = active_stage_hint
-            try:
-                from services.analysis_pipeline_service import stage_wizard_info
-
-                stage_label = str(stage_wizard_info(active_stage_hint).get("label") or active_stage_hint)
-            except Exception:
-                pass
-            stage_group_name = f"Analyseflyt: {stage_label}"
-            group_map = {stage_group_name: stage_relevant_labels, **group_map}
-            if pending_nav_sync and pending_stage == active_stage_hint and pending_nav_sync.get("panel") in stage_relevant_labels:
-                st.session_state["ai_control_center_group_v1863aj"] = stage_group_name
-                pending_nav_sync["group"] = stage_group_name
-
-        group_options = ["Ingen valgt"] + [f"{name} ({len([x for x in labels if x in panel_map])})" for name, labels in group_map.items()]
-        group_by_option = {"Ingen valgt": ""}
+        group_options = [f"{name} ({len([x for x in labels if x in panel_map])})" for name, labels in group_map.items()]
+        group_by_option = {}
         for name, labels in group_map.items():
             group_by_option[f"{name} ({len([x for x in labels if x in panel_map])})"] = name
 
@@ -1902,11 +1886,14 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 st.session_state[f"ai_control_center_panel_radio_v1863aj_{pending_group}"] = pending_panel
 
         current_group = st.session_state.get("ai_control_center_group_v1863aj", "")
-        if stage_group_name and st.session_state.get("ai_control_center_last_stage_menu_v1864j") != active_stage_hint:
-            st.session_state["ai_control_center_group_v1863aj"] = stage_group_name
-            st.session_state["ai_control_center_last_stage_menu_v1864j"] = active_stage_hint
-            current_group = stage_group_name
-        current_group_option = next((opt for opt, name in group_by_option.items() if name == current_group), "Ingen valgt")
+        if current_group and current_group not in group_map:
+            current_group = ""
+            st.session_state["ai_control_center_group_v1863aj"] = ""
+            st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+        current_group_option = next((opt for opt, name in group_by_option.items() if name == current_group), None)
+        group_radio_key = "ai_control_center_group_radio_v1863aj"
+        if st.session_state.get(group_radio_key) not in group_options:
+            st.session_state.pop(group_radio_key, None)
 
         try:
             from services.analysis_pipeline_service import STAGE_PANEL_LABELS
@@ -1925,17 +1912,15 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 <div>
                   <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
                   <div class="ptw-control-title">AI Kontrollsenter</div>
-                  <div class="ptw-control-caption">Starttilstand er Ingen valgt. Velg hovedområde for aa åpne relevant arbeidsflate.</div>
+                  <div class="ptw-control-caption">Velg hovedområde for å åpne relevant arbeidsflate.</div>
                   <div class="ptw-control-caption">AI Kandidattest er hovedarbeidsflaten; datakilder, eierimport og radarer ligger samlet under samme valg.</div>
                 </div>
-                <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Ingen valgt"))}</div>
+                <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Lukket"))}</div>
               </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-
-        _render_pipeline_quick_start_v1863bx(panel_map, group_map)
 
         st.markdown(
             """
@@ -1948,11 +1933,11 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         selected_group_option = st.radio(
             "Velg hovedområde",
             group_options,
-            index=group_options.index(current_group_option) if current_group_option in group_options else 0,
+            index=group_options.index(current_group_option) if current_group_option in group_options else None,
             horizontal=True,
-            key="ai_control_center_group_radio_v1863aj",
+            key=group_radio_key,
         )
-        selected_group = group_by_option.get(selected_group_option, "")
+        selected_group = group_by_option.get(selected_group_option or "", "")
         if selected_group != current_group:
             st.session_state["ai_control_center_group_v1863aj"] = selected_group
             st.session_state["ai_control_center_active_panel_v1863aj"] = ""
@@ -1972,8 +1957,8 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             elif selected_group == ai_candidate_group_name and not active_label and ai_candidate_primary_label in direct_panels:
                 st.session_state["ai_control_center_active_panel_v1863aj"] = ai_candidate_primary_label
                 active_label = ai_candidate_primary_label
-            panel_options = ["Ingen valgt"] + direct_panels
-            current_panel_option = active_label if active_label in panel_options else "Ingen valgt"
+            panel_options = direct_panels
+            current_panel_option = active_label if active_label in panel_options else None
             if len(direct_panels) > 1:
                 submenu_title = (
                     "AI Kandidattest: analyse, kilder og radarer"
@@ -1984,16 +1969,19 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                     f"<div class='ptw-control-submenu'><div class='ptw-control-submenu-title'>{html.escape(submenu_title)}</div>",
                     unsafe_allow_html=True,
                 )
+                panel_radio_key = f"ai_control_center_panel_radio_v1863aj_{selected_group}"
+                if st.session_state.get(panel_radio_key) not in panel_options:
+                    st.session_state.pop(panel_radio_key, None)
                 selected_panel = st.radio(
                     "Velg funksjon",
                     panel_options,
-                    index=panel_options.index(current_panel_option),
+                    index=panel_options.index(current_panel_option) if current_panel_option in panel_options else None,
                     horizontal=True,
-                    key=f"ai_control_center_panel_radio_v1863aj_{selected_group}",
+                    key=panel_radio_key,
                 )
                 st.markdown("</div>", unsafe_allow_html=True)
-                if selected_panel != current_panel_option:
-                    st.session_state["ai_control_center_active_panel_v1863aj"] = "" if selected_panel == "Ingen valgt" else selected_panel
+                if selected_panel and selected_panel != current_panel_option:
+                    st.session_state["ai_control_center_active_panel_v1863aj"] = selected_panel
                     active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
 
         st.markdown("</div>", unsafe_allow_html=True)

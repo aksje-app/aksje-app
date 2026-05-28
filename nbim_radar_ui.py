@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 
 import streamlit as st
 
+from ai_candidate_navigation import open_ai_candidate_test
 from nbim_radar import (
     annotate_nbim_changes,
     build_nbim_overlay,
@@ -59,6 +60,41 @@ def _changes_to_csv(changes: Sequence[Mapping[str, Any]]) -> bytes:
     for row in changes:
         writer.writerow(dict(row))
     return buffer.getvalue().encode("utf-8-sig")
+
+
+def _nbim_report_html(changes: Sequence[Mapping[str, Any]]) -> bytes:
+    rows = nbim_changes_to_display_rows(changes)[:250]
+    if rows:
+        cols = list(rows[0].keys())
+        head = "".join(f"<th>{col}</th>" for col in cols)
+        body = "".join(
+            "<tr>" + "".join(f"<td>{row.get(col, '')}</td>" for col in cols) + "</tr>"
+            for row in rows
+        )
+        table = f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    else:
+        table = "<p>Ingen rader.</p>"
+    return f"""<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <title>Oljefond/NBIM - rapport</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 28px; color: #111827; }}
+    button {{ border: 1px solid #0284c7; background: #0ea5e9; color: white; border-radius: 8px; padding: 9px 14px; font-weight: 700; }}
+    table {{ border-collapse: collapse; width: 100%; margin-top: 12px; }}
+    th, td {{ border: 1px solid #d1d5db; padding: 5px 7px; text-align: left; font-size: 12px; vertical-align: top; }}
+    th {{ background: #f3f4f6; }}
+    @media print {{ button {{ display:none; }} body {{ margin:16mm; }} tr {{ page-break-inside: avoid; }} }}
+  </style>
+</head>
+<body>
+  <button onclick="window.print()">Skriv ut / lagre som PDF</button>
+  <h1>Oljefond/NBIM - rapport</h1>
+  <p>Rader: {len(changes or [])}</p>
+  {table}
+</body>
+</html>""".encode("utf-8")
 
 
 def _render_change_table(rows: Sequence[Mapping[str, Any]]) -> None:
@@ -199,7 +235,7 @@ def render_nbim_radar_panel() -> None:
 
     st.caption("NBIM-markedsverdi kan flytte seg med kurs og valuta. Endring i aksjer/eierandel er sterkere signal der filen inneholder dette.")
 
-    b1, b2, b3 = st.columns(3)
+    b1, b2, b3, b4 = st.columns(4)
     with b1:
         if st.button("Lagre NBIM-overlay", key="nbim_save_overlay_v1863bd", type="primary", use_container_width=True, disabled=not overlay):
             saved = save_nbim_overlay(overlay)
@@ -220,6 +256,29 @@ def render_nbim_radar_panel() -> None:
             mime="application/json",
             use_container_width=True,
         )
+    with b4:
+        st.download_button(
+            "Print/PDF HTML",
+            data=_nbim_report_html(annotated_changes),
+            file_name="olje-fond-radar-rapport.html",
+            mime="text/html",
+            use_container_width=True,
+        )
+
+    matched_tickers = list(dict.fromkeys(
+        str(row.get("matched_ticker") or row.get("ticker") or "").strip().upper()
+        for row in annotated_changes
+        if str(row.get("matched_ticker") or row.get("ticker") or "").strip()
+    ))
+    a1, a2 = st.columns(2)
+    with a1:
+        if st.button("Send alle matchede til AI Kandidattest", key="nbim_send_all_ai_candidate_v1864o", use_container_width=True, disabled=not matched_tickers):
+            open_ai_candidate_test(tickers=matched_tickers, market="Alle")
+            st.rerun()
+    with a2:
+        if st.button("Åpne AI Kandidattest med Oljefond/NBIM", key="nbim_open_ai_candidate_source_v1864o", use_container_width=True, disabled=not matched_tickers):
+            open_ai_candidate_test(source="Oljefond/NBIM", market="Alle")
+            st.rerun()
 
 
 __all__ = ["render_nbim_radar_panel"]

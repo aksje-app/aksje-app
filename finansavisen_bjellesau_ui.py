@@ -5,6 +5,7 @@ from typing import Any, Mapping, Sequence
 
 import streamlit as st
 
+from ai_candidate_navigation import open_ai_candidate_test
 from finansavisen_bjellesau import (
     PERIOD_OPTIONS,
     build_finansavisen_priority_views,
@@ -194,7 +195,7 @@ def _finansavisen_candidate_rows_for_tickers(visible_rows: Sequence[Mapping[str,
             "name": item.get("Aksje") or ticker,
             "score": item.get("Score") or 0,
             "source": "Finansavisen Bjellesauer",
-            "recommended_action": "Kjor Test 2 rangering",
+            "recommended_action": "Kjør AI Kandidattest",
             "reason": f"{item.get('Signal') or 'Finansavisen-signal'} | {item.get('Scoreforklaring') or ''}".strip(" |"),
             "market": "",
             "raw": dict(item),
@@ -210,44 +211,15 @@ def _send_finansavisen_to_test2(
     selected_only: bool,
 ) -> tuple[bool, str]:
     try:
-        from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, get_analysis_pipeline_service, stage_wizard_info
-        from services.state_service import get_state_service
-        from services.storage_service import get_storage_service
-
         candidate_rows = _finansavisen_candidate_rows_for_tickers(visible_rows, tickers)
         if not candidate_rows:
-            return False, "Ingen tickere med match aa sende til Test 2."
+            return False, "Ingen tickere med match å sende til AI Kandidattest."
         matched_tickers = [str(row.get("ticker") or "").strip().upper() for row in candidate_rows if row.get("ticker")]
-        get_analysis_pipeline_service(
-            state_service=get_state_service(st.session_state),
-            storage_service=get_storage_service(),
-        ).save_stage_output(
-            "data_foundation",
-            candidate_rows,
-            source_label="Finansavisen Bjellesauer",
-            context={
-                "manual_checkpoint": True,
-                "send_target": "market_ranking",
-                "send_mode": "selected" if selected_only else "all",
-                "finansavisen_status": dict(status),
-                "finansavisen_matched_tickers": matched_tickers,
-                "visible_transaction_count": len(visible_rows),
-            },
-            max_items=len(candidate_rows),
-            auto_handoff=True,
-        )
-        target = stage_wizard_info("market_ranking")
-        st.session_state[PIPELINE_PENDING_NAV_KEY] = {
-            "stage_id": "market_ranking",
-            "group": target.get("group") or "Marked og signaler",
-            "panel": target.get("panel_label") or "🏆 Marked/rangering",
-            "defaults": dict(target.get("defaults") or {}),
-            "auto_run": False,
-        }
+        open_ai_candidate_test(tickers=matched_tickers, market="Alle")
         mode_text = "valgte" if selected_only else "hele"
-        return True, f"Sendte {len(candidate_rows)} tickere fra {mode_text} Finansavisen-dataunderlag til Test 2."
+        return True, f"Åpner AI Kandidattest med {len(candidate_rows)} tickere fra {mode_text} Finansavisen-utvalg."
     except Exception as exc:
-        return False, f"Kunne ikke sende Finansavisen-data til Test 2: {exc}"
+        return False, f"Kunne ikke åpne AI Kandidattest med Finansavisen-data: {exc}"
 
 
 def render_finansavisen_bjellesau_panel() -> None:
@@ -383,17 +355,17 @@ def render_finansavisen_bjellesau_panel() -> None:
     dataunderlag_options = list(dict.fromkeys(str(ticker).strip().upper() for ticker in dataunderlag_options if str(ticker).strip()))
     default_dataunderlag_tickers = dataunderlag_options[: min(60, len(dataunderlag_options))]
     selected_dataunderlag_tickers = st.multiselect(
-        "Velg tickere for Test 2 Marked/rangering",
+        "Velg tickere for AI Kandidattest",
         dataunderlag_options,
         default=default_dataunderlag_tickers,
         key="finansavisen_bjellesau_test2_tickers_v1864f",
-        help="Bruk valgte tickere til Test 2, eller send hele filtrerte dataunderlaget med knappen under.",
+        help="Bruk valgte tickere i AI Kandidattest, eller send hele filtrerte kildegrunnlaget med knappen under.",
     )
     io1, io2, io3, io4 = st.columns(4)
     io1.metric("Input Finansavisen", f"{len(visible_rows)} handler")
     io2.metric("Tickere med match", len(dataunderlag_options))
-    io3.metric("Valgt til Test 2", len(selected_dataunderlag_tickers))
-    io4.metric("Output til Test 2", f"{len(selected_dataunderlag_tickers)} valgt / {len(dataunderlag_options)} hele")
+    io3.metric("Valgt til AI Kandidattest", len(selected_dataunderlag_tickers))
+    io4.metric("Klar til AI Kandidattest", f"{len(selected_dataunderlag_tickers)} valgt / {len(dataunderlag_options)} hele")
 
     decision_options = [
         row.get("Ticker")
@@ -447,7 +419,7 @@ def render_finansavisen_bjellesau_panel() -> None:
     c_selected, c_all, c_decision, c_clear = st.columns([1.2, 1.2, 1.35, 1.1])
     with c_selected:
         if st.button(
-            "Send valgte tickere til Test 2 Marked/rangering",
+            "Send valgte tickere til AI Kandidattest",
             key="finansavisen_bjellesau_send_selected_test2_v1864i",
             use_container_width=True,
             type="primary",
@@ -461,7 +433,7 @@ def render_finansavisen_bjellesau_panel() -> None:
                 st.warning(msg)
     with c_all:
         if st.button(
-            "Send hele dataunderlaget til Test 2 Marked/rangering",
+            "Send hele kildegrunnlaget til AI Kandidattest",
             key="finansavisen_bjellesau_send_all_test2_v1864i",
             use_container_width=True,
             type="primary",
@@ -475,7 +447,7 @@ def render_finansavisen_bjellesau_panel() -> None:
                 st.warning(msg)
     with c_decision:
         if st.button(
-            "Send direkte til Test 8 Beslutningsgrunnlag",
+            "Send til Beslutningsgrunnlag",
             key="finansavisen_bjellesau_send_decision_v1864i",
             use_container_width=True,
             disabled=not selected_decision_tickers,

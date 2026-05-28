@@ -211,9 +211,9 @@ def test_finansavisen_budget_status_and_light_ui_compile():
     assert "finansavisen_bjellesau_period_{idx}_v1863bk" not in source
     assert "_file_period_key(upload, idx)" in source
     assert "Last ned PDF" in source
-    assert "Send valgte tickere til Test 2 Marked/rangering" in source
-    assert "Send hele dataunderlaget til Test 2 Marked/rangering" in source
-    assert "Send direkte til Test 8 Beslutningsgrunnlag" in source
+    assert "Send valgte tickere til AI Kandidattest" in source
+    assert "Send hele kildegrunnlaget til AI Kandidattest" in source
+    assert "Send til Beslutningsgrunnlag" in source
     assert "finansavisen_bjellesau_decision_tickers_v1864i" in source
     assert "max_selections=len(decision_options)" in source
     assert "max_selections=min(20" not in source
@@ -221,7 +221,7 @@ def test_finansavisen_budget_status_and_light_ui_compile():
 
     layout = open("workspace_layout.py", encoding="utf-8").read()
     assert '"finansavisen", "bjellesau"' in layout
-    assert 'group_map["Marked og signaler"] + _matching_panel_labels("finansavisen", "bjellesauer")' in layout
+    assert 'ai_candidate_group_name = "AI Kandidattest"' in layout
 
 
 def test_finansavisen_test2_candidate_rows_use_selected_tickers():
@@ -233,6 +233,6 @@ def test_finansavisen_test2_candidate_rows_use_selected_tickers():
     assert len(candidates) == 1
     assert candidates[0]["ticker"] == "NORBT.OL"
     assert candidates[0]["source"] == "Finansavisen Bjellesauer"
-    assert "Kjor Test 2" in candidates[0]["recommended_action"]
+    assert "AI Kandidattest" in candidates[0]["recommended_action"]
 
 

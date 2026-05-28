@@ -13,8 +13,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4n"' in version
-    assert "AI Candidate Hub" in version
+    assert 'APP_VERSION = "v18.6.4o"' in version
+    assert "AI Candidate Source Hub" in version
     assert "AI Kandidattest samler fersk kandidatfangst" in version
     assert "printvennlig HTML" in version
 
@@ -30,7 +30,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "JSON snapshot" in app
     assert "Datakildestatus / ferskhet" in app
     assert "source_status" in app
-    assert "Kjoringen er lagret, men ga 0 kandidater" in app
+    assert "Kjøringen er lagret, men ga 0 kandidater" in app
     assert "Land" in app and "Bors" in app and "Univers" in app
     assert "Kildestyrke" in app and "Endring" in app and "Forklaring" in app
     assert "def _load_ai_candidate_latest_result_v1864m" in app
@@ -50,11 +50,12 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert 'ai_candidate_group_name = "AI Kandidattest"' in active_layout_block
     assert "selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels" in active_layout_block
     assert '"folketrygdfondet"' in active_layout_block
-    assert '_matching_panel_labels("finansavisen", "bjellesauer", "folketrygdfondet")' in active_layout_block
+    assert '"kilder"' in active_layout_block and '"import"' in active_layout_block
+    assert "Ingen valgt" not in active_layout_block
     assert "Testflyt" not in layout
     assert "if len(direct_panels) == 1:" in layout
     assert "if len(direct_panels) > 1:" in layout
-    assert 'pending_nav_sync["group"] = stage_group_name' in active_layout_block
+    assert "_render_pipeline_quick_start_v1863bx(panel_map, group_map)" not in active_layout_block
 
 
 def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():

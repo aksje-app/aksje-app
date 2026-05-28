@@ -18,7 +18,9 @@ def test_startup_defaults_to_no_selected_panel_and_hides_drift_controls():
     assert "show_drift_controls_v1863cc" in app
     assert "render_global_update_action_panel_v1863g()" in app
     assert "if bool(globals().get(\"show_drift_controls_v1863cc\", False))" in app
-    assert "Starttilstand er Ingen valgt" in layout
+    active_layout = layout[layout.index("def _render_ai_control_center_v1863aj") :]
+    assert "Velg hovedområde for å åpne relevant arbeidsflate" in active_layout
+    assert "Ingen valgt" not in active_layout
 
 
 def test_remember_token_is_not_reinserted_in_url_after_login():

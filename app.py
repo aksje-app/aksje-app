@@ -10751,7 +10751,7 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
             "Omraade": "Tickerlister / univers",
             "Status": "klar",
             "Detalj": f"{len(tickers or [])} tickere i felles univers",
-            "Handling": "Brukes av Test 2 og radarene",
+            "Handling": "Brukes av AI Kandidattest og radarene",
         })
     except Exception as exc:
         rows.append({"Omraade": "Tickerlister / univers", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller stocks.py"})
@@ -10761,13 +10761,13 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
         actors = load_actor_registry()
         active = sum(1 for row in actors if row.get("active", True))
         rows.append({
-            "Omraade": "Aktoerregister",
+            "Omraade": "Aktørregister",
             "Status": "klar" if active else "mangler aktive",
-            "Detalj": f"{len(actors)} aktoerer, {active} aktive",
+            "Detalj": f"{len(actors)} aktører, {active} aktive",
             "Handling": "Importer/rediger navn, alias og roller",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Aktoerregister", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Aktoerregister"})
+        rows.append({"Omraade": "Aktørregister", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Aktørregister"})
     try:
         from finansavisen_bjellesau import PERIOD_OPTIONS, finansavisen_status
 
@@ -10775,36 +10775,36 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
         periods = ", ".join(status.get("periods") or [])
         rows.append({
             "Omraade": "Finansavisen Bjellesauer",
-            "Status": "importert" if int(status.get("rows") or 0) else "venter paa import",
+            "Status": "importert" if int(status.get("rows") or 0) else "venter på import",
             "Detalj": f"{status.get('rows', 0)} handler, {status.get('investors', 0)} investorer, perioder {periods or '-'}",
             "Handling": "Kan importere flere periodefiler samtidig: " + ", ".join(PERIOD_OPTIONS),
         })
     except Exception as exc:
-        rows.append({"Omraade": "Finansavisen Bjellesauer", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Finansavisen-import"})
+        rows.append({"Omraade": "Finansavisen Bjellesauer", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Finansavisen-import"})
     try:
         from nbim_radar import load_nbim_overlay
 
         overlay = load_nbim_overlay()
         rows.append({
             "Omraade": "Oljefond/NBIM",
-            "Status": "overlay lagret" if overlay else "venter paa import",
+            "Status": "overlay lagret" if overlay else "venter på import",
             "Detalj": f"{len(overlay or {})} tickere i NBIM-overlay",
             "Handling": "Importer ny og forrige NBIM CSV for endringer",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Oljefond Radar"})
+        rows.append({"Omraade": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Oljefond Radar"})
     try:
         from folketrygdfondet import load_folketrygdfondet_overlay
 
         overlay = load_folketrygdfondet_overlay()
         rows.append({
             "Omraade": "Folketrygdfondet",
-            "Status": "overlay lagret" if overlay else "venter paa import",
+            "Status": "overlay lagret" if overlay else "venter på import",
             "Detalj": f"{len(overlay or {})} tickere i Folketrygdfondet-overlay",
             "Handling": "Importer Folketrygdfondet XLS som eierkilde",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Aapne Folketrygdfondet"})
+        rows.append({"Omraade": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Folketrygdfondet"})
     try:
         from data_source_diagnostics import build_data_source_status
 
@@ -10822,70 +10822,36 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
 
 
 def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
-    st.markdown("#### Dataunderlag som skal kontrolleres foer Test 2")
-    st.caption("Kontroller datakilder og gjoer underlaget klart for Test 2. Dette panelet starter ingen tunge analyser.")
+    st.markdown("#### Kilder og import")
+    st.caption("Importer og kontroller kildene AI Kandidattest kan bruke. Dette panelet starter ingen tunge analyser.")
     source_rows = _data_foundation_source_rows_v1863by()
     st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
 
     st.info(
         "Finansavisen, Oljefond/NBIM og Folketrygdfondet behandles som datakilder. "
-        "Test 1 lagrer status/overlay; senere tester henter bare relevant evidens naar de trenger den."
+        "AI Kandidattest henter bare relevant evidens når kilden er importert og lagret."
     )
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         if st.button("Importer Finansavisen-filer", key="data_foundation_open_finansavisen_v1863by", use_container_width=True, type="primary"):
-            _pipeline_go_to_panel_v1863by("Marked og signaler", "Finansavisen Bjellesauer")
-        st.caption("Stotter flere periodefiler: 1D, 1U, 1M, 3M, 6M, YTD, 1Y, 3Y og ALLE.")
+            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Finansavisen Bjellesauer")
+        st.caption("Støtter flere periodefiler: 1D, 1U, 1M, 3M, 6M, YTD, 1Y, 3Y og ALLE.")
     with c2:
-        if st.button("Rediger Aktoerregister", key="data_foundation_open_actor_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("Marked og signaler", "Aktørregister")
+        if st.button("Rediger Aktørregister", key="data_foundation_open_actor_v1863by", use_container_width=True):
+            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Aktørregister")
         st.caption("Navn, alias, roller, styrke, ticker og marked.")
     with c3:
         if st.button("Importer Oljefond/NBIM", key="data_foundation_open_nbim_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("Marked og signaler", "Oljefond Radar")
-        st.caption("Nyeste og forrige NBIM CSV gir nye/okte/reduserte/solgte signaler.")
+            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Oljefond Radar")
+        st.caption("Nyeste og forrige NBIM CSV gir nye/økte/reduserte/solgte signaler.")
     with c4:
         if st.button("Importer Folketrygdfondet XLS", key="data_foundation_open_folketrygdfondet_v1864k", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("Marked og signaler", "Folketrygdfondet")
+            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Folketrygdfondet")
         st.caption("XLS/XLSX lagres som institusjonelt eier-overlay.")
     with c5:
-        if st.button("Aapne radar/kildetest", key="data_foundation_open_alpha_sources_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("Marked og signaler", "Alpha Radar")
+        if st.button("Åpne radar/kildetest", key="data_foundation_open_alpha_sources_v1863by", use_container_width=True):
+            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Alpha Radar")
         st.caption("API-status og kildedekning vises uten at menyvalg starter scan.")
-
-    st.markdown("#### Status for arbeidsflyten")
-    st.caption("Steg 1 lager underlag. Test 2-10 har egne handlinger/kjoering i panelet sitt; send videre kommer etter output.")
-    stage_display = []
-    for row in status_rows:
-        nr = int(row.get("nr") or 0)
-        stage_display.append({
-            "nr": nr,
-            "test": row.get("steg"),
-            "status": row.get("status"),
-            "input": row.get("input"),
-            "output": row.get("output"),
-            "har arbeidsflate": "ja",
-            "send videre": "etter godkjent dataunderlag" if nr == 1 else "etter output",
-            "neste": row.get("neste"),
-        })
-    st.dataframe(pd.DataFrame(stage_display), use_container_width=True, hide_index=True)
-
-
-def _render_data_foundation_approval_v1863by(status_rows: list[dict]) -> None:
-    st.markdown("#### Godkjenn dataunderlag")
-    st.caption("Bruk denne foerst naar datakilder/importer er kontrollert. Den lager en kontrollrapport og aapner Test 2; ingen tung analyse starter automatisk, og raa importfiler sendes ikke gjennom Test 1-10.")
-    source_rows = _data_foundation_source_rows_v1863by()
-    missing = [row for row in source_rows if str(row.get("Status", "")).lower() in {"feil", "venter paa import", "mangler aktive"}]
-    if missing:
-        st.warning("Noen datakilder er ikke komplette. Du kan likevel gaa videre, men Test 2 faar bedre grunnlag naar kildene er oppdatert.")
-    c1, c2 = st.columns([1.0, 1.0])
-    with c1:
-        if st.button("Godkjenn dataunderlag og aapne Test 2", key="analysis_pipeline_approve_data_foundation_v1863by", use_container_width=True, type="primary"):
-            _pipeline_send_and_open_next_v1863bw("data_foundation")
-    with c2:
-        if st.button("Aapne Test 2 uten aa endre grunnlag", key="analysis_pipeline_open_test2_only_v1863by", use_container_width=True):
-            _pipeline_open_stage_v1863bw("market_ranking")
-
 
 def _pipeline_package_summary_rows_v1863bz(package: dict, stage_id: str) -> list[dict]:
     if not package:
@@ -11079,87 +11045,10 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
 
 
 def render_analysis_pipeline_control_center_v1863bv():
-    """Visual workflow for staged analysis without starting heavy jobs."""
-    st.subheader("1. Dataunderlag")
-    st.caption("Dette er forarbeidet til testrekken: kontroller datakilder og gjoer underlaget klart for Test 2. Ingen analyse kjoeres her.")
-    try:
-        from services.analysis_pipeline_service import (
-            STAGES_BY_ID,
-            next_stage_id,
-            standard_report_outline,
-        )
-
-        pipeline = _analysis_pipeline_service_v1863bw()
-        status_rows = pipeline.stage_status()
-    except Exception as exc:
-        st.warning(f"Analyseflyt kunne ikke lastes: {exc}")
-        return
-
-    _render_pipeline_stage_bar_v1863bw("data_foundation", show_actions=False)
-    _render_data_foundation_workspace_v1863by(status_rows)
-    st.markdown(
-        "<div class='v18-dark-row'><b>Prinsipp:</b> automatisk overfoering av inputpakker, ikke automatisk kjoering. Dataunderlag sender en kontrollrapport; senere tester sender kandidater/resultater videre.</div>",
-        unsafe_allow_html=True,
-    )
-    with st.expander("Detaljer for valgt steg / send videre", expanded=False):
-        labels = [f"{row.get('nr')}. {row.get('steg')}" for row in status_rows]
-        active_stage_for_select = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
-        if active_stage_for_select:
-            active_label_for_select = next((label for label, row in zip(labels, status_rows) if row.get("stage_id") == active_stage_for_select), "")
-            if active_label_for_select:
-                st.session_state["analysis_pipeline_stage_select_v1863bv"] = active_label_for_select
-        selected_label = st.selectbox("Velg steg", labels, key="analysis_pipeline_stage_select_v1863bv")
-        selected_idx = max(0, labels.index(selected_label)) if selected_label in labels else 0
-        selected_stage = status_rows[selected_idx]["stage_id"]
-        selected_stage_def = STAGES_BY_ID.get(selected_stage)
-        selected_output = pipeline.load_stage_output(selected_stage)
-        selected_input = pipeline.load_stage_input(selected_stage)
-        target_stage = next_stage_id(selected_stage)
-        selected_input_count = _pipeline_candidate_count_from_package_v1864h(selected_input)
-        selected_output_count = _pipeline_candidate_count_from_package_v1864h(selected_output)
-
-        c1, c2, c3 = st.columns([1.2, 1.2, 1.0])
-        with c1:
-            can_output = bool(target_stage and (selected_stage == "data_foundation" or selected_output_count > 0))
-            can_bypass = bool(target_stage and selected_stage in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H and selected_input_count > 0 and selected_output_count == 0)
-            send_label = "Send mottatt input videre og aapne neste test" if can_bypass else "Send valgt output videre og aapne neste test"
-            if st.button(send_label, key="analysis_pipeline_send_next_v1863bv", use_container_width=True, disabled=not (can_output or can_bypass)):
-                if selected_stage == "data_foundation":
-                    _pipeline_send_and_open_next_v1863bw("data_foundation")
-                elif can_bypass:
-                    _pipeline_send_raw_input_and_open_next_v1864h(selected_stage)
-                else:
-                    res = pipeline.handoff_latest_output_to_next(selected_stage)
-                    if res.ok:
-                        _pipeline_open_stage_v1863bw(target_stage)
-                    else:
-                        st.warning(res.message)
-        with c2:
-            input_label = "Dataunderlag inn" if selected_stage == "data_foundation" else "Input fra forrige steg"
-            st.metric(input_label, selected_input_count)
-            st.caption("Statusfelt, ikke knapp. Viser kandidater/kontrollpunkter dette steget har faatt inn.")
-        with c3:
-            output_label = "Kontrollrapport klar" if selected_stage == "data_foundation" else "Output fra dette steg"
-            st.metric(output_label, selected_output_count)
-            st.caption("Statusfelt, ikke knapp. Viser det dette steget kan sende videre.")
-
-        if selected_stage_def:
-            st.caption(f"{selected_stage_def.label}: {selected_stage_def.purpose}")
-        if target_stage in STAGES_BY_ID:
-            st.caption(f"Neste steg: {STAGES_BY_ID[target_stage].label}. Kandidater legges klare, men analysen starter ikke automatisk.")
-
-        if selected_output and (selected_stage == "data_foundation" or not selected_input):
-            st.session_state["analysis_pipeline_package_view_v1863bv"] = "Output fra dette steg"
-        package_view = st.radio("Pakkevisning", ["Mottatt fra forrige test", "Output fra dette steg"], horizontal=True, key="analysis_pipeline_package_view_v1863bv")
-        package = selected_input if package_view == "Mottatt fra forrige test" else selected_output
-        _render_pipeline_package_v1863bz(selected_stage, package, package_view)
-
-    if selected_stage == "data_foundation":
-        _render_data_foundation_approval_v1863by(status_rows)
-
-    with st.expander("Felles rapportmal for alle steg", expanded=False):
-        for line in standard_report_outline(selected_stage):
-            st.markdown(f"- {html.escape(str(line))}")
+    """Source hub for AI Kandidattest."""
+    st.subheader("Kilder og import")
+    st.caption("Importer og kontroller datakilder før du kjører AI Kandidattest.")
+    _render_data_foundation_workspace_v1863by([])
 
 
 def _ai_candidate_dedupe_tickers_v1864l(values) -> list[str]:
@@ -11239,7 +11128,7 @@ def _ai_candidate_overlay_maps_v1864l() -> dict:
 def _ai_candidate_source_status_v1864l() -> list[dict]:
     rows = [{
         "Kilde": "Marked",
-        "Oppdatert": "Ny run naar testen kjoeres",
+        "Oppdatert": "Ny kjøring når testen kjøres",
         "Tickere": "Valgt marked",
         "Databruk": "Fersk score/kurs-run",
     }]
@@ -11595,7 +11484,7 @@ def _ai_candidate_send_watchlist_v1864m(rows: list[dict]) -> None:
 
 def _render_ai_candidate_selection_v1864m(rows: list[dict]) -> list[dict]:
     st.markdown("#### Velg kandidater")
-    st.caption("Kryss av radene du vil sende videre. Kandidatene kan rutes direkte til resten av appen uten aa kjorere ny test.")
+    st.caption("Kryss av radene du vil sende videre. Kandidatene kan rutes direkte til resten av appen uten å kjøre ny test.")
     display_rows = []
     for row in rows or []:
         display_rows.append({"Velg": False, **dict(row)})
@@ -11654,7 +11543,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
     else:
         st.warning("Ingen kandidater funnet for valgt kilde. Importer datakilde, velg marked eller skriv manuell liste.")
 
-    if st.button("Kjor AI Kandidattest", key="ai_candidate_run_v1864l", type="primary", use_container_width=True, disabled=not bool(preview_tickers)):
+    if st.button("Kjør AI Kandidattest", key="ai_candidate_run_v1864l", type="primary", use_container_width=True, disabled=not bool(preview_tickers)):
         progress = st.progress(0, text="Starter AI Kandidattest")
         progress.progress(25, text="Henter ferske kurs-/scoredatasett")
         ranked = cached_auto_rank_market(
@@ -11685,7 +11574,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
     rows = result.get("rows") if isinstance(result, dict) else []
     if isinstance(result, dict) and result.get("created_at"):
         if "ai_candidate_test_last_result_v1864l" not in st.session_state:
-            st.caption("Viser sist lagrede AI Kandidattest. Kjor testen paa nytt for fersk kandidatfangst.")
+            st.caption("Viser sist lagrede AI Kandidattest. Kjør testen på nytt for fersk kandidatfangst.")
         st.markdown("#### Resultat")
         if rows:
             country_counts = pd.Series([row.get("Land") or "Ukjent" for row in rows]).value_counts().to_dict()
@@ -11698,7 +11587,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             )
             _render_ai_candidate_selection_v1864m(rows)
         else:
-            st.info("Kjoringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
+            st.info("Kjøringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
         basename = _ai_candidate_basename_v1864l(result)
         st.markdown("#### Lagre / print / eksport")
         st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
@@ -11710,12 +11599,12 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         with d3:
             st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
     else:
-        st.info("Kjor testen for aa lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
+        st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
 
 
 def control_center_extra_panels_v18535():
     return [
-        ("1. Dataunderlag", render_analysis_pipeline_control_center_v1863bv),
+        ("Kilder og import", render_analysis_pipeline_control_center_v1863bv),
         ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
         ("Marked", render_market_room_control_center_v1863cb),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),

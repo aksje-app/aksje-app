@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4n"' in version
-assert "AI Candidate Hub" in version
+assert 'APP_VERSION = "v18.6.4o"' in version
+assert "AI Candidate Source Hub" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -56,8 +56,9 @@ assert '("Oljefond Radar", render_nbim_radar_panel)' in app
 assert "from decision_ui import render_decision_support_panel" in app
 assert '("Beslutningsgrunnlag", render_decision_support_panel)' in app
 active_layout_block = layout.split("def _render_ai_control_center_v1863aj", 1)[1]
-assert '"alpha"' in active_layout_block and '"muligheter"' in active_layout_block
+assert '"alpha radar"' in active_layout_block
 assert '"beslut"' in active_layout_block and '"oljefond"' in active_layout_block and '"nbim"' in active_layout_block
+assert 'ai_candidate_group_name = "AI Kandidattest"' in active_layout_block
 
 # Heavy scanning must stay behind an explicit button.
 button_pos = ui.find("run_clicked = st.button")

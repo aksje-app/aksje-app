@@ -1,9 +1,14 @@
-APP_VERSION = "v18.6.4n"
-APP_VERSION_NAME = "AI Candidate Hub"
-APP_BUILD_ID = "v1864n-ai-candidate-hub"
+APP_VERSION = "v18.6.4o"
+APP_VERSION_NAME = "AI Candidate Source Hub"
+APP_BUILD_ID = "v1864o-ai-candidate-source-hub"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Kilder og import erstatter Dataunderlag som synlig kildehub under AI Kandidattest.",
+    "Den gamle arbeidsflytflaten med Test 1-10-status, pakkevisning og send-til-neste-test er fjernet fra synlig UI.",
+    "Ingen valgt-radioknapper er fjernet fra Kontrollsenteret; lukk-knappen brukes for aa lukke valgt oppgave.",
+    "Folketrygdfondet er bygget ut med importer-og-lagre, status, CSV, JSON, Print/PDF HTML, PDF og sending til AI Kandidattest.",
+    "Finansavisen og Oljefond/NBIM kan sende matchede tickere direkte til AI Kandidattest i stedet for gammel Test 2-flyt.",
     "AI Kandidattest er naa eget hovedvalg i Kontrollsenteret og aapner kandidatesten direkte.",
     "Dataunderlag, Aktoerregister, Oljefond/NBIM, Finansavisen, Folketrygdfondet og Alpha Radar ligger samlet som kilder og stottepaneler under AI Kandidattest.",
     "Folketrygdfondet-importen er registrert i riktig menygruppe slik at XLS-knappen aapner importpanelet i stedet for aa falle tilbake til start.",

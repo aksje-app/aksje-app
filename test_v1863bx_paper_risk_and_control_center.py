@@ -116,10 +116,12 @@ def test_scanner_checks_existing_position_before_direct_buy():
 
 def test_control_center_shows_datakilder_as_visible_start():
     text = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
+    active = text[text.index("def _render_ai_control_center_v1863aj") :]
 
     assert "_render_pipeline_quick_start_v1863bx" in text
     assert '"Start her: 1. Dataunderlag"' not in text
-    assert "analysis_pipeline_shortcut_{stage_id}_v1863bz" in text
-    assert '"Marked og signaler": _matching_panel_labels("dataunderlag", "datakilder", "datagrunnlag", "analyseflyt", "test 1"' in text
+    assert "analysis_pipeline_shortcut_{stage_id}_v1863bz" not in active
+    assert 'ai_candidate_group_name = "AI Kandidattest"' in active
+    assert '"kilder"' in active and '"import"' in active
 
 

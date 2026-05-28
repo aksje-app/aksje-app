@@ -8,20 +8,19 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4n"' in version
-    assert "AI Candidate Hub" in version
+    assert 'APP_VERSION = "v18.6.4o"' in version
+    assert "AI Candidate Source Hub" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert '_render_pipeline_stage_bar_v1863bw("data_foundation", show_actions=False)' in app
-    assert "_render_data_foundation_workspace_v1863by(status_rows)" in app
-    assert "_render_data_foundation_approval_v1863by(status_rows)" in app
+    assert "#### Kilder og import" in app
+    assert "_render_data_foundation_workspace_v1863by([])" in app
     assert "Importer Finansavisen-filer" in app
-    assert "Rediger Aktoerregister" in app
+    assert "Rediger Aktørregister" in app
     assert "Importer Oljefond/NBIM" in app
-    assert "Mottatt fra forrige test" in app
-    assert "Kontrollrapport klar" in app
+    assert "Mottatt fra forrige test" not in app
+    assert "Kontrollrapport klar" not in app
     assert "Start her: godkjenn datagrunnlag" not in app
 
 

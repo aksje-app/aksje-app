@@ -6,28 +6,25 @@ from services.analysis_pipeline_service import stage_wizard_info
 ROOT = Path(__file__).resolve().parent
 
 
-def test_test2_uses_dataunderlag_as_explicit_default_universe():
-    defaults = stage_wizard_info("market_ranking")["defaults"]
+def test_kilder_og_import_is_ai_candidate_source_hub():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
 
-    assert defaults["cc_ranking_market_v18535"] == "Dataunderlag"
-    assert '"Dataunderlag"] + market_scope_options' in app
-    assert "Input fra 1. Dataunderlag er mottatt" in app
-    assert "Test 2 bruker denne inputpakken" in app
-    assert "source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]" in app
-    assert "Bruker input fra 1. Dataunderlag" in app
+    assert "Kilder og import" in app
+    assert "AI Kandidattest henter bare relevant evidens" in app
+    assert "Status for arbeidsflyten" not in app
+    assert "Godkjenn dataunderlag og aapne Test 2" not in app
 
 
-def test_finansavisen_sends_dataunderlag_to_test2_before_test8_shortcut():
+def test_finansavisen_sends_source_tickers_to_ai_candidate():
     ui = (ROOT / "finansavisen_bjellesau_ui.py").read_text(encoding="utf-8")
 
     assert "def _send_finansavisen_to_test2" in ui
     assert "Input Finansavisen" in ui
-    assert "Output til Test 2" in ui
-    assert "Send valgte tickere til Test 2 Marked/rangering" in ui
-    assert "Send hele dataunderlaget til Test 2 Marked/rangering" in ui
-    assert '"stage_id": "market_ranking"' in ui
-    assert "Send direkte til Test 8 Beslutningsgrunnlag" in ui
+    assert "Klar til AI Kandidattest" in ui
+    assert "Send valgte tickere til AI Kandidattest" in ui
+    assert "Send hele kildegrunnlaget til AI Kandidattest" in ui
+    assert '"stage_id": "market_ranking"' not in ui
+    assert "Send til Beslutningsgrunnlag" in ui
     assert "max_selections=len(decision_options)" in ui
 
 
@@ -56,8 +53,6 @@ def test_test3_to_10_prefer_analysis_pipeline_input_and_specific_send_labels():
     assert 'current["mode"] = "Analyseflyt input"' in analysis
     assert 'mode == "Analyseflyt input" or "Analyseflyt input" in scopes' in universe
     assert "Send {output_count} {noun} til Test" in app or "Send {output_count} kandidater til Test" in app
-    assert "Test 2 kjører" in app or "Test 2 kjÃ¸rer" in app
-    assert "kandidater klare for Test 3" in app
     assert "Fortsett med raa input fra Test 2" in analysis
 
 
@@ -69,9 +64,10 @@ def test_folketrygdfondet_is_source_overlay_not_pipeline_payload():
     assert "Folketrygdfondet" in app
     assert "render_folketrygdfondet_panel" in app
     assert "Importer Folketrygdfondet XLS" in app
-    assert "ikke som raa regneark gjennom hele Test 1-10-flyten" in ui
+    assert "AI Kandidattest kan bruke som kildeevidens" in ui
     assert "read_folketrygdfondet_xls_bytes" in source
     assert "build_folketrygdfondet_overlay" in source
+    assert "save_folketrygdfondet_overlay(overlay, parsed_rows)" in ui
     assert "xlrd" in (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
 

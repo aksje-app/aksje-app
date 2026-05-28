@@ -185,10 +185,10 @@ def test_pipeline_ui_and_panels_expose_handoff_without_hidden_run():
     alpha_source = (ROOT / "alpha_radar_ui.py").read_text(encoding="utf-8", errors="replace")
 
     assert "def render_analysis_pipeline_control_center_v1863bv" in app_source
-    assert "(\"1. Dataunderlag\", render_analysis_pipeline_control_center_v1863bv)" in app_source
+    assert "(\"Kilder og import\", render_analysis_pipeline_control_center_v1863bv)" in app_source
     assert "Analyseflyt input" in app_source
-    assert "Send valgt output videre og aapne neste test" in app_source
-    assert "Input / output" in app_source
+    assert "Send valgt output videre og aapne neste test" not in app_source
+    assert "#### Kilder og import" in app_source
     assert "_PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H" in app_source
     assert "_pipeline_send_raw_input_and_open_next_v1864h" in app_source
     assert "Send raa input" in app_source
@@ -216,7 +216,7 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "analysis_pipeline_pending_nav_v1863bw" in layout_source
     assert "_stage_for_active_panel_v1864h" in layout_source
     assert "alpha_radar_engine_v1863au" in layout_source
-    assert "dataunderlag" in layout_source.lower()
+    assert "kilder" in layout_source.lower()
     assert "_render_pipeline_stage_bar_v1863bw(\"market_ranking\")" in app_source
     assert "_render_pipeline_stage_bar_v1863bw(\"top_picks\")" in app_source
     assert "_render_pipeline_stage_bar_v1863bw(\"auto_test_lab\")" in app_source
