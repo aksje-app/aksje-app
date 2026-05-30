@@ -63,7 +63,7 @@ def test_folketrygdfondet_is_source_overlay_not_pipeline_payload():
 
     assert "Folketrygdfondet" in app
     assert "render_folketrygdfondet_panel" in app
-    assert "Importer Folketrygdfondet XLS" in app
+    assert "Importer Folketrygdfondet XLS" in ui
     assert "AI Kandidattest kan bruke som kildeevidens" in ui
     assert "read_folketrygdfondet_xls_bytes" in source
     assert "build_folketrygdfondet_overlay" in source

@@ -13,8 +13,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4o"' in version
-    assert "AI Candidate Source Hub" in version
+    assert 'APP_VERSION = "v18.6.4p"' in version
+    assert "Unified AI Candidate Imports" in version
     assert "AI Kandidattest samler fersk kandidatfangst" in version
     assert "printvennlig HTML" in version
 
@@ -47,6 +47,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert '"ai kandidattest", "kandidattest"' in active_layout_block
     assert "AI Kandidattest er hovedarbeidsflaten" in layout
     assert "AI Kandidattest: analyse, kilder og radarer" in layout
+    assert "Kilder og import" in app
+    assert "ai_candidate_source_hub_choice_v1864p" in app
     assert 'ai_candidate_group_name = "AI Kandidattest"' in active_layout_block
     assert "selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels" in active_layout_block
     assert '"folketrygdfondet"' in active_layout_block

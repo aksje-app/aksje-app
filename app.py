@@ -1219,6 +1219,55 @@ def _clear_stops_ready_v158():
     st.rerun()
 
 
+def _render_paper_trading_control_toolbar_v1864p() -> None:
+    """Compact auto/paper control placed in the Paper Trading context."""
+    settings = load_settings()
+    full_stop = _full_stop_active()
+    emergency_stop = bool(settings.get("auto_trading_emergency_stop", False))
+    auto_label, auto_color = _auto_state(settings)
+    paper_label, paper_color = _paper_state(full_stop)
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(56,189,248,.42);'>
+          <div style='display:flex;align-items:center;justify-content:space-between;gap:.65rem;flex-wrap:wrap;'>
+            <b>Paper Trading-kontroll</b>
+            <span>
+              <span class='mini-status-chip {html.escape(auto_color)}'>Auto: <b>{html.escape(auto_label)}</b></span>
+              <span class='mini-status-chip {html.escape(paper_color)}'>Paper: <b>{html.escape(paper_label)}</b></span>
+            </span>
+          </div>
+          <div style='font-size:.80rem;color:rgba(226,232,240,.82);margin-top:.20rem;'>
+            Styrer bare simulert/auto paper-flyt. Ekte handel er ikke aktivert.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c_ready, c_start, c_pause, c_stop, c_emergency, c_reset = st.columns([1, 1, 1, 1, 1.05, 1.15], gap="small")
+    ready_disabled = not (bool(full_stop) or bool(settings.get("auto_trading_paused", False)))
+    with c_ready:
+        if st.button("Gjør klar paper", key="paper_context_ready_v1864p", use_container_width=True, disabled=ready_disabled):
+            _clear_stops_ready_v158()
+    with c_start:
+        if st.button("Start simulering", key="paper_context_start_v1864p", use_container_width=True, disabled=bool(full_stop or emergency_stop)):
+            _set_auto_state("START")
+    with c_pause:
+        if st.button("Pause", key="paper_context_pause_v1864p", use_container_width=True):
+            _set_auto_state("PAUSE")
+    with c_stop:
+        if st.button("Stopp simulering", key="paper_context_stop_v1864p", use_container_width=True):
+            _set_auto_state("STOPP")
+    with c_emergency:
+        if st.button("Nødstopp paper", key="paper_context_emergency_v1864p", use_container_width=True):
+            _set_auto_state("NØDSTOPP")
+    with c_reset:
+        if emergency_stop:
+            if st.button("Tilbakestill nødstopp", key="paper_context_reset_emergency_v1864p", use_container_width=True):
+                _reset_emergency_stop_v157()
+        else:
+            st.caption("Nødstopp av")
+
+
 def _fmt_dt_short(value):
     if not value:
         return "ikke kjørt"
@@ -4058,7 +4107,7 @@ def render_live_market_banner():
     if not _heavy_update_allowed():
         banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
         if not banner_cards:
-            st.caption("📡 Ticker-banner bruker manuell modus. Trykk Oppdater hele appen for å hente nye bannerdata.")
+            st.caption("📡 Ticker-banner bruker manuell modus. Åpne Rediger ticker-banner og trykk Lagre og bruk banner for å hente bannerdata.")
             return
     else:
         banner_cards = fetch_live_banner_snapshot(banner_items)
@@ -4347,7 +4396,10 @@ def render_banner_main_controls():
             visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
         visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
 
-        st.caption("Endre flere bannerfelt uten at appen oppdaterer tungt. Trykk først «Lagre banner som ventende», deretter «Oppdater hele appen» når du er klar.")
+        if st.session_state.pop("banner_settings_saved_message_v1864p", False):
+            st.success("Ticker-banner oppdatert ✅")
+
+        st.caption("Endre flere bannerfelt uten at appen oppdaterer tungt. Endringene brukes først når du trykker «Lagre og bruk banner».")
 
         with st.form("banner_settings_form_v17", clear_on_submit=False):
             c_enable, c_speed, c_refresh = st.columns(3)
@@ -4395,7 +4447,7 @@ def render_banner_main_controls():
                         key=f"banner_v1582_{market.lower()}_tickers",
                     )
 
-            submitted = st.form_submit_button("💾 Lagre banner som ventende", use_container_width=True)
+            submitted = st.form_submit_button("💾 Lagre og bruk banner", use_container_width=True)
 
         if submitted:
             new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
@@ -4410,8 +4462,21 @@ def render_banner_main_controls():
                 "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
             })
             save_settings(settings)
-            _mark_pending_manual_change("Ticker-banner endret")
-            st.success("Ticker-banner lagret som ventende endringer ✅")
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("live_banner_cache_v16_"):
+                    st.session_state.pop(key, None)
+            try:
+                banner_items = parse_banner_tickers(settings)
+                banner_fp = tuple((str(m), str(t), str(l)) for m, t, l in banner_items)
+                banner_key = f"live_banner_cache_v16_{_cache_key_safe(banner_fp)}"
+                banner_cards = fetch_live_banner_snapshot(banner_items)
+                if banner_cards:
+                    st.session_state[banner_key] = banner_cards
+                    st.session_state["live_banner_cache_v16_latest"] = banner_cards
+            except Exception as exc:
+                logging.warning("Ticker-banner refresh after save failed: %s", exc)
+            st.session_state["banner_settings_saved_message_v1864p"] = True
+            st.rerun()
 
 
 def render_system_admin_workspace(expanded=False):
@@ -7285,14 +7350,14 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
             )
         with action_cols[1]:
             st.button(
-                "Velg for kjop/ok",
+                "Velg for kjøp/øk",
                 key=f"paper_position_select_buy_v1863by_{key_base}",
                 use_container_width=True,
                 on_click=_select_paper_position_for_trade_v1863by,
                 args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "buy", str(row.get("type") or "Aksje")),
             )
         with action_cols[2]:
-            st.caption("Fyller ticker og lagret siste kurs i aksje-kjop/salg-feltene paa neste rerun.")
+            st.caption("Fyller ticker og lagret siste kurs i aksje-kjøp/salg-feltene på neste rerun.")
 
 
 def render_paper_trading_dashboard():
@@ -7300,13 +7365,12 @@ def render_paper_trading_dashboard():
     st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
     st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
     st.caption("Auto-trading handler bare når relevant marked er åpent. Utenfor åpningstid brukes visning/cache, ikke nye auto-handler.")
-    _render_pipeline_stage_bar_v1863bw("paper_trading")
     try:
         paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
     except Exception:
         paper_flow_rows = []
     if paper_flow_rows:
-        st.markdown("<div class='v18-dark-row'><b>Mottatt fra Test 9:</b> kandidatene under kan brukes som paper-hypoteser. Ingen ekte ordre sendes.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='v18-dark-row'><b>Kandidater sendt til Paper Trading:</b> kandidatene under kan brukes som paper-hypoteser. Ingen ekte ordre sendes.</div>", unsafe_allow_html=True)
         st.dataframe(
             pd.DataFrame([
                 {
@@ -7436,7 +7500,8 @@ def render_paper_trading_dashboard():
 
     st.markdown("---")
     st.subheader("⚙️ Auto trading og regler")
-    st.caption("Fase 1: Store innstillinger er flyttet hit fra venstremenyen, slik at du kan jobbe midt på skjermen.")
+    st.caption("Kontrollene gjelder simulert/auto paper-flyt. Ekte handel er ikke aktivert.")
+    _render_paper_trading_control_toolbar_v1864p()
     render_auto_trading_workspace()
     render_trading_rules_workspace()
 
@@ -7448,7 +7513,7 @@ def render_paper_trading_dashboard():
             f"Valgt posisjon: {selected_position.get('ticker')} | "
             f"siste kurs {float(selected_position.get('price') or 0.0):,.2f} | "
             f"antall {float(selected_position.get('units') or 0.0):,.4f}. "
-            "Kontroller pris og trykk kjop eller salg."
+            "Kontroller pris og trykk kjøp eller salg."
         )
     with st.container():
         st.session_state.setdefault("paper_stock_price_input_v1863y", 0.0)
@@ -7761,12 +7826,12 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.markdown("<div class='sidebar-section-title'>⚙️ Innstillinger</div>", unsafe_allow_html=True)
 render_user_admin(current_user)
 show_drift_controls_v1863cc = st.sidebar.checkbox(
-    "Drift: vis Start/Stopp/Global",
+    "Drift: vis global oppdatering",
     value=False,
     key="show_drift_controls_v1863cc",
-    help="Skjuler Start/Pause/Stopp og Global oppdatering fra startbildet. Bruk ved drift/admin.",
+    help="Viser bare global oppdatering for avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
 )
-st.sidebar.caption("Vanlig arbeid starter uten valgt panel. Driftkontroller er skjult til du trenger dem.")
+st.sidebar.caption("Vanlig arbeid starter uten valgt panel. Driftvalg er skjult til du trenger dem.")
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -8015,6 +8080,23 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
+st.markdown(
+    """
+    <style>
+    html body .stApp .v18534-trading-control-stack,
+    html body .stApp .v18534-control-button-gap,
+    html body .stApp .v18534-trading-warning {
+        display:none !important;
+    }
+    html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+    html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+        display:none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 if not bool(globals().get("show_drift_controls_v1863cc", False)):
     st.markdown(
         """
@@ -8054,53 +8136,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V15.8 / v18.5.34: kompakt Auto trading-kontrollgruppe flyttet opp.
-# Start opphever aldri Full stopp eller Nødstopp.
+# v18.6.4p: Topplinjen viser status. Selve paper/auto-kontrollen ligger i Paper Trading.
 _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
 _block_reason = _auto_block_reason(_top_settings)
-st.markdown(
-    "<div class='v18534-trading-control-stack'>"
-    "<div class='v18534-trading-help'><b>Trading-kontroll:</b> Start/Pause/Stopp/Nødstopp styrer kun auto trading. "
-    "Sikkerhetslåser oppheves med egne knapper.</div>"
-    "</div>",
-    unsafe_allow_html=True,
-)
-if bool(_top_full_stop):
-    st.markdown(
-        "<div class='v18534-trading-warning'>⛔ Full stopp / ferie er aktiv. Auto trading og auto-kjøp er blokkert. "
-        "Bruk <b>Gjør klar</b> før Start kan brukes. Paper Trading er kun visning.</div>",
-        unsafe_allow_html=True,
-    )
-elif _top_emergency_stop:
-    st.markdown(
-        "<div class='v18534-trading-warning'>🚨 Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes.</div>",
-        unsafe_allow_html=True,
-    )
-st.markdown("<div class='v18534-control-button-gap'></div>", unsafe_allow_html=True)
-_tq1, _tq2, _tq3, _tq4, _tq5, _tq6, _tq7, _control_spacer = st.columns([0.95, 1.05, 1.05, 1.25, 1.55, 1.35, 1.85, 2.90], gap="small")
-with _tq1:
-    if st.button("▶ Start", key="auto_start_top_v15", use_container_width=True, disabled=bool(_top_full_stop or _top_emergency_stop)):
-        _set_auto_state("START")
-with _tq2:
-    if st.button("⏸ Pause", key="auto_pause_top_v15", use_container_width=True):
-        _set_auto_state("PAUSE")
-with _tq3:
-    if st.button("⛔ Stopp", key="auto_stop_top_v15", use_container_width=True):
-        _set_auto_state("STOPP")
-with _tq4:
-    if st.button("🚨 Nødstopp", key="auto_emergency_top_v15", use_container_width=True):
-        _set_auto_state("NØDSTOPP")
-with _tq5:
-    # Hold the column populated so the Global button always lands directly after Gjør klar.
-    ready_disabled = not (bool(_top_full_stop) or bool(_top_settings.get("auto_trading_paused", False)))
-    if st.button("🔓 Gjør klar", key="clear_stops_ready_top_v158", use_container_width=True, disabled=ready_disabled):
-        _clear_stops_ready_v158()
-with _tq6:
-    st.empty()
-with _tq7:
-    if _top_emergency_stop:
-        if st.button("🔓 Tilbakestill nødstopp", key="reset_emergency_top_v157", use_container_width=True):
-            _reset_emergency_stop_v157()
 
 if bool(globals().get("show_drift_controls_v1863cc", False)):
     render_global_update_action_panel_v1863g()
@@ -8177,73 +8215,54 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     """On-demand market ranking panel. No market scan runs before the button is pressed."""
     st.subheader("🏆 Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
-    _render_pipeline_stage_bar_v1863bw("market_ranking")
+    import_source_label = "AI kildegrunnlag"
     if selected_market is None:
-        market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, "Dataunderlag"] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
+        market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, import_source_label] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
     else:
         market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
-    data_foundation_input = {}
-    data_foundation_tickers = []
-    if market == "Dataunderlag":
-        try:
-            pipeline = _analysis_pipeline_service_v1863bw()
-            data_foundation_input = pipeline.load_stage_input("market_ranking") or {}
-            data_foundation_tickers = [
-                str(ticker or "").strip().upper()
-                for ticker in (data_foundation_input.get("tickers") or [])
-                if str(ticker or "").strip()
-            ]
-            if not data_foundation_tickers:
-                data_foundation_tickers = [
-                    str(row.get("ticker") or "").strip().upper()
-                    for row in (data_foundation_input.get("candidates") or [])
-                    if isinstance(row, dict) and str(row.get("ticker") or "").strip()
-                ]
-        except Exception:
-            data_foundation_input = {}
-            data_foundation_tickers = []
+    import_tickers = _ai_candidate_import_tickers_v1864l("Kombiner kilder") if market == import_source_label else []
     if selected_limit is None:
-        limit_max = max(1, len(data_foundation_tickers)) if market == "Dataunderlag" and data_foundation_tickers else (60 if market == "Dataunderlag" else 100)
+        limit_max = max(5, len(import_tickers)) if market == import_source_label and import_tickers else (60 if market == import_source_label else 100)
         limit_default = min(max(int(max_count or 30), 5), limit_max)
         limit_key = "cc_ranking_limit_v18535"
         limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
         limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key=limit_key)
     else:
-        limit_cap = max(1, len(data_foundation_tickers)) if market == "Dataunderlag" and data_foundation_tickers else (60 if market == "Dataunderlag" else 100)
+        limit_cap = max(5, len(import_tickers)) if market == import_source_label and import_tickers else (60 if market == import_source_label else 100)
         limit = min(int(selected_limit or max_count or 30), limit_cap)
     source_tickers = []
-    if market == "Dataunderlag":
-        source_tickers = (data_foundation_tickers or get_all_tickers())[: int(limit)]
+    if market == import_source_label:
+        source_tickers = import_tickers[: int(limit)]
     elif market in MARKET_SCOPE_OPTIONS:
         source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
-    if market == "Dataunderlag":
-        if data_foundation_input:
-            st.success(f"Input fra 1. Dataunderlag er mottatt: {len(data_foundation_tickers or [])} tickere. Test 2 bruker denne inputpakken.")
+    if market == import_source_label:
+        if import_tickers:
+            st.success(f"AI kildegrunnlag er klart: {len(import_tickers)} tickere fra lagrede kilder.")
         else:
-            st.warning("Ingen input fra 1. Dataunderlag er lagret ennaa. Gaa tilbake til Dataunderlag og godkjenn underlaget foer du kjoerer Test 2.")
-        st.caption("Dataunderlag-universet bruker inputpakken fra Test 1 naar den finnes, ellers felles tickerunivers sammen med kontrollstatus for datakilder.")
+            st.warning("Ingen importerte kildetickere er lagret ennå. Importer kilder i AI Kandidattest før du bruker dette universet.")
+        st.caption("AI kildegrunnlag bruker lagrede Finansavisen-, Oljefond/NBIM- og Folketrygdfondet-overlays.")
     if source_tickers:
         st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
     else:
         st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
     if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
         progress_box = st.empty()
-        progress = st.progress(0, text="Starter Test 2 rangering")
+        progress = st.progress(0, text="Starter rangering")
         progress_box.markdown(
-            f"<div class='v18-dark-row'><b>Test 2 kjører</b><br>1/4 Henter univers · {len(source_tickers)} tickere</div>",
+            f"<div class='v18-dark-row'><b>Rangering kjører</b><br>1/4 Henter univers · {len(source_tickers)} tickere</div>",
             unsafe_allow_html=True,
         )
         progress.progress(25, text=f"1/4 Henter univers · {len(source_tickers)} tickere")
         progress.progress(45, text="2/4 Henter/cache aksjedata")
         with st.spinner(f"Rangerer {market}..."):
             ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
-        progress.progress(80, text="3/4 Lagrer rangering og pipeline-output")
+        progress.progress(80, text="3/4 Lagrer rangering")
         latest[storage_key] = ranked or []
         progress.progress(100, text=f"4/4 Ferdig · {len(ranked or [])} kandidater")
         progress_box.markdown(
-            f"<div class='v18-dark-row' style='border-color:rgba(34,197,94,.55);'><b>Test 2 ferdig</b><br>{len(ranked or [])} kandidater klare for Test 3.</div>",
+            f"<div class='v18-dark-row' style='border-color:rgba(34,197,94,.55);'><b>Rangering ferdig</b><br>{len(ranked or [])} kandidater klare.</div>",
             unsafe_allow_html=True,
         )
         st.success(f"Rangering ferdig: {len(ranked or [])} kandidater.")
@@ -8256,7 +8275,7 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
 
 def _render_market_room_toolbar_v1863cb() -> dict:
     """Compact Market room toolbar with dropdown-style controls."""
-    market_options = ["Dataunderlag"] + market_scope_options(include_aggregate=True)
+    market_options = ["AI kildegrunnlag"] + market_scope_options(include_aggregate=True)
     c_filter, c_market, c_chart, c_group, c_period, c_view = st.columns([0.42, 1.05, 1.05, 1.0, 0.72, 1.45])
     with c_filter:
         filter_open = st.toggle("Filter", value=False, key="market_room_filter_open_v1863cb")
@@ -8296,11 +8315,11 @@ def _render_market_room_toolbar_v1863cb() -> dict:
 
 
 def _render_market_room_overview_v1863cb(config: dict) -> None:
-    market = str(config.get("market") or "Dataunderlag")
+    market = str(config.get("market") or "AI kildegrunnlag")
     st.markdown("#### Markedsoversikt")
-    st.caption("Oversikten starter ingen tunge analyser. Bruk Rangering for Test 2-kjoering.")
+    st.caption("Oversikten starter ingen tunge analyser. Bruk Rangering når du vil kjøre markedsmotoren.")
     try:
-        tickers = get_all_tickers() if market == "Dataunderlag" else resolve_universe_tickers([market], max_count=250)
+        tickers = _ai_candidate_import_tickers_v1864l("Kombiner kilder") if market == "AI kildegrunnlag" else resolve_universe_tickers([market], max_count=250)
     except Exception:
         tickers = []
     c1, c2, c3, c4 = st.columns(4)
@@ -8314,22 +8333,22 @@ def _render_market_room_overview_v1863cb(config: dict) -> None:
         st.metric("Periode", str(config.get("period") or "1M"))
     if tickers:
         st.caption("Eksempel fra valgt univers: " + ", ".join(tickers[:12]))
-    st.info("Velg Rangering for aa kjoere Test 2, Heatmap for markedsbilde, Regime for markedsklima eller Makro for renter/bredde.")
+    st.info("Velg Rangering for å kjøre markedsmotoren, Heatmap for markedsbilde, Regime for markedsklima eller Makro for renter/bredde.")
 
 
 def render_market_room_control_center_v1863cb() -> None:
     """Market room with toolbar, dropdowns and existing market functions grouped together."""
     st.subheader("Marked")
-    st.caption("Spor markeder, prisendringer, sektortrender og Test 2-rangering fra samme arbeidsflate.")
+    st.caption("Spor markeder, prisendringer, sektortrender og rangering fra samme arbeidsflate.")
     config = _render_market_room_toolbar_v1863cb()
     view = str(config.get("view") or "Oversikt")
     if view == "Rangering":
-        limit_max = 60 if str(config.get("market") or "") == "Dataunderlag" else 100
+        limit_max = 60 if str(config.get("market") or "") == "AI kildegrunnlag" else 100
         limit_default = min(max(int(max_count or 30), 5), limit_max)
         limit_key = "market_room_ranking_limit_v1863cb"
         limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
-        limit = st.slider("Maks kandidater i Test 2", 5, limit_max, limit_default, 1, key=limit_key)
-        render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "Dataunderlag"), selected_limit=int(limit), embedded=True)
+        limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key=limit_key)
+        render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "AI kildegrunnlag"), selected_limit=int(limit), embedded=True)
     elif view == "Heatmap":
         st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
         render_ai_heatmaps()
@@ -8412,7 +8431,6 @@ def render_top_picks_control_center_v1863s():
     """Top Picks as a first-class AI Kontrollsenter panel."""
     st.subheader("⭐ Top Picks")
     st.caption("Bygger Top Picks fra samme universmotor som rangering, analyse, varsler og testpaneler.")
-    _render_pipeline_stage_bar_v1863bw("top_picks")
 
     c1, c2 = st.columns([1.25, 1])
     with c1:
@@ -8501,7 +8519,7 @@ def render_top_picks_control_center_v1863s():
     view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
     if top_picks:
         st.markdown(
-            f"<div class='v18-dark-row'>Top Picks funnet: <b>{len(top_picks)}</b> | Kjoep naa-signaler: <b>{len(buy_now_picks)}</b>. Kjoep naa er et strengere teknisk timingfilter.</div>",
+            f"<div class='v18-dark-row'>Top Picks funnet: <b>{len(top_picks)}</b> | Kjøp nå-signaler: <b>{len(buy_now_picks)}</b>. Kjøp nå er et strengere teknisk timingfilter.</div>",
             unsafe_allow_html=True,
         )
 
@@ -8533,13 +8551,12 @@ def render_top_picks_control_center_v1863s():
             render_ranking(buy_now_picks, f"🟢 Kjøp nå {scope}")
             render_analysis(buy_now_picks, f"KjopNa_{storage_scope}")
         else:
-            st.warning(f"Top Picks finnes ({len(top_picks)}), men ingen har groent teknisk Kjoep naa-signal akkurat naa. Bytt til Top Picks for aa se kandidatene.")
+            st.warning(f"Top Picks finnes ({len(top_picks)}), men ingen har grønt teknisk Kjøp nå-signal akkurat nå. Bytt til Top Picks for å se kandidatene.")
 
 
 def render_alpha_radar_control_center_v1863ap():
     """Explicit-run Alpha Radar panel for unusual opportunity hypotheses."""
     radar_engine = str(st.session_state.get("alpha_radar_engine_v1863au") or "Alpha Radar")
-    _render_pipeline_stage_bar_v1863bw("early_warning" if radar_engine == "Early Warning V1" else "alpha_radar")
 
     def _resolve(scope: str, limit: int, manual_text: str = "") -> list[str]:
         if str(scope or "").strip() == "Analyseflyt input":
@@ -8640,13 +8657,13 @@ def _paper_control_flags_v1863af(rows, total_value: float):
         weight = (value / total_value * 100.0) if total_value else 0.0
         updated = str(row.get("updated") or "").strip()
         if pnl_pct <= -5:
-            flags.append({"ticker": ticker, "nivaa": "Krever oppfolging", "signal": f"Tap {pnl_pct:.2f}%", "forslag": "Sjekk stop-loss, nyheter og om posisjonen fortsatt passer reglene."})
+            flags.append({"ticker": ticker, "nivå": "Krever oppfølging", "signal": f"Tap {pnl_pct:.2f}%", "forslag": "Sjekk stop-loss, nyheter og om posisjonen fortsatt passer reglene."})
         elif pnl_pct >= 10:
-            flags.append({"ticker": ticker, "nivaa": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
+            flags.append({"ticker": ticker, "nivå": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
         if weight >= 25:
-            flags.append({"ticker": ticker, "nivaa": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
+            flags.append({"ticker": ticker, "nivå": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
         if not updated:
-            flags.append({"ticker": ticker, "nivaa": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
+            flags.append({"ticker": ticker, "nivå": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
     return flags
 
 
@@ -8665,9 +8682,9 @@ def _paper_control_learning_points_v1863af(rows, stats, flags):
         points.append("Flere tapere enn vinnere akkurat nå. AI-forslag: stram inn kjøpsscore/confidence før nye paper-kjøp.")
     if stats.get("closed_trades", 0) and stats.get("win_rate", 0) < 45:
         points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
-    if any(f.get("nivaa") == "Konsentrasjon" for f in flags):
+    if any((f.get("nivå") or f.get("nivaa")) == "Konsentrasjon" for f in flags):
         points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
-    if any(f.get("nivaa") == "Datakvalitet" for f in flags):
+    if any((f.get("nivå") or f.get("nivaa")) == "Datakvalitet" for f in flags):
         points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
     return points[:5]
 
@@ -9080,7 +9097,6 @@ def render_auto_test_lab_control_center_v18536():
     """On-demand research lab for testing many tickers/funds against the decision stack."""
     st.subheader("🔬 Auto Test Lab")
     st.caption("Velg én modus og ett univers. Panelet tester kandidater automatisk når du trykker Kjør; skjulte moduser starter ingen tunge jobber.")
-    _render_pipeline_stage_bar_v1863bw("auto_test_lab")
 
     lab_mode = st.radio(
         "Auto Test Lab-modus",
@@ -10409,7 +10425,6 @@ def render_mixed_portfolio_control_center_v18544():
     """Analyze portfolio health across stocks, funds and ETFs without hidden fetches."""
     st.subheader("📊 Porteføljeanalyse")
     st.caption("Analyserer aksjer + fond/ETF samlet. Panelet bruker eksisterende resultater/manuell input og henter ikke nye markedsdata før du eksplisitt kjører andre moduler.")
-    _render_pipeline_stage_bar_v1863bw("portfolio_analysis")
     from portfolio_mixed_analyzer import build_holdings_from_sources, analyze_mixed_portfolio
 
     c1, c2, c3 = st.columns([1.1, 1.1, 1.0])
@@ -10632,13 +10647,13 @@ def _pipeline_send_raw_input_and_open_next_v1864h(stage_id: str) -> None:
         inp = pipeline.load_stage_input(stage_id)
         rows = _pipeline_input_rows_from_package_v1864h(inp)
         if not rows:
-            st.warning("Ingen inputpakke aa sende videre fra dette steget.")
+            st.warning("Ingen inputpakke å sende videre fra dette steget.")
             return
         info = stage_wizard_info(stage_id)
         pipeline.save_stage_output(
             stage_id,
             rows,
-            source_label=f"Raa input via {info.get('label') or stage_id}",
+            source_label=f"Rå input via {info.get('label') or stage_id}",
             context={
                 "bypass_from_input": True,
                 "reason": "Steget ga ingen output, men inputpakken skal kunne vurderes i neste test.",
@@ -10668,7 +10683,7 @@ def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
             first_ticker = next((str(row.get("ticker") or "").strip().upper() for row in rows if row.get("ticker")), "")
             if first_ticker:
                 defaults["paper_stock_symbol_v1863y"] = first_ticker
-                defaults.setdefault("paper_stock_fetch_status_v1863z", ("info", "Ticker er hentet fra analyseflyt. Hent aksjekurs manuelt for paper-kjop."))
+                defaults.setdefault("paper_stock_fetch_status_v1863z", ("info", "Ticker er hentet fra analyseflyt. Hent aksjekurs manuelt for paper-kjøp."))
         except Exception:
             pass
     st.session_state[PIPELINE_PENDING_NAV_KEY] = {
@@ -10748,82 +10763,82 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
     try:
         tickers = get_all_tickers()
         rows.append({
-            "Omraade": "Tickerlister / univers",
+            "Område": "Tickerlister / univers",
             "Status": "klar",
             "Detalj": f"{len(tickers or [])} tickere i felles univers",
             "Handling": "Brukes av AI Kandidattest og radarene",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Tickerlister / univers", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller stocks.py"})
+        rows.append({"Område": "Tickerlister / univers", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller stocks.py"})
     try:
         from actor_registry import load_actor_registry
 
         actors = load_actor_registry()
         active = sum(1 for row in actors if row.get("active", True))
         rows.append({
-            "Omraade": "Aktørregister",
+            "Område": "Aktørregister",
             "Status": "klar" if active else "mangler aktive",
             "Detalj": f"{len(actors)} aktører, {active} aktive",
             "Handling": "Importer/rediger navn, alias og roller",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Aktørregister", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Aktørregister"})
+        rows.append({"Område": "Aktørregister", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Aktørregister"})
     try:
         from finansavisen_bjellesau import PERIOD_OPTIONS, finansavisen_status
 
         status = finansavisen_status()
         periods = ", ".join(status.get("periods") or [])
         rows.append({
-            "Omraade": "Finansavisen Bjellesauer",
+            "Område": "Finansavisen Bjellesauer",
             "Status": "importert" if int(status.get("rows") or 0) else "venter på import",
             "Detalj": f"{status.get('rows', 0)} handler, {status.get('investors', 0)} investorer, perioder {periods or '-'}",
             "Handling": "Kan importere flere periodefiler samtidig: " + ", ".join(PERIOD_OPTIONS),
         })
     except Exception as exc:
-        rows.append({"Omraade": "Finansavisen Bjellesauer", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Finansavisen-import"})
+        rows.append({"Område": "Finansavisen Bjellesauer", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Finansavisen-import"})
     try:
         from nbim_radar import load_nbim_overlay
 
         overlay = load_nbim_overlay()
         rows.append({
-            "Omraade": "Oljefond/NBIM",
+            "Område": "Oljefond/NBIM",
             "Status": "overlay lagret" if overlay else "venter på import",
             "Detalj": f"{len(overlay or {})} tickere i NBIM-overlay",
             "Handling": "Importer ny og forrige NBIM CSV for endringer",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Oljefond Radar"})
+        rows.append({"Område": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Oljefond Radar"})
     try:
         from folketrygdfondet import load_folketrygdfondet_overlay
 
         overlay = load_folketrygdfondet_overlay()
         rows.append({
-            "Omraade": "Folketrygdfondet",
+            "Område": "Folketrygdfondet",
             "Status": "overlay lagret" if overlay else "venter på import",
             "Detalj": f"{len(overlay or {})} tickere i Folketrygdfondet-overlay",
             "Handling": "Importer Folketrygdfondet XLS som eierkilde",
         })
     except Exception as exc:
-        rows.append({"Omraade": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Folketrygdfondet"})
+        rows.append({"Område": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Folketrygdfondet"})
     try:
         from data_source_diagnostics import build_data_source_status
 
         diagnostics = build_data_source_status("3m")
         key_count = sum(1 for row in diagnostics if "nokkel funnet" in str(row.get("Status", "")).lower() or "nokler" in str(row.get("Status", "")).lower())
         rows.append({
-            "Omraade": "API-status / kilder",
+            "Område": "API-status / kilder",
             "Status": "klar" if key_count else "delvis",
             "Detalj": f"{len(diagnostics)} kildesjekker tilgjengelig",
             "Handling": "Vises under datakilde-status i radarene",
         })
     except Exception as exc:
-        rows.append({"Omraade": "API-status / kilder", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller .env og kilder"})
+        rows.append({"Område": "API-status / kilder", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller .env og kilder"})
     return rows
 
 
 def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
     st.markdown("#### Kilder og import")
-    st.caption("Importer og kontroller kildene AI Kandidattest kan bruke. Dette panelet starter ingen tunge analyser.")
+    st.caption("Importer og kontroller kildene AI Kandidattest kan bruke. Dette er eneste synlige importsted for disse kildene.")
     source_rows = _data_foundation_source_rows_v1863by()
     st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
 
@@ -10831,27 +10846,39 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
         "Finansavisen, Oljefond/NBIM og Folketrygdfondet behandles som datakilder. "
         "AI Kandidattest henter bare relevant evidens når kilden er importert og lagret."
     )
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        if st.button("Importer Finansavisen-filer", key="data_foundation_open_finansavisen_v1863by", use_container_width=True, type="primary"):
-            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Finansavisen Bjellesauer")
-        st.caption("Støtter flere periodefiler: 1D, 1U, 1M, 3M, 6M, YTD, 1Y, 3Y og ALLE.")
-    with c2:
-        if st.button("Rediger Aktørregister", key="data_foundation_open_actor_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Aktørregister")
-        st.caption("Navn, alias, roller, styrke, ticker og marked.")
-    with c3:
-        if st.button("Importer Oljefond/NBIM", key="data_foundation_open_nbim_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Oljefond Radar")
-        st.caption("Nyeste og forrige NBIM CSV gir nye/økte/reduserte/solgte signaler.")
-    with c4:
-        if st.button("Importer Folketrygdfondet XLS", key="data_foundation_open_folketrygdfondet_v1864k", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Folketrygdfondet")
-        st.caption("XLS/XLSX lagres som institusjonelt eier-overlay.")
-    with c5:
-        if st.button("Åpne radar/kildetest", key="data_foundation_open_alpha_sources_v1863by", use_container_width=True):
-            _pipeline_go_to_panel_v1863by("AI Kandidattest", "Alpha Radar")
-        st.caption("API-status og kildedekning vises uten at menyvalg starter scan.")
+    source_options = ["Oversikt", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]
+    source_key = "ai_candidate_source_hub_choice_v1864p"
+    if st.session_state.get(source_key) not in source_options:
+        st.session_state[source_key] = "Oversikt"
+    quick_cols = st.columns(len(source_options))
+    for idx, option in enumerate(source_options):
+        with quick_cols[idx]:
+            if st.button(
+                option,
+                key=f"ai_candidate_source_hub_quick_{idx}_v1864p",
+                use_container_width=True,
+                type="primary" if st.session_state.get(source_key) == option else "secondary",
+            ):
+                st.session_state[source_key] = option
+                st.rerun()
+    source_choice = st.selectbox(
+        "Velg kilde",
+        source_options,
+        index=source_options.index(st.session_state.get(source_key, "Oversikt")),
+        key=source_key,
+        help="Alle importer for Finansavisen, Oljefond/NBIM og Folketrygdfondet håndteres her.",
+    )
+
+    if source_choice == "Finansavisen":
+        render_finansavisen_bjellesau_panel()
+    elif source_choice == "Oljefond/NBIM":
+        render_nbim_radar_panel()
+    elif source_choice == "Folketrygdfondet":
+        render_folketrygdfondet_panel()
+    elif source_choice == "Aktørregister":
+        render_actor_registry_panel()
+    else:
+        st.caption("Velg en kilde over for import, søk, tabell, eksport, print/PDF og sending til AI Kandidattest.")
 
 def _pipeline_package_summary_rows_v1863bz(package: dict, stage_id: str) -> list[dict]:
     if not package:
@@ -10881,7 +10908,7 @@ def _pipeline_package_summary_rows_v1863bz(package: dict, stage_id: str) -> list
 def _render_data_foundation_package_v1863bz(package: dict, package_title: str) -> None:
     st.markdown(f"#### {package_title}")
     if not package:
-        st.info("Ingen lagret kontrollrapport for 1. Dataunderlag ennaa.")
+        st.info("Ingen lagret kontrollrapport for 1. Dataunderlag ennå.")
         return
     st.caption("Dataunderlag sender et kontrollpunkt videre, ikke en aksjeliste. Tabellen under viser hva som er kontrollert og hva Test 2 mottar.")
     context = package.get("context") if isinstance(package.get("context"), dict) else {}
@@ -10895,7 +10922,7 @@ def _render_data_foundation_package_v1863bz(package: dict, package_title: str) -
     except Exception:
         pass
     for row in source_rows:
-        area = str(row.get("Omraade") or "")
+        area = str(row.get("Område") or row.get("Omraade") or "")
         detail = str(row.get("Detalj") or "")
         status = str(row.get("Status") or "")
         if area:
@@ -10926,7 +10953,7 @@ def _render_pipeline_package_v1863bz(stage_id: str, package: dict, package_title
         _render_data_foundation_package_v1863bz(package, package_title)
         return
     if not package:
-        st.info("Ingen pakke for valgt steg ennaa.")
+        st.info("Ingen pakke for valgt steg ennå.")
         return
     candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
     if candidates:
@@ -11009,21 +11036,21 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
     with c_next:
         if next_label:
             if stage_id == "data_foundation":
-                label = f"Godkjenn dataunderlag og aapne Test {info.get('next_test_number')}"
+                label = f"Godkjenn dataunderlag og åpne Test {info.get('next_test_number')}"
                 if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True):
                     _pipeline_send_and_open_next_v1863bw(stage_id)
             elif output_count > 0:
                 noun = "portefoljeanalyserte kandidater" if stage_id == "portfolio_analysis" else "kandidater"
-                label = f"Send {output_count} {noun} til Test {info.get('next_test_number')} og aapne {next_label}"
+                label = f"Send {output_count} {noun} til Test {info.get('next_test_number')} og åpne {next_label}"
                 if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True):
                     _pipeline_send_and_open_next_v1863bw(stage_id)
             elif true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
-                label = f"Send raa input ({true_input_count}) til Test {info.get('next_test_number')} og aapne {next_label}"
+                label = f"Send rå input ({true_input_count}) til Test {info.get('next_test_number')} og åpne {next_label}"
                 if st.button(label, key=f"analysis_pipeline_next_raw_{stage_id}_v1864h", use_container_width=True, type="primary"):
                     _pipeline_send_raw_input_and_open_next_v1864h(stage_id)
             else:
                 st.button(
-                    f"Ingen input/output aa sende til Test {info.get('next_test_number')}",
+                    f"Ingen input/output å sende til Test {info.get('next_test_number')}",
                     key=f"analysis_pipeline_next_disabled_{stage_id}_v1864h",
                     use_container_width=True,
                     disabled=True,
@@ -11032,16 +11059,16 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
             final_text = (
                 f"Siste test i flyten. Mottatt {input_count} kandidater; Paper Trading lager ikke neste pipeline-output."
                 if input_count > 0
-                else "Siste test i flyten. Ingen kandidatpakke er mottatt ennaa."
+                else "Siste test i flyten. Ingen kandidatpakke er mottatt ennå."
             )
             st.markdown(f"<div class='v18-dark-row'>{html.escape(final_text)}</div>", unsafe_allow_html=True)
 
     if stage_id == "data_foundation":
-        st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktoerregister, Finansavisen, Oljefond/NBIM, Folketrygdfondet og API-status, og gaa deretter videre til Test 2.")
+        st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktørregister, Finansavisen, Oljefond/NBIM, Folketrygdfondet og API-status, og gå deretter videre til Test 2.")
     elif output_count == 0 and true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
-        st.caption("Ingen output fra dette steget ennaa. Hvis testen ikke finner treff, kan raa input sendes videre som bypass.")
+        st.caption("Ingen output fra dette steget ennå. Hvis testen ikke finner treff, kan rå input sendes videre som bypass.")
     elif output_count == 0 and stage_id != "paper_trading":
-        st.caption("Naar testen er kjoert ferdig, dukker send-knappen opp aktivert for neste test.")
+        st.caption("Når testen er kjørt ferdig, dukker send-knappen opp aktivert for neste test.")
 
 
 def render_analysis_pipeline_control_center_v1863bv():
@@ -11256,7 +11283,7 @@ def _ai_candidate_listing_v1864m(ticker: str, item: dict, selected_market: str) 
         listing = infer_security_listing(ticker, {"ticker": ticker})
     country = str(listing.get("country") or "").strip() or "Ukjent"
     actual_market = str(listing.get("market") or "").strip() or str(item.get("market") or selected_market or "").strip()
-    if actual_market in {"", "Alle", "Norden", "Dataunderlag", "Kombiner kilder"}:
+    if actual_market in {"", "Alle", "Norden", "Dataunderlag", "AI kildegrunnlag", "Kombiner kilder"}:
         actual_market = country
     return {
         "land": country,
@@ -11520,6 +11547,8 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict]) -> list[dict]:
 def render_ai_candidate_test_control_center_v1864l() -> None:
     st.subheader("AI Kandidattest")
     st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
+    with st.expander("Kilder og import", expanded=False):
+        _render_data_foundation_workspace_v1863by([])
     source = st.selectbox(
         "Kandidatkilde",
         ["Marked", "Kombiner kilder", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"],
@@ -11604,15 +11633,11 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 
 def control_center_extra_panels_v18535():
     return [
-        ("Kilder og import", render_analysis_pipeline_control_center_v1863bv),
         ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
         ("Marked", render_market_room_control_center_v1863cb),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),
-        ("Oljefond Radar", render_nbim_radar_panel),
-        ("Folketrygdfondet", render_folketrygdfondet_panel),
-        ("Finansavisen Bjellesauer", render_finansavisen_bjellesau_panel),
         ("Beslutningsgrunnlag", render_decision_support_panel),
         ("🚀 IPO", render_ipo),
         ("🧪 Paper Trading", render_paper_trading_dashboard),

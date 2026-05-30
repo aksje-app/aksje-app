@@ -204,6 +204,7 @@ def folketrygdfondet_display_rows(rows: Sequence[Mapping[str, Any]]) -> list[dic
             "Markedsverdi": format_nbim_amount(row.get("market_value_nok"), "NOK"),
             "Aksjer": row.get("shares") if row.get("shares") is not None else "",
             "Match": row.get("ticker_match_quality") or "",
+            "Ark": row.get("sheet") or "",
         })
     return out
 
@@ -223,7 +224,7 @@ def folketrygdfondet_status() -> dict[str, Any]:
 
 def folketrygdfondet_rows_to_csv(rows: Sequence[Mapping[str, Any]]) -> bytes:
     display = folketrygdfondet_display_rows(rows)
-    fields = ["Ticker", "Selskap", "Land/marked", "Eierandel", "Markedsverdi", "Aksjer", "Match"]
+    fields = ["Ticker", "Selskap", "Land/marked", "Eierandel", "Markedsverdi", "Aksjer", "Match", "Ark"]
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()

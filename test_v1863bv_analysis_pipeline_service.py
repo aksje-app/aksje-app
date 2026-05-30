@@ -185,13 +185,14 @@ def test_pipeline_ui_and_panels_expose_handoff_without_hidden_run():
     alpha_source = (ROOT / "alpha_radar_ui.py").read_text(encoding="utf-8", errors="replace")
 
     assert "def render_analysis_pipeline_control_center_v1863bv" in app_source
-    assert "(\"Kilder og import\", render_analysis_pipeline_control_center_v1863bv)" in app_source
+    assert "(\"Kilder og import\", render_analysis_pipeline_control_center_v1863bv)" not in app_source
+    assert 'with st.expander("Kilder og import", expanded=False):' in app_source
     assert "Analyseflyt input" in app_source
     assert "Send valgt output videre og aapne neste test" not in app_source
     assert "#### Kilder og import" in app_source
     assert "_PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H" in app_source
     assert "_pipeline_send_raw_input_and_open_next_v1864h" in app_source
-    assert "Send raa input" in app_source
+    assert "Send rå input" in app_source
     assert "Aapne {info.get('test_label')} med standardvalg" not in app_source
     assert "Hent fra analyseflyt" in decision_source
     assert "Beslutningsgrunnlag bypass" in decision_source
@@ -217,11 +218,11 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "_stage_for_active_panel_v1864h" in layout_source
     assert "alpha_radar_engine_v1863au" in layout_source
     assert "kilder" in layout_source.lower()
-    assert "_render_pipeline_stage_bar_v1863bw(\"market_ranking\")" in app_source
-    assert "_render_pipeline_stage_bar_v1863bw(\"top_picks\")" in app_source
-    assert "_render_pipeline_stage_bar_v1863bw(\"auto_test_lab\")" in app_source
-    assert "_render_pipeline_stage_bar_v1863bw(\"portfolio_analysis\")" in app_source
-    assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" in app_source
+    assert "_render_pipeline_stage_bar_v1863bw(\"market_ranking\")" not in app_source
+    assert "_render_pipeline_stage_bar_v1863bw(\"top_picks\")" not in app_source
+    assert "_render_pipeline_stage_bar_v1863bw(\"auto_test_lab\")" not in app_source
+    assert "_render_pipeline_stage_bar_v1863bw(\"portfolio_analysis\")" not in app_source
+    assert "_render_pipeline_stage_bar_v1863bw(\"paper_trading\")" not in app_source
     assert "smart_ai_pipeline_prev_v1864b" in smart_source
     assert "Forrige: Test 2 Marked/rangering" in smart_source
     assert "smart_ai_pipeline_run_now_v1864c" not in smart_source

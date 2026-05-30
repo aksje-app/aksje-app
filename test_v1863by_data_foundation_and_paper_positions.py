@@ -8,17 +8,16 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4o"' in version
-    assert "AI Candidate Source Hub" in version
+    assert 'APP_VERSION = "v18.6.4p"' in version
+    assert "Unified AI Candidate Imports" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     assert "#### Kilder og import" in app
     assert "_render_data_foundation_workspace_v1863by([])" in app
-    assert "Importer Finansavisen-filer" in app
-    assert "Rediger Aktørregister" in app
-    assert "Importer Oljefond/NBIM" in app
+    assert 'source_options = ["Oversikt", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]' in app
+    assert "Dette er eneste synlige importsted" in app
     assert "Mottatt fra forrige test" not in app
     assert "Kontrollrapport klar" not in app
     assert "Start her: godkjenn datagrunnlag" not in app
@@ -30,7 +29,7 @@ def test_paper_positions_can_fill_trade_fields_from_position_cards():
     assert "paper_stock_sell_symbol_v1863y" in app
     assert "paper_stock_sell_price_v1863y" in app
     assert "Velg for salg" in app
-    assert "Velg for kjop/ok" in app
+    assert "Velg for kjøp/øk" in app
     assert "Land <b>" in app
     assert "Marked <b>" in app
     assert "Sektor <b>" in app

@@ -143,7 +143,7 @@ def render_nbim_radar_panel() -> None:
 
     progress = st.progress(0, text="Venter på filer")
     if not current_file:
-        st.info("Last opp nyeste beholdningsfil for aa analysere. Ingen nettverkskall kjores automatisk.")
+        st.info("Last opp nyeste beholdningsfil for å analysere. Ingen nettverkskall kjøres automatisk.")
         return
 
     try:
@@ -200,7 +200,7 @@ def render_nbim_radar_panel() -> None:
         st.warning("NBIM-data er lest, men 0 tickere ble matchet. Sjekk om filen er aksje-CSV og om ticker-/navnregisteret dekker markedene.")
 
     st.caption(
-        "Tabellene under er sortert for beslutningsverdi. Raa current_value er oversatt per rad: eierandel/stemmeandel vises som %, "
+        "Tabellene under er sortert for beslutningsverdi. Rå current_value er oversatt per rad: eierandel/stemmeandel vises som %, "
         "aksjer som aksjer og markedsverdi som NOK/USD."
     )
     views = build_nbim_priority_views(annotated_changes, limit=75)
@@ -209,7 +209,7 @@ def render_nbim_radar_panel() -> None:
         "Overbevisning",
         "NBIM-watchlist",
         "Storste beholdninger",
-        "Storste nye kjop",
+        "Største nye kjøp",
         "Storste okninger",
         "Akkumulering svakhet",
         "Redusert med restverdi",

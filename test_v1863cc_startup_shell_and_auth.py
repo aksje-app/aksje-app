@@ -13,8 +13,9 @@ def test_startup_defaults_to_no_selected_panel_and_hides_drift_controls():
     startup_block = app[app.index("ai_control_center_landed_default_v1864l") - 250 : app.index("ai_control_center_landed_default_v1864l") + 420]
     assert '"Marked"' not in startup_block
     assert "Marked og signaler" not in startup_block
-    assert "Drift: vis Start/Stopp/Global" in app
+    assert "Drift: vis global oppdatering" in app
     assert "Vanlig arbeid starter uten valgt panel" in app
+    assert "Paper-kontrollene ligger i Paper Trading" in app
     assert "show_drift_controls_v1863cc" in app
     assert "render_global_update_action_panel_v1863g()" in app
     assert "if bool(globals().get(\"show_drift_controls_v1863cc\", False))" in app

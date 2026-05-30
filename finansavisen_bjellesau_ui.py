@@ -131,7 +131,7 @@ def _render_report_method(summary: Mapping[str, Any], visible_rows: Sequence[Map
 
     detail_options = finansavisen_stock_detail_options(visible_rows, limit=80)
     if not detail_options:
-        st.info("Ingen aksjedetaljer aa vise for gjeldende filter.")
+        st.info("Ingen aksjedetaljer å vise for gjeldende filter.")
         return
     labels = [str(option.get("label") or option.get("key")) for option in detail_options]
     chosen_label = st.selectbox(
@@ -161,8 +161,8 @@ def _summary_cards(status: Mapping[str, Any]) -> None:
     st.caption(
         f"Perioder: {', '.join(status.get('periods') or []) or '-'} | "
         f"datoer: {status.get('first_date') or '-'} til {status.get('last_date') or '-'} | "
-        f"kjop {status.get('buy_count', 0)} / salg {status.get('sell_count', 0)}. "
-        "Ingen Excel-parse eller nettverkskall kjores ved vanlige menyvalg."
+        f"kjøp {status.get('buy_count', 0)} / salg {status.get('sell_count', 0)}. "
+        "Ingen Excel-parse eller nettverkskall kjøres ved vanlige menyvalg."
     )
 
 
@@ -229,7 +229,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         "dedupliserer handler og lager et lokalt evidenslag for Alpha Radar og Early Warning."
     )
     st.info(
-        "Robusthetsregel: Excel leses bare naar du trykker Importer. Radarene bruker deretter ferdiglagret lokalt snapshot."
+        "Robusthetsregel: Excel leses bare når du trykker Importer. Radarene bruker deretter ferdiglagret lokalt snapshot."
     )
 
     uploads = st.file_uploader(
@@ -260,7 +260,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             "Oppdater Aktorregister fra import",
             value=True,
             key="finansavisen_bjellesau_sync_actors_v1863bk",
-            help="Legger investorene inn som Bjellesau-rolle, uten aa slette eksisterende roller som Insider watch.",
+            help="Legger investorene inn som Bjellesau-rolle, uten å slette eksisterende roller som Insider watch.",
         )
     with c2:
         import_clicked = st.button(
@@ -270,7 +270,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             use_container_width=True,
             disabled=not bool(uploads),
         )
-    st.caption("Aktorregister synkes ved import naar avhukingen er paa. Lagret import synkes ikke med en egen ekstra knapp.")
+    st.caption("Aktørregister synkes ved import når avhukingen er på. Lagret import synkes ikke med en egen ekstra knapp.")
 
     if import_clicked:
         progress = st.progress(0, text="Starter Finansavisen-import")
@@ -309,7 +309,7 @@ def render_finansavisen_bjellesau_panel() -> None:
 
     rows = load_finansavisen_transactions()
     if not rows:
-        st.info("Ingen Finansavisen-data lagret ennaa. Last opp transaction.xlsx og trykk Importer valgte filer.")
+        st.info("Ingen Finansavisen-data lagret ennå. Last opp transaction.xlsx og trykk Importer valgte filer.")
         return
 
     f1, f2, f3 = st.columns([1.35, 1.0, 0.9])
@@ -380,7 +380,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         default=decision_defaults,
         key="finansavisen_bjellesau_decision_tickers_v1864i",
         max_selections=len(decision_options) if decision_options else None,
-        help="Kan velge alle matchede tickere fra visningen. Standard er foerste 20 for aa unngaa utilsiktet stor ko.",
+        help="Kan velge alle matchede tickere fra visningen. Standard er første 20 for å unngå utilsiktet stor kø.",
     )
 
     c_exp1, c_exp2, c_exp3, c_exp4 = st.columns(4)

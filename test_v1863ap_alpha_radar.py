@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4o"' in version
-assert "AI Candidate Source Hub" in version
+assert 'APP_VERSION = "v18.6.4p"' in version
+assert "Unified AI Candidate Imports" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -52,7 +52,8 @@ assert "data_enricher=enrich_alpha_radar_row" in app
 assert "earnings_provider=get_earnings" in app
 assert '("Alpha Radar", render_alpha_radar_control_center_v1863ap)' in app
 assert '("Aktørregister", render_actor_registry_panel)' in app
-assert '("Oljefond Radar", render_nbim_radar_panel)' in app
+assert '("Oljefond Radar", render_nbim_radar_panel)' not in app
+assert "render_nbim_radar_panel()" in app
 assert "from decision_ui import render_decision_support_panel" in app
 assert '("Beslutningsgrunnlag", render_decision_support_panel)' in app
 active_layout_block = layout.split("def _render_ai_control_center_v1863aj", 1)[1]
