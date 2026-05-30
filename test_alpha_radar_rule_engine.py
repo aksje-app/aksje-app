@@ -131,3 +131,4 @@ def test_no_heavy_calls_before_explicit_buttons_static_guard():
     assert 0 < control_center_pos < finish_pos < stop_pos
 
 
+

@@ -54,3 +54,4 @@ def test_picker_empty_scope_stays_empty(tmp_path):
     assert resolved.data["tickers"] == []
 
 
+

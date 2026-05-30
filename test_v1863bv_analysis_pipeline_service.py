@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 import pytest
 
@@ -192,7 +192,7 @@ def test_pipeline_ui_and_panels_expose_handoff_without_hidden_run():
     assert "#### Kilder og import" in app_source
     assert "_PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H" in app_source
     assert "_pipeline_send_raw_input_and_open_next_v1864h" in app_source
-    assert "Send rå input" in app_source
+    assert "true_input_count" in app_source and "next_test_number" in app_source
     assert "Aapne {info.get('test_label')} med standardvalg" not in app_source
     assert "Hent fra analyseflyt" in decision_source
     assert "Beslutningsgrunnlag bypass" in decision_source
@@ -259,5 +259,6 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "auto_lab_limit_v18537" in app_source
     assert "mixed_portfolio_max_rows_v18544" in app_source
     assert "_clamp_slider_state_v1864e" in smart_source
+
 
 

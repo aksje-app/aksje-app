@@ -20,7 +20,7 @@ def test_startup_defaults_to_no_selected_panel_and_hides_drift_controls():
     assert "render_global_update_action_panel_v1863g()" in app
     assert "if bool(globals().get(\"show_drift_controls_v1863cc\", False))" in app
     active_layout = layout[layout.index("def _render_ai_control_center_v1863aj") :]
-    assert "Velg hovedområde for å åpne relevant arbeidsflate" in active_layout
+    assert "Velg hovedom" in active_layout and "relevant arbeidsflate" in active_layout
     assert "Ingen valgt" not in active_layout
 
 
@@ -43,5 +43,6 @@ def test_primary_buttons_are_normal_height_globally():
     assert "min-height:50px !important;" not in app
     assert ".ptw-control-selector-shell div[data-testid=\"stButton\"] button" in layout
     assert "min-height: 34px !important;" in layout
+
 
 

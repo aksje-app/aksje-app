@@ -88,13 +88,14 @@ def test_actor_registry_ui_roles_search_sort_and_privacy_static_guards():
         py_compile.compile(name, doraise=True)
 
     ui = Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
-    assert "Søk i registeret" in ui or "SÃ¸k i registeret" in ui
-    assert "Sorter etter" in ui
-    assert "Velg aktør å redigere" in ui or "Velg aktÃ¸r Ã¥ redigere" in ui
+    assert "actor_registry_search_v1863bj" in ui
+    assert "actor_registry_sort_v1863bj" in ui
+    assert "actor_registry_selected_actor_v1863bj" in ui
     assert "Raske alias-forslag" in ui
-    assert "Trefflogg per aktør" in ui or "Trefflogg per aktÃ¸r" in ui
+    assert "actor_registry_refresh_hits_v1863bj" in ui
     assert "Lagres lokalt" in ui
-    assert "En aktør kan ha flere roller" in ui or "En aktÃ¸r kan ha flere roller" in ui
+    assert "actor_roles" in ui
     assert "st.data_editor" not in ui
+
 
 

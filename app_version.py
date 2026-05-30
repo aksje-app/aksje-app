@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.4q"
-APP_VERSION_NAME = "Configurable AI Candidate Engine"
-APP_BUILD_ID = "v1864q-configurable-ai-candidate-engine"
+APP_VERSION = "v18.6.4r"
+APP_VERSION_NAME = "AI Candidate Signal Profile Engine"
+APP_BUILD_ID = "v1864r-ai-candidate-signal-profile-engine"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest har fÃ¥tt Standard 1-6 mnd signalprofil med justerbare vekter for relativ styrke, estimatendringer, insiderkjÃ¸p, omsetnings-/resultatvekst og teknisk trend.",
+    "Evalueringsoppsett har egne sperrer og varsler for under 200-dagers snitt, under 50-dagers snitt, hÃ¸y gjeld, fallende vekst, svak likviditet, gammel datakilde og for smalt signalgrunnlag.",
+    "AI Kandidattest-resultatet viser delsignalene, sterke signaler, sperrer/varsler og datamangler per kandidat, og rapport/HTML dokumenterer samme metode.",
     "AI Kandidattest kan velge flere kilder samtidig til samme kjøring: Marked, Finansavisen, Oljefond/NBIM, Folketrygdfondet og Manuell liste.",
     "Evalueringsoppsett er lagt inn i AI Kandidattest med lagring, Bruk standard, justerbare kildebonuser, risikotrekk, confidencekrav og anbefalingsterskler.",
     "Rapport/print/PDF HTML og JSON tar med valgte kilder, evalueringsprofil og metodeforklaring for kjøringen.",

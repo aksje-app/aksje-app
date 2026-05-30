@@ -134,3 +134,4 @@ def test_rank_local_evidence_sources_combines_sources_and_dedupes_same_ticker():
     assert row["recommended_action"] in {"Til beslutningsgrunnlag", "Analyser videre"}
 
 
+

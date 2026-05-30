@@ -31,3 +31,4 @@ assert infer_security_listing("NOVO-B.CO")["market"] == "Danmark"
 assert infer_security_listing("PETR4.SA")["market"] == "Brasil"
 
 
+

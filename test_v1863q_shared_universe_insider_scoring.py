@@ -72,3 +72,4 @@ def test_universe_and_auto_lab_preserve_insider_metadata():
     assert quality.insider_score == 80.0
 
 
+

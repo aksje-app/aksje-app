@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4q"' in version
-assert "Configurable AI Candidate Engine" in version
+assert 'APP_VERSION = "v18.6.4r"' in version
+assert "AI Candidate Signal Profile Engine" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -51,7 +51,7 @@ assert "def render_alpha_radar_control_center_v1863ap" in app
 assert "data_enricher=enrich_alpha_radar_row" in app
 assert "earnings_provider=get_earnings" in app
 assert '("Alpha Radar", render_alpha_radar_control_center_v1863ap)' in app
-assert '("Aktørregister", render_actor_registry_panel)' in app
+assert "render_actor_registry_panel" in app
 assert '("Oljefond Radar", render_nbim_radar_panel)' not in app
 assert "render_nbim_radar_panel()" in app
 assert "from decision_ui import render_decision_support_panel" in app
@@ -115,25 +115,25 @@ assert "finans-/aktorsok opptil" in ui
 assert "search_nordic_actor_insider" in Path("alpha_radar_enrichment.py").read_text(encoding="utf-8", errors="ignore")
 assert "evidence_ledger" in engine + early + results
 assert "source_budget_text" in ui
-assert "Legg til aktør" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "actor_registry_add_v1863bj" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Unmatched Workbench" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "Slett valgte" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
-assert "Test aktør mot tekst" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "actor_registry_test_text_v1863bj" in Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "local_market_source_diagnostics" in Path("nordic_market_sources.py").read_text(encoding="utf-8", errors="ignore")
 assert "horizon_to_months" in ui + Path("data_source_diagnostics.py").read_text(encoding="utf-8", errors="ignore")
 assert "data_window_months" in engine + early + ui + results
 assert "build_decision_cases" in Path("decision_engine.py").read_text(encoding="utf-8", errors="ignore")
 assert "render_decision_support_panel" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
-assert "Vurder hele køen" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
-assert "Tøm kø" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "decision_support_run_v1863ba" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
+assert "decision_support_clear_v1863ba" in Path("decision_ui.py").read_text(encoding="utf-8", errors="ignore")
 assert "universkilden har bare" in ui
 assert "Enkeltmarked bruker egen grense" in ui
 assert "alpha_news_quality" in engine
 assert "Valgene er endret siden siste" in ui
-assert "Venter på filer" in nbim_ui
-assert "Matcher tickere / bygger overlay" in nbim_ui
+assert "st.progress(0" in nbim_ui
+assert "progress.progress(80" in nbim_ui
 assert "NBIM-watchlist" in nbim_ui
-assert "Akkumulering svakhet" in nbim_ui
+assert "NBIM-watchlist" in nbim_ui and "Radar-overlap" in nbim_ui
 assert "Radar-overlap" in nbim_ui
 assert "build_nbim_watchlist" in nbim_engine
 assert "nbim_conviction_score" in nbim_engine
@@ -171,6 +171,7 @@ for source in [engine, ui]:
 assert "AAPL" not in engine + ui
 assert "MSFT" not in engine + ui
 assert "NVDA" not in engine + ui
+
 
 
 

@@ -136,3 +136,4 @@ def test_early_warning_balanced_market_output_keeps_non_us_visible():
     assert result["market_candidate_counts"]["Norge"] >= 1 or result["market_candidate_counts"]["Sverige"] >= 1
 
 
+

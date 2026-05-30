@@ -189,3 +189,4 @@ def test_rank_local_sources_dedupes_radar_finansavisen_and_nbim_evidence():
     assert row["score"] >= 60
 
 
+

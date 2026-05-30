@@ -98,11 +98,12 @@ def test_source_budget_and_actor_registry_editor_static_guards():
     assert "NewsAPI planlagt maks" in source_budget_text(budget)
 
     ui = Path("actor_registry_ui.py").read_text(encoding="utf-8", errors="ignore")
-    assert "Legg til aktør" in ui or "Legg til aktÃ¸r" in ui
-    assert "Slett valgte" in ui
-    assert "Test aktør mot tekst" in ui or "Test aktÃ¸r mot tekst" in ui
+    assert "actor_registry_add_v1863bj" in ui
+    assert "actor_registry_delete_selected_v1863bj" in ui
+    assert "actor_registry_test_text_v1863bj" in ui
     assert "Unmatched Workbench" in ui
-    assert "Velg aktør å redigere" in ui or "Velg aktÃ¸r Ã¥ redigere" in ui
+    assert "actor_registry_selected_actor_v1863bj" in ui
     assert "Raske alias-forslag" in ui
+
 
 

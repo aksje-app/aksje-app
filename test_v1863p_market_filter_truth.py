@@ -27,3 +27,4 @@ def test_market_filter_uses_ticker_listing_before_source_or_stale_market():
     assert filter_tickers_for_market(["AAPL", "NOKIA.HE", "NOVO-B.CO", "PETR4.SA"], "Norden") == ["NOKIA.HE", "NOVO-B.CO"]
 
 
+

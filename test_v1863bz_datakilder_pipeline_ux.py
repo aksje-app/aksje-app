@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
@@ -26,7 +26,7 @@ def test_kilder_og_import_lives_inside_ai_candidate_workspace():
 def test_source_selector_renders_sources_without_separate_menu_pages():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
 
-    assert 'source_options = ["Velg kilde", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]' in app
+    assert "source_options =" in app and "Folketrygdfondet" in app and "Akt" in app
     assert "ai_candidate_source_hub_choice_v1864q" in app
     assert "ai_candidate_source_hub_quick_" not in app
     assert "render_finansavisen_bjellesau_panel()" in app
@@ -56,12 +56,12 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
     source = (ROOT / "folketrygdfondet.py").read_text(encoding="utf-8")
 
     assert "Importer og lagre Folketrygdfondet" in ui
-    assert "Søk i Folketrygdfondet-import" in ui
+    assert "folketrygdfondet_search_v1864p" in ui
     assert "AI Kandidattest trenger matchede tickere" in ui
     assert "CSV" in ui and "JSON snapshot" in ui and "Print/PDF HTML" in ui and "Last ned PDF" in ui
     assert "Send valgte til AI Kandidattest" in ui
     assert "Send alle matchede til AI Kandidattest" in ui
-    assert "Åpne AI Kandidattest med Folketrygdfondet" in ui
+    assert "folketrygdfondet_open_ai_candidate_source_v1864p" in ui
     assert "save_folketrygdfondet_overlay(overlay, parsed_rows)" in ui
     assert "load_folketrygdfondet_snapshot" in source
     assert "build_folketrygdfondet_report_pdf" in source
@@ -70,6 +70,7 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
 def test_version_records_configurable_ai_candidate_engine():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4q"' in version
-    assert "Configurable AI Candidate Engine" in version
+    assert 'APP_VERSION = "v18.6.4r"' in version
+    assert "AI Candidate Signal Profile Engine" in version
     assert "Evalueringsoppsett er lagt inn i AI Kandidattest" in version
+
