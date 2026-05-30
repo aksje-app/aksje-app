@@ -54,10 +54,12 @@ def _first(row: Mapping[str, Any], aliases: Sequence[str]) -> Any:
 
 def _read_excel_sheets(data: bytes, filename: str = "") -> list[tuple[str, pd.DataFrame]]:
     suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    engine = "xlrd" if suffix == "xls" else None
+    engine = "xlrd" if suffix == "xls" else "openpyxl" if suffix == "xlsx" else None
     try:
         loaded = pd.read_excel(io.BytesIO(data), sheet_name=None, header=None, engine=engine)
     except ImportError as exc:
+        if suffix == "xlsx":
+            raise RuntimeError("Mangler openpyxl for .xlsx-filer. Installer openpyxl eller lagre filen som .xls.") from exc
         raise RuntimeError("Mangler xlrd for gamle .xls-filer. Installer xlrd eller lagre filen som .xlsx.") from exc
     except Exception as exc:
         raise RuntimeError(f"Kunne ikke lese Folketrygdfondet-regneark: {exc}") from exc

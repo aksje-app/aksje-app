@@ -10809,13 +10809,16 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
     except Exception as exc:
         rows.append({"Område": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Oljefond Radar"})
     try:
-        from folketrygdfondet import load_folketrygdfondet_overlay
+        from folketrygdfondet import load_folketrygdfondet_snapshot
 
-        overlay = load_folketrygdfondet_overlay()
+        snapshot = load_folketrygdfondet_snapshot()
+        overlay = snapshot.get("overlay") or {}
+        saved_rows = snapshot.get("rows") or []
+        status_text = "overlay lagret" if overlay else "importert uten ticker-match" if saved_rows else "venter på import"
         rows.append({
             "Område": "Folketrygdfondet",
-            "Status": "overlay lagret" if overlay else "venter på import",
-            "Detalj": f"{len(overlay or {})} tickere i Folketrygdfondet-overlay",
+            "Status": status_text,
+            "Detalj": f"{len(saved_rows or [])} rader, {len(overlay or {})} tickere i Folketrygdfondet-overlay",
             "Handling": "Importer Folketrygdfondet XLS som eierkilde",
         })
     except Exception as exc:
@@ -10846,25 +10849,14 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
         "Finansavisen, Oljefond/NBIM og Folketrygdfondet behandles som datakilder. "
         "AI Kandidattest henter bare relevant evidens når kilden er importert og lagret."
     )
-    source_options = ["Oversikt", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]
-    source_key = "ai_candidate_source_hub_choice_v1864p"
+    source_options = ["Velg kilde", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]
+    source_key = "ai_candidate_source_hub_choice_v1864q"
     if st.session_state.get(source_key) not in source_options:
-        st.session_state[source_key] = "Oversikt"
-    quick_cols = st.columns(len(source_options))
-    for idx, option in enumerate(source_options):
-        with quick_cols[idx]:
-            if st.button(
-                option,
-                key=f"ai_candidate_source_hub_quick_{idx}_v1864p",
-                use_container_width=True,
-                type="primary" if st.session_state.get(source_key) == option else "secondary",
-            ):
-                st.session_state[source_key] = option
-                st.rerun()
+        st.session_state[source_key] = "Velg kilde"
     source_choice = st.selectbox(
         "Velg kilde",
         source_options,
-        index=source_options.index(st.session_state.get(source_key, "Oversikt")),
+        index=source_options.index(st.session_state.get(source_key, "Velg kilde")),
         key=source_key,
         help="Alle importer for Finansavisen, Oljefond/NBIM og Folketrygdfondet håndteres her.",
     )
@@ -10878,7 +10870,7 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
     elif source_choice == "Aktørregister":
         render_actor_registry_panel()
     else:
-        st.caption("Velg en kilde over for import, søk, tabell, eksport, print/PDF og sending til AI Kandidattest.")
+        st.caption("Velg kilde for import, søk, tabell, eksport, print/PDF og sending til AI Kandidattest.")
 
 def _pipeline_package_summary_rows_v1863bz(package: dict, stage_id: str) -> list[dict]:
     if not package:
@@ -11088,24 +11080,178 @@ def _ai_candidate_dedupe_tickers_v1864l(values) -> list[str]:
     return out
 
 
+AI_CANDIDATE_SOURCE_OPTIONS_V1864Q = ["Marked", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"]
+AI_CANDIDATE_IMPORT_SOURCES_V1864Q = ["Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"]
+AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q = "ai_candidate_evaluation_settings_v1864q"
+AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q = {
+    "profile_name": "Standard",
+    "market_score_weight": 1.0,
+    "finansavisen_bonus": 0.25,
+    "nbim_bonus": 0.25,
+    "folketrygdfondet_bonus": 0.20,
+    "multi_source_bonus": 0.20,
+    "medium_risk_penalty": 0.15,
+    "high_risk_penalty": 0.45,
+    "strong_threshold": 7.40,
+    "consider_threshold": 6.30,
+    "wait_threshold": 5.20,
+    "alert_threshold": 7.50,
+    "min_confidence_for_strong": 60,
+}
+
+
+def _ai_candidate_source_list_v1864q(source_or_sources) -> list[str]:
+    raw_items = source_or_sources if isinstance(source_or_sources, (list, tuple, set)) else [source_or_sources]
+    out: list[str] = []
+    for raw in raw_items or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text == "Kombiner kilder":
+            for item in ["Marked", *AI_CANDIDATE_IMPORT_SOURCES_V1864Q]:
+                if item not in out:
+                    out.append(item)
+            continue
+        if text in AI_CANDIDATE_SOURCE_OPTIONS_V1864Q and text not in out:
+            out.append(text)
+    return out or ["Marked"]
+
+
+def _ai_candidate_source_label_v1864q(sources) -> str:
+    return " + ".join(_ai_candidate_source_list_v1864q(sources))
+
+
+def _ai_candidate_load_evaluation_config_v1864q() -> dict:
+    settings = load_settings() or {}
+    stored = settings.get(AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q)
+    config = dict(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q)
+    if isinstance(stored, dict):
+        for key, value in stored.items():
+            if key in config:
+                config[key] = value
+    return config
+
+
+def _ai_candidate_save_evaluation_config_v1864q(config: dict) -> None:
+    settings = load_settings() or {}
+    settings[AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q] = dict(config)
+    save_settings(settings)
+
+
+def _ai_candidate_num_v1864q(config: dict, key: str) -> float:
+    try:
+        return float(config.get(key, AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(key, 0.0)))
+    except Exception:
+        return float(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(key, 0.0))
+
+
+def _ai_candidate_confidence_number_v1864q(value) -> float:
+    if value in (None, ""):
+        return 0.0
+    try:
+        return float(str(value).replace("%", "").strip())
+    except Exception:
+        return 0.0
+
+
+def _ai_candidate_adjusted_score_v1864q(base_score: float, evidence: list[str], risk: str, config: dict) -> float:
+    score = float(base_score or 0.0) * _ai_candidate_num_v1864q(config, "market_score_weight")
+    source_bonus_map = {
+        "Finansavisen": "finansavisen_bonus",
+        "Oljefond/NBIM": "nbim_bonus",
+        "Folketrygdfondet": "folketrygdfondet_bonus",
+    }
+    for source_name, bonus_key in source_bonus_map.items():
+        if source_name in evidence:
+            score += _ai_candidate_num_v1864q(config, bonus_key)
+    if len([item for item in evidence if item]) >= 2:
+        score += _ai_candidate_num_v1864q(config, "multi_source_bonus")
+    risk_text = str(risk or "").lower()
+    if "høy" in risk_text or "hoy" in risk_text or "high" in risk_text:
+        score -= _ai_candidate_num_v1864q(config, "high_risk_penalty")
+    elif "middels" in risk_text or "medium" in risk_text:
+        score -= _ai_candidate_num_v1864q(config, "medium_risk_penalty")
+    return round(max(0.0, min(10.0, score)), 2)
+
+
+def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
+    saved_config = _ai_candidate_load_evaluation_config_v1864q()
+    key_prefix = "ai_candidate_eval_v1864q"
+    if st.session_state.get(f"{key_prefix}_loaded") != saved_config:
+        for key, value in saved_config.items():
+            st.session_state[f"{key_prefix}_{key}"] = value
+        st.session_state[f"{key_prefix}_loaded"] = dict(saved_config)
+
+    with st.expander("Evalueringsoppsett", expanded=False):
+        st.caption("Juster scoreparametere uten kodeendring. Oppsettet lagres og følger med i rapport, PDF/HTML og JSON.")
+        name = st.text_input("Profilnavn", key=f"{key_prefix}_profile_name")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            market_weight = st.slider("Marked scorevekt", 0.60, 1.40, float(st.session_state.get(f"{key_prefix}_market_score_weight", 1.0)), 0.05, key=f"{key_prefix}_market_score_weight")
+            finansavisen_bonus = st.slider("Finansavisen kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_finansavisen_bonus", 0.25)), 0.05, key=f"{key_prefix}_finansavisen_bonus")
+            nbim_bonus = st.slider("Oljefond/NBIM kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_nbim_bonus", 0.25)), 0.05, key=f"{key_prefix}_nbim_bonus")
+        with c2:
+            folketrygdfondet_bonus = st.slider("Folketrygdfondet kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_folketrygdfondet_bonus", 0.20)), 0.05, key=f"{key_prefix}_folketrygdfondet_bonus")
+            multi_source_bonus = st.slider("Bonus for flere kilder", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_multi_source_bonus", 0.20)), 0.05, key=f"{key_prefix}_multi_source_bonus")
+            high_risk_penalty = st.slider("Trekk for høy risiko", 0.00, 1.50, float(st.session_state.get(f"{key_prefix}_high_risk_penalty", 0.45)), 0.05, key=f"{key_prefix}_high_risk_penalty")
+        with c3:
+            medium_risk_penalty = st.slider("Trekk for middels risiko", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_medium_risk_penalty", 0.15)), 0.05, key=f"{key_prefix}_medium_risk_penalty")
+            strong_threshold = st.slider("Terskel Sterk kandidat", 5.00, 9.50, float(st.session_state.get(f"{key_prefix}_strong_threshold", 7.40)), 0.05, key=f"{key_prefix}_strong_threshold")
+            consider_threshold = st.slider("Terskel Vurder", 4.00, 8.50, float(st.session_state.get(f"{key_prefix}_consider_threshold", 6.30)), 0.05, key=f"{key_prefix}_consider_threshold")
+            wait_threshold = st.slider("Terskel Vent", 3.00, 7.50, float(st.session_state.get(f"{key_prefix}_wait_threshold", 5.20)), 0.05, key=f"{key_prefix}_wait_threshold")
+        b1, b2, b3 = st.columns([1, 1, 2])
+        current_config = {
+            "profile_name": name or "Standard",
+            "market_score_weight": market_weight,
+            "finansavisen_bonus": finansavisen_bonus,
+            "nbim_bonus": nbim_bonus,
+            "folketrygdfondet_bonus": folketrygdfondet_bonus,
+            "multi_source_bonus": multi_source_bonus,
+            "medium_risk_penalty": medium_risk_penalty,
+            "high_risk_penalty": high_risk_penalty,
+            "strong_threshold": strong_threshold,
+            "consider_threshold": consider_threshold,
+            "wait_threshold": wait_threshold,
+            "alert_threshold": st.slider("Varselterskel score", 5.00, 9.80, float(st.session_state.get(f"{key_prefix}_alert_threshold", 7.50)), 0.05, key=f"{key_prefix}_alert_threshold"),
+            "min_confidence_for_strong": st.slider("Min confidence for Sterk kandidat", 30, 95, int(st.session_state.get(f"{key_prefix}_min_confidence_for_strong", 60)), 1, key=f"{key_prefix}_min_confidence_for_strong"),
+        }
+        with b1:
+            if st.button("Lagre oppsett", key="ai_candidate_save_eval_setup_v1864q", use_container_width=True):
+                _ai_candidate_save_evaluation_config_v1864q(current_config)
+                st.success("Evalueringsoppsett lagret.")
+        with b2:
+            if st.button("Bruk standard", key="ai_candidate_reset_eval_setup_v1864q", use_container_width=True):
+                _ai_candidate_save_evaluation_config_v1864q(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q)
+                for key, value in AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.items():
+                    st.session_state[f"{key_prefix}_{key}"] = value
+                st.session_state[f"{key_prefix}_loaded"] = dict(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q)
+                st.rerun()
+        with b3:
+            st.caption("Standard er balansert: marked gir grunnscore, importerte uavhengige kilder løfter score, og risiko trekker ned.")
+    return {
+        key: st.session_state.get(f"{key_prefix}_{key}", value)
+        for key, value in AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.items()
+    }
+
+
 def _ai_candidate_import_tickers_v1864l(source: str) -> list[str]:
-    source = str(source or "")
+    sources = set(_ai_candidate_source_list_v1864q(source))
     tickers: list[str] = []
-    if source in {"Finansavisen", "Kombiner kilder"}:
+    if "Finansavisen" in sources:
         try:
             from finansavisen_bjellesau import build_finansavisen_overlay
 
             tickers.extend(list((build_finansavisen_overlay() or {}).keys()))
         except Exception:
             pass
-    if source in {"Oljefond/NBIM", "Kombiner kilder"}:
+    if "Oljefond/NBIM" in sources:
         try:
             from nbim_radar import load_nbim_overlay
 
             tickers.extend(list((load_nbim_overlay() or {}).keys()))
         except Exception:
             pass
-    if source in {"Folketrygdfondet", "Kombiner kilder"}:
+    if "Folketrygdfondet" in sources:
         try:
             from folketrygdfondet import load_folketrygdfondet_overlay
 
@@ -11116,17 +11262,21 @@ def _ai_candidate_import_tickers_v1864l(source: str) -> list[str]:
 
 
 def _ai_candidate_source_tickers_v1864l(source: str, market: str, limit: int, manual_text: str = "") -> list[str]:
-    source = str(source or "Marked")
+    return _ai_candidate_source_tickers_multi_v1864q(_ai_candidate_source_list_v1864q(source), market, limit, manual_text)
+
+
+def _ai_candidate_source_tickers_multi_v1864q(sources, market: str, limit: int, manual_text: str = "") -> list[str]:
+    source_list = _ai_candidate_source_list_v1864q(sources)
     limit = max(1, min(int(limit or 30), 250))
-    if source == "Manuell liste":
-        return _parse_control_center_tickers_v1863s(manual_text)[:limit]
-    if source == "Kombiner kilder":
-        market_tickers = resolve_universe_tickers([market], max_count=limit)
-        import_tickers = _ai_candidate_import_tickers_v1864l(source)
-        return _ai_candidate_dedupe_tickers_v1864l(import_tickers + market_tickers)[:limit]
-    if source in {"Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"}:
-        return _ai_candidate_import_tickers_v1864l(source)[:limit]
-    return resolve_universe_tickers([market], max_count=limit)
+    tickers: list[str] = []
+    if "Manuell liste" in source_list:
+        tickers.extend(_parse_control_center_tickers_v1863s(manual_text))
+    if "Marked" in source_list:
+        tickers.extend(resolve_universe_tickers([market], max_count=limit))
+    import_sources = [source for source in source_list if source in AI_CANDIDATE_IMPORT_SOURCES_V1864Q]
+    if import_sources:
+        tickers.extend(_ai_candidate_import_tickers_v1864l(import_sources))
+    return _ai_candidate_dedupe_tickers_v1864l(tickers)[:limit]
 
 
 def _ai_candidate_overlay_maps_v1864l() -> dict:
@@ -11177,16 +11327,17 @@ def _ai_candidate_source_status_v1864l() -> list[dict]:
         from folketrygdfondet import FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY
 
         settings = load_settings() or {}
-        for label, key in [
-            ("Oljefond/NBIM", NBIM_OVERLAY_SETTINGS_KEY),
-            ("Folketrygdfondet", FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY),
-        ]:
+        for label, key in [("Oljefond/NBIM", NBIM_OVERLAY_SETTINGS_KEY), ("Folketrygdfondet", FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY)]:
             raw = settings.get(key) if isinstance(settings, dict) else {}
             overlay = raw.get("overlay") if isinstance(raw, dict) else {}
+            saved_rows = raw.get("rows") if isinstance(raw, dict) and isinstance(raw.get("rows"), list) else []
+            ticker_text = str(len(overlay or {}) if isinstance(overlay, dict) else 0)
+            if label == "Folketrygdfondet" and saved_rows:
+                ticker_text = f"{len(overlay or {})} match / {len(saved_rows)} rader"
             rows.append({
                 "Kilde": label,
                 "Oppdatert": (raw.get("updated_at") if isinstance(raw, dict) else "") or "Ikke importert",
-                "Tickere": str(len(overlay or {}) if isinstance(overlay, dict) else 0),
+                "Tickere": ticker_text,
                 "Databruk": "Lokalt importert overlay",
             })
     except Exception:
@@ -11242,26 +11393,21 @@ def _ai_candidate_change_label_v1864m(ticker: str, rank: int, score_num: float, 
     return " / ".join(parts) or "Uendret"
 
 
-def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float) -> str:
+def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float, evaluation_config: dict | None = None, confidence=None) -> str:
+    config = evaluation_config or AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q
     label = str(raw_label or "").strip()
     normalized = label.upper()
-    if "KJ" in normalized and "N" in normalized:
-        return "Sterk kandidat"
-    if "BUY" in normalized:
-        return "Sterk kandidat"
     if "SELL" in normalized or "SELG" in normalized or "UNNG" in normalized:
         return "Unnga"
-    if "VENT" in normalized or "WAIT" in normalized:
-        return "Vent"
-    if label:
-        return label
-    if score_num >= 7.4:
+    confidence_num = _ai_candidate_confidence_number_v1864q(confidence)
+    min_conf = _ai_candidate_num_v1864q(config, "min_confidence_for_strong")
+    if score_num >= _ai_candidate_num_v1864q(config, "strong_threshold") and (not confidence_num or confidence_num >= min_conf):
         return "Sterk kandidat"
-    if score_num >= 6.3:
+    if score_num >= _ai_candidate_num_v1864q(config, "consider_threshold"):
         return "Vurder"
-    if score_num >= 5.2:
+    if score_num >= _ai_candidate_num_v1864q(config, "wait_threshold"):
         return "Vent"
-    return "Unnga"
+    return label or "Unnga"
 
 
 def _ai_candidate_source_strength_v1864m(evidence: list[str]) -> str:
@@ -11304,8 +11450,18 @@ def _ai_candidate_score_explanation_v1864m(score_num: float, confidence, risk: s
     return " | ".join(bits)
 
 
-def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, market: str, previous_map: dict[str, dict] | None = None) -> list[dict]:
+def _ai_candidate_result_rows_v1864l(
+    ranked_rows: list[dict],
+    *,
+    source: str,
+    market: str,
+    previous_map: dict[str, dict] | None = None,
+    selected_sources=None,
+    evaluation_config: dict | None = None,
+) -> list[dict]:
     overlays = _ai_candidate_overlay_maps_v1864l()
+    source_list = _ai_candidate_source_list_v1864q(selected_sources or source)
+    config = evaluation_config or AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q
     previous_map = previous_map or {}
     rows: list[dict] = []
     for idx, item in enumerate(ranked_rows or [], start=1):
@@ -11315,17 +11471,19 @@ def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, ma
         if not ticker:
             continue
         evidence = []
-        if ticker in overlays.get("finansavisen", {}):
+        if "Finansavisen" in source_list and ticker in overlays.get("finansavisen", {}):
             evidence.append("Finansavisen")
-        if ticker in overlays.get("nbim", {}):
+        if "Oljefond/NBIM" in source_list and ticker in overlays.get("nbim", {}):
             evidence.append("Oljefond/NBIM")
-        if ticker in overlays.get("folketrygdfondet", {}):
+        if "Folketrygdfondet" in source_list and ticker in overlays.get("folketrygdfondet", {}):
             evidence.append("Folketrygdfondet")
         score = item.get("score")
         try:
-            score_num = float(score)
+            base_score_num = float(score)
         except Exception:
-            score_num = 0.0
+            base_score_num = 0.0
+        risk = item.get("risk") or item.get("risk_label") or item.get("shared_risk_label") or "-"
+        score_num = _ai_candidate_adjusted_score_v1864q(base_score_num, evidence, str(risk), config)
         try:
             decision = card_decision_for_item(item)
             anbefaling = decision.get("action_now") or decision.get("label") or ""
@@ -11336,12 +11494,11 @@ def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, ma
         confidence = item.get("confidence") or item.get("system_confidence")
         if confidence in (None, ""):
             confidence = min(95, max(35, int(round(score_num * 10)))) if score_num else ""
-        risk = item.get("risk") or item.get("risk_label") or item.get("shared_risk_label") or "-"
-        alert = "Varsel" if score_num >= 7.5 or evidence else ""
+        alert = "Varsel" if score_num >= _ai_candidate_num_v1864q(config, "alert_threshold") or evidence else ""
         listing = _ai_candidate_listing_v1864m(ticker, item, market)
         change = _ai_candidate_change_label_v1864m(ticker, idx, score_num, previous_map)
         source_strength = _ai_candidate_source_strength_v1864m(evidence)
-        reason_bits = [str(source or "Marked")]
+        reason_bits = [_ai_candidate_source_label_v1864q(source_list)]
         if evidence:
             reason_bits.append("Kildebevis: " + ", ".join(evidence))
         if item.get("reason"):
@@ -11361,11 +11518,11 @@ def _ai_candidate_result_rows_v1864l(ranked_rows: list[dict], *, source: str, ma
             "Score": round(score_num, 2) if score_num else "",
             "Confidence": f"{confidence}%" if isinstance(confidence, int) else confidence,
             "Risiko": risk,
-            "Anbefaling": _ai_candidate_action_label_v1864m(anbefaling, score_num),
+            "Anbefaling": _ai_candidate_action_label_v1864m(anbefaling, score_num, config, confidence),
             "Varsel": alert,
             "Endring": change,
             "Forklaring": _ai_candidate_score_explanation_v1864m(score_num, f"{confidence}%" if isinstance(confidence, int) else confidence, str(risk), evidence, change),
-            "Neste handling": "Send til vurdering/paper" if score_num >= 7.0 else "Overvak / vent",
+            "Neste handling": "Send til vurdering/paper" if score_num >= _ai_candidate_num_v1864q(config, "consider_threshold") else "Overvak / vent",
         })
     return rows
 
@@ -11390,6 +11547,15 @@ def _ai_candidate_html_v1864l(result: dict) -> bytes:
     created = html.escape(str(result.get("created_at") or ""))
     source = html.escape(str(result.get("source") or ""))
     market = html.escape(str(result.get("market") or ""))
+    sources = ", ".join(_ai_candidate_source_list_v1864q(result.get("sources") or result.get("source")))
+    evaluation = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
+    profile = html.escape(str(evaluation.get("profile_name") or "Standard"))
+    method_rows = [
+        {"Parameter": key, "Verdi": value}
+        for key, value in evaluation.items()
+        if key != "profile_name"
+    ]
+    method_table = pd.DataFrame(method_rows).to_html(index=False, escape=True) if method_rows else "<p>Standardoppsett.</p>"
     body = f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{title}</title>
 <style>
@@ -11398,11 +11564,18 @@ button {{ padding: 8px 12px; margin-bottom: 16px; }}
 table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
 th, td {{ border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; vertical-align: top; }}
 th {{ background: #e5f3ff; }}
+.method {{ background:#f8fafc; border:1px solid #d1d5db; padding:12px; margin:16px 0; }}
 @media print {{ button {{ display:none; }} body {{ margin: 14mm; }} tr {{ page-break-inside: avoid; }} }}
 </style></head>
 <body><button onclick="window.print()">Skriv ut / lagre som PDF</button>
 <h1>{title}</h1>
 <p><b>Opprettet:</b> {created} | <b>Kilde:</b> {source} | <b>Marked:</b> {market}</p>
+<div class="method">
+<h2>Metode og evaluering</h2>
+<p><b>Valgte kilder:</b> {html.escape(sources)} | <b>Profil:</b> {profile}</p>
+<p>Marked gir grunnscore. Importerte kilder kan gi kildebonus når de faktisk har evidens på tickeren. Flere uavhengige kilder kan gi ekstra bonus, mens risiko trekker ned. Tersklene styrer anbefaling og varsel.</p>
+{method_table}
+</div>
 {table}
 </body></html>"""
     return body.encode("utf-8")
@@ -11547,13 +11720,21 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict]) -> list[dict]:
 def render_ai_candidate_test_control_center_v1864l() -> None:
     st.subheader("AI Kandidattest")
     st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
-    with st.expander("Kilder og import", expanded=False):
+    with st.expander("Kilder og import", expanded=True):
         _render_data_foundation_workspace_v1863by([])
-    source = st.selectbox(
-        "Kandidatkilde",
-        ["Marked", "Kombiner kilder", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"],
-        key="ai_candidate_source_v1864l",
+
+    if "ai_candidate_sources_v1864q" not in st.session_state:
+        st.session_state["ai_candidate_sources_v1864q"] = _ai_candidate_source_list_v1864q(
+            st.session_state.get("ai_candidate_source_v1864l") or "Marked"
+        )
+    selected_sources = st.multiselect(
+        "Kilder til AI Kandidattest",
+        AI_CANDIDATE_SOURCE_OPTIONS_V1864Q,
+        default=st.session_state.get("ai_candidate_sources_v1864q") or ["Marked"],
+        key="ai_candidate_sources_v1864q",
+        help="Velg én eller flere kilder. Bare valgte og importerte kilder brukes som evidens i denne kjøringen.",
     )
+    source = _ai_candidate_source_label_v1864q(selected_sources)
     c1, c2, c3 = st.columns([1.0, 0.7, 1.4])
     with c1:
         market = st.selectbox("Marked", market_scope_options(include_aggregate=True), index=0, key="ai_candidate_market_v1864l")
@@ -11562,11 +11743,30 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
     with c3:
         manual_text = st.text_input("Manuell liste", key="ai_candidate_manual_v1864l", placeholder="EQNR.OL, NVDA, VOLV-B.ST")
 
+    evaluation_config = _render_ai_candidate_evaluation_setup_v1864q()
+
     source_status = _ai_candidate_source_status_v1864l()
     with st.expander("Datakildestatus / ferskhet", expanded=False):
         st.dataframe(pd.DataFrame(source_status), use_container_width=True, hide_index=True)
 
-    preview_tickers = _ai_candidate_source_tickers_v1864l(source, market, int(limit), manual_text)
+    with st.expander("Hvordan evalueringen skjer", expanded=False):
+        st.markdown(
+            "- Marked gir grunnscore fra fersk rangering.\n"
+            "- Valgte importkilder gir bare bonus når de faktisk har evidens på tickeren.\n"
+            "- Flere uavhengige kilder kan gi ekstra bonus.\n"
+            "- Risiko trekker ned før anbefaling settes.\n"
+            "- Tersklene i Evalueringsoppsett styrer Sterk kandidat, Vurder, Vent og Varsel."
+        )
+        st.dataframe(
+            pd.DataFrame([
+                {"Parameter": key, "Verdi": value}
+                for key, value in evaluation_config.items()
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    preview_tickers = _ai_candidate_source_tickers_multi_v1864q(selected_sources, market, int(limit), manual_text)
     if preview_tickers:
         st.caption(f"Input: {len(preview_tickers)} tickere. Eksempel: {', '.join(preview_tickers[:10])}")
     else:
@@ -11585,14 +11785,23 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         )
         progress.progress(70, text="Kobler importert kildeevidens")
         previous_map = _ai_candidate_previous_rank_map_v1864m()
-        rows = _ai_candidate_result_rows_v1864l(list(ranked or []), source=source, market=market, previous_map=previous_map)
+        rows = _ai_candidate_result_rows_v1864l(
+            list(ranked or []),
+            source=source,
+            market=market,
+            previous_map=previous_map,
+            selected_sources=selected_sources,
+            evaluation_config=evaluation_config,
+        )
         result = {
             "version": get_app_build_label(),
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "source": source,
+            "sources": _ai_candidate_source_list_v1864q(selected_sources),
             "market": market,
             "input_tickers": preview_tickers,
             "source_status": source_status,
+            "evaluation_config": evaluation_config,
             "rows": rows,
         }
         _save_ai_candidate_result_v1864l(result)
@@ -11605,6 +11814,9 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         if "ai_candidate_test_last_result_v1864l" not in st.session_state:
             st.caption("Viser sist lagrede AI Kandidattest. Kjør testen på nytt for fersk kandidatfangst.")
         st.markdown("#### Resultat")
+        result_sources = ", ".join(_ai_candidate_source_list_v1864q(result.get("sources") or result.get("source")))
+        result_profile = (result.get("evaluation_config") or {}).get("profile_name") if isinstance(result.get("evaluation_config"), dict) else "Standard"
+        st.caption(f"Kilder brukt i kjøringen: {result_sources or '-'} | Evalueringsprofil: {result_profile or 'Standard'}")
         if rows:
             country_counts = pd.Series([row.get("Land") or "Ukjent" for row in rows]).value_counts().to_dict()
             source_counts = pd.Series([row.get("Kildestyrke") or "Marked" for row in rows]).value_counts().to_dict()

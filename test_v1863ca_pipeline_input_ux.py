@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from services.analysis_pipeline_service import stage_wizard_info
 
@@ -68,7 +68,9 @@ def test_folketrygdfondet_is_source_overlay_not_pipeline_payload():
     assert "read_folketrygdfondet_xls_bytes" in source
     assert "build_folketrygdfondet_overlay" in source
     assert "save_folketrygdfondet_overlay(overlay, parsed_rows)" in ui
-    assert "xlrd" in (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "xlrd" in requirements
+    assert "openpyxl" in requirements
 
 
 def test_analysis_pipeline_ticker_extraction_does_not_read_metadata_keys():

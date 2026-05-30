@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from paper_trading_valuation import paper_position_rows, paper_trade_rows
 
@@ -8,15 +8,15 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4p"' in version
-    assert "Unified AI Candidate Imports" in version
+    assert 'APP_VERSION = "v18.6.4q"' in version
+    assert "Configurable AI Candidate Engine" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     assert "#### Kilder og import" in app
     assert "_render_data_foundation_workspace_v1863by([])" in app
-    assert 'source_options = ["Oversikt", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]' in app
+    assert 'source_options = ["Velg kilde", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]' in app
     assert "Dette er eneste synlige importsted" in app
     assert "Mottatt fra forrige test" not in app
     assert "Kontrollrapport klar" not in app
@@ -77,10 +77,3 @@ def test_paper_trade_rows_backfill_market_context_for_old_trades():
     assert by_ticker["DNB.OL"]["marked"] == "Norge"
     assert by_ticker["NVDA"]["land"] == "USA"
     assert by_ticker["NVDA"]["marked"] == "USA"
-
-
-
-
-
-
-

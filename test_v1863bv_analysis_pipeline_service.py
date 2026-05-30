@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import pytest
 
@@ -186,7 +186,7 @@ def test_pipeline_ui_and_panels_expose_handoff_without_hidden_run():
 
     assert "def render_analysis_pipeline_control_center_v1863bv" in app_source
     assert "(\"Kilder og import\", render_analysis_pipeline_control_center_v1863bv)" not in app_source
-    assert 'with st.expander("Kilder og import", expanded=False):' in app_source
+    assert 'with st.expander("Kilder og import", expanded=True):' in app_source
     assert "Analyseflyt input" in app_source
     assert "Send valgt output videre og aapne neste test" not in app_source
     assert "#### Kilder og import" in app_source

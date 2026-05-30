@@ -12,7 +12,7 @@ def test_kilder_og_import_lives_inside_ai_candidate_workspace():
     assert '("Kilder og import", render_analysis_pipeline_control_center_v1863bv)' not in app
     assert '("AI Kandidattest", render_ai_candidate_test_control_center_v1864l)' in app
     assert "#### Kilder og import" in app
-    assert 'with st.expander("Kilder og import", expanded=False):' in app
+    assert 'with st.expander("Kilder og import", expanded=True):' in app
     assert "Status for arbeidsflyten" not in app
     assert "Detaljer for valgt steg / send videre" not in app
     assert "Pakkevisning" not in app
@@ -26,8 +26,9 @@ def test_kilder_og_import_lives_inside_ai_candidate_workspace():
 def test_source_selector_renders_sources_without_separate_menu_pages():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
 
-    assert 'source_options = ["Oversikt", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]' in app
-    assert "ai_candidate_source_hub_choice_v1864p" in app
+    assert 'source_options = ["Velg kilde", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]' in app
+    assert "ai_candidate_source_hub_choice_v1864q" in app
+    assert "ai_candidate_source_hub_quick_" not in app
     assert "render_finansavisen_bjellesau_panel()" in app
     assert "render_nbim_radar_panel()" in app
     assert "render_folketrygdfondet_panel()" in app
@@ -66,9 +67,9 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
     assert "build_folketrygdfondet_report_pdf" in source
 
 
-def test_version_records_unified_ai_candidate_imports():
+def test_version_records_configurable_ai_candidate_engine():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4p"' in version
-    assert "Unified AI Candidate Imports" in version
-    assert "AI Kandidattest er nå eneste synlige importsted" in version
+    assert 'APP_VERSION = "v18.6.4q"' in version
+    assert "Configurable AI Candidate Engine" in version
+    assert "Evalueringsoppsett er lagt inn i AI Kandidattest" in version

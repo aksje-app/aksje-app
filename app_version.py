@@ -1,9 +1,14 @@
-APP_VERSION = "v18.6.4p"
-APP_VERSION_NAME = "Unified AI Candidate Imports"
-APP_BUILD_ID = "v1864p-unified-ai-candidate-imports"
+APP_VERSION = "v18.6.4q"
+APP_VERSION_NAME = "Configurable AI Candidate Engine"
+APP_BUILD_ID = "v1864q-configurable-ai-candidate-engine"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest kan velge flere kilder samtidig til samme kjøring: Marked, Finansavisen, Oljefond/NBIM, Folketrygdfondet og Manuell liste.",
+    "Evalueringsoppsett er lagt inn i AI Kandidattest med lagring, Bruk standard, justerbare kildebonuser, risikotrekk, confidencekrav og anbefalingsterskler.",
+    "Rapport/print/PDF HTML og JSON tar med valgte kilder, evalueringsprofil og metodeforklaring for kjøringen.",
+    "Kilder og import bruker én Velg kilde-dropdown i stedet for store blå kildeknapper.",
+    "Folketrygdfondet skiller nå mellom xlrd for gamle .xls-filer og openpyxl for .xlsx-filer, slik at importfeil forklares riktig.",
     "AI Kandidattest er nå eneste synlige importsted for Finansavisen, Oljefond/NBIM og Folketrygdfondet.",
     "Kilder og import er flyttet inn som kildevelger i AI Kandidattest, slik at importerte data lagres ett sted og kan brukes av andre paneler ved behov.",
     "Separate menyvalg for Finansavisen, Oljefond Radar og Folketrygdfondet er skjult fra Kontrollsenteret; de gamle rendererne beholdes internt som trygg fallback.",

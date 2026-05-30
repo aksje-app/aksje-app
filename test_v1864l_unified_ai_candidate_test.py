@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 
 
@@ -13,9 +13,9 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4p"' in version
-    assert "Unified AI Candidate Imports" in version
-    assert "AI Kandidattest samler fersk kandidatfangst" in version
+    assert 'APP_VERSION = "v18.6.4q"' in version
+    assert "Configurable AI Candidate Engine" in version
+    assert "AI Kandidattest kan velge flere kilder samtidig" in version
     assert "printvennlig HTML" in version
 
     assert "def render_ai_candidate_test_control_center_v1864l" in app
@@ -23,12 +23,19 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Finansavisen" in app and "Oljefond/NBIM" in app and "Folketrygdfondet" in app
     assert "force_manual_fetch=True" in app
     assert "include_insider=True" in app
+    assert "AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q" in app
+    assert "Kilder til AI Kandidattest" in app
+    assert "Evalueringsoppsett" in app
+    assert "Bruk standard" in app
+    assert "Hvordan evalueringen skjer" in app
     assert "Score" in app and "Confidence" in app and "Anbefaling" in app and "Varsel" in app
     assert "storage.write_json(\"analysis_snapshots/ai_candidate_test_latest.json\"" in app
     assert "storage.append_jsonl(\"analysis_snapshots/ai_candidate_test_runs.jsonl\"" in app
     assert "Print/PDF HTML" in app
     assert "JSON snapshot" in app
     assert "Datakildestatus / ferskhet" in app
+    assert "evaluation_config" in app
+    assert "Metode og evaluering" in app
     assert "source_status" in app
     assert "Kjøringen er lagret, men ga 0 kandidater" in app
     assert "Land" in app and "Bors" in app and "Univers" in app
@@ -48,7 +55,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "AI Kandidattest er hovedarbeidsflaten" in layout
     assert "AI Kandidattest: analyse, kilder og radarer" in layout
     assert "Kilder og import" in app
-    assert "ai_candidate_source_hub_choice_v1864p" in app
+    assert "ai_candidate_source_hub_choice_v1864q" in app
+    assert "ai_candidate_source_hub_quick_" not in app
     assert 'ai_candidate_group_name = "AI Kandidattest"' in active_layout_block
     assert "selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels" in active_layout_block
     assert '"folketrygdfondet"' in active_layout_block

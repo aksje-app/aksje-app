@@ -20,9 +20,22 @@ def open_ai_candidate_test(
         if str(ticker or "").strip()
     ]
     clean_tickers = list(dict.fromkeys(clean_tickers))
-    defaults = {"ai_candidate_source_v1864l": str(source or "Kombiner kilder")}
+    source_text = str(source or "Kombiner kilder")
+    source_map = {
+        "Kombiner kilder": ["Marked", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"],
+        "Marked": ["Marked"],
+        "Finansavisen": ["Finansavisen"],
+        "Oljefond/NBIM": ["Oljefond/NBIM"],
+        "Folketrygdfondet": ["Folketrygdfondet"],
+        "Manuell liste": ["Manuell liste"],
+    }
+    defaults = {
+        "ai_candidate_source_v1864l": source_text,
+        "ai_candidate_sources_v1864q": source_map.get(source_text, ["Marked"]),
+    }
     if clean_tickers:
         defaults["ai_candidate_source_v1864l"] = "Manuell liste"
+        defaults["ai_candidate_sources_v1864q"] = ["Manuell liste"]
         defaults["ai_candidate_manual_v1864l"] = ", ".join(clean_tickers)
         defaults["ai_candidate_limit_v1864l"] = max(5, min(100, len(clean_tickers)))
     if market:
