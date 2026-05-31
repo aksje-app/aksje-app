@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from typing import Any, Mapping, Sequence
 
 import streamlit as st
@@ -20,6 +21,14 @@ from nbim_radar import (
     read_nbim_csv_bytes,
     save_nbim_overlay,
 )
+
+
+def _infer_as_of_from_name(filename: str) -> str:
+    match = re.search(r"(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)", str(filename or ""))
+    if match:
+        return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    year = re.search(r"\b(20\d{2})\b", str(filename or ""))
+    return f"{year.group(1)}-12-31" if year else ""
 
 
 def _changes_to_csv(changes: Sequence[Mapping[str, Any]]) -> bytes:
@@ -234,11 +243,19 @@ def render_nbim_radar_panel() -> None:
                 _render_change_table(views.get(name, []))
 
     st.caption("NBIM-markedsverdi kan flytte seg med kurs og valuta. Endring i aksjer/eierandel er sterkere signal der filen inneholder dette.")
+    inferred_as_of = _infer_as_of_from_name(current_file.name if current_file else "")
+    source_as_of = st.text_input(
+        "Kildedato/as-of for NBIM-filen",
+        value=inferred_as_of,
+        key="nbim_source_as_of_v1864s",
+        placeholder="2025-12-31",
+        help="Bruk datoen beholdningsfilen gjelder for. AI Kandidattest bruker denne til ferskhetsvurdering.",
+    )
 
     b1, b2, b3, b4 = st.columns(4)
     with b1:
         if st.button("Lagre NBIM-overlay", key="nbim_save_overlay_v1863bd", type="primary", use_container_width=True, disabled=not overlay):
-            saved = save_nbim_overlay(overlay)
+            saved = save_nbim_overlay(overlay, source_as_of=source_as_of, source_file=current_file.name if current_file else "")
             st.success(f"Lagret NBIM-overlay for {saved} tickere.")
     with b2:
         st.download_button(

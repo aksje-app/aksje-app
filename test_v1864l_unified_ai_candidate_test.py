@@ -13,8 +13,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4r"' in version
-    assert "AI Candidate Signal Profile Engine" in version
+    assert 'APP_VERSION = "v18.6.4s"' in version
+    assert "Fresh Source Horizon and FX Live Panel" in version
     assert "Standard 1-6 mnd signalprofil" in version
     assert "AI Kandidattest kan velge flere kilder samtidig" in version
     assert "printvennlig HTML" in version
@@ -27,8 +27,9 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q" in app
     assert "Kilder til AI Kandidattest" in app
     assert "Evalueringsoppsett" in app
-    assert "Bruk standard 1-6 mnd" in app
-    assert "Signalprofil 1-6 mnd" in app
+    assert "Tidshorisont" in app
+    assert "Bruk standard for valgt horisont" in app
+    assert "source_full_bonus_days" in app
     assert "relative_strength_weight" in app
     assert "estimate_revision_weight" in app
     assert "insider_buy_weight" in app
@@ -52,6 +53,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "0 kandidater" in app
     assert "Land" in app and "Bors" in app and "Univers" in app
     assert "Kildestyrke" in app and "Endring" in app and "Forklaring" in app
+    assert "Kildealder" in app and "historisk støtte" in app
     assert "def _load_ai_candidate_latest_result_v1864m" in app
     assert "Viser sist lagrede AI Kandidattest" in app
     assert "def _render_ai_candidate_selection_v1864m" in app
@@ -96,4 +98,5 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 

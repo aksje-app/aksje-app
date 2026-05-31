@@ -62,7 +62,7 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
     assert "Send valgte til AI Kandidattest" in ui
     assert "Send alle matchede til AI Kandidattest" in ui
     assert "folketrygdfondet_open_ai_candidate_source_v1864p" in ui
-    assert "save_folketrygdfondet_overlay(overlay, parsed_rows)" in ui
+    assert "save_folketrygdfondet_overlay(overlay, parsed_rows, source_as_of=source_as_of" in ui
     assert "load_folketrygdfondet_snapshot" in source
     assert "build_folketrygdfondet_report_pdf" in source
 
@@ -70,7 +70,8 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
 def test_version_records_configurable_ai_candidate_engine():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4r"' in version
-    assert "AI Candidate Signal Profile Engine" in version
+    assert 'APP_VERSION = "v18.6.4s"' in version
+    assert "Fresh Source Horizon and FX Live Panel" in version
     assert "Evalueringsoppsett er lagt inn i AI Kandidattest" in version
+
 

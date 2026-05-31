@@ -819,13 +819,20 @@ def build_nbim_overlay(
     return overlay
 
 
-def save_nbim_overlay(overlay: Mapping[str, Mapping[str, Any]]) -> int:
+def save_nbim_overlay(
+    overlay: Mapping[str, Mapping[str, Any]],
+    *,
+    source_as_of: str = "",
+    source_file: str = "",
+) -> int:
     from settings_store import load_settings, save_settings
 
     clean = {str(key).upper(): dict(value) for key, value in overlay.items() if key and isinstance(value, Mapping)}
     settings = load_settings() or {}
     settings[NBIM_OVERLAY_SETTINGS_KEY] = {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_as_of": str(source_as_of or ""),
+        "source_file": str(source_file or ""),
         "overlay": clean,
     }
     save_settings(settings)

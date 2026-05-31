@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Sequence
 
 import streamlit as st
@@ -18,6 +19,14 @@ from folketrygdfondet import (
     read_folketrygdfondet_xls_bytes,
     save_folketrygdfondet_overlay,
 )
+
+
+def _infer_as_of_from_name(filename: str) -> str:
+    match = re.search(r"(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)", str(filename or ""))
+    if match:
+        return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    year = re.search(r"\b(20\d{2})\b", str(filename or ""))
+    return f"{year.group(1)}-12-31" if year else ""
 
 
 def _matched_tickers(rows: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -211,6 +220,13 @@ def render_folketrygdfondet_panel() -> None:
         c1.metric("Input Folketrygdfondet", f"{len(parsed_rows)} rader")
         c2.metric("Ticker-match", len(_matched_tickers(parsed_rows)))
         c3.metric("Klar til AI Kandidattest", f"{len(overlay)} tickere")
+        source_as_of = st.text_input(
+            "Kildedato/as-of for Folketrygdfondet-filen",
+            value=_infer_as_of_from_name(uploaded.name),
+            key="folketrygdfondet_source_as_of_v1864s",
+            placeholder="2025-12-31",
+            help="Bruk datoen beholdningsfilen gjelder for. AI Kandidattest bruker denne til ferskhetsvurdering.",
+        )
         st.dataframe(folketrygdfondet_display_rows(parsed_rows), use_container_width=True, hide_index=True)
         if not overlay:
             st.warning("Importen har 0 ticker-match. Du kan likevel lagre radene, søke i dem og bruke dem som kildegrunnlag senere.")
@@ -221,7 +237,7 @@ def render_folketrygdfondet_panel() -> None:
             use_container_width=True,
             disabled=not parsed_rows,
         ):
-            saved = save_folketrygdfondet_overlay(overlay, parsed_rows)
+            saved = save_folketrygdfondet_overlay(overlay, parsed_rows, source_as_of=source_as_of, source_file=uploaded.name)
             st.success(f"Lagret Folketrygdfondet-import med {len(parsed_rows)} rader og {saved} ticker-match.")
             st.rerun()
     elif uploaded and not parsed_rows:

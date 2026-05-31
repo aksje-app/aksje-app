@@ -8925,6 +8925,216 @@ def render_currency_alerts_control_center_v1863af():
             st.success(f"{pair_label} er innenfor grensene.")
 
 
+FX_CHECK_INTERVAL_OPTIONS_V1864S = {
+    "5 min": 5,
+    "10 min": 10,
+    "15 min": 15,
+    "30 min": 30,
+    "1 time": 60,
+    "3 timer": 180,
+}
+FX_COOLDOWN_OPTIONS_V1864S = {
+    "15 min": 15,
+    "30 min": 30,
+    "1 time": 60,
+    "3 timer": 180,
+    "12 timer": 720,
+    "24 timer": 1440,
+}
+
+
+def _currency_option_label_v1864s(options: dict[str, int], value: int, default_label: str) -> str:
+    try:
+        minutes = int(value)
+    except Exception:
+        minutes = options.get(default_label, 60)
+    for label, candidate in options.items():
+        if int(candidate) == minutes:
+            return label
+    return default_label
+
+
+def _currency_alert_cooldown_minutes_v1864s(alert: dict) -> int:
+    if alert.get("cooldown_minutes") not in (None, ""):
+        try:
+            return int(alert.get("cooldown_minutes") or 720)
+        except Exception:
+            return 720
+    try:
+        return int(alert.get("cooldown_hours", 12) or 12) * 60
+    except Exception:
+        return 720
+
+
+def _currency_alert_store_latest_rate_v1864s(symbol: str, pair: str, rate: float) -> None:
+    settings = load_settings() or {}
+    latest = settings.setdefault("currency_alert_latest_rates_v1864s", {})
+    latest[str(symbol or "").upper()] = {
+        "pair": pair,
+        "symbol": str(symbol or "").upper(),
+        "rate": float(rate),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    save_settings(settings)
+
+
+def _currency_alert_latest_rate_v1864s(symbol: str) -> dict:
+    settings = load_settings() or {}
+    latest = settings.get("currency_alert_latest_rates_v1864s", {}) if isinstance(settings, dict) else {}
+    return dict((latest or {}).get(str(symbol or "").upper()) or {})
+
+
+def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_minutes: int):
+    sent = (settings or {}).get("currency_alert_last_sent_v1863af", {}) or {}
+    raw = sent.get(alert_key)
+    if not raw:
+        return True
+    try:
+        last = datetime.fromisoformat(str(raw))
+        return datetime.now() - last >= timedelta(minutes=max(1, int(cooldown_minutes or 720)))
+    except Exception:
+        return True
+
+
+def render_currency_alerts_control_center_v1863af():
+    st.subheader("Valutavarsler")
+    st.caption(
+        "Overvaker valutapar med faste ovre/nedre grenser. BRL/NOK betyr NOK for 1 BRL. "
+        "Sjekk hvert lagres som planlagt intervall; knappen under henter kurs manuelt na."
+    )
+
+    alerts = _load_currency_alerts_v1863af()
+    current = dict(alerts[0] if alerts else _currency_alert_defaults_v1863af())
+    pair_options = list(FX_ALERT_PAIRS_V1863AF.keys()) + ["Egendefinert"]
+    current_pair = current.get("pair", "BRL/NOK")
+    current_check_minutes = int(current.get("check_interval_minutes", 60) or 60)
+    current_cooldown_minutes = _currency_alert_cooldown_minutes_v1864s(current)
+
+    with st.form("currency_alert_form_v1863af"):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            pair = st.selectbox("Valutapar", pair_options, index=pair_options.index(current_pair) if current_pair in pair_options else 0)
+        with c2:
+            default_symbol = FX_ALERT_PAIRS_V1863AF.get(pair, current.get("symbol", "BRLNOK=X"))
+            symbol = st.text_input("Yahoo-symbol", value=str(default_symbol or "BRLNOK=X"))
+        c3, c4 = st.columns(2)
+        with c3:
+            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.4f")
+        with c4:
+            upper = st.number_input("Ovre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.4f")
+        i1, i2 = st.columns(2)
+        with i1:
+            check_label = st.radio(
+                "Sjekk hvert",
+                list(FX_CHECK_INTERVAL_OPTIONS_V1864S.keys()),
+                index=list(FX_CHECK_INTERVAL_OPTIONS_V1864S.keys()).index(_currency_option_label_v1864s(FX_CHECK_INTERVAL_OPTIONS_V1864S, current_check_minutes, "1 time")),
+                horizontal=True,
+            )
+        with i2:
+            cooldown_label = st.radio(
+                "Varselpause",
+                list(FX_COOLDOWN_OPTIONS_V1864S.keys()),
+                index=list(FX_COOLDOWN_OPTIONS_V1864S.keys()).index(_currency_option_label_v1864s(FX_COOLDOWN_OPTIONS_V1864S, current_cooldown_minutes, "12 timer")),
+                horizontal=True,
+            )
+        active = st.checkbox("Aktiv", value=bool(current.get("active", True)))
+        pushover = st.checkbox("Send Pushover ved brudd", value=bool(current.get("pushover", True)))
+        saved = st.form_submit_button("Lagre valutavarsel", use_container_width=True)
+
+    if saved:
+        check_minutes = int(FX_CHECK_INTERVAL_OPTIONS_V1864S.get(check_label, 60))
+        cooldown_minutes = int(FX_COOLDOWN_OPTIONS_V1864S.get(cooldown_label, 720))
+        _save_currency_alerts_v1863af([{
+            "pair": pair,
+            "symbol": symbol.strip().upper(),
+            "lower": float(lower),
+            "upper": float(upper),
+            "active": bool(active),
+            "pushover": bool(pushover),
+            "check_interval_minutes": check_minutes,
+            "cooldown_minutes": cooldown_minutes,
+            "cooldown_hours": max(1, int(round(cooldown_minutes / 60))),
+        }])
+        st.success("Valutavarsel lagret.")
+        st.rerun()
+
+    alert = _load_currency_alerts_v1863af()[0]
+    pair_label = str(alert.get("pair") or alert.get("symbol") or "Valuta")
+    symbol_value = str(alert.get("symbol") or "").upper()
+    lower_v = float(alert.get("lower") or 0)
+    upper_v = float(alert.get("upper") or 0)
+    check_minutes = int(alert.get("check_interval_minutes", 60) or 60)
+    cooldown_minutes = _currency_alert_cooldown_minutes_v1864s(alert)
+
+    st.markdown(
+        f"<div class='v18-dark-row'><b>Aktivt varsel:</b> {html.escape(pair_label)} ({html.escape(symbol_value)}), "
+        f"nedre {lower_v:.4f}, ovre {upper_v:.4f}, sjekk hvert {check_minutes} min, varselpause {cooldown_minutes} min</div>",
+        unsafe_allow_html=True,
+    )
+
+    cache = _currency_alert_latest_rate_v1864s(symbol_value)
+    if st.button("Hent kurs na", key="currency_alert_fetch_rate_now_v1864s", type="primary", use_container_width=True):
+        rate, err = _fetch_fx_rate_v1863af(symbol_value)
+        if rate is None:
+            st.warning(f"Kunne ikke hente valutakurs: {err}")
+        else:
+            _currency_alert_store_latest_rate_v1864s(symbol_value, pair_label, rate)
+            cache = _currency_alert_latest_rate_v1864s(symbol_value)
+            st.success(f"Hentet {pair_label}: {rate:.4f}")
+
+    rate_value = cache.get("rate")
+    try:
+        rate_number = float(rate_value)
+    except Exception:
+        rate_number = None
+    status_text = "Ikke hentet"
+    if rate_number is not None:
+        if lower_v and rate_number <= lower_v:
+            status_text = "Under nedre grense"
+        elif upper_v and rate_number >= upper_v:
+            status_text = "Over ovre grense"
+        else:
+            status_text = "Innenfor grensene"
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Navaerende valutakurs", f"{rate_number:.4f}" if rate_number is not None else "-")
+    m2.metric("Status", status_text)
+    m3.metric("Oppdatert", str(cache.get("updated_at") or "-"))
+    m4.metric("Kilde", symbol_value or "-")
+
+    if st.button("Sjekk valutavarsler na", key="currency_alert_check_now_v1863af", use_container_width=True):
+        if not alert.get("active", True):
+            st.info("Valutavarselet er deaktivert.")
+            return
+        rate, err = _fetch_fx_rate_v1863af(symbol_value)
+        if rate is None:
+            st.warning(f"Kunne ikke hente valutakurs: {err}")
+            return
+        _currency_alert_store_latest_rate_v1864s(symbol_value, pair_label, rate)
+        st.metric(pair_label, f"{rate:.4f}", help="Kursen er quote-valuta per 1 base-valuta, f.eks. NOK per 1 BRL for BRL/NOK.")
+        breach = None
+        if lower_v and rate <= lower_v:
+            breach = f"{pair_label} er under nedre grense: {rate:.4f} <= {lower_v:.4f}"
+        elif upper_v and rate >= upper_v:
+            breach = f"{pair_label} er over ovre grense: {rate:.4f} >= {upper_v:.4f}"
+        if breach:
+            st.error(breach)
+            if alert.get("pushover", True):
+                settings = load_settings() or {}
+                alert_key = f"{pair_label}:{symbol_value}"
+                if _currency_alert_can_send_v1863af(settings, alert_key, cooldown_minutes):
+                    ok, send_err = _send_pushover_safe_v1863af(breach, f"Valutavarsel {pair_label}")
+                    settings.setdefault("currency_alert_last_sent_v1863af", {})[alert_key] = datetime.now().isoformat(timespec="seconds")
+                    save_settings(settings)
+                    if ok:
+                        st.success("Pushover-varsel sendt.")
+                    else:
+                        st.warning(f"Pushover ble ikke sendt: {send_err or 'ukjent feil'}")
+                else:
+                    st.info("Grensen er brutt, men varselpause/cooldown hindrer nytt Pushover-varsel akkurat na.")
+        else:
+            st.success(f"{pair_label} er innenfor grensene.")
+
+
 # v18.5.37: Auto Test Lab Progress + Safe Run Controls.
 def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
     """Resolve Auto Test Lab universe without running hidden scans."""
@@ -11082,19 +11292,21 @@ def _ai_candidate_dedupe_tickers_v1864l(values) -> list[str]:
 
 AI_CANDIDATE_SOURCE_OPTIONS_V1864Q = ["Marked", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"]
 AI_CANDIDATE_IMPORT_SOURCES_V1864Q = ["Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"]
+AI_CANDIDATE_HORIZON_OPTIONS_V1864S = ["1-3 mnd", "1-6 mnd", "3-12 mnd"]
 AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q = "ai_candidate_evaluation_settings_v1864q"
 AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q = {
     "profile_name": "Standard 1-6 mnd",
+    "horizon": "1-6 mnd",
     "relative_strength_weight": 25,
     "estimate_revision_weight": 25,
     "insider_buy_weight": 20,
     "growth_weight": 15,
     "technical_trend_weight": 15,
-    "market_score_weight": 1.0,
-    "finansavisen_bonus": 0.25,
-    "nbim_bonus": 0.25,
-    "folketrygdfondet_bonus": 0.20,
-    "multi_source_bonus": 0.20,
+    "market_score_weight": 1.10,
+    "finansavisen_bonus": 0.20,
+    "nbim_bonus": 0.15,
+    "folketrygdfondet_bonus": 0.15,
+    "multi_source_bonus": 0.15,
     "medium_risk_penalty": 0.15,
     "high_risk_penalty": 0.45,
     "hard_guard_score_cap": 6.10,
@@ -11115,6 +11327,60 @@ AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q = {
     "stale_data_days": 7,
     "warn_single_signal": True,
     "signal_positive_threshold": 6.50,
+    "source_full_bonus_days": 45,
+    "source_partial_bonus_days": 120,
+    "source_partial_bonus_factor": 0.35,
+    "old_source_penalty": 0.20,
+    "exclude_old_sources_from_multi_bonus": True,
+}
+
+AI_CANDIDATE_HORIZON_DEFAULTS_V1864S = {
+    "1-3 mnd": {
+        "profile_name": "Standard 1-3 mnd",
+        "horizon": "1-3 mnd",
+        "relative_strength_weight": 30,
+        "estimate_revision_weight": 25,
+        "insider_buy_weight": 20,
+        "growth_weight": 10,
+        "technical_trend_weight": 15,
+        "market_score_weight": 1.15,
+        "finansavisen_bonus": 0.20,
+        "nbim_bonus": 0.10,
+        "folketrygdfondet_bonus": 0.10,
+        "multi_source_bonus": 0.15,
+        "source_full_bonus_days": 21,
+        "source_partial_bonus_days": 75,
+        "source_partial_bonus_factor": 0.30,
+        "old_source_penalty": 0.25,
+        "strong_threshold": 7.45,
+        "consider_threshold": 6.35,
+        "wait_threshold": 5.25,
+    },
+    "1-6 mnd": {
+        "profile_name": "Standard 1-6 mnd",
+        "horizon": "1-6 mnd",
+    },
+    "3-12 mnd": {
+        "profile_name": "Standard 3-12 mnd",
+        "horizon": "3-12 mnd",
+        "relative_strength_weight": 25,
+        "estimate_revision_weight": 25,
+        "insider_buy_weight": 15,
+        "growth_weight": 20,
+        "technical_trend_weight": 15,
+        "market_score_weight": 1.05,
+        "finansavisen_bonus": 0.15,
+        "nbim_bonus": 0.20,
+        "folketrygdfondet_bonus": 0.20,
+        "multi_source_bonus": 0.15,
+        "source_full_bonus_days": 90,
+        "source_partial_bonus_days": 210,
+        "source_partial_bonus_factor": 0.40,
+        "old_source_penalty": 0.10,
+        "strong_threshold": 7.35,
+        "consider_threshold": 6.25,
+        "wait_threshold": 5.15,
+    },
 }
 
 
@@ -11139,14 +11405,30 @@ def _ai_candidate_source_label_v1864q(sources) -> str:
     return " + ".join(_ai_candidate_source_list_v1864q(sources))
 
 
+def _ai_candidate_horizon_v1864s(config: dict | None = None) -> str:
+    text = str((config or {}).get("horizon") or "1-6 mnd").strip()
+    return text if text in AI_CANDIDATE_HORIZON_OPTIONS_V1864S else "1-6 mnd"
+
+
+def _ai_candidate_standard_config_v1864s(horizon: str | None = None) -> dict:
+    selected = horizon if horizon in AI_CANDIDATE_HORIZON_OPTIONS_V1864S else "1-6 mnd"
+    config = dict(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q)
+    config.update(AI_CANDIDATE_HORIZON_DEFAULTS_V1864S.get(selected, {}))
+    config["horizon"] = selected
+    config["profile_name"] = f"Standard {selected}"
+    return config
+
+
 def _ai_candidate_load_evaluation_config_v1864q() -> dict:
     settings = load_settings() or {}
     stored = settings.get(AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q)
-    config = dict(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q)
+    stored_horizon = stored.get("horizon") if isinstance(stored, dict) else None
+    config = _ai_candidate_standard_config_v1864s(stored_horizon)
     if isinstance(stored, dict):
         for key, value in stored.items():
             if key in config:
                 config[key] = value
+    config["horizon"] = _ai_candidate_horizon_v1864s(config)
     return config
 
 
@@ -11245,17 +11527,31 @@ def _ai_candidate_hist_snapshot_v1864r(item: dict) -> dict:
     return out
 
 
-def _ai_candidate_signal_scores_v1864r(item: dict) -> dict:
+def _ai_candidate_signal_scores_v1864r(item: dict, config: dict | None = None) -> dict:
+    horizon = _ai_candidate_horizon_v1864s(config)
     snapshot = _ai_candidate_hist_snapshot_v1864r(item)
     ret_6m = _ai_candidate_clamp_v1864r(5.0 + float(item.get("ret_6m") or 0.0) * 8.0, 0.0, 10.0)
     ret_3m = _ai_candidate_clamp_v1864r(5.0 + float(item.get("ret_3m") or 0.0) * 10.0, 0.0, 10.0)
     ret_1m = _ai_candidate_clamp_v1864r(5.0 + float(item.get("ret_1m") or 0.0) * 8.0, 0.0, 10.0)
     momentum_part = _ai_candidate_scorepart_v1864r(item, "momentum", 5.0)
-    relative_strength = momentum_part * 0.45 + ret_6m * 0.30 + ret_3m * 0.20 + ret_1m * 0.05
+    if horizon == "1-3 mnd":
+        relative_strength = momentum_part * 0.30 + ret_3m * 0.35 + ret_1m * 0.25 + ret_6m * 0.10
+    elif horizon == "3-12 mnd":
+        relative_strength = momentum_part * 0.35 + ret_6m * 0.45 + ret_3m * 0.15 + ret_1m * 0.05
+    else:
+        relative_strength = momentum_part * 0.45 + ret_6m * 0.30 + ret_3m * 0.20 + ret_1m * 0.05
     if snapshot.get("near_52w_high") is True:
         relative_strength += 0.35
     if snapshot.get("above_200dma") is False:
         relative_strength -= 0.90
+    volume_boost = snapshot.get("volume_boost")
+    try:
+        if horizon == "1-3 mnd" and volume_boost is not None and float(volume_boost) >= 1.25:
+            relative_strength += 0.30
+        elif horizon == "3-12 mnd" and volume_boost is not None and float(volume_boost) < 0.80:
+            relative_strength -= 0.20
+    except Exception:
+        pass
 
     estimate_score = None
     for key in ("estimate_revision_score", "eps_revision_score", "analyst_revision_score", "analyst_score"):
@@ -11278,13 +11574,13 @@ def _ai_candidate_signal_scores_v1864r(item: dict) -> dict:
     growth_score = _ai_candidate_scorepart_v1864r(item, "fundamental_growth", 5.0)
     technical_score = _ai_candidate_scorepart_v1864r(item, "trend", 5.0)
     if snapshot.get("above_50dma") is True:
-        technical_score += 0.40
+        technical_score += 0.60 if horizon == "1-3 mnd" else 0.40
     elif snapshot.get("above_50dma") is False:
-        technical_score -= 0.55
+        technical_score -= 0.75 if horizon == "1-3 mnd" else 0.55
     if snapshot.get("above_200dma") is True:
-        technical_score += 0.50
+        technical_score += 0.70 if horizon == "3-12 mnd" else 0.50
     elif snapshot.get("above_200dma") is False:
-        technical_score -= 1.20
+        technical_score -= 1.35 if horizon == "3-12 mnd" else 1.20
 
     return {
         "relative_strength": round(_ai_candidate_clamp_v1864r(relative_strength), 2),
@@ -11316,8 +11612,176 @@ def _ai_candidate_weighted_signal_score_v1864r(signals: dict, config: dict) -> f
     return round(_ai_candidate_clamp_v1864r(score / total_weight), 2)
 
 
-def _ai_candidate_signal_breakdown_v1864r(item: dict, evidence: list[str], risk: str, config: dict) -> dict:
-    signals = _ai_candidate_signal_scores_v1864r(item)
+def _ai_candidate_parse_date_v1864s(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    iso_match = re.search(r"(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)", text)
+    if iso_match:
+        try:
+            return datetime(int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3))).date()
+        except Exception:
+            pass
+    no_match = re.search(r"([0-3]?\d)[.\/-]([01]?\d)[.\/-](20\d{2})", text)
+    if no_match:
+        try:
+            return datetime(int(no_match.group(3)), int(no_match.group(2)), int(no_match.group(1))).date()
+        except Exception:
+            pass
+    for candidate in (text[:10], text):
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%d.%m.%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(candidate, fmt).date()
+            except Exception:
+                continue
+    year_match = re.search(r"\b(20\d{2})\b", text)
+    if year_match:
+        try:
+            return datetime(int(year_match.group(1)), 12, 31).date()
+        except Exception:
+            return None
+    return None
+
+
+def _ai_candidate_days_old_v1864s(value) -> int | None:
+    parsed = _ai_candidate_parse_date_v1864s(value)
+    if parsed is None:
+        return None
+    return max(0, (datetime.now().date() - parsed).days)
+
+
+def _ai_candidate_source_meta_v1864s() -> dict[str, dict]:
+    meta = {
+        "Finansavisen": {"data_date": "", "updated_at": "", "tickers": 0, "rows": 0},
+        "Oljefond/NBIM": {"data_date": "", "updated_at": "", "tickers": 0, "rows": 0},
+        "Folketrygdfondet": {"data_date": "", "updated_at": "", "tickers": 0, "rows": 0},
+    }
+    try:
+        from finansavisen_bjellesau import finansavisen_status
+
+        status = finansavisen_status() or {}
+        meta["Finansavisen"].update({
+            "data_date": status.get("last_date") or "",
+            "updated_at": status.get("updated_at") or "",
+            "tickers": int(status.get("overlay_tickers") or 0),
+            "rows": int(status.get("rows") or 0),
+        })
+    except Exception:
+        pass
+    try:
+        from nbim_radar import NBIM_OVERLAY_SETTINGS_KEY
+        from folketrygdfondet import FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY
+
+        settings = load_settings() or {}
+        raw = settings.get(NBIM_OVERLAY_SETTINGS_KEY) if isinstance(settings, dict) else {}
+        if isinstance(raw, dict):
+            overlay = raw.get("overlay") if isinstance(raw.get("overlay"), dict) else {}
+            source_file = str(raw.get("source_file") or raw.get("filename") or "")
+            meta["Oljefond/NBIM"].update({
+                "data_date": raw.get("source_as_of") or raw.get("as_of_date") or _ai_candidate_parse_date_v1864s(source_file) or "",
+                "updated_at": raw.get("updated_at") or "",
+                "tickers": len(overlay or {}),
+                "rows": int(raw.get("rows_count") or len(raw.get("rows") or []) or 0),
+            })
+        raw = settings.get(FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY) if isinstance(settings, dict) else {}
+        if isinstance(raw, dict):
+            overlay = raw.get("overlay") if isinstance(raw.get("overlay"), dict) else {}
+            rows = raw.get("rows") if isinstance(raw.get("rows"), list) else []
+            source_file = str(raw.get("source_file") or raw.get("filename") or "")
+            meta["Folketrygdfondet"].update({
+                "data_date": raw.get("source_as_of") or raw.get("as_of_date") or _ai_candidate_parse_date_v1864s(source_file) or "",
+                "updated_at": raw.get("updated_at") or "",
+                "tickers": len(overlay or {}),
+                "rows": len(rows or []),
+            })
+    except Exception:
+        pass
+    return meta
+
+
+def _ai_candidate_source_freshness_v1864s(source_name: str, data_date, config: dict) -> dict:
+    days_old = _ai_candidate_days_old_v1864s(data_date)
+    full_days = _ai_candidate_num_v1864q(config, "source_full_bonus_days")
+    partial_days = max(full_days, _ai_candidate_num_v1864q(config, "source_partial_bonus_days"))
+    partial_factor = max(0.0, min(1.0, _ai_candidate_num_v1864q(config, "source_partial_bonus_factor")))
+    if days_old is None:
+        return {
+            "source": source_name,
+            "data_date": str(data_date or ""),
+            "days_old": "",
+            "status": "kildedato mangler",
+            "bonus_factor": 0.0,
+            "counts_for_multi": False,
+            "flag": f"{source_name}: kildedato mangler",
+        }
+    if days_old <= full_days:
+        return {
+            "source": source_name,
+            "data_date": str(data_date),
+            "days_old": days_old,
+            "status": "fersk",
+            "bonus_factor": 1.0,
+            "counts_for_multi": True,
+            "flag": "",
+        }
+    if days_old <= partial_days:
+        return {
+            "source": source_name,
+            "data_date": str(data_date),
+            "days_old": days_old,
+            "status": "eldre, redusert bonus",
+            "bonus_factor": partial_factor,
+            "counts_for_multi": not _ai_candidate_bool_v1864r(config, "exclude_old_sources_from_multi_bonus"),
+            "flag": f"{source_name}: eldre kilde ({days_old} dager)",
+        }
+    return {
+        "source": source_name,
+        "data_date": str(data_date),
+        "days_old": days_old,
+        "status": "historisk støtte",
+        "bonus_factor": 0.0,
+        "counts_for_multi": False,
+        "flag": f"{source_name}: gammel kilde ({days_old} dager)",
+    }
+
+
+def _ai_candidate_evidence_freshness_v1864s(
+    evidence: list[str],
+    overlays: dict,
+    ticker: str,
+    config: dict,
+) -> dict[str, dict]:
+    source_meta = _ai_candidate_source_meta_v1864s()
+    out: dict[str, dict] = {}
+    for source_name in evidence or []:
+        data = {}
+        if source_name == "Finansavisen":
+            data = (overlays.get("finansavisen") or {}).get(ticker) or {}
+            data_date = (
+                data.get("finansavisen_bjellesau_latest_date")
+                or data.get("latest_date")
+                or source_meta.get(source_name, {}).get("data_date")
+            )
+        elif source_name == "Oljefond/NBIM":
+            data = (overlays.get("nbim") or {}).get(ticker) or {}
+            data_date = data.get("nbim_as_of") or data.get("source_as_of") or source_meta.get(source_name, {}).get("data_date")
+        elif source_name == "Folketrygdfondet":
+            data = (overlays.get("folketrygdfondet") or {}).get(ticker) or {}
+            data_date = data.get("folketrygdfondet_as_of") or data.get("source_as_of") or source_meta.get(source_name, {}).get("data_date")
+        else:
+            data_date = ""
+        out[source_name] = _ai_candidate_source_freshness_v1864s(source_name, data_date, config)
+    return out
+
+
+def _ai_candidate_signal_breakdown_v1864r(
+    item: dict,
+    evidence: list[str],
+    risk: str,
+    config: dict,
+    source_freshness: dict[str, dict] | None = None,
+) -> dict:
+    signals = _ai_candidate_signal_scores_v1864r(item, config)
     score = _ai_candidate_weighted_signal_score_v1864r(signals, config)
     score *= _ai_candidate_num_v1864q(config, "market_score_weight")
     base_before_support = score
@@ -11326,13 +11790,24 @@ def _ai_candidate_signal_breakdown_v1864r(item: dict, evidence: list[str], risk:
         "Oljefond/NBIM": "nbim_bonus",
         "Folketrygdfondet": "folketrygdfondet_bonus",
     }
+    scoring_sources: list[str] = []
+    stale_source_flags: list[str] = []
     for source_name, bonus_key in source_bonus_map.items():
         if source_name in evidence:
-            score += _ai_candidate_num_v1864q(config, bonus_key)
-    if len([item for item in evidence if item]) >= 2:
+            freshness = (source_freshness or {}).get(source_name) or _ai_candidate_source_freshness_v1864s(source_name, "", config)
+            bonus_factor = max(0.0, min(1.0, float(freshness.get("bonus_factor") or 0.0)))
+            if bonus_factor > 0:
+                score += _ai_candidate_num_v1864q(config, bonus_key) * bonus_factor
+                if freshness.get("counts_for_multi", True):
+                    scoring_sources.append(source_name)
+            elif freshness.get("flag"):
+                stale_source_flags.append(str(freshness.get("flag")))
+    if len(scoring_sources if _ai_candidate_bool_v1864r(config, "exclude_old_sources_from_multi_bonus") else [item for item in evidence if item]) >= 2:
         score += _ai_candidate_num_v1864q(config, "multi_source_bonus")
+    if stale_source_flags and _ai_candidate_num_v1864q(config, "old_source_penalty") > 0:
+        score -= _ai_candidate_num_v1864q(config, "old_source_penalty")
 
-    flags: list[str] = []
+    flags: list[str] = list(stale_source_flags)
     blockers: list[str] = []
     snapshot = signals.get("snapshot") or {}
     if _ai_candidate_bool_v1864r(config, "require_above_200dma") and snapshot.get("above_200dma") is False:
@@ -11397,6 +11872,9 @@ def _ai_candidate_signal_breakdown_v1864r(item: dict, evidence: list[str], risk:
         "flags": flags,
         "blockers": blockers,
         "missing": missing,
+        "source_freshness": source_freshness or {},
+        "fresh_evidence": scoring_sources,
+        "historical_evidence": [name for name in (evidence or []) if name not in scoring_sources],
     }
 
 
@@ -11530,6 +12008,151 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
     return current_config
 
 
+def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
+    saved_config = _ai_candidate_load_evaluation_config_v1864q()
+    key_prefix = "ai_candidate_eval_v1864q"
+    if st.session_state.get(f"{key_prefix}_loaded") != saved_config:
+        for key, value in saved_config.items():
+            st.session_state[f"{key_prefix}_{key}"] = value
+        st.session_state[f"{key_prefix}_loaded"] = dict(saved_config)
+
+    with st.expander("Evalueringsoppsett", expanded=False):
+        st.caption("Juster scoreparametere uten kodeendring. Tidshorisont styrer faktisk vekting i motoren; profilnavn er bare en rapportetikett.")
+        h_col, n_col = st.columns([0.55, 1.45])
+        with h_col:
+            current_horizon = _ai_candidate_horizon_v1864s({"horizon": st.session_state.get(f"{key_prefix}_horizon", saved_config.get("horizon"))})
+            horizon = st.selectbox(
+                "Tidshorisont",
+                AI_CANDIDATE_HORIZON_OPTIONS_V1864S,
+                index=AI_CANDIDATE_HORIZON_OPTIONS_V1864S.index(current_horizon),
+                key=f"{key_prefix}_horizon",
+                help="Dette valget endrer hvordan delsignalene tolkes. Profilnavn alene endrer ikke scoringen.",
+            )
+        with n_col:
+            name = st.text_input("Profilnavn", key=f"{key_prefix}_profile_name")
+
+        st.markdown(f"**Signalprofil {horizon}**")
+        w1, w2, w3, w4, w5 = st.columns(5)
+        with w1:
+            relative_strength_weight = st.slider("Relativ styrke", 0, 50, int(st.session_state.get(f"{key_prefix}_relative_strength_weight", 25)), 1, key=f"{key_prefix}_relative_strength_weight")
+        with w2:
+            estimate_revision_weight = st.slider("Estimatendringer", 0, 50, int(st.session_state.get(f"{key_prefix}_estimate_revision_weight", 25)), 1, key=f"{key_prefix}_estimate_revision_weight")
+        with w3:
+            insider_buy_weight = st.slider("Insiderkjop", 0, 50, int(st.session_state.get(f"{key_prefix}_insider_buy_weight", 20)), 1, key=f"{key_prefix}_insider_buy_weight")
+        with w4:
+            growth_weight = st.slider("Omsetning/resultat", 0, 50, int(st.session_state.get(f"{key_prefix}_growth_weight", 15)), 1, key=f"{key_prefix}_growth_weight")
+        with w5:
+            technical_trend_weight = st.slider("Teknisk trend", 0, 50, int(st.session_state.get(f"{key_prefix}_technical_trend_weight", 15)), 1, key=f"{key_prefix}_technical_trend_weight")
+        total_weight = relative_strength_weight + estimate_revision_weight + insider_buy_weight + growth_weight + technical_trend_weight
+        if total_weight != 100:
+            st.info(f"Vektene summerer til {total_weight} %. Motoren normaliserer automatisk til 100 % i selve scoringen.")
+
+        st.markdown("**Kildestotte og terskler**")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            market_weight = st.slider("Marked scorevekt", 0.60, 1.40, float(st.session_state.get(f"{key_prefix}_market_score_weight", 1.10)), 0.05, key=f"{key_prefix}_market_score_weight")
+            finansavisen_bonus = st.slider("Finansavisen kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_finansavisen_bonus", 0.20)), 0.05, key=f"{key_prefix}_finansavisen_bonus")
+            nbim_bonus = st.slider("Oljefond/NBIM kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_nbim_bonus", 0.15)), 0.05, key=f"{key_prefix}_nbim_bonus")
+        with c2:
+            folketrygdfondet_bonus = st.slider("Folketrygdfondet kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_folketrygdfondet_bonus", 0.15)), 0.05, key=f"{key_prefix}_folketrygdfondet_bonus")
+            multi_source_bonus = st.slider("Bonus for flere ferske kilder", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_multi_source_bonus", 0.15)), 0.05, key=f"{key_prefix}_multi_source_bonus")
+            high_risk_penalty = st.slider("Trekk for hoy risiko", 0.00, 1.50, float(st.session_state.get(f"{key_prefix}_high_risk_penalty", 0.45)), 0.05, key=f"{key_prefix}_high_risk_penalty")
+        with c3:
+            medium_risk_penalty = st.slider("Trekk for middels risiko", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_medium_risk_penalty", 0.15)), 0.05, key=f"{key_prefix}_medium_risk_penalty")
+            strong_threshold = st.slider("Terskel Sterk kandidat", 5.00, 9.50, float(st.session_state.get(f"{key_prefix}_strong_threshold", 7.40)), 0.05, key=f"{key_prefix}_strong_threshold")
+            consider_threshold = st.slider("Terskel Vurder", 4.00, 8.50, float(st.session_state.get(f"{key_prefix}_consider_threshold", 6.30)), 0.05, key=f"{key_prefix}_consider_threshold")
+            wait_threshold = st.slider("Terskel Vent", 3.00, 7.50, float(st.session_state.get(f"{key_prefix}_wait_threshold", 5.20)), 0.05, key=f"{key_prefix}_wait_threshold")
+
+        st.markdown("**Kildeferskhet**")
+        f1, f2, f3, f4 = st.columns(4)
+        with f1:
+            source_full_bonus_days = st.number_input("Full kildebonus t.o.m. dager", min_value=1, max_value=365, value=int(st.session_state.get(f"{key_prefix}_source_full_bonus_days", 45)), step=1, key=f"{key_prefix}_source_full_bonus_days")
+        with f2:
+            source_partial_bonus_days = st.number_input("Redusert bonus t.o.m. dager", min_value=1, max_value=730, value=int(st.session_state.get(f"{key_prefix}_source_partial_bonus_days", 120)), step=5, key=f"{key_prefix}_source_partial_bonus_days")
+        with f3:
+            source_partial_bonus_factor = st.slider("Redusert bonusfaktor", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_source_partial_bonus_factor", 0.35)), 0.05, key=f"{key_prefix}_source_partial_bonus_factor")
+            exclude_old_sources_from_multi_bonus = st.checkbox("Flere-kilder bonus krever ferske kilder", value=bool(st.session_state.get(f"{key_prefix}_exclude_old_sources_from_multi_bonus", True)), key=f"{key_prefix}_exclude_old_sources_from_multi_bonus")
+        with f4:
+            old_source_penalty = st.slider("Trekk ved gammel/ukjent kilde", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_old_source_penalty", 0.20)), 0.05, key=f"{key_prefix}_old_source_penalty")
+            st.caption("Prinsipp: fersk informasjon rangerer. Gammel informasjon forklarer.")
+
+        st.markdown("**Sperrer og varsler**")
+        g1, g2, g3, g4 = st.columns(4)
+        with g1:
+            require_above_200dma = st.checkbox("Krev/marker 200-dagers trend", value=bool(st.session_state.get(f"{key_prefix}_require_above_200dma", True)), key=f"{key_prefix}_require_above_200dma")
+            warn_below_50dma = st.checkbox("Varsle under 50-dagers snitt", value=bool(st.session_state.get(f"{key_prefix}_warn_below_50dma", True)), key=f"{key_prefix}_warn_below_50dma")
+            hard_guard_score_cap = st.slider("Maks score ved hard sperre", 4.00, 7.50, float(st.session_state.get(f"{key_prefix}_hard_guard_score_cap", 6.10)), 0.05, key=f"{key_prefix}_hard_guard_score_cap")
+        with g2:
+            warn_high_debt = st.checkbox("Varsle hoy gjeld", value=bool(st.session_state.get(f"{key_prefix}_warn_high_debt", True)), key=f"{key_prefix}_warn_high_debt")
+            max_debt_to_equity = st.number_input("Maks debt/equity", min_value=0, max_value=500, value=int(st.session_state.get(f"{key_prefix}_max_debt_to_equity", 150)), step=5, key=f"{key_prefix}_max_debt_to_equity")
+            hard_guard_penalty = st.slider("Trekk per hardt varsel", 0.00, 2.00, float(st.session_state.get(f"{key_prefix}_hard_guard_penalty", 0.50)), 0.05, key=f"{key_prefix}_hard_guard_penalty")
+        with g3:
+            warn_falling_growth = st.checkbox("Varsle fallende vekst", value=bool(st.session_state.get(f"{key_prefix}_warn_falling_growth", True)), key=f"{key_prefix}_warn_falling_growth")
+            warn_weak_liquidity = st.checkbox("Varsle svak likviditet", value=bool(st.session_state.get(f"{key_prefix}_warn_weak_liquidity", True)), key=f"{key_prefix}_warn_weak_liquidity")
+            min_avg_volume = st.number_input("Min snittvolum 20d", min_value=0, max_value=5000000, value=int(st.session_state.get(f"{key_prefix}_min_avg_volume", 50000)), step=5000, key=f"{key_prefix}_min_avg_volume")
+        with g4:
+            warn_stale_data = st.checkbox("Varsle gammel kursdata", value=bool(st.session_state.get(f"{key_prefix}_warn_stale_data", True)), key=f"{key_prefix}_warn_stale_data")
+            stale_data_days = st.number_input("Gammel kursdata etter dager", min_value=1, max_value=60, value=int(st.session_state.get(f"{key_prefix}_stale_data_days", 7)), step=1, key=f"{key_prefix}_stale_data_days")
+            warn_single_signal = st.checkbox("Varsle ett svakt signalgrunnlag", value=bool(st.session_state.get(f"{key_prefix}_warn_single_signal", True)), key=f"{key_prefix}_warn_single_signal")
+            signal_positive_threshold = st.slider("Terskel sterkt delsignal", 5.00, 9.50, float(st.session_state.get(f"{key_prefix}_signal_positive_threshold", 6.50)), 0.05, key=f"{key_prefix}_signal_positive_threshold")
+
+        current_config = {
+            "profile_name": name or f"Standard {horizon}",
+            "horizon": horizon,
+            "relative_strength_weight": relative_strength_weight,
+            "estimate_revision_weight": estimate_revision_weight,
+            "insider_buy_weight": insider_buy_weight,
+            "growth_weight": growth_weight,
+            "technical_trend_weight": technical_trend_weight,
+            "market_score_weight": market_weight,
+            "finansavisen_bonus": finansavisen_bonus,
+            "nbim_bonus": nbim_bonus,
+            "folketrygdfondet_bonus": folketrygdfondet_bonus,
+            "multi_source_bonus": multi_source_bonus,
+            "medium_risk_penalty": medium_risk_penalty,
+            "high_risk_penalty": high_risk_penalty,
+            "hard_guard_score_cap": hard_guard_score_cap,
+            "hard_guard_penalty": hard_guard_penalty,
+            "strong_threshold": strong_threshold,
+            "consider_threshold": consider_threshold,
+            "wait_threshold": wait_threshold,
+            "alert_threshold": st.slider("Varselterskel score", 5.00, 9.80, float(st.session_state.get(f"{key_prefix}_alert_threshold", 7.50)), 0.05, key=f"{key_prefix}_alert_threshold"),
+            "min_confidence_for_strong": st.slider("Min confidence for Sterk kandidat", 30, 95, int(st.session_state.get(f"{key_prefix}_min_confidence_for_strong", 60)), 1, key=f"{key_prefix}_min_confidence_for_strong"),
+            "require_above_200dma": bool(require_above_200dma),
+            "warn_below_50dma": bool(warn_below_50dma),
+            "warn_high_debt": bool(warn_high_debt),
+            "max_debt_to_equity": int(max_debt_to_equity),
+            "warn_falling_growth": bool(warn_falling_growth),
+            "warn_weak_liquidity": bool(warn_weak_liquidity),
+            "min_avg_volume": int(min_avg_volume),
+            "warn_stale_data": bool(warn_stale_data),
+            "stale_data_days": int(stale_data_days),
+            "warn_single_signal": bool(warn_single_signal),
+            "signal_positive_threshold": signal_positive_threshold,
+            "source_full_bonus_days": int(source_full_bonus_days),
+            "source_partial_bonus_days": int(source_partial_bonus_days),
+            "source_partial_bonus_factor": float(source_partial_bonus_factor),
+            "old_source_penalty": float(old_source_penalty),
+            "exclude_old_sources_from_multi_bonus": bool(exclude_old_sources_from_multi_bonus),
+        }
+        b1, b2, b3 = st.columns([1, 1.15, 2])
+        with b1:
+            if st.button("Lagre oppsett", key="ai_candidate_save_eval_setup_v1864q", use_container_width=True):
+                _ai_candidate_save_evaluation_config_v1864q(current_config)
+                st.success("Evalueringsoppsett lagret.")
+        with b2:
+            if st.button("Bruk standard for valgt horisont", key="ai_candidate_reset_eval_setup_v1864q", use_container_width=True):
+                standard_config = _ai_candidate_standard_config_v1864s(horizon)
+                _ai_candidate_save_evaluation_config_v1864q(standard_config)
+                for key, value in standard_config.items():
+                    st.session_state[f"{key_prefix}_{key}"] = value
+                st.session_state[f"{key_prefix}_loaded"] = dict(standard_config)
+                st.rerun()
+        with b3:
+            st.caption("Standardene prioriterer fersk markedsdata. Gamle institusjonelle kilder vises i forklaring, men gir ikke full rangeringseffekt.")
+    return current_config
+
+
 def _ai_candidate_import_tickers_v1864l(source: str) -> list[str]:
     sources = set(_ai_candidate_source_list_v1864q(source))
     tickers: list[str] = []
@@ -11642,6 +12265,59 @@ def _ai_candidate_source_status_v1864l() -> list[dict]:
     return rows
 
 
+def _ai_candidate_source_status_v1864l(config: dict | None = None) -> list[dict]:
+    config = config or _ai_candidate_load_evaluation_config_v1864q()
+    rows = [{
+        "Kilde": "Marked",
+        "Oppdatert": "Ny kjoring nar testen kjores",
+        "Kildedato": "na",
+        "Tickere": "Valgt marked",
+        "Databruk": "Fersk score/kurs-run",
+    }]
+    meta = _ai_candidate_source_meta_v1864s()
+    try:
+        from finansavisen_bjellesau import finansavisen_status
+
+        status = finansavisen_status() or {}
+        data_date = meta.get("Finansavisen", {}).get("data_date") or ""
+        freshness = _ai_candidate_source_freshness_v1864s("Finansavisen", data_date, config)
+        rows.append({
+            "Kilde": "Finansavisen",
+            "Oppdatert": status.get("updated_at") or "Ikke importert",
+            "Kildedato": data_date or "Ikke importert",
+            "Tickere": str(status.get("overlay_tickers") or 0),
+            "Databruk": f"{freshness.get('status')} | bonusfaktor {float(freshness.get('bonus_factor') or 0):.2f}",
+        })
+    except Exception:
+        rows.append({"Kilde": "Finansavisen", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    try:
+        from settings_store import load_settings
+        from nbim_radar import NBIM_OVERLAY_SETTINGS_KEY
+        from folketrygdfondet import FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY
+
+        settings = load_settings() or {}
+        for label, key in [("Oljefond/NBIM", NBIM_OVERLAY_SETTINGS_KEY), ("Folketrygdfondet", FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY)]:
+            raw = settings.get(key) if isinstance(settings, dict) else {}
+            overlay = raw.get("overlay") if isinstance(raw, dict) else {}
+            saved_rows = raw.get("rows") if isinstance(raw, dict) and isinstance(raw.get("rows"), list) else []
+            ticker_text = str(len(overlay or {}) if isinstance(overlay, dict) else 0)
+            if label == "Folketrygdfondet" and saved_rows:
+                ticker_text = f"{len(overlay or {})} match / {len(saved_rows)} rader"
+            data_date = meta.get(label, {}).get("data_date") or ""
+            freshness = _ai_candidate_source_freshness_v1864s(label, data_date, config)
+            rows.append({
+                "Kilde": label,
+                "Oppdatert": (raw.get("updated_at") if isinstance(raw, dict) else "") or "Ikke importert",
+                "Kildedato": data_date or "Kildedato mangler",
+                "Tickere": ticker_text,
+                "Databruk": f"{freshness.get('status')} | bonusfaktor {float(freshness.get('bonus_factor') or 0):.2f}",
+            })
+    except Exception:
+        rows.append({"Kilde": "Oljefond/NBIM", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+        rows.append({"Kilde": "Folketrygdfondet", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    return rows
+
+
 def _ai_candidate_previous_rank_map_v1864m() -> dict[str, dict]:
     previous = st.session_state.get("ai_candidate_test_last_result_v1864l") or {}
     if not isinstance(previous, dict) or not previous.get("rows"):
@@ -11706,15 +12382,19 @@ def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float, evaluati
     return label or "Unnga"
 
 
-def _ai_candidate_source_strength_v1864m(evidence: list[str]) -> str:
-    count = len([item for item in evidence if item])
-    if count >= 3:
-        return "Svaert sterk"
-    if count == 2:
-        return "Sterk"
-    if count == 1:
-        return "Stotte"
-    return "Marked"
+def _ai_candidate_source_strength_v1864m(evidence: list[str], source_freshness: dict | None = None) -> str:
+    if not evidence:
+        return "Marked"
+    freshness = source_freshness or {}
+    fresh = [name for name in evidence if float((freshness.get(name) or {}).get("bonus_factor") or 0.0) > 0]
+    historical = [name for name in evidence if name not in fresh]
+    if len(fresh) >= 2:
+        return "Fersk sterk"
+    if len(fresh) == 1 and historical:
+        return "Fersk + historisk"
+    if len(fresh) == 1:
+        return "Fersk stotte"
+    return "Historisk stotte"
 
 
 def _ai_candidate_listing_v1864m(ticker: str, item: dict, selected_market: str) -> dict[str, str]:
@@ -11753,6 +12433,15 @@ def _ai_candidate_score_explanation_v1864m(score_num: float, confidence, risk: s
     if risk and risk != "-":
         bits.append(f"risiko {risk}")
     bits.append("kilder " + (", ".join(evidence) if evidence else "marked"))
+    if isinstance(breakdown, dict) and breakdown.get("source_freshness"):
+        source_age_bits = []
+        for source_name, meta in (breakdown.get("source_freshness") or {}).items():
+            status = str(meta.get("status") or "")
+            days = meta.get("days_old")
+            suffix = f"{days}d" if isinstance(days, int) else "dato mangler"
+            source_age_bits.append(f"{source_name} {status} {suffix}".strip())
+        if source_age_bits:
+            bits.append("kildealder " + ", ".join(source_age_bits))
     if isinstance(breakdown, dict) and breakdown.get("blockers"):
         bits.append("sperrer " + ", ".join(breakdown.get("blockers") or []))
     if isinstance(breakdown, dict) and breakdown.get("flags"):
@@ -11792,7 +12481,8 @@ def _ai_candidate_result_rows_v1864l(
         if "Folketrygdfondet" in source_list and ticker in overlays.get("folketrygdfondet", {}):
             evidence.append("Folketrygdfondet")
         risk = item.get("risk") or item.get("risk_label") or item.get("shared_risk_label") or "-"
-        breakdown = _ai_candidate_signal_breakdown_v1864r(item, evidence, str(risk), config)
+        source_freshness = _ai_candidate_evidence_freshness_v1864s(evidence, overlays, ticker, config)
+        breakdown = _ai_candidate_signal_breakdown_v1864r(item, evidence, str(risk), config, source_freshness=source_freshness)
         score_num = float(breakdown.get("score") or 0.0)
         try:
             decision = card_decision_for_item(item)
@@ -11805,10 +12495,14 @@ def _ai_candidate_result_rows_v1864l(
         if confidence in (None, ""):
             confidence = min(95, max(35, int(round(score_num * 10)))) if score_num else ""
         flags = list(breakdown.get("blockers") or []) + list(breakdown.get("flags") or [])
-        alert = "Varsel" if score_num >= _ai_candidate_num_v1864q(config, "alert_threshold") or evidence or flags else ""
+        alert = "Varsel" if score_num >= _ai_candidate_num_v1864q(config, "alert_threshold") or breakdown.get("fresh_evidence") or flags else ""
         listing = _ai_candidate_listing_v1864m(ticker, item, market)
         change = _ai_candidate_change_label_v1864m(ticker, idx, score_num, previous_map)
-        source_strength = _ai_candidate_source_strength_v1864m(evidence)
+        source_strength = _ai_candidate_source_strength_v1864m(evidence, source_freshness)
+        source_age = ", ".join(
+            f"{name}: {(meta or {}).get('status')}"
+            for name, meta in source_freshness.items()
+        ) or "-"
         reason_bits = [_ai_candidate_source_label_v1864q(source_list)]
         if evidence:
             reason_bits.append("Kildebevis: " + ", ".join(evidence))
@@ -11825,6 +12519,7 @@ def _ai_candidate_result_rows_v1864l(
             "Hvorfor med": " | ".join(reason_bits),
             "Ferskhet": "Ny run",
             "Kilder": ", ".join(evidence) if evidence else "Marked",
+            "Kildealder": source_age,
             "Kildestyrke": source_strength,
             "Relativ styrke": breakdown.get("signals", {}).get("relative_strength"),
             "Estimatendringer": breakdown.get("signals", {}).get("estimate_revisions"),
@@ -11892,7 +12587,7 @@ th {{ background: #e5f3ff; }}
 <div class="method">
 <h2>Metode og evaluering</h2>
 <p><b>Valgte kilder:</b> {html.escape(sources)} | <b>Profil:</b> {profile}</p>
-<p>Marked gir grunnscore. Importerte kilder kan gi kildebonus når de faktisk har evidens på tickeren. Flere uavhengige kilder kan gi ekstra bonus, mens risiko trekker ned. Tersklene styrer anbefaling og varsel.</p>
+<p>Marked gir grunnscore. Importerte kilder kan gi kildebonus når de faktisk har evidens på tickeren og kildedatoen er fersk nok for valgt tidshorisont. Gammel institusjonell informasjon vises som historisk støtte, men skal ikke løfte rangeringen som fersk evidens. Tersklene styrer anbefaling og varsel.</p>
 <p>Signalprofil 1-6 mnd vekter relativ styrke, estimatendringer, insiderkjop, omsetnings-/resultatvekst og teknisk trend. Manglende datakilder vises som datamangler, og sperrer/varsler dokumenteres per rad.</p>
 {method_table}
 </div>
@@ -12166,6 +12861,147 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
     else:
         st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
+
+
+def render_ai_candidate_test_control_center_v1864l() -> None:
+    st.subheader("AI Kandidattest")
+    st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
+    with st.expander("Kilder og import", expanded=True):
+        _render_data_foundation_workspace_v1863by([])
+
+    if "ai_candidate_sources_v1864q" not in st.session_state:
+        st.session_state["ai_candidate_sources_v1864q"] = _ai_candidate_source_list_v1864q(
+            st.session_state.get("ai_candidate_source_v1864l") or "Marked"
+        )
+    st.markdown("**Kilder til AI Kandidattest**")
+    st.caption("Velg en eller flere kilder. Avhukingene er faste og lukker ingen stor nedtrekksboks.")
+    current_sources = set(_ai_candidate_source_list_v1864q(st.session_state.get("ai_candidate_sources_v1864q") or ["Marked"]))
+    selected_sources = []
+    source_cols = st.columns(len(AI_CANDIDATE_SOURCE_OPTIONS_V1864Q))
+    for col, source_option in zip(source_cols, AI_CANDIDATE_SOURCE_OPTIONS_V1864Q):
+        with col:
+            checked = st.checkbox(
+                source_option,
+                value=source_option in current_sources,
+                key=f"ai_candidate_source_toggle_v1864s_{source_option.lower().replace('/', '_').replace(' ', '_')}",
+            )
+            if checked:
+                selected_sources.append(source_option)
+    st.session_state["ai_candidate_sources_v1864q"] = selected_sources
+    source = _ai_candidate_source_label_v1864q(selected_sources) if selected_sources else "Ingen kilder valgt"
+
+    c1, c2, c3 = st.columns([1.0, 0.7, 1.4])
+    with c1:
+        market = st.selectbox("Marked", market_scope_options(include_aggregate=True), index=0, key="ai_candidate_market_v1864l")
+    with c2:
+        limit = st.slider("Maks kandidater", 5, 100, 30, 1, key="ai_candidate_limit_v1864l")
+    with c3:
+        manual_text = st.text_input("Manuell liste", key="ai_candidate_manual_v1864l", placeholder="EQNR.OL, NVDA, VOLV-B.ST")
+
+    evaluation_config = _render_ai_candidate_evaluation_setup_v1864q()
+
+    source_status = _ai_candidate_source_status_v1864l(evaluation_config)
+    with st.expander("Datakildestatus / ferskhet", expanded=False):
+        st.dataframe(pd.DataFrame(source_status), use_container_width=True, hide_index=True)
+
+    with st.expander("Hvordan evalueringen skjer", expanded=False):
+        horizon = evaluation_config.get("horizon") or "1-6 mnd"
+        st.markdown(
+            f"- Signalprofil {horizon} bruker Relativ styrke, Estimatendringer, Insiderkjop, Omsetning/resultat og Teknisk trend som egne delsignaler.\n"
+            "- Tidshorisont endrer faktisk vekting i motoren. Profilnavn er bare en etikett i rapporten.\n"
+            "- Estimat-, insider- og vekstdata som mangler blir vist som Datamangler i resultatet, ikke skjult.\n"
+            "- Sperrer og varsler kan cappe eller trekke ned score ved under 200-dagers snitt, hoy gjeld, fallende vekst, svak likviditet, gammel kursdata eller for smalt signalgrunnlag."
+        )
+        st.markdown(
+            "- Marked gir grunnscore fra fersk rangering.\n"
+            "- Valgte importkilder gir bare full bonus nar de faktisk har evidens pa tickeren og kildedatoen er fersk nok.\n"
+            "- Eldre eller udaterte institusjonsdata vises som historisk stotte og tas ut av flere-kilder bonus.\n"
+            "- Risiko trekker ned for anbefaling settes.\n"
+            "- Tersklene i Evalueringsoppsett styrer Sterk kandidat, Vurder, Vent og Varsel."
+        )
+        st.dataframe(
+            pd.DataFrame([{"Parameter": key, "Verdi": value} for key, value in evaluation_config.items()]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    preview_tickers = _ai_candidate_source_tickers_multi_v1864q(selected_sources, market, int(limit), manual_text) if selected_sources else []
+    if preview_tickers:
+        st.caption(f"Input: {len(preview_tickers)} tickere. Eksempel: {', '.join(preview_tickers[:10])}")
+    else:
+        st.warning("Ingen kandidater funnet for valgt kilde. Importer datakilde, velg marked eller skriv manuell liste.")
+
+    if st.button("Kjor AI Kandidattest", key="ai_candidate_run_v1864l", type="primary", use_container_width=True, disabled=not bool(preview_tickers)):
+        progress = st.progress(0, text="Starter AI Kandidattest")
+        progress.progress(25, text="Henter ferske kurs-/scoredatasett")
+        ranked = cached_auto_rank_market(
+            f"AIKandidat_{source}_{market}_{evaluation_config.get('horizon')}",
+            preview_tickers,
+            max_count=int(limit),
+            use_news=False,
+            force_manual_fetch=True,
+            include_insider=True,
+        )
+        progress.progress(70, text="Kobler importert kildeevidens")
+        previous_map = _ai_candidate_previous_rank_map_v1864m()
+        rows = _ai_candidate_result_rows_v1864l(
+            list(ranked or []),
+            source=source,
+            market=market,
+            previous_map=previous_map,
+            selected_sources=selected_sources,
+            evaluation_config=evaluation_config,
+        )
+        result = {
+            "version": get_app_build_label(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "source": source,
+            "sources": _ai_candidate_source_list_v1864q(selected_sources),
+            "market": market,
+            "input_tickers": preview_tickers,
+            "source_status": source_status,
+            "evaluation_config": evaluation_config,
+            "rows": rows,
+        }
+        _save_ai_candidate_result_v1864l(result)
+        progress.progress(100, text=f"Ferdig: {len(rows)} kandidater")
+        st.success(f"AI Kandidattest ferdig: {len(rows)} kandidater.")
+
+    result = st.session_state.get("ai_candidate_test_last_result_v1864l") or _load_ai_candidate_latest_result_v1864m()
+    rows = result.get("rows") if isinstance(result, dict) else []
+    if isinstance(result, dict) and result.get("created_at"):
+        if "ai_candidate_test_last_result_v1864l" not in st.session_state:
+            st.caption("Viser sist lagrede AI Kandidattest. Kjor testen pa nytt for fersk kandidatfangst.")
+        st.markdown("#### Resultat")
+        result_sources = ", ".join(_ai_candidate_source_list_v1864q(result.get("sources") or result.get("source")))
+        result_eval = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
+        result_profile = result_eval.get("profile_name") or "Standard"
+        result_horizon = result_eval.get("horizon") or "1-6 mnd"
+        st.caption(f"Kilder brukt i kjoringen: {result_sources or '-'} | Tidshorisont: {result_horizon} | Evalueringsprofil: {result_profile}")
+        if rows:
+            country_counts = pd.Series([row.get("Land") or "Ukjent" for row in rows]).value_counts().to_dict()
+            source_counts = pd.Series([row.get("Kildestyrke") or "Marked" for row in rows]).value_counts().to_dict()
+            st.caption(
+                "Land: "
+                + ", ".join(f"{key}: {value}" for key, value in country_counts.items())
+                + " | Kildestyrke: "
+                + ", ".join(f"{key}: {value}" for key, value in source_counts.items())
+            )
+            _render_ai_candidate_selection_v1864m(rows)
+        else:
+            st.info("Kjoringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
+        basename = _ai_candidate_basename_v1864l(result)
+        st.markdown("#### Lagre / print / eksport")
+        st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+        with d2:
+            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+        with d3:
+            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+    else:
+        st.info("Kjor testen for a lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
 
 
 def control_center_extra_panels_v18535():

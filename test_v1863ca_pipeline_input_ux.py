@@ -67,7 +67,7 @@ def test_folketrygdfondet_is_source_overlay_not_pipeline_payload():
     assert "AI Kandidattest kan bruke som kildeevidens" in ui
     assert "read_folketrygdfondet_xls_bytes" in source
     assert "build_folketrygdfondet_overlay" in source
-    assert "save_folketrygdfondet_overlay(overlay, parsed_rows)" in ui
+    assert "save_folketrygdfondet_overlay(overlay, parsed_rows, source_as_of=source_as_of" in ui
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     assert "xlrd" in requirements
     assert "openpyxl" in requirements
@@ -97,6 +97,7 @@ def test_known_us_names_are_resolved_in_quick_cards():
 
     assert '"MO": {"name": "Altria Group, Inc."' in metadata
     assert '"AKAM": {"name": "Akamai Technologies, Inc."' in metadata
+
 
 
 

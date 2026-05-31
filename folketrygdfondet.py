@@ -157,6 +157,9 @@ def build_folketrygdfondet_overlay(rows: Sequence[Mapping[str, Any]]) -> dict[st
 def save_folketrygdfondet_overlay(
     overlay: Mapping[str, Mapping[str, Any]],
     rows: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    source_as_of: str = "",
+    source_file: str = "",
 ) -> int:
     from settings_store import load_settings, save_settings
 
@@ -165,6 +168,8 @@ def save_folketrygdfondet_overlay(
     settings = load_settings() or {}
     settings[FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY] = {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_as_of": str(source_as_of or ""),
+        "source_file": str(source_file or ""),
         "overlay": clean,
         "rows": saved_rows,
     }
@@ -183,6 +188,8 @@ def load_folketrygdfondet_snapshot() -> dict[str, Any]:
             rows = raw.get("rows") if isinstance(raw.get("rows"), list) else []
             return {
                 "updated_at": raw.get("updated_at") or "",
+                "source_as_of": raw.get("source_as_of") or raw.get("as_of_date") or "",
+                "source_file": raw.get("source_file") or "",
                 "overlay": {str(key).upper(): dict(value) for key, value in overlay.items() if isinstance(value, Mapping)},
                 "rows": [dict(row) for row in rows if isinstance(row, Mapping)],
             }
@@ -217,6 +224,8 @@ def folketrygdfondet_status() -> dict[str, Any]:
     overlay = snapshot.get("overlay") or {}
     return {
         "updated_at": snapshot.get("updated_at") or "",
+        "source_as_of": snapshot.get("source_as_of") or "",
+        "source_file": snapshot.get("source_file") or "",
         "rows": len(rows),
         "overlay_tickers": len(overlay),
         "matched_tickers": len(overlay),

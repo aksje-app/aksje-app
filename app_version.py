@@ -1,9 +1,14 @@
-APP_VERSION = "v18.6.4r"
-APP_VERSION_NAME = "AI Candidate Signal Profile Engine"
-APP_BUILD_ID = "v1864r-ai-candidate-signal-profile-engine"
+APP_VERSION = "v18.6.4s"
+APP_VERSION_NAME = "Fresh Source Horizon and FX Live Panel"
+APP_BUILD_ID = "v1864s-fresh-source-horizon-fx-live-panel"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest har ekte tidshorisontvalg for 1-3 mnd, 1-6 mnd og 3-12 mnd; profilnavn er bare rapportetikett.",
+    "AI Kandidattest bruker kildeferskhet i scoring: gamle eller udaterte NBIM/Folketrygdfondet-data vises som historisk støtte og gir ikke full rangeringseffekt.",
+    "Kildevalg i AI Kandidattest er byttet fra åpen multiselect til faste avhukinger for Marked, Finansavisen, Oljefond/NBIM, Folketrygdfondet og Manuell liste.",
+    "NBIM og Folketrygdfondet kan lagre kildedato/as-of ved import, slik at AI Kandidattest kan skille fersk evidens fra historisk støtte.",
+    "Valutavarsler har livepanel for gjeldende Yahoo-kurs, separate valg for Sjekk hvert og Varselpause, og lagrer intervallene i minutter.",
     "AI Kandidattest har fÃ¥tt Standard 1-6 mnd signalprofil med justerbare vekter for relativ styrke, estimatendringer, insiderkjÃ¸p, omsetnings-/resultatvekst og teknisk trend.",
     "Evalueringsoppsett har egne sperrer og varsler for under 200-dagers snitt, under 50-dagers snitt, hÃ¸y gjeld, fallende vekst, svak likviditet, gammel datakilde og for smalt signalgrunnlag.",
     "AI Kandidattest-resultatet viser delsignalene, sterke signaler, sperrer/varsler og datamangler per kandidat, og rapport/HTML dokumenterer samme metode.",
