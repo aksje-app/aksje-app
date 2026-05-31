@@ -94,11 +94,13 @@ def data_source_env_status() -> dict[str, Any]:
     if not sources:
         sources = [str(path) for path in candidate_env_paths() if path.is_file()]
     finnhub_key = has_configured_key("FINNHUB_API_KEY")
+    fmp_key = has_configured_key("FMP_API_KEY")
     newsapi_key = has_configured_key("NEWSAPI_KEY")
     return {
-        "env_loaded": bool(sources or finnhub_key or newsapi_key),
+        "env_loaded": bool(sources or finnhub_key or fmp_key or newsapi_key),
         "env_sources": sources,
         "finnhub_key": finnhub_key,
+        "fmp_key": fmp_key,
         "newsapi_key": newsapi_key,
         "newsapi_auto_calls": env_value("NEWSAPI_ALLOW_AUTO_CALLS", "false").lower() in {"1", "true", "yes", "on"},
     }
@@ -109,7 +111,7 @@ def redact_secrets(text: Any) -> str:
     if not value:
         return ""
     load_app_env()
-    for key in ("FINNHUB_API_KEY", "NEWSAPI_KEY"):
+    for key in ("FINNHUB_API_KEY", "FMP_API_KEY", "NEWSAPI_KEY"):
         secret = os.getenv(key, "").strip()
         if secret:
             value = value.replace(secret, "***")

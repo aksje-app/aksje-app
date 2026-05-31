@@ -1,9 +1,21 @@
-APP_VERSION = "v18.6.4w"
-APP_VERSION_NAME = "Prioritized Candidate Evidence and Search Explanations"
-APP_BUILD_ID = "v1864w-prioritized-candidate-evidence-search-explanations"
+APP_VERSION = "v18.6.4y"
+APP_VERSION_NAME = "FMP Live Source for AI Candidate Engine"
+APP_BUILD_ID = "v1864y-fmp-live-source-ai-candidate-engine"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest har fått Financial Modeling Prep som valgfri ny ekstern live-kilde via FMP_API_KEY.",
+    "FMP live kan brukes som egen kilde for bredere tickerunivers og som fersk signalberikelse for grovkandidater.",
+    "FMP-adapteren henter og normaliserer analytiker-/estimatdata, price target consensus, earnings/resultatsjokk og insiderhandler.",
+    "Live-signalmotoren kan nå kombinere Finnhub og FMP; manglende API-nøkkel vises som datastatus i stedet for å gi falske funn.",
+    "AI Kandidattest-resultater og rapportfelt viser FMP-funn i Estimatgrunnlag, Insidergrunnlag, Resultatkalender, Ferske signalkilder og Signalstatus.",
+    "Insider-score i AI Kandidattest bruker nå faktisk fersk insider_score når den finnes, slik at Finnhub/FMP-eiertrykk kan påvirke motoren riktig.",
+    "AI Kandidattest kan nå berike grovkandidater med ferske AI-signaler fra eksisterende Finnhub-moduler når FINNHUB_API_KEY finnes: analytikerkonsensus, resultatkalender og insider.",
+    "Analytiker-modulen leser nå miljø/secrets dynamisk via runtime_env, slik at .env-lastede FINNHUB_API_KEY-verdier faktisk brukes i appen.",
+    "AI Kandidattest lagrer og viser Ferske signalkilder, Signalstatus, Estimatgrunnlag, Insidergrunnlag og Resultatkalender per kandidat.",
+    "Estimat- og insider-signaler markeres som manglende når Finnhub-nøkkel eller konkrete treff mangler, i stedet for at nøytral standardscore fremstilles som funn.",
+    "Resultatsjokk krever nå faktisk surprise, rapportert mot estimat eller guiding for å regnes som bekreftet; fremtidige estimater alene gir ikke lenger falskt bekreftet resultatsjokk.",
+    "Rapport/HTML/JSON tar med fersk-signalstatus og konkrete signalfunn slik at utvelgelsen kan etterprøves bedre.",
     "AI Kandidattest viser nå Utvalgsgrunnlag, Bevisstatus og Prioritert bevis per kandidat, slik at grunnlaget for utvelgelsen blir synlig i prioritert rekkefølge.",
     "Resultatsjokk-søk skiller mellom bekreftet fundamentalt resultatsjokk og teknisk/proxy-basert reaksjon når EPS-, omsetnings- eller guidance-data mangler.",
     "Detaljrapport og Print/PDF HTML har en egen Hvorfor ble aksjen valgt-seksjon med prioritet, funn, verdi, poengbidrag, kilde, dato og status.",

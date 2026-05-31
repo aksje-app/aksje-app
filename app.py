@@ -96,6 +96,17 @@ except ImportError:
             }
 from analyst import get_analyst_trend
 from earnings import get_earnings
+try:
+    from fmp_signals import fetch_fmp_signal_packet, fmp_api_status, fmp_candidate_tickers
+except Exception:
+    def fetch_fmp_signal_packet(ticker):
+        return {"ticker": ticker, "enabled": False, "status": "FMP-modul kunne ikke lastes"}
+
+    def fmp_api_status():
+        return {"provider": "Financial Modeling Prep stable API", "has_key": False, "endpoints": []}
+
+    def fmp_candidate_tickers(market="Alle", limit=250):
+        return []
 from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 from paper_store import save_portfolio
@@ -11226,6 +11237,16 @@ def _data_foundation_source_rows_v1863by() -> list[dict]:
     except Exception as exc:
         rows.append({"Område": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Folketrygdfondet"})
     try:
+        status = fmp_api_status() or {}
+        rows.append({
+            "OmrÃ¥de": "FMP live",
+            "Status": "klar" if status.get("has_key") else "venter pÃ¥ FMP_API_KEY",
+            "Detalj": "Analytiker/estimat, price target, earnings, insider og aktivt tickerunivers",
+            "Handling": "Brukes automatisk av AI Kandidattest nÃ¥r FMP live er valgt eller nÃ¸kkel finnes",
+        })
+    except Exception as exc:
+        rows.append({"OmrÃ¥de": "FMP live", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller FMP_API_KEY"})
+    try:
         from data_source_diagnostics import build_data_source_status
 
         diagnostics = build_data_source_status("3m")
@@ -11482,7 +11503,8 @@ def _ai_candidate_dedupe_tickers_v1864l(values) -> list[str]:
     return out
 
 
-AI_CANDIDATE_SOURCE_OPTIONS_V1864Q = ["Marked", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"]
+AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y = "FMP live"
+AI_CANDIDATE_SOURCE_OPTIONS_V1864Q = ["Marked", AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y, "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"]
 AI_CANDIDATE_IMPORT_SOURCES_V1864Q = ["Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"]
 AI_CANDIDATE_HORIZON_OPTIONS_V1864S = ["1-3 mnd", "1-6 mnd", "3-12 mnd"]
 AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q = "ai_candidate_evaluation_settings_v1864q"
@@ -11913,6 +11935,447 @@ def _ai_candidate_technical_evidence_text_v1864u(snapshot: dict, config: dict | 
     return " | ".join(parts)
 
 
+AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X = 40
+
+
+def _ai_candidate_finnhub_ready_v1864x() -> bool:
+    try:
+        from runtime_env import data_source_env_status
+
+        return bool((data_source_env_status() or {}).get("finnhub_key"))
+    except Exception:
+        return False
+
+
+def _ai_candidate_fmp_ready_v1864y() -> bool:
+    try:
+        from runtime_env import data_source_env_status
+
+        return bool((data_source_env_status() or {}).get("fmp_key"))
+    except Exception:
+        return False
+
+
+def _ai_candidate_live_signal_limit_v1864x(config: dict | None, row_count: int, result_limit: int | None = None) -> int:
+    base = max(int(result_limit or 0), 12)
+    special = _ai_candidate_special_search_v1864t(config)
+    active = set(_ai_candidate_active_search_weights_v1864t(config).keys())
+    if special in {"Resultatsjokk", "Vekstakselerasjon", "Katalysator-klynge"} or {"estimate", "insider"} & active:
+        base = max(base, 30)
+    return max(0, min(int(row_count or 0), AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X, base))
+
+
+def _ai_candidate_safe_float_v1864x(value, default=None):
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _ai_candidate_score_0_10_from_unit_v1864x(value):
+    number = _ai_candidate_safe_float_v1864x(value, None)
+    if number is None:
+        return None
+    if 0.0 <= number <= 1.0:
+        number *= 10.0
+    elif 10.0 < number <= 100.0:
+        number /= 10.0
+    return round(_ai_candidate_clamp_v1864r(number), 2)
+
+
+def _ai_candidate_money_text_v1864x(value) -> str:
+    number = _ai_candidate_safe_float_v1864x(value, None)
+    if number is None:
+        return "-"
+    abs_number = abs(number)
+    if abs_number >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.2f} mrd"
+    if abs_number >= 1_000_000:
+        return f"{number / 1_000_000:.2f} mill"
+    if abs_number >= 1_000:
+        return f"{number / 1_000:.1f}k"
+    return f"{number:.2f}"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ai_candidate_fetch_live_signal_packet_v1864x(ticker: str, finnhub_ready: bool, fmp_ready: bool = False) -> dict:
+    symbol = normalize_user_ticker(ticker)
+    packet = {
+        "ticker": symbol,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "finnhub_ready": bool(finnhub_ready),
+        "fmp_ready": bool(fmp_ready),
+        "analyst": {},
+        "earnings": {},
+        "insider": {},
+        "fmp": {},
+    }
+    if not symbol:
+        packet["status"] = "Ticker mangler"
+        return packet
+    if not finnhub_ready and not fmp_ready:
+        packet["status"] = "FINNHUB_API_KEY og FMP_API_KEY mangler"
+        return packet
+    if finnhub_ready:
+        try:
+            packet["analyst"] = dict(get_analyst_trend(symbol) or {})
+        except Exception as exc:
+            packet["analyst"] = {"error": str(exc)}
+        try:
+            packet["earnings"] = dict(get_earnings(symbol) or {})
+        except Exception as exc:
+            packet["earnings"] = {"error": str(exc)}
+        try:
+            packet["insider"] = dict(get_insider_data(symbol) or {})
+        except Exception as exc:
+            packet["insider"] = {"error": str(exc)}
+    if fmp_ready:
+        try:
+            packet["fmp"] = dict(fetch_fmp_signal_packet(symbol) or {})
+        except Exception as exc:
+            packet["fmp"] = {"error": str(exc), "status": "FMP-feil"}
+    providers = []
+    if finnhub_ready:
+        providers.append("Finnhub")
+    if fmp_ready:
+        providers.append("FMP")
+    packet["status"] = "Hentet: " + " + ".join(providers)
+    return packet
+
+
+def _ai_candidate_analyst_detail_v1864x(analyst: dict) -> tuple[str, float | None, str]:
+    if not isinstance(analyst, dict) or not analyst:
+        return "Ingen analytikerdata hentet", None, "Mangler"
+    error = str(analyst.get("error") or "").strip()
+    counts = {
+        "strongBuy": int(analyst.get("strongBuy") or 0),
+        "buy": int(analyst.get("buy") or 0),
+        "hold": int(analyst.get("hold") or 0),
+        "sell": int(analyst.get("sell") or 0),
+        "strongSell": int(analyst.get("strongSell") or 0),
+    }
+    total = sum(counts.values())
+    if error:
+        return f"Analytikerdata mangler: {error}", None, "Mangler"
+    if total <= 0:
+        return "Ingen analytikerkonsensus funnet", None, "Ingen treff"
+    score = _ai_candidate_score_0_10_from_unit_v1864x(analyst.get("score"))
+    detail = (
+        f"Anbefalinger: strong buy {counts['strongBuy']}, buy {counts['buy']}, hold {counts['hold']}, "
+        f"sell {counts['sell']}, strong sell {counts['strongSell']} | trend {analyst.get('trend') or '-'}"
+    )
+    if analyst.get("period"):
+        detail += f" | periode {analyst.get('period')}"
+    return detail, score, "Konsensus funnet"
+
+
+def _ai_candidate_earnings_detail_v1864x(earnings: dict) -> tuple[str, str]:
+    if not isinstance(earnings, dict) or not earnings:
+        return "Ingen resultatkalender hentet", "Mangler"
+    error = str(earnings.get("error") or "").strip()
+    if error:
+        return f"Resultatkalender mangler: {error}", "Mangler"
+    date_text = str(earnings.get("date") or "").strip()
+    eps_estimate = earnings.get("epsEstimate")
+    revenue_estimate = earnings.get("revenueEstimate")
+    if not date_text and eps_estimate in (None, "") and revenue_estimate in (None, ""):
+        return "Ingen nær resultatdato/estimat funnet", "Ingen treff"
+    bits = []
+    if date_text:
+        bits.append(f"dato {date_text}")
+    if earnings.get("days_until") not in (None, ""):
+        bits.append(f"{earnings.get('days_until')} dager til")
+    if eps_estimate not in (None, ""):
+        bits.append(f"EPS-estimat {eps_estimate}")
+    if revenue_estimate not in (None, ""):
+        bits.append(f"omsetningsestimat {_ai_candidate_money_text_v1864x(revenue_estimate)}")
+    return " | ".join(bits) or "Resultatkalender funnet", "Kalender/estimat funnet"
+
+
+def _ai_candidate_insider_detail_v1864x(insider: dict) -> tuple[str, float | None, str, str | None]:
+    if not isinstance(insider, dict) or not insider:
+        return "Ingen insiderdata hentet", None, "Mangler", None
+    error = str(insider.get("error") or "").strip()
+    if error:
+        return f"Insiderdata mangler: {error}", None, "Mangler", None
+    score = _ai_candidate_score_0_10_from_unit_v1864x(insider.get("score"))
+    buy_count = int(insider.get("buy_count") or 0)
+    sell_count = int(insider.get("sell_count") or 0)
+    transactions = int(insider.get("transactions") or 0)
+    latest_type = str(insider.get("latest_type") or "").strip()
+    latest_date = insider.get("latest_date")
+    latest_value = None
+    latest_rows = insider.get("latest_transactions") if isinstance(insider.get("latest_transactions"), list) else []
+    if latest_rows and isinstance(latest_rows[0], dict):
+        latest_value = latest_rows[0].get("value")
+    if transactions <= 0 and buy_count <= 0 and sell_count <= 0:
+        return "Ingen insidertransaksjoner i valgt periode", score, "Ingen treff", None
+    detail = (
+        f"{insider.get('label') or 'Insiderbilde'} | kjøp {buy_count}, salg {sell_count}, "
+        f"transaksjoner {transactions}, siste {latest_type or '-'} {latest_date or '-'}"
+    )
+    if latest_value not in (None, ""):
+        detail += f", siste verdi {_ai_candidate_money_text_v1864x(latest_value)}"
+    return detail, score, "Transaksjoner funnet", latest_value
+
+
+def _ai_candidate_merge_signal_score_v1864y(existing, fresh, fresh_weight: float = 0.60) -> float | None:
+    fresh_score = _ai_candidate_score_0_10_from_unit_v1864x(fresh)
+    if fresh_score is None:
+        return _ai_candidate_score_0_10_from_unit_v1864x(existing)
+    existing_score = _ai_candidate_score_0_10_from_unit_v1864x(existing)
+    if existing_score is None:
+        return fresh_score
+    weight = max(0.0, min(1.0, float(fresh_weight or 0.60)))
+    return round(_ai_candidate_clamp_v1864r(existing_score * (1.0 - weight) + fresh_score * weight), 2)
+
+
+def _ai_candidate_fmp_analyst_detail_v1864y(analyst: dict) -> tuple[str, float | None, str]:
+    if not isinstance(analyst, dict) or not analyst:
+        return "Ingen FMP analytikerdata hentet", None, "Mangler"
+    error = str(analyst.get("error") or "").strip()
+    if error:
+        return f"FMP analytikerdata mangler: {error}", None, "Mangler"
+    score = _ai_candidate_score_0_10_from_unit_v1864x(analyst.get("score"))
+    detail = str(analyst.get("detail") or "").strip() or "FMP analytiker-/estimatdata funnet"
+    if score is None:
+        return detail, None, "Ingen treff"
+    return detail, score, "FMP estimat/analytiker funnet"
+
+
+def _ai_candidate_fmp_earnings_detail_v1864y(earnings: dict) -> tuple[str, str]:
+    if not isinstance(earnings, dict) or not earnings:
+        return "Ingen FMP earnings hentet", "Mangler"
+    error = str(earnings.get("error") or "").strip()
+    if error:
+        return f"FMP earnings mangler: {error}", "Mangler"
+    detail = str(earnings.get("detail") or "").strip()
+    if not detail and not earnings.get("date") and earnings.get("epsEstimate") in (None, ""):
+        return "Ingen FMP earnings-treff", "Ingen treff"
+    return detail or "FMP earnings funnet", "FMP earnings funnet"
+
+
+def _ai_candidate_fmp_insider_detail_v1864y(insider: dict) -> tuple[str, float | None, str, str | None]:
+    if not isinstance(insider, dict) or not insider:
+        return "Ingen FMP insiderdata hentet", None, "Mangler", None
+    error = str(insider.get("error") or "").strip()
+    if error:
+        return f"FMP insiderdata mangler: {error}", None, "Mangler", None
+    score = _ai_candidate_score_0_10_from_unit_v1864x(insider.get("score"))
+    transactions = int(insider.get("transactions") or 0)
+    if transactions <= 0:
+        return str(insider.get("label") or "Ingen FMP insiderhandler"), score, "Ingen treff", None
+    latest_value = None
+    latest_rows = insider.get("latest_transactions") if isinstance(insider.get("latest_transactions"), list) else []
+    if latest_rows and isinstance(latest_rows[0], dict):
+        latest_value = latest_rows[0].get("value")
+    detail = str(insider.get("detail") or "").strip() or (
+        f"{insider.get('label') or 'FMP insiderbilde'} | kjop {int(insider.get('buy_count') or 0)}, "
+        f"salg {int(insider.get('sell_count') or 0)}, transaksjoner {transactions}"
+    )
+    return detail, score, "FMP transaksjoner funnet", latest_value
+
+
+def _ai_candidate_apply_live_signal_packet_v1864x(item: dict, packet: dict, *, enriched: bool) -> dict:
+    row = dict(item or {})
+    sources: list[str] = []
+    statuses: list[str] = []
+    if not enriched:
+        row["live_signal_status"] = "Ikke hentet; utenfor fersk-signalgrense"
+        return row
+    finnhub_ready = bool((packet or {}).get("finnhub_ready"))
+    fmp_ready = bool((packet or {}).get("fmp_ready"))
+    if not finnhub_ready and not fmp_ready:
+        row["live_signal_status"] = "FINNHUB_API_KEY og FMP_API_KEY mangler"
+        row["estimate_signal_status"] = "Mangler"
+        row["insider_signal_status"] = "Mangler"
+        row["earnings_signal_status"] = "Mangler"
+        return row
+
+    analyst_detail, analyst_score, analyst_status = _ai_candidate_analyst_detail_v1864x((packet or {}).get("analyst") or {})
+    row["estimate_signal_detail"] = analyst_detail
+    row["estimate_signal_status"] = analyst_status
+    if analyst_score is not None:
+        row["analyst_score"] = analyst_score
+        row["analyst_revision_score"] = analyst_score
+        row["estimate_revision_score"] = analyst_score
+        sources.append("Finnhub analytikerkonsensus")
+    statuses.append(f"Estimat: {analyst_status}")
+
+    earnings_detail, earnings_status = _ai_candidate_earnings_detail_v1864x((packet or {}).get("earnings") or {})
+    earnings = (packet or {}).get("earnings") or {}
+    row["earnings_signal_detail"] = earnings_detail
+    row["earnings_signal_status"] = earnings_status
+    if earnings.get("date"):
+        row["earnings_date"] = earnings.get("date")
+        row["latest_earnings_date"] = earnings.get("date")
+    if earnings.get("epsEstimate") not in (None, ""):
+        row["eps_estimate"] = earnings.get("epsEstimate")
+    if earnings.get("revenueEstimate") not in (None, ""):
+        row["revenue_estimate"] = earnings.get("revenueEstimate")
+    if earnings_status == "Kalender/estimat funnet":
+        sources.append("Finnhub resultatkalender")
+    statuses.append(f"Resultat: {earnings_status}")
+
+    insider_detail, insider_score, insider_status, latest_value = _ai_candidate_insider_detail_v1864x((packet or {}).get("insider") or {})
+    insider = (packet or {}).get("insider") or {}
+    row["insider_signal_detail"] = insider_detail
+    row["insider_signal_status"] = insider_status
+    if insider_score is not None:
+        row["insider_score"] = round(insider_score / 10.0, 3)
+        row["insider_label"] = insider.get("label") or row.get("insider_label") or "Insiderdata"
+        row["insider_transactions"] = insider.get("transactions", row.get("insider_transactions"))
+        row["insider_latest_type"] = insider.get("latest_type", row.get("insider_latest_type"))
+        row["insider_latest_date"] = insider.get("latest_date", row.get("insider_latest_date"))
+        row["insider_buy_count"] = insider.get("buy_count")
+        row["insider_sell_count"] = insider.get("sell_count")
+        row["insider_buy_shares"] = insider.get("buy_shares")
+        row["insider_sell_shares"] = insider.get("sell_shares")
+        if latest_value not in (None, ""):
+            row["insider_latest_value"] = latest_value
+        sources.append("Finnhub insider")
+    statuses.append(f"Insider: {insider_status}")
+
+    fmp = (packet or {}).get("fmp") if isinstance((packet or {}).get("fmp"), dict) else {}
+    if fmp_ready:
+        fmp_analyst_detail, fmp_analyst_score, fmp_analyst_status = _ai_candidate_fmp_analyst_detail_v1864y((fmp or {}).get("analyst") or {})
+        if fmp_analyst_detail:
+            existing_detail = str(row.get("estimate_signal_detail") or "").strip()
+            keep_existing = existing_detail and "mangler" not in existing_detail.lower() and not existing_detail.lower().startswith("ingen ")
+            row["estimate_signal_detail"] = " | ".join(
+                part for part in [existing_detail if keep_existing else "", f"FMP: {fmp_analyst_detail}"] if part
+            ) or f"FMP: {fmp_analyst_detail}"
+        if fmp_analyst_score is not None:
+            merged_estimate_score = _ai_candidate_merge_signal_score_v1864y(row.get("estimate_revision_score"), fmp_analyst_score, 0.65)
+            row["analyst_score"] = merged_estimate_score
+            row["analyst_revision_score"] = merged_estimate_score
+            row["estimate_revision_score"] = merged_estimate_score
+            row["estimate_signal_status"] = "FMP estimat/analytiker funnet"
+            sources.append("FMP analyst/estimates")
+        statuses.append(f"FMP estimat: {fmp_analyst_status}")
+
+        fmp_earnings_detail, fmp_earnings_status = _ai_candidate_fmp_earnings_detail_v1864y((fmp or {}).get("earnings") or {})
+        if fmp_earnings_detail:
+            existing_earnings = str(row.get("earnings_signal_detail") or "").strip()
+            keep_existing = existing_earnings and "mangler" not in existing_earnings.lower() and not existing_earnings.lower().startswith("ingen ")
+            row["earnings_signal_detail"] = " | ".join(
+                part for part in [existing_earnings if keep_existing else "", f"FMP: {fmp_earnings_detail}"] if part
+            ) or f"FMP: {fmp_earnings_detail}"
+        fmp_earnings = (fmp or {}).get("earnings") or {}
+        if isinstance(fmp_earnings, dict) and not fmp_earnings.get("error"):
+            if fmp_earnings.get("date"):
+                row["earnings_date"] = fmp_earnings.get("date")
+                row["latest_earnings_date"] = fmp_earnings.get("date")
+            if fmp_earnings.get("epsEstimate") not in (None, ""):
+                row["eps_estimate"] = fmp_earnings.get("epsEstimate")
+            if fmp_earnings.get("epsActual") not in (None, ""):
+                row["eps_actual"] = fmp_earnings.get("epsActual")
+            if fmp_earnings.get("epsSurprisePct") not in (None, ""):
+                row["eps_surprise_pct"] = fmp_earnings.get("epsSurprisePct")
+                row["earnings_surprise_pct"] = fmp_earnings.get("epsSurprisePct")
+            if fmp_earnings_status == "FMP earnings funnet":
+                row["earnings_signal_status"] = "FMP earnings funnet"
+                sources.append("FMP earnings")
+        statuses.append(f"FMP earnings: {fmp_earnings_status}")
+
+        fmp_insider_detail, fmp_insider_score, fmp_insider_status, fmp_latest_value = _ai_candidate_fmp_insider_detail_v1864y((fmp or {}).get("insider") or {})
+        if fmp_insider_detail:
+            existing_insider = str(row.get("insider_signal_detail") or "").strip()
+            keep_existing = existing_insider and "mangler" not in existing_insider.lower() and not existing_insider.lower().startswith("ingen ")
+            row["insider_signal_detail"] = " | ".join(
+                part for part in [existing_insider if keep_existing else "", f"FMP: {fmp_insider_detail}"] if part
+            ) or f"FMP: {fmp_insider_detail}"
+        fmp_insider = (fmp or {}).get("insider") or {}
+        if fmp_insider_score is not None:
+            merged_insider_score = _ai_candidate_merge_signal_score_v1864y(row.get("insider_score"), fmp_insider_score, 0.65)
+            row["insider_score"] = round(merged_insider_score / 10.0, 3) if merged_insider_score is not None else row.get("insider_score")
+            row["insider_label"] = fmp_insider.get("label") or row.get("insider_label") or "FMP insiderdata"
+            row["insider_transactions"] = fmp_insider.get("transactions", row.get("insider_transactions"))
+            row["insider_latest_type"] = fmp_insider.get("latest_type", row.get("insider_latest_type"))
+            row["insider_latest_date"] = fmp_insider.get("latest_date", row.get("insider_latest_date"))
+            row["insider_buy_count"] = fmp_insider.get("buy_count", row.get("insider_buy_count"))
+            row["insider_sell_count"] = fmp_insider.get("sell_count", row.get("insider_sell_count"))
+            row["insider_buy_shares"] = fmp_insider.get("buy_shares", row.get("insider_buy_shares"))
+            row["insider_sell_shares"] = fmp_insider.get("sell_shares", row.get("insider_sell_shares"))
+            if fmp_latest_value not in (None, ""):
+                row["insider_latest_value"] = fmp_latest_value
+            row["insider_signal_status"] = "FMP transaksjoner funnet"
+            sources.append("FMP insider")
+        statuses.append(f"FMP insider: {fmp_insider_status}")
+
+    row["live_signal_sources"] = ", ".join(dict.fromkeys(sources)) if sources else "Ingen ferske signaltreff"
+    row["live_signal_status"] = " | ".join(statuses)
+    row["live_signal_fetched_at"] = (packet or {}).get("fetched_at")
+    return row
+
+
+def _ai_candidate_enrich_live_signals_v1864x(
+    ranked_rows: list[dict],
+    config: dict | None,
+    *,
+    result_limit: int | None = None,
+) -> tuple[list[dict], dict]:
+    rows = [dict(row or {}) for row in (ranked_rows or []) if isinstance(row, dict)]
+    finnhub_ready = _ai_candidate_finnhub_ready_v1864x()
+    fmp_ready = _ai_candidate_fmp_ready_v1864y()
+    enrich_limit = _ai_candidate_live_signal_limit_v1864x(config, len(rows), result_limit)
+    enriched_rows: list[dict] = []
+    fetched = 0
+    matched_sources = 0
+    for idx, row in enumerate(rows):
+        ticker = normalize_user_ticker(row.get("ticker") or row.get("symbol"))
+        should_enrich = bool(ticker and idx < enrich_limit)
+        packet = _ai_candidate_fetch_live_signal_packet_v1864x(ticker, finnhub_ready, fmp_ready) if should_enrich else {}
+        enriched = _ai_candidate_apply_live_signal_packet_v1864x(row, packet, enriched=should_enrich)
+        fetched += 1 if should_enrich and (finnhub_ready or fmp_ready) else 0
+        matched_sources += 1 if str(enriched.get("live_signal_sources") or "").strip() not in {"", "Ingen ferske signaltreff"} else 0
+        enriched_rows.append(enriched)
+    providers = []
+    if finnhub_ready:
+        providers.append("Finnhub")
+    if fmp_ready:
+        providers.append("FMP")
+    status = " + ".join(providers) + " aktiv" if providers else "FINNHUB_API_KEY og FMP_API_KEY mangler"
+    summary = {
+        "provider": "Finnhub + FMP live-signaler",
+        "enabled": bool(finnhub_ready or fmp_ready),
+        "finnhub_enabled": bool(finnhub_ready),
+        "fmp_enabled": bool(fmp_ready),
+        "enrich_limit": enrich_limit,
+        "fetched": fetched,
+        "rows": len(rows),
+        "rows_with_signal_source": matched_sources,
+        "status": status,
+    }
+    return enriched_rows, summary
+
+
+def _ai_candidate_estimate_evidence_text_v1864x(item: dict, signals: dict | None = None) -> str:
+    detail = str((item or {}).get("estimate_signal_detail") or "").strip()
+    earnings_detail = str((item or {}).get("earnings_signal_detail") or "").strip()
+    bits = [detail] if detail else []
+    if earnings_detail:
+        bits.append(f"Resultatkalender: {earnings_detail}")
+    if not bits:
+        value = (signals or {}).get("estimate_revisions") if isinstance(signals, dict) else None
+        bits.append(f"Estimatløftscore {value if value not in (None, '') else '-'}")
+    return " | ".join(bits)
+
+
+def _ai_candidate_insider_evidence_text_v1864x(item: dict) -> str:
+    detail = str((item or {}).get("insider_signal_detail") or "").strip()
+    if detail:
+        return detail
+    latest_type = _ai_candidate_first_value_v1864w(item, "insider_latest_type", "latest_insider_type")
+    latest_date = _ai_candidate_first_value_v1864w(item, "insider_latest_date", "latest_insider_date")
+    latest_value = _ai_candidate_first_value_v1864w(item, "insider_latest_value", "insider_value", "insider_amount")
+    if latest_type or latest_date or latest_value:
+        return f"Siste {latest_type or 'transaksjon'} {latest_date or ''} verdi {_ai_candidate_money_text_v1864x(latest_value)}".strip()
+    return "Ingen konkrete innside-/eiertransaksjoner funnet"
+
+
 def _ai_candidate_signal_scores_v1864r(item: dict, config: dict | None = None) -> dict:
     horizon = _ai_candidate_horizon_v1864s(config)
     snapshot = _ai_candidate_hist_snapshot_v1864r(item)
@@ -11954,12 +12417,26 @@ def _ai_candidate_signal_scores_v1864r(item: dict, config: dict | None = None) -
         if item.get(key) not in (None, ""):
             estimate_score = _ai_candidate_scorepart_v1864r(item, key, 5.0)
             break
-    estimate_missing = estimate_score is None
+    estimate_status = str(item.get("estimate_signal_status") or "").lower()
+    estimate_missing = estimate_score is None or "mangler" in estimate_status
     if estimate_score is None:
         estimate_score = 5.0
 
-    insider_missing = item.get("insider_score") in (None, "")
-    insider_score = _ai_candidate_scorepart_v1864r(item, "insider", 5.0)
+    insider_status = str(item.get("insider_signal_status") or "").lower()
+    insider_error = str(item.get("insider_error") or "").lower()
+    insider_missing = (
+        item.get("insider_score") in (None, "")
+        or "mangler" in insider_status
+        or "finnhub_api_key" in insider_error
+        or "mangler finnhub" in insider_error
+    )
+    insider_score = None
+    for key in ("insider_score", "insider_buy_score", "insider"):
+        if item.get(key) not in (None, ""):
+            insider_score = _ai_candidate_score_0_10_from_unit_v1864x(item.get(key))
+            break
+    if insider_score is None:
+        insider_score = _ai_candidate_scorepart_v1864r(item, "insider", 5.0)
     latest_type = str(item.get("insider_latest_type") or "").upper()
     if latest_type == "BUY":
         insider_score += 0.60
@@ -13042,6 +13519,11 @@ def _ai_candidate_source_tickers_multi_v1864q(sources, market: str, limit: int, 
         tickers.extend(_parse_control_center_tickers_v1863s(manual_text))
     if "Marked" in source_list:
         tickers.extend(resolve_universe_tickers([market], max_count=limit))
+    if AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y in source_list:
+        try:
+            tickers.extend(fmp_candidate_tickers(market=market, limit=limit))
+        except Exception:
+            pass
     import_sources = [source for source in source_list if source in AI_CANDIDATE_IMPORT_SOURCES_V1864Q]
     if import_sources:
         tickers.extend(_ai_candidate_import_tickers_v1864l(import_sources))
@@ -13165,6 +13647,33 @@ def _ai_candidate_source_status_v1864l(config: dict | None = None) -> list[dict]
     except Exception:
         rows.append({"Kilde": "Oljefond/NBIM", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
         rows.append({"Kilde": "Folketrygdfondet", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    try:
+        from runtime_env import data_source_env_status
+
+        env_status = data_source_env_status() or {}
+        rows.append({
+            "Kilde": "Ferske AI-signaler",
+            "Oppdatert": "Ved Kjør test",
+            "Kildedato": "Live når nøkkel finnes",
+            "Tickere": f"inntil {AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X} grovkandidater",
+            "Databruk": "Finnhub og/eller FMP ferske signaler" if (env_status.get("finnhub_key") or env_status.get("fmp_key")) else "FINNHUB_API_KEY og FMP_API_KEY mangler",
+        })
+        fmp_status = fmp_api_status() or {}
+        rows.append({
+            "Kilde": AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y,
+            "Oppdatert": "Ved KjÃ¸r test" if fmp_status.get("has_key") else "Ikke aktiv",
+            "Kildedato": "Live API",
+            "Tickere": "Bredt live-univers fra aktivt handlet-liste",
+            "Databruk": "FMP_API_KEY aktiv: estimater, price target, earnings, insider og bredere tickerunivers" if fmp_status.get("has_key") else "FMP_API_KEY mangler",
+        })
+    except Exception:
+        rows.append({
+            "Kilde": "Ferske AI-signaler",
+            "Oppdatert": "Ukjent",
+            "Kildedato": "Ukjent",
+            "Tickere": "0",
+            "Databruk": "Signalstatus kunne ikke kontrolleres",
+        })
     return rows
 
 
@@ -13375,7 +13884,10 @@ def _ai_candidate_result_shock_evidence_v1864w(item: dict, signals: dict, family
         f"vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}, "
         f"vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}"
     )
-    confirmed = any(value not in (None, "") for value in [actual_eps, expected_eps, actual_revenue, expected_revenue, eps_surprise, revenue_surprise, guidance])
+    eps_confirmed = eps_surprise not in (None, "") or (actual_eps not in (None, "") and expected_eps not in (None, ""))
+    revenue_confirmed = revenue_surprise not in (None, "") or (actual_revenue not in (None, "") and expected_revenue not in (None, ""))
+    guidance_confirmed = guidance not in (None, "")
+    confirmed = bool(eps_confirmed or revenue_confirmed or guidance_confirmed)
     source_date = str(result_date or _ai_candidate_source_date_text_v1864w(source_freshness))
     if not confirmed:
         return [
@@ -13476,6 +13988,30 @@ def _ai_candidate_family_evidence_v1864w(
                 "Teknisk bekreftelse",
             ),
         ]
+    if family_key == "estimate":
+        missing = bool(signals.get("estimate_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Estimatløft",
+            "Ingen konkrete estimatrevisjoner/analytikerkonsensus funnet" if missing else _ai_candidate_estimate_evidence_text_v1864x(item, signals),
+            family_scores.get("estimate"),
+            item.get("live_signal_sources") or source_text,
+            source_date,
+            item.get("estimate_signal_status") or ("Mangler estimatdata" if missing else "Estimatdata funnet"),
+        )]
+    if family_key == "insider":
+        missing = bool(signals.get("insider_missing"))
+        latest_date = _ai_candidate_first_value_v1864w(item, "insider_latest_date", "latest_insider_date")
+        value = "Ingen konkrete innside-/eiertransaksjoner funnet" if missing else _ai_candidate_insider_evidence_text_v1864x(item)
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Innsider / eiertrykk",
+            value,
+            family_scores.get("insider"),
+            item.get("live_signal_sources") or source_text,
+            str(latest_date or source_date),
+            item.get("insider_signal_status") or ("Mangler insiderdata" if missing else "Eiertrykk funnet"),
+        )]
     if family_key == "estimate":
         missing = bool(signals.get("estimate_missing"))
         return [_ai_candidate_evidence_entry_v1864w(
@@ -13737,6 +14273,11 @@ def _ai_candidate_result_rows_v1864l(
             "Kildealder": source_age,
             "Kildestyrke": source_strength,
             "Kildestøtte": source_support_mode,
+            "Ferske signalkilder": item.get("live_signal_sources") or "-",
+            "Signalstatus": item.get("live_signal_status") or "-",
+            "Estimatgrunnlag": item.get("estimate_signal_detail") or "-",
+            "Insidergrunnlag": item.get("insider_signal_detail") or "-",
+            "Resultatkalender": item.get("earnings_signal_detail") or "-",
             "Momentumscore": _active_signal_value("momentum", family_scores.get("momentum")),
             "Estimatløftscore": _active_signal_value("estimate", family_scores.get("estimate")),
             "Eiertrykkscore": _active_signal_value("insider", family_scores.get("insider")),
@@ -13828,6 +14369,11 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
             "Kildealder": row.get("Kildealder"),
             "Kildestyrke": row.get("Kildestyrke"),
             "Kildestøtte": row.get("Kildestøtte"),
+            "Ferske signalkilder": row.get("Ferske signalkilder"),
+            "Signalstatus": row.get("Signalstatus"),
+            "Estimatgrunnlag": row.get("Estimatgrunnlag"),
+            "Insidergrunnlag": row.get("Insidergrunnlag"),
+            "Resultatkalender": row.get("Resultatkalender"),
             "Momentumscore": row.get("Momentumscore"),
             "Estimatløftscore": row.get("Estimatløftscore"),
             "Eiertrykkscore": row.get("Eiertrykkscore"),
@@ -13925,6 +14471,11 @@ def _ai_candidate_svg_metric_table_v1864v(row: dict) -> str:
     keys = [
         "Utvalgsgrunnlag",
         "Bevisstatus",
+        "Ferske signalkilder",
+        "Signalstatus",
+        "Estimatgrunnlag",
+        "Insidergrunnlag",
+        "Resultatkalender",
         "Siste kurs",
         "52u høy",
         "% av 52u",
@@ -14171,6 +14722,12 @@ def _ai_candidate_html_v1864l(result: dict) -> bytes:
         for key, value in evaluation.items()
         if key != "profile_name"
     ]
+    live_summary = result.get("live_signal_enrichment") if isinstance(result.get("live_signal_enrichment"), dict) else {}
+    if live_summary:
+        method_rows.extend([
+            {"Parameter": f"ferske_ai_signaler_{key}", "Verdi": value}
+            for key, value in live_summary.items()
+        ])
     method_table = pd.DataFrame(method_rows).to_html(index=False, escape=True) if method_rows else "<p>Standardoppsett.</p>"
     body = f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{title}</title>
@@ -14529,6 +15086,12 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             force_manual_fetch=True,
             include_insider=True,
         )
+        progress.progress(55, text="Henter ferske estimat-/insider-/resultatsignaler")
+        ranked, live_signal_summary = _ai_candidate_enrich_live_signals_v1864x(
+            list(ranked or []),
+            evaluation_config,
+            result_limit=int(limit),
+        )
         progress.progress(70, text="Kobler importert kildeevidens")
         previous_map = _ai_candidate_previous_rank_map_v1864m()
         rows = _ai_candidate_result_rows_v1864l(
@@ -14547,6 +15110,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             "market": market,
             "input_tickers": preview_tickers,
             "source_status": source_status,
+            "live_signal_enrichment": live_signal_summary,
             "evaluation_config": evaluation_config,
             "rows": rows,
         }
@@ -14638,6 +15202,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             f"- Signalprofil {horizon} bruker Relativ styrke, Estimatendringer, Insiderkjop, Omsetning/resultat og Teknisk trend som egne delsignaler.\n"
             f"- Aktiv signalmodus: {_ai_candidate_search_label_v1864t(evaluation_config)} ({_ai_candidate_search_weight_label_v1864t(evaluation_config)}).\n"
             "- I hard signalmodus teller bare valgte hovedsignaler eller valgt spesialsøk i selve søkescore.\n"
+            f"- Ferske AI-signaler hentes for inntil {AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X} grovkandidater når FINNHUB_API_KEY eller FMP_API_KEY finnes: analytikerkonsensus, estimater/price target, resultat/earnings og insider.\n"
             f"- Kildestøtte: {_ai_candidate_source_support_mode_v1864u(evaluation_config)}.\n"
             "- Teknisk bevis viser 52-ukers høyde, MA50/MA200, volum mot 20/50-dagers snitt og likviditet når kursdata finnes.\n"
             "- Tidshorisont endrer faktisk vekting i motoren. Profilnavn er bare en etikett i rapporten.\n"
@@ -14676,6 +15241,12 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             force_manual_fetch=True,
             include_insider=True,
         )
+        progress.progress(55, text="Henter ferske estimat-/insider-/resultatsignaler")
+        ranked, live_signal_summary = _ai_candidate_enrich_live_signals_v1864x(
+            list(ranked or []),
+            evaluation_config,
+            result_limit=int(limit),
+        )
         progress.progress(70, text="Kobler importert kildeevidens")
         previous_map = _ai_candidate_previous_rank_map_v1864m()
         rows = _ai_candidate_result_rows_v1864l(
@@ -14696,6 +15267,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             "scan_limit": scan_limit,
             "result_limit": int(limit),
             "source_status": source_status,
+            "live_signal_enrichment": live_signal_summary,
             "evaluation_config": evaluation_config,
             "rows": rows,
         }
@@ -14713,10 +15285,17 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         result_eval = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
         result_profile = result_eval.get("profile_name") or "Standard"
         result_horizon = result_eval.get("horizon") or "1-6 mnd"
+        live_summary = result.get("live_signal_enrichment") if isinstance(result.get("live_signal_enrichment"), dict) else {}
         st.caption(
             f"Kilder brukt i kjøringen: {result_sources or '-'} | Tidshorisont: {result_horizon} | "
             f"Signalmodus: {_ai_candidate_search_label_v1864t(result_eval)} | Evalueringsprofil: {result_profile}"
         )
+        if live_summary:
+            st.caption(
+                f"Ferske AI-signaler: {live_summary.get('status')}; hentet "
+                f"{live_summary.get('fetched', 0)} av {live_summary.get('rows', 0)} grovkandidater; "
+                f"treff {live_summary.get('rows_with_signal_source', 0)}."
+            )
         if rows:
             country_counts = pd.Series([row.get("Land") or "Ukjent" for row in rows]).value_counts().to_dict()
             source_counts = pd.Series([row.get("Kildestyrke") or "Marked" for row in rows]).value_counts().to_dict()

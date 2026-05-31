@@ -6,15 +6,21 @@ ROOT = Path(__file__).resolve().parent
 
 
 def test_v1864m_version_and_ai_candidate_cockpit_contract():
-    for name in ["app.py", "workspace_layout.py", "app_version.py", "analysis.py"]:
+    for name in ["app.py", "workspace_layout.py", "app_version.py", "analysis.py", "analyst.py", "fmp_signals.py"]:
         py_compile.compile(str(ROOT / name), doraise=True)
 
     app = (ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4w"' in version
-    assert "Prioritized Candidate Evidence and Search Explanations" in version
+    assert 'APP_VERSION = "v18.6.4y"' in version
+    assert "FMP Live Source for AI Candidate Engine" in version
+    assert "Financial Modeling Prep som valgfri ny ekstern live-kilde" in version
+    assert "bredere tickerunivers" in version
+    assert "price target consensus" in version
+    assert "ferske AI-signaler fra eksisterende Finnhub-moduler" in version
+    assert "Analytiker-modulen leser nå miljø/secrets dynamisk" in version
+    assert "Resultatsjokk krever nå faktisk surprise" in version
     assert "Utvalgsgrunnlag" in version
     assert "Prioritert bevis" in version
     assert "Resultatsjokk-søk skiller mellom bekreftet fundamentalt resultatsjokk" in version
@@ -55,6 +61,20 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Ikke send / avvis" in app
     assert "def _ai_candidate_selection_evidence_v1864w" in app
     assert "def _ai_candidate_evidence_html_v1864w" in app
+    assert "def _ai_candidate_enrich_live_signals_v1864x" in app
+    assert "def _ai_candidate_fetch_live_signal_packet_v1864x" in app
+    assert "def _ai_candidate_fmp_ready_v1864y" in app
+    assert "fetch_fmp_signal_packet" in app
+    assert "fmp_candidate_tickers" in app
+    assert "FMP live" in app
+    assert "FMP_API_KEY" in app
+    assert "Ferske signalkilder" in app
+    assert "Signalstatus" in app
+    assert "Estimatgrunnlag" in app
+    assert "Insidergrunnlag" in app
+    assert "Resultatkalender" in app
+    assert "live_signal_enrichment" in app
+    assert "Ferske AI-signaler" in app
     assert "Momentumscore" in app and "Estimatløftscore" in app and "Eiertrykkscore" in app
     assert "Teknisk bevis" in app and "52u høy" in app and "Volum/20d" in app
     assert "def _render_ai_candidate_technical_chart_v1864u" in app
@@ -135,6 +155,7 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 
 
 

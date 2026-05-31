@@ -57,7 +57,7 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
     except Exception:
         pass
     sources = env.get("env_sources") or []
-    any_key = bool(env.get("finnhub_key") or env.get("newsapi_key"))
+    any_key = bool(env.get("finnhub_key") or env.get("fmp_key") or env.get("newsapi_key"))
     if sources:
         source_note = "env-fil lest"
         detail = f"{len(sources)} env-fil(er) funnet"
@@ -85,6 +85,12 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
             "Status": "nokkel funnet" if env.get("finnhub_key") else "nokkel mangler",
             "Detalj": "earnings calendar",
             "Vindu": f"{months} mnd frem",
+        },
+        {
+            "Kilde": "FMP live",
+            "Status": "nokkel funnet" if env.get("fmp_key") else "nokkel mangler",
+            "Detalj": "analyst-estimates, price-target, earnings, insider og actively-trading-list",
+            "Vindu": f"{months} mnd / live universe",
         },
         {
             "Kilde": "NewsAPI",
