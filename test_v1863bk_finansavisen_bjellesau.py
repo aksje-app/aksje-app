@@ -240,3 +240,4 @@ def test_finansavisen_test2_candidate_rows_use_selected_tickers():
 
 
 
+

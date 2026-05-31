@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.4u"
-APP_VERSION_NAME = "Strict Signals, Source Support and Technical Evidence"
-APP_BUILD_ID = "v1864u-strict-signals-source-support-technical-evidence"
+APP_VERSION = "v18.6.4v"
+APP_VERSION_NAME = "Printable Technical Charts and Clean Detail Graphs"
+APP_BUILD_ID = "v1864v-printable-technical-charts-clean-detail-graphs"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest skjuler Plotly-verktøylinjen i teknisk detaljgraf, slik at zoom-knapper ikke dekker kurver eller nøkkeltall.",
+    "Teknisk detaljgraf viser 52-ukers høyde og siste kurs som rene linjer med legend/tekst utenfor plotteflaten, slik at label-tekst ikke overlapper.",
+    "Detalj Print/PDF HTML bygger nå printvennlige SVG-kurver for kurs, MA50/MA200, 52-ukers høyde og volum mot 20/50-dagers snitt.",
+    "Detaljrapporten kombinerer skriftlige nøkkeltall, teknisk bevis og kurvebilder per valgt ticker i samme HTML/PDF-rapport.",
     "AI Kandidattest skiller nå tydelig mellom hovedsignalsøk og spesialsøk, slik at uavhukede signaler ikke ser ut som aktive i søkevektene.",
     "AI Kandidattest har kildestøtte-modus: Ingen, Vis som info eller Bruk som støtte i score.",
     "Rene Momentum/Estimat/Eiertrykk-søk viser bare aktive signalfamilier i resultatkolonnene; ubrukte signaler vises som strek.",

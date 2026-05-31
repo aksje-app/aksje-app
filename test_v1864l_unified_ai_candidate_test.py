@@ -13,8 +13,10 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4u"' in version
-    assert "Strict Signals, Source Support and Technical Evidence" in version
+    assert 'APP_VERSION = "v18.6.4v"' in version
+    assert "Printable Technical Charts and Clean Detail Graphs" in version
+    assert "printvennlige SVG-kurver" in version
+    assert "label-tekst ikke overlapper" in version
     assert "kildestøtte-modus" in version
     assert "teknisk bevis" in version
     assert "Send Pushover-test" in version
@@ -44,6 +46,14 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Momentumscore" in app and "Estimatløftscore" in app and "Eiertrykkscore" in app
     assert "Teknisk bevis" in app and "52u høy" in app and "Volum/20d" in app
     assert "def _render_ai_candidate_technical_chart_v1864u" in app
+    assert "def _ai_candidate_detail_chart_blocks_html_v1864v" in app
+    assert "def _ai_candidate_price_svg_v1864v" in app
+    assert "def _ai_candidate_volume_svg_v1864v" in app
+    assert "displayModeBar" in app and "False" in app
+    assert "showlegend=False" in app
+    assert "title_text=\"\"" in app
+    assert "Legend holdes utenfor grafen" in app
+    assert "report-chart" in app and "chart-block" in app
     assert "source_full_bonus_days" in app
     assert "relative_strength_weight" in app
     assert "estimate_revision_weight" in app
@@ -113,6 +123,7 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 
 
 

@@ -13529,10 +13529,241 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
     return out
 
 
+def _ai_candidate_svg_number_v1864v(value, decimals: int = 2) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return "-"
+    return f"{number:,.{decimals}f}"
+
+
+def _ai_candidate_svg_compact_number_v1864v(value) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return "-"
+    sign = "-" if number < 0 else ""
+    number = abs(number)
+    if number >= 1_000_000:
+        return f"{sign}{number / 1_000_000:.1f}M"
+    if number >= 1_000:
+        return f"{sign}{number / 1_000:.0f}k"
+    return f"{sign}{number:.0f}"
+
+
+def _ai_candidate_svg_date_label_v1864v(value) -> str:
+    try:
+        if hasattr(value, "strftime"):
+            return value.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return str(value or "")[:10]
+
+
+def _ai_candidate_svg_series_v1864v(series, limit: int = 252) -> list[tuple[int, float]]:
+    values: list[tuple[int, float]] = []
+    try:
+        raw = list(series.tail(limit))
+    except Exception:
+        raw = list(series or [])[-limit:]
+    for idx, value in enumerate(raw):
+        try:
+            number = float(value)
+        except Exception:
+            continue
+        if pd.notna(number):
+            values.append((idx, number))
+    return values
+
+
+def _ai_candidate_svg_polyline_v1864v(points: list[tuple[int, float]], n: int, y_min: float, y_max: float, *, x0=54, y0=36, w=650, h=210) -> str:
+    if not points or n <= 1 or y_max <= y_min:
+        return ""
+    coords = []
+    for idx, value in points:
+        x = x0 + (idx / max(1, n - 1)) * w
+        y = y0 + ((y_max - value) / (y_max - y_min)) * h
+        coords.append(f"{x:.1f},{y:.1f}")
+    return " ".join(coords)
+
+
+def _ai_candidate_svg_metric_table_v1864v(row: dict) -> str:
+    keys = [
+        "Siste kurs",
+        "52u høy",
+        "% av 52u",
+        "MA50",
+        "MA200",
+        "Over MA50",
+        "Over MA200",
+        "Volum siste",
+        "Volum 20d",
+        "Volum 50d",
+        "Volum/20d",
+        "Volum/50d",
+        "Likviditet",
+        "Teknisk bevis",
+    ]
+    cells = []
+    for key in keys:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        cells.append(
+            "<tr>"
+            f"<th>{html.escape(str(key))}</th>"
+            f"<td>{html.escape(str(value))}</td>"
+            "</tr>"
+        )
+    return "<table class=\"metric-table\">" + "".join(cells) + "</table>" if cells else ""
+
+
+def _ai_candidate_price_svg_v1864v(ticker: str, hist: pd.DataFrame) -> str:
+    close = hist["Close"].dropna().tail(252)
+    if close.empty:
+        return "<p class=\"chart-note\">Kursgraf mangler sluttkurs.</p>"
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+    high_52w = float(close.max())
+    last_close = float(close.iloc[-1])
+    n = len(close)
+    y_values: list[float] = [float(v) for v in close if pd.notna(v)] + [high_52w, last_close]
+    y_values += [float(v) for v in ma50.dropna() if pd.notna(v)]
+    y_values += [float(v) for v in ma200.dropna() if pd.notna(v)]
+    y_min = min(y_values)
+    y_max = max(y_values)
+    padding = max((y_max - y_min) * 0.08, abs(y_max) * 0.02, 1.0)
+    y_min -= padding
+    y_max += padding
+    x0, y0, w, h = 54, 36, 650, 210
+    grid = []
+    for step in range(5):
+        y = y0 + (step / 4) * h
+        value = y_max - (step / 4) * (y_max - y_min)
+        grid.append(f"<line x1=\"{x0}\" y1=\"{y:.1f}\" x2=\"{x0 + w}\" y2=\"{y:.1f}\" class=\"grid\" />")
+        grid.append(f"<text x=\"8\" y=\"{y + 4:.1f}\" class=\"axis-label\">{_ai_candidate_svg_number_v1864v(value, 1)}</text>")
+    def y_for(value: float) -> float:
+        return y0 + ((y_max - value) / (y_max - y_min)) * h
+    high_y = y_for(high_52w)
+    last_y = y_for(last_close)
+    close_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(close, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    ma50_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(ma50, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    ma200_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(ma200, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    first_label = _ai_candidate_svg_date_label_v1864v(close.index[0])
+    mid_label = _ai_candidate_svg_date_label_v1864v(close.index[len(close) // 2])
+    last_label = _ai_candidate_svg_date_label_v1864v(close.index[-1])
+    ticker_text = html.escape(str(ticker))
+    return f"""
+<svg class="report-chart" viewBox="0 0 760 300" role="img" aria-label="{ticker_text} kursgraf">
+  <rect x="0" y="0" width="760" height="300" class="chart-bg" />
+  <text x="10" y="18" class="chart-title">{ticker_text} kurs, MA50/MA200 og 52-ukers høyde</text>
+  <g class="legend">
+    <line x1="10" y1="285" x2="36" y2="285" class="price-line" /><text x="42" y="289">Kurs</text>
+    <line x1="96" y1="285" x2="122" y2="285" class="ma50-line" /><text x="128" y="289">MA50</text>
+    <line x1="184" y1="285" x2="210" y2="285" class="ma200-line" /><text x="216" y="289">MA200</text>
+    <line x1="278" y1="285" x2="304" y2="285" class="high-line" /><text x="310" y="289">52u høy {_ai_candidate_svg_number_v1864v(high_52w)}</text>
+    <line x1="438" y1="285" x2="464" y2="285" class="last-line" /><text x="470" y="289">Siste {_ai_candidate_svg_number_v1864v(last_close)}</text>
+  </g>
+  {"".join(grid)}
+  <line x1="{x0}" y1="{high_y:.1f}" x2="{x0 + w}" y2="{high_y:.1f}" class="high-line" />
+  <line x1="{x0}" y1="{last_y:.1f}" x2="{x0 + w}" y2="{last_y:.1f}" class="last-line" />
+  <polyline points="{close_line}" class="price-line" fill="none" />
+  <polyline points="{ma50_line}" class="ma50-line" fill="none" />
+  <polyline points="{ma200_line}" class="ma200-line" fill="none" />
+  <text x="{x0}" y="270" class="axis-label">{html.escape(first_label)}</text>
+  <text x="{x0 + (w / 2) - 34:.1f}" y="270" class="axis-label">{html.escape(mid_label)}</text>
+  <text x="{x0 + w - 70:.1f}" y="270" class="axis-label">{html.escape(last_label)}</text>
+</svg>"""
+
+
+def _ai_candidate_volume_svg_v1864v(ticker: str, hist: pd.DataFrame) -> str:
+    if "Volume" not in hist:
+        return "<p class=\"chart-note\">Volumgraf mangler volumdata.</p>"
+    volume = hist["Volume"].dropna().tail(252)
+    if volume.empty:
+        return "<p class=\"chart-note\">Volumgraf mangler volumdata.</p>"
+    vol20 = volume.rolling(20).mean()
+    vol50 = volume.rolling(50).mean()
+    n = len(volume)
+    y_values = [float(v) for v in volume if pd.notna(v)]
+    y_values += [float(v) for v in vol20.dropna() if pd.notna(v)]
+    y_values += [float(v) for v in vol50.dropna() if pd.notna(v)]
+    y_min = 0.0
+    y_max = max(y_values) if y_values else 1.0
+    if y_max <= 0:
+        y_max = 1.0
+    y_max *= 1.12
+    x0, y0, w, h = 54, 32, 650, 150
+    bars = []
+    bar_w = max(1.0, (w / max(1, n)) * 0.70)
+    for idx, value in enumerate([float(v) if pd.notna(v) else 0.0 for v in volume]):
+        x = x0 + (idx / max(1, n - 1)) * w
+        bar_h = (value / y_max) * h
+        y = y0 + h - bar_h
+        bars.append(f"<rect x=\"{x:.1f}\" y=\"{y:.1f}\" width=\"{bar_w:.1f}\" height=\"{bar_h:.1f}\" class=\"volume-bar\" />")
+    grid = []
+    for step in range(4):
+        y = y0 + (step / 3) * h
+        value = y_max - (step / 3) * y_max
+        grid.append(f"<line x1=\"{x0}\" y1=\"{y:.1f}\" x2=\"{x0 + w}\" y2=\"{y:.1f}\" class=\"grid\" />")
+        grid.append(f"<text x=\"8\" y=\"{y + 4:.1f}\" class=\"axis-label\">{_ai_candidate_svg_compact_number_v1864v(value)}</text>")
+    vol20_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(vol20, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    vol50_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(vol50, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    ticker_text = html.escape(str(ticker))
+    return f"""
+<svg class="report-chart" viewBox="0 0 760 230" role="img" aria-label="{ticker_text} volumgraf">
+  <rect x="0" y="0" width="760" height="230" class="chart-bg" />
+  <text x="10" y="18" class="chart-title">{ticker_text} volum mot 20/50-dagers snitt</text>
+  <g class="legend">
+    <rect x="10" y="210" width="12" height="8" class="volume-bar" /><text x="28" y="218">Volum</text>
+    <line x1="92" y1="214" x2="118" y2="214" class="vol20-line" /><text x="124" y="218">Volum 20d</text>
+    <line x1="228" y1="214" x2="254" y2="214" class="vol50-line" /><text x="260" y="218">Volum 50d</text>
+  </g>
+  {"".join(grid)}
+  {"".join(bars)}
+  <polyline points="{vol20_line}" class="vol20-line" fill="none" />
+  <polyline points="{vol50_line}" class="vol50-line" fill="none" />
+</svg>"""
+
+
+def _ai_candidate_detail_chart_blocks_html_v1864v(rows: list[dict], *, max_charts: int = 12) -> str:
+    blocks: list[str] = []
+    for idx, row in enumerate(rows or []):
+        if idx >= max_charts:
+            remaining = len(rows or []) - max_charts
+            if remaining > 0:
+                blocks.append(f"<p class=\"chart-note\">{remaining} ekstra valgte kandidater er med i tabellen, men grafene er begrenset for å holde rapporten håndterbar.</p>")
+            break
+        ticker = normalize_user_ticker(row.get("Ticker") or row.get("ticker"))
+        if not ticker:
+            continue
+        name = html.escape(str(row.get("Navn") or row.get("name") or ticker))
+        meta = " | ".join(
+            html.escape(str(value))
+            for value in [row.get("Land"), row.get("Marked"), row.get("Bors"), row.get("Sektor")]
+            if value not in (None, "")
+        )
+        hist, err = _ai_candidate_chart_history_v1864u(ticker)
+        if hist is None or hist.empty:
+            chart_html = f"<p class=\"chart-note\">Kurs- og volumgraf kunne ikke hentes for {html.escape(ticker)}: {html.escape(str(err or 'ukjent feil'))}</p>"
+        else:
+            chart_html = _ai_candidate_price_svg_v1864v(ticker, hist) + _ai_candidate_volume_svg_v1864v(ticker, hist)
+        blocks.append(
+            "<section class=\"chart-block\">"
+            f"<h2>{html.escape(ticker)} - {name}</h2>"
+            f"<p class=\"chart-meta\">{meta}</p>"
+            f"{_ai_candidate_svg_metric_table_v1864v(row)}"
+            f"{chart_html}"
+            "</section>"
+        )
+    return "".join(blocks)
+
+
 def _ai_candidate_detail_html_v1864t(rows: list[dict], result: dict | None = None) -> bytes:
     result = result or {}
     detail_rows = _ai_candidate_detail_rows_v1864t(rows, result)
     table = pd.DataFrame(detail_rows).to_html(index=False, escape=True) if detail_rows else "<p>Ingen valgte kandidater.</p>"
+    chart_blocks = _ai_candidate_detail_chart_blocks_html_v1864v(detail_rows)
     title = "AI Kandidattest - detaljrapport"
     created = html.escape(str(result.get("created_at") or datetime.now().isoformat(timespec="seconds")))
     source = html.escape(str(result.get("source") or ""))
@@ -13547,6 +13778,25 @@ table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
 th, td {{ border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; vertical-align: top; }}
 th {{ background: #e5f3ff; }}
 .method {{ background:#f8fafc; border:1px solid #d1d5db; padding:12px; margin:16px 0; }}
+.chart-block {{ border:1px solid #d1d5db; padding:12px; margin:18px 0; page-break-inside: avoid; }}
+.chart-block h2 {{ margin:0 0 4px 0; font-size:18px; }}
+.chart-meta, .chart-note {{ color:#475569; font-size:12px; margin:4px 0 10px 0; }}
+.metric-table {{ margin:8px 0 12px 0; max-width:920px; }}
+.metric-table th {{ width:160px; background:#f1f5f9; }}
+.report-chart {{ width:100%; max-width:980px; display:block; margin:10px 0; background:#fff; }}
+.chart-bg {{ fill:#ffffff; stroke:#cbd5e1; stroke-width:1; }}
+.grid {{ stroke:#e2e8f0; stroke-width:1; }}
+.axis-label {{ fill:#64748b; font-size:10px; font-family:Arial, sans-serif; }}
+.chart-title {{ fill:#0f172a; font-size:13px; font-weight:700; font-family:Arial, sans-serif; }}
+.legend text {{ fill:#334155; font-size:11px; font-family:Arial, sans-serif; }}
+.price-line {{ stroke:#006fd6; stroke-width:2.2; }}
+.ma50-line {{ stroke:#64b5ff; stroke-width:1.6; }}
+.ma200-line {{ stroke:#ef4444; stroke-width:1.6; }}
+.high-line {{ stroke:#111827; stroke-width:1.4; stroke-dasharray:5 4; }}
+.last-line {{ stroke:#10b981; stroke-width:1.4; stroke-dasharray:6 4; }}
+.volume-bar {{ fill:#1478d4; opacity:.72; }}
+.vol20-line {{ stroke:#64b5ff; stroke-width:1.5; }}
+.vol50-line {{ stroke:#ef4444; stroke-width:1.5; }}
 @media print {{ button {{ display:none; }} body {{ margin: 14mm; }} tr {{ page-break-inside: avoid; }} }}
 </style></head>
 <body><button onclick="window.print()">Skriv ut / lagre som PDF</button>
@@ -13558,6 +13808,7 @@ th {{ background: #e5f3ff; }}
 <p><b>Kildestøtte:</b> {html.escape(_ai_candidate_source_support_mode_v1864u(evaluation))}</p>
 <p>Detaljrapporten viser konkret hvilke delsignaler, kildefunn, sperrer, datamangler og anbefalinger hver valgt aksje bygger på.</p>
 </div>
+{chart_blocks}
 {table}
 </body></html>"""
     return body.encode("utf-8")
@@ -13736,25 +13987,61 @@ def _render_ai_candidate_technical_chart_v1864u(ticker: str) -> None:
     ma200 = close.rolling(200).mean()
     high_52w = float(close.tail(min(252, len(close))).max())
     last_close = float(close.iloc[-1])
+    st.caption(
+        f"Siste kurs: {last_close:.2f} | 52-ukers høyde: {high_52w:.2f} | "
+        f"Avstand til 52u høy: {(last_close / high_52w * 100.0) if high_52w else 0.0:.1f}%"
+    )
+    st.markdown(f"**{ticker} kurs, MA50/MA200 og 52-ukers høyde**")
+    st.caption("Linjer: Kurs, MA50, MA200, 52u høyde og siste kurs. Legend holdes utenfor grafen for å unngå overlapp.")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=close.index, y=close, name="Kurs", mode="lines"))
-    fig.add_trace(go.Scatter(x=ma50.index, y=ma50, name="MA50", mode="lines"))
-    fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines"))
-    fig.add_hline(y=high_52w, line_dash="dot", annotation_text=f"52u høy {high_52w:.2f}")
-    fig.add_hline(y=last_close, line_dash="dash", annotation_text=f"Siste {last_close:.2f}")
-    fig.update_layout(height=330, margin=dict(l=10, r=10, t=28, b=10), title=f"{ticker} kurs, MA50/MA200 og 52-ukers høyde")
-    st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Scatter(x=close.index, y=close, name="Kurs", mode="lines", line=dict(color="#0f7ae5", width=2.0)))
+    fig.add_trace(go.Scatter(x=ma50.index, y=ma50, name="MA50", mode="lines", line=dict(color="#60a5fa", width=1.6)))
+    fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines", line=dict(color="#ef4444", width=1.6)))
+    fig.add_trace(go.Scatter(
+        x=[close.index[0], close.index[-1]],
+        y=[high_52w, high_52w],
+        name=f"52u høy {high_52w:.2f}",
+        mode="lines",
+        line=dict(color="#111827", width=1.6, dash="dot"),
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=[close.index[0], close.index[-1]],
+        y=[last_close, last_close],
+        name=f"Siste {last_close:.2f}",
+        mode="lines",
+        line=dict(color="#10b981", width=1.6, dash="dash"),
+        hoverinfo="skip",
+    ))
+    fig.update_layout(
+        height=330,
+        margin=dict(l=10, r=10, t=12, b=24),
+        title_text="",
+        xaxis_title="",
+        yaxis_title="",
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
     if "Volume" in hist:
         volume = hist["Volume"].dropna()
         if not volume.empty:
             vol20 = volume.rolling(20).mean()
             vol50 = volume.rolling(50).mean()
             vfig = go.Figure()
-            vfig.add_trace(go.Bar(x=volume.index, y=volume, name="Volum"))
-            vfig.add_trace(go.Scatter(x=vol20.index, y=vol20, name="Volum 20d", mode="lines"))
-            vfig.add_trace(go.Scatter(x=vol50.index, y=vol50, name="Volum 50d", mode="lines"))
-            vfig.update_layout(height=240, margin=dict(l=10, r=10, t=28, b=10), title=f"{ticker} volum mot 20/50-dagers snitt")
-            st.plotly_chart(vfig, use_container_width=True)
+            st.markdown(f"**{ticker} volum mot 20/50-dagers snitt**")
+            st.caption("Volum: stolper med 20- og 50-dagers snitt som egne linjer.")
+            vfig.add_trace(go.Bar(x=volume.index, y=volume, name="Volum", marker_color="#0f7ae5"))
+            vfig.add_trace(go.Scatter(x=vol20.index, y=vol20, name="Volum 20d", mode="lines", line=dict(color="#60a5fa", width=1.5)))
+            vfig.add_trace(go.Scatter(x=vol50.index, y=vol50, name="Volum 50d", mode="lines", line=dict(color="#ef4444", width=1.5)))
+            vfig.update_layout(
+                height=240,
+                margin=dict(l=10, r=10, t=12, b=24),
+                title_text="",
+                xaxis_title="",
+                yaxis_title="",
+                showlegend=False,
+            )
+            st.plotly_chart(vfig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
 
 
 def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None = None) -> list[dict]:
