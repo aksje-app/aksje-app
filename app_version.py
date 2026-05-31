@@ -1,15 +1,20 @@
-APP_VERSION = "v18.6.4z"
-APP_VERSION_NAME = "Market Climate Module Foundation"
-APP_BUILD_ID = "v1864z-market-climate-module-foundation"
+APP_VERSION = "v18.6.5"
+APP_VERSION_NAME = "Market Climate AI Candidate Integration"
+APP_BUILD_ID = "v1865-market-climate-ai-candidate-integration"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest kan nå bruke Markedsklima som Av, Vis som info eller Bruk i score.",
+    "Markedsklima kan gi en kontrollert positiv/negativ scorejustering og cappe kandidatscore når klimaet er svakt.",
+    "AI Kandidattest-resultater viser Markedsklima, Klimamodus, Klimajustering og Klimabevis per kandidat.",
+    "Datakildestatus viser siste Markedsklima-snapshot og varsler når klima mangler i stedet for å late som data finnes.",
+    "CSV, JSON, detaljrapport og Print/PDF HTML tar med valgt klimamodus, klimaeffekt og faktorbevis.",
     "Markedsklima er lagt inn som egen modul i kontrollsenteret og under AI Kandidattest-gruppen.",
     "Markedsklima henter brede markedsproxyer, volatilitet, renter, Brent og USD/NOK via yfinance når brukeren trykker Oppdater klima.",
     "Markedsklima kan ta inn manuelle/importerte klimaindikatorer for USA IPO-antall, OSEBX pris/bok og bullish investorandel.",
     "Modulen lager samlet klima-score, confidence, faktorbevis, datamangler, normalisert markedsgraf og faktorgraf.",
     "Markedsklima lagrer siste snapshot via StorageService og tilbyr CSV, JSON og print/PDF HTML med grafer og tabeller.",
-    "Runde 1 er beslutningsstøtte: markedsklima påvirker ikke AI Kandidattest-score før Runde 2.",
+    "Runde 1 bygde Markedsklima-modulen; Runde 2 kobler snapshot, scoreeffekt og rapportfelt inn i AI Kandidattest.",
     "AI Kandidattest har fått Financial Modeling Prep som valgfri ny ekstern live-kilde via FMP_API_KEY.",
     "FMP live kan brukes som egen kilde for bredere tickerunivers og som fersk signalberikelse for grovkandidater.",
     "FMP-adapteren henter og normaliserer analytiker-/estimatdata, price target consensus, earnings/resultatsjokk og insiderhandler.",

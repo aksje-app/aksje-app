@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import py_compile
@@ -65,10 +65,16 @@ def test_v1864z_market_climate_control_center_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4z"' in version
-    assert "Market Climate Module Foundation" in version
+    assert 'APP_VERSION = "v18.6.5"' in version
+    assert "Market Climate AI Candidate Integration" in version
     assert "Markedsklima er lagt inn som egen modul" in version
-    assert "Runde 1 er beslutningsstøtte" in version
+    assert "Runde 2 kobler snapshot, scoreeffekt og rapportfelt inn i AI Kandidattest" in version
     assert "from market_climate_ui import render_market_climate_panel" in app
+    assert "from market_climate_engine import load_latest_market_climate_snapshot" in app
     assert '("Markedsklima", render_market_climate_panel)' in app
+    assert "AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865" in app
+    assert "market_climate_score_weight" in app
+    assert '"Markedsklima": climate_effect.get("summary")' in app
+    assert '"Klimajustering": climate_delta_text' in app
+    assert "def _ai_candidate_market_climate_html_v1865" in app
     assert '"markedsklima"' in layout

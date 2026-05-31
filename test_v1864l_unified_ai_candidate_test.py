@@ -13,10 +13,10 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4z"' in version
-    assert "Market Climate Module Foundation" in version
+    assert 'APP_VERSION = "v18.6.5"' in version
+    assert "Market Climate AI Candidate Integration" in version
     assert "Markedsklima er lagt inn som egen modul" in version
-    assert "Runde 1 er beslutningsstøtte" in version
+    assert "Runde 2 kobler snapshot, scoreeffekt og rapportfelt inn i AI Kandidattest" in version
     assert "Financial Modeling Prep som valgfri ny ekstern live-kilde" in version
     assert "bredere tickerunivers" in version
     assert "price target consensus" in version
@@ -38,6 +38,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "def render_ai_candidate_test_control_center_v1864l" in app
     assert '"AI Kandidattest", render_ai_candidate_test_control_center_v1864l' in app
     assert "from market_climate_ui import render_market_climate_panel" in app
+    assert "from market_climate_engine import load_latest_market_climate_snapshot" in app
     assert '("Markedsklima", render_market_climate_panel)' in app
     assert "Finansavisen" in app and "Oljefond/NBIM" in app and "Folketrygdfondet" in app
     assert "force_manual_fetch=True" in app
@@ -51,6 +52,13 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T" in app
     assert "AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U" in app
     assert "source_support_mode" in app
+    assert "AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865" in app
+    assert "market_climate_score_weight" in app
+    assert "market_climate_cap_enabled" in app
+    assert "def _ai_candidate_market_climate_effect_v1865" in app
+    assert "def _ai_candidate_runtime_config_with_climate_v1865" in app
+    assert "def _ai_candidate_market_climate_html_v1865" in app
+    assert "Markedsklima" in app and "Klimamodus" in app and "Klimajustering" in app and "Klimabevis" in app
     assert "Resultatsjokk" in app and "52-ukers breakout" in app
     assert "Volumbrudd" in app and "Katalysator-klynge" in app
     assert "Enkel ticker" in app
