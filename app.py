@@ -19,6 +19,7 @@ from ai_heatmap_ui import render_ai_heatmaps
 from forecast_backtest_ui import render_backtest_learning_panel
 from daily_ai_market_report import render_daily_ai_market_report
 from market_regime_ui import render_market_regime_widget
+from market_climate_ui import render_market_climate_panel
 from alert_center import render_common_alert_center
 from market_intelligence_center import render_market_intelligence_center
 from forecast_ui import render_forecast_section
@@ -15325,6 +15326,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 def control_center_extra_panels_v18535():
     return [
         ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
+        ("Markedsklima", render_market_climate_panel),
         ("Marked", render_market_room_control_center_v1863cb),
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),

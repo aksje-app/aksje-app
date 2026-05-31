@@ -1828,6 +1828,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             "finansavisen",
             "bjellesau",
             "alpha radar",
+            "markedsklima",
         )
         ai_candidate_labels = list(dict.fromkeys(ai_candidate_primary_labels + ai_candidate_source_labels))
         group_map = {

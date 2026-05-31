@@ -70,9 +70,10 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
 def test_version_records_configurable_ai_candidate_engine():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4y"' in version
-    assert "FMP Live Source for AI Candidate Engine" in version
+    assert 'APP_VERSION = "v18.6.4z"' in version
+    assert "Market Climate Module Foundation" in version
     assert "Evalueringsoppsett er lagt inn i AI Kandidattest" in version
+
 
 
 

@@ -6,15 +6,17 @@ ROOT = Path(__file__).resolve().parent
 
 
 def test_v1864m_version_and_ai_candidate_cockpit_contract():
-    for name in ["app.py", "workspace_layout.py", "app_version.py", "analysis.py", "analyst.py", "fmp_signals.py"]:
+    for name in ["app.py", "workspace_layout.py", "app_version.py", "analysis.py", "analyst.py", "fmp_signals.py", "market_climate_engine.py", "market_climate_ui.py"]:
         py_compile.compile(str(ROOT / name), doraise=True)
 
     app = (ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4y"' in version
-    assert "FMP Live Source for AI Candidate Engine" in version
+    assert 'APP_VERSION = "v18.6.4z"' in version
+    assert "Market Climate Module Foundation" in version
+    assert "Markedsklima er lagt inn som egen modul" in version
+    assert "Runde 1 er beslutningsstøtte" in version
     assert "Financial Modeling Prep som valgfri ny ekstern live-kilde" in version
     assert "bredere tickerunivers" in version
     assert "price target consensus" in version
@@ -35,6 +37,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
 
     assert "def render_ai_candidate_test_control_center_v1864l" in app
     assert '"AI Kandidattest", render_ai_candidate_test_control_center_v1864l' in app
+    assert "from market_climate_ui import render_market_climate_panel" in app
+    assert '("Markedsklima", render_market_climate_panel)' in app
     assert "Finansavisen" in app and "Oljefond/NBIM" in app and "Folketrygdfondet" in app
     assert "force_manual_fetch=True" in app
     assert "include_insider=True" in app
@@ -131,6 +135,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert 'ai_candidate_group_name = "AI Kandidattest"' in active_layout_block
     assert "selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels" in active_layout_block
     assert '"folketrygdfondet"' in active_layout_block
+    assert '"markedsklima"' in active_layout_block
     assert '"kilder"' in active_layout_block and '"import"' in active_layout_block
     assert "Ingen valgt" not in active_layout_block
     assert "Testflyt" not in layout
@@ -155,6 +160,7 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 
 
 
