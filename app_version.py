@@ -1,9 +1,17 @@
-APP_VERSION = "v18.6.4t"
-APP_VERSION_NAME = "Hard Signal Search and Candidate Detail Reports"
-APP_BUILD_ID = "v1864t-hard-signal-search-candidate-detail-reports"
+APP_VERSION = "v18.6.4u"
+APP_VERSION_NAME = "Strict Signals, Source Support and Technical Evidence"
+APP_BUILD_ID = "v1864u-strict-signals-source-support-technical-evidence"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest skiller nå tydelig mellom hovedsignalsøk og spesialsøk, slik at uavhukede signaler ikke ser ut som aktive i søkevektene.",
+    "AI Kandidattest har kildestøtte-modus: Ingen, Vis som info eller Bruk som støtte i score.",
+    "Rene Momentum/Estimat/Eiertrykk-søk viser bare aktive signalfamilier i resultatkolonnene; ubrukte signaler vises som strek.",
+    "AI Kandidattest viser teknisk bevis med kurs, 52-ukers høyde, MA50/MA200, volum mot 20/50-dagers snitt, likviditet og benchmarkstatus i detalj/rapport.",
+    "Detaljvisning for enkel ticker kan vise teknisk kurskurve med MA50, MA200, 52-ukers høyde og volum mot 20/50-dagers snitt når kursdata kan hentes.",
+    "Valutavarsler har egen Send Pushover-test-knapp, mens grensesjekken heter Sjekk valutagrense nå og sender bare Pushover ved faktisk brudd.",
+    "Pushover-testknappene tåler både gammel og ny notifier-returform og laster lokale miljøvariabler før tokenstatus kontrolleres.",
+    "AI Kandidattest har mer kompakte handlingsknapper og avansert scoring kan skjules for bedre oversikt.",
     "AI Kandidattest har hard signalmodus: Momentum / relativ styrke, Estimatløft og Innsider / eiertrykk kan kjøres rent alene eller som manuell kombinasjon.",
     "AI Kandidattest har spesialsøk for Resultatsjokk, 52-ukers breakout, Volumbrudd, Vekstakselerasjon, Sektorleder, Short squeeze og Katalysator-klynge.",
     "Søkevekter i AI Kandidattest har en liten Std-knapp med standardfordeling for valgte hovedsignaler, mens spesialsøk viser egne ferdige vekter i rapporten.",

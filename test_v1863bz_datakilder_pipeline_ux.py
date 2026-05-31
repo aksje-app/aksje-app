@@ -70,9 +70,10 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
 def test_version_records_configurable_ai_candidate_engine():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.4t"' in version
-    assert "Hard Signal Search and Candidate Detail Reports" in version
+    assert 'APP_VERSION = "v18.6.4u"' in version
+    assert "Strict Signals, Source Support and Technical Evidence" in version
     assert "Evalueringsoppsett er lagt inn i AI Kandidattest" in version
+
 
 
 

@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.4t"' in version
-    assert "Hard Signal Search and Candidate Detail Reports" in version
+    assert 'APP_VERSION = "v18.6.4u"' in version
+    assert "Strict Signals, Source Support and Technical Evidence" in version
 
 
 def test_test1_has_real_data_foundation_workspace_not_dead_top_start():
@@ -77,6 +77,7 @@ def test_paper_trade_rows_backfill_market_context_for_old_trades():
     assert by_ticker["DNB.OL"]["marked"] == "Norge"
     assert by_ticker["NVDA"]["land"] == "USA"
     assert by_ticker["NVDA"]["marked"] == "USA"
+
 
 
 

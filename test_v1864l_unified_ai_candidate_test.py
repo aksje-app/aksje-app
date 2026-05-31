@@ -13,8 +13,11 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4t"' in version
-    assert "Hard Signal Search and Candidate Detail Reports" in version
+    assert 'APP_VERSION = "v18.6.4u"' in version
+    assert "Strict Signals, Source Support and Technical Evidence" in version
+    assert "kildestøtte-modus" in version
+    assert "teknisk bevis" in version
+    assert "Send Pushover-test" in version
     assert "Standard 1-6 mnd signalprofil" in version
     assert "AI Kandidattest kan velge flere kilder samtidig" in version
     assert "printvennlig HTML" in version
@@ -28,15 +31,19 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Kilder til AI Kandidattest" in app
     assert "Evalueringsoppsett" in app
     assert "Tidshorisont" in app
-    assert "Bruk standard for valgt horisont" in app
+    assert "Standard" in app
     assert "Søkemodus / signalgrunnlag" in app
     assert "AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T" in app
+    assert "AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U" in app
+    assert "source_support_mode" in app
     assert "Resultatsjokk" in app and "52-ukers breakout" in app
     assert "Volumbrudd" in app and "Katalysator-klynge" in app
     assert "Enkel ticker" in app
     assert "Detaljrapport" in app
     assert "Detalj Print/PDF HTML" in app
     assert "Momentumscore" in app and "Estimatløftscore" in app and "Eiertrykkscore" in app
+    assert "Teknisk bevis" in app and "52u høy" in app and "Volum/20d" in app
+    assert "def _render_ai_candidate_technical_chart_v1864u" in app
     assert "source_full_bonus_days" in app
     assert "relative_strength_weight" in app
     assert "estimate_revision_weight" in app
@@ -65,10 +72,10 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "def _load_ai_candidate_latest_result_v1864m" in app
     assert "Viser sist lagrede AI Kandidattest" in app
     assert "def _render_ai_candidate_selection_v1864m" in app
-    assert "Send valgte til Top Picks" in app
-    assert "Send til Beslutningsgrunnlag" in app
-    assert "Send til Paper Trading" in app
-    assert "Legg i Watchlist" in app
+    assert "Top Picks" in app
+    assert "Beslutning" in app
+    assert "Paper" in app
+    assert "Watchlist" in app
     assert "Sterk kandidat" in app and "Vurder" in app
     assert "set_cache_location" in (ROOT / "analysis.py").read_text(encoding="utf-8", errors="ignore")
 
@@ -106,6 +113,7 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 
 
 

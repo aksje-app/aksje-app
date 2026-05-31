@@ -49,6 +49,13 @@ from governance_registry import get_changelog, get_protected_zones
 from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
 
 try:
+    from runtime_env import load_app_env
+
+    load_app_env()
+except Exception:
+    pass
+
+try:
     import yfinance as yf
 except Exception:
     yf = None
@@ -6711,10 +6718,10 @@ def _render_pushover_test_panel_v18595() -> None:
         if not _pushover_env_ok_v18595:
             st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før testvarsel sendes.")
         else:
-            ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
+            ok, err = _send_pushover_safe_v1863af("✅ Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
+            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
             if ok:
-                st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
+                st.success("Test sendt ✅")
             else:
                 st.error(f"Testvarsel feilet ❌ {err}")
 
@@ -7004,10 +7011,10 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                         st.error(f"Pushover-verifisering feilet ❌ {verify_info.get('response_text')}")
             with b3:
                 if st.button("📣 Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=True):
-                    ok, err, info = send_pushover_alert("✅ Testvarsel fra AI Aksje Analyzer Pro", title="Testvarsel")
-                    st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, **(info or {})}
+                    ok, err = _send_pushover_safe_v1863af("✅ Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
+                    st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
                     if ok:
-                        st.success(f"Test sendt ✅ HTTP {(info or {}).get('status_code')}")
+                        st.success("Test sendt ✅")
                     else:
                         st.error(f"Feil: {err}")
             with b4:
@@ -8632,6 +8639,27 @@ def _send_pushover_safe_v1863af(message: str, title: str):
         return False, str(exc)[:180]
 
 
+def _pushover_runtime_status_v1864u() -> dict:
+    try:
+        load_app_env()
+    except Exception:
+        pass
+    token = os.getenv("PUSHOVER_APP_TOKEN") or PUSHOVER_APP_TOKEN
+    user = os.getenv("PUSHOVER_USER_KEY") or PUSHOVER_USER_KEY
+    try:
+        enabled = bool((load_settings() or {}).get("pushover_enabled", True))
+    except Exception:
+        enabled = True
+    configured = bool(token and user)
+    if not configured:
+        label = "Mangler token/user"
+    elif not enabled:
+        label = "Deaktivert"
+    else:
+        label = "Klar"
+    return {"configured": configured, "enabled": enabled, "label": label}
+
+
 def _paper_control_latest_prices_v1863af(portfolio):
     latest_prices = {}
     for ticker, pos in ((portfolio or {}).get("positions", {}) or {}).items():
@@ -9168,20 +9196,28 @@ def render_currency_alerts_control_center_v1863af():
     except Exception:
         rate_number = None
 
+    pushover_status = _pushover_runtime_status_v1864u()
     st.markdown("#### Status nå")
-    top1, top2, top3, top4, top5, top6 = st.columns([1.15, 0.85, 1.0, 1.0, 1.0, 0.85])
+    top1, top2, top3, top4, top5, top6, top7 = st.columns([1.15, 0.85, 1.0, 1.0, 1.0, 0.85, 0.95])
     top1.metric("Aktivt varsel", f"{pair_label}", f"{lower_v:.4f} - {upper_v:.4f}")
     top2.metric("Kurs", f"{rate_number:.4f}" if rate_number is not None else "-")
     top3.metric("Status", _rate_status(rate_number))
     top4.metric("Sjekk hvert", f"{check_minutes} min")
     top5.metric("Varselpause", f"{cooldown_minutes} min")
     top6.metric("Kilde", symbol_value or "-")
+    top7.metric("Pushover", pushover_status.get("label") or "-")
 
-    action_left, action_mid, action_right = st.columns([0.16, 0.18, 0.66])
+    action_left, action_mid, action_test, action_right = st.columns([0.13, 0.19, 0.18, 0.50])
     with action_left:
         fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t")
     with action_mid:
-        check_now = st.button("Sjekk varsel nå", key="currency_alert_check_now_v1864t")
+        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v1864t")
+    with action_test:
+        pushover_test_now = st.button(
+            "Send Pushover-test",
+            key="currency_alert_pushover_test_now_v1864u",
+            disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
+        )
 
     if fetch_now:
         rate, err = _fetch_fx_rate_v1863af(symbol_value)
@@ -9223,6 +9259,16 @@ def render_currency_alerts_control_center_v1863af():
                             st.info("Grensen er brutt, men varselpause hindrer nytt Pushover-varsel akkurat nå.")
                 else:
                     st.success(f"{pair_label} er innenfor grensene.")
+
+    if pushover_test_now:
+        ok, send_err = _send_pushover_safe_v1863af(
+            f"Test fra Valutavarsler: {pair_label} ({symbol_value}), status {_rate_status(rate_number)}.",
+            "Pushover-test Valutavarsler",
+        )
+        if ok:
+            st.success("Pushover-test sendt.")
+        else:
+            st.warning(f"Pushover-test feilet: {send_err or 'ukjent feil'}")
 
     st.markdown("#### Varseloppsett")
     current_pair = current.get("pair", "BRL/NOK")
@@ -11478,6 +11524,7 @@ AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q = {
     "source_partial_bonus_factor": 0.35,
     "old_source_penalty": 0.20,
     "exclude_old_sources_from_multi_bonus": True,
+    "source_support_mode": "Vis som info",
     "active_core_signals": ["Momentum / relativ styrke", "Estimatløft", "Innsider / eiertrykk"],
     "special_search": "Ingen",
     "search_momentum_weight": 50,
@@ -11559,6 +11606,7 @@ AI_CANDIDATE_SPECIAL_SEARCH_WEIGHTS_V1864T = {
     "Short squeeze": {"short_squeeze": 55, "volume": 25, "momentum": 20},
     "Katalysator-klynge": {"momentum": 35, "estimate": 25, "insider": 20, "growth": 10, "volume": 10},
 }
+AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U = ["Ingen", "Vis som info", "Bruk som støtte i score"]
 AI_CANDIDATE_CORE_WEIGHT_DEFAULTS_V1864T = {
     ("momentum",): {"momentum": 100, "estimate": 0, "insider": 0},
     ("estimate",): {"momentum": 0, "estimate": 100, "insider": 0},
@@ -11635,6 +11683,15 @@ def _ai_candidate_search_weight_label_v1864t(config: dict | None = None) -> str:
     }
     total = sum(max(0.0, float(value or 0.0)) for value in weights.values()) or 1.0
     return ", ".join(f"{labels.get(key, key)} {round((float(value) / total) * 100):.0f}%" for key, value in weights.items())
+
+
+def _ai_candidate_source_support_mode_v1864u(config: dict | None = None) -> str:
+    text = str((config or {}).get("source_support_mode") or "Vis som info").strip()
+    return text if text in AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U else "Vis som info"
+
+
+def _ai_candidate_source_support_scoring_v1864u(config: dict | None = None) -> bool:
+    return _ai_candidate_source_support_mode_v1864u(config) == "Bruk som støtte i score"
 
 
 def _ai_candidate_source_list_v1864q(source_or_sources) -> list[str]:
@@ -11744,7 +11801,16 @@ def _ai_candidate_hist_snapshot_v1864r(item: dict) -> dict:
         "above_50dma": None,
         "above_200dma": None,
         "near_52w_high": None,
+        "last_close": None,
+        "ma50": None,
+        "ma200": None,
+        "high_52w": None,
+        "pct_of_52w_high": None,
+        "last_volume": None,
         "avg_volume_20": None,
+        "avg_volume_50": None,
+        "volume_ratio_20": None,
+        "volume_ratio_50": None,
         "volume_boost": None,
         "last_price_days_old": None,
     }
@@ -11754,19 +11820,32 @@ def _ai_candidate_hist_snapshot_v1864r(item: dict) -> dict:
     if close.empty:
         return out
     last = float(close.iloc[-1])
+    out["last_close"] = last
     if len(close) >= 50:
         ma50 = float(close.tail(50).mean())
+        out["ma50"] = ma50
         out["above_50dma"] = bool(ma50 and last >= ma50)
     if len(close) >= 200:
         ma200 = float(close.tail(200).mean())
+        out["ma200"] = ma200
         out["above_200dma"] = bool(ma200 and last >= ma200)
     if len(close) >= 120:
         high_52w = float(close.tail(min(252, len(close))).max())
+        out["high_52w"] = high_52w
+        out["pct_of_52w_high"] = (last / high_52w * 100.0) if high_52w else None
         out["near_52w_high"] = bool(high_52w and last >= high_52w * 0.90)
     if "Volume" in hist:
         volume = hist["Volume"].dropna()
+        if not volume.empty:
+            out["last_volume"] = float(volume.iloc[-1])
         if len(volume) >= 20:
-            out["avg_volume_20"] = float(volume.tail(20).mean())
+            avg20 = float(volume.tail(20).mean())
+            out["avg_volume_20"] = avg20
+            out["volume_ratio_20"] = (float(volume.iloc[-1]) / avg20) if avg20 else None
+        if len(volume) >= 50:
+            avg50 = float(volume.tail(50).mean())
+            out["avg_volume_50"] = avg50
+            out["volume_ratio_50"] = (float(volume.iloc[-1]) / avg50) if avg50 else None
         if len(volume) >= 60:
             recent = float(volume.tail(20).mean())
             older = float(volume.tail(60).head(40).mean())
@@ -11778,6 +11857,60 @@ def _ai_candidate_hist_snapshot_v1864r(item: dict) -> dict:
     except Exception:
         pass
     return out
+
+
+def _ai_candidate_metric_text_v1864u(value, decimals: int = 2, suffix: str = "") -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        number = float(value)
+    except Exception:
+        return str(value)
+    return f"{number:,.{decimals}f}{suffix}"
+
+
+def _ai_candidate_ratio_text_v1864u(value) -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        return f"{float(value):.2f}x"
+    except Exception:
+        return "-"
+
+
+def _ai_candidate_bool_text_v1864u(value) -> str:
+    if value is True:
+        return "Ja"
+    if value is False:
+        return "Nei"
+    return "Mangler"
+
+
+def _ai_candidate_liquidity_status_v1864u(snapshot: dict, config: dict | None = None) -> str:
+    avg20 = snapshot.get("avg_volume_20") if isinstance(snapshot, dict) else None
+    if avg20 in (None, ""):
+        return "Mangler volumdata"
+    threshold = _ai_candidate_num_v1864q(config or {}, "min_avg_volume")
+    try:
+        return "OK" if float(avg20) >= float(threshold) else "Svak"
+    except Exception:
+        return "Mangler volumdata"
+
+
+def _ai_candidate_technical_evidence_text_v1864u(snapshot: dict, config: dict | None = None) -> str:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return "Teknisk bevis mangler"
+    parts = [
+        f"Kurs {_ai_candidate_metric_text_v1864u(snapshot.get('last_close'))}",
+        f"52u høy {_ai_candidate_metric_text_v1864u(snapshot.get('high_52w'))}",
+        f"{_ai_candidate_metric_text_v1864u(snapshot.get('pct_of_52w_high'), 1, '%')} av 52u",
+        f"over MA50 {_ai_candidate_bool_text_v1864u(snapshot.get('above_50dma'))}",
+        f"over MA200 {_ai_candidate_bool_text_v1864u(snapshot.get('above_200dma'))}",
+        f"vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}",
+        f"vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}",
+        f"likviditet {_ai_candidate_liquidity_status_v1864u(snapshot, config)}",
+    ]
+    return " | ".join(parts)
 
 
 def _ai_candidate_signal_scores_v1864r(item: dict, config: dict | None = None) -> dict:
@@ -12104,6 +12237,8 @@ def _ai_candidate_signal_breakdown_v1864r(
     score = _ai_candidate_weighted_signal_score_v1864r(signals, config)
     score *= _ai_candidate_num_v1864q(config, "market_score_weight")
     base_before_support = score
+    source_support_mode = _ai_candidate_source_support_mode_v1864u(config)
+    source_score_enabled = _ai_candidate_source_support_scoring_v1864u(config)
     source_bonus_map = {
         "Finansavisen": "finansavisen_bonus",
         "Oljefond/NBIM": "nbim_bonus",
@@ -12115,15 +12250,15 @@ def _ai_candidate_signal_breakdown_v1864r(
         if source_name in evidence:
             freshness = (source_freshness or {}).get(source_name) or _ai_candidate_source_freshness_v1864s(source_name, "", config)
             bonus_factor = max(0.0, min(1.0, float(freshness.get("bonus_factor") or 0.0)))
-            if bonus_factor > 0:
+            if source_score_enabled and bonus_factor > 0:
                 score += _ai_candidate_num_v1864q(config, bonus_key) * bonus_factor
                 if freshness.get("counts_for_multi", True):
                     scoring_sources.append(source_name)
-            elif freshness.get("flag"):
+            elif source_score_enabled and freshness.get("flag"):
                 stale_source_flags.append(str(freshness.get("flag")))
-    if len(scoring_sources if _ai_candidate_bool_v1864r(config, "exclude_old_sources_from_multi_bonus") else [item for item in evidence if item]) >= 2:
+    if source_score_enabled and len(scoring_sources if _ai_candidate_bool_v1864r(config, "exclude_old_sources_from_multi_bonus") else [item for item in evidence if item]) >= 2:
         score += _ai_candidate_num_v1864q(config, "multi_source_bonus")
-    if stale_source_flags and _ai_candidate_num_v1864q(config, "old_source_penalty") > 0:
+    if source_score_enabled and stale_source_flags and _ai_candidate_num_v1864q(config, "old_source_penalty") > 0:
         score -= _ai_candidate_num_v1864q(config, "old_source_penalty")
 
     flags: list[str] = list(stale_source_flags)
@@ -12174,7 +12309,7 @@ def _ai_candidate_signal_breakdown_v1864r(
         for key in active_weight_keys
         if float(family_scores.get(key) or 0.0) >= positive_threshold
     ]
-    if _ai_candidate_bool_v1864r(config, "warn_single_signal") and len(strong_signals) <= 1:
+    if _ai_candidate_bool_v1864r(config, "warn_single_signal") and len(active_weight_keys) > 1 and len(strong_signals) <= 1:
         flags.append("Kun ett sterkt signal" if strong_signals else "Ingen sterke signaler")
     missing = []
     if signals.get("estimate_missing"):
@@ -12200,6 +12335,7 @@ def _ai_candidate_signal_breakdown_v1864r(
         "family_scores": family_scores,
         "search_label": _ai_candidate_search_label_v1864t(config),
         "search_weights": _ai_candidate_search_weight_label_v1864t(config),
+        "source_support_mode": source_support_mode,
         "strong_signals": strong_signals,
         "flags": flags,
         "blockers": blockers,
@@ -12278,7 +12414,7 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
             warn_below_50dma = st.checkbox("Varsle under 50-dagers snitt", value=bool(st.session_state.get(f"{key_prefix}_warn_below_50dma", True)), key=f"{key_prefix}_warn_below_50dma")
             hard_guard_score_cap = st.slider("Maks score ved hard sperre", 4.00, 7.50, float(st.session_state.get(f"{key_prefix}_hard_guard_score_cap", 6.10)), 0.05, key=f"{key_prefix}_hard_guard_score_cap")
         with g2:
-            warn_high_debt = st.checkbox("Varsle hoy gjeld", value=bool(st.session_state.get(f"{key_prefix}_warn_high_debt", True)), key=f"{key_prefix}_warn_high_debt")
+            warn_high_debt = st.checkbox("Varsle høy gjeld", value=bool(st.session_state.get(f"{key_prefix}_warn_high_debt", True)), key=f"{key_prefix}_warn_high_debt")
             max_debt_to_equity = st.number_input("Maks debt/equity", min_value=0, max_value=500, value=int(st.session_state.get(f"{key_prefix}_max_debt_to_equity", 150)), step=5, key=f"{key_prefix}_max_debt_to_equity")
             hard_guard_penalty = st.slider("Trekk per hardt varsel", 0.00, 2.00, float(st.session_state.get(f"{key_prefix}_hard_guard_penalty", 0.50)), 0.05, key=f"{key_prefix}_hard_guard_penalty")
         with g3:
@@ -12465,7 +12601,7 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
         with c2:
             folketrygdfondet_bonus = st.slider("Folketrygdfondet kildebonus", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_folketrygdfondet_bonus", 0.15)), 0.05, key=f"{key_prefix}_folketrygdfondet_bonus")
             multi_source_bonus = st.slider("Bonus for flere ferske kilder", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_multi_source_bonus", 0.15)), 0.05, key=f"{key_prefix}_multi_source_bonus")
-            high_risk_penalty = st.slider("Trekk for hoy risiko", 0.00, 1.50, float(st.session_state.get(f"{key_prefix}_high_risk_penalty", 0.45)), 0.05, key=f"{key_prefix}_high_risk_penalty")
+            high_risk_penalty = st.slider("Trekk for høy risiko", 0.00, 1.50, float(st.session_state.get(f"{key_prefix}_high_risk_penalty", 0.45)), 0.05, key=f"{key_prefix}_high_risk_penalty")
         with c3:
             medium_risk_penalty = st.slider("Trekk for middels risiko", 0.00, 1.00, float(st.session_state.get(f"{key_prefix}_medium_risk_penalty", 0.15)), 0.05, key=f"{key_prefix}_medium_risk_penalty")
             strong_threshold = st.slider("Terskel Sterk kandidat", 5.00, 9.50, float(st.session_state.get(f"{key_prefix}_strong_threshold", 7.40)), 0.05, key=f"{key_prefix}_strong_threshold")
@@ -12492,7 +12628,7 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
             warn_below_50dma = st.checkbox("Varsle under 50-dagers snitt", value=bool(st.session_state.get(f"{key_prefix}_warn_below_50dma", True)), key=f"{key_prefix}_warn_below_50dma")
             hard_guard_score_cap = st.slider("Maks score ved hard sperre", 4.00, 7.50, float(st.session_state.get(f"{key_prefix}_hard_guard_score_cap", 6.10)), 0.05, key=f"{key_prefix}_hard_guard_score_cap")
         with g2:
-            warn_high_debt = st.checkbox("Varsle hoy gjeld", value=bool(st.session_state.get(f"{key_prefix}_warn_high_debt", True)), key=f"{key_prefix}_warn_high_debt")
+            warn_high_debt = st.checkbox("Varsle høy gjeld", value=bool(st.session_state.get(f"{key_prefix}_warn_high_debt", True)), key=f"{key_prefix}_warn_high_debt")
             max_debt_to_equity = st.number_input("Maks debt/equity", min_value=0, max_value=500, value=int(st.session_state.get(f"{key_prefix}_max_debt_to_equity", 150)), step=5, key=f"{key_prefix}_max_debt_to_equity")
             hard_guard_penalty = st.slider("Trekk per hardt varsel", 0.00, 2.00, float(st.session_state.get(f"{key_prefix}_hard_guard_penalty", 0.50)), 0.05, key=f"{key_prefix}_hard_guard_penalty")
         with g3:
@@ -12564,6 +12700,306 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
                 st.rerun()
         with b3:
             st.caption("Standardene prioriterer fersk markedsdata. Gamle institusjonelle kilder vises i forklaring, men gir ikke full rangeringseffekt.")
+    return current_config
+
+
+def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
+    saved_config = _ai_candidate_load_evaluation_config_v1864q()
+    key_prefix = "ai_candidate_eval_v1864q"
+    if st.session_state.get(f"{key_prefix}_loaded") != saved_config:
+        for key, value in saved_config.items():
+            st.session_state[f"{key_prefix}_{key}"] = value
+        st.session_state[f"{key_prefix}_loaded"] = dict(saved_config)
+
+    def _state(key: str, default=None):
+        return st.session_state.get(f"{key_prefix}_{key}", saved_config.get(key, default))
+
+    def _num_state(key: str, default=0.0) -> float:
+        try:
+            return float(_state(key, default))
+        except Exception:
+            return float(default)
+
+    def _int_state(key: str, default=0) -> int:
+        try:
+            return int(_state(key, default))
+        except Exception:
+            return int(default)
+
+    with st.expander("Evalueringsoppsett", expanded=False):
+        st.caption("Oppsettet styrer faktisk søk, score og rapport. Rene signalvalg teller rent; spesialsøk viser egen oppskrift.")
+        h_col, n_col = st.columns([0.55, 1.45])
+        with h_col:
+            current_horizon = _ai_candidate_horizon_v1864s({"horizon": _state("horizon", saved_config.get("horizon"))})
+            horizon = st.selectbox(
+                "Tidshorisont",
+                AI_CANDIDATE_HORIZON_OPTIONS_V1864S,
+                index=AI_CANDIDATE_HORIZON_OPTIONS_V1864S.index(current_horizon),
+                key=f"{key_prefix}_horizon",
+                help="Dette valget endrer hvordan delsignalene tolkes. Profilnavn alene endrer ikke scoringen.",
+            )
+        with n_col:
+            name = st.text_input("Profilnavn", key=f"{key_prefix}_profile_name")
+
+        st.markdown("**1. Signalvalg**")
+        special_index = AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T.index(
+            _ai_candidate_special_search_v1864t({"special_search": _state("special_search", "Ingen")})
+        )
+        special_search = st.selectbox(
+            "Spesialsøk",
+            AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T,
+            index=special_index,
+            key=f"{key_prefix}_special_search",
+            help="Velg Ingen for rent Momentum/Estimat/Eiertrykk-søk. Spesialsøk bruker egen ferdig oppskrift.",
+        )
+
+        saved_active_labels = _ai_candidate_core_signal_labels_v1864t(_state("active_core_signals", saved_config.get("active_core_signals")))
+        selected_core_labels: list[str] = []
+        if special_search == "Ingen":
+            st.caption("Velg ett eller flere hovedsignaler. Når bare ett signal er valgt, teller bare dette signalet i søkescore.")
+            sig_cols = st.columns(3)
+            for sig_col, label in zip(sig_cols, AI_CANDIDATE_CORE_SIGNAL_DEFAULT_LABELS_V1864T):
+                with sig_col:
+                    if st.checkbox(
+                        label,
+                        value=label in saved_active_labels,
+                        key=f"{key_prefix}_core_{AI_CANDIDATE_CORE_SIGNALS_V1864T[label]}",
+                    ):
+                        selected_core_labels.append(label)
+            if not selected_core_labels:
+                selected_core_labels = ["Momentum / relativ styrke"]
+                st.info("Minst ett hovedsignal må være aktivt. Momentum brukes som trygg fallback.")
+            selected_core_keys = _ai_candidate_core_signal_keys_v1864t(selected_core_labels)
+            default_search_weights = _ai_candidate_default_core_weights_v1864t(selected_core_keys)
+            sw1, sw2, sw3, sw4 = st.columns([1, 1, 1, 0.22])
+            with sw1:
+                search_momentum_weight = st.slider(
+                    "Momentum-vekt",
+                    0,
+                    100,
+                    _int_state("search_momentum_weight", default_search_weights.get("momentum", 0)),
+                    1,
+                    key=f"{key_prefix}_search_momentum_weight",
+                    disabled=("momentum" not in selected_core_keys),
+                )
+            with sw2:
+                search_estimate_weight = st.slider(
+                    "Estimat-vekt",
+                    0,
+                    100,
+                    _int_state("search_estimate_weight", default_search_weights.get("estimate", 0)),
+                    1,
+                    key=f"{key_prefix}_search_estimate_weight",
+                    disabled=("estimate" not in selected_core_keys),
+                )
+            with sw3:
+                search_insider_weight = st.slider(
+                    "Eiertrykk-vekt",
+                    0,
+                    100,
+                    _int_state("search_insider_weight", default_search_weights.get("insider", 0)),
+                    1,
+                    key=f"{key_prefix}_search_insider_weight",
+                    disabled=("insider" not in selected_core_keys),
+                )
+            with sw4:
+                if st.button("Std", key="ai_candidate_search_std_v1864t", help="Sett standard vekter for valgte signaler."):
+                    for key, value in default_search_weights.items():
+                        st.session_state[f"{key_prefix}_search_{key}_weight"] = int(value)
+                    st.rerun()
+            manual_total = sum([
+                search_momentum_weight if "momentum" in selected_core_keys else 0,
+                search_estimate_weight if "estimate" in selected_core_keys else 0,
+                search_insider_weight if "insider" in selected_core_keys else 0,
+            ])
+            if manual_total != 100:
+                st.info(f"Søkevektene summerer til {manual_total} %. Motoren normaliserer automatisk til 100 %.")
+        else:
+            selected_core_labels = saved_active_labels or ["Momentum / relativ styrke"]
+            selected_core_keys = _ai_candidate_core_signal_keys_v1864t(selected_core_labels)
+            default_search_weights = _ai_candidate_default_core_weights_v1864t(selected_core_keys)
+            search_momentum_weight = _int_state("search_momentum_weight", default_search_weights.get("momentum", 0))
+            search_estimate_weight = _int_state("search_estimate_weight", default_search_weights.get("estimate", 0))
+            search_insider_weight = _int_state("search_insider_weight", default_search_weights.get("insider", 0))
+            st.info(f"Spesialsøk aktivt: {_ai_candidate_search_weight_label_v1864t({'special_search': special_search})}. Hovedsignal-sliderne er ikke brukt i denne kjøringen.")
+
+        st.markdown("**2. Kildestøtte**")
+        support_mode = _ai_candidate_source_support_mode_v1864u({"source_support_mode": _state("source_support_mode", "Vis som info")})
+        source_support_mode = st.selectbox(
+            "Hvordan skal importerte kilder påvirke søket?",
+            AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U,
+            index=AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U.index(support_mode),
+            key=f"{key_prefix}_source_support_mode",
+            help="Ingen = ikke brukt i score. Vis som info = forklares i tabell/rapport. Bruk som støtte i score = ferske kilder kan løfte rangering.",
+        )
+
+        show_advanced = st.checkbox("Vis avansert scoring, kilder og sperrer", value=False, key=f"{key_prefix}_show_advanced_v1864u")
+
+        relative_strength_weight = _int_state("relative_strength_weight", 25)
+        estimate_revision_weight = _int_state("estimate_revision_weight", 25)
+        insider_buy_weight = _int_state("insider_buy_weight", 20)
+        growth_weight = _int_state("growth_weight", 15)
+        technical_trend_weight = _int_state("technical_trend_weight", 15)
+        market_weight = _num_state("market_score_weight", 1.10)
+        finansavisen_bonus = _num_state("finansavisen_bonus", 0.20)
+        nbim_bonus = _num_state("nbim_bonus", 0.15)
+        folketrygdfondet_bonus = _num_state("folketrygdfondet_bonus", 0.15)
+        multi_source_bonus = _num_state("multi_source_bonus", 0.15)
+        medium_risk_penalty = _num_state("medium_risk_penalty", 0.15)
+        high_risk_penalty = _num_state("high_risk_penalty", 0.45)
+        strong_threshold = _num_state("strong_threshold", 7.40)
+        consider_threshold = _num_state("consider_threshold", 6.30)
+        wait_threshold = _num_state("wait_threshold", 5.20)
+        source_full_bonus_days = _int_state("source_full_bonus_days", 45)
+        source_partial_bonus_days = _int_state("source_partial_bonus_days", 120)
+        source_partial_bonus_factor = _num_state("source_partial_bonus_factor", 0.35)
+        old_source_penalty = _num_state("old_source_penalty", 0.20)
+        exclude_old_sources_from_multi_bonus = bool(_state("exclude_old_sources_from_multi_bonus", True))
+        require_above_200dma = bool(_state("require_above_200dma", True))
+        warn_below_50dma = bool(_state("warn_below_50dma", True))
+        hard_guard_score_cap = _num_state("hard_guard_score_cap", 6.10)
+        warn_high_debt = bool(_state("warn_high_debt", True))
+        max_debt_to_equity = _int_state("max_debt_to_equity", 150)
+        hard_guard_penalty = _num_state("hard_guard_penalty", 0.50)
+        warn_falling_growth = bool(_state("warn_falling_growth", True))
+        warn_weak_liquidity = bool(_state("warn_weak_liquidity", True))
+        min_avg_volume = _int_state("min_avg_volume", 50000)
+        warn_stale_data = bool(_state("warn_stale_data", True))
+        stale_data_days = _int_state("stale_data_days", 7)
+        warn_single_signal = bool(_state("warn_single_signal", True))
+        signal_positive_threshold = _num_state("signal_positive_threshold", 6.50)
+        alert_threshold = _num_state("alert_threshold", 7.50)
+        min_confidence_for_strong = _int_state("min_confidence_for_strong", 60)
+
+        if show_advanced:
+            st.markdown("**3. Signalprofil og scoring**")
+            w1, w2, w3, w4, w5 = st.columns(5)
+            with w1:
+                relative_strength_weight = st.slider("Relativ styrke", 0, 50, relative_strength_weight, 1, key=f"{key_prefix}_relative_strength_weight")
+            with w2:
+                estimate_revision_weight = st.slider("Estimatendringer", 0, 50, estimate_revision_weight, 1, key=f"{key_prefix}_estimate_revision_weight")
+            with w3:
+                insider_buy_weight = st.slider("Insiderkjop", 0, 50, insider_buy_weight, 1, key=f"{key_prefix}_insider_buy_weight")
+            with w4:
+                growth_weight = st.slider("Omsetning/resultat", 0, 50, growth_weight, 1, key=f"{key_prefix}_growth_weight")
+            with w5:
+                technical_trend_weight = st.slider("Teknisk trend", 0, 50, technical_trend_weight, 1, key=f"{key_prefix}_technical_trend_weight")
+
+            st.markdown("**4. Kildebonus og ferskhet**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                market_weight = st.slider("Marked scorevekt", 0.60, 1.40, float(market_weight), 0.05, key=f"{key_prefix}_market_score_weight")
+                finansavisen_bonus = st.slider("Finansavisen kildebonus", 0.00, 1.00, float(finansavisen_bonus), 0.05, key=f"{key_prefix}_finansavisen_bonus")
+                nbim_bonus = st.slider("Oljefond/NBIM kildebonus", 0.00, 1.00, float(nbim_bonus), 0.05, key=f"{key_prefix}_nbim_bonus")
+            with c2:
+                folketrygdfondet_bonus = st.slider("Folketrygdfondet kildebonus", 0.00, 1.00, float(folketrygdfondet_bonus), 0.05, key=f"{key_prefix}_folketrygdfondet_bonus")
+                multi_source_bonus = st.slider("Bonus for flere ferske kilder", 0.00, 1.00, float(multi_source_bonus), 0.05, key=f"{key_prefix}_multi_source_bonus")
+                source_partial_bonus_factor = st.slider("Redusert bonusfaktor", 0.00, 1.00, float(source_partial_bonus_factor), 0.05, key=f"{key_prefix}_source_partial_bonus_factor")
+            with c3:
+                source_full_bonus_days = st.number_input("Full kildebonus t.o.m. dager", min_value=1, max_value=365, value=int(source_full_bonus_days), step=1, key=f"{key_prefix}_source_full_bonus_days")
+                source_partial_bonus_days = st.number_input("Redusert bonus t.o.m. dager", min_value=1, max_value=730, value=int(source_partial_bonus_days), step=5, key=f"{key_prefix}_source_partial_bonus_days")
+                old_source_penalty = st.slider("Trekk ved gammel/ukjent kilde", 0.00, 1.00, float(old_source_penalty), 0.05, key=f"{key_prefix}_old_source_penalty")
+                exclude_old_sources_from_multi_bonus = st.checkbox("Flere-kilder bonus krever ferske kilder", value=bool(exclude_old_sources_from_multi_bonus), key=f"{key_prefix}_exclude_old_sources_from_multi_bonus")
+
+            st.markdown("**5. Risiko, sperrer og terskler**")
+            g1, g2, g3, g4 = st.columns(4)
+            with g1:
+                require_above_200dma = st.checkbox("Krev/marker 200-dagers trend", value=bool(require_above_200dma), key=f"{key_prefix}_require_above_200dma")
+                warn_below_50dma = st.checkbox("Varsle under 50-dagers snitt", value=bool(warn_below_50dma), key=f"{key_prefix}_warn_below_50dma")
+                hard_guard_score_cap = st.slider("Maks score ved hard sperre", 4.00, 7.50, float(hard_guard_score_cap), 0.05, key=f"{key_prefix}_hard_guard_score_cap")
+            with g2:
+                warn_high_debt = st.checkbox("Varsle høy gjeld", value=bool(warn_high_debt), key=f"{key_prefix}_warn_high_debt")
+                max_debt_to_equity = st.number_input("Maks debt/equity", min_value=0, max_value=500, value=int(max_debt_to_equity), step=5, key=f"{key_prefix}_max_debt_to_equity")
+                hard_guard_penalty = st.slider("Trekk per hardt varsel", 0.00, 2.00, float(hard_guard_penalty), 0.05, key=f"{key_prefix}_hard_guard_penalty")
+            with g3:
+                warn_falling_growth = st.checkbox("Varsle fallende vekst", value=bool(warn_falling_growth), key=f"{key_prefix}_warn_falling_growth")
+                warn_weak_liquidity = st.checkbox("Varsle svak likviditet", value=bool(warn_weak_liquidity), key=f"{key_prefix}_warn_weak_liquidity")
+                min_avg_volume = st.number_input("Min snittvolum 20d", min_value=0, max_value=5000000, value=int(min_avg_volume), step=5000, key=f"{key_prefix}_min_avg_volume")
+            with g4:
+                warn_stale_data = st.checkbox("Varsle gammel kursdata", value=bool(warn_stale_data), key=f"{key_prefix}_warn_stale_data")
+                stale_data_days = st.number_input("Gammel kursdata etter dager", min_value=1, max_value=60, value=int(stale_data_days), step=1, key=f"{key_prefix}_stale_data_days")
+                warn_single_signal = st.checkbox("Varsle ett svakt signalgrunnlag", value=bool(warn_single_signal), key=f"{key_prefix}_warn_single_signal")
+                signal_positive_threshold = st.slider("Terskel sterkt delsignal", 5.00, 9.50, float(signal_positive_threshold), 0.05, key=f"{key_prefix}_signal_positive_threshold")
+
+            t1, t2, t3, t4 = st.columns(4)
+            with t1:
+                medium_risk_penalty = st.slider("Trekk for middels risiko", 0.00, 1.00, float(medium_risk_penalty), 0.05, key=f"{key_prefix}_medium_risk_penalty")
+            with t2:
+                high_risk_penalty = st.slider("Trekk for høy risiko", 0.00, 1.50, float(high_risk_penalty), 0.05, key=f"{key_prefix}_high_risk_penalty")
+            with t3:
+                strong_threshold = st.slider("Terskel Sterk kandidat", 5.00, 9.50, float(strong_threshold), 0.05, key=f"{key_prefix}_strong_threshold")
+                consider_threshold = st.slider("Terskel Vurder", 4.00, 8.50, float(consider_threshold), 0.05, key=f"{key_prefix}_consider_threshold")
+            with t4:
+                wait_threshold = st.slider("Terskel Vent", 3.00, 7.50, float(wait_threshold), 0.05, key=f"{key_prefix}_wait_threshold")
+                alert_threshold = st.slider("Varselterskel score", 5.00, 9.80, float(alert_threshold), 0.05, key=f"{key_prefix}_alert_threshold")
+                min_confidence_for_strong = st.slider("Min confidence for Sterk kandidat", 30, 95, int(min_confidence_for_strong), 1, key=f"{key_prefix}_min_confidence_for_strong")
+        else:
+            st.caption("Avansert scoring er skjult. Lagrede verdier brukes fortsatt i rapport og JSON.")
+
+        current_config = {
+            "profile_name": name or f"Standard {horizon}",
+            "horizon": horizon,
+            "relative_strength_weight": relative_strength_weight,
+            "estimate_revision_weight": estimate_revision_weight,
+            "insider_buy_weight": insider_buy_weight,
+            "growth_weight": growth_weight,
+            "technical_trend_weight": technical_trend_weight,
+            "market_score_weight": market_weight,
+            "finansavisen_bonus": finansavisen_bonus,
+            "nbim_bonus": nbim_bonus,
+            "folketrygdfondet_bonus": folketrygdfondet_bonus,
+            "multi_source_bonus": multi_source_bonus,
+            "medium_risk_penalty": medium_risk_penalty,
+            "high_risk_penalty": high_risk_penalty,
+            "hard_guard_score_cap": hard_guard_score_cap,
+            "hard_guard_penalty": hard_guard_penalty,
+            "strong_threshold": strong_threshold,
+            "consider_threshold": consider_threshold,
+            "wait_threshold": wait_threshold,
+            "alert_threshold": alert_threshold,
+            "min_confidence_for_strong": min_confidence_for_strong,
+            "require_above_200dma": bool(require_above_200dma),
+            "warn_below_50dma": bool(warn_below_50dma),
+            "warn_high_debt": bool(warn_high_debt),
+            "max_debt_to_equity": int(max_debt_to_equity),
+            "warn_falling_growth": bool(warn_falling_growth),
+            "warn_weak_liquidity": bool(warn_weak_liquidity),
+            "min_avg_volume": int(min_avg_volume),
+            "warn_stale_data": bool(warn_stale_data),
+            "stale_data_days": int(stale_data_days),
+            "warn_single_signal": bool(warn_single_signal),
+            "signal_positive_threshold": signal_positive_threshold,
+            "source_full_bonus_days": int(source_full_bonus_days),
+            "source_partial_bonus_days": int(source_partial_bonus_days),
+            "source_partial_bonus_factor": float(source_partial_bonus_factor),
+            "old_source_penalty": float(old_source_penalty),
+            "exclude_old_sources_from_multi_bonus": bool(exclude_old_sources_from_multi_bonus),
+            "source_support_mode": source_support_mode,
+            "active_core_signals": list(selected_core_labels),
+            "special_search": special_search,
+            "search_momentum_weight": int(search_momentum_weight),
+            "search_estimate_weight": int(search_estimate_weight),
+            "search_insider_weight": int(search_insider_weight),
+        }
+        total_weight = relative_strength_weight + estimate_revision_weight + insider_buy_weight + growth_weight + technical_trend_weight
+        if show_advanced and total_weight != 100:
+            st.info(f"Signalprofilvektene summerer til {total_weight} %. Motoren normaliserer automatisk til 100 %.")
+
+        b1, b2, b3 = st.columns([0.22, 0.22, 0.56])
+        with b1:
+            if st.button("Lagre oppsett", key="ai_candidate_save_eval_setup_v1864q"):
+                _ai_candidate_save_evaluation_config_v1864q(current_config)
+                st.success("Evalueringsoppsett lagret.")
+        with b2:
+            if st.button("Standard", key="ai_candidate_reset_eval_setup_v1864q", help="Bruk standard for valgt horisont."):
+                standard_config = _ai_candidate_standard_config_v1864s(horizon)
+                _ai_candidate_save_evaluation_config_v1864q(standard_config)
+                for key, value in standard_config.items():
+                    st.session_state[f"{key_prefix}_{key}"] = value
+                st.session_state[f"{key_prefix}_loaded"] = dict(standard_config)
+                st.rerun()
+        with b3:
+            st.caption("Standardene prioriterer fersk markedsdata. Kildestøtte bestemmer om importerte data bare forklarer eller også påvirker score.")
     return current_config
 
 
@@ -12683,7 +13119,7 @@ def _ai_candidate_source_status_v1864l(config: dict | None = None) -> list[dict]
     config = config or _ai_candidate_load_evaluation_config_v1864q()
     rows = [{
         "Kilde": "Marked",
-        "Oppdatert": "Ny kjoring nar testen kjores",
+        "Oppdatert": "Ny kjøring når testen kjøres",
         "Kildedato": "na",
         "Tickere": "Valgt marked",
         "Databruk": "Fersk score/kurs-run",
@@ -12784,7 +13220,7 @@ def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float, evaluati
     label = str(raw_label or "").strip()
     normalized = label.upper()
     if "SELL" in normalized or "SELG" in normalized or "UNNG" in normalized:
-        return "Unnga"
+        return "Unngå"
     confidence_num = _ai_candidate_confidence_number_v1864q(confidence)
     min_conf = _ai_candidate_num_v1864q(config, "min_confidence_for_strong")
     if score_num >= _ai_candidate_num_v1864q(config, "strong_threshold") and (not confidence_num or confidence_num >= min_conf):
@@ -12793,7 +13229,7 @@ def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float, evaluati
         return "Vurder"
     if score_num >= _ai_candidate_num_v1864q(config, "wait_threshold"):
         return "Vent"
-    return label or "Unnga"
+    return label or "Unngå"
 
 
 def _ai_candidate_source_strength_v1864m(evidence: list[str], source_freshness: dict | None = None) -> str:
@@ -12807,8 +13243,8 @@ def _ai_candidate_source_strength_v1864m(evidence: list[str], source_freshness: 
     if len(fresh) == 1 and historical:
         return "Fersk + historisk"
     if len(fresh) == 1:
-        return "Fersk stotte"
-    return "Historisk stotte"
+        return "Fersk støtte"
+    return "Historisk støtte"
 
 
 def _ai_candidate_listing_v1864m(ticker: str, item: dict, selected_market: str) -> dict[str, str]:
@@ -12925,7 +13361,7 @@ def _ai_candidate_result_rows_v1864l(
         except Exception:
             anbefaling = ""
         if not anbefaling:
-            anbefaling = "Folg med" if score_num >= 7.0 else "Vent" if score_num >= 5.5 else "Unnga"
+            anbefaling = "Følg med" if score_num >= 7.0 else "Vent" if score_num >= 5.5 else "Unngå"
         confidence = item.get("confidence") or item.get("system_confidence")
         if confidence in (None, ""):
             confidence = min(95, max(35, int(round(score_num * 10)))) if score_num else ""
@@ -12938,12 +13374,21 @@ def _ai_candidate_result_rows_v1864l(
             f"{name}: {(meta or {}).get('status')}"
             for name, meta in source_freshness.items()
         ) or "-"
+        source_support_mode = breakdown.get("source_support_mode") or _ai_candidate_source_support_mode_v1864u(config)
+        source_evidence_for_score = evidence if source_support_mode == "Bruk som støtte i score" else []
         reason_bits = [_ai_candidate_source_label_v1864q(source_list)]
         if evidence:
             reason_bits.append("Kildebevis: " + ", ".join(evidence))
         if item.get("reason"):
             reason_bits.append(str(item.get("reason")))
         family_scores = breakdown.get("family_scores") or {}
+        active_family_keys = set(_ai_candidate_active_search_weights_v1864t(config).keys())
+
+        def _active_signal_value(family_key: str, value):
+            return value if family_key in active_family_keys else "-"
+
+        snapshot = (breakdown.get("signals") or {}).get("snapshot") or {}
+        technical_evidence = _ai_candidate_technical_evidence_text_v1864u(snapshot, config)
         rows.append({
             "Rank": idx,
             "Ticker": ticker,
@@ -12960,16 +13405,33 @@ def _ai_candidate_result_rows_v1864l(
             "Kilder": ", ".join(evidence) if evidence else "Marked",
             "Kildealder": source_age,
             "Kildestyrke": source_strength,
-            "Momentumscore": family_scores.get("momentum"),
-            "Estimatløftscore": family_scores.get("estimate"),
-            "Eiertrykkscore": family_scores.get("insider"),
-            "Relativ styrke": breakdown.get("signals", {}).get("relative_strength"),
-            "Estimatendringer": breakdown.get("signals", {}).get("estimate_revisions"),
-            "Insiderkjop": breakdown.get("signals", {}).get("insider_buying"),
-            "Vekst": breakdown.get("signals", {}).get("growth"),
-            "Teknisk trend": breakdown.get("signals", {}).get("technical_trend"),
-            "Volumbrudd": breakdown.get("signals", {}).get("volume_breakout"),
-            "Resultatsjokk": breakdown.get("signals", {}).get("result_shock"),
+            "Kildestøtte": source_support_mode,
+            "Momentumscore": _active_signal_value("momentum", family_scores.get("momentum")),
+            "Estimatløftscore": _active_signal_value("estimate", family_scores.get("estimate")),
+            "Eiertrykkscore": _active_signal_value("insider", family_scores.get("insider")),
+            "Relativ styrke": _active_signal_value("momentum", breakdown.get("signals", {}).get("relative_strength")),
+            "Estimatendringer": _active_signal_value("estimate", breakdown.get("signals", {}).get("estimate_revisions")),
+            "Insiderkjop": _active_signal_value("insider", breakdown.get("signals", {}).get("insider_buying")),
+            "Vekst": _active_signal_value("growth", breakdown.get("signals", {}).get("growth")),
+            "Teknisk trend": _active_signal_value("technical", breakdown.get("signals", {}).get("technical_trend")),
+            "Volumbrudd": _active_signal_value("volume", breakdown.get("signals", {}).get("volume_breakout")),
+            "Resultatsjokk": _active_signal_value("result_shock", breakdown.get("signals", {}).get("result_shock")),
+            "Teknisk bevis": technical_evidence,
+            "Siste kurs": _ai_candidate_metric_text_v1864u(snapshot.get("last_close")),
+            "52u høy": _ai_candidate_metric_text_v1864u(snapshot.get("high_52w")),
+            "% av 52u": _ai_candidate_metric_text_v1864u(snapshot.get("pct_of_52w_high"), 1, "%"),
+            "MA50": _ai_candidate_metric_text_v1864u(snapshot.get("ma50")),
+            "MA200": _ai_candidate_metric_text_v1864u(snapshot.get("ma200")),
+            "Over MA50": _ai_candidate_bool_text_v1864u(snapshot.get("above_50dma")),
+            "Over MA200": _ai_candidate_bool_text_v1864u(snapshot.get("above_200dma")),
+            "Volum siste": _ai_candidate_metric_text_v1864u(snapshot.get("last_volume"), 0),
+            "Volum 20d": _ai_candidate_metric_text_v1864u(snapshot.get("avg_volume_20"), 0),
+            "Volum 50d": _ai_candidate_metric_text_v1864u(snapshot.get("avg_volume_50"), 0),
+            "Volum/20d": _ai_candidate_ratio_text_v1864u(snapshot.get("volume_ratio_20")),
+            "Volum/50d": _ai_candidate_ratio_text_v1864u(snapshot.get("volume_ratio_50")),
+            "Likviditet": _ai_candidate_liquidity_status_v1864u(snapshot, config),
+            "Slår marked": item.get("beats_market") or item.get("market_relative_note") or "Benchmark mangler",
+            "Slår sektor": item.get("beats_sector") or item.get("sector_relative_note") or "Sektordata mangler",
             "Sterke signaler": ", ".join(breakdown.get("strong_signals") or []) or "-",
             "Sperrer/varsler": ", ".join(flags) if flags else "-",
             "Datamangler": ", ".join(breakdown.get("missing") or []) if breakdown.get("missing") else "-",
@@ -12979,8 +13441,8 @@ def _ai_candidate_result_rows_v1864l(
             "Anbefaling": _ai_candidate_action_label_v1864m(anbefaling, score_num, config, confidence),
             "Varsel": alert,
             "Endring": change,
-            "Forklaring": _ai_candidate_score_explanation_v1864m(score_num, f"{confidence}%" if isinstance(confidence, int) else confidence, str(risk), evidence, change, breakdown),
-            "Neste handling": "Send til vurdering/paper" if score_num >= _ai_candidate_num_v1864q(config, "consider_threshold") else "Overvak / vent",
+            "Forklaring": _ai_candidate_score_explanation_v1864m(score_num, f"{confidence}%" if isinstance(confidence, int) else confidence, str(risk), source_evidence_for_score, change, breakdown),
+            "Neste handling": "Send til vurdering/paper" if score_num >= _ai_candidate_num_v1864q(config, "consider_threshold") else "Overvåk / vent",
         })
     rows.sort(key=lambda row: float(row.get("Score") or 0.0), reverse=True)
     for new_rank, row in enumerate(rows, start=1):
@@ -13031,6 +13493,7 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
             "Kilder": row.get("Kilder"),
             "Kildealder": row.get("Kildealder"),
             "Kildestyrke": row.get("Kildestyrke"),
+            "Kildestøtte": row.get("Kildestøtte"),
             "Momentumscore": row.get("Momentumscore"),
             "Estimatløftscore": row.get("Estimatløftscore"),
             "Eiertrykkscore": row.get("Eiertrykkscore"),
@@ -13041,6 +13504,22 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
             "Teknisk trend": row.get("Teknisk trend"),
             "Volumbrudd": row.get("Volumbrudd"),
             "Resultatsjokk": row.get("Resultatsjokk"),
+            "Teknisk bevis": row.get("Teknisk bevis"),
+            "Siste kurs": row.get("Siste kurs"),
+            "52u høy": row.get("52u høy"),
+            "% av 52u": row.get("% av 52u"),
+            "MA50": row.get("MA50"),
+            "MA200": row.get("MA200"),
+            "Over MA50": row.get("Over MA50"),
+            "Over MA200": row.get("Over MA200"),
+            "Volum siste": row.get("Volum siste"),
+            "Volum 20d": row.get("Volum 20d"),
+            "Volum 50d": row.get("Volum 50d"),
+            "Volum/20d": row.get("Volum/20d"),
+            "Volum/50d": row.get("Volum/50d"),
+            "Likviditet": row.get("Likviditet"),
+            "Slår marked": row.get("Slår marked"),
+            "Slår sektor": row.get("Slår sektor"),
             "Sterke signaler": row.get("Sterke signaler"),
             "Sperrer/varsler": row.get("Sperrer/varsler"),
             "Datamangler": row.get("Datamangler"),
@@ -13076,6 +13555,7 @@ th {{ background: #e5f3ff; }}
 <div class="method">
 <p><b>Signalmodus:</b> {html.escape(_ai_candidate_search_label_v1864t(evaluation))}</p>
 <p><b>Søkevekter:</b> {html.escape(_ai_candidate_search_weight_label_v1864t(evaluation))}</p>
+<p><b>Kildestøtte:</b> {html.escape(_ai_candidate_source_support_mode_v1864u(evaluation))}</p>
 <p>Detaljrapporten viser konkret hvilke delsignaler, kildefunn, sperrer, datamangler og anbefalinger hver valgt aksje bygger på.</p>
 </div>
 {table}
@@ -13117,7 +13597,8 @@ th {{ background: #e5f3ff; }}
 <h2>Metode og evaluering</h2>
 <p><b>Valgte kilder:</b> {html.escape(sources)} | <b>Profil:</b> {profile}</p>
 <p><b>Signalmodus:</b> {html.escape(_ai_candidate_search_label_v1864t(evaluation))} | <b>Søkevekter:</b> {html.escape(_ai_candidate_search_weight_label_v1864t(evaluation))}</p>
-<p>Marked gir grunnscore. Importerte kilder kan gi kildebonus når de faktisk har evidens på tickeren og kildedatoen er fersk nok for valgt tidshorisont. Gammel institusjonell informasjon vises som historisk støtte, men skal ikke løfte rangeringen som fersk evidens. Tersklene styrer anbefaling og varsel.</p>
+<p><b>Kildestøtte:</b> {html.escape(_ai_candidate_source_support_mode_v1864u(evaluation))}</p>
+<p>Marked gir grunnscore. Importerte kilder kan brukes som ren info eller som støtte i score, avhengig av valgt kildestøtte. Når kildestøtte står på info eller ingen, løfter ikke gamle institusjonelle data rangeringen. Tersklene styrer anbefaling og varsel.</p>
 <p>Hard signalmodus betyr at bare valgte signalfamilier teller i søkescore. Spesialsøk bruker ferdige signalvekter som vises i rapporten. Manglende datakilder vises som datamangler, og sperrer/varsler dokumenteres per rad.</p>
 {method_table}
 </div>
@@ -13196,7 +13677,7 @@ def _ai_candidate_pipeline_rows_v1864m(rows: list[dict]) -> list[dict]:
 def _ai_candidate_open_stage_v1864m(stage_id: str, rows: list[dict]) -> None:
     pipeline_rows = _ai_candidate_pipeline_rows_v1864m(rows)
     if not pipeline_rows:
-        st.warning("Velg minst en kandidat forst.")
+        st.warning("Velg minst en kandidat først.")
         return
     try:
         pipeline = _analysis_pipeline_service_v1863bw()
@@ -13218,13 +13699,62 @@ def _ai_candidate_send_watchlist_v1864m(rows: list[dict]) -> None:
     tickers = [normalize_user_ticker(row.get("Ticker") or row.get("ticker")) for row in rows or []]
     tickers = [ticker for ticker in tickers if ticker]
     if not tickers:
-        st.warning("Velg minst en kandidat forst.")
+        st.warning("Velg minst en kandidat først.")
         return
     existing = [normalize_user_ticker(ticker) for ticker in (st.session_state.get("latest_watchlist_tickers_v156") or [])]
     merged = list(dict.fromkeys([ticker for ticker in existing + tickers if ticker]))
     st.session_state["latest_watchlist_tickers_v156"] = merged
     st.session_state["watchlist"] = merged
     st.success(f"La {len(tickers)} valgte kandidater i watchlist.")
+
+
+def _ai_candidate_chart_history_v1864u(ticker: str):
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    symbol = normalize_user_ticker(ticker)
+    if not symbol:
+        return None, "Ticker mangler"
+    try:
+        hist = yf.Ticker(symbol).history(period="1y", auto_adjust=False)
+    except Exception as exc:
+        return None, str(exc)[:160]
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return None, "Ingen historikk fra datakilden"
+    return hist.dropna(subset=["Close"]), ""
+
+
+def _render_ai_candidate_technical_chart_v1864u(ticker: str) -> None:
+    hist, err = _ai_candidate_chart_history_v1864u(ticker)
+    if hist is None or hist.empty:
+        st.caption(f"Teknisk kurve kunne ikke hentes: {err}")
+        return
+    close = hist["Close"].dropna()
+    if close.empty:
+        st.caption("Teknisk kurve mangler sluttkurs.")
+        return
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+    high_52w = float(close.tail(min(252, len(close))).max())
+    last_close = float(close.iloc[-1])
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=close.index, y=close, name="Kurs", mode="lines"))
+    fig.add_trace(go.Scatter(x=ma50.index, y=ma50, name="MA50", mode="lines"))
+    fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines"))
+    fig.add_hline(y=high_52w, line_dash="dot", annotation_text=f"52u høy {high_52w:.2f}")
+    fig.add_hline(y=last_close, line_dash="dash", annotation_text=f"Siste {last_close:.2f}")
+    fig.update_layout(height=330, margin=dict(l=10, r=10, t=28, b=10), title=f"{ticker} kurs, MA50/MA200 og 52-ukers høyde")
+    st.plotly_chart(fig, use_container_width=True)
+    if "Volume" in hist:
+        volume = hist["Volume"].dropna()
+        if not volume.empty:
+            vol20 = volume.rolling(20).mean()
+            vol50 = volume.rolling(50).mean()
+            vfig = go.Figure()
+            vfig.add_trace(go.Bar(x=volume.index, y=volume, name="Volum"))
+            vfig.add_trace(go.Scatter(x=vol20.index, y=vol20, name="Volum 20d", mode="lines"))
+            vfig.add_trace(go.Scatter(x=vol50.index, y=vol50, name="Volum 50d", mode="lines"))
+            vfig.update_layout(height=240, margin=dict(l=10, r=10, t=28, b=10), title=f"{ticker} volum mot 20/50-dagers snitt")
+            st.plotly_chart(vfig, use_container_width=True)
 
 
 def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None = None) -> list[dict]:
@@ -13248,16 +13778,16 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
     st.caption(f"Valgt: {len(selected)} av {len(rows or [])} kandidater.")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        if st.button("Send valgte til Top Picks", key="ai_candidate_send_top_picks_v1864m", use_container_width=True, disabled=not selected):
+        if st.button("Top Picks", key="ai_candidate_send_top_picks_v1864m", disabled=not selected):
             _ai_candidate_open_stage_v1864m("top_picks", selected)
     with c2:
-        if st.button("Send til Beslutningsgrunnlag", key="ai_candidate_send_decision_v1864m", use_container_width=True, disabled=not selected):
+        if st.button("Beslutning", key="ai_candidate_send_decision_v1864m", disabled=not selected):
             _ai_candidate_open_stage_v1864m("decision_support", selected)
     with c3:
-        if st.button("Send til Paper Trading", key="ai_candidate_send_paper_v1864m", use_container_width=True, disabled=not selected):
+        if st.button("Paper", key="ai_candidate_send_paper_v1864m", disabled=not selected):
             _ai_candidate_open_stage_v1864m("paper_trading", selected)
     with c4:
-        if st.button("Legg i Watchlist", key="ai_candidate_send_watchlist_v1864m", use_container_width=True, disabled=not selected):
+        if st.button("Watchlist", key="ai_candidate_send_watchlist_v1864m", disabled=not selected):
             _ai_candidate_send_watchlist_v1864m(selected)
     detail_options = ["Velg ticker"] + [str(row.get("Ticker") or "") for row in rows or [] if row.get("Ticker")]
     detail_choice = st.selectbox("Detaljvisning for enkel ticker", detail_options, key="ai_candidate_detail_ticker_v1864t")
@@ -13268,6 +13798,9 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
         with st.expander("Detaljrapport", expanded=bool(selected) or detail_choice != "Velg ticker"):
             details = _ai_candidate_detail_rows_v1864t(detail_rows, result or {})
             st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
+            if detail_choice != "Velg ticker":
+                st.markdown("##### Teknisk kurve")
+                _render_ai_candidate_technical_chart_v1864u(detail_choice)
             base = _ai_candidate_basename_v1864l(result or {})
             d1, d2, d3 = st.columns(3)
             with d1:
@@ -13276,7 +13809,6 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
                     data=pd.DataFrame(details).to_csv(index=False).encode("utf-8-sig"),
                     file_name=f"{base}_detalj.csv",
                     mime="text/csv",
-                    use_container_width=True,
                 )
             with d2:
                 st.download_button(
@@ -13284,7 +13816,6 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
                     data=_ai_candidate_detail_html_v1864t(detail_rows, result or {}),
                     file_name=f"{base}_detaljrapport.html",
                     mime="text/html",
-                    use_container_width=True,
                 )
             with d3:
                 st.download_button(
@@ -13292,7 +13823,6 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
                     data=json.dumps({"result": result or {}, "details": details}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
                     file_name=f"{base}_detalj.json",
                     mime="application/json",
-                    use_container_width=True,
                 )
     return selected
 
@@ -13421,11 +13951,11 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
         d1, d2, d3 = st.columns(3)
         with d1:
-            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv")
         with d2:
-            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html")
         with d3:
-            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json")
     else:
         st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
 
@@ -13479,15 +14009,17 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             f"- Signalprofil {horizon} bruker Relativ styrke, Estimatendringer, Insiderkjop, Omsetning/resultat og Teknisk trend som egne delsignaler.\n"
             f"- Aktiv signalmodus: {_ai_candidate_search_label_v1864t(evaluation_config)} ({_ai_candidate_search_weight_label_v1864t(evaluation_config)}).\n"
             "- I hard signalmodus teller bare valgte hovedsignaler eller valgt spesialsøk i selve søkescore.\n"
+            f"- Kildestøtte: {_ai_candidate_source_support_mode_v1864u(evaluation_config)}.\n"
+            "- Teknisk bevis viser 52-ukers høyde, MA50/MA200, volum mot 20/50-dagers snitt og likviditet når kursdata finnes.\n"
             "- Tidshorisont endrer faktisk vekting i motoren. Profilnavn er bare en etikett i rapporten.\n"
             "- Estimat-, insider- og vekstdata som mangler blir vist som Datamangler i resultatet, ikke skjult.\n"
-            "- Sperrer og varsler kan cappe eller trekke ned score ved under 200-dagers snitt, hoy gjeld, fallende vekst, svak likviditet, gammel kursdata eller for smalt signalgrunnlag."
+            "- Sperrer og varsler kan cappe eller trekke ned score ved under 200-dagers snitt, høy gjeld, fallende vekst, svak likviditet, gammel kursdata eller for smalt signalgrunnlag."
         )
         st.markdown(
             "- Marked gir grunnscore fra fersk rangering.\n"
-            "- Valgte importkilder gir bare full bonus nar de faktisk har evidens pa tickeren og kildedatoen er fersk nok.\n"
-            "- Eldre eller udaterte institusjonsdata vises som historisk stotte og tas ut av flere-kilder bonus.\n"
-            "- Risiko trekker ned for anbefaling settes.\n"
+            "- Valgte importkilder gir bare full bonus når de faktisk har evidens på tickeren og kildedatoen er fersk nok.\n"
+            "- Eldre eller udaterte institusjonsdata vises som historisk støtte og tas ut av flere-kilder bonus.\n"
+            "- Risiko trekker ned før anbefaling settes.\n"
             "- Tersklene i Evalueringsoppsett styrer Sterk kandidat, Vurder, Vent og Varsel."
         )
         st.dataframe(
@@ -13504,7 +14036,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
     else:
         st.warning("Ingen kandidater funnet for valgt kilde. Importer datakilde, velg marked eller skriv manuell liste.")
 
-    if st.button("Kjor AI Kandidattest", key="ai_candidate_run_v1864l", type="primary", use_container_width=True, disabled=not bool(preview_tickers)):
+    if st.button("Kjør test", key="ai_candidate_run_v1864l", type="primary", disabled=not bool(preview_tickers)):
         progress = st.progress(0, text="Starter AI Kandidattest")
         progress.progress(25, text="Henter ferske kurs-/scoredatasett")
         ranked = cached_auto_rank_market(
@@ -13546,14 +14078,14 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
     rows = result.get("rows") if isinstance(result, dict) else []
     if isinstance(result, dict) and result.get("created_at"):
         if "ai_candidate_test_last_result_v1864l" not in st.session_state:
-            st.caption("Viser sist lagrede AI Kandidattest. Kjor testen pa nytt for fersk kandidatfangst.")
+            st.caption("Viser sist lagrede AI Kandidattest. Kjør testen på nytt for fersk kandidatfangst.")
         st.markdown("#### Resultat")
         result_sources = ", ".join(_ai_candidate_source_list_v1864q(result.get("sources") or result.get("source")))
         result_eval = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
         result_profile = result_eval.get("profile_name") or "Standard"
         result_horizon = result_eval.get("horizon") or "1-6 mnd"
         st.caption(
-            f"Kilder brukt i kjoringen: {result_sources or '-'} | Tidshorisont: {result_horizon} | "
+            f"Kilder brukt i kjøringen: {result_sources or '-'} | Tidshorisont: {result_horizon} | "
             f"Signalmodus: {_ai_candidate_search_label_v1864t(result_eval)} | Evalueringsprofil: {result_profile}"
         )
         if rows:
@@ -13567,7 +14099,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
             )
             _render_ai_candidate_selection_v1864m(rows, result)
         else:
-            st.info("Kjoringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
+            st.info("Kjøringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
         basename = _ai_candidate_basename_v1864l(result)
         st.markdown("#### Lagre / print / eksport")
         st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
@@ -13579,7 +14111,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         with d3:
             st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
     else:
-        st.info("Kjor testen for a lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
+        st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
 
 
 def control_center_extra_panels_v18535():

@@ -4,6 +4,13 @@ from settings_store import load_settings
 import os
 import requests
 
+try:
+    from runtime_env import load_app_env
+
+    load_app_env()
+except Exception:
+    pass
+
 PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
