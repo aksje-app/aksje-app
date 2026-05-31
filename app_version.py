@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.4v"
-APP_VERSION_NAME = "Printable Technical Charts and Clean Detail Graphs"
-APP_BUILD_ID = "v1864v-printable-technical-charts-clean-detail-graphs"
+APP_VERSION = "v18.6.4w"
+APP_VERSION_NAME = "Prioritized Candidate Evidence and Search Explanations"
+APP_BUILD_ID = "v1864w-prioritized-candidate-evidence-search-explanations"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest viser nå Utvalgsgrunnlag, Bevisstatus og Prioritert bevis per kandidat, slik at grunnlaget for utvelgelsen blir synlig i prioritert rekkefølge.",
+    "Resultatsjokk-søk skiller mellom bekreftet fundamentalt resultatsjokk og teknisk/proxy-basert reaksjon når EPS-, omsetnings- eller guidance-data mangler.",
+    "Detaljrapport og Print/PDF HTML har en egen Hvorfor ble aksjen valgt-seksjon med prioritet, funn, verdi, poengbidrag, kilde, dato og status.",
+    "Neste handling er strammet inn slik at kandidater med Unngå ikke samtidig foreslås sendt videre til vurdering eller paper trading.",
     "AI Kandidattest skjuler Plotly-verktøylinjen i teknisk detaljgraf, slik at zoom-knapper ikke dekker kurver eller nøkkeltall.",
     "Teknisk detaljgraf viser 52-ukers høyde og siste kurs som rene linjer med legend/tekst utenfor plotteflaten, slik at label-tekst ikke overlapper.",
     "Detalj Print/PDF HTML bygger nå printvennlige SVG-kurver for kurs, MA50/MA200, 52-ukers høyde og volum mot 20/50-dagers snitt.",

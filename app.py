@@ -13280,6 +13280,321 @@ def _ai_candidate_sector_v1864t(ticker: str, item: dict) -> str:
     return "Ukjent"
 
 
+def _ai_candidate_first_value_v1864w(item: dict, *keys):
+    for key in keys:
+        if not key:
+            continue
+        value = (item or {}).get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _ai_candidate_float_value_v1864w(value):
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _ai_candidate_pct_text_v1864w(value, *, decimals: int = 1) -> str:
+    number = _ai_candidate_float_value_v1864w(value)
+    if number is None:
+        return "-"
+    if abs(number) <= 2.0:
+        number *= 100.0
+    return f"{number:+.{decimals}f}%"
+
+
+def _ai_candidate_source_date_text_v1864w(source_freshness: dict | None) -> str:
+    items = []
+    for source_name, meta in (source_freshness or {}).items():
+        date_text = str((meta or {}).get("data_date") or "").strip()
+        status = str((meta or {}).get("status") or "").strip()
+        if date_text or status:
+            items.append(f"{source_name}: {date_text or status}")
+    return ", ".join(items) or "-"
+
+
+def _ai_candidate_evidence_entry_v1864w(priority: int, funn: str, value: str, score, source: str, date: str, status: str) -> dict:
+    score_text = "-"
+    try:
+        if score not in (None, ""):
+            score_text = f"{float(score):.2f}"
+    except Exception:
+        score_text = str(score or "-")
+    return {
+        "Prioritet": int(priority),
+        "Funn": str(funn or "-"),
+        "Verdi": str(value or "-"),
+        "Poengbidrag": score_text,
+        "Kilde": str(source or "-"),
+        "Dato": str(date or "-"),
+        "Status": str(status or "-"),
+    }
+
+
+def _ai_candidate_evidence_line_v1864w(entry: dict) -> str:
+    return (
+        f"{entry.get('Prioritet')}. {entry.get('Funn')}: {entry.get('Verdi')} "
+        f"(score {entry.get('Poengbidrag')}; kilde {entry.get('Kilde')}; dato {entry.get('Dato')}; status {entry.get('Status')})"
+    )
+
+
+def _ai_candidate_evidence_summary_v1864w(entries: list[dict], *, limit: int = 4) -> str:
+    if not entries:
+        return "-"
+    return " | ".join(_ai_candidate_evidence_line_v1864w(entry) for entry in entries[:limit])
+
+
+def _ai_candidate_evidence_status_v1864w(entries: list[dict]) -> str:
+    if not entries:
+        return "Ingen konkret bevisliste"
+    statuses = []
+    for entry in entries:
+        status = str(entry.get("Status") or "").strip()
+        if status and status not in statuses:
+            statuses.append(status)
+    return "; ".join(statuses[:3]) or "Bevis vurdert"
+
+
+def _ai_candidate_result_shock_evidence_v1864w(item: dict, signals: dict, family_scores: dict, source_freshness: dict | None) -> list[dict]:
+    actual_eps = _ai_candidate_first_value_v1864w(item, "eps_actual", "actual_eps", "earnings_actual_eps", "reported_eps")
+    expected_eps = _ai_candidate_first_value_v1864w(item, "eps_expected", "eps_estimate", "estimated_eps", "consensus_eps")
+    actual_revenue = _ai_candidate_first_value_v1864w(item, "revenue_actual", "actual_revenue", "reported_revenue")
+    expected_revenue = _ai_candidate_first_value_v1864w(item, "revenue_expected", "revenue_estimate", "estimated_revenue", "consensus_revenue")
+    eps_surprise = _ai_candidate_first_value_v1864w(item, "eps_surprise_pct", "earnings_surprise_pct", "surprise_pct")
+    revenue_surprise = _ai_candidate_first_value_v1864w(item, "revenue_surprise_pct", "sales_surprise_pct")
+    result_date = _ai_candidate_first_value_v1864w(item, "earnings_date", "result_date", "report_date", "latest_earnings_date")
+    guidance = _ai_candidate_first_value_v1864w(item, "guidance", "guidance_change", "guidance_status", "outlook")
+    ret_1m = _ai_candidate_pct_text_v1864w(item.get("ret_1m"))
+    snapshot = signals.get("snapshot") or {}
+    volume_text = (
+        f"vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}, "
+        f"vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}"
+    )
+    confirmed = any(value not in (None, "") for value in [actual_eps, expected_eps, actual_revenue, expected_revenue, eps_surprise, revenue_surprise, guidance])
+    source_date = str(result_date or _ai_candidate_source_date_text_v1864w(source_freshness))
+    if not confirmed:
+        return [
+            _ai_candidate_evidence_entry_v1864w(
+                1,
+                "Resultatsjokk ikke bekreftet",
+                "EPS/omsetningssurprise mangler; score bruker teknisk reaksjon, estimat-/vekstscore og volum som proxy",
+                family_scores.get("result_shock"),
+                "Marked/proxy",
+                source_date,
+                "Ikke bekreftet fundamentalt",
+            ),
+            _ai_candidate_evidence_entry_v1864w(
+                2,
+                "Kursreaksjon etter mulig katalysator",
+                f"1m {ret_1m}; momentum {family_scores.get('momentum', '-')}",
+                family_scores.get("momentum"),
+                "Marked",
+                "-",
+                "Teknisk proxy",
+            ),
+            _ai_candidate_evidence_entry_v1864w(
+                3,
+                "Volumreaksjon",
+                volume_text,
+                family_scores.get("volume"),
+                "Marked",
+                "-",
+                "Volumproxy",
+            ),
+        ]
+    value_bits = []
+    if actual_eps not in (None, "") or expected_eps not in (None, ""):
+        value_bits.append(f"EPS {actual_eps if actual_eps not in (None, '') else '?'} vs {expected_eps if expected_eps not in (None, '') else '?'}")
+    if eps_surprise not in (None, ""):
+        value_bits.append(f"EPS surprise {_ai_candidate_pct_text_v1864w(eps_surprise)}")
+    if actual_revenue not in (None, "") or expected_revenue not in (None, ""):
+        value_bits.append(f"Omsetning {actual_revenue if actual_revenue not in (None, '') else '?'} vs {expected_revenue if expected_revenue not in (None, '') else '?'}")
+    if revenue_surprise not in (None, ""):
+        value_bits.append(f"Omsetningssurprise {_ai_candidate_pct_text_v1864w(revenue_surprise)}")
+    if guidance not in (None, ""):
+        value_bits.append(f"Guiding {guidance}")
+    return [
+        _ai_candidate_evidence_entry_v1864w(
+            1,
+            "Bekreftet resultatsjokk",
+            " | ".join(value_bits) or "Resultatavvik funnet",
+            family_scores.get("result_shock"),
+            "Resultat/estimat",
+            source_date,
+            "Bekreftet",
+        ),
+        _ai_candidate_evidence_entry_v1864w(
+            2,
+            "Kurs- og volumreaksjon",
+            f"1m {ret_1m}; {volume_text}",
+            family_scores.get("momentum"),
+            "Marked",
+            "-",
+            "Bekreftende markedsreaksjon",
+        ),
+    ]
+
+
+def _ai_candidate_family_evidence_v1864w(
+    family_key: str,
+    item: dict,
+    breakdown: dict,
+    evidence: list[str],
+    config: dict,
+    source_freshness: dict | None,
+) -> list[dict]:
+    signals = breakdown.get("signals") or {}
+    family_scores = breakdown.get("family_scores") or {}
+    snapshot = signals.get("snapshot") or {}
+    source_text = ", ".join(evidence) if evidence else "Marked"
+    source_date = _ai_candidate_source_date_text_v1864w(source_freshness)
+    if family_key == "result_shock":
+        return _ai_candidate_result_shock_evidence_v1864w(item, signals, family_scores, source_freshness)
+    if family_key == "momentum":
+        return [
+            _ai_candidate_evidence_entry_v1864w(
+                0,
+                "Momentum / relativ styrke",
+                f"1m {_ai_candidate_pct_text_v1864w(item.get('ret_1m'))}, 3m {_ai_candidate_pct_text_v1864w(item.get('ret_3m'))}, 6m {_ai_candidate_pct_text_v1864w(item.get('ret_6m'))}; RS {signals.get('relative_strength', '-')}",
+                family_scores.get("momentum"),
+                "Marked",
+                "-",
+                "Aktivt hovedsignal",
+            ),
+            _ai_candidate_evidence_entry_v1864w(
+                0,
+                "Trendfilter",
+                f"MA50 {_ai_candidate_bool_text_v1864u(snapshot.get('above_50dma'))}, MA200 {_ai_candidate_bool_text_v1864u(snapshot.get('above_200dma'))}, 52u {_ai_candidate_metric_text_v1864u(snapshot.get('pct_of_52w_high'), 1, '%')}",
+                signals.get("technical_trend"),
+                "Marked",
+                "-",
+                "Teknisk bekreftelse",
+            ),
+        ]
+    if family_key == "estimate":
+        missing = bool(signals.get("estimate_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Estimatløft",
+            "Ingen konkrete estimatrevisjoner funnet" if missing else f"Estimatløftscore {signals.get('estimate_revisions', '-')}",
+            family_scores.get("estimate"),
+            source_text,
+            source_date,
+            "Mangler estimatdata" if missing else "Estimatdata funnet",
+        )]
+    if family_key == "insider":
+        missing = bool(signals.get("insider_missing"))
+        latest_type = _ai_candidate_first_value_v1864w(item, "insider_latest_type", "latest_insider_type")
+        latest_date = _ai_candidate_first_value_v1864w(item, "insider_latest_date", "latest_insider_date")
+        latest_value = _ai_candidate_first_value_v1864w(item, "insider_latest_value", "insider_value", "insider_amount")
+        value = "Ingen konkrete innside-/eiertransaksjoner funnet" if missing else f"Siste {latest_type or 'transaksjon'} {latest_value or ''}".strip()
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Innsider / eiertrykk",
+            value,
+            family_scores.get("insider"),
+            source_text,
+            str(latest_date or source_date),
+            "Mangler insiderdata" if missing else "Eiertrykk funnet",
+        )]
+    if family_key == "growth":
+        growth_value = _ai_candidate_first_value_v1864w(item, "revenue_growth", "sales_growth", "earnings_growth", "profit_growth")
+        missing = bool(signals.get("growth_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Vekstakselerasjon",
+            "Vekstdata mangler" if missing else f"Vekst {growth_value if growth_value not in (None, '') else signals.get('growth', '-')}",
+            family_scores.get("growth"),
+            source_text,
+            source_date,
+            "Mangler vekstdata" if missing else "Vekstdata funnet",
+        )]
+    if family_key == "technical":
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Teknisk trend",
+            _ai_candidate_technical_evidence_text_v1864u(snapshot, config),
+            family_scores.get("technical"),
+            "Marked",
+            "-",
+            "Teknisk filter",
+        )]
+    if family_key == "volume":
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Volumbrudd",
+            f"Volum siste {_ai_candidate_metric_text_v1864u(snapshot.get('last_volume'), 0)}, vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}, vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}",
+            family_scores.get("volume"),
+            "Marked",
+            "-",
+            "Volumbekreftelse",
+        )]
+    if family_key == "sector_leader":
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Sektorleder",
+            f"Slår marked {item.get('beats_market') or item.get('market_relative_note') or 'benchmark mangler'}; slår sektor {item.get('beats_sector') or item.get('sector_relative_note') or 'sektordata mangler'}",
+            family_scores.get("sector_leader"),
+            "Marked/sektor",
+            "-",
+            "Relativ rangering",
+        )]
+    if family_key == "short_squeeze":
+        short_value = _ai_candidate_first_value_v1864w(item, "short_interest", "short_interest_pct", "days_to_cover", "short_squeeze_score")
+        missing = bool(signals.get("short_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Short squeeze",
+            "Short-data mangler; bruker volum/momentum som proxy" if missing else f"Short/cover {short_value}",
+            family_scores.get("short_squeeze"),
+            "Short/marked",
+            "-",
+            "Mangler short-data" if missing else "Shortdata funnet",
+        )]
+    return [_ai_candidate_evidence_entry_v1864w(
+        0,
+        family_key,
+        f"Score {family_scores.get(family_key, '-')}",
+        family_scores.get(family_key),
+        source_text,
+        source_date,
+        "Vurdert",
+    )]
+
+
+def _ai_candidate_selection_evidence_v1864w(
+    item: dict,
+    breakdown: dict,
+    evidence: list[str],
+    config: dict,
+    source_freshness: dict | None = None,
+) -> list[dict]:
+    weights = _ai_candidate_active_search_weights_v1864t(config)
+    ordered = sorted(weights.items(), key=lambda pair: float(pair[1] or 0.0), reverse=True)
+    entries: list[dict] = []
+    for family_key, _weight in ordered:
+        entries.extend(_ai_candidate_family_evidence_v1864w(family_key, item, breakdown, evidence, config, source_freshness))
+    for idx, entry in enumerate(entries, start=1):
+        entry["Prioritet"] = idx
+    return entries[:8]
+
+
+def _ai_candidate_evidence_html_v1864w(row: dict) -> str:
+    raw = str(row.get("Prioritert bevis") or row.get("Bevisgrunnlag") or "").strip()
+    if not raw or raw == "-":
+        return ""
+    items = [part.strip() for part in raw.split(" || ") if part.strip()]
+    if not items:
+        return ""
+    lis = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    return f"<div class=\"evidence-list\"><h3>Hvorfor ble aksjen valgt?</h3><ol>{lis}</ol></div>"
+
+
 def _ai_candidate_score_explanation_v1864m(score_num: float, confidence, risk: str, evidence: list[str], change: str, breakdown: dict | None = None) -> str:
     bits = [f"Score {score_num:.2f}" if score_num else "Score mangler"]
     if isinstance(breakdown, dict):
@@ -13389,6 +13704,19 @@ def _ai_candidate_result_rows_v1864l(
 
         snapshot = (breakdown.get("signals") or {}).get("snapshot") or {}
         technical_evidence = _ai_candidate_technical_evidence_text_v1864u(snapshot, config)
+        selection_evidence = _ai_candidate_selection_evidence_v1864w(item, breakdown, evidence, config, source_freshness)
+        selection_summary = _ai_candidate_evidence_summary_v1864w(selection_evidence, limit=3)
+        selection_full = " || ".join(_ai_candidate_evidence_line_v1864w(entry) for entry in selection_evidence) or "-"
+        evidence_status = _ai_candidate_evidence_status_v1864w(selection_evidence)
+        action_label = _ai_candidate_action_label_v1864m(anbefaling, score_num, config, confidence)
+        if action_label == "Unngå":
+            next_action = "Ikke send / avvis"
+        elif action_label == "Vent":
+            next_action = "Overvåk / vent"
+        elif action_label in {"Sterk kandidat", "Vurder"}:
+            next_action = "Send til vurdering/paper"
+        else:
+            next_action = "Overvåk / vent"
         rows.append({
             "Rank": idx,
             "Ticker": ticker,
@@ -13401,6 +13729,9 @@ def _ai_candidate_result_rows_v1864l(
             "Signalmodus": breakdown.get("search_label") or _ai_candidate_search_label_v1864t(config),
             "Søkevekter": breakdown.get("search_weights") or _ai_candidate_search_weight_label_v1864t(config),
             "Hvorfor med": " | ".join(reason_bits),
+            "Utvalgsgrunnlag": selection_summary,
+            "Bevisstatus": evidence_status,
+            "Prioritert bevis": selection_full,
             "Ferskhet": "Ny run",
             "Kilder": ", ".join(evidence) if evidence else "Marked",
             "Kildealder": source_age,
@@ -13438,11 +13769,11 @@ def _ai_candidate_result_rows_v1864l(
             "Score": round(score_num, 2) if score_num else "",
             "Confidence": f"{confidence}%" if isinstance(confidence, int) else confidence,
             "Risiko": risk,
-            "Anbefaling": _ai_candidate_action_label_v1864m(anbefaling, score_num, config, confidence),
+            "Anbefaling": action_label,
             "Varsel": alert,
             "Endring": change,
             "Forklaring": _ai_candidate_score_explanation_v1864m(score_num, f"{confidence}%" if isinstance(confidence, int) else confidence, str(risk), source_evidence_for_score, change, breakdown),
-            "Neste handling": "Send til vurdering/paper" if score_num >= _ai_candidate_num_v1864q(config, "consider_threshold") else "Overvåk / vent",
+            "Neste handling": next_action,
         })
     rows.sort(key=lambda row: float(row.get("Score") or 0.0), reverse=True)
     for new_rank, row in enumerate(rows, start=1):
@@ -13486,6 +13817,9 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
             "Tidshorisont": evaluation.get("horizon") or row.get("Tidshorisont") or "1-6 mnd",
             "Signalmodus": row.get("Signalmodus") or _ai_candidate_search_label_v1864t(evaluation),
             "Søkevekter": row.get("Søkevekter") or _ai_candidate_search_weight_label_v1864t(evaluation),
+            "Utvalgsgrunnlag": row.get("Utvalgsgrunnlag"),
+            "Bevisstatus": row.get("Bevisstatus"),
+            "Prioritert bevis": row.get("Prioritert bevis"),
             "Score": row.get("Score"),
             "Confidence": row.get("Confidence"),
             "Risiko": row.get("Risiko"),
@@ -13589,6 +13923,8 @@ def _ai_candidate_svg_polyline_v1864v(points: list[tuple[int, float]], n: int, y
 
 def _ai_candidate_svg_metric_table_v1864v(row: dict) -> str:
     keys = [
+        "Utvalgsgrunnlag",
+        "Bevisstatus",
         "Siste kurs",
         "52u høy",
         "% av 52u",
@@ -13603,6 +13939,7 @@ def _ai_candidate_svg_metric_table_v1864v(row: dict) -> str:
         "Volum/50d",
         "Likviditet",
         "Teknisk bevis",
+        "Prioritert bevis",
     ]
     cells = []
     for key in keys:
@@ -13752,6 +14089,7 @@ def _ai_candidate_detail_chart_blocks_html_v1864v(rows: list[dict], *, max_chart
             "<section class=\"chart-block\">"
             f"<h2>{html.escape(ticker)} - {name}</h2>"
             f"<p class=\"chart-meta\">{meta}</p>"
+            f"{_ai_candidate_evidence_html_v1864w(row)}"
             f"{_ai_candidate_svg_metric_table_v1864v(row)}"
             f"{chart_html}"
             "</section>"
@@ -13781,6 +14119,10 @@ th {{ background: #e5f3ff; }}
 .chart-block {{ border:1px solid #d1d5db; padding:12px; margin:18px 0; page-break-inside: avoid; }}
 .chart-block h2 {{ margin:0 0 4px 0; font-size:18px; }}
 .chart-meta, .chart-note {{ color:#475569; font-size:12px; margin:4px 0 10px 0; }}
+.evidence-list {{ background:#f8fafc; border:1px solid #d1d5db; padding:10px 12px; margin:10px 0 12px 0; max-width:980px; }}
+.evidence-list h3 {{ margin:0 0 6px 0; font-size:14px; }}
+.evidence-list ol {{ margin:0; padding-left:20px; }}
+.evidence-list li {{ margin:4px 0; }}
 .metric-table {{ margin:8px 0 12px 0; max-width:920px; }}
 .metric-table th {{ width:160px; background:#f1f5f9; }}
 .report-chart {{ width:100%; max-width:980px; display:block; margin:10px 0; background:#fff; }}

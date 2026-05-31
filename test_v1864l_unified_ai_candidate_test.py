@@ -13,8 +13,11 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4v"' in version
-    assert "Printable Technical Charts and Clean Detail Graphs" in version
+    assert 'APP_VERSION = "v18.6.4w"' in version
+    assert "Prioritized Candidate Evidence and Search Explanations" in version
+    assert "Utvalgsgrunnlag" in version
+    assert "Prioritert bevis" in version
+    assert "Resultatsjokk-søk skiller mellom bekreftet fundamentalt resultatsjokk" in version
     assert "printvennlige SVG-kurver" in version
     assert "label-tekst ikke overlapper" in version
     assert "kildestøtte-modus" in version
@@ -43,6 +46,15 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Enkel ticker" in app
     assert "Detaljrapport" in app
     assert "Detalj Print/PDF HTML" in app
+    assert "Utvalgsgrunnlag" in app
+    assert "Bevisstatus" in app
+    assert "Prioritert bevis" in app
+    assert "Hvorfor ble aksjen valgt?" in app
+    assert "Resultatsjokk ikke bekreftet" in app
+    assert "EPS/omsetningssurprise mangler" in app
+    assert "Ikke send / avvis" in app
+    assert "def _ai_candidate_selection_evidence_v1864w" in app
+    assert "def _ai_candidate_evidence_html_v1864w" in app
     assert "Momentumscore" in app and "Estimatløftscore" in app and "Eiertrykkscore" in app
     assert "Teknisk bevis" in app and "52u høy" in app and "Volum/20d" in app
     assert "def _render_ai_candidate_technical_chart_v1864u" in app
