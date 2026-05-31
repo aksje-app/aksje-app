@@ -2005,9 +2005,11 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         if not renderer:
             st.info("Velg et panel i hovedvalget.")
             return None
-        if st.button("Til hovedvalg / lukk oppgave", key="ai_cc_home_v1863aj", use_container_width=True):
-            st.session_state["ai_control_center_active_panel_v1863aj"] = ""
-            st.rerun()
+        close_col, spacer_col = st.columns([0.18, 0.82])
+        with close_col:
+            if st.button("Lukk oppgave", key="ai_cc_home_v1863aj"):
+                st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+                st.rerun()
         st.markdown(
             f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_label))}</b>.</div>",
             unsafe_allow_html=True,

@@ -1,9 +1,17 @@
-APP_VERSION = "v18.6.4s"
-APP_VERSION_NAME = "Fresh Source Horizon and FX Live Panel"
-APP_BUILD_ID = "v1864s-fresh-source-horizon-fx-live-panel"
+APP_VERSION = "v18.6.4t"
+APP_VERSION_NAME = "Hard Signal Search and Candidate Detail Reports"
+APP_BUILD_ID = "v1864t-hard-signal-search-candidate-detail-reports"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "AI Kandidattest har hard signalmodus: Momentum / relativ styrke, Estimatløft og Innsider / eiertrykk kan kjøres rent alene eller som manuell kombinasjon.",
+    "AI Kandidattest har spesialsøk for Resultatsjokk, 52-ukers breakout, Volumbrudd, Vekstakselerasjon, Sektorleder, Short squeeze og Katalysator-klynge.",
+    "Søkevekter i AI Kandidattest har en liten Std-knapp med standardfordeling for valgte hovedsignaler, mens spesialsøk viser egne ferdige vekter i rapporten.",
+    "AI Kandidattest kan kjøres på enkel ticker og skanner et bredere eksplisitt kandidatgrunnlag før resultatlisten begrenses til valgt maks antall.",
+    "AI Kandidattest sorterer resultatlisten etter ny søkescore og har detaljrapport for valgte kandidater eller enkeltticker med CSV, JSON og print/PDF HTML.",
+    "AI Kandidattest-resultatet viser sektor, signalmodus, søkevekter, momentumscore, estimatløftscore, eiertrykkscore, volumbrudd og resultatsjokk der data finnes.",
+    "Valutavarsler viser aktivt varsel, nåværende kurs, status, intervaller og kilde øverst før feltene, med kompakte Hent kurs nå og Sjekk varsel nå-knapper.",
+    "Kontrollsenteret bruker en kompakt Lukk oppgave-knapp i stedet for en bred blå toppbannerknapp.",
     "AI Kandidattest har ekte tidshorisontvalg for 1-3 mnd, 1-6 mnd og 3-12 mnd; profilnavn er bare rapportetikett.",
     "AI Kandidattest bruker kildeferskhet i scoring: gamle eller udaterte NBIM/Folketrygdfondet-data vises som historisk støtte og gir ikke full rangeringseffekt.",
     "Kildevalg i AI Kandidattest er byttet fra åpen multiselect til faste avhukinger for Marked, Finansavisen, Oljefond/NBIM, Folketrygdfondet og Manuell liste.",

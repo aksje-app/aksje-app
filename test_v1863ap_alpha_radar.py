@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.4s"' in version
-assert "Fresh Source Horizon and FX Live Panel" in version
+assert 'APP_VERSION = "v18.6.4t"' in version
+assert "Hard Signal Search and Candidate Detail Reports" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -171,6 +171,7 @@ for source in [engine, ui]:
 assert "AAPL" not in engine + ui
 assert "MSFT" not in engine + ui
 assert "NVDA" not in engine + ui
+
 
 
 

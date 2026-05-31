@@ -33,3 +33,4 @@ assert infer_security_listing("PETR4.SA")["market"] == "Brasil"
 
 
 
+

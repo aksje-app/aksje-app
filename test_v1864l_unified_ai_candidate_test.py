@@ -13,8 +13,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.4s"' in version
-    assert "Fresh Source Horizon and FX Live Panel" in version
+    assert 'APP_VERSION = "v18.6.4t"' in version
+    assert "Hard Signal Search and Candidate Detail Reports" in version
     assert "Standard 1-6 mnd signalprofil" in version
     assert "AI Kandidattest kan velge flere kilder samtidig" in version
     assert "printvennlig HTML" in version
@@ -29,6 +29,14 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Evalueringsoppsett" in app
     assert "Tidshorisont" in app
     assert "Bruk standard for valgt horisont" in app
+    assert "Søkemodus / signalgrunnlag" in app
+    assert "AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T" in app
+    assert "Resultatsjokk" in app and "52-ukers breakout" in app
+    assert "Volumbrudd" in app and "Katalysator-klynge" in app
+    assert "Enkel ticker" in app
+    assert "Detaljrapport" in app
+    assert "Detalj Print/PDF HTML" in app
+    assert "Momentumscore" in app and "Estimatløftscore" in app and "Eiertrykkscore" in app
     assert "source_full_bonus_days" in app
     assert "relative_strength_weight" in app
     assert "estimate_revision_weight" in app
@@ -98,5 +106,6 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 
 
