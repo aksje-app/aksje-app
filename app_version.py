@@ -1,9 +1,14 @@
-APP_VERSION = "v18.6.6"
-APP_VERSION_NAME = "Market Climate Explainability"
-APP_BUILD_ID = "v1866-market-climate-explainability"
+APP_VERSION = "v18.6.7"
+APP_VERSION_NAME = "Market Climate Graph Archive"
+APP_BUILD_ID = "v1867-market-climate-graph-archive"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Market Climate Explainability videreføres og utvides med grafarkiv og importerbare underlag.",
+    "Markedsklima har fått graf- og tabellarkiv for egne/importerbare datasett, med status, nivåer, forklaring og rapport-/eksportstøtte.",
+    "Manuelle klimaindikatorer har fått hurtiglenker til aktuelle kilder som SEC IPO statistics, AAII, MacroMicro og Brookings scenario-underlag.",
+    "Grafarkivet kan importere CSV/XLSX/XLS og knytte filen til riktig graf, slik at tabellrader følger med i snapshot, CSV, JSON og Print/PDF HTML.",
+    "Markedsklima viser nå egne arkivfaner for grafkilder, importformat, lavt/normalt/høyt nivå og tabell-/grafvisning av importerte underlag.",
     "Markedsklima viser nå tydelige lavt/normalt/høyt-nivåer, farger og teksttolkning for samlet klima og hver faktor.",
     "Markedsklima viser manuelle IPO-, pris/bok- og sentimentverdier med direkte nivåtolkning før snapshot lagres.",
     "Markedsklima-rapporten har nivåforklaring, lavt/normalt/høyt-tabeller, markedsgraf, indikatorgraf og print/PDF-vennlig HTML.",

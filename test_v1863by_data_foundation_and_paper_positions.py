@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.6"' in version
+    assert 'APP_VERSION = "v18.6.7"' in version
     assert "Market Climate Explainability" in version
 
 

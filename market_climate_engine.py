@@ -26,6 +26,143 @@ DEFAULT_MARKET_CLIMATE_SYMBOLS: list[dict[str, str]] = [
 ]
 
 
+MARKET_CLIMATE_GRAPH_SOURCES: list[dict[str, Any]] = [
+    {
+        "id": "broad_market_normalized",
+        "title": "Bredt marked normalisert til 100",
+        "category": "Automatisk",
+        "source_type": "Automatisk yfinance",
+        "what_to_fetch": "S&P 500, Nasdaq Composite og OSEBX daglige priser.",
+        "expected_format": "Hentes automatisk som daglige kursserier.",
+        "score_usage": "Brukes i bred trend, momentum og markedsbredde-proxy.",
+        "low_level": "Indekser under MA200 eller langt under 52-ukers høyde.",
+        "normal_level": "Blandet 3-6 mnd trend og delvis over MA200.",
+        "high_level": "Flere brede indekser over MA50/MA200 og nær 52-ukers høyde.",
+        "links": [
+            {"label": "Yahoo Finance S&P 500", "url": "https://finance.yahoo.com/quote/%5EGSPC/"},
+            {"label": "Yahoo Finance Nasdaq", "url": "https://finance.yahoo.com/quote/%5EIXIC/"},
+            {"label": "Yahoo Finance OSEBX", "url": "https://finance.yahoo.com/quote/OSEBX.OL/"},
+        ],
+    },
+    {
+        "id": "volatility_rates_oil_currency",
+        "title": "Volatilitet, renter, olje og valuta",
+        "category": "Automatisk",
+        "source_type": "Automatisk yfinance",
+        "what_to_fetch": "VIX, US 10Y, Brent olje og USD/NOK.",
+        "expected_format": "Hentes automatisk som daglige serier.",
+        "score_usage": "Brukes i volatilitet/frykt, renter/likviditet og norsk klima.",
+        "low_level": "Lav VIX, stabile/lavere renter og rolig USD/NOK.",
+        "normal_level": "Normale svingninger uten tydelig stress.",
+        "high_level": "Høy VIX, rask renteoppgang eller kraftig olje/valutasjokk.",
+        "links": [
+            {"label": "Yahoo Finance VIX", "url": "https://finance.yahoo.com/quote/%5EVIX/"},
+            {"label": "Yahoo Finance US 10Y", "url": "https://finance.yahoo.com/quote/%5ETNX/"},
+            {"label": "Yahoo Finance Brent", "url": "https://finance.yahoo.com/quote/BZ=F/"},
+            {"label": "Yahoo Finance USD/NOK", "url": "https://finance.yahoo.com/quote/NOK=X/"},
+        ],
+    },
+    {
+        "id": "us_ipo_count",
+        "title": "Antall børsnoteringer i USA",
+        "category": "Manuell/import",
+        "source_type": "SEC/CSV/XLSX",
+        "what_to_fetch": "Årlig IPO-antall, helst basert på pricing date.",
+        "expected_format": "CSV/XLSX med kolonnene year og ipo_count, eller manuell siste verdi.",
+        "score_usage": "Brukes i IPO og spekulasjon.",
+        "manual_key": "us_ipo_count",
+        "low_level": "< 25 = lukket/risikoaversjon",
+        "normal_level": "25-150 = normalt IPO-trykk",
+        "high_level": "> 150 = aktivt marked, > 220 = spekulativt trykk",
+        "links": [
+            {"label": "SEC IPO statistics", "url": "https://www.sec.gov/data-research/statistics-data-visualizations/initial-public-offerings-ipos"}
+        ],
+    },
+    {
+        "id": "sp500_after_major_ipos",
+        "title": "S&P 500 etter store IPO-er",
+        "category": "Import/studie",
+        "source_type": "Egen studie",
+        "what_to_fetch": "Liste over store IPO-datoer og S&P 500 månedlig avkastning rundt hver dato.",
+        "expected_format": "CSV/XLSX med month_offset og return_pct, eventuelt ipo_name/date for enkeltcase.",
+        "score_usage": "Info/støtte. Skal ikke styre kandidatmotoren alene.",
+        "low_level": "Negativ avkastning etter IPO-dato eller fallende snittkurve.",
+        "normal_level": "Blandet kurve rundt null.",
+        "high_level": "Positiv kurve etter IPO-dato uten tydelig drawdown.",
+        "links": [
+            {"label": "SEC IPO statistics", "url": "https://www.sec.gov/data-research/statistics-data-visualizations/initial-public-offerings-ipos"},
+            {"label": "Yahoo Finance S&P 500", "url": "https://finance.yahoo.com/quote/%5EGSPC/"},
+        ],
+    },
+    {
+        "id": "osebx_price_book",
+        "title": "Pris/bok for OSEBX",
+        "category": "Manuell/import",
+        "source_type": "CSV/XLSX/manuell",
+        "what_to_fetch": "Historisk pris/bok for OSEBX eller Oslo Børs bred indeks.",
+        "expected_format": "CSV/XLSX med date og price_book, eller manuell siste verdi.",
+        "score_usage": "Brukes i verdsettelse som klimafaktor, ikke enkeltselskapsanalyse.",
+        "manual_key": "osebx_price_book",
+        "low_level": "< 1.35 = billig/stress",
+        "normal_level": "1.35-2.10 = normalt",
+        "high_level": "> 2.10 = dyrt, > 2.35 = strukket",
+        "links": [
+            {"label": "Oslo Børs indeksinfo", "url": "https://www.euronext.com/en/markets/oslo"},
+            {"label": "Importer fra egen CSV/XLSX", "url": "https://www.euronext.com/en/markets/oslo"},
+        ],
+    },
+    {
+        "id": "aaii_bullish_pct",
+        "title": "Andelen investorer som er bullish",
+        "category": "Manuell/import",
+        "source_type": "AAII/MacroMicro CSV",
+        "what_to_fetch": "Historisk bullish/bearish/neutral investorandel.",
+        "expected_format": "CSV/XLSX med date og bullish_pct, gjerne også bearish_pct og neutral_pct.",
+        "score_usage": "Brukes i sentiment som klima og posisjonering.",
+        "manual_key": "aaii_bullish_pct",
+        "low_level": "< 22% = frykt",
+        "normal_level": "32-48% = balansert",
+        "high_level": "> 55% = eufori/risiko",
+        "links": [
+            {"label": "AAII support", "url": "https://aaiiweb.atlassian.net/wiki/spaces/APS/pages/156663829/"},
+            {"label": "MacroMicro AAII CSV", "url": "https://en.macromicro.me/collections/20868/global-sentiment-indicator/20828/us-aaii-sentimentsurvey"},
+        ],
+    },
+    {
+        "id": "hormuz_oil_adjustment",
+        "title": "Hormuz / olje - markedstilpasning",
+        "category": "Scenario",
+        "source_type": "Manuell scenario-tabell",
+        "what_to_fetch": "Antatt bortfall, buffere, lager, russisk/iransk olje på skip og markedstilpasning per måned.",
+        "expected_format": "CSV/XLSX med month og scenario-kolonner, for eksempel hormuz_flow, buffers, spr, adaptation.",
+        "score_usage": "Info/scenario for olje- og råvareklima. Ikke automatisk score uten godkjent metode.",
+        "low_level": "Store buffere og liten tilpasning trengs.",
+        "normal_level": "Delvis bortfall dekkes av buffere og gradvis tilpasning.",
+        "high_level": "Stor nødvendig markedstilpasning eller raskt fall i buffere.",
+        "links": [
+            {"label": "Brookings Hormuz/crude scenario", "url": "https://www.brookings.edu/articles/the-timing-of-the-impending-crude-crisis/"}
+        ],
+    },
+]
+
+
+def market_climate_graph_source_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in MARKET_CLIMATE_GRAPH_SOURCES:
+        rows.append(
+            {
+                "Graf/tabell": item.get("title"),
+                "Kategori": item.get("category"),
+                "Kildetype": item.get("source_type"),
+                "Hva skal hentes": item.get("what_to_fetch"),
+                "Forventet format": item.get("expected_format"),
+                "Brukes til": item.get("score_usage"),
+                "Hurtiglenker": " | ".join(str(link.get("label") or "") for link in item.get("links") or []),
+            }
+        )
+    return rows
+
+
 def _score_level(score: Any) -> dict[str, str]:
     number = _to_float(score)
     if number is None:
@@ -472,12 +609,121 @@ def market_climate_manual_indicator_rows(manual_inputs: Mapping[str, Any] | None
     ])
 
 
+def _graph_import_payload(imported_tables: Mapping[str, Any], source_id: str) -> dict[str, Any] | None:
+    payload = imported_tables.get(source_id) if isinstance(imported_tables, Mapping) else None
+    if not isinstance(payload, Mapping):
+        return None
+    rows = payload.get("rows") or []
+    if not isinstance(rows, list) or not rows:
+        return None
+    return dict(payload)
+
+
+def _latest_import_value(rows: Sequence[Mapping[str, Any]]) -> str:
+    if not rows:
+        return "-"
+    row = dict(rows[-1])
+    for key in ("value", "price_book", "bullish_pct", "ipo_count", "return_pct", "adaptation"):
+        if key in row and row.get(key) not in (None, ""):
+            return str(row.get(key))
+    for key, value in row.items():
+        if value not in (None, "") and str(key).lower() not in {"date", "year", "month", "month_offset"}:
+            return str(value)
+    return "-"
+
+
+def _manual_graph_row(source: Mapping[str, Any], manual_inputs: Mapping[str, Any]) -> dict[str, Any] | None:
+    manual_key = str(source.get("manual_key") or "")
+    if not manual_key:
+        return None
+    value = manual_inputs.get(manual_key)
+    if value in (None, ""):
+        return None
+    row_key = "value"
+    if manual_key == "osebx_price_book":
+        row_key = "price_book"
+    elif manual_key == "aaii_bullish_pct":
+        row_key = "bullish_pct"
+    elif manual_key == "us_ipo_count":
+        row_key = "ipo_count"
+    return {
+        "date": "siste manuelle verdi",
+        row_key: value,
+        "source": "Manuell verdi i Markedsklima",
+    }
+
+
+def _links_text(source: Mapping[str, Any]) -> str:
+    links = source.get("links") or []
+    return " | ".join(f"{link.get('label')}: {link.get('url')}" for link in links if isinstance(link, Mapping))
+
+
+def build_market_climate_graph_archive(
+    snapshot: Mapping[str, Any],
+    imported_tables: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    imported_tables = dict(imported_tables or snapshot.get("graph_imports") or {})
+    manual_inputs = snapshot.get("manual_inputs") if isinstance(snapshot.get("manual_inputs"), Mapping) else {}
+    archive: list[dict[str, Any]] = []
+    for source in MARKET_CLIMATE_GRAPH_SOURCES:
+        source_id = str(source.get("id") or "")
+        payload = _graph_import_payload(imported_tables, source_id)
+        imported_rows = [dict(row) for row in (payload.get("rows") if payload else []) if isinstance(row, Mapping)]
+        table_rows = imported_rows[:]
+        manual_row = _manual_graph_row(source, manual_inputs)
+        if not table_rows and manual_row:
+            table_rows = [manual_row]
+
+        chart_series: list[dict[str, Any]] = []
+        if source_id == "broad_market_normalized":
+            chart_series = [dict(row) for row in snapshot.get("chart_series") or [] if isinstance(row, Mapping)]
+        elif source_id == "volatility_rates_oil_currency":
+            chart_series = [dict(row) for row in snapshot.get("indicator_chart_series") or [] if isinstance(row, Mapping)]
+
+        if payload:
+            status = "Importert"
+            detail = f"{len(table_rows)} rader fra {payload.get('filename') or 'opplastet fil'}"
+        elif chart_series:
+            status = "Automatisk hentet"
+            detail = f"{sum(len(row.get('points') or []) for row in chart_series)} grafpunkter"
+        elif manual_row:
+            status = "Manuell verdi"
+            detail = f"Siste verdi: {_latest_import_value(table_rows)}"
+        else:
+            status = "Venter på import"
+            detail = "Ingen egen tabell/verdi er lagret ennå"
+
+        archive.append(
+            {
+                "id": source_id,
+                "Graf/tabell": source.get("title"),
+                "Kategori": source.get("category"),
+                "Status": status,
+                "Detalj": detail,
+                "Kildetype": source.get("source_type"),
+                "Hva skal hentes": source.get("what_to_fetch"),
+                "Forventet format": source.get("expected_format"),
+                "Brukes til": source.get("score_usage"),
+                "Lavt nivå": source.get("low_level"),
+                "Normalt nivå": source.get("normal_level"),
+                "Høyt nivå": source.get("high_level"),
+                "Hurtiglenker": _links_text(source),
+                "links": list(source.get("links") or []),
+                "table_rows": table_rows,
+                "chart_series": chart_series,
+                "import_payload": payload or {},
+            }
+        )
+    return archive
+
+
 def build_market_climate_snapshot(
     series_map: Mapping[str, Any] | None = None,
     *,
     manual_inputs: Mapping[str, Any] | None = None,
     symbol_config: Sequence[Mapping[str, str]] | None = None,
     generated_at: str | None = None,
+    graph_imports: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     series_map = series_map or {}
     manual_inputs = dict(manual_inputs or {})
@@ -682,8 +928,10 @@ def build_market_climate_snapshot(
         "level_rows": _factor_level_rows(factors),
         "chart_series": _normalized_chart_series(series_map, symbol_config, {"sp500", "nasdaq", "osebx"}),
         "indicator_chart_series": _raw_indicator_series(series_map, symbol_config, {"vix", "us10y", "brent", "usdnok"}),
+        "graph_imports": dict(graph_imports or {}),
         "round_note": "Markedsklima lagres som snapshot og kan brukes i AI Kandidattest som info eller som scoreeffekt. Rød/oransje klima gjør motoren strengere; grønn klima kan gi litt mer rom til vekst og momentum.",
     }
+    snapshot["graph_archive"] = build_market_climate_graph_archive(snapshot, graph_imports)
     return snapshot
 
 
@@ -716,6 +964,15 @@ def market_climate_to_csv(snapshot: Mapping[str, Any]) -> str:
     for item in snapshot.get("market_rows") or []:
         if isinstance(item, Mapping):
             rows.append({"Seksjon": "Marked", **dict(item)})
+    graph_archive = snapshot.get("graph_archive") or build_market_climate_graph_archive(snapshot)
+    for item in graph_archive:
+        if not isinstance(item, Mapping):
+            continue
+        summary = {key: value for key, value in dict(item).items() if key not in {"links", "table_rows", "chart_series", "import_payload"}}
+        rows.append({"Seksjon": "Grafarkiv", **summary})
+        for data_row in item.get("table_rows") or []:
+            if isinstance(data_row, Mapping):
+                rows.append({"Seksjon": "Grafdata", "Graf/tabell": item.get("Graf/tabell"), **dict(data_row)})
     if not rows:
         return ""
     fieldnames: list[str] = []
@@ -742,6 +999,44 @@ def _html_table(rows: Sequence[Mapping[str, Any]], columns: Sequence[str] | None
         cells = "".join(f"<td>{html.escape(str(row.get(col, '')))}</td>" for col in columns)
         body.append(f"<tr>{cells}</tr>")
     return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+
+
+def _graph_archive_summary_rows(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    archive = snapshot.get("graph_archive") or build_market_climate_graph_archive(snapshot)
+    rows: list[dict[str, Any]] = []
+    for item in archive:
+        if not isinstance(item, Mapping):
+            continue
+        rows.append(
+            {
+                "Graf/tabell": item.get("Graf/tabell"),
+                "Status": item.get("Status"),
+                "Detalj": item.get("Detalj"),
+                "Kildetype": item.get("Kildetype"),
+                "Hva skal hentes": item.get("Hva skal hentes"),
+                "Forventet format": item.get("Forventet format"),
+                "Brukes til": item.get("Brukes til"),
+                "Lavt nivå": item.get("Lavt nivå"),
+                "Normalt nivå": item.get("Normalt nivå"),
+                "Høyt nivå": item.get("Høyt nivå"),
+                "Hurtiglenker": item.get("Hurtiglenker"),
+            }
+        )
+    return rows
+
+
+def _html_graph_archive_tables(snapshot: Mapping[str, Any]) -> str:
+    archive = snapshot.get("graph_archive") or build_market_climate_graph_archive(snapshot)
+    parts: list[str] = []
+    for item in archive:
+        if not isinstance(item, Mapping):
+            continue
+        rows = [dict(row) for row in item.get("table_rows") or [] if isinstance(row, Mapping)]
+        if not rows:
+            continue
+        parts.append(f"<h3>{html.escape(str(item.get('Graf/tabell') or 'Grafdata'))}</h3>")
+        parts.append(_html_table(rows[:80]))
+    return "".join(parts) or "<p>Ingen importerte grafdata i snapshot.</p>"
 
 
 def _svg_factor_bars(factors: Sequence[Mapping[str, Any]]) -> str:
@@ -852,6 +1147,8 @@ Score {html.escape(str(snapshot.get("climate_score") or ""))}/100 | Confidence {
 {_svg_factor_bars(factors)}
 {_svg_line_chart(snapshot.get("chart_series") or [], "Bredt marked normalisert til 100")}
 {_svg_line_chart(snapshot.get("indicator_chart_series") or [], "Volatilitet, rente, olje og valuta")}
+<h2>Graf- og tabellarkiv</h2>{_html_table(_graph_archive_summary_rows(snapshot), ["Graf/tabell", "Status", "Detalj", "Kildetype", "Hva skal hentes", "Forventet format", "Brukes til", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Hurtiglenker"])}
+<h2>Importerte/manuelle grafdata</h2>{_html_graph_archive_tables(snapshot)}
 <h2>Faktorer</h2>{_html_table(factors, factor_cols)}
 <h2>Markedstall</h2>{_html_table(markets, market_cols)}
 </body></html>"""

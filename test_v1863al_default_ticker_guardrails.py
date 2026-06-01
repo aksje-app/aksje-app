@@ -12,7 +12,7 @@ daily = Path("daily_ai_market_report.py").read_text(encoding="utf-8", errors="ig
 forecast = Path("forecast_ui.py").read_text(encoding="utf-8", errors="ignore")
 bridge = Path("ai_service_bridge.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.6"' in version
+assert 'APP_VERSION = "v18.6.7"' in version
 
 for source in [daily, forecast, bridge]:
     assert 'else "AAPL,MSFT,NVDA"' not in source

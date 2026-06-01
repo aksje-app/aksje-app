@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html
+import io
+from datetime import datetime
 from typing import Any, Mapping
 
 import pandas as pd
@@ -8,8 +10,11 @@ import streamlit as st
 
 from market_climate_engine import (
     DEFAULT_MARKET_CLIMATE_SYMBOLS,
+    MARKET_CLIMATE_GRAPH_SOURCES,
     build_market_climate_snapshot,
+    build_market_climate_graph_archive,
     load_latest_market_climate_snapshot,
+    market_climate_graph_source_rows,
     market_climate_manual_indicator_rows,
     market_climate_report_html,
     market_climate_score_ranges,
@@ -89,6 +94,115 @@ def _clean_manual_inputs(values: Mapping[str, Any]) -> dict[str, Any]:
         except Exception:
             out[key] = text
     return out
+
+
+def _graph_source_title(source_id: str) -> str:
+    for item in MARKET_CLIMATE_GRAPH_SOURCES:
+        if item.get("id") == source_id:
+            return str(item.get("title") or source_id)
+    return str(source_id)
+
+
+def _table_records(df: pd.DataFrame, max_rows: int = 1000) -> list[dict[str, Any]]:
+    if df is None or df.empty:
+        return []
+    clean = df.copy()
+    clean.columns = [str(col).strip() or f"kolonne_{idx + 1}" for idx, col in enumerate(clean.columns)]
+    clean = clean.where(pd.notnull(clean), None)
+    rows = clean.head(max_rows).to_dict(orient="records")
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        out.append({str(key): value for key, value in row.items()})
+    return out
+
+
+def _read_uploaded_graph_table(uploaded: Any) -> tuple[dict[str, Any] | None, str]:
+    try:
+        name = str(getattr(uploaded, "name", "") or "import")
+        raw = uploaded.getvalue()
+        suffix = name.lower().rsplit(".", 1)[-1] if "." in name else "csv"
+        if suffix == "csv":
+            df = pd.read_csv(io.BytesIO(raw))
+        elif suffix in {"xlsx", "xls"}:
+            df = pd.read_excel(io.BytesIO(raw))
+        else:
+            return None, "Støtter bare CSV, XLSX og XLS."
+        rows = _table_records(df)
+        if not rows:
+            return None, "Filen ble lest, men ingen rader ble funnet."
+        return {
+            "filename": name,
+            "imported_at": datetime.now().isoformat(timespec="seconds"),
+            "rows": rows,
+            "columns": list(rows[0].keys()) if rows else [],
+            "row_count": len(rows),
+        }, ""
+    except ImportError as exc:
+        return None, f"Mangler Excel-bibliotek for denne filtypen: {exc}"
+    except Exception as exc:
+        return None, f"Klarte ikke lese filen: {exc}"
+
+
+def _render_graph_source_links() -> None:
+    st.markdown("**Hurtiglenker for manuelle/importerte grafer**")
+    st.caption("Skjermbildene er bare referanser. Her åpner du stedet der underlaget bør hentes, og importerer CSV/XLSX eller legger inn siste verdi manuelt.")
+    rows = market_climate_graph_source_rows()
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    link_lines: list[str] = []
+    for item in MARKET_CLIMATE_GRAPH_SOURCES:
+        links = [link for link in item.get("links") or [] if isinstance(link, Mapping)]
+        if not links:
+            continue
+        joined = " | ".join(f"[{html.escape(str(link.get('label') or 'Kilde'))}]({link.get('url')})" for link in links)
+        link_lines.append(f"- **{html.escape(str(item.get('title') or item.get('id')))}**: {joined}")
+    if link_lines:
+        st.markdown("\n".join(link_lines))
+
+
+def _render_graph_import_controls() -> dict[str, Any]:
+    st.markdown("**Importer graf-/tabellgrunnlag**")
+    st.caption("Last opp CSV/XLSX/XLS og knytt filen til grafen den hører til. Importerte rader blir med i snapshot, CSV, JSON og Print/PDF HTML.")
+    imports: dict[str, Any] = dict(st.session_state.get("market_climate_graph_imports_v1867") or {})
+    source_ids = [str(item.get("id")) for item in MARKET_CLIMATE_GRAPH_SOURCES]
+    uploads = st.file_uploader(
+        "CSV/XLSX/XLS for grafarkiv",
+        type=["csv", "xlsx", "xls"],
+        accept_multiple_files=True,
+        key="market_climate_graph_archive_uploads_v1867",
+    )
+    for idx, uploaded in enumerate(uploads or []):
+        source_id = st.selectbox(
+            f"Knytt {getattr(uploaded, 'name', 'fil')} til",
+            options=source_ids,
+            format_func=_graph_source_title,
+            key=f"market_climate_graph_archive_source_v1867_{idx}_{getattr(uploaded, 'name', 'fil')}",
+        )
+        payload, error = _read_uploaded_graph_table(uploaded)
+        if error:
+            st.warning(error)
+            continue
+        if payload:
+            payload["source_id"] = source_id
+            imports[source_id] = payload
+            st.success(f"Importert {payload.get('row_count')} rader til {_graph_source_title(source_id)}.")
+    if imports:
+        summary = [
+            {
+                "Graf/tabell": _graph_source_title(source_id),
+                "Fil": payload.get("filename"),
+                "Rader": payload.get("row_count"),
+                "Importert": payload.get("imported_at"),
+            }
+            for source_id, payload in imports.items()
+            if isinstance(payload, Mapping)
+        ]
+        st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+        if st.button("Tøm importerte grafdata", key="market_climate_clear_graph_imports_v1867"):
+            imports = {}
+            st.session_state["market_climate_graph_imports_v1867"] = {}
+            st.info("Importerte grafdata er tømt fra denne økten.")
+    st.session_state["market_climate_graph_imports_v1867"] = imports
+    return imports
 
 
 def _color_for_level(level: str) -> str:
@@ -209,7 +323,11 @@ def _build_symbol_config_from_ui() -> list[dict[str, str]]:
     return config
 
 
-def _run_market_climate_update(symbol_config: list[dict[str, str]], manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
+def _run_market_climate_update(
+    symbol_config: list[dict[str, str]],
+    manual_inputs: Mapping[str, Any],
+    graph_imports: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     series_map: dict[str, Any] = {}
     source_status = []
     for item in symbol_config:
@@ -229,6 +347,7 @@ def _run_market_climate_update(symbol_config: list[dict[str, str]], manual_input
         series_map,
         manual_inputs=manual_inputs,
         symbol_config=symbol_config,
+        graph_imports=graph_imports or {},
     )
     snapshot["source_status"] = source_status
     save_market_climate_snapshot(snapshot)
@@ -330,6 +449,92 @@ def _render_indicator_chart(snapshot: Mapping[str, Any]) -> None:
         st.caption("Indikatorgraf kunne ikke vises, men dataene finnes i tabellen og eksporten.")
 
 
+def _render_imported_graph(entry: Mapping[str, Any]) -> None:
+    rows = [dict(row) for row in entry.get("table_rows") or [] if isinstance(row, Mapping)]
+    if not rows:
+        st.caption("Ingen importert eller manuell tabell for denne grafen ennå.")
+        return
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    try:
+        import plotly.graph_objects as go
+
+        numeric_cols: list[str] = []
+        for col in df.columns:
+            numeric = pd.to_numeric(df[col], errors="coerce")
+            if numeric.notna().sum() >= 1:
+                numeric_cols.append(str(col))
+        x_candidates = [col for col in df.columns if str(col).lower() in {"date", "dato", "year", "år", "month", "måned", "month_offset"}]
+        x_col = str(x_candidates[0]) if x_candidates else str(df.columns[0])
+        y_cols = [col for col in numeric_cols if col != x_col]
+        if not y_cols:
+            return
+        fig = go.Figure()
+        source_id = str(entry.get("id") or "")
+        if source_id in {"us_ipo_count", "hormuz_oil_adjustment"} and len(y_cols) >= 1:
+            for col in y_cols[:8]:
+                fig.add_trace(go.Bar(x=df[x_col], y=pd.to_numeric(df[col], errors="coerce"), name=col))
+            if source_id == "hormuz_oil_adjustment":
+                fig.update_layout(barmode="stack")
+        else:
+            for col in y_cols[:6]:
+                fig.add_trace(go.Scatter(x=df[x_col], y=pd.to_numeric(df[col], errors="coerce"), mode="lines+markers", name=col))
+        fig.update_layout(
+            height=300,
+            margin=dict(l=8, r=8, t=28, b=8),
+            title_text=str(entry.get("Graf/tabell") or "Importert graf"),
+            template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    except Exception:
+        st.caption("Graf kunne ikke tegnes automatisk, men tabellen er importert og blir med i rapporten.")
+
+
+def _render_graph_archive(snapshot: Mapping[str, Any]) -> None:
+    archive = snapshot.get("graph_archive") or build_market_climate_graph_archive(snapshot)
+    rows = []
+    for item in archive:
+        if not isinstance(item, Mapping):
+            continue
+        rows.append(
+            {
+                "Graf/tabell": item.get("Graf/tabell"),
+                "Status": item.get("Status"),
+                "Detalj": item.get("Detalj"),
+                "Kildetype": item.get("Kildetype"),
+                "Brukes til": item.get("Brukes til"),
+                "Lavt nivå": item.get("Lavt nivå"),
+                "Normalt nivå": item.get("Normalt nivå"),
+                "Høyt nivå": item.get("Høyt nivå"),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    source_map = {str(item.get("id")): item for item in archive if isinstance(item, Mapping)}
+    source_id = st.selectbox(
+        "Vis graf/tabell",
+        options=[str(item.get("id")) for item in archive if isinstance(item, Mapping)],
+        format_func=_graph_source_title,
+        key="market_climate_graph_archive_view_v1867",
+    )
+    entry = source_map.get(source_id, {})
+    if not entry:
+        return
+    st.markdown(f"**{entry.get('Graf/tabell')}**")
+    st.caption(str(entry.get("Hva skal hentes") or ""))
+    st.caption(f"Forventet format: {entry.get('Forventet format') or '-'}")
+    st.caption(f"Lavt: {entry.get('Lavt nivå') or '-'} | Normalt: {entry.get('Normalt nivå') or '-'} | Høyt: {entry.get('Høyt nivå') or '-'}")
+    links = [link for link in entry.get("links") or [] if isinstance(link, Mapping)]
+    if links:
+        st.markdown(" | ".join(f"[{html.escape(str(link.get('label') or 'Kilde'))}]({link.get('url')})" for link in links))
+    if entry.get("chart_series"):
+        if source_id == "broad_market_normalized":
+            _render_market_chart({"chart_series": entry.get("chart_series")})
+        elif source_id == "volatility_rates_oil_currency":
+            _render_indicator_chart({"indicator_chart_series": entry.get("chart_series")})
+    _render_imported_graph(entry)
+
+
 def _render_exports(snapshot: Mapping[str, Any]) -> None:
     basename = f"markedsklima_{str(snapshot.get('created_at') or 'snapshot').replace(':', '').replace('-', '')[:15]}"
     e1, e2, e3 = st.columns([0.22, 0.32, 0.28])
@@ -364,6 +569,8 @@ def render_market_climate_panel() -> None:
             }
         )
         _render_manual_preview(manual_inputs)
+        _render_graph_source_links()
+        graph_imports = _render_graph_import_controls()
         b1, b2 = st.columns([0.18, 0.82])
         with b1:
             run = st.button("Oppdater klima", key="market_climate_run_v1864z", type="primary")
@@ -371,19 +578,22 @@ def render_market_climate_panel() -> None:
             st.caption("Henter ferske proxyserier via yfinance når knappen trykkes. Manglende serier blir synlige som datamangler, ikke skjult.")
         if run:
             with st.spinner("Oppdaterer markedsklima..."):
-                snapshot = _run_market_climate_update(symbol_config, manual_inputs)
+                snapshot = _run_market_climate_update(symbol_config, manual_inputs, graph_imports)
             st.success(f"Markedsklima oppdatert: {snapshot.get('label')} ({snapshot.get('climate_score')}/100).")
 
     snapshot = st.session_state.get("market_climate_latest_v1864z") or load_latest_market_climate_snapshot()
     if not isinstance(snapshot, Mapping):
         st.info("Ingen markedsklima-snapshot er lagret ennå. Trykk Oppdater klima for å lage første rapport.")
         return
+    if not snapshot.get("graph_archive"):
+        snapshot = dict(snapshot)
+        snapshot["graph_archive"] = build_market_climate_graph_archive(snapshot)
 
     _render_summary_cards(snapshot)
     st.info(str(snapshot.get("action") or ""))
     st.caption(str(snapshot.get("round_note") or ""))
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Nivåer", "Faktorer", "Grafer", "Datakilder", "Eksport"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Nivåer", "Faktorer", "Grafer", "Grafarkiv", "Datakilder", "Eksport"])
     with tab1:
         _render_score_ranges()
         _render_level_table([row for row in snapshot.get("level_rows") or [] if isinstance(row, Mapping)], "Lavt / normalt / høyt per faktor")
@@ -396,11 +606,13 @@ def render_market_climate_panel() -> None:
         _render_indicator_chart(snapshot)
         st.dataframe(pd.DataFrame(snapshot.get("market_rows") or []), use_container_width=True, hide_index=True)
     with tab4:
+        _render_graph_archive(snapshot)
+    with tab5:
         status_rows = snapshot.get("source_status") or []
         if status_rows:
             st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
         if snapshot.get("missing_factors"):
             st.warning("Mangler: " + ", ".join(str(x) for x in snapshot.get("missing_factors") or []))
         st.json(snapshot.get("manual_inputs") or {})
-    with tab5:
+    with tab6:
         _render_exports(snapshot)

@@ -19,7 +19,14 @@ def test_v1864z_market_climate_engine_contract():
     for name in ["market_climate_engine.py", "market_climate_ui.py", "app.py", "workspace_layout.py", "app_version.py"]:
         py_compile.compile(str(ROOT / name), doraise=True)
 
-    from market_climate_engine import build_market_climate_snapshot, market_climate_report_html, market_climate_to_csv, market_climate_to_json
+    from market_climate_engine import (
+        build_market_climate_graph_archive,
+        build_market_climate_snapshot,
+        market_climate_graph_source_rows,
+        market_climate_report_html,
+        market_climate_to_csv,
+        market_climate_to_json,
+    )
 
     snapshot = build_market_climate_snapshot(
         {
@@ -32,6 +39,20 @@ def test_v1864z_market_climate_engine_contract():
             "usdnok": _series(10.8, -0.002),
         },
         manual_inputs={"us_ipo_count": 95, "osebx_price_book": 1.95, "aaii_bullish_pct": 38},
+        graph_imports={
+            "us_ipo_count": {
+                "filename": "ipo_count.csv",
+                "rows": [{"year": 2025, "ipo_count": 61}, {"year": 2026, "ipo_count": 95}],
+                "row_count": 2,
+                "imported_at": "2026-05-31T12:00:00",
+            },
+            "aaii_bullish_pct": {
+                "filename": "aaii.csv",
+                "rows": [{"date": "2026-05-01", "bullish_pct": 38.0, "bearish_pct": 34.0}],
+                "row_count": 1,
+                "imported_at": "2026-05-31T12:00:00",
+            },
+        },
         generated_at="2026-05-31T12:00:00",
     )
 
@@ -53,6 +74,11 @@ def test_v1864z_market_climate_engine_contract():
     assert snapshot["level_rows"]
     assert snapshot["manual_indicator_rows"]
     assert snapshot["indicator_chart_series"]
+    assert snapshot["graph_archive"]
+    assert any(row["Graf/tabell"] == "Antall børsnoteringer i USA" and row["Status"] == "Importert" for row in snapshot["graph_archive"])
+    assert any("SEC IPO statistics" in row["Hurtiglenker"] for row in snapshot["graph_archive"])
+    assert any(row["Graf/tabell"] == "S&P 500 etter store IPO-er" for row in market_climate_graph_source_rows())
+    assert build_market_climate_graph_archive(snapshot)
 
     csv_text = market_climate_to_csv(snapshot)
     json_text = market_climate_to_json(snapshot)
@@ -67,6 +93,11 @@ def test_v1864z_market_climate_engine_contract():
     assert "Nivåforklaring" in html_text
     assert "Lavt / normalt / høyt per faktor" in html_text
     assert "Volatilitet, rente, olje og valuta" in html_text
+    assert "Graf- og tabellarkiv" in html_text
+    assert "Importerte/manuelle grafdata" in html_text
+    assert "AAII support" in html_text
+    assert "ipo_count.csv" in csv_text
+    assert '"graph_archive"' in json_text
     assert "<svg" in html_text
     assert "Skriv ut / lagre som PDF" in html_text
 
@@ -76,8 +107,10 @@ def test_v1864z_market_climate_control_center_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.6"' in version
-    assert "Market Climate Explainability" in version
+    assert 'APP_VERSION = "v18.6.7"' in version
+    assert "Market Climate Graph Archive" in version
+    assert "Grafarkiv" in version
+    assert "SEC IPO statistics" in version
     assert "Markedsklima er lagt inn som egen modul" in version
     assert "Markedsklima er gjort om fra en abstrakt score til en forklarbar beslutningsstøtte med nivåer, terskler, tabeller og grafer" in version
     assert "from market_climate_ui import render_market_climate_panel" in app
@@ -93,3 +126,6 @@ def test_v1864z_market_climate_control_center_contract():
     assert '"Klimajustering": climate_delta_text' in app
     assert "def _ai_candidate_market_climate_html_v1865" in app
     assert '"markedsklima"' in layout
+
+    assert "MARKET_CLIMATE_GRAPH_SOURCES" in (ROOT / "market_climate_engine.py").read_text(encoding="utf-8", errors="ignore")
+    assert "_render_graph_import_controls" in (ROOT / "market_climate_ui.py").read_text(encoding="utf-8", errors="ignore")
