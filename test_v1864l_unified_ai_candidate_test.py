@@ -13,10 +13,13 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.5"' in version
-    assert "Market Climate AI Candidate Integration" in version
+    assert 'APP_VERSION = "v18.6.6"' in version
+    assert "Market Climate Explainability" in version
     assert "Markedsklima er lagt inn som egen modul" in version
-    assert "Runde 2 kobler snapshot, scoreeffekt og rapportfelt inn i AI Kandidattest" in version
+    assert "Markedsklima er gjort om fra en abstrakt score til en forklarbar beslutningsstøtte med nivåer, terskler, tabeller og grafer" in version
+    assert "lavt/normalt/høyt-nivåer" in version
+    assert "Std klima-knapp" in version
+    assert "Klimanivå, Klimaeffekt og Klimatolkning tidlig i resultatlisten" in version
     assert "Financial Modeling Prep som valgfri ny ekstern live-kilde" in version
     assert "bredere tickerunivers" in version
     assert "price target consensus" in version
@@ -55,10 +58,17 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865" in app
     assert "market_climate_score_weight" in app
     assert "market_climate_cap_enabled" in app
+    assert "market_climate_cap_threshold" in app
+    assert "Std klima" in app
     assert "def _ai_candidate_market_climate_effect_v1865" in app
     assert "def _ai_candidate_runtime_config_with_climate_v1865" in app
+    assert "def _ai_candidate_market_climate_level_v1866" in app
+    assert "def _ai_candidate_market_climate_badge_v1866" in app
+    assert "def _render_ai_candidate_climate_banner_v1866" in app
     assert "def _ai_candidate_market_climate_html_v1865" in app
+    assert "Markedsklima ved kjøring" in app
     assert "Markedsklima" in app and "Klimamodus" in app and "Klimajustering" in app and "Klimabevis" in app
+    assert "Klimanivå" in app and "Klimaeffekt" in app and "Klimatolkning" in app
     assert "Resultatsjokk" in app and "52-ukers breakout" in app
     assert "Volumbrudd" in app and "Katalysator-klynge" in app
     assert "Enkel ticker" in app

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from typing import Any, Mapping
 
 import pandas as pd
@@ -9,7 +10,9 @@ from market_climate_engine import (
     DEFAULT_MARKET_CLIMATE_SYMBOLS,
     build_market_climate_snapshot,
     load_latest_market_climate_snapshot,
+    market_climate_manual_indicator_rows,
     market_climate_report_html,
+    market_climate_score_ranges,
     market_climate_to_csv,
     market_climate_to_json,
     save_market_climate_snapshot,
@@ -86,6 +89,108 @@ def _clean_manual_inputs(values: Mapping[str, Any]) -> dict[str, Any]:
         except Exception:
             out[key] = text
     return out
+
+
+def _color_for_level(level: str) -> str:
+    text = str(level or "").lower()
+    if "rød" in text or "stress" in text or "høyt" in text or "svak" in text:
+        return "#dc2626"
+    if "oransje" in text or "press" in text or "strukket" in text:
+        return "#f97316"
+    if "gul" in text or "normal" in text or "blandet" in text or "ok" in text:
+        return "#f59e0b"
+    if "grønn" in text or "støtt" in text or "balansert" in text or "lavt" in text:
+        return "#16a34a"
+    return "#64748b"
+
+
+def _level_table_html(rows: list[Mapping[str, Any]]) -> str:
+    if not rows:
+        return "<p class='mc-muted'>Ingen nivådata.</p>"
+    headers = ["Faktor", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Score", "Tolkning"]
+    head = "".join(f"<th>{html.escape(col)}</th>" for col in headers)
+    body = []
+    for row in rows:
+        level = str(row.get("Nivå") or row.get("Status") or "-")
+        color = _color_for_level(str(row.get("Farge") or level))
+        cells = []
+        for col in headers:
+            value = row.get(col, "")
+            if col == "Nivå":
+                value_html = f"<span class='mc-pill' style='background:{color}'>{html.escape(level)}</span>"
+            else:
+                value_html = html.escape(str(value if value not in (None, "") else "-"))
+            cells.append(f"<td>{value_html}</td>")
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return "<table class='mc-level-table'><thead><tr>" + head + "</tr></thead><tbody>" + "".join(body) + "</tbody></table>"
+
+
+def _render_level_style() -> None:
+    st.markdown(
+        """
+        <style>
+        .mc-summary-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem;margin:.35rem 0 .7rem 0;}
+        .mc-summary-card {border:1px solid rgba(148,163,184,.35);border-radius:10px;padding:.65rem .75rem;background:rgba(15,23,42,.36);}
+        .mc-summary-label {font-size:.78rem;color:#cbd5e1;font-weight:800;margin-bottom:.15rem;}
+        .mc-summary-value {font-size:1.08rem;color:#f8fafc;font-weight:950;}
+        .mc-pill {display:inline-block;border-radius:999px;padding:.18rem .52rem;color:white;font-weight:900;white-space:nowrap;}
+        .mc-level-table {border-collapse:collapse;width:100%;font-size:.86rem;margin:.4rem 0 1rem 0;background:#fff;color:#0f172a;border-radius:8px;overflow:hidden;}
+        .mc-level-table th,.mc-level-table td {border:1px solid #d7dee8;padding:.46rem .55rem;text-align:left;vertical-align:top;}
+        .mc-level-table th {background:#f3f6fa;color:#64748b;font-weight:850;}
+        .mc-muted {color:#94a3b8;}
+        @media(max-width:900px){.mc-summary-grid{grid-template-columns:1fr 1fr}.mc-level-table{font-size:.78rem}}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_level_table(rows: list[Mapping[str, Any]], title: str | None = None) -> None:
+    if title:
+        st.markdown(f"**{title}**")
+    st.markdown(_level_table_html(rows), unsafe_allow_html=True)
+
+
+def _render_score_ranges() -> None:
+    rows = [
+        {
+            "Faktor": "Samlet markedsklima",
+            "Målt verdi": row.get("Score"),
+            "Lavt nivå": "Rød/oransje = strengere motor",
+            "Normalt nivå": "Gul = aksjesignalene må bære caset",
+            "Høyt nivå": "Grønn = mer rom for vekst/momentum",
+            "Nivå": row.get("Nivå"),
+            "Score": row.get("Score"),
+            "Tolkning": row.get("Tolkning"),
+            "Farge": row.get("Nivå"),
+        }
+        for row in market_climate_score_ranges()
+    ]
+    _render_level_table(rows, "Samlet nivåskala")
+
+
+def _render_manual_preview(manual_inputs: Mapping[str, Any]) -> None:
+    rows = market_climate_manual_indicator_rows(manual_inputs)
+    st.markdown("**Direkte tolkning av manuelle tall**")
+    st.caption("Disse tre radene endrer seg med en gang du skriver i boksene. Trykk Oppdater klima for å lagre dem i snapshot og rapport.")
+    _render_level_table(rows)
+
+
+def _render_summary_cards(snapshot: Mapping[str, Any]) -> None:
+    level = snapshot.get("climate_level") if isinstance(snapshot.get("climate_level"), Mapping) else {}
+    color = str(level.get("Farge") or "#64748b")
+    badge = str(level.get("Fargekode") or "-")
+    cards = [
+        ("Markedsklima", f"{snapshot.get('climate_score', '-')}/100"),
+        ("Nivå", f"<span class='mc-pill' style='background:{color}'>{html.escape(badge)} - {html.escape(str(level.get('Nivå') or snapshot.get('label') or '-'))}</span>"),
+        ("Confidence", f"{snapshot.get('confidence', '-')}%"),
+        ("Oppdatert", html.escape(str(snapshot.get("created_at") or "-"))),
+    ]
+    html_cards = "".join(
+        f"<div class='mc-summary-card'><div class='mc-summary-label'>{html.escape(label)}</div><div class='mc-summary-value'>{value}</div></div>"
+        for label, value in cards
+    )
+    st.markdown(f"<div class='mc-summary-grid'>{html_cards}</div>", unsafe_allow_html=True)
 
 
 def _build_symbol_config_from_ui() -> list[dict[str, str]]:
@@ -194,6 +299,37 @@ def _render_market_chart(snapshot: Mapping[str, Any]) -> None:
         st.caption("Graf kunne ikke vises, men dataene finnes i tabellen og eksporten.")
 
 
+def _render_indicator_chart(snapshot: Mapping[str, Any]) -> None:
+    series = [row for row in snapshot.get("indicator_chart_series") or [] if isinstance(row, Mapping) and row.get("points")]
+    if not series:
+        st.caption("Ingen klimaindikator-serier klare for graf ennå.")
+        return
+    try:
+        import plotly.graph_objects as go
+
+        fig = go.Figure()
+        for row in series:
+            points = [p for p in row.get("points") or [] if isinstance(p, Mapping)]
+            fig.add_trace(
+                go.Scatter(
+                    x=[p.get("date") for p in points],
+                    y=[p.get("value") for p in points],
+                    mode="lines",
+                    name=str(row.get("label") or row.get("key") or ""),
+                )
+            )
+        fig.update_layout(
+            height=330,
+            margin=dict(l=8, r=8, t=28, b=8),
+            title_text="Volatilitet, renter, olje og valuta",
+            template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    except Exception:
+        st.caption("Indikatorgraf kunne ikke vises, men dataene finnes i tabellen og eksporten.")
+
+
 def _render_exports(snapshot: Mapping[str, Any]) -> None:
     basename = f"markedsklima_{str(snapshot.get('created_at') or 'snapshot').replace(':', '').replace('-', '')[:15]}"
     e1, e2, e3 = st.columns([0.22, 0.32, 0.28])
@@ -206,8 +342,9 @@ def _render_exports(snapshot: Mapping[str, Any]) -> None:
 
 
 def render_market_climate_panel() -> None:
+    _render_level_style()
     st.subheader("Markedsklima")
-    st.caption("Makromodul for bred trend, volatilitet, renter, norsk klima, sentiment, IPO-trykk og verdsettelse. Runde 1 lagrer og rapporterer klima; Runde 2 kobler dette inn i AI Kandidattest-score.")
+    st.caption("Makromodul for bred trend, volatilitet, renter, norsk klima, sentiment, IPO-trykk og verdsettelse. Snapshotet kan brukes som info eller scoreeffekt i AI Kandidattest.")
 
     with st.expander("Datakilder og manuelle klimaindikatorer", expanded=True):
         symbol_config = _build_symbol_config_from_ui()
@@ -226,6 +363,7 @@ def render_market_climate_panel() -> None:
                 "aaii_bullish_pct": bullish,
             }
         )
+        _render_manual_preview(manual_inputs)
         b1, b2 = st.columns([0.18, 0.82])
         with b1:
             run = st.button("Oppdater klima", key="market_climate_run_v1864z", type="primary")
@@ -241,23 +379,28 @@ def render_market_climate_panel() -> None:
         st.info("Ingen markedsklima-snapshot er lagret ennå. Trykk Oppdater klima for å lage første rapport.")
         return
 
-    _render_metric_row(snapshot)
+    _render_summary_cards(snapshot)
     st.info(str(snapshot.get("action") or ""))
     st.caption(str(snapshot.get("round_note") or ""))
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Faktorer", "Markedsgrafer", "Datakilder", "Eksport"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Nivåer", "Faktorer", "Grafer", "Datakilder", "Eksport"])
     with tab1:
+        _render_score_ranges()
+        _render_level_table([row for row in snapshot.get("level_rows") or [] if isinstance(row, Mapping)], "Lavt / normalt / høyt per faktor")
+        _render_level_table([row for row in snapshot.get("manual_indicator_rows") or [] if isinstance(row, Mapping)], "Manuelle/importerte indikatorer i snapshot")
+    with tab2:
         _render_factor_chart(snapshot)
         st.dataframe(pd.DataFrame(snapshot.get("factor_rows") or []), use_container_width=True, hide_index=True)
-    with tab2:
-        _render_market_chart(snapshot)
-        st.dataframe(pd.DataFrame(snapshot.get("market_rows") or []), use_container_width=True, hide_index=True)
     with tab3:
+        _render_market_chart(snapshot)
+        _render_indicator_chart(snapshot)
+        st.dataframe(pd.DataFrame(snapshot.get("market_rows") or []), use_container_width=True, hide_index=True)
+    with tab4:
         status_rows = snapshot.get("source_status") or []
         if status_rows:
             st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
         if snapshot.get("missing_factors"):
             st.warning("Mangler: " + ", ".join(str(x) for x in snapshot.get("missing_factors") or []))
         st.json(snapshot.get("manual_inputs") or {})
-    with tab4:
+    with tab5:
         _render_exports(snapshot)

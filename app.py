@@ -11552,7 +11552,7 @@ AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q = {
     "market_climate_mode": "Bruk i score",
     "market_climate_score_weight": 0.45,
     "market_climate_cap_enabled": True,
-    "market_climate_cap_threshold": 40,
+    "market_climate_cap_threshold": 45,
     "market_climate_low_score_cap": 7.20,
     "market_climate_warn_missing": True,
     "active_core_signals": ["Momentum / relativ styrke", "Estimatløft", "Innsider / eiertrykk"],
@@ -11753,6 +11753,41 @@ def _ai_candidate_market_climate_summary_v1865(snapshot: dict | None) -> str:
     return f"{label} {score}/100, confidence {confidence}%, oppdatert {created}"
 
 
+def _ai_candidate_market_climate_level_v1866(snapshot: dict | None = None, score: float | None = None) -> dict:
+    raw = (snapshot or {}).get("climate_level") if isinstance(snapshot, dict) else None
+    if isinstance(raw, dict) and raw:
+        return dict(raw)
+    try:
+        number = float(score if score is not None else (snapshot or {}).get("climate_score"))
+    except Exception:
+        number = 50.0
+    if number >= 75:
+        return {"Nivå": "Risk-on / høyt", "Fargekode": "Grønn", "Farge": "#16a34a", "Scoreintervall": "75-100", "Tolkning": "Grønt klima: vekst og momentum kan få litt mer rom."}
+    if number >= 60:
+        return {"Nivå": "Støttende", "Fargekode": "Grønn", "Farge": "#22c55e", "Scoreintervall": "60-74", "Tolkning": "Støttende klima: normal kandidatjakt med god datakvalitet."}
+    if number >= 45:
+        return {"Nivå": "Nøytralt / blandet", "Fargekode": "Gul", "Farge": "#f59e0b", "Scoreintervall": "45-59", "Tolkning": "Blandet klima: aksjesignalene må bære caset."}
+    if number >= 30:
+        return {"Nivå": "Svakere / oransje", "Fargekode": "Oransje", "Farge": "#f97316", "Scoreintervall": "30-44", "Tolkning": "Oransje klima: motoren blir strengere."}
+    return {"Nivå": "Risk-off / rødt", "Fargekode": "Rød", "Farge": "#dc2626", "Scoreintervall": "0-29", "Tolkning": "Rødt klima: bare svært sterke signaler bør slippe høyt opp."}
+
+
+def _ai_candidate_market_climate_badge_v1866(climate_effect: dict | None) -> str:
+    climate_effect = climate_effect if isinstance(climate_effect, dict) else {}
+    code = str(climate_effect.get("level_code") or "-")
+    level = str(climate_effect.get("level") or "-")
+    symbol_map = {"Grønn": "●", "Gul": "●", "Oransje": "●", "Rød": "●"}
+    return f"{symbol_map.get(code, '●')} {code}: {level}"
+
+
+def _ai_candidate_market_climate_style_v1866() -> str:
+    return """
+    .climate-badge{display:inline-block;border-radius:999px;padding:4px 10px;color:#fff;font-weight:700}
+    .climate-box{border:1px solid #cbd5e1;background:#f8fafc;padding:12px;border-radius:8px;margin:14px 0}
+    .climate-note{color:#475569;font-size:12px;margin:4px 0 10px}
+    """
+
+
 def _ai_candidate_market_climate_compact_v1865(config: dict | None = None) -> dict:
     snapshot = _ai_candidate_market_climate_snapshot_v1865(config)
     mode = _ai_candidate_market_climate_mode_v1865(config)
@@ -11765,11 +11800,17 @@ def _ai_candidate_market_climate_compact_v1865(config: dict | None = None) -> di
             "Faktor": row.get("Faktor"),
             "Score": row.get("Score"),
             "Status": row.get("Status"),
+            "Målt verdi": row.get("Målt verdi"),
+            "Lavt nivå": row.get("Lavt nivå"),
+            "Normalt nivå": row.get("Normalt nivå"),
+            "Høyt nivå": row.get("Høyt nivå"),
+            "Nivå": row.get("Nivå") or row.get("Status"),
             "Bevis": row.get("Bevis"),
         }
         for row in (snapshot.get("factor_rows") or [])
         if isinstance(row, dict)
     ]
+    climate_effect = _ai_candidate_market_climate_effect_v1865({**(config or {}), "_market_climate_snapshot": snapshot})
     return {
         "mode": mode,
         "available": True,
@@ -11777,8 +11818,15 @@ def _ai_candidate_market_climate_compact_v1865(config: dict | None = None) -> di
         "label": snapshot.get("label"),
         "climate_score": snapshot.get("climate_score"),
         "confidence": snapshot.get("confidence"),
+        "climate_level": _ai_candidate_market_climate_level_v1866(snapshot),
+        "level_rows": snapshot.get("level_rows") or [],
+        "score_ranges": snapshot.get("score_ranges") or [],
         "action": snapshot.get("action"),
         "summary": _ai_candidate_market_climate_summary_v1865(snapshot),
+        "effect_text": climate_effect.get("effect_text"),
+        "impact_text": climate_effect.get("impact_text"),
+        "effect_delta": climate_effect.get("delta"),
+        "effect_cap": climate_effect.get("cap"),
         "missing_factors": snapshot.get("missing_factors") or [],
         "factor_rows": factor_rows,
     }
@@ -11803,8 +11851,13 @@ def _ai_candidate_market_climate_effect_v1865(config: dict | None = None) -> dic
     weight = max(0.0, min(2.0, _ai_candidate_num_v1864q(config or {}, "market_climate_score_weight")))
     confidence_factor = max(0.35, min(1.0, confidence / 100.0))
     delta = round((((climate_score - 50.0) / 50.0) * weight * confidence_factor) if mode == "Bruk i score" else 0.0, 2)
+    level = _ai_candidate_market_climate_level_v1866(snapshot, climate_score)
     flags: list[str] = []
-    if climate_score < _ai_candidate_num_v1864q(config or {}, "market_climate_cap_threshold"):
+    if climate_score < 30:
+        flags.append("Rødt markedsklima")
+    elif climate_score < 45:
+        flags.append("Oransje markedsklima")
+    elif climate_score < _ai_candidate_num_v1864q(config or {}, "market_climate_cap_threshold"):
         flags.append("Svakt markedsklima")
     elif climate_score >= 70:
         flags.append("Markedsklima støtter risk-on")
@@ -11819,6 +11872,16 @@ def _ai_candidate_market_climate_effect_v1865(config: dict | None = None) -> dic
     for row in (snapshot.get("factor_rows") or [])[:4]:
         if isinstance(row, dict):
             factor_bits.append(f"{row.get('Faktor')}: {row.get('Score')}/100 ({row.get('Status')})")
+    effect_text = "Ingen scoreeffekt"
+    if mode == "Bruk i score":
+        effect_text = f"{delta:+.2f}"
+        if cap is not None:
+            effect_text += f" | cap {float(cap):.2f}"
+    impact_text = str(level.get("Tolkning") or "")
+    if mode == "Vis som info":
+        impact_text = "Klima vises som forklaring, men påvirker ikke kandidat-score."
+    elif mode == "Av":
+        impact_text = "Klima er slått av for denne kjøringen."
     return {
         "mode": mode,
         "available": True,
@@ -11827,6 +11890,12 @@ def _ai_candidate_market_climate_effect_v1865(config: dict | None = None) -> dic
         "score": round(climate_score, 1),
         "confidence": round(confidence, 1),
         "label": snapshot.get("label") or "-",
+        "level": level.get("Nivå") or snapshot.get("label") or "-",
+        "level_color": level.get("Farge") or "#64748b",
+        "level_code": level.get("Fargekode") or "-",
+        "range": level.get("Scoreintervall") or "-",
+        "effect_text": effect_text,
+        "impact_text": impact_text,
         "summary": _ai_candidate_market_climate_summary_v1865(snapshot),
         "evidence": "; ".join(factor_bits) or "-",
         "flags": flags,
@@ -13452,7 +13521,7 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
 
         st.markdown("**3. Markedsklima**")
         climate_mode_current = _ai_candidate_market_climate_mode_v1865({"market_climate_mode": _state("market_climate_mode", "Bruk i score")})
-        climate_cols = st.columns([0.42, 0.58])
+        climate_cols = st.columns([0.34, 0.50, 0.16])
         with climate_cols[0]:
             market_climate_mode = st.selectbox(
                 "Hvordan skal markedsklima brukes?",
@@ -13467,6 +13536,22 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
                 st.caption(f"{climate_preview.get('summary')} | {climate_preview.get('action') or ''}")
             else:
                 st.caption("Ingen lagret Markedsklima-snapshot. Kjør Markedsklima først, eller la modusen stå på info/av.")
+        with climate_cols[2]:
+            if st.button("Std klima", key="ai_candidate_market_climate_std_v1866", help="Tilbakestill bare markedsklima-effekten til standard for valgt horisont."):
+                standard_config = _ai_candidate_standard_config_v1864s(horizon)
+                for climate_key in [
+                    "market_climate_mode",
+                    "market_climate_score_weight",
+                    "market_climate_cap_enabled",
+                    "market_climate_cap_threshold",
+                    "market_climate_low_score_cap",
+                    "market_climate_warn_missing",
+                ]:
+                    st.session_state[f"{key_prefix}_{climate_key}"] = standard_config.get(
+                        climate_key,
+                        AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(climate_key),
+                    )
+                st.rerun()
 
         show_advanced = st.checkbox("Vis avansert scoring, kilder og sperrer", value=False, key=f"{key_prefix}_show_advanced_v1864u")
 
@@ -13507,7 +13592,7 @@ def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
         min_confidence_for_strong = _int_state("min_confidence_for_strong", 60)
         market_climate_score_weight = _num_state("market_climate_score_weight", 0.45)
         market_climate_cap_enabled = bool(_state("market_climate_cap_enabled", True))
-        market_climate_cap_threshold = _int_state("market_climate_cap_threshold", 40)
+        market_climate_cap_threshold = _int_state("market_climate_cap_threshold", 45)
         market_climate_low_score_cap = _num_state("market_climate_low_score_cap", 7.20)
         market_climate_warn_missing = bool(_state("market_climate_warn_missing", True))
 
@@ -14464,6 +14549,10 @@ def _ai_candidate_result_rows_v1864l(
             "Univers": market,
             "Signalmodus": breakdown.get("search_label") or _ai_candidate_search_label_v1864t(config),
             "Søkevekter": breakdown.get("search_weights") or _ai_candidate_search_weight_label_v1864t(config),
+            "Klimanivå": _ai_candidate_market_climate_badge_v1866(climate_effect),
+            "Klimaeffekt": climate_effect.get("effect_text") or climate_delta_text,
+            "Klimatolkning": climate_effect.get("impact_text") or "-",
+            "Markedsklima": climate_effect.get("summary") or "Ikke brukt",
             "Hvorfor med": " | ".join(reason_bits),
             "Utvalgsgrunnlag": selection_summary,
             "Bevisstatus": evidence_status,
@@ -14473,7 +14562,6 @@ def _ai_candidate_result_rows_v1864l(
             "Kildealder": source_age,
             "Kildestyrke": source_strength,
             "Kildestøtte": source_support_mode,
-            "Markedsklima": climate_effect.get("summary") or "Ikke brukt",
             "Klimamodus": climate_effect.get("mode") or _ai_candidate_market_climate_mode_v1865(config),
             "Klimajustering": climate_delta_text,
             "Klimabevis": climate_effect.get("evidence") or "-",
@@ -14562,6 +14650,10 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
             "Tidshorisont": evaluation.get("horizon") or row.get("Tidshorisont") or "1-6 mnd",
             "Signalmodus": row.get("Signalmodus") or _ai_candidate_search_label_v1864t(evaluation),
             "Søkevekter": row.get("Søkevekter") or _ai_candidate_search_weight_label_v1864t(evaluation),
+            "Klimanivå": row.get("Klimanivå"),
+            "Klimaeffekt": row.get("Klimaeffekt"),
+            "Klimatolkning": row.get("Klimatolkning"),
+            "Markedsklima": row.get("Markedsklima"),
             "Utvalgsgrunnlag": row.get("Utvalgsgrunnlag"),
             "Bevisstatus": row.get("Bevisstatus"),
             "Prioritert bevis": row.get("Prioritert bevis"),
@@ -14573,7 +14665,6 @@ def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = Non
             "Kildealder": row.get("Kildealder"),
             "Kildestyrke": row.get("Kildestyrke"),
             "Kildestøtte": row.get("Kildestøtte"),
-            "Markedsklima": row.get("Markedsklima"),
             "Klimamodus": row.get("Klimamodus"),
             "Klimajustering": row.get("Klimajustering"),
             "Klimabevis": row.get("Klimabevis"),
@@ -14860,15 +14951,43 @@ def _ai_candidate_market_climate_html_v1865(result: dict | None = None) -> str:
     climate = (result or {}).get("market_climate") if isinstance(result, dict) else {}
     if not isinstance(climate, dict) or not climate:
         return "<p><b>Markedsklima:</b> Ikke lagret i denne rapporten.</p>"
+    evaluation = (result or {}).get("evaluation_config") if isinstance(result, dict) else {}
+    evaluation = evaluation if isinstance(evaluation, dict) else {}
+    level = climate.get("climate_level") if isinstance(climate.get("climate_level"), dict) else {}
+    if not level:
+        level = _ai_candidate_market_climate_level_v1866(score=climate.get("climate_score"))
+    color = html.escape(str(level.get("Farge") or "#64748b"))
+    code = html.escape(str(level.get("Fargekode") or "-"))
+    level_text = html.escape(str(level.get("Nivå") or climate.get("label") or "-"))
+    range_text = html.escape(str(level.get("Scoreintervall") or "-"))
+    interpretation = html.escape(str(level.get("Tolkning") or "-"))
     factor_rows = climate.get("factor_rows") if isinstance(climate.get("factor_rows"), list) else []
-    factor_table = pd.DataFrame(factor_rows).to_html(index=False, escape=True) if factor_rows else ""
+    factor_cols = ["Faktor", "Score", "Status", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Bevis"]
+    factor_table = pd.DataFrame(factor_rows).reindex(columns=factor_cols).to_html(index=False, escape=True) if factor_rows else ""
+    level_rows = climate.get("level_rows") if isinstance(climate.get("level_rows"), list) else []
+    level_cols = ["Faktor", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Score", "Tolkning"]
+    level_table = pd.DataFrame(level_rows).reindex(columns=level_cols).to_html(index=False, escape=True) if level_rows else ""
+    ranges = climate.get("score_ranges") if isinstance(climate.get("score_ranges"), list) else []
+    range_table = pd.DataFrame(ranges).reindex(columns=["Nivå", "Score", "Tolkning"]).to_html(index=False, escape=True) if ranges else ""
     missing = ", ".join(str(x) for x in (climate.get("missing_factors") or [])) or "-"
+    mode = html.escape(str(climate.get("mode") or "-"))
+    weight = html.escape(str(evaluation.get("market_climate_score_weight", "-")))
+    cap_threshold = html.escape(str(evaluation.get("market_climate_cap_threshold", "-")))
+    low_score_cap = html.escape(str(evaluation.get("market_climate_low_score_cap", "-")))
+    cap_enabled = "Ja" if evaluation.get("market_climate_cap_enabled", False) else "Nei"
     return (
+        f"<style>{_ai_candidate_market_climate_style_v1866()}</style>"
         "<div class='method'>"
-        "<h2>Markedsklima</h2>"
-        f"<p><b>Modus:</b> {html.escape(str(climate.get('mode') or '-'))} | "
-        f"<b>Status:</b> {html.escape(str(climate.get('summary') or '-'))}</p>"
+        "<h2>Markedsklima ved kjøring</h2>"
+        f"<p><span class='climate-badge' style='background:{color}'>{code}: {level_text}</span> "
+        f"<b>Scoreintervall:</b> {range_text} | <b>Modus:</b> {mode}</p>"
+        f"<p>{interpretation}</p>"
+        f"<p><b>Status:</b> {html.escape(str(climate.get('summary') or '-'))}</p>"
         f"<p><b>Handling:</b> {html.escape(str(climate.get('action') or '-'))}</p>"
+        f"<p><b>Scoreeffekt:</b> maks klimaeffekt {weight}, cap aktiv {cap_enabled}, svakt klima under {cap_threshold}, maks kandidat-score ved svakt klima {low_score_cap}.</p>"
+        "<p class='climate-note'>Når modus er Bruk i score, trekker rød/oransje klima kandidatene ned og kan cappe score. Grønt klima kan gi litt mer rom til vekst og momentum, men erstatter ikke aksjesignalene.</p>"
+        f"{range_table}"
+        f"{level_table}"
         f"<p><b>Manglende klimafaktorer:</b> {html.escape(missing)}</p>"
         f"{factor_table}"
         "</div>"
@@ -15174,9 +15293,40 @@ def _render_ai_candidate_technical_chart_v1864u(ticker: str) -> None:
             st.plotly_chart(vfig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
 
 
+def _render_ai_candidate_climate_banner_v1866(result: dict | None) -> None:
+    climate = (result or {}).get("market_climate") if isinstance(result, dict) else {}
+    if not isinstance(climate, dict) or not climate:
+        return
+    level = climate.get("climate_level") if isinstance(climate.get("climate_level"), dict) else {}
+    color = str(level.get("Farge") or "#64748b")
+    level_text = str(level.get("Nivå") or climate.get("label") or "-")
+    code = str(level.get("Fargekode") or "-")
+    mode = html.escape(str(climate.get("mode") or "-"))
+    summary = html.escape(str(climate.get("summary") or "-"))
+    action = html.escape(str(climate.get("action") or "-"))
+    effect = html.escape(str(climate.get("effect_text") or "Se radene"))
+    impact = html.escape(str(climate.get("impact_text") or level.get("Tolkning") or ""))
+    st.markdown(
+        f"""
+        <div style="border:1px solid rgba(148,163,184,.35);border-left:8px solid {color};border-radius:10px;padding:.7rem .85rem;margin:.35rem 0 .7rem 0;background:rgba(15,23,42,.36);">
+          <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+            <span style="border-radius:999px;background:{color};color:#fff;font-weight:950;padding:.2rem .62rem;">{html.escape(code)}: {html.escape(level_text)}</span>
+            <b>Markedsklima ved kjøring</b>
+            <span style="color:#cbd5e1;">Modus: {mode}</span>
+          </div>
+          <div style="color:#e5e7eb;margin-top:.25rem;">{summary}</div>
+          <div style="color:#cbd5e1;margin-top:.18rem;">Effekt: {effect}. {impact}</div>
+          <div style="color:#cbd5e1;margin-top:.18rem;">{action}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None = None) -> list[dict]:
     st.markdown("#### Velg kandidater")
     st.caption("Kryss av radene du vil sende videre. Kandidatene kan rutes direkte til resten av appen uten å kjøre ny test.")
+    _render_ai_candidate_climate_banner_v1866(result)
     display_rows = []
     for row in rows or []:
         display_rows.append({"Velg": False, **dict(row)})

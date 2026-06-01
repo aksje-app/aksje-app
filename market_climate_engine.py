@@ -26,6 +26,67 @@ DEFAULT_MARKET_CLIMATE_SYMBOLS: list[dict[str, str]] = [
 ]
 
 
+def _score_level(score: Any) -> dict[str, str]:
+    number = _to_float(score)
+    if number is None:
+        return {
+            "Nivå": "Mangler",
+            "Farge": "#64748b",
+            "Fargekode": "Grå",
+            "Scoreintervall": "-",
+            "Tolkning": "Datagrunnlaget mangler eller er nøytralt.",
+        }
+    if number >= 75:
+        return {
+            "Nivå": "Risk-on / høyt støttenivå",
+            "Farge": "#16a34a",
+            "Fargekode": "Grønn",
+            "Scoreintervall": "75-100",
+            "Tolkning": "Klimaet støtter at vekst og momentum kan få litt mer rom, men aksjen må fortsatt ha egne signaler.",
+        }
+    if number >= 60:
+        return {
+            "Nivå": "Støttende / over normalt",
+            "Farge": "#22c55e",
+            "Fargekode": "Grønn",
+            "Scoreintervall": "60-74",
+            "Tolkning": "Markedet er støttende, men ikke så sterkt at svake aksjesignaler bør slippe gjennom alene.",
+        }
+    if number >= 45:
+        return {
+            "Nivå": "Nøytralt / blandet",
+            "Farge": "#f59e0b",
+            "Fargekode": "Gul",
+            "Scoreintervall": "45-59",
+            "Tolkning": "Markedet gir ikke tydelig medvind. Krev tydelige aksjespesifikke bevis.",
+        }
+    if number >= 30:
+        return {
+            "Nivå": "Svakere / oransje",
+            "Farge": "#f97316",
+            "Fargekode": "Oransje",
+            "Scoreintervall": "30-44",
+            "Tolkning": "Markedet er krevende. Motoren bør være strengere og prioritere ferske, sterke signaler.",
+        }
+    return {
+        "Nivå": "Risk-off / rødt",
+        "Farge": "#dc2626",
+        "Fargekode": "Rød",
+        "Scoreintervall": "0-29",
+        "Tolkning": "Markedet er svakt. Høye kandidatscorer bør cap'es med mindre aksjen har svært sterke egne bevis.",
+    }
+
+
+def market_climate_score_ranges() -> list[dict[str, str]]:
+    return [
+        {"Nivå": "Rød", "Score": "0-29", "Tolkning": "Risk-off. Svært streng kandidatmotor."},
+        {"Nivå": "Oransje", "Score": "30-44", "Tolkning": "Krevende klima. Negative justeringer og strengere beviskrav."},
+        {"Nivå": "Gul", "Score": "45-59", "Tolkning": "Blandet/nøytralt. Aksjespesifikke signaler må bære caset."},
+        {"Nivå": "Grønn", "Score": "60-74", "Tolkning": "Støttende. Momentum og vekst kan få litt mer rom."},
+        {"Nivå": "Mørk grønn", "Score": "75-100", "Tolkning": "Risk-on. Klimaet støtter offensiv kandidatjakt."},
+    ]
+
+
 def _to_float(value: Any) -> float | None:
     try:
         if value is None or value == "":
@@ -167,7 +228,21 @@ def _trend_score(row: Mapping[str, Any]) -> int:
     return _score_clamp(score)
 
 
-def _factor(name: str, score: int, status: str, explanation: str, weight: float, evidence: str = "") -> dict[str, Any]:
+def _factor(
+    name: str,
+    score: int,
+    status: str,
+    explanation: str,
+    weight: float,
+    evidence: str = "",
+    *,
+    measured: str = "",
+    low: str = "",
+    normal: str = "",
+    high: str = "",
+    level: str = "",
+) -> dict[str, Any]:
+    score_level = _score_level(score)
     return {
         "Faktor": name,
         "Score": _score_clamp(score),
@@ -175,6 +250,13 @@ def _factor(name: str, score: int, status: str, explanation: str, weight: float,
         "Vekt": round(float(weight), 2),
         "Bevis": evidence,
         "Forklaring": explanation,
+        "Målt verdi": measured or evidence,
+        "Lavt nivå": low,
+        "Normalt nivå": normal,
+        "Høyt nivå": high,
+        "Nivå": level or status,
+        "Nivåfarge": score_level.get("Fargekode"),
+        "Scoreintervall": score_level.get("Scoreintervall"),
     }
 
 
@@ -192,6 +274,11 @@ def _valuation_factor(manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
             "OSEBX pris/bok er ikke lagt inn/importert. Faktoren holdes nøytral, men confidence reduseres.",
             0.08,
             "Mangler OSEBX P/B",
+            measured="Ikke oppgitt",
+            low="< 1.35",
+            normal="1.35-2.10",
+            high="> 2.10, strukket > 2.35",
+            level="Mangler",
         )
     score = 68.0
     if pb >= 2.35:
@@ -212,6 +299,11 @@ def _valuation_factor(manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
         "Pris/bok brukes som klimaindikator, ikke som enkeltselskapsanalyse.",
         0.08,
         f"OSEBX P/B {pb:.2f}",
+        measured=f"{pb:.2f}",
+        low="< 1.35 billig/stress",
+        normal="1.35-2.10 normal",
+        high="> 2.10 dyrt, > 2.35 strukket",
+        level=status,
     )
 
 
@@ -225,6 +317,11 @@ def _sentiment_factor(manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
             "Bullish-andel er ikke lagt inn/importert. Faktoren holdes nøytral, men confidence reduseres.",
             0.06,
             "Mangler sentiment",
+            measured="Ikke oppgitt",
+            low="< 22% frykt",
+            normal="32-48% balansert",
+            high="> 55% eufori-risiko",
+            level="Mangler",
         )
     score = 66.0
     if bullish >= 55:
@@ -245,6 +342,11 @@ def _sentiment_factor(manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
         "AAII/bullish-andel tolkes som klima og posisjonering, ikke som kjøpssignal alene.",
         0.06,
         f"Bullish {bullish:.1f}%",
+        measured=f"{bullish:.1f}%",
+        low="< 22% frykt/stress",
+        normal="32-48% balansert",
+        high="> 55% eufori-risiko",
+        level=status,
     )
 
 
@@ -258,6 +360,11 @@ def _ipo_factor(manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
             "IPO-tall er ikke lagt inn/importert. Faktoren holdes nøytral, men confidence reduseres.",
             0.05,
             "Mangler IPO-tall",
+            measured="Ikke oppgitt",
+            low="< 25 lukket marked",
+            normal="25-150 normal",
+            high="> 150 aktivt, > 220 spekulativt",
+            level="Mangler",
         )
     score = 64.0
     if ipo_count >= 220:
@@ -278,6 +385,11 @@ def _ipo_factor(manual_inputs: Mapping[str, Any]) -> dict[str, Any]:
         "Høyt IPO-trykk kan varsle spekulativ fase; svært lavt trykk kan varsle risikoaversjon.",
         0.05,
         f"USA IPO-årstall {ipo_count:.0f}",
+        measured=f"{ipo_count:.0f}",
+        low="< 25 lukket/risikoaversjon",
+        normal="25-150 normal",
+        high="> 150 aktivt, > 220 spekulativt",
+        level=status,
     )
 
 
@@ -302,6 +414,62 @@ def _normalized_chart_series(
         points = [{"date": dates[i], "value": round((value / base) * 100.0, 2)} for i, value in enumerate(values)]
         out.append({"key": key, "label": config.get("label") or key, "symbol": config.get("symbol") or "", "points": points})
     return out
+
+
+def _raw_indicator_series(
+    series_map: Mapping[str, Any],
+    symbol_config: Sequence[Mapping[str, str]],
+    keys: set[str],
+    max_points: int = 180,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    config_map = {str(item.get("key")): item for item in symbol_config}
+    for key in keys:
+        config = config_map.get(key, {})
+        dates, values, _volume = _series_payload(series_map.get(key))
+        if len(values) < 2:
+            continue
+        dates = dates[-max_points:]
+        values = values[-max_points:]
+        clean_values = []
+        for value in values:
+            number = float(value)
+            if key == "us10y" and number > 15:
+                number = number / 10.0
+            clean_values.append(number)
+        points = [{"date": dates[i], "value": round(value, 3)} for i, value in enumerate(clean_values)]
+        out.append({"key": key, "label": config.get("label") or key, "symbol": config.get("symbol") or "", "points": points})
+    return out
+
+
+def _factor_level_rows(factors: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in factors or []:
+        if not isinstance(row, Mapping):
+            continue
+        rows.append(
+            {
+                "Faktor": row.get("Faktor"),
+                "Målt verdi": row.get("Målt verdi") or row.get("Bevis"),
+                "Lavt nivå": row.get("Lavt nivå"),
+                "Normalt nivå": row.get("Normalt nivå"),
+                "Høyt nivå": row.get("Høyt nivå"),
+                "Nivå": row.get("Nivå") or row.get("Status"),
+                "Farge": row.get("Nivåfarge"),
+                "Score": row.get("Score"),
+                "Tolkning": row.get("Forklaring"),
+            }
+        )
+    return rows
+
+
+def market_climate_manual_indicator_rows(manual_inputs: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+    manual_inputs = dict(manual_inputs or {})
+    return _factor_level_rows([
+        _valuation_factor(manual_inputs),
+        _sentiment_factor(manual_inputs),
+        _ipo_factor(manual_inputs),
+    ])
 
 
 def build_market_climate_snapshot(
@@ -344,7 +512,19 @@ def build_market_climate_snapshot(
     vix_row = row_by_key.get("vix", {})
     vix_last = _to_float(vix_row.get("Siste"))
     if vix_last is None:
-        volatility_factor = _factor("Volatilitet og frykt", 50, "Mangler", "VIX mangler, derfor nøytral klimaeffekt.", 0.16, "Mangler VIX")
+        volatility_factor = _factor(
+            "Volatilitet og frykt",
+            50,
+            "Mangler",
+            "VIX mangler, derfor nøytral klimaeffekt.",
+            0.16,
+            "Mangler VIX",
+            measured="Ikke oppgitt",
+            low="< 15 lav frykt",
+            normal="15-25 normal",
+            high="> 25 stress, > 30 kraftig stress",
+            level="Mangler",
+        )
     else:
         vix_score = 88 if vix_last <= 15 else 74 if vix_last <= 20 else 58 if vix_last <= 25 else 42 if vix_last <= 30 else 24
         vix_1m = _to_float(vix_row.get("1 mnd %")) or 0.0
@@ -357,12 +537,29 @@ def build_market_climate_snapshot(
             "Lavere VIX støtter risikovilje; høy eller raskt stigende VIX trekker markedsklima ned.",
             0.16,
             f"VIX {vix_last:.1f}, 1m {_format_number(vix_1m, '%')}",
+            measured=f"{vix_last:.1f}",
+            low="< 15 lav frykt",
+            normal="15-25 normal",
+            high="> 25 stress, > 30 kraftig stress",
+            level="Lavt" if vix_last <= 15 else ("Normalt" if vix_last <= 25 else "Høyt/stress"),
         )
 
     rate_row = row_by_key.get("us10y", {})
     tnx_last = _to_float(rate_row.get("Siste"))
     if tnx_last is None:
-        rate_factor = _factor("Renter og likviditet", 50, "Mangler", "10-års renten mangler, derfor nøytral klimaeffekt.", 0.14, "Mangler US 10Y")
+        rate_factor = _factor(
+            "Renter og likviditet",
+            50,
+            "Mangler",
+            "10-års renten mangler, derfor nøytral klimaeffekt.",
+            0.14,
+            "Mangler US 10Y",
+            measured="Ikke oppgitt",
+            low="< 3.50% støttende",
+            normal="3.50-4.50% normal",
+            high="> 4.50% press, > 5.00% stress",
+            level="Mangler",
+        )
     else:
         yield_pct = tnx_last / 10.0 if tnx_last > 15 else tnx_last
         tnx_1m = _to_float(rate_row.get("1 mnd %")) or 0.0
@@ -378,6 +575,11 @@ def build_market_climate_snapshot(
             "Fallende/stabile renter støtter multipler og risikoappetitt; bratt renteoppgang trekker ned.",
             0.14,
             f"US 10Y ca. {yield_pct:.2f}%, 1m {_format_number(tnx_1m, '%')}",
+            measured=f"{yield_pct:.2f}%",
+            low="< 3.50% støttende",
+            normal="3.50-4.50% normal",
+            high="> 4.50% press, > 5.00% stress",
+            level="Lavt/støttende" if yield_pct < 3.5 else ("Normalt" if yield_pct <= 4.5 else "Høyt/press"),
         )
 
     brent_row = row_by_key.get("brent", {})
@@ -399,6 +601,11 @@ def build_market_climate_snapshot(
         "Brent og NOK brukes som grovt klima for Oslo Børs og råvare-/eksportfølsomme aksjer.",
         0.10,
         ", ".join(norway_bits) if norway_bits else "Mangler Brent/USDNOK",
+        measured=", ".join(norway_bits) if norway_bits else "Ikke oppgitt",
+        low="Brent faller og USD/NOK stiger",
+        normal="Små 3m-endringer",
+        high="Brent stiger og NOK styrkes",
+        level="OK" if norway_bits else "Mangler",
     )
 
     factors = [
@@ -409,6 +616,11 @@ def build_market_climate_snapshot(
             "Måler om brede indekser har positiv 3-6 måneders trend, ligger over MA50/MA200 og holder seg nær 52-ukers høyde.",
             0.25,
             trend_evidence,
+            measured=f"Trendscore {trend_score}/100",
+            low="< 40 svak trend",
+            normal="40-65 blandet",
+            high="> 65 støttende",
+            level=trend_status,
         ),
         _factor(
             "Markedsbredde-proxy",
@@ -417,6 +629,11 @@ def build_market_climate_snapshot(
             "Teller hvor mange brede markeder som er over 200-dagers snitt. Dette er en proxy, ikke ekte aksje-for-aksje breadth ennå.",
             0.16,
             f"{breadth_count}/{breadth_total} brede markeder over MA200" if breadth_total else "Mangler breddegrunnlag",
+            measured=f"{breadth_count}/{breadth_total} over MA200" if breadth_total else "Ikke oppgitt",
+            low="0-1 av 3 over MA200",
+            normal="2 av 3 over MA200",
+            high="3 av 3 over MA200",
+            level="Høyt/støttende" if breadth_total and breadth_count == breadth_total else ("Normalt" if breadth_count >= 2 else "Lavt/svakt"),
         ),
         volatility_factor,
         rate_factor,
@@ -431,6 +648,7 @@ def build_market_climate_snapshot(
     available_factors = sum(1 for row in factors if row.get("Status") != "Mangler")
     confidence = _score_clamp(42 + available_factors * 6 + min(16, len(equity_scores) * 5))
     missing = [str(row.get("Faktor")) for row in factors if row.get("Status") == "Mangler"]
+    climate_level = _score_level(climate_score)
 
     if climate_score >= 70:
         label = "Risk-on / støttende"
@@ -453,13 +671,18 @@ def build_market_climate_snapshot(
         "label": label,
         "action": action,
         "summary": f"{label}: score {climate_score}/100, confidence {confidence}%. {action}",
+        "climate_level": climate_level,
+        "score_ranges": market_climate_score_ranges(),
         "missing_factors": missing,
         "manual_inputs": manual_inputs,
+        "manual_indicator_rows": market_climate_manual_indicator_rows(manual_inputs),
         "symbol_config": [dict(item) for item in symbol_config],
         "market_rows": rows,
         "factor_rows": factors,
+        "level_rows": _factor_level_rows(factors),
         "chart_series": _normalized_chart_series(series_map, symbol_config, {"sp500", "nasdaq", "osebx"}),
-        "round_note": "Runde 1: Markedsklima lagres og rapporteres som beslutningsstøtte. Det påvirker ikke AI Kandidattest-score før Runde 2.",
+        "indicator_chart_series": _raw_indicator_series(series_map, symbol_config, {"vix", "us10y", "brent", "usdnok"}),
+        "round_note": "Markedsklima lagres som snapshot og kan brukes i AI Kandidattest som info eller som scoreeffekt. Rød/oransje klima gjør motoren strengere; grønn klima kan gi litt mer rom til vekst og momentum.",
     }
     return snapshot
 
@@ -484,6 +707,12 @@ def market_climate_to_csv(snapshot: Mapping[str, Any]) -> str:
     for item in snapshot.get("factor_rows") or []:
         if isinstance(item, Mapping):
             rows.append({"Seksjon": "Faktor", **dict(item)})
+    for item in snapshot.get("level_rows") or []:
+        if isinstance(item, Mapping):
+            rows.append({"Seksjon": "Nivåforklaring", **dict(item)})
+    for item in snapshot.get("manual_indicator_rows") or []:
+        if isinstance(item, Mapping):
+            rows.append({"Seksjon": "Manuell indikator", **dict(item)})
     for item in snapshot.get("market_rows") or []:
         if isinstance(item, Mapping):
             rows.append({"Seksjon": "Marked", **dict(item)})
@@ -538,7 +767,7 @@ def _svg_factor_bars(factors: Sequence[Mapping[str, Any]]) -> str:
     return "".join(parts)
 
 
-def _svg_line_chart(series: Sequence[Mapping[str, Any]]) -> str:
+def _svg_line_chart(series: Sequence[Mapping[str, Any]], title: str = "Bredt marked normalisert til 100") -> str:
     rows = [row for row in series if isinstance(row, Mapping) and row.get("points")]
     if not rows:
         return ""
@@ -560,7 +789,7 @@ def _svg_line_chart(series: Sequence[Mapping[str, Any]]) -> str:
     colors = ["#0284c7", "#16a34a", "#f97316", "#7c3aed"]
     parts = [f"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img'>"]
     parts.append("<rect width='100%' height='100%' fill='#ffffff'/>")
-    parts.append("<text x='14' y='22' font-size='16' font-weight='700' fill='#111827'>Bredt marked normalisert til 100</text>")
+    parts.append(f"<text x='14' y='22' font-size='16' font-weight='700' fill='#111827'>{html.escape(title)}</text>")
     for tick in range(5):
         y = top + tick * ((height - top - bottom) / 4)
         value = hi - tick * ((hi - lo) / 4)
@@ -589,15 +818,21 @@ def _svg_line_chart(series: Sequence[Mapping[str, Any]]) -> str:
 def market_climate_report_html(snapshot: Mapping[str, Any]) -> str:
     factors = [row for row in snapshot.get("factor_rows") or [] if isinstance(row, Mapping)]
     markets = [row for row in snapshot.get("market_rows") or [] if isinstance(row, Mapping)]
+    level_rows = [row for row in snapshot.get("level_rows") or [] if isinstance(row, Mapping)]
+    manual_rows = [row for row in snapshot.get("manual_indicator_rows") or [] if isinstance(row, Mapping)]
+    ranges = [row for row in snapshot.get("score_ranges") or market_climate_score_ranges() if isinstance(row, Mapping)]
+    climate_level = snapshot.get("climate_level") if isinstance(snapshot.get("climate_level"), Mapping) else _score_level(snapshot.get("climate_score"))
     css = """
     body{font-family:Arial,sans-serif;color:#111827;margin:18px;background:#fff}
     h1{font-size:24px;margin:0 0 6px} h2{font-size:18px;margin:20px 0 8px}
     .meta{color:#4b5563;font-size:12px;margin-bottom:12px}.summary{border:1px solid #cbd5e1;background:#f8fafc;padding:12px;border-radius:8px}
+    .badge{display:inline-block;border-radius:999px;padding:4px 10px;color:#fff;font-weight:700;margin-right:8px}
     table{border-collapse:collapse;width:100%;font-size:12px;margin:8px 0 18px}th,td{border:1px solid #d1d5db;padding:6px;text-align:left;vertical-align:top}th{background:#f3f4f6}
     .print{margin:0 0 12px;padding:6px 10px}.note{color:#4b5563;font-size:12px}
     @media print{.print{display:none} body{margin:8px}}
     """
-    factor_cols = ["Faktor", "Score", "Status", "Vekt", "Bevis", "Forklaring"]
+    factor_cols = ["Faktor", "Score", "Status", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Vekt", "Bevis", "Forklaring"]
+    level_cols = ["Faktor", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Score", "Tolkning"]
     market_cols = ["Indikator", "Ticker", "Kategori", "Siste dato", "Siste", "1 mnd %", "3 mnd %", "6 mnd %", "Over MA50", "Over MA200", "52u høy", "% fra 52u høy", "Datastatus"]
     return f"""<!doctype html>
 <html lang="no">
@@ -606,12 +841,17 @@ def market_climate_report_html(snapshot: Mapping[str, Any]) -> str:
 <button class="print" onclick="window.print()">Skriv ut / lagre som PDF</button>
 <h1>Markedsklima rapport</h1>
 <div class="meta">Oppdatert: {html.escape(str(snapshot.get("created_at") or ""))} | Versjon: {html.escape(str(snapshot.get("version") or ""))}</div>
-<div class="summary"><b>{html.escape(str(snapshot.get("label") or ""))}</b><br>
+<div class="summary"><span class="badge" style="background:{html.escape(str(climate_level.get("Farge") or "#64748b"))}">{html.escape(str(climate_level.get("Fargekode") or ""))}</span><b>{html.escape(str(snapshot.get("label") or ""))}</b><br>
 Score {html.escape(str(snapshot.get("climate_score") or ""))}/100 | Confidence {html.escape(str(snapshot.get("confidence") or ""))}%<br>
-{html.escape(str(snapshot.get("action") or ""))}</div>
+{html.escape(str(snapshot.get("action") or ""))}<br>
+<b>Nivå:</b> {html.escape(str(climate_level.get("Nivå") or ""))} ({html.escape(str(climate_level.get("Scoreintervall") or ""))}) - {html.escape(str(climate_level.get("Tolkning") or ""))}</div>
 <p class="note">{html.escape(str(snapshot.get("round_note") or ""))}</p>
+<h2>Nivåforklaring</h2>{_html_table(ranges, ["Nivå", "Score", "Tolkning"])}
+<h2>Lavt / normalt / høyt per faktor</h2>{_html_table(level_rows, level_cols)}
+<h2>Manuelle indikatorer</h2>{_html_table(manual_rows, level_cols)}
 {_svg_factor_bars(factors)}
-{_svg_line_chart(snapshot.get("chart_series") or [])}
+{_svg_line_chart(snapshot.get("chart_series") or [], "Bredt marked normalisert til 100")}
+{_svg_line_chart(snapshot.get("indicator_chart_series") or [], "Volatilitet, rente, olje og valuta")}
 <h2>Faktorer</h2>{_html_table(factors, factor_cols)}
 <h2>Markedstall</h2>{_html_table(markets, market_cols)}
 </body></html>"""

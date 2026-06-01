@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.5"' in version
-assert "Market Climate AI Candidate Integration" in version
+assert 'APP_VERSION = "v18.6.6"' in version
+assert "Market Climate Explainability" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
