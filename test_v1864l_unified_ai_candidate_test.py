@@ -13,7 +13,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.9"' in version
+    assert 'APP_VERSION = "v18.6.10"' in version
     assert "Market Climate Explainability" in version
     assert "Markedsklima er lagt inn som egen modul" in version
     assert "Markedsklima er gjort om fra en abstrakt score til en forklarbar beslutningsstøtte med nivåer, terskler, tabeller og grafer" in version
@@ -178,6 +178,7 @@ def test_v1864m_start_empty_sidebar_view_removed_and_ticker_input_kept():
     cleanup_block = app[app.index("def _cleanup_legacy_session_seed_data_v1863t") : app.index("def active_ticker_from_inputs")]
     assert "cc_interactive_ticker_v18535" not in cleanup_block
     assert 'key="cc_interactive_ticker_v18535"' in app
+
 
 
 

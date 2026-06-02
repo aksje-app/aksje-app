@@ -1,9 +1,15 @@
-APP_VERSION = "v18.6.9"
-APP_VERSION_NAME = "Marked og varsler-konsolidering"
-APP_BUILD_ID = "v1869-market-alert-consolidation"
+APP_VERSION = "v18.6.10"
+APP_VERSION_NAME = "Tickerbanner varsler og detaljgraf"
+APP_BUILD_ID = "v18610-banner-alert-detail"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Ticker-banneret har klikkbare tickerkort som åpner større detaljvisning med kursgraf, MA50/MA200, 52-ukers høyde og volum mot 20/50-dagers snitt.",
+    "Ticker-banneret har felles bannervarsler for viste markeder og individuelle tickervarsler for kurs, dagsendring og volum.",
+    "Bannerkort viser grønne, gule og røde statusmarkører med opp/ned-retning for nær grense eller brudd.",
+    "Bannervarsler og valutavarsler bruker tilbake-til-normal-logikk: samme brudd sender ikke nytt Pushover-varsel før verdien har vært innenfor grensen igjen.",
+    "Bannervarsler har egen logg og valgfri Pushover-sending; standard er informasjonsmarkører uten Pushover-spam.",
+    "Nordnet datatest er lagt inn som trygg forberedelse uten passordlagring og uten falsk livekobling.",
     "Marked og signaler er ryddet: Marked samler Rangering, Heatmap, Markedsklima, Lagrede signaler, IPO, Regime, Makro og Nyheter.",
     "Varsler og watchlist samler Varselsenter, Watchlist/signaler og Valutavarsler i ett brukerpanel.",
     "Varselsenteret viser lagrede varsler direkte og forklarer at nye skanninger skjer i kildemodulene.",

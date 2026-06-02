@@ -3880,6 +3880,273 @@ LIVE_BANNER_DEFAULT_TICKERS = {
     "Brasil": "PETR4.SA, VALE3.SA, ITUB4.SA, BBDC4.SA",
 }
 
+BANNER_ALERT_CONFIG_KEY_V18610 = "live_banner_alert_config_v18610"
+BANNER_ALERT_LOG_KEY_V18610 = "live_banner_alert_log_v18610"
+ALERT_LIFECYCLE_STATE_KEY_V18610 = "alert_lifecycle_state_v18610"
+
+
+def _float_or_none_v18610(value):
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _alert_lifecycle_update_v18610(settings, domain: str, alert_key: str, status: str, payload: dict | None = None) -> dict:
+    """Normal -> brudd sender en gang. Nytt varsel krever normaltilstand forst."""
+    settings = settings if isinstance(settings, dict) else {}
+    domain = str(domain or "global").strip() or "global"
+    alert_key = str(alert_key or "").strip()
+    status = str(status or "normal").strip() or "normal"
+    if not alert_key:
+        return {"send": False, "changed": False, "previous_status": "normal", "status": status}
+
+    root = settings.setdefault(ALERT_LIFECYCLE_STATE_KEY_V18610, {})
+    if not isinstance(root, dict):
+        root = {}
+        settings[ALERT_LIFECYCLE_STATE_KEY_V18610] = root
+    bucket = root.setdefault(domain, {})
+    if not isinstance(bucket, dict):
+        bucket = {}
+        root[domain] = bucket
+
+    previous = dict(bucket.get(alert_key) or {})
+    previous_status = str(previous.get("status") or "normal")
+    now = datetime.now().isoformat(timespec="seconds")
+    is_breach = status.startswith("breach")
+    send = bool(is_breach and previous_status != status)
+    changed = bool(previous_status != status)
+
+    state = {
+        **previous,
+        "status": status,
+        "updated_at": now,
+    }
+    if payload:
+        state.update(payload)
+    if status == "normal":
+        if previous_status != "normal":
+            state["last_normal_at"] = now
+        state["active_breach_started_at"] = None
+    elif is_breach:
+        if previous_status != status:
+            state["active_breach_started_at"] = now
+        if send:
+            state["last_signal_at"] = now
+    elif status.startswith("near"):
+        if previous_status != status:
+            state["last_near_at"] = now
+
+    bucket[alert_key] = state
+    return {
+        "send": send,
+        "changed": changed,
+        "previous_status": previous_status,
+        "status": status,
+        "state": state,
+    }
+
+
+def _banner_alert_default_config_v18610() -> dict:
+    return {
+        "active": True,
+        "pushover": False,
+        "near_pct": 15.0,
+        "common_pct_up": 5.0,
+        "common_pct_down": 5.0,
+        "common_volume_ratio20": 2.0,
+        "individual": {},
+    }
+
+
+def _load_banner_alert_config_v18610(settings=None) -> dict:
+    settings = settings or load_settings()
+    defaults = _banner_alert_default_config_v18610()
+    raw = settings.get(BANNER_ALERT_CONFIG_KEY_V18610) if isinstance(settings, dict) else None
+    if not isinstance(raw, dict):
+        return defaults
+    merged = {**defaults, **raw}
+    if not isinstance(merged.get("individual"), dict):
+        merged["individual"] = {}
+    return merged
+
+
+def _save_banner_alert_config_v18610(config: dict) -> None:
+    settings = load_settings() or {}
+    settings[BANNER_ALERT_CONFIG_KEY_V18610] = dict(config or {})
+    save_settings(settings)
+
+
+def _append_banner_alert_log_v18610(settings: dict, entry: dict) -> None:
+    settings = settings if isinstance(settings, dict) else {}
+    log = settings.setdefault(BANNER_ALERT_LOG_KEY_V18610, [])
+    if not isinstance(log, list):
+        log = []
+    row = {"tid": datetime.now().isoformat(timespec="seconds"), **dict(entry or {})}
+    log.insert(0, row)
+    settings[BANNER_ALERT_LOG_KEY_V18610] = log[:200]
+
+
+def _banner_marker_from_status_v18610(status: str) -> dict:
+    status = str(status or "normal")
+    if status.startswith("breach_upper") or status.startswith("breach_up") or status == "breach_volume_up":
+        return {"css": "red", "symbol": "opp", "label": "Rød opp", "status": status}
+    if status.startswith("breach_lower") or status.startswith("breach_down"):
+        return {"css": "red", "symbol": "ned", "label": "Rød ned", "status": status}
+    if status.startswith("near_upper") or status.startswith("near_up") or status == "near_volume_up":
+        return {"css": "yellow", "symbol": "opp", "label": "Gul opp", "status": status}
+    if status.startswith("near_lower") or status.startswith("near_down"):
+        return {"css": "yellow", "symbol": "ned", "label": "Gul ned", "status": status}
+    return {"css": "green", "symbol": "ok", "label": "Grønn", "status": "normal"}
+
+
+def _banner_marker_html_v18610(marker: dict) -> str:
+    marker = marker or _banner_marker_from_status_v18610("normal")
+    symbol = {"opp": "▲", "ned": "▼", "ok": ""}.get(marker.get("symbol"), "")
+    label = html.escape(str(marker.get("label") or "Normal"))
+    css = html.escape(str(marker.get("css") or "green"))
+    return f"<span class='ticker-alert-marker {css}' title='{label}'><span>{symbol}</span></span>"
+
+
+def _banner_status_priority_v18610(status: str) -> int:
+    if str(status or "").startswith("breach"):
+        return 3
+    if str(status or "").startswith("near"):
+        return 2
+    return 1
+
+
+def _banner_alert_evaluate_card_v18610(card: dict, config: dict) -> dict:
+    config = config or _banner_alert_default_config_v18610()
+    ticker = str((card or {}).get("ticker") or "").upper()
+    price = _float_or_none_v18610((card or {}).get("price"))
+    pct = _float_or_none_v18610((card or {}).get("pct")) or 0.0
+    volume_ratio20 = _float_or_none_v18610((card or {}).get("volume_ratio_20"))
+    near_pct = max(0.0, min(_float_or_none_v18610(config.get("near_pct")) or 15.0, 90.0)) / 100.0
+    active = bool(config.get("active", True))
+    candidates = [("normal", "Innenfor felles og individuelle grenser.")]
+
+    def add(status, text):
+        candidates.append((status, text))
+
+    if active:
+        up = abs(_float_or_none_v18610(config.get("common_pct_up")) or 0.0)
+        down = abs(_float_or_none_v18610(config.get("common_pct_down")) or 0.0)
+        volume_limit = _float_or_none_v18610(config.get("common_volume_ratio20"))
+        if up:
+            if pct >= up:
+                add("breach_up_pct", f"Dagsendring {pct:+.2f}% er over felles øvre grense {up:.2f}%.")
+            elif pct >= up * (1.0 - near_pct):
+                add("near_up_pct", f"Dagsendring {pct:+.2f}% nærmer seg øvre grense {up:.2f}%.")
+        if down:
+            if pct <= -down:
+                add("breach_down_pct", f"Dagsendring {pct:+.2f}% er under felles nedre grense -{down:.2f}%.")
+            elif pct <= -down * (1.0 - near_pct):
+                add("near_down_pct", f"Dagsendring {pct:+.2f}% nærmer seg nedre grense -{down:.2f}%.")
+        if volume_limit and volume_ratio20:
+            if volume_ratio20 >= volume_limit:
+                add("breach_volume_up", f"Volum er {volume_ratio20:.2f}x 20-dagers snitt, over felles grense {volume_limit:.2f}x.")
+            elif volume_ratio20 >= volume_limit * (1.0 - near_pct):
+                add("near_volume_up", f"Volum er {volume_ratio20:.2f}x 20-dagers snitt, nær felles grense {volume_limit:.2f}x.")
+
+        individual = dict((config.get("individual") or {}).get(ticker) or {})
+        upper = _float_or_none_v18610(individual.get("price_upper"))
+        lower = _float_or_none_v18610(individual.get("price_lower"))
+        pct_up = abs(_float_or_none_v18610(individual.get("pct_up")) or 0.0)
+        pct_down = abs(_float_or_none_v18610(individual.get("pct_down")) or 0.0)
+        if price is not None and upper:
+            if price >= upper:
+                add("breach_upper_price", f"Kurs {price:.2f} er over tickergrense {upper:.2f}.")
+            elif price >= upper * (1.0 - near_pct):
+                add("near_upper_price", f"Kurs {price:.2f} nærmer seg tickergrense {upper:.2f}.")
+        if price is not None and lower:
+            if price <= lower:
+                add("breach_lower_price", f"Kurs {price:.2f} er under tickergrense {lower:.2f}.")
+            elif price <= lower * (1.0 + near_pct):
+                add("near_lower_price", f"Kurs {price:.2f} nærmer seg nedre tickergrense {lower:.2f}.")
+        if pct_up and pct >= pct_up:
+            add("breach_up_pct", f"Dagsendring {pct:+.2f}% er over tickergrense {pct_up:.2f}%.")
+        if pct_down and pct <= -pct_down:
+            add("breach_down_pct", f"Dagsendring {pct:+.2f}% er under tickergrense -{pct_down:.2f}%.")
+
+    status, explanation = sorted(candidates, key=lambda x: _banner_status_priority_v18610(x[0]), reverse=True)[0]
+    marker = _banner_marker_from_status_v18610(status)
+    return {
+        "status": status,
+        "marker": marker,
+        "explanation": explanation,
+        "pushover": bool(config.get("pushover", False)),
+    }
+
+
+def _apply_banner_alerts_v18610(cards: list[dict], config: dict) -> list[dict]:
+    cards = [dict(card or {}) for card in cards or []]
+    settings = load_settings() or {}
+    dirty = False
+    for card in cards:
+        evaluation = _banner_alert_evaluate_card_v18610(card, config)
+        card["alert_status"] = evaluation.get("status")
+        card["alert_marker"] = evaluation.get("marker")
+        card["alert_explanation"] = evaluation.get("explanation")
+        ticker = str(card.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        transition = _alert_lifecycle_update_v18610(
+            settings,
+            "ticker_banner",
+            ticker,
+            str(evaluation.get("status") or "normal"),
+            {
+                "ticker": ticker,
+                "market": card.get("market"),
+                "price": card.get("price"),
+                "pct": card.get("pct"),
+                "explanation": evaluation.get("explanation"),
+            },
+        )
+        dirty = dirty or bool(transition.get("changed"))
+        if transition.get("send"):
+            _append_banner_alert_log_v18610(
+                settings,
+                {
+                    "ticker": ticker,
+                    "marked": card.get("market"),
+                    "status": evaluation.get("status"),
+                    "kurs": card.get("price"),
+                    "endring_pct": round(float(card.get("pct") or 0.0), 2),
+                    "forklaring": evaluation.get("explanation"),
+                    "pushover": "ja" if config.get("pushover") else "nei",
+                },
+            )
+            dirty = True
+            if config.get("pushover"):
+                try:
+                    _send_pushover_safe_v1863af(
+                        f"{ticker}: {evaluation.get('explanation')} Kurs {float(card.get('price') or 0):.2f}, endring {float(card.get('pct') or 0):+.2f}%.",
+                        f"Ticker-banner {ticker}",
+                    )
+                except Exception as exc:
+                    logging.warning("Banner Pushover failed for %s: %s", ticker, exc)
+        elif transition.get("previous_status", "normal") != "normal" and evaluation.get("status") == "normal":
+            _append_banner_alert_log_v18610(
+                settings,
+                {
+                    "ticker": ticker,
+                    "marked": card.get("market"),
+                    "status": "normal",
+                    "kurs": card.get("price"),
+                    "endring_pct": round(float(card.get("pct") or 0.0), 2),
+                    "forklaring": "Tilbake innenfor grensen. Nytt varsel kan sendes ved neste brudd.",
+                    "pushover": "nei",
+                },
+            )
+            dirty = True
+    if dirty:
+        save_settings(settings)
+    return cards
+
 
 def _is_weak_banner_name(name, ticker):
     """Returnerer True når Yahoo-navnet egentlig bare er ticker eller tom tekst."""
@@ -4059,23 +4326,48 @@ def _download_live_banner_history(tickers):
         return None
 
 
-def _close_from_banner_history(history, ticker):
+def _series_from_banner_history_v18610(history, ticker, field):
     if history is None or getattr(history, "empty", True):
         return None
     try:
+        ticker = str(ticker or "").strip().upper()
+        field = str(field or "").strip()
         if isinstance(history.columns, pd.MultiIndex):
-            if "Close" in history.columns.get_level_values(0):
-                close_frame = history["Close"]
-                if ticker in close_frame:
-                    return close_frame[ticker].dropna()
-            if "Close" in history.columns.get_level_values(-1):
-                return history[(ticker, "Close")].dropna()
+            if field in history.columns.get_level_values(0):
+                frame = history[field]
+                if ticker in frame:
+                    return frame[ticker].dropna()
+            if field in history.columns.get_level_values(-1):
+                key = (ticker, field)
+                if key in history:
+                    return history[key].dropna()
             return None
-        if "Close" in history:
-            return history["Close"].dropna()
+        if field in history:
+            return history[field].dropna()
     except Exception as e:
-        logging.warning("Live banner history parse failed for %s: %s", ticker, e)
+        logging.warning("Live banner history parse failed for %s/%s: %s", ticker, field, e)
     return None
+
+
+def _close_from_banner_history(history, ticker):
+    return _series_from_banner_history_v18610(history, ticker, "Close")
+
+
+def _banner_volume_stats_v18610(volume_series):
+    volume = volume_series.dropna() if volume_series is not None and hasattr(volume_series, "dropna") else None
+    if volume is None or volume.empty:
+        return {"volume": None, "volume_ratio_20": None, "volume_ratio_50": None}
+    try:
+        latest = float(volume.iloc[-1])
+        avg20 = float(volume.tail(20).mean()) if len(volume) >= 5 else None
+        avg50 = float(volume.tail(50).mean()) if len(volume) >= 10 else None
+        return {
+            "volume": latest,
+            "volume_ratio_20": (latest / avg20) if avg20 else None,
+            "volume_ratio_50": (latest / avg50) if avg50 else None,
+        }
+    except Exception:
+        return {"volume": None, "volume_ratio_20": None, "volume_ratio_50": None}
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -4089,11 +4381,13 @@ def fetch_live_banner_snapshot(banner_items):
     for market, ticker, label in banner_items:
         try:
             close = _close_from_banner_history(history, ticker)
+            volume = _series_from_banner_history_v18610(history, ticker, "Volume")
             if close is None or close.empty:
                 hist = yf.Ticker(ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
                 if hist is None or hist.empty or "Close" not in hist:
                     continue
                 close = hist["Close"].dropna()
+                volume = hist["Volume"].dropna() if "Volume" in hist else volume
             if close.empty or len(close) < 2:
                 continue
 
@@ -4102,6 +4396,7 @@ def fetch_live_banner_snapshot(banner_items):
             prev = float(series.iloc[-2])
             delta = current - prev
             pct = ((current / prev) - 1.0) * 100 if prev else 0.0
+            volume_stats = _banner_volume_stats_v18610(volume)
 
             display_label = resolve_live_banner_label(ticker, label)
 
@@ -4113,11 +4408,238 @@ def fetch_live_banner_snapshot(banner_items):
                 "delta": delta,
                 "pct": pct,
                 "sparkline": _sparkline_svg(series.tolist(), positive=pct >= 0, reference=prev),
+                **volume_stats,
             })
         except Exception:
             continue
 
     return cards
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _download_banner_detail_history_v18610(ticker: str, period_label: str):
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    ticker = str(ticker or "").strip().upper()
+    period_label = str(period_label or "1 mnd")
+    if not ticker:
+        return None, "Ticker mangler"
+    period_map = {
+        "I dag": ("1d", "5m"),
+        "5 dager": ("5d", "15m"),
+        "1 mnd": ("1mo", "1d"),
+        "3 mnd": ("3mo", "1d"),
+        "6 mnd": ("6mo", "1d"),
+        "1 år": ("1y", "1d"),
+    }
+    period, interval = period_map.get(period_label, ("1mo", "1d"))
+    try:
+        hist = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=False, prepost=False)
+    except Exception as exc:
+        return None, str(exc)[:180]
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return None, "Ingen historikk fra datakilden"
+    return hist.dropna(subset=["Close"]), ""
+
+
+def _banner_technical_summary_v18610(hist: pd.DataFrame | None) -> dict:
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return {}
+    close = hist["Close"].dropna()
+    if close.empty:
+        return {}
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+    last = float(close.iloc[-1])
+    first = float(close.iloc[0])
+    high_52 = float(close.tail(min(252, len(close))).max())
+    volume = hist["Volume"].dropna() if "Volume" in hist else pd.Series(dtype=float)
+    vol_stats = _banner_volume_stats_v18610(volume)
+    return {
+        "siste": last,
+        "endring_perioden_pct": ((last / first) - 1.0) * 100 if first else None,
+        "52u_hoy": high_52,
+        "andel_av_52u_hoy": (last / high_52 * 100.0) if high_52 else None,
+        "ma50": float(ma50.dropna().iloc[-1]) if not ma50.dropna().empty else None,
+        "ma200": float(ma200.dropna().iloc[-1]) if not ma200.dropna().empty else None,
+        **vol_stats,
+    }
+
+
+def _banner_query_value_v18610(name: str):
+    try:
+        value = st.query_params.get(name)
+    except Exception:
+        return None
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _banner_selected_from_query_v18610(cards: list[dict]) -> None:
+    ticker = str(_banner_query_value_v18610("banner_ticker") or "").strip().upper()
+    if not ticker:
+        return
+    valid = {str(card.get("ticker") or "").upper(): card for card in cards or []}
+    if ticker in valid:
+        st.session_state["live_banner_selected_ticker_v18610"] = ticker
+        st.session_state["live_banner_selected_market_v18610"] = str(valid[ticker].get("market") or "")
+        st.session_state["live_banner_selected_label_v18610"] = str(valid[ticker].get("label") or ticker)
+
+
+def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: str = "") -> None:
+    ticker = str(ticker or "").strip().upper()
+    if not ticker:
+        return
+    label = str(label or LIVE_BANNER_LABELS.get(ticker) or ticker)
+    market = str(market or "")
+    st.markdown("#### Tickerdetalj fra banneret")
+    st.caption("Historikk hentes ved behov. Varselregler under gjelder denne tickeren og bruker tilbake-til-normal før nytt Pushover-varsel.")
+
+    d1, d2, d3 = st.columns([0.25, 0.25, 0.50])
+    with d1:
+        period = st.selectbox(
+            "Periode",
+            ["I dag", "5 dager", "1 mnd", "3 mnd", "6 mnd", "1 år"],
+            index=2,
+            key=f"banner_detail_period_v18610_{ticker}",
+        )
+    with d2:
+        if st.button("Lukk detalj", key=f"banner_detail_close_v18610_{ticker}"):
+            st.session_state.pop("live_banner_selected_ticker_v18610", None)
+            st.session_state.pop("live_banner_selected_market_v18610", None)
+            st.session_state.pop("live_banner_selected_label_v18610", None)
+            st.rerun()
+
+    hist, err = _download_banner_detail_history_v18610(ticker, period)
+    if hist is None or hist.empty:
+        st.info(f"Kunne ikke hente graf for {ticker}: {err}")
+    else:
+        summary = _banner_technical_summary_v18610(hist)
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Ticker", ticker, market or "-")
+        m2.metric("Kurs", f"{summary.get('siste', 0):,.2f}")
+        m3.metric("52u høy", f"{summary.get('52u_hoy', 0):,.2f}", f"{summary.get('andel_av_52u_hoy', 0):.1f}% av høy")
+        m4.metric("MA50 / MA200", f"{summary.get('ma50') or 0:,.2f}", f"{summary.get('ma200') or 0:,.2f}")
+        m5.metric("Volum/20d", f"{summary.get('volume_ratio_20') or 0:.2f}x")
+
+        close = hist["Close"].dropna()
+        ma50 = close.rolling(50).mean()
+        ma200 = close.rolling(200).mean()
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=close.index, y=close, name="Kurs", mode="lines", line=dict(color="#0f7ae5", width=2.2)))
+        if not ma50.dropna().empty:
+            fig.add_trace(go.Scatter(x=ma50.index, y=ma50, name="MA50", mode="lines", line=dict(color="#60a5fa", width=1.5)))
+        if not ma200.dropna().empty:
+            fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines", line=dict(color="#ef4444", width=1.5)))
+        high_52 = summary.get("52u_hoy")
+        if high_52:
+            fig.add_hline(y=high_52, line_dash="dot", line_color="#111827", annotation_text=f"52u høy {high_52:.2f}", annotation_position="top left")
+        fig.update_layout(
+            height=320,
+            margin=dict(l=10, r=10, t=20, b=24),
+            title_text=f"{ticker} - {label}",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+
+        if "Volume" in hist and not hist["Volume"].dropna().empty:
+            volume = hist["Volume"].dropna()
+            vol20 = volume.rolling(20).mean()
+            vol50 = volume.rolling(50).mean()
+            vfig = go.Figure()
+            vfig.add_trace(go.Bar(x=volume.index, y=volume, name="Volum", marker_color="#0f7ae5"))
+            if not vol20.dropna().empty:
+                vfig.add_trace(go.Scatter(x=vol20.index, y=vol20, name="Volum 20d", mode="lines", line=dict(color="#60a5fa", width=1.5)))
+            if not vol50.dropna().empty:
+                vfig.add_trace(go.Scatter(x=vol50.index, y=vol50, name="Volum 50d", mode="lines", line=dict(color="#ef4444", width=1.5)))
+            vfig.update_layout(
+                height=220,
+                margin=dict(l=10, r=10, t=12, b=24),
+                title_text=f"{ticker} volum mot 20/50-dagers snitt",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(vfig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+
+    config = _load_banner_alert_config_v18610()
+    individual = dict(config.get("individual") or {})
+    current = dict(individual.get(ticker) or {})
+    with st.expander(f"Varsler for {ticker}", expanded=False):
+        with st.form(f"banner_ticker_alert_form_v18610_{ticker}", clear_on_submit=False):
+            a1, a2, a3, a4 = st.columns(4)
+            with a1:
+                price_upper = st.number_input("Kurs over", value=float(current.get("price_upper") or 0.0), min_value=0.0, step=0.1, key=f"banner_price_upper_v18610_{ticker}")
+            with a2:
+                price_lower = st.number_input("Kurs under", value=float(current.get("price_lower") or 0.0), min_value=0.0, step=0.1, key=f"banner_price_lower_v18610_{ticker}")
+            with a3:
+                pct_up = st.number_input("Dagsendring opp %", value=float(current.get("pct_up") or 0.0), min_value=0.0, step=0.5, key=f"banner_pct_up_v18610_{ticker}")
+            with a4:
+                pct_down = st.number_input("Dagsendring ned %", value=float(current.get("pct_down") or 0.0), min_value=0.0, step=0.5, key=f"banner_pct_down_v18610_{ticker}")
+            saved = st.form_submit_button("Lagre tickervarsel")
+        if saved:
+            individual[ticker] = {
+                "price_upper": float(price_upper),
+                "price_lower": float(price_lower),
+                "pct_up": float(pct_up),
+                "pct_down": float(pct_down),
+            }
+            config["individual"] = individual
+            _save_banner_alert_config_v18610(config)
+            st.success(f"Varsler lagret for {ticker}.")
+            st.rerun()
+
+
+def _render_banner_alert_settings_v18610():
+    settings = load_settings() or {}
+    config = _load_banner_alert_config_v18610(settings)
+    with st.expander("Bannervarsler", expanded=False):
+        st.caption("Felles regler gjelder alle tickere som vises i banneret. Rød/gul/grønn markør vises i bannerkortet; Pushover er valgfritt.")
+        with st.form("banner_alert_settings_form_v18610", clear_on_submit=False):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                active = st.checkbox("Aktive bannervarsler", value=bool(config.get("active", True)))
+            with c2:
+                pushover = st.checkbox("Send Pushover ved rød markør", value=bool(config.get("pushover", False)))
+            with c3:
+                near_pct = st.slider("Gul nær grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0)
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                up = st.number_input("Felles dagsendring opp %", value=float(config.get("common_pct_up", 5.0) or 0.0), min_value=0.0, step=0.5)
+            with r2:
+                down = st.number_input("Felles dagsendring ned %", value=float(config.get("common_pct_down", 5.0) or 0.0), min_value=0.0, step=0.5)
+            with r3:
+                vol = st.number_input("Felles volum/20d", value=float(config.get("common_volume_ratio20", 2.0) or 0.0), min_value=0.0, step=0.1)
+            saved = st.form_submit_button("Lagre bannervarsler")
+        if saved:
+            config.update({
+                "active": bool(active),
+                "pushover": bool(pushover),
+                "near_pct": float(near_pct),
+                "common_pct_up": float(up),
+                "common_pct_down": float(down),
+                "common_volume_ratio20": float(vol),
+            })
+            _save_banner_alert_config_v18610(config)
+            st.success("Bannervarsler lagret.")
+            st.rerun()
+
+        log = settings.get(BANNER_ALERT_LOG_KEY_V18610, [])
+        if isinstance(log, list) and log:
+            st.markdown("**Siste bannervarsler**")
+            st.dataframe(pd.DataFrame(log[:25]), use_container_width=True, hide_index=True)
+        else:
+            st.info("Ingen bannervarsler logget ennå.")
+
+
+def _render_nordnet_datatest_v18610():
+    with st.expander("Nordnet datatest (forberedelse)", expanded=False):
+        st.caption("Forbereder eventuell live-feed uten å lagre Nordnet-passord. Reell livebruk krever egen avklaring/tilgang og skal bygges som separat kilde.")
+        rows = [
+            {"Punkt": "Nordnet live-kilde", "Status": "Ikke koblet", "Forklaring": "Yahoo brukes fortsatt som bannerkilde inntil Nordnet-tilgang er godkjent og testet."},
+            {"Punkt": "NORDNET_API_URL", "Status": "Satt" if os.getenv("NORDNET_API_URL") else "Mangler", "Forklaring": "Kun teknisk miljøsjekk. Ingen innlogging gjøres her."},
+            {"Punkt": "Passordlagring", "Status": "Av", "Forklaring": "Programmet lagrer ikke Nordnet-passord i denne runden."},
+        ]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def render_live_market_banner():
@@ -4144,19 +4666,29 @@ def render_live_market_banner():
     if not banner_cards:
         return
 
+    banner_alert_config = _load_banner_alert_config_v18610(settings)
+    banner_cards = _apply_banner_alerts_v18610(banner_cards, banner_alert_config)
+    _banner_selected_from_query_v18610(banner_cards)
+
     cards = []
     for item in banner_cards:
+        from urllib.parse import quote
         pct = float(item.get("pct", 0.0))
         delta = float(item.get("delta", 0.0))
         pct_class = "pos" if pct >= 0 else "neg"
         market_label = html.escape(str(item.get("market", "")))
         title_label = html.escape(str(item.get("label", item.get("ticker", ""))))
+        ticker_value = str(item.get("ticker", "")).upper()
         price_txt = f"{float(item.get('price', 0.0)):,.2f}"
         delta_txt = f"{delta:+.2f}"
         pct_txt = f"{pct:+.2f}%"
+        marker_html = _banner_marker_html_v18610(item.get("alert_marker"))
+        marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
+        href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
 
         cards.append(
-            "<div class='ticker-tape-item'>"
+            f"<a class='ticker-tape-item' href='{href}' title='{marker_title}'>"
+            f"{marker_html}"
             "<div class='ticker-info'>"
             f"<div class='ticker-market'>{market_label}</div>"
             f"<div class='ticker-title'>{title_label}</div>"
@@ -4164,7 +4696,7 @@ def render_live_market_banner():
             f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
             "</div>"
             f"<div class='ticker-spark'>{item.get('sparkline', '')}</div>"
-            "</div>"
+            "</a>"
         )
 
     cards_html = "".join(cards)
@@ -4204,15 +4736,47 @@ def render_live_market_banner():
     }
     .ticker-tape-item {
         display: inline-grid;
-        grid-template-columns: 132px 96px;
+        grid-template-columns: 18px 132px 96px;
         align-items: center;
         gap: 8px;
-        min-width: 236px;
+        min-width: 266px;
         height: 70px;
         padding: 8px 11px;
         border-radius: 0;
         background: #ffffff;
         border-right: 1px solid rgba(15,23,42,0.10);
+        color: inherit;
+        text-decoration: none;
+        position: relative;
+    }
+    .ticker-tape-item:hover {
+        background: #eef6ff;
+        box-shadow: inset 0 0 0 1px rgba(37,99,235,0.18);
+    }
+    .ticker-alert-marker {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.54rem;
+        font-weight: 950;
+        line-height: 1;
+        color: #0f172a;
+        border: 1px solid rgba(15,23,42,0.18);
+    }
+    .ticker-alert-marker.green { background: #22c55e; }
+    .ticker-alert-marker.yellow { background: #facc15; }
+    .ticker-alert-marker.red { background: #ef4444; color: #fff; }
+    .ticker-alert-marker span { transform: translateY(-.5px); }
+    .ticker-alert-marker.green span { display: none; }
+    .ticker-alert-marker.green:after {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 999px;
+        background: #052e16;
     }
     .ticker-info {
         display: flex;
@@ -4267,8 +4831,8 @@ def render_live_market_banner():
     @media (max-width: 1100px) {
         .ticker-tape-wrap { min-height: 96px; }
         .ticker-tape-item {
-            grid-template-columns: 134px 102px;
-            min-width: 252px;
+            grid-template-columns: 18px 134px 102px;
+            min-width: 276px;
             height: 74px;
             padding: 8px 12px;
         }
@@ -4287,8 +4851,8 @@ def render_live_market_banner():
             padding: 8px 8px;
         }
         .ticker-tape-item {
-            grid-template-columns: 120px 86px;
-            min-width: 218px;
+            grid-template-columns: 18px 120px 86px;
+            min-width: 244px;
             height: 64px;
             padding: 7px 10px;
             gap: 10px;
@@ -4310,9 +4874,39 @@ def render_live_market_banner():
     banner_html = banner_html.replace("__SPEED__", str(speed_seconds)).replace("__CARDS__", cards_html)
 
     st.markdown(banner_html, unsafe_allow_html=True)
+    alert_counts = {"red": 0, "yellow": 0, "green": 0}
+    for card in banner_cards:
+        css = str((card.get("alert_marker") or {}).get("css") or "green")
+        if css in alert_counts:
+            alert_counts[css] += 1
     st.caption(
-        f"📡 Banner: {len(banner_cards)} kort · {speed_seconds}s · data ca. hver {refresh_minutes}. min."
+        f"Banner: {len(banner_cards)} kort · grønn {alert_counts['green']} · gul {alert_counts['yellow']} · rød {alert_counts['red']} · "
+        f"{speed_seconds}s · data ca. hver {refresh_minutes}. min."
     )
+    option_map = {
+        f"{card.get('ticker')} | {card.get('label')} | {card.get('market')}": card
+        for card in banner_cards
+    }
+    if option_map:
+        pick = st.selectbox(
+            "Åpne ticker fra banner",
+            [""] + list(option_map.keys()),
+            key="live_banner_open_picker_v18610",
+            label_visibility="collapsed",
+        )
+        if pick:
+            card = option_map[pick]
+            st.session_state["live_banner_selected_ticker_v18610"] = str(card.get("ticker") or "").upper()
+            st.session_state["live_banner_selected_market_v18610"] = str(card.get("market") or "")
+            st.session_state["live_banner_selected_label_v18610"] = str(card.get("label") or card.get("ticker") or "")
+
+    selected_ticker = st.session_state.get("live_banner_selected_ticker_v18610")
+    if selected_ticker:
+        _render_banner_ticker_detail_v18610(
+            selected_ticker,
+            st.session_state.get("live_banner_selected_market_v18610", ""),
+            st.session_state.get("live_banner_selected_label_v18610", ""),
+        )
 
 
 
@@ -4504,6 +5098,9 @@ def render_banner_main_controls():
                 logging.warning("Ticker-banner refresh after save failed: %s", exc)
             st.session_state["banner_settings_saved_message_v1864p"] = True
             st.rerun()
+
+    _render_banner_alert_settings_v18610()
+    _render_nordnet_datatest_v18610()
 
 
 def render_system_admin_workspace(expanded=False):
@@ -9312,6 +9909,13 @@ def render_currency_alerts_control_center_v1863af():
     top5.metric("Varselpause", f"{cooldown_minutes} min")
     top6.metric("Kilde", symbol_value or "-")
     top7.metric("Pushover", pushover_status.get("label") or "-")
+    current_alert_key = f"{pair_label}:{symbol_value}"
+    lifecycle_state = ((load_settings() or {}).get(ALERT_LIFECYCLE_STATE_KEY_V18610, {}) or {}).get("currency", {}).get(current_alert_key, {})
+    if lifecycle_state:
+        st.caption(
+            f"Varselstatus: {lifecycle_state.get('status', 'normal')} · "
+            f"sist oppdatert {lifecycle_state.get('updated_at', '-')}. Nytt Pushover-varsel sendes først etter normalisering."
+        )
 
     action_left, action_mid, action_test, action_right = st.columns([0.13, 0.19, 0.18, 0.50])
     with action_left:
@@ -9344,16 +9948,35 @@ def render_currency_alerts_control_center_v1863af():
             else:
                 _currency_alert_store_latest_rate_v1864s(symbol_value, pair_label, rate)
                 breach = None
+                breach_status = "normal"
                 if lower_v and rate <= lower_v:
+                    breach_status = "breach_lower"
                     breach = f"{pair_label} er under nedre grense: {rate:.4f} <= {lower_v:.4f}"
                 elif upper_v and rate >= upper_v:
+                    breach_status = "breach_upper"
                     breach = f"{pair_label} er over øvre grense: {rate:.4f} >= {upper_v:.4f}"
+                settings = load_settings() or {}
+                alert_key = f"{pair_label}:{symbol_value}"
+                transition = _alert_lifecycle_update_v18610(
+                    settings,
+                    "currency",
+                    alert_key,
+                    breach_status,
+                    {
+                        "pair": pair_label,
+                        "symbol": symbol_value,
+                        "rate": float(rate),
+                        "lower": lower_v,
+                        "upper": upper_v,
+                    },
+                )
+                save_settings(settings)
                 if breach:
                     st.error(breach)
                     if current.get("pushover", True):
                         settings = load_settings() or {}
                         alert_key = f"{pair_label}:{symbol_value}"
-                        if _currency_alert_can_send_v1863af(settings, alert_key, cooldown_minutes):
+                        if transition.get("send"):
                             ok, send_err = _send_pushover_safe_v1863af(breach, f"Valutavarsel {pair_label}")
                             settings.setdefault("currency_alert_last_sent_v1863af", {})[alert_key] = datetime.now().isoformat(timespec="seconds")
                             save_settings(settings)
@@ -9362,9 +9985,12 @@ def render_currency_alerts_control_center_v1863af():
                             else:
                                 st.warning(f"Pushover ble ikke sendt: {send_err or 'ukjent feil'}")
                         else:
-                            st.info("Grensen er brutt, men varselpause hindrer nytt Pushover-varsel akkurat nå.")
+                            st.info("Grensen er fortsatt brutt. Nytt Pushover-varsel sendes først etter at kursen har vært innenfor grensen igjen.")
                 else:
-                    st.success(f"{pair_label} er innenfor grensene.")
+                    if transition.get("previous_status", "normal") != "normal":
+                        st.success(f"{pair_label} er innenfor grensene igjen. Varselstatus er nullstilt.")
+                    else:
+                        st.success(f"{pair_label} er innenfor grensene.")
 
     if pushover_test_now:
         ok, send_err = _send_pushover_safe_v1863af(
