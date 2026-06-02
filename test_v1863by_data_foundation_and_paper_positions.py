@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.8"' in version
-    assert "Paper Trading og auth-kontroll" in version
+    assert 'APP_VERSION = "v18.6.9"' in version
+    assert "Marked og varsler-konsolidering" in version
     assert "Paper Trading er omdøpt til Paper Trading og kontroll" in version
 
 

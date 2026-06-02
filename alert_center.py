@@ -199,12 +199,12 @@ def render_common_alert_center(location: str = "top") -> None:
         with f5:
             horizon_filter = st.selectbox("Horisont", horizon_values, key=f"alert_horizon_filter_{location}_v1863m")
 
-        show_key = f"alert_center_show_{location}_v1863u"
-        if st.button("Vis / oppdater varsler for valgt filter", key=f"alert_center_run_{location}_v1863u", type="primary", use_container_width=True, disabled=market_filter == NO_UNIVERSE_SELECTION_LABEL):
-            st.session_state[show_key] = True
-        if not bool(st.session_state.get(show_key)):
-            st.info("Velg marked/kilde og trykk knappen. Varselsenteret viser ikke gamle lagrede AAPL/STB.OL-varsler automatisk.")
-            return
+        refresh_key = f"alert_center_refresh_{location}_v1869"
+        if st.button("Oppdater fra lagrede varsler", key=f"alert_center_run_{location}_v1869", type="secondary", disabled=market_filter == NO_UNIVERSE_SELECTION_LABEL):
+            st.session_state[refresh_key] = datetime.now().isoformat(timespec="seconds")
+        if st.session_state.get(refresh_key):
+            st.caption(f"Sist vist/oppdatert fra lagrede varsler: {st.session_state.get(refresh_key)}")
+        st.caption("Varselsenteret viser lagrede varsler og appstatus. Nye skanninger kjøres i kildene: Prognose, Watchlist, Valutavarsler og Paper Trading.")
         if market_filter == NO_UNIVERSE_SELECTION_LABEL:
             st.info("Velg marked/kilde først.")
             return
@@ -255,4 +255,7 @@ def render_common_alert_center(location: str = "top") -> None:
         if rows:
             st.dataframe(rows, use_container_width=True, hide_index=True)
         else:
-            st.info("Ingen varsler matcher valgte filter.")
+            st.info(
+                f"Ingen varsler matcher valgte filter. Totalt finnes {len(alerts)} lagrede varsler for filtergrunnlaget "
+                f"for nivå: røde {red}, gule {yellow}, grønne {green}."
+            )

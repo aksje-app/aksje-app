@@ -1758,11 +1758,11 @@ def _pipeline_relevant_panel_labels_v1864j(active_stage: str, panels: Sequence[T
     """Return the panels that are actually useful for the active pipeline step."""
     stage_needles: dict[str, tuple[str, ...]] = {
         "data_foundation": ("dataunderlag", "datakilder", "datagrunnlag", "finansavisen", "bjellesau", "aktor", "aktør", "register", "oljefond", "nbim", "folketrygdfondet", "kildetest"),
-        "market_ranking": ("marked/rangering", "marked", "heatmaps", "regime", "makro", "nyheter"),
+        "market_ranking": ("marked",),
         "smart_ai": ("analyseunivers",),
-        "top_picks": ("top picks", "marked/rangering"),
-        "early_warning": ("alpha", "early warning", "nyheter", "finansavisen", "bjellesau"),
-        "alpha_radar": ("alpha", "intelligence", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau"),
+        "top_picks": ("top picks", "marked"),
+        "early_warning": ("alpha", "early warning", "marked", "finansavisen", "bjellesau"),
+        "alpha_radar": ("alpha", "aktor", "aktør", "oljefond", "nbim", "finansavisen", "bjellesau"),
         "auto_test_lab": ("auto test lab", "testing", "learning", "fond / etf"),
         "decision_support": ("beslut",),
         "portfolio_analysis": ("portef", "fond / etf"),
@@ -1785,18 +1785,12 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         base_panels: list[Tuple[str, Callable[[], None]]] = [
             ("Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
             ("Prognose", _render_forecast_workspace_tab),
-            ("Varsler", lambda: render_common_alert_center(location="workspace")),
             ("Daily Report", render_daily_ai_market_report),
-            ("Intelligence", render_market_intelligence_center),
-            ("Heatmaps", render_ai_heatmaps),
             ("Testing & Learning", lambda: (
                 st.info("Strategi-test, Strategi-test Pro, prognose-vs-faktisk, scoreforklaring og backtest-laering er samlet her."),
                 render_strategy_testing_workspace(),
                 render_backtest_learning_panel(),
             )),
-            ("Regime", render_market_regime_widget),
-            ("Makro/renter", render_macro_rates_breadth_panel),
-            ("Services", _render_storage_services_status),
         ]
         panels = base_panels + list(extra_panels or [])
         panel_map = dict(panels)
@@ -1834,9 +1828,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         group_map = {
             ai_candidate_group_name: ai_candidate_labels,
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("top picks", "beslut", "muligheter", "ipo", "varsler", "intelligence", "heatmaps", "regime", "makro", "nyheter", "marked", "marked/rangering", "watchlist", "valutavarsler"),
+            "Marked og signaler": _matching_panel_labels("marked", "varsler og watchlist", "top picks", "beslut", "muligheter", "alpha"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
-            "System": _matching_panel_labels("services", "system/admin"),
+            "System": _matching_panel_labels("system/admin"),
         }
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]

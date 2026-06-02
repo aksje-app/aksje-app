@@ -39,7 +39,7 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.8"' in version
+assert 'APP_VERSION = "v18.6.9"' in version
 assert "Market Climate Explainability" in version
 
 # Alpha Radar must be a first-class Control Center panel.

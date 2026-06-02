@@ -135,7 +135,10 @@ def _render_sector_treemap(rows: List[Dict[str, Any]]) -> None:
 def render_ai_heatmaps() -> None:
     """Render heatmap/risk visualization."""
     with st.expander("📊 AI Heatmaps & Risk Visualization", expanded=False):
-        st.caption("Fargekodet oversikt over prognoser, risiko, confidence og strength. Ingen auto-trading-kobling.")
+        st.caption(
+            "Fargekodet visualisering av lagrede prognoser, risiko, confidence og strength. "
+            "Heatmap er ikke en egen markedsskanner; kjør Marked -> Rangering eller Prognose først."
+        )
 
         all_tickers = extract_tickers_from_app_state(st.session_state)
         scope = st.selectbox(

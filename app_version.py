@@ -1,9 +1,15 @@
-APP_VERSION = "v18.6.8"
-APP_VERSION_NAME = "Paper Trading og auth-kontroll"
-APP_BUILD_ID = "v1868-paper-auth-control"
+APP_VERSION = "v18.6.9"
+APP_VERSION_NAME = "Marked og varsler-konsolidering"
+APP_BUILD_ID = "v1869-market-alert-consolidation"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Marked og signaler er ryddet: Marked samler Rangering, Heatmap, Markedsklima, Lagrede signaler, IPO, Regime, Makro og Nyheter.",
+    "Varsler og watchlist samler Varselsenter, Watchlist/signaler og Valutavarsler i ett brukerpanel.",
+    "Varselsenteret viser lagrede varsler direkte og forklarer at nye skanninger skjer i kildemodulene.",
+    "Intelligence og Heatmaps er merket som lagrede visninger, ikke egne markedsskannere.",
+    "Services er skjult fra normal brukerflate og beholdes bare som teknisk fallback til senere cleanup.",
+    "Legacy cleanup-plan er lagt til, slik at gamle kodebaner kan fjernes kontrollert etter egne tester.",
     "Paper Trading er omdøpt til Paper Trading og kontroll og samler simulert handel, beholdning, kontrollkort og regler på én side.",
     "Paper-portefølje kontroll er flyttet inn i Paper Trading-flaten og fjernet som separat synlig kontrollsenter-panel.",
     "Innkommende paper-hypoteser vises nå kollapset og skilles tydelig fra faktisk beholdning.",

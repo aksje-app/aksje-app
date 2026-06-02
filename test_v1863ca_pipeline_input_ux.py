@@ -35,10 +35,11 @@ def test_marked_room_groups_market_tools_behind_toolbar():
     assert "def render_market_room_control_center_v1863cb" in app
     assert "def _render_market_room_toolbar_v1863cb" in app
     assert '("Marked", render_market_room_control_center_v1863cb)' in app
-    assert '["Oversikt", "Rangering", "Heatmap", "Regime", "Makro", "Nyheter"]' in app
+    assert '["Oversikt", "Rangering", "Heatmap", "Markedsklima", "Lagrede signaler", "IPO", "Regime", "Makro", "Nyheter"]' in app
     assert '["Sektor", "Land", "Industri", "Faktorstil", "Risikostil", "Storrelse"]' in app
     assert "render_market_ranking_control_center_v18535(selected_market=" in app
-    assert '"marked", "marked/rangering"' in layout
+    assert '"market_ranking": ("marked",)' in layout
+    assert "Varsler og watchlist" in app
 
 
 def test_test3_to_10_prefer_analysis_pipeline_input_and_specific_send_labels():

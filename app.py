@@ -8403,7 +8403,7 @@ def _render_market_room_toolbar_v1863cb() -> dict:
     with c_view:
         view = st.radio(
             "Visning",
-            ["Oversikt", "Rangering", "Heatmap", "Regime", "Makro", "Nyheter"],
+            ["Oversikt", "Rangering", "Heatmap", "Markedsklima", "Lagrede signaler", "IPO", "Regime", "Makro", "Nyheter"],
             horizontal=True,
             key="market_room_view_v1863cb",
         )
@@ -8437,7 +8437,7 @@ def _render_market_room_overview_v1863cb(config: dict) -> None:
         st.metric("Periode", str(config.get("period") or "1M"))
     if tickers:
         st.caption("Eksempel fra valgt univers: " + ", ".join(tickers[:12]))
-    st.info("Velg Rangering for å kjøre markedsmotoren, Heatmap for markedsbilde, Regime for markedsklima eller Makro for renter/bredde.")
+    st.info("Velg Rangering for å kjøre markedsmotoren. Heatmap, Markedsklima, Lagrede signaler, IPO, Regime, Makro og Nyheter ligger som visninger i samme Marked-panel.")
 
 
 def render_market_room_control_center_v1863cb() -> None:
@@ -8456,6 +8456,15 @@ def render_market_room_control_center_v1863cb() -> None:
     elif view == "Heatmap":
         st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
         render_ai_heatmaps()
+    elif view == "Markedsklima":
+        st.caption("Markedsklima er samlet her som makrobilde, grafarkiv og klimaeffekt for AI Kandidattest.")
+        render_market_climate_panel()
+    elif view == "Lagrede signaler":
+        st.caption("Lagrede signaler viser prognoser/varsler som allerede finnes. Det starter ingen ny universskanning.")
+        render_market_intelligence_center()
+    elif view == "IPO":
+        st.caption("IPO-kalender og IPO-/spekulasjonsunderlag er samlet under Marked.")
+        render_ipo()
     elif view == "Regime":
         st.caption(f"Regime vises sammen med periode {config.get('period')}.")
         render_market_regime_widget()
@@ -15818,9 +15827,43 @@ def control_center_extra_panels_v18535():
 _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
 
 
+def render_alerts_watchlist_control_center_v1869() -> None:
+    """Unified alert/watchlist workspace without separate dominant menu entries."""
+    st.subheader("Varsler og watchlist")
+    st.caption(
+        "Samler felles varselsenter, watchlist/signaler og valutavarsler. "
+        "Varselsenteret viser lagrede varsler; fanene under kan kjøre ny watchlist- eller valutakontroll."
+    )
+    tab_alerts, tab_watchlist, tab_currency = st.tabs(["Varselsenter", "Watchlist / signaler", "Valutavarsler"])
+    with tab_alerts:
+        render_common_alert_center(location="alerts_watchlist_v1869")
+    with tab_watchlist:
+        render_watchlist_signals_control_center_v18535()
+    with tab_currency:
+        render_currency_alerts_control_center_v1863af()
+
+
 def control_center_extra_panels_v18535():
-    panels = list(_control_center_extra_panels_base_v1863af())
-    panels.insert(3, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
+    legacy_hidden_tokens = (
+        "markedsklima",
+        "ipo",
+        "nyheter",
+        "marked/rangering",
+        "watchlist/signaler",
+        "valutavarsler",
+    )
+    panels = []
+    inserted_alerts = False
+    for label, renderer in _control_center_extra_panels_base_v1863af():
+        text = str(label or "").lower()
+        if any(token in text for token in legacy_hidden_tokens):
+            continue
+        panels.append((label, renderer))
+        if str(label or "") == "Marked":
+            panels.append(("Varsler og watchlist", render_alerts_watchlist_control_center_v1869))
+            inserted_alerts = True
+    if not inserted_alerts:
+        panels.insert(2, ("Varsler og watchlist", render_alerts_watchlist_control_center_v1869))
     return panels
 
 
@@ -16704,6 +16747,54 @@ elif active_panel in {"🧪 Paper Trading", "🧪 Paper Trading og kontroll"}:
 # Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.
 st.session_state["heavy_update_allowed_v148"] = False
 _finish_global_apply_v161()
+
+st.markdown("""
+<style>
+/* v18.6.9: compact action buttons after legacy CSS. */
+html body .stApp div[data-testid="stButton"] > button,
+html body .stApp div[data-testid="stDownloadButton"] > button,
+html body .stApp div[data-testid="stFormSubmitButton"] > button {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: min(100%, 360px) !important;
+    min-height: 31px !important;
+    padding: .26rem .66rem !important;
+    margin: .06rem .18rem .12rem 0 !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(96,165,250,.42) !important;
+    background: linear-gradient(180deg, rgba(15,118,160,.74), rgba(8,47,73,.92)) !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    font-size: .82rem !important;
+    font-weight: 850 !important;
+    line-height: 1.12 !important;
+    box-shadow: 0 3px 10px rgba(14,165,233,.12), 0 0 0 1px rgba(255,255,255,.06) inset !important;
+    text-shadow: none !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+html body .stApp div[data-testid="stButton"] > button:hover,
+html body .stApp div[data-testid="stDownloadButton"] > button:hover,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:hover {
+    border-color: rgba(125,211,252,.78) !important;
+    background: linear-gradient(180deg, rgba(14,165,233,.70), rgba(8,47,73,.94)) !important;
+    box-shadow: 0 5px 14px rgba(14,165,233,.20), 0 0 0 1px rgba(255,255,255,.10) inset !important;
+}
+html body .stApp div[data-testid="stButton"] > button[kind="primary"],
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] {
+    border-color: rgba(56,189,248,.66) !important;
+    background: linear-gradient(180deg, rgba(14,165,233,.82), rgba(14,116,144,.92)) !important;
+}
+html body .stApp div[data-testid="stButton"] > button:disabled,
+html body .stApp div[data-testid="stDownloadButton"] > button:disabled,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
+    max-width: min(100%, 360px) !important;
+    opacity: .72 !important;
+    background: linear-gradient(180deg, rgba(51,65,85,.82), rgba(30,41,59,.90)) !important;
+    border-color: rgba(148,163,184,.52) !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 def add_rsi_current_box(fig, rsi):

@@ -128,6 +128,10 @@ def render_market_intelligence_center() -> None:
     with st.expander("🧠 AI Market Intelligence Center", expanded=False):
         st.caption("Samlet markedsoversikt basert på prognoser, varsler, portefølje/paper-data og lærende confidence. Ingen auto-trading-kobling.")
 
+        st.caption(
+            "Merk: dette er en lagret signaloversikt. Panelet kjører ikke ny markedsskanning; "
+            "bruk Marked -> Rangering når du vil analysere et helt univers."
+        )
         all_tickers = sorted({str(r.get("ticker") or "").upper() for r in summaries if str(r.get("ticker") or "").strip()} | {str(a.get("ticker") or "").upper() for a in alerts if str(a.get("ticker") or "").strip()})
         markets = standard_market_options(include_sources=True)
         horizons = ["Alle"] + sorted({str(r.get("horizon") or "") for r in summaries if str(r.get("horizon") or "").strip()})
@@ -142,6 +146,7 @@ def render_market_intelligence_center() -> None:
             horizon_filter = st.selectbox("Horisont", horizons, key="intelligence_horizon_filter_v1863m")
         with fc4:
             risk_filter = st.selectbox("Risiko", risks, key="intelligence_risk_filter_v1863m")
+        st.caption("Ticker = Alle betyr alle tickere som finnes i lagrede prognoser/varsler, ikke hele markedet.")
 
         filtered_summaries = []
         for row in summaries:
