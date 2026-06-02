@@ -1,9 +1,15 @@
-APP_VERSION = "v18.6.7"
-APP_VERSION_NAME = "Market Climate Graph Archive"
-APP_BUILD_ID = "v1867-market-climate-graph-archive"
+APP_VERSION = "v18.6.8"
+APP_VERSION_NAME = "Paper Trading og auth-kontroll"
+APP_BUILD_ID = "v1868-paper-auth-control"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Paper Trading er omdøpt til Paper Trading og kontroll og samler simulert handel, beholdning, kontrollkort og regler på én side.",
+    "Paper-portefølje kontroll er flyttet inn i Paper Trading-flaten og fjernet som separat synlig kontrollsenter-panel.",
+    "Innkommende paper-hypoteser vises nå kollapset og skilles tydelig fra faktisk beholdning.",
+    "Paper-posisjoner bruker kompakte Selg/Øk-handlinger og en mer moderne knappestil i stedet for dominerende fullbreddeknapper.",
+    "Handelslogg og beholdningsoversikt bruker felles paper-kolonner med tid, status, ticker, marked, sektor, pris, antall, verdi, P/L, signal og forklaring.",
+    "Login har Glemt passord-flyt med ADMIN_RESET_KEY, og reset_admin_password.py kan sette nytt passord lokalt når brukeren ikke kommer inn.",
     "Market Climate Explainability videreføres og utvides med grafarkiv og importerbare underlag.",
     "Markedsklima har fått graf- og tabellarkiv for egne/importerbare datasett, med status, nivåer, forklaring og rapport-/eksportstøtte.",
     "Manuelle klimaindikatorer har fått hurtiglenker til aktuelle kilder som SEC IPO statistics, AAII, MacroMicro og Brookings scenario-underlag.",

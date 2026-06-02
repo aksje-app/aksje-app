@@ -3,6 +3,7 @@ import logging
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+import hmac
 import json
 import os
 import uuid
@@ -29,6 +30,7 @@ REMEMBER_FILE = Path("remember_tokens.json")
 REMEMBER_DAYS = 30
 SESSION_HOURS = 24
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+ADMIN_RESET_ENV_NAMES = ("ADMIN_RESET_KEY", "AKSE_ADMIN_RESET_KEY", "APP_ADMIN_RESET_KEY")
 
 
 def _remember_storage_bridge(token=None, clear=False):
@@ -169,6 +171,64 @@ def _save_remember_tokens(tokens):
             json.dump(tokens, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
+
+
+def _env_value_v1868(name: str, default: str = "") -> str:
+    try:
+        from runtime_env import env_value
+
+        return env_value(name, default)
+    except Exception:
+        return os.getenv(name, default).strip()
+
+
+def _admin_reset_key_v1868() -> str:
+    for name in ADMIN_RESET_ENV_NAMES:
+        value = _env_value_v1868(name, "")
+        if value:
+            return value
+    return ""
+
+
+def _clear_remember_tokens_for_username_v1868(username: str) -> None:
+    username = str(username or "").strip().lower()
+    if not username:
+        return
+    try:
+        tokens = _load_remember_tokens()
+        kept = {
+            token: item
+            for token, item in tokens.items()
+            if str((item or {}).get("username") or "").strip().lower() != username
+        }
+        if kept != tokens:
+            _save_remember_tokens(kept)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.8: %s", e)
+    if _init_remember_db():
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM app_remember_tokens WHERE username=%s", (username,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.8: %s", e)
+
+
+def reset_user_password_without_login(username: str, new_password: str, reset_key: str):
+    """Reset a user password from login using a local env reset key."""
+    expected = _admin_reset_key_v1868()
+    if not expected:
+        return False, "Mangler ADMIN_RESET_KEY i .env/secrets. Bruk lokalt nødskript eller legg inn reset-nøkkel."
+    provided = str(reset_key or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        return False, "Feil reset-nøkkel"
+    ok, msg = update_user(username, password=new_password)
+    if ok:
+        _clear_remember_tokens_for_username_v1868(username)
+        return True, "Passordet er oppdatert. Logg inn med nytt passord."
+    return False, msg
 
 
 def _create_remember_token(user):
@@ -384,6 +444,26 @@ def render_login():
         else:
             st.error(msg)
 
+    with st.expander("Glemt passord?", expanded=False):
+        st.caption("Brukes når du ikke kommer inn. Krever lokal ADMIN_RESET_KEY i .env/secrets.")
+        if not _admin_reset_key_v1868():
+            st.info("Ingen reset-nøkkel er satt. Legg ADMIN_RESET_KEY i .env, eller kjør reset_admin_password.py lokalt.")
+        with st.form("forgot_password_form_v1868"):
+            reset_username = st.text_input("Brukernavn", key="forgot_username_v1868")
+            reset_key = st.text_input("Reset-nøkkel", type="password", key="forgot_key_v1868")
+            new_password = st.text_input("Nytt passord", type="password", key="forgot_new_password_v1868")
+            new_password2 = st.text_input("Gjenta nytt passord", type="password", key="forgot_new_password2_v1868")
+            reset_submitted = st.form_submit_button("Sett nytt passord")
+        if reset_submitted:
+            if new_password != new_password2:
+                st.error("Passordene er ikke like")
+            else:
+                ok, msg = reset_user_password_without_login(reset_username, new_password, reset_key)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
     st.stop()
 
 def require_login():
@@ -417,7 +497,6 @@ def render_user_admin(current_user):
     st.dataframe in the sidebar, because Streamlit's dataframe container can
     create large empty/white boxes in narrow sidebars.
     """
-    st.sidebar.markdown("---")
     username = str(current_user.get("username", "-"))
     role = str(current_user.get("role", "user"))
     remember_on = bool(st.session_state.get("auth_remember_me"))
@@ -434,7 +513,8 @@ def render_user_admin(current_user):
         unsafe_allow_html=True,
     )
 
-    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=True):
+    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=False):
+        st.session_state["auth_last_redirect_reason_v1865c"] = "manual_logout"
         _logout()
 
     if current_user.get("role") != "admin":

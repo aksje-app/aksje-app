@@ -112,7 +112,14 @@ except Exception:
 from paper_store import using_postgres
 from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
 from paper_store import save_portfolio
-from paper_trading_valuation import normalize_paper_portfolio, paper_position_rows, paper_trade_rows, timestamp_now
+from paper_trading_valuation import (
+    normalize_paper_portfolio,
+    paper_position_display_rows,
+    paper_position_rows,
+    paper_trade_display_rows,
+    paper_trade_rows,
+    timestamp_now,
+)
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
@@ -1263,26 +1270,26 @@ def _render_paper_trading_control_toolbar_v1864p() -> None:
         """,
         unsafe_allow_html=True,
     )
-    c_ready, c_start, c_pause, c_stop, c_emergency, c_reset = st.columns([1, 1, 1, 1, 1.05, 1.15], gap="small")
+    c_ready, c_start, c_pause, c_stop, c_emergency, c_reset = st.columns([1, 1, 0.8, 0.9, 1.0, 1.1], gap="small")
     ready_disabled = not (bool(full_stop) or bool(settings.get("auto_trading_paused", False)))
     with c_ready:
-        if st.button("Gjør klar paper", key="paper_context_ready_v1864p", use_container_width=True, disabled=ready_disabled):
+        if st.button("Gjør klar", key="paper_context_ready_v1864p", use_container_width=False, disabled=ready_disabled):
             _clear_stops_ready_v158()
     with c_start:
-        if st.button("Start simulering", key="paper_context_start_v1864p", use_container_width=True, disabled=bool(full_stop or emergency_stop)):
+        if st.button("Start", key="paper_context_start_v1864p", use_container_width=False, disabled=bool(full_stop or emergency_stop)):
             _set_auto_state("START")
     with c_pause:
-        if st.button("Pause", key="paper_context_pause_v1864p", use_container_width=True):
+        if st.button("Pause", key="paper_context_pause_v1864p", use_container_width=False):
             _set_auto_state("PAUSE")
     with c_stop:
-        if st.button("Stopp simulering", key="paper_context_stop_v1864p", use_container_width=True):
+        if st.button("Stopp", key="paper_context_stop_v1864p", use_container_width=False):
             _set_auto_state("STOPP")
     with c_emergency:
-        if st.button("Nødstopp paper", key="paper_context_emergency_v1864p", use_container_width=True):
+        if st.button("Nødstopp", key="paper_context_emergency_v1864p", use_container_width=False):
             _set_auto_state("NØDSTOPP")
     with c_reset:
         if emergency_stop:
-            if st.button("Tilbakestill nødstopp", key="paper_context_reset_emergency_v1864p", use_container_width=True):
+            if st.button("Tilbakestill", key="paper_context_reset_emergency_v1864p", use_container_width=False):
                 _reset_emergency_stop_v157()
         else:
             st.caption("Nødstopp av")
@@ -1572,7 +1579,7 @@ def render_global_update_action_panel_v1863g() -> None:
         _click_global_update_v1862()
 
 
-_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Norden", "Aktivt univers", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading"]
+_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Norden", "Aktivt univers", "⭐ Top Picks", "🚀 IPO", "🧪 Paper Trading og kontroll"]
 
 
 def _on_active_panel_change_v18531():
@@ -1597,7 +1604,7 @@ def _render_active_main_panel_selector_v18531():
         "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
         "⭐ Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
         "🚀 IPO": "Nye og kommende børsnoteringer.",
-        "🧪 Paper Trading": "Simulert handel og testportefølje.",
+        "🧪 Paper Trading og kontroll": "Simulert handel, beholdning, kontroll og testportefølje.",
     }
     st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Hovedpanel</div>", unsafe_allow_html=True)
     active = st.selectbox(
@@ -5475,7 +5482,7 @@ def render_ranking(results, title):
                     if latest_price is not None and _action_now == "KJØP NÅ":
                         if _owns:
                             st.caption("📌 Allerede i paper-porteføljen")
-                        elif st.button(f"🟢 Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}", use_container_width=True):
+                        elif st.button(f"Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}", use_container_width=False):
                             _ok, _msg = paper_buy(ticker, latest_price, _conf, f"UI Kjøp nå: {title}")
                             if _ok:
                                 st.success(_msg)
@@ -5484,7 +5491,7 @@ def render_ranking(results, title):
                                 st.warning(_msg)
 
                     elif latest_price is not None and ("UNNGÅ" in _action_now or "SELL" in _action_now):
-                        if _owns and st.button(f"🔴 Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}", use_container_width=True):
+                        if _owns and st.button(f"Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}", use_container_width=False):
                             _ok, _msg = paper_sell(ticker, latest_price, f"UI teknisk signal: {_action_now}")
                             if _ok:
                                 st.success(_msg)
@@ -7311,7 +7318,7 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
         .paper-position-card {
             border:1px solid rgba(56,189,248,.30);
             background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.78));
-            border-radius:12px;
+            border-radius:10px;
             padding:.62rem .72rem;
             margin:.35rem 0;
         }
@@ -7326,6 +7333,7 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
         .paper-position-pnl span { margin-left:.35rem;color:inherit;font-size:.88rem; }
         .paper-position-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.38rem;margin-top:.45rem;color:#cbd5e1;font-size:.82rem; }
         .paper-position-grid b { color:#f8fafc; }
+        .paper-position-hint { color:#94a3b8;font-size:.74rem;margin-top:.32rem; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -7354,43 +7362,37 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
                 <span>Bransje <b>{html.escape(str(row.get('bransje') or '-'))}</b></span>
                 <span>Oppdatert <b>{updated}</b></span>
               </div>
+              <div class='paper-position-hint'>Velg en handling for å fylle kjøp/salg-feltene med ticker og lagret siste kurs.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         key_base = "".join(ch if ch.isalnum() else "_" for ch in str(row.get("ticker") or "pos"))
-        action_cols = st.columns([0.9, 0.9, 2.0])
+        action_cols = st.columns([0.09, 0.09, 0.82], gap="small")
         with action_cols[0]:
             st.button(
-                "Velg for salg",
+                "Selg",
                 key=f"paper_position_select_sell_v1863by_{key_base}",
-                use_container_width=True,
+                use_container_width=False,
                 on_click=_select_paper_position_for_trade_v1863by,
                 args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "sell", str(row.get("type") or "Aksje")),
             )
         with action_cols[1]:
             st.button(
-                "Velg for kjøp/øk",
+                "Øk",
                 key=f"paper_position_select_buy_v1863by_{key_base}",
-                use_container_width=True,
+                use_container_width=False,
                 on_click=_select_paper_position_for_trade_v1863by,
                 args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "buy", str(row.get("type") or "Aksje")),
             )
-        with action_cols[2]:
-            st.caption("Fyller ticker og lagret siste kurs i aksje-kjøp/salg-feltene på neste rerun.")
 
 
-def render_paper_trading_dashboard():
-    st.subheader("🧪 Paper Trading")
-    st.caption("Felles lagring: " + ("Postgres/DATABASE_URL ✅" if using_postgres() else "lokal fallback ⚠️"))
-    st.caption("Simulert handel med fiktive penger. Brukes for å teste strategien før ekte penger.")
-    st.caption("Auto-trading handler bare når relevant marked er åpent. Utenfor åpningstid brukes visning/cache, ikke nye auto-handler.")
-    try:
-        paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
-    except Exception:
-        paper_flow_rows = []
-    if paper_flow_rows:
-        st.markdown("<div class='v18-dark-row'><b>Kandidater sendt til Paper Trading:</b> kandidatene under kan brukes som paper-hypoteser. Ingen ekte ordre sendes.</div>", unsafe_allow_html=True)
+def _render_incoming_paper_hypotheses_v1868(paper_flow_rows):
+    rows = list(paper_flow_rows or [])
+    if not rows:
+        return
+    with st.expander(f"Innkommende paper-hypoteser ({len(rows)})", expanded=False):
+        st.caption("Dette er kandidater sendt inn til Paper Trading. De er ikke beholdningen din før du faktisk gjør et paper-kjøp.")
         st.dataframe(
             pd.DataFrame([
                 {
@@ -7398,19 +7400,98 @@ def render_paper_trading_dashboard():
                     "Selskap": row.get("name"),
                     "Score": row.get("score"),
                     "Kilde": row.get("source"),
-                    "Handling": row.get("recommended_action") or "Bruk som paper-hypotese",
+                    "Forslag": row.get("recommended_action") or "Bruk som paper-hypotese",
                 }
-                for row in paper_flow_rows[:12]
+                for row in rows[:25]
             ]),
             use_container_width=True,
             hide_index=True,
         )
 
+
+def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value):
+    rows = paper_position_rows(portfolio, latest_prices)
+    flags = _paper_control_flags_v1863af(rows, _safe_float_v18581(total_value, 0.0))
+    st.markdown("#### Paper-portefølje kontroll")
+    if rows:
+        control_rows = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "-")
+            value = _safe_float_v18581(row.get("value"), 0.0)
+            pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+            weight = (value / total_value * 100.0) if total_value else 0.0
+            if pnl_pct <= -5:
+                action = "Krever oppfølging"
+            elif pnl_pct >= 10:
+                action = "Vurder gevinstsikring"
+            elif weight >= 25:
+                action = "Sjekk konsentrasjon"
+            else:
+                action = "Hold / overvåk"
+            control_rows.append({
+                "Ticker": ticker,
+                "Land": row.get("land") or "",
+                "Marked": row.get("marked") or "",
+                "Sektor": row.get("sektor") or "",
+                "Verdi": round(value, 2),
+                "P/L kr": row.get("pnl"),
+                "P/L %": round(pnl_pct, 2),
+                "Vekt %": round(weight, 1),
+                "Forslag": action,
+                "Oppdatert": row.get("updated") or "Lagret kurs",
+            })
+        st.dataframe(pd.DataFrame(control_rows), use_container_width=True, hide_index=True)
+        with st.expander("Full felles beholdningsoversikt", expanded=False):
+            st.caption("Samme feltfamilie som handelsloggen: tidspunkt/status, ticker, marked, sektor, pris, antall, verdi, P/L, signal og forklaring.")
+            st.dataframe(
+                pd.DataFrame(paper_position_display_rows(portfolio, latest_prices, total_value=total_value)),
+                use_container_width=True,
+                hide_index=True,
+            )
+    else:
+        st.info("Ingen åpne paper-posisjoner ennå.")
+
+    if flags:
+        with st.expander(f"Varsler og kontrollpunkter ({len(flags)})", expanded=False):
+            st.dataframe(pd.DataFrame(flags), use_container_width=True, hide_index=True)
+    else:
+        st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
+
+    with st.expander("AI-forslag fra paper-testen", expanded=False):
+        for point in _paper_control_learning_points_v1863af(rows, stats, flags):
+            st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
+        if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_inline_v1868", use_container_width=False):
+            total_pnl = sum(_safe_float_v18581(r.get("pnl"), 0.0) for r in rows)
+            avg_pnl_pct = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+            summary = [
+                "Paper Trading og kontroll",
+                f"Total verdi: {total_value:,.0f} kr",
+                f"Åpne posisjoner: {len(rows)}",
+                f"Urealisert P/L: {total_pnl:+,.0f} kr ({avg_pnl_pct:+.2f}%)",
+                f"Kontrollvarsler: {len(flags)}",
+            ]
+            for flag in flags[:4]:
+                summary.append(f"{flag.get('ticker')}: {flag.get('signal')} - {flag.get('forslag')}")
+            ok, err = _send_pushover_safe_v1863af("\n".join(summary), "Paper Trading og kontroll")
+            if ok:
+                st.success("Pushover-rapport sendt.")
+            else:
+                st.warning(f"Pushover ble ikke sendt: {err or 'ukjent feil'}")
+
+
+def render_paper_trading_dashboard():
+    st.subheader("🧪 Paper Trading og kontroll")
+    st.caption("Simulert handel, beholdning, kontrollkort og regler samlet på én side. Ingen ekte ordre sendes.")
+    try:
+        paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
+    except Exception:
+        paper_flow_rows = []
+
     portfolio = load_portfolio()
 
     status_cols = st.columns([1.1, 1.2, 1.7])
     with status_cols[0]:
-        refresh_prices = st.button("🔄 Oppdater paper-kurser", key="paper_refresh_prices_v1863v", type="primary", use_container_width=True)
+        refresh_prices = st.button("Oppdater kurser", key="paper_refresh_prices_v1863v", type="primary", use_container_width=False)
     with status_cols[1]:
         st.markdown("<div class='v18-dark-row'><b>Ekte handel:</b> Ikke aktiv</div>", unsafe_allow_html=True)
     with status_cols[2]:
@@ -7464,8 +7545,19 @@ def render_paper_trading_dashboard():
             ("Lukkede trades", stats["closed_trades"]),
         ], columns=4)
 
+    _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value)
+
+    st.markdown("#### Posisjoner / beholdning")
+    positions = portfolio.get("positions", {})
+    if positions:
+        _render_paper_positions_cards_v1863ac(portfolio, latest_prices)
+    else:
+        st.info("Ingen åpne paper trading-posisjoner.")
+
+    _render_incoming_paper_hypotheses_v1868(paper_flow_rows)
+
     # DO_NOT_TOUCH_ZONE v18.5.87: Paper capital/cash semantics are protected. Patch minimally.
-    with st.expander("💼 Juster Paper Trading startverdier / porteføljeverdi", expanded=True):
+    with st.expander("Juster Paper Trading startverdier / porteføljeverdi", expanded=False):
         st.markdown("""
         <div class="paper-edit-card">
             <b>Regulerbare startverdier</b><br>
@@ -7493,7 +7585,7 @@ def render_paper_trading_dashboard():
             )
         c_apply, c_reset = st.columns(2)
         with c_apply:
-            if st.button("💾 Bruk porteføljeverdi", key="paper_apply_total_value_v18581", use_container_width=True):
+            if st.button("Bruk porteføljeverdi", key="paper_apply_total_value_v18581", use_container_width=False):
                 target_value = _safe_float_v18581(new_portfolio_value, total_value)
                 current_cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
                 positions_value = _safe_float_v18581(liq.get("positions_value", 0), 0.0)
@@ -7509,7 +7601,7 @@ def render_paper_trading_dashboard():
                     st.success(f"Porteføljeverdi oppdatert til ca. {target_value:,.0f}. Cash/kjøpekraft er nå ca. {new_cash:,.0f} ✅")
                     st.rerun()
         with c_reset:
-            if st.button("↩️ Reset til startkapital", key="restore_reset_paper_portfolio_v18581", use_container_width=True):
+            if st.button("Reset til startkapital", key="restore_reset_paper_portfolio_v18581", use_container_width=False):
                 target_start = _safe_float_v18581(new_start_cash, 100000.0)
                 _paper_rules["start_cash"] = target_start
                 save_rules(_paper_rules)
@@ -7518,12 +7610,11 @@ def render_paper_trading_dashboard():
                 st.success(f"Paper portfolio nullstilt til {target_start:,.0f} ✅")
                 st.rerun()
 
-    st.markdown("---")
-    st.subheader("⚙️ Auto trading og regler")
-    st.caption("Kontrollene gjelder simulert/auto paper-flyt. Ekte handel er ikke aktivert.")
-    _render_paper_trading_control_toolbar_v1864p()
-    render_auto_trading_workspace()
-    render_trading_rules_workspace()
+    with st.expander("Auto trading og regler", expanded=False):
+        st.caption("Kontrollene gjelder simulert/auto paper-flyt. Ekte handel er ikke aktivert.")
+        _render_paper_trading_control_toolbar_v1864p()
+        render_auto_trading_workspace()
+        render_trading_rules_workspace()
 
     st.markdown("#### 🟢 Simulert kjøp av aksjer")
     st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
@@ -7560,12 +7651,12 @@ def render_paper_trading_dashboard():
                 help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
             )
         with s4:
-            st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
+            st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=False, on_click=_paper_fetch_stock_price_v1863z)
         _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
 
         buy_col, sell_col = st.columns([1.0, 1.0])
         with buy_col:
-            buy_stock_clicked = st.button("🟢 Paper-kjøp aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=True)
+            buy_stock_clicked = st.button("Paper-kjøp aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=False)
             if buy_stock_clicked:
                 if not stock_symbol:
                     st.error("Skriv inn aksjesymbol først.")
@@ -7582,7 +7673,7 @@ def render_paper_trading_dashboard():
             stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
             sell_stock_symbol = st.selectbox("Selg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1863y")
             sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1863y")
-            sell_stock_clicked = st.button("🔴 Paper-selg aksje", key="paper_stock_sell_v1863z", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
+            sell_stock_clicked = st.button("Paper-selg aksje", key="paper_stock_sell_v1863z", use_container_width=False, disabled=(sell_stock_symbol == "Ingen"))
             if sell_stock_clicked:
                 price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
                 if price_to_use <= 0:
@@ -7620,12 +7711,12 @@ def render_paper_trading_dashboard():
         with pf2:
             purchase_mode = st.selectbox("Kjøpstype", ["Engangskjøp", "Månedlig spareplan"], key="paper_fund_purchase_mode_v18545")
         with pf3:
-            st.button("Hent pris/NAV", key="paper_fund_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_fund_price_v1863z)
+            st.button("Hent pris/NAV", key="paper_fund_fetch_price_v1863z", use_container_width=False, on_click=_paper_fetch_fund_price_v1863z)
         _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
 
         ba, bb = st.columns([1.0, 1.0])
         with ba:
-            buy_fund_clicked = st.button("🟢 Paper-kjøp fond/ETF", key="paper_fund_buy_v1863z", type="primary", use_container_width=True)
+            buy_fund_clicked = st.button("Paper-kjøp fond/ETF", key="paper_fund_buy_v1863z", type="primary", use_container_width=False)
             if buy_fund_clicked:
                 price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
                 ok, msg = paper_buy_instrument(
@@ -7649,7 +7740,7 @@ def render_paper_trading_dashboard():
             sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
             sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v18545")
             sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
-            sell_fund_clicked = st.button("🔴 Paper-selg fond/ETF", key="paper_fund_sell_v1863z", use_container_width=True, disabled=(sell_symbol == "Ingen"))
+            sell_fund_clicked = st.button("Paper-selg fond/ETF", key="paper_fund_sell_v1863z", use_container_width=False, disabled=(sell_symbol == "Ingen"))
             if sell_fund_clicked:
                 price_to_use = float(sell_price or (fund_positions.get(sell_symbol, {}) or {}).get("last_price", 0.0) or 0.0)
                 ok, msg = paper_sell_instrument(
@@ -7667,7 +7758,7 @@ def render_paper_trading_dashboard():
                     st.error(msg)
 
         if purchase_mode == "Månedlig spareplan":
-            save_fund_plan_clicked = st.button("💾 Lagre spareplan som simulering", key="paper_fund_save_plan_v1863z", use_container_width=True)
+            save_fund_plan_clicked = st.button("Lagre spareplan", key="paper_fund_save_plan_v1863z", use_container_width=False)
             if save_fund_plan_clicked:
                 plan = {
                     "symbol": fund_symbol,
@@ -7691,13 +7782,6 @@ def render_paper_trading_dashboard():
                     unsafe_allow_html=True,
                 )
 
-    st.markdown("#### Posisjoner")
-    positions = portfolio.get("positions", {})
-    if positions:
-        _render_paper_positions_cards_v1863ac(portfolio, latest_prices)
-    else:
-        st.info("Ingen åpne paper trading-posisjoner.")
-
     st.markdown("#### 💰 Klar for ekte trading senere")
     st.info(
         "Systemet er nå strukturert for paper trading med risikoregler. "
@@ -7708,7 +7792,7 @@ def render_paper_trading_dashboard():
     st.markdown("#### Handelslogg")
     trades = portfolio.get("trades", [])
     if trades:
-        st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=50)), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(paper_trade_display_rows(trades, limit=50)), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen handler ennå.")
 
@@ -8736,7 +8820,7 @@ def render_paper_portfolio_control_center_v1863af():
     st.caption("Bruker Paper Trading-porteføljen som trygg testarena for overvåking, kontroll og AI-forslag. Ingen ekte ordre sendes.")
 
     portfolio = load_portfolio() or {}
-    if st.button("🔄 Oppdater paper-kurser for kontroll", key="paper_control_refresh_prices_v1863af", type="primary", use_container_width=True):
+    if st.button("Oppdater paper-kurser", key="paper_control_refresh_prices_v1863af", type="primary", use_container_width=False):
         portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=True)
         st.session_state["paper_control_refresh_status_v1863af"] = {
             "time": refreshed_at,
@@ -8802,7 +8886,7 @@ def render_paper_portfolio_control_center_v1863af():
     for point in _paper_control_learning_points_v1863af(rows, stats, flags):
         st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
 
-    if st.button("🔔 Send paper-kontrollrapport til Pushover", key="paper_control_pushover_v1863af", use_container_width=True):
+    if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_v1863af", use_container_width=False):
         summary = [
             "Paper-portefølje kontroll",
             f"Total verdi: {total_value:,.0f} kr",
@@ -15717,7 +15801,7 @@ def control_center_extra_panels_v18535():
         ("Aktørregister", render_actor_registry_panel),
         ("Beslutningsgrunnlag", render_decision_support_panel),
         ("🚀 IPO", render_ipo),
-        ("🧪 Paper Trading", render_paper_trading_dashboard),
+        ("🧪 Paper Trading og kontroll", render_paper_trading_dashboard),
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
         ("🏦 Fond / ETF", render_fund_etf_control_center_v18538),
         ("📊 Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
@@ -15736,8 +15820,7 @@ _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
 
 def control_center_extra_panels_v18535():
     panels = list(_control_center_extra_panels_base_v1863af())
-    panels.insert(3, ("🧭 Paper-portefølje kontroll", render_paper_portfolio_control_center_v1863af))
-    panels.insert(4, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
+    panels.insert(3, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
     return panels
 
 
@@ -15871,28 +15954,27 @@ html body .stApp div:has(.global-update-button-anchor-v18596) + div [data-testid
     overflow:visible !important;
 }
 
-/* Broad late primary-button hardening: keeps Global and Pushover readable on PC,
-   even when Streamlit wrapper structure changes. */
+/* Broad late primary-button hardening: readable, but no longer forced into giant full-width bars. */
 html body .stApp div[data-testid="stButton"] > button[kind="primary"],
 html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"],
 html body .stApp button[kind="primary"] {
     display:flex !important;
     align-items:center !important;
     justify-content:center !important;
-    width:100% !important;
+    width:auto !important;
     max-width:100% !important;
     min-width:0 !important;
-    min-height:36px !important;
+    min-height:34px !important;
     height:auto !important;
     max-height:none !important;
-    padding:.34rem .72rem !important;
+    padding:.28rem .68rem !important;
     margin:.10rem 0 .16rem 0 !important;
     border-radius:10px !important;
-    border:1px solid rgba(224,242,254,1) !important;
-    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(56,189,248,.66) !important;
+    background:linear-gradient(180deg,rgba(14,116,144,.92) 0%,rgba(8,47,73,.96) 100%) !important;
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 5px 14px rgba(14,165,233,.18) !important;
     text-shadow:0 1px 0 rgba(0,0,0,.25) !important;
     font-weight:1000 !important;
     white-space:normal !important;
@@ -16616,7 +16698,7 @@ elif active_panel == "⭐ Top Picks":
 elif active_panel == "🚀 IPO":
     render_ipo()
 
-elif active_panel == "🧪 Paper Trading":
+elif active_panel in {"🧪 Paper Trading", "🧪 Paper Trading og kontroll"}:
     render_paper_trading_dashboard()
 
 # Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.

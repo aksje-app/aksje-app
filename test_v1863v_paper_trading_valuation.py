@@ -1,4 +1,10 @@
-﻿from paper_trading_valuation import normalize_paper_portfolio, paper_position_rows, paper_trade_rows
+from paper_trading_valuation import (
+    normalize_paper_portfolio,
+    paper_position_display_rows,
+    paper_position_rows,
+    paper_trade_display_rows,
+    paper_trade_rows,
+)
 from trading_engine import paper_liquidity_snapshot, portfolio_value
 
 
@@ -38,7 +44,7 @@ def test_liquidity_and_portfolio_value_use_normalized_entry_and_last_price():
 
 def test_trade_log_labels_paper_actions():
     rows = paper_trade_rows([
-        {"type": "BUY", "ticker": "NVDA", "reason": "AUTO BUY via Cron/KjÃƒÂ¸p nÃƒÂ¥"},
+        {"type": "BUY", "ticker": "NVDA", "reason": "AUTO BUY via Cron/Kjøp nå"},
         {"type": "SELL", "ticker": "NVDA", "reason": "Stop loss"},
     ])
     assert rows[0]["type"].startswith("PAPER-KJ")
@@ -46,8 +52,18 @@ def test_trade_log_labels_paper_actions():
     assert rows[1]["type"] == "PAPER-SALG"
 
 
-
-
-
-
-
+def test_common_display_contract_contains_weight_and_explanation():
+    portfolio = {
+        "cash": 10000,
+        "positions": {
+            "JNJ": {"ticker": "JNJ", "shares": 10, "entry_price": 100, "last_price": 110, "confidence": 82},
+        },
+        "trades": [
+            {"time": "now", "type": "BUY", "ticker": "JNJ", "price": 100, "shares": 10, "amount": 1000, "confidence": 82},
+        ],
+    }
+    holdings = paper_position_display_rows(portfolio, total_value=11000)
+    trades = paper_trade_display_rows(portfolio["trades"])
+    assert holdings[0]["Vekt %"] == 10.0
+    assert "paper-posisjon" in holdings[0]["Forklaring"]
+    assert "Vekt %" in trades[0]

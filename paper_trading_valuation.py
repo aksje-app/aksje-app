@@ -9,6 +9,33 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional
 
+PAPER_SHARED_COLUMNS = [
+    "Tid",
+    "Status",
+    "Type",
+    "Ticker",
+    "Navn",
+    "Land",
+    "Marked",
+    "Sektor",
+    "Bransje",
+    "Aktivatype",
+    "Valuta",
+    "Pris",
+    "Antall",
+    "Beløp/verdi",
+    "P/L kr",
+    "P/L %",
+    "Vekt %",
+    "Confidence",
+    "Kilde/signal",
+    "Regel",
+    "Grense",
+    "Målt verdi",
+    "Forklaring",
+    "Oppdatert",
+]
+
 
 def _security_context_from_ticker(ticker: Any, row: Mapping[str, Any] | None = None) -> Dict[str, str]:
     """Best-effort local metadata for rows created before metadata logging existed."""
@@ -160,8 +187,54 @@ def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapp
             "pnl_pct": round(_safe_float(pos.get("pnl_pct")), 2),
             "pnl": round(_safe_float(pos.get("unrealized_pnl")), 2),
             "updated": pos.get("last_price_updated_at", ""),
+            "confidence": int(_safe_float(pos.get("confidence"), 0)),
+            "reason": pos.get("reason", ""),
+            "name": pos.get("name", "") or pos.get("company", ""),
+            "status": "Åpen",
         })
     return rows
+
+
+def paper_position_display_rows(
+    portfolio: Mapping[str, Any] | None,
+    latest_prices: Mapping[str, Any] | None = None,
+    *,
+    total_value: float | None = None,
+) -> List[Dict[str, Any]]:
+    base_rows = paper_position_rows(portfolio, latest_prices)
+    if total_value is None:
+        total_value = sum(_safe_float(row.get("value"), 0.0) for row in base_rows)
+    out: List[Dict[str, Any]] = []
+    for row in base_rows:
+        value = _safe_float(row.get("value"), 0.0)
+        weight = (value / total_value * 100.0) if total_value else 0.0
+        out.append({
+            "Tid": row.get("updated") or "",
+            "Status": "Åpen",
+            "Type": "Beholdning",
+            "Ticker": row.get("ticker", ""),
+            "Navn": row.get("name", ""),
+            "Land": row.get("land", ""),
+            "Marked": row.get("marked", ""),
+            "Sektor": row.get("sektor", ""),
+            "Bransje": row.get("bransje", ""),
+            "Aktivatype": row.get("type", "Aksje"),
+            "Valuta": row.get("currency", ""),
+            "Pris": row.get("last_price", ""),
+            "Antall": row.get("units", ""),
+            "Beløp/verdi": round(value, 2),
+            "P/L kr": row.get("pnl", ""),
+            "P/L %": row.get("pnl_pct", ""),
+            "Vekt %": round(weight, 1),
+            "Confidence": row.get("confidence", ""),
+            "Kilde/signal": row.get("reason", ""),
+            "Regel": "",
+            "Grense": "",
+            "Målt verdi": "",
+            "Forklaring": "Åpen paper-posisjon beregnet fra beholdning, siste kurs og snittpris.",
+            "Oppdatert": row.get("updated") or "Lagret kurs",
+        })
+    return out
 
 
 def paper_trade_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
@@ -193,6 +266,39 @@ def paper_trade_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
                 ordered[key] = value
         rows.append(ordered)
     return rows
+
+
+def paper_trade_display_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in paper_trade_rows(trades, limit=limit):
+        trade_type = str(row.get("type") or "")
+        out.append({
+            "Tid": row.get("time", ""),
+            "Status": "Historisk",
+            "Type": trade_type,
+            "Ticker": row.get("ticker", ""),
+            "Navn": row.get("name", ""),
+            "Land": row.get("land", ""),
+            "Marked": row.get("marked", ""),
+            "Sektor": row.get("sektor", ""),
+            "Bransje": row.get("bransje", ""),
+            "Aktivatype": row.get("asset_type", "") or "Aksje",
+            "Valuta": row.get("currency", ""),
+            "Pris": row.get("price", ""),
+            "Antall": row.get("shares", ""),
+            "Beløp/verdi": row.get("amount", ""),
+            "P/L kr": row.get("pnl", ""),
+            "P/L %": row.get("pnl_pct", ""),
+            "Vekt %": "",
+            "Confidence": row.get("confidence", ""),
+            "Kilde/signal": row.get("reason", ""),
+            "Regel": row.get("regel", ""),
+            "Grense": row.get("grense", ""),
+            "Målt verdi": row.get("maalt_verdi", ""),
+            "Forklaring": row.get("hvorfor", ""),
+            "Oppdatert": row.get("time", ""),
+        })
+    return out
 
 
 def timestamp_now() -> str:

@@ -9,7 +9,7 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.7"' in version
+assert 'APP_VERSION = "v18.6.8"' in version
 assert "_cc_fast_nav_v1863ak" in app
 assert "render_live_market_banner()" in app
 startup_marker_pos = app.find("startup_heavy_update_pending_v1863an")
@@ -24,6 +24,7 @@ active_layout = layout[layout.index("def _render_ai_control_center_v1863aj") :]
 assert 'st.session_state["ai_control_center_active_panel_v1863aj"] = selected_panel' in active_layout
 assert "Ingen valgt" not in active_layout
 assert "st.rerun()\n\n        active_label = st.session_state.get(\"ai_control_center_active_panel_v1863aj\")" not in layout
+
 
 
 

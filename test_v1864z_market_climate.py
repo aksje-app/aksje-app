@@ -107,8 +107,8 @@ def test_v1864z_market_climate_control_center_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.7"' in version
-    assert "Market Climate Graph Archive" in version
+    assert 'APP_VERSION = "v18.6.8"' in version
+    assert "Paper Trading og auth-kontroll" in version
     assert "Grafarkiv" in version
     assert "SEC IPO statistics" in version
     assert "Markedsklima er lagt inn som egen modul" in version
