@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.12"
-APP_VERSION_NAME = "Bannerdetalj, navigasjon og paper-flyt"
-APP_BUILD_ID = "v18612-banner-navigation-paper"
+APP_VERSION = "v18.6.13"
+APP_VERSION_NAME = "Bannerklikk og Nordnet-arbeidsflate"
+APP_BUILD_ID = "v18613-banner-click-nordnet"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [

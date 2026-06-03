@@ -4478,19 +4478,26 @@ def _banner_query_value_v18610(name: str):
     return value
 
 
-def _banner_selected_from_query_v18610(cards: list[dict]) -> None:
+def _banner_selected_from_query_v18610(cards: list[dict], banner_items=None) -> None:
     ticker = str(_banner_query_value_v18610("banner_ticker") or "").strip().upper()
     if not ticker:
         return
     valid = {str(card.get("ticker") or "").upper(): card for card in cards or []}
-    if ticker in valid:
-        st.session_state["live_banner_selected_ticker_v18610"] = ticker
-        st.session_state["live_banner_selected_market_v18610"] = str(valid[ticker].get("market") or "")
-        st.session_state["live_banner_selected_label_v18610"] = str(valid[ticker].get("label") or ticker)
-        # v18.6.12: bannerklikk skal åpne tickerdetalj, ikke låse brukeren i Kontrollsenter.
-        st.session_state["ai_control_center_active_panel_v1863aj"] = ""
-        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
-        st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
+    if ticker not in valid:
+        for market, item_ticker, label in (banner_items or []):
+            item_ticker = str(item_ticker or "").upper()
+            if ticker == item_ticker:
+                valid[ticker] = {"ticker": item_ticker, "market": market, "label": label or item_ticker}
+                break
+    if ticker not in valid:
+        return
+    st.session_state["live_banner_selected_ticker_v18610"] = ticker
+    st.session_state["live_banner_selected_market_v18610"] = str(valid[ticker].get("market") or "")
+    st.session_state["live_banner_selected_label_v18610"] = str(valid[ticker].get("label") or ticker)
+    # v18.6.13: bannerklikk skal åpne detalj også når banneret bruker manuell/cache-modus.
+    st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+    st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+    st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
 
 
 def _banner_daily_summary_v18612(hist) -> dict:
@@ -4786,6 +4793,71 @@ def _render_nordnet_datatest_v18610():
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def _render_nordnet_manual_workspace_v18613():
+    selected_ticker = str(st.session_state.get("live_banner_selected_ticker_v18610") or "").strip().upper()
+    selected_label = str(st.session_state.get("live_banner_selected_label_v18610") or selected_ticker or "").strip()
+    with st.expander("Nordnet arbeid og innlogging", expanded=bool(selected_ticker)):
+        st.caption(
+            "Manuell arbeidsflate: appen viser ordregrunnlag, du åpner Nordnet og logger inn der. "
+            "Appen lagrer ikke Nordnet-passord og sender ingen ordre."
+        )
+        c1, c2, c3 = st.columns([0.9, 1.15, 0.95])
+        with c1:
+            nordnet_ticker = st.text_input(
+                "Ticker",
+                value=selected_ticker,
+                key="nordnet_manual_ticker_v18613",
+                placeholder="F.eks. ORK.OL",
+            ).strip().upper()
+        with c2:
+            nordnet_action = st.selectbox("Forslag", ["Vent", "Kjøp/vurder", "Selg/vurder"], key="nordnet_manual_action_v18613")
+        with c3:
+            nordnet_limit = st.number_input("Limitpris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="nordnet_manual_limit_v18613")
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            nordnet_qty = st.number_input("Antall", min_value=0, max_value=10_000_000, value=0, step=1, key="nordnet_manual_qty_v18613")
+        with q2:
+            nordnet_stop = st.number_input("Stop-loss", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="nordnet_manual_stop_v18613")
+        with q3:
+            nordnet_risk = st.selectbox("Risiko", ["Lav", "Middels", "Høy"], index=1, key="nordnet_manual_risk_v18613")
+        reason = st.text_area(
+            "Begrunnelse",
+            value=f"{selected_label or nordnet_ticker}: vurder mot bannerstatus, trend, volum og egne varselgrenser.".strip(),
+            height=82,
+            key="nordnet_manual_reason_v18613",
+        )
+        order_text = (
+            f"Ticker: {nordnet_ticker or selected_ticker or '-'}\n"
+            f"Navn: {selected_label or '-'}\n"
+            f"Forslag: {nordnet_action}\n"
+            f"Antall: {int(nordnet_qty or 0)}\n"
+            f"Limitpris: {float(nordnet_limit or 0.0):,.2f}\n"
+            f"Stop-loss: {float(nordnet_stop or 0.0):,.2f}\n"
+            f"Risiko: {nordnet_risk}\n"
+            f"Begrunnelse: {reason}\n"
+            "Merk: appen sender ingen ordre og lagrer ikke Nordnet-passord."
+        )
+        b1, b2, b3, b4 = st.columns(4)
+        with b1:
+            st.link_button("Åpne Nordnet innlogging", "https://www.nordnet.no/", use_container_width=True)
+        with b2:
+            st.download_button(
+                "Kopier ordregrunnlag",
+                data=order_text,
+                file_name=f"{nordnet_ticker or 'nordnet'}_ordregrunnlag.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        with b3:
+            if st.button("Marker kjøpt manuelt", key="nordnet_manual_mark_bought_v18613", use_container_width=True):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[nordnet_ticker or selected_ticker] = {"status": "kjøpt", "tid": _now_short()}
+                st.success("Markert som manuelt kjøpt.")
+        with b4:
+            if st.button("Marker solgt manuelt", key="nordnet_manual_mark_sold_v18613", use_container_width=True):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[nordnet_ticker or selected_ticker] = {"status": "solgt", "tid": _now_short()}
+                st.success("Markert som manuelt solgt.")
+
+
 def render_live_market_banner():
     settings = load_settings()
     if not settings.get("live_banner_enabled", True):
@@ -4797,10 +4869,18 @@ def render_live_market_banner():
 
     _banner_fp = tuple((str(m), str(t), str(l)) for m, t, l in banner_items)
     _banner_key = f"live_banner_cache_v16_{_cache_key_safe(_banner_fp)}"
+    _banner_selected_from_query_v18610([], banner_items)
     if not _heavy_update_allowed():
         banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
         if not banner_cards:
             st.caption("📡 Ticker-banner bruker manuell modus. Åpne Rediger ticker-banner og trykk Lagre og bruk banner for å hente bannerdata.")
+            selected_ticker = st.session_state.get("live_banner_selected_ticker_v18610")
+            if selected_ticker:
+                _render_banner_ticker_detail_v18610(
+                    selected_ticker,
+                    st.session_state.get("live_banner_selected_market_v18610", ""),
+                    st.session_state.get("live_banner_selected_label_v18610", ""),
+                )
             return
     else:
         banner_cards = fetch_live_banner_snapshot(banner_items)
@@ -4812,7 +4892,7 @@ def render_live_market_banner():
 
     banner_alert_config = _load_banner_alert_config_v18610(settings)
     banner_cards = _apply_banner_alerts_v18610(banner_cards, banner_alert_config)
-    _banner_selected_from_query_v18610(banner_cards)
+    _banner_selected_from_query_v18610(banner_cards, banner_items)
 
     cards = []
     for item in banner_cards:
@@ -5284,6 +5364,7 @@ def render_banner_main_controls():
 
     _render_banner_alert_settings_v18610()
     _render_nordnet_datatest_v18610()
+    _render_nordnet_manual_workspace_v18613()
 
 
 def render_system_admin_workspace(expanded=False):
