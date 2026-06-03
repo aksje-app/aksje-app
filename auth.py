@@ -47,20 +47,38 @@ def _remember_storage_bridge(token=None, clear=False):
                 var clear = {clear_flag};
                 var token = {safe_token};
                 var parentUrl = new URL(window.parent.location.href);
+                var parentStorage = null;
+                try {{ parentStorage = window.parent.localStorage; }} catch (err) {{ parentStorage = null; }}
+                function setStored(value) {{
+                  try {{ window.localStorage.setItem(key, value); }} catch (err) {{}}
+                  try {{ if (parentStorage) parentStorage.setItem(key, value); }} catch (err) {{}}
+                }}
+                function getStored() {{
+                  try {{ if (parentStorage) {{
+                    var parentValue = parentStorage.getItem(key);
+                    if (parentValue) return parentValue;
+                  }} }} catch (err) {{}}
+                  try {{ return window.localStorage.getItem(key); }} catch (err) {{}}
+                  return "";
+                }}
+                function clearStored() {{
+                  try {{ window.localStorage.removeItem(key); }} catch (err) {{}}
+                  try {{ if (parentStorage) parentStorage.removeItem(key); }} catch (err) {{}}
+                }}
                 if (clear) {{
-                  window.localStorage.removeItem(key);
+                  clearStored();
                   parentUrl.searchParams.delete("remember_token");
                   window.parent.history.replaceState(null, "", parentUrl.toString());
                   return;
                 }}
                 if (token) {{
-                  window.localStorage.setItem(key, token);
+                  setStored(token);
                   parentUrl.searchParams.delete("remember_token");
                   window.parent.history.replaceState(null, "", parentUrl.toString());
                   return;
                 }}
                 if (!parentUrl.searchParams.get("remember_token")) {{
-                  var stored = window.localStorage.getItem(key);
+                  var stored = getStored();
                   if (stored) {{
                     parentUrl.searchParams.set("remember_token", stored);
                     window.parent.location.replace(parentUrl.toString());

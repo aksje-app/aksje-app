@@ -4487,6 +4487,66 @@ def _banner_selected_from_query_v18610(cards: list[dict]) -> None:
         st.session_state["live_banner_selected_ticker_v18610"] = ticker
         st.session_state["live_banner_selected_market_v18610"] = str(valid[ticker].get("market") or "")
         st.session_state["live_banner_selected_label_v18610"] = str(valid[ticker].get("label") or ticker)
+        # v18.6.12: bannerklikk skal åpne tickerdetalj, ikke låse brukeren i Kontrollsenter.
+        st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
+
+
+def _banner_daily_summary_v18612(hist) -> dict:
+    if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+        return {}
+    close = hist["Close"].dropna()
+    if close.empty:
+        return {}
+    open_series = hist["Open"].dropna() if "Open" in hist else close
+    high_series = hist["High"].dropna() if "High" in hist else close
+    low_series = hist["Low"].dropna() if "Low" in hist else close
+    first = float(open_series.iloc[0]) if not open_series.empty else float(close.iloc[0])
+    last = float(close.iloc[-1])
+    high = float(high_series.max()) if not high_series.empty else last
+    low = float(low_series.min()) if not low_series.empty else last
+    pct = ((last / first) - 1.0) * 100 if first else 0.0
+    return {"open": first, "last": last, "high": high, "low": low, "pct": pct, "delta": last - first}
+
+
+def _banner_decision_cards_v18612(ticker: str, summary: dict, daily: dict, config: dict) -> None:
+    individual = dict((config or {}).get("individual") or {})
+    current = dict(individual.get(str(ticker or "").upper()) or {})
+    last = float((daily or {}).get("last") or summary.get("siste") or 0.0)
+    upper = float(current.get("price_upper") or 0.0)
+    lower = float(current.get("price_lower") or 0.0)
+    dist_upper = ((upper / last) - 1.0) * 100 if last and upper else None
+    dist_lower = ((last / lower) - 1.0) * 100 if last and lower else None
+    trend = "Over MA50/MA200"
+    ma50 = summary.get("ma50")
+    ma200 = summary.get("ma200")
+    if ma50 and last < float(ma50):
+        trend = "Under MA50"
+    if ma200 and last < float(ma200):
+        trend = "Under MA200"
+    ai_status = "Vent"
+    if ma50 and ma200 and last > float(ma50) > float(ma200) and float(daily.get("pct") or 0.0) >= 0:
+        ai_status = "Kjøp/vurder"
+    elif ma50 and last < float(ma50):
+        ai_status = "Vent/risiko"
+    cards = [
+        ("Dagens utvikling", f"{float(daily.get('pct') or 0.0):+.2f}%", f"{float(daily.get('delta') or 0.0):+.2f} fra åpning"),
+        ("Dagens høy/lav", f"{float(daily.get('high') or 0.0):,.2f}", f"lav {float(daily.get('low') or 0.0):,.2f}"),
+        ("Avstand varsel", f"{dist_upper:+.1f}% til øvre" if dist_upper is not None else "Ingen øvre", f"{dist_lower:+.1f}% over nedre" if dist_lower is not None else "Ingen nedre"),
+        ("Volum", f"{float(summary.get('volume_ratio_20') or 0.0):.2f}x 20d", "likviditetssjekk"),
+        ("Trend", trend, f"MA50 {float(ma50 or 0.0):,.2f}"),
+        ("AI-status", ai_status, "regelbasert hurtigsjekk"),
+    ]
+    html_cards = "".join(
+        "<div class='banner-decision-card'>"
+        f"<div class='banner-decision-label'>{html.escape(label)}</div>"
+        f"<div class='banner-decision-value'>{html.escape(value)}</div>"
+        f"<div class='banner-decision-sub'>{html.escape(sub)}</div>"
+        "</div>"
+        for label, value, sub in cards
+    )
+    st.markdown(f"<div class='banner-decision-grid'>{html_cards}</div>", unsafe_allow_html=True)
 
 
 def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: str = "") -> None:
@@ -4525,6 +4585,9 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
         st.info(f"Kunne ikke hente graf for {ticker}: {err}")
     else:
         summary = _banner_technical_summary_v18610(hist)
+        daily_hist, daily_err = _download_banner_detail_history_v18610(ticker, "I dag")
+        daily = _banner_daily_summary_v18612(daily_hist if daily_hist is not None and not daily_hist.empty else hist)
+        _banner_decision_cards_v18612(ticker, summary, daily, _load_banner_alert_config_v18610())
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Ticker", ticker, market or "-")
         m2.metric("Kurs", f"{summary.get('siste', 0):,.2f}")
@@ -4594,8 +4657,43 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
             }
             config["individual"] = individual
             _save_banner_alert_config_v18610(config)
+            st.session_state["live_banner_selected_ticker_v18610"] = ticker
+            st.session_state["live_banner_selected_market_v18610"] = market
+            st.session_state["live_banner_selected_label_v18610"] = label
+            st.session_state["ai_control_center_active_panel_v1863aj"] = ""
             st.success(f"Varsler lagret for {ticker}.")
-            st.rerun()
+
+    with st.expander("Nordnet / manuell handel", expanded=False):
+        latest_price = 0.0
+        try:
+            latest_price = float(summary.get("siste") or 0.0) if "summary" in locals() else 0.0
+        except Exception:
+            latest_price = 0.0
+        order_text = (
+            f"Ticker: {ticker}\n"
+            f"Navn: {label}\n"
+            f"Forslag: Vent til valgt regel bekreftes\n"
+            f"Antall: fylles manuelt\n"
+            f"Limitpris: {latest_price:,.2f}\n"
+            "Stop-loss: fylles manuelt\n"
+            "Begrunnelse: bannerstatus, trend, volum og egne varselgrenser.\n"
+            "Merk: appen sender ingen ordre og lagrer ikke Nordnet-passord."
+        )
+        st.caption("Bruk dette som manuelt ordregrunnlag ved siden av Nordnet. Ingen ekte ordre sendes fra appen.")
+        n1, n2, n3, n4 = st.columns(4)
+        with n1:
+            st.link_button("Åpne Nordnet", "https://www.nordnet.no/", use_container_width=True)
+        with n2:
+            st.download_button("Kopier ordregrunnlag", data=order_text, file_name=f"{ticker}_ordregrunnlag.txt", mime="text/plain", use_container_width=True)
+        with n3:
+            if st.button("Marker kjøpt manuelt", key=f"manual_broker_bought_v18612_{ticker}", use_container_width=True):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[ticker] = {"status": "kjøpt", "tid": _now_short()}
+                st.success(f"{ticker} markert som manuelt kjøpt.")
+        with n4:
+            if st.button("Marker solgt manuelt", key=f"manual_broker_sold_v18612_{ticker}", use_container_width=True):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[ticker] = {"status": "solgt", "tid": _now_short()}
+                st.success(f"{ticker} markert som manuelt solgt.")
+        st.text_area("Ordregrunnlag", value=order_text, height=145, key=f"manual_broker_order_text_v18612_{ticker}")
 
 
 def _render_banner_alert_settings_v18610():
@@ -4638,6 +4736,43 @@ def _render_banner_alert_settings_v18610():
             st.dataframe(pd.DataFrame(log[:25]), use_container_width=True, hide_index=True)
         else:
             st.info("Ingen bannervarsler logget ennå.")
+
+
+def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) -> None:
+    individual = dict((config or {}).get("individual") or {})
+    watched = []
+    by_ticker = {str(card.get("ticker") or "").upper(): card for card in banner_cards or []}
+    for ticker, rules in individual.items():
+        if not isinstance(rules, dict):
+            continue
+        if any(float(rules.get(key) or 0.0) > 0 for key in ("price_upper", "price_lower", "pct_up", "pct_down")):
+            card = by_ticker.get(str(ticker).upper(), {"ticker": ticker, "label": ticker, "market": ""})
+            watched.append((str(ticker).upper(), card, rules))
+    if not watched:
+        return
+    st.markdown("##### Særskilt overvåkning")
+    cols = st.columns(min(len(watched), 6))
+    for idx, (ticker, card, rules) in enumerate(watched[:12]):
+        with cols[idx % len(cols)]:
+            label = str(card.get("label") or ticker)
+            price = card.get("price")
+            price_txt = f"{float(price):,.2f}" if price is not None else "-"
+            limits = []
+            if float(rules.get("price_upper") or 0.0) > 0:
+                limits.append(f"over {float(rules.get('price_upper')):,.2f}")
+            if float(rules.get("price_lower") or 0.0) > 0:
+                limits.append(f"under {float(rules.get('price_lower')):,.2f}")
+            if float(rules.get("pct_up") or 0.0) > 0:
+                limits.append(f"+{float(rules.get('pct_up')):.1f}%")
+            if float(rules.get("pct_down") or 0.0) > 0:
+                limits.append(f"-{float(rules.get('pct_down')):.1f}%")
+            if st.button(f"{ticker} · {price_txt}", key=f"special_watch_open_v18612_{ticker}_{idx}", use_container_width=True):
+                st.session_state["live_banner_selected_ticker_v18610"] = ticker
+                st.session_state["live_banner_selected_market_v18610"] = str(card.get("market") or "")
+                st.session_state["live_banner_selected_label_v18610"] = label
+                st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+                st.rerun()
+            st.caption(", ".join(limits[:3]) if limits else "Egen overvåkning")
 
 
 def _render_nordnet_datatest_v18610():
@@ -4766,17 +4901,18 @@ def render_live_market_banner():
         box-shadow: inset 0 0 0 1px rgba(37,99,235,0.18);
     }
     .ticker-alert-marker {
-        width: 14px;
-        height: 14px;
+        width: 18px;
+        height: 18px;
         border-radius: 999px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.54rem;
+        font-size: 0.72rem;
         font-weight: 950;
         line-height: 1;
         color: #0f172a;
-        border: 1px solid rgba(15,23,42,0.18);
+        border: 1.5px solid rgba(15,23,42,0.34);
+        box-shadow: 0 1px 3px rgba(15,23,42,0.22);
     }
     .ticker-alert-marker.green { background: #22c55e; }
     .ticker-alert-marker.yellow { background: #facc15; }
@@ -4835,6 +4971,37 @@ def render_live_market_banner():
         display: block;
         width: 94px;
         height: 34px;
+    }
+    .banner-decision-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 7px;
+        margin: 8px 0 8px 0;
+    }
+    .banner-decision-card {
+        border: 1px solid rgba(96,165,250,.36);
+        background: rgba(15,23,42,.78);
+        border-radius: 7px;
+        padding: 8px 10px;
+        min-height: 64px;
+    }
+    .banner-decision-label {
+        color: #93c5fd;
+        font-size: .68rem;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+    .banner-decision-value {
+        color: #f8fafc;
+        font-size: 1.02rem;
+        font-weight: 950;
+        margin-top: 2px;
+    }
+    .banner-decision-sub {
+        color: #cbd5e1;
+        font-size: .72rem;
+        font-weight: 800;
+        margin-top: 2px;
     }
     @keyframes tickerTapeScroll {
         from { transform: translateX(0); }
@@ -4895,6 +5062,7 @@ def render_live_market_banner():
         f"Banner: {len(banner_cards)} kort · grønn {alert_counts['green']} · gul {alert_counts['yellow']} · rød {alert_counts['red']} · "
         f"{speed_seconds}s · data ca. hver {refresh_minutes}. min."
     )
+    _render_special_banner_watch_v18612(banner_cards, banner_alert_config)
     if st.session_state.pop("banner_detail_suppress_picker_once_v18611", False):
         st.session_state.pop("live_banner_open_picker_v18610", None)
     option_map = {
@@ -4902,17 +5070,18 @@ def render_live_market_banner():
         for card in banner_cards
     }
     if option_map:
-        st.caption("Du kan klikke et rullende bannerkort, eller velge ticker her hvis kortet er vanskelig å treffe mens det ruller.")
-        pick = st.selectbox(
-            "Åpne ticker fra banner",
-            [""] + list(option_map.keys()),
-            key="live_banner_open_picker_v18610",
-        )
-        if pick:
-            card = option_map[pick]
-            st.session_state["live_banner_selected_ticker_v18610"] = str(card.get("ticker") or "").upper()
-            st.session_state["live_banner_selected_market_v18610"] = str(card.get("market") or "")
-            st.session_state["live_banner_selected_label_v18610"] = str(card.get("label") or card.get("ticker") or "")
+        with st.expander("Åpne ticker manuelt hvis bannerkortet er vanskelig å treffe", expanded=False):
+            pick = st.selectbox(
+                "Ticker",
+                [""] + list(option_map.keys()),
+                key="live_banner_open_picker_v18610",
+            )
+            if pick:
+                card = option_map[pick]
+                st.session_state["live_banner_selected_ticker_v18610"] = str(card.get("ticker") or "").upper()
+                st.session_state["live_banner_selected_market_v18610"] = str(card.get("market") or "")
+                st.session_state["live_banner_selected_label_v18610"] = str(card.get("label") or card.get("ticker") or "")
+                st.session_state["ai_control_center_active_panel_v1863aj"] = ""
 
     selected_ticker = st.session_state.get("live_banner_selected_ticker_v18610")
     if selected_ticker:
@@ -8470,33 +8639,34 @@ def render_paper_trading_dashboard():
     with st.container():
         st.session_state.setdefault("paper_stock_price_input_v1863y", 0.0)
         st.session_state.setdefault("paper_stock_confidence_v1863y", 0)
-        s1, s2, s3, s4 = st.columns([1.0, 0.85, 0.85, 0.9])
-        with s1:
-            stock_symbol = st.text_input(
-                "Aksjesymbol",
-                value=st.session_state.get("paper_stock_symbol_v1863y", ""),
-                key="paper_stock_symbol_v1863y",
-                on_change=_paper_stock_symbol_changed_v1863ac,
-            ).strip().upper()
-        with s2:
-            stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
-        with s3:
-            stock_confidence = st.number_input(
-                "System-confidence",
-                min_value=0,
-                max_value=100,
-                value=int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0),
-                step=1,
-                key="paper_stock_confidence_v1863y",
-                disabled=True,
-                help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
-            )
-        with s4:
-            st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=False, on_click=_paper_fetch_stock_price_v1863z)
-        _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
-
-        buy_col, sell_col = st.columns([1.0, 1.0])
+        buy_col, sell_col = st.columns([1.05, 0.95], gap="large")
         with buy_col:
+            st.markdown("<div class='v18581-paper-section-title'>Kjøp aksje</div>", unsafe_allow_html=True)
+            b1, b2 = st.columns([1.1, 0.9])
+            with b1:
+                stock_symbol = st.text_input(
+                    "Aksjesymbol",
+                    value=st.session_state.get("paper_stock_symbol_v1863y", ""),
+                    key="paper_stock_symbol_v1863y",
+                    on_change=_paper_stock_symbol_changed_v1863ac,
+                ).strip().upper()
+            with b2:
+                stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
+            b3, b4 = st.columns([0.9, 0.9])
+            with b3:
+                stock_confidence = st.number_input(
+                    "System-confidence",
+                    min_value=0,
+                    max_value=100,
+                    value=int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0),
+                    step=1,
+                    key="paper_stock_confidence_v1863y",
+                    disabled=True,
+                    help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
+                )
+            with b4:
+                st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
+            _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
             buy_stock_clicked = st.button("Paper-kjøp aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=False)
             if buy_stock_clicked:
                 if not stock_symbol:
@@ -8511,6 +8681,7 @@ def render_paper_trading_dashboard():
                     else:
                         st.error(msg)
         with sell_col:
+            st.markdown("<div class='v18581-paper-section-title'>Selg aksje</div>", unsafe_allow_html=True)
             stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
             sell_stock_symbol = st.selectbox("Selg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1863y")
             sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1863y")
@@ -17393,14 +17564,10 @@ if not st.session_state.get("ai_control_center_landed_default_v1864l"):
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
-    _cc_fast_nav_v1863ak = bool(
-        st.session_state.get("ai_control_center_group_radio_v1863aj")
-        or st.session_state.get("ai_control_center_active_panel_v1863aj")
-        or st.session_state.get("ai_control_center_group_v1863aj")
-    )
-    if not _cc_fast_nav_v1863ak:
-        render_live_market_banner()
-        render_banner_main_controls()
+    # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
+    # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
+    render_live_market_banner()
+    render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")

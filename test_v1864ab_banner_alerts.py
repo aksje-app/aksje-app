@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -12,8 +12,8 @@ def test_v18610_banner_alerts_static_guards():
     app = (ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.11"' in version
-    assert "Navigasjon, watchlist og paper-kontroll" in version
+    assert 'APP_VERSION = "v18.6.12"' in version
+    assert "Bannerdetalj, navigasjon og paper-flyt" in version
     assert "BANNER_ALERT_CONFIG_KEY_V18610" in app
     assert "ALERT_LIFECYCLE_STATE_KEY_V18610" in app
     assert "_alert_lifecycle_update_v18610" in app

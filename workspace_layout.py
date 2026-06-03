@@ -1975,9 +1975,11 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                     key=panel_radio_key,
                 )
                 st.markdown("</div>", unsafe_allow_html=True)
-                if selected_panel and selected_panel != current_panel_option:
+                if selected_panel:
                     st.session_state["ai_control_center_active_panel_v1863aj"] = selected_panel
                     active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
+                    if selected_panel != current_panel_option:
+                        st.session_state["ai_control_center_active_real_panel_v18598"] = selected_panel
 
         st.markdown("</div>", unsafe_allow_html=True)
 
