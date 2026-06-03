@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.13"' in version
-    assert "Bannerklikk og Nordnet-arbeidsflate" in version
+    assert 'APP_VERSION = "v18.6.14"' in version
+    assert "Permanent banner og horisontal tickerdetalj" in version
     assert "Paper Trading er omdøpt til Paper Trading og kontroll" in version
 
 

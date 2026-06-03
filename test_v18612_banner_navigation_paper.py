@@ -9,7 +9,7 @@ def _read(name: str) -> str:
     return (ROOT / name).read_text(encoding="utf-8", errors="ignore")
 
 
-def test_v18613_banner_navigation_paper_static_guards():
+def test_v18614_banner_navigation_paper_static_guards():
     for name in ["app.py", "auth.py", "workspace_layout.py", "app_version.py"]:
         py_compile.compile(str(ROOT / name), doraise=True)
 
@@ -18,8 +18,8 @@ def test_v18613_banner_navigation_paper_static_guards():
     workspace = _read("workspace_layout.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.13"' in version
-    assert "Bannerklikk og Nordnet-arbeidsflate" in version
+    assert 'APP_VERSION = "v18.6.14"' in version
+    assert "Permanent banner og horisontal tickerdetalj" in version
 
     # Banneret skal alltid være synlig og tickerklikk skal rydde aktivt Kontrollsenter-panel.
     assert "render_live_market_banner()\n    render_banner_main_controls()" in app

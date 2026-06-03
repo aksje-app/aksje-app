@@ -4500,6 +4500,97 @@ def _banner_selected_from_query_v18610(cards: list[dict], banner_items=None) -> 
     st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
 
 
+def _banner_detail_layout_css_v18614() -> str:
+    return """
+    <style>
+    .banner-decision-grid {
+        display: grid !important;
+        grid-template-columns: repeat(6, minmax(132px, 1fr)) !important;
+        gap: 8px !important;
+        width: 100% !important;
+        margin: 8px 0 10px 0 !important;
+        align-items: stretch !important;
+    }
+    .banner-decision-card {
+        border: 1px solid rgba(96,165,250,.38) !important;
+        background: rgba(15,23,42,.78) !important;
+        border-radius: 7px !important;
+        padding: 8px 10px !important;
+        min-height: 62px !important;
+        min-width: 0 !important;
+    }
+    .banner-decision-label {
+        color: #93c5fd !important;
+        font-size: .66rem !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .banner-decision-value {
+        color: #f8fafc !important;
+        font-size: 1rem !important;
+        font-weight: 950 !important;
+        margin-top: 2px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .banner-decision-sub {
+        color: #cbd5e1 !important;
+        font-size: .70rem !important;
+        font-weight: 800 !important;
+        margin-top: 2px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .follow-banner-title {
+        color: #dbeafe !important;
+        font-size: .78rem !important;
+        font-weight: 950 !important;
+        margin: .28rem 0 .16rem 0 !important;
+    }
+    .ticker-tape-wrap.follow-up {
+        min-height: 78px !important;
+        margin-top: .20rem !important;
+        margin-bottom: .55rem !important;
+        background: #f8fafc !important;
+    }
+    .ticker-tape-wrap.follow-up .ticker-tape-track {
+        animation: none !important;
+        width: 100% !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+    }
+    @media (max-width: 1200px) {
+        .banner-decision-grid { grid-template-columns: repeat(3, minmax(132px, 1fr)) !important; }
+    }
+    @media (max-width: 720px) {
+        .banner-decision-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)) !important; }
+    }
+    </style>
+    """
+
+
+def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
+    cards = []
+    for market, ticker, label in list(banner_items or [])[:80]:
+        cards.append({
+            "market": market,
+            "ticker": str(ticker or "").upper(),
+            "label": label or ticker,
+            "price": 0.0,
+            "delta": 0.0,
+            "pct": 0.0,
+            "sparkline": _sparkline_svg([0, 0], positive=True),
+            "alert_marker": _banner_marker_from_status_v18610("normal"),
+            "alert_explanation": "Åpne tickerdetalj",
+        })
+    return cards
+
+
 def _banner_daily_summary_v18612(hist) -> dict:
     if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
         return {}
@@ -4518,6 +4609,7 @@ def _banner_daily_summary_v18612(hist) -> dict:
 
 
 def _banner_decision_cards_v18612(ticker: str, summary: dict, daily: dict, config: dict) -> None:
+    st.markdown(_banner_detail_layout_css_v18614(), unsafe_allow_html=True)
     individual = dict((config or {}).get("individual") or {})
     current = dict(individual.get(str(ticker or "").upper()) or {})
     last = float((daily or {}).get("last") or summary.get("siste") or 0.0)
@@ -4746,6 +4838,8 @@ def _render_banner_alert_settings_v18610():
 
 
 def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) -> None:
+    from urllib.parse import quote
+
     individual = dict((config or {}).get("individual") or {})
     watched = []
     by_ticker = {str(card.get("ticker") or "").upper(): card for card in banner_cards or []}
@@ -4757,29 +4851,37 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
             watched.append((str(ticker).upper(), card, rules))
     if not watched:
         return
-    st.markdown("##### Særskilt overvåkning")
-    cols = st.columns(min(len(watched), 6))
-    for idx, (ticker, card, rules) in enumerate(watched[:12]):
-        with cols[idx % len(cols)]:
-            label = str(card.get("label") or ticker)
-            price = card.get("price")
-            price_txt = f"{float(price):,.2f}" if price is not None else "-"
-            limits = []
-            if float(rules.get("price_upper") or 0.0) > 0:
-                limits.append(f"over {float(rules.get('price_upper')):,.2f}")
-            if float(rules.get("price_lower") or 0.0) > 0:
-                limits.append(f"under {float(rules.get('price_lower')):,.2f}")
-            if float(rules.get("pct_up") or 0.0) > 0:
-                limits.append(f"+{float(rules.get('pct_up')):.1f}%")
-            if float(rules.get("pct_down") or 0.0) > 0:
-                limits.append(f"-{float(rules.get('pct_down')):.1f}%")
-            if st.button(f"{ticker} · {price_txt}", key=f"special_watch_open_v18612_{ticker}_{idx}", use_container_width=True):
-                st.session_state["live_banner_selected_ticker_v18610"] = ticker
-                st.session_state["live_banner_selected_market_v18610"] = str(card.get("market") or "")
-                st.session_state["live_banner_selected_label_v18610"] = label
-                st.session_state["ai_control_center_active_panel_v1863aj"] = ""
-                st.rerun()
-            st.caption(", ".join(limits[:3]) if limits else "Egen overvåkning")
+    cards_html = []
+    for ticker, card, _rules in watched[:18]:
+        label = html.escape(str(card.get("label") or ticker))
+        market = html.escape(str(card.get("market") or ""))
+        price = card.get("price")
+        price_txt = f"{float(price):,.2f}" if price not in (None, "") else "-"
+        pct = float(card.get("pct") or 0.0)
+        delta = float(card.get("delta") or 0.0)
+        pct_class = "pos" if pct >= 0 else "neg"
+        href = f"?banner_ticker={quote(ticker)}&banner_market={quote(str(card.get('market') or ''))}"
+        marker_html = _banner_marker_html_v18610(card.get("alert_marker"))
+        cards_html.append(
+            f"<a class='ticker-tape-item' target='_self' href='{href}' title='Åpne oppfølging for {html.escape(ticker)}'>"
+            f"{marker_html}"
+            "<div class='ticker-info'>"
+            f"<div class='ticker-market'>{market}</div>"
+            f"<div class='ticker-title'>{label}</div>"
+            f"<div class='ticker-price'>{html.escape(price_txt)}</div>"
+            f"<div class='ticker-change {pct_class}'>{delta:+.2f} {pct:+.2f}%</div>"
+            "</div>"
+            f"<div class='ticker-spark'>{card.get('sparkline', '')}</div>"
+            "</a>"
+        )
+    st.markdown(
+        _banner_detail_layout_css_v18614()
+        + "<div class='follow-banner-title'>Særskilt overvåkning</div>"
+        + "<div class='ticker-tape-wrap follow-up' aria-label='Oppfølgingsbanner'><div class='ticker-tape-track'>"
+        + "".join(cards_html)
+        + "</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_nordnet_datatest_v18610():
@@ -4874,19 +4976,14 @@ def render_live_market_banner():
         banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
         if not banner_cards:
             st.caption("📡 Ticker-banner bruker manuell modus. Åpne Rediger ticker-banner og trykk Lagre og bruk banner for å hente bannerdata.")
-            selected_ticker = st.session_state.get("live_banner_selected_ticker_v18610")
-            if selected_ticker:
-                _render_banner_ticker_detail_v18610(
-                    selected_ticker,
-                    st.session_state.get("live_banner_selected_market_v18610", ""),
-                    st.session_state.get("live_banner_selected_label_v18610", ""),
-                )
-            return
+            banner_cards = _banner_fallback_cards_v18614(banner_items)
     else:
         banner_cards = fetch_live_banner_snapshot(banner_items)
         if banner_cards:
             st.session_state[_banner_key] = banner_cards
             st.session_state["live_banner_cache_v16_latest"] = banner_cards
+    if not banner_cards:
+        banner_cards = _banner_fallback_cards_v18614(banner_items)
     if not banner_cards:
         return
 
@@ -4914,7 +5011,7 @@ def render_live_market_banner():
             href += f"&remember_token={quote(str(remember_token))}"
 
         cards.append(
-            f"<a class='ticker-tape-item' href='{href}' title='{marker_title}'>"
+            f"<a class='ticker-tape-item' target='_self' href='{href}' title='{marker_title}'>"
             f"{marker_html}"
             "<div class='ticker-info'>"
             f"<div class='ticker-market'>{market_label}</div>"
@@ -4935,7 +5032,7 @@ def render_live_market_banner():
 
     # IMPORTANT:
     # CSS ligger i vanlig string, ikke f-string, for å unngå SyntaxError fra CSS-klammer.
-    banner_html = """
+    banner_html = _banner_detail_layout_css_v18614() + """
     <style>
     .ticker-tape-wrap {
         width: 100%;
