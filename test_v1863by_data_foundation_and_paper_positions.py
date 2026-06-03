@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.10"' in version
-    assert "Tickerbanner varsler og detaljgraf" in version
+    assert 'APP_VERSION = "v18.6.11"' in version
+    assert "Navigasjon, watchlist og paper-kontroll" in version
     assert "Paper Trading er omdøpt til Paper Trading og kontroll" in version
 
 

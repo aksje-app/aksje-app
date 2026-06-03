@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.10"
-APP_VERSION_NAME = "Tickerbanner varsler og detaljgraf"
-APP_BUILD_ID = "v18610-banner-alert-detail"
+APP_VERSION = "v18.6.11"
+APP_VERSION_NAME = "Navigasjon, watchlist og paper-kontroll"
+APP_BUILD_ID = "v18611-navigation-watchlist-paper"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [

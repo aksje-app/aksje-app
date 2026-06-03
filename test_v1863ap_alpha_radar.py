@@ -39,8 +39,8 @@ version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 nbim_ui = Path("nbim_radar_ui.py").read_text(encoding="utf-8", errors="ignore")
 nbim_engine = Path("nbim_radar.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.10"' in version
-assert "Market Climate Explainability" in version
+assert 'APP_VERSION = "v18.6.11"' in version
+assert "Navigasjon, watchlist og paper-kontroll" in version
 
 # Alpha Radar must be a first-class Control Center panel.
 assert "from alpha_radar_ui import render_alpha_radar_panel" in app
@@ -55,7 +55,7 @@ assert "render_actor_registry_panel" in app
 assert '("Oljefond Radar", render_nbim_radar_panel)' not in app
 assert "render_nbim_radar_panel()" in app
 assert "from decision_ui import render_decision_support_panel" in app
-assert '("Beslutningsgrunnlag", render_decision_support_panel)' in app
+assert '("Beslutningsgrunnlag", render_decision_support_panel)' not in app
 active_layout_block = layout.split("def _render_ai_control_center_v1863aj", 1)[1]
 assert '"alpha radar"' in active_layout_block
 assert '"beslut"' in active_layout_block and '"oljefond"' in active_layout_block and '"nbim"' in active_layout_block
@@ -100,10 +100,9 @@ assert "market_cap_currency" in engine + ui + results + early
 assert "bjellesau_score" in engine + ui + results + early
 assert "bjellesau_evidence" in engine + results + early
 assert "split_ownership_evidence" in engine + early
-assert "Send til Beslutningsgrunnlag" in ui
-assert "DECISION_QUEUE_KEY" in ui
-assert "alpha_radar_decision_tickers_v1864i" in ui
-assert "max_selections=len(tickers)" in ui
+assert "Beslutningsgrunnlag er skjult" in ui
+assert "Send til Beslutningsgrunnlag" not in ui
+assert "alpha_radar_decision_tickers_v1864i" not in ui
 assert "max_selections=min(20" not in ui
 assert "Datakilde-status / markedstest" in ui
 assert "Test datakilder per marked" in ui

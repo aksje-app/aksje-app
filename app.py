@@ -1095,6 +1095,8 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 .v1863m-quick-action [data-testid="stProgress"] { margin-bottom:.10rem !important; }
 .v1863m-quick-action [data-testid="stCaptionContainer"] { max-width:760px !important; line-height:1.55 !important; margin:.12rem 0 .18rem 0 !important; color:rgba(226,232,240,.88) !important; }
 .v1863m-quick-action-note { font-size:.86rem; line-height:1.48; color:rgba(226,232,240,.92); min-height:1.55rem; margin:.10rem 0 .14rem 0; }
+.v18611-score-explain { border:1px solid rgba(125,211,252,.22); background:rgba(14,165,233,.08); border-radius:8px; padding:.46rem .58rem; color:rgba(226,232,240,.94); font-size:.82rem; line-height:1.42; margin:.12rem 0 .16rem 0; }
+.v18611-score-explain b { color:#f8fafc; }
 @media (max-width:900px) {
     .v18574-quick-title { font-size:1rem !important; }
     .v18574-quick-sub { font-size:.82rem !important; }
@@ -4509,6 +4511,13 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
             st.session_state.pop("live_banner_selected_ticker_v18610", None)
             st.session_state.pop("live_banner_selected_market_v18610", None)
             st.session_state.pop("live_banner_selected_label_v18610", None)
+            st.session_state["banner_detail_suppress_picker_once_v18611"] = True
+            try:
+                for query_key in ("banner_ticker", "banner_market"):
+                    if query_key in st.query_params:
+                        del st.query_params[query_key]
+            except Exception:
+                pass
             st.rerun()
 
     hist, err = _download_banner_detail_history_v18610(ticker, period)
@@ -4685,6 +4694,9 @@ def render_live_market_banner():
         marker_html = _banner_marker_html_v18610(item.get("alert_marker"))
         marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
         href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
+        remember_token = st.session_state.get("remember_token") or _banner_query_value_v18610("remember_token")
+        if remember_token:
+            href += f"&remember_token={quote(str(remember_token))}"
 
         cards.append(
             f"<a class='ticker-tape-item' href='{href}' title='{marker_title}'>"
@@ -4883,16 +4895,18 @@ def render_live_market_banner():
         f"Banner: {len(banner_cards)} kort · grønn {alert_counts['green']} · gul {alert_counts['yellow']} · rød {alert_counts['red']} · "
         f"{speed_seconds}s · data ca. hver {refresh_minutes}. min."
     )
+    if st.session_state.pop("banner_detail_suppress_picker_once_v18611", False):
+        st.session_state.pop("live_banner_open_picker_v18610", None)
     option_map = {
         f"{card.get('ticker')} | {card.get('label')} | {card.get('market')}": card
         for card in banner_cards
     }
     if option_map:
+        st.caption("Du kan klikke et rullende bannerkort, eller velge ticker her hvis kortet er vanskelig å treffe mens det ruller.")
         pick = st.selectbox(
             "Åpne ticker fra banner",
             [""] + list(option_map.keys()),
             key="live_banner_open_picker_v18610",
-            label_visibility="collapsed",
         )
         if pick:
             card = option_map[pick]
@@ -6056,6 +6070,37 @@ def render_ranking(results, title):
                     f"Vol: {item.get('volatility', 0):.4f} · "
                     f"DD: {item.get('max_drawdown', 0)*100:.1f}% · "
                     f"{pe_text}"
+                )
+
+                score_bits = []
+                try:
+                    ret_6m = float(item.get("ret_6m", 0) or 0)
+                    ret_3m = float(item.get("ret_3m", 0) or 0)
+                    volatility = float(item.get("volatility", 0) or 0)
+                    drawdown = float(item.get("max_drawdown", 0) or 0)
+                    if ret_6m >= 0.15:
+                        score_bits.append(f"sterk 6m momentum {ret_6m * 100:.1f}%")
+                    elif ret_3m >= 0.08:
+                        score_bits.append(f"positiv 3m momentum {ret_3m * 100:.1f}%")
+                    else:
+                        score_bits.append("momentum er moderat")
+                    if volatility <= 0.035:
+                        score_bits.append("risiko/volatilitet er lav til moderat")
+                    else:
+                        score_bits.append(f"volatilitet trekker opp risiko ({volatility:.3f})")
+                    if drawdown < -0.20:
+                        score_bits.append(f"drawdown trekker ned ({drawdown * 100:.1f}%)")
+                    if pe_value_text not in {"-", "N/A", ""}:
+                        score_bits.append(f"verdsettelse P/E {pe_value_text}")
+                except Exception:
+                    score_bits = []
+                if not score_bits:
+                    score_bits = ["score bygger paa momentum, risiko, teknisk timing og verdsettelse"]
+                st.markdown(
+                    "<div class='v18611-score-explain'><b>Scoreforklaring:</b> "
+                    + html.escape("; ".join(score_bits[:4]))
+                    + ".</div>",
+                    unsafe_allow_html=True,
                 )
 
                 warnings = card_decision.get("warnings", [])
@@ -7518,7 +7563,8 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
 
     with st.expander("🔔 Varsler og dynamisk watchlist", expanded=False):
         st.caption("Fase 2: Watchlist- og varselinnstillinger er flyttet hit fra venstremenyen, nær signalene de styrer.")
-        wl_tab, alert_tab = st.tabs(["Dynamisk watchlist", "Varselkontroll"])
+        st.caption("Bruk dynamisk liste, manuelle tickere eller begge deler. Pushover-/paper-varselkontroll ligger i Paper Trading.")
+        wl_tab, alert_tab = st.tabs(["Watchlist", "Paper-varsel flyttet"])
         with wl_tab:
             c1, c2 = st.columns([1.2, 1])
             with c1:
@@ -7530,13 +7576,22 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                 )
                 if _use_dynamic:
                     _watchlist_tickers = list(dynamic_watchlist or [])
+                    _extra_watchlist_text = st.text_area(
+                        "Manuelle tilleggstickere",
+                        value=str(_settings.get("manual_watchlist_extra_text_v18611", "")),
+                        help="Tickere her blir med selv om dynamisk watchlist er tom. Skill med komma eller linjeskift.",
+                        key="main_watchlist_extra_text_v18611",
+                    )
+                    _extra_watchlist = parse_watchlist(_extra_watchlist_text)
+                    if _extra_watchlist:
+                        _watchlist_tickers = _dedupe_text_list(list(_watchlist_tickers or []) + list(_extra_watchlist))
                     st.info(f"Dynamisk watchlist aktiv: {len(_watchlist_tickers)} aksjer")
                     with st.expander("Vis dynamisk watchlist", expanded=False):
                         st.write(", ".join(_watchlist_tickers) if _watchlist_tickers else "Ingen tickere i listen ennå.")
                 else:
                     _watchlist_text = st.text_area(
                         "Aksjer å overvåke",
-                        value=", ".join(list(dynamic_watchlist or [])[:30]),
+                        value=str(_settings.get("manual_watchlist_text_v18611") or ", ".join(list(dynamic_watchlist or [])[:30])),
                         help="Skriv tickere separert med komma. Norske aksjer må ofte ha .OL og svenske .ST",
                         key="main_watchlist_text_v156",
                     )
@@ -7561,10 +7616,14 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
                     _save["use_dynamic_watchlist_from_market"] = bool(_use_dynamic)
                     _save["auto_watchlist_alerts_refresh"] = bool(_auto_scan)
                     _save["watchlist_scan_limit"] = int(_scan_limit)
+                    _save["manual_watchlist_extra_text_v18611"] = str(st.session_state.get("main_watchlist_extra_text_v18611", "") or "")
+                    _save["manual_watchlist_text_v18611"] = str(st.session_state.get("main_watchlist_text_v156", "") or "")
                     save_settings(_save)
                     st.success("Watchlist-innstillinger oppdatert via Global oppdatering ✅")
 
         with alert_tab:
+            st.info("Varselkontroll for Pushover, paper-handler og antispam er flyttet til Paper Trading og kontroll.")
+        if False:
             st.markdown(
                 f"""
                 <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
@@ -7651,6 +7710,98 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
 
     st.session_state["latest_watchlist_tickers_v156"] = list(_watchlist_tickers or [])
     return _watchlist_tickers, bool(_auto_scan), int(_scan_limit), bool(_manual_scan)
+
+
+def render_paper_alert_control_workspace_v18611(pushover_enabled_runtime=False):
+    """Pushover and paper alert controls live with Paper Trading, not Watchlist."""
+    _settings = load_settings()
+    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_setting_on = bool(_settings.get("pushover_enabled", True))
+    _pushover_ready = _pushover_env_ok and _pushover_setting_on
+    st.markdown(
+        f"""
+        <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
+            <div class="alert-status-title">Pushover: {'Aktiv' if _pushover_ready else 'Ikke klar'}</div>
+            <div class="alert-status-sub">Åpne markeder nå: {open_markets()}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        _pushover_setting_on = st.checkbox(
+            "Pushover aktiv",
+            value=bool(_settings.get("pushover_enabled", True)),
+            key="main_alert_pushover_enabled_v156",
+        )
+        _notify_trades = st.checkbox(
+            "Varsle ved faktisk paper BUY/SELL",
+            value=bool(_settings.get("notify_paper_trades", True)),
+            key="main_alert_notify_paper_v156",
+        )
+        _notify_watchlist = st.checkbox(
+            "Varsle ved watchlist signalendring",
+            value=bool(_settings.get("notify_watchlist_signal_changes", True)),
+            key="main_alert_notify_watchlist_v156",
+        )
+    with c2:
+        _high_conf_only = st.checkbox(
+            "Varsle kun høy confidence",
+            value=bool(_settings.get("notify_high_confidence_only", True)),
+            key="main_alert_high_conf_only_v156",
+        )
+        _min_alert_conf = st.slider(
+            "Confidence-grense",
+            50,
+            95,
+            int(_settings.get("notify_min_confidence", 80)),
+            1,
+            key="main_alert_min_conf_v156",
+        )
+        st.caption("Watchlist-varsler bruker denne grensen når høy confidence er aktivert.")
+
+    if _global_apply_requested_v161():
+        _merged = load_settings()
+        _merged["pushover_enabled"] = bool(_pushover_setting_on)
+        _merged["notify_paper_trades"] = bool(_notify_trades)
+        _merged["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
+        _merged["notify_high_confidence_only"] = bool(_high_conf_only)
+        _merged["notify_min_confidence"] = int(_min_alert_conf)
+        save_settings(_merged)
+        st.success("Varselkontroll oppdatert via Global oppdatering.")
+
+    b1, b2, b3 = st.columns([0.25, 0.25, 0.18])
+    with b1:
+        if st.button("Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, use_container_width=False):
+            verify_info = verify_pushover_credentials_v18585()
+            st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+            if verify_info.get("ok"):
+                st.success(f"Pushover-verifisering OK. HTTP {verify_info.get('status_code')}")
+            else:
+                st.error(f"Pushover-verifisering feilet: {verify_info.get('response_text')}")
+    with b2:
+        if st.button("Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=False):
+            ok, err = _send_pushover_safe_v1863af("Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
+            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
+            if ok:
+                st.success("Test sendt.")
+            else:
+                st.error(f"Feil: {err}")
+    with b3:
+        if st.button("Nullstill antispam", key="main_alert_reset_antispam_v156", use_container_width=False):
+            reset_alert_state()
+            st.success("Signalhistorikk nullstilt.")
+
+    with st.expander("Varselinfo / Pushover-status", expanded=False):
+        st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
+        st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
+        st.write("TOKEN:", _mask_secret_v18585(PUSHOVER_APP_TOKEN))
+        st.write("USER:", _mask_secret_v18585(PUSHOVER_USER_KEY))
+        _last = st.session_state.get("pushover_last_check_v18585")
+        if _last:
+            st.write("Siste Pushover-sjekk:", _last)
+        else:
+            st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
 
 
 def _render_paper_positions_overview_v18581(portfolio):
@@ -7811,7 +7962,80 @@ def _paper_fetch_stock_price_v1863z():
         st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", f"Fant ikke aksjekurs for {symbol}. {err} Prøv børs-suffiks, f.eks. .OL, eller skriv pris manuelt.")
 
 
+PAPER_FUND_LOOKUP_CATALOG_V18611 = [
+    {
+        "symbol": "LU2075955943",
+        "name": "DNB Fund - Disruptive Opportunities N NOK (Acc)",
+        "aliases": [
+            "DNB Disruptive Opportunities",
+            "DNB Fund Disruptive Opportunities",
+            "Disruptive Opportunities N NOK",
+            "LU2075955943",
+        ],
+        "asset_type": "Aktivt fond",
+        "category": "EAA Fund Global Flex-Cap Equity",
+        "currency": "NOK",
+    },
+    {
+        "symbol": "VOO",
+        "name": "Vanguard S&P 500 ETF",
+        "aliases": ["Vanguard S&P 500", "VOO ETF"],
+        "asset_type": "ETF",
+        "category": "USA indeks-ETF",
+        "currency": "USD",
+    },
+    {
+        "symbol": "QQQ",
+        "name": "Invesco QQQ Trust",
+        "aliases": ["Nasdaq 100 ETF", "QQQ ETF"],
+        "asset_type": "ETF",
+        "category": "USA teknologi-/vekst-ETF",
+        "currency": "USD",
+    },
+]
+
+
+def _normalize_fund_lookup_text_v18611(text) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+def _paper_lookup_fund_v18611(query):
+    needle = _normalize_fund_lookup_text_v18611(query)
+    if not needle:
+        return None
+    needle_tokens = set(needle.split())
+    best = None
+    best_score = 0
+    for item in PAPER_FUND_LOOKUP_CATALOG_V18611:
+        texts = [item.get("symbol"), item.get("name"), item.get("category")] + list(item.get("aliases") or [])
+        for text in texts:
+            hay = _normalize_fund_lookup_text_v18611(text)
+            if not hay:
+                continue
+            if needle == hay or needle in hay or hay in needle:
+                score = 100
+            else:
+                hay_tokens = set(hay.split())
+                score = int((len(needle_tokens & hay_tokens) / max(1, len(needle_tokens))) * 100)
+            if score > best_score:
+                best = item
+                best_score = score
+    return best if best_score >= 45 else None
+
+
+def _apply_fund_lookup_hint_v18611(query):
+    match = _paper_lookup_fund_v18611(query)
+    if not match:
+        return None
+    st.session_state["paper_fund_symbol_v18545"] = str(match.get("symbol") or query).upper()
+    st.session_state["paper_fund_type_v18545"] = str(match.get("asset_type") or "Fond")
+    st.session_state["paper_fund_currency_v18545"] = str(match.get("currency") or "NOK")
+    return match
+
+
 def _paper_fetch_fund_price_v1863z():
+    original_query = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip()
+    match = _apply_fund_lookup_hint_v18611(original_query)
     symbol = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip().upper()
     asset_type = str(st.session_state.get("paper_fund_type_v18545", "ETF") or "ETF")
     if not symbol:
@@ -7823,8 +8047,20 @@ def _paper_fetch_fund_price_v1863z():
         st.session_state["paper_fund_price_v18545"] = float(price)
         st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
         st.session_state["paper_fund_last_type_v1863ac"] = asset_type
+        if match:
+            st.session_state["paper_fund_fetch_status_v1863z"] = (
+                "success",
+                f"Hentet {resolved}: {price:.4f}. Pris/NAV er oppdatert. Matchet {match.get('name')} ({match.get('category')}).",
+            )
+            return
         st.session_state["paper_fund_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Pris/NAV er oppdatert.")
     else:
+        if match:
+            st.session_state["paper_fund_fetch_status_v1863z"] = (
+                "info",
+                f"Fant fondet som {match.get('name')} | type {match.get('asset_type')} | kategori {match.get('category')}. Gratis NAV ble ikke funnet automatisk, saa skriv Pris/NAV manuelt eller bruk fondssiden som kilde.",
+            )
+            return
         hint = "ISIN og nordiske fond mangler ofte gratis NAV-kilde. Bruk ETF/Yahoo-symbol eller skriv NAV manuelt."
         st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", f"Fant ikke pris/NAV for {symbol}. {err} {hint}")
 
@@ -8027,9 +8263,14 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
                 action = "Hold / overvåk"
             control_rows.append({
                 "Ticker": ticker,
+                "Type": row.get("type") or "",
                 "Land": row.get("land") or "",
                 "Marked": row.get("marked") or "",
                 "Sektor": row.get("sektor") or "",
+                "Valuta": row.get("currency") or "",
+                "Snittkurs/NAV": row.get("avg_price"),
+                "Dagens kurs/NAV": row.get("last_price"),
+                "Antall": row.get("units"),
                 "Verdi": round(value, 2),
                 "P/L kr": row.get("pnl"),
                 "P/L %": round(pnl_pct, 2),
@@ -8038,7 +8279,7 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
                 "Oppdatert": row.get("updated") or "Lagret kurs",
             })
         st.dataframe(pd.DataFrame(control_rows), use_container_width=True, hide_index=True)
-        with st.expander("Full felles beholdningsoversikt", expanded=False):
+        with st.expander("Detaljert Paper-portefølje kontroll", expanded=True):
             st.caption("Samme feltfamilie som handelsloggen: tidspunkt/status, ticker, marked, sektor, pris, antall, verdi, P/L, signal og forklaring.")
             st.dataframe(
                 pd.DataFrame(paper_position_display_rows(portfolio, latest_prices, total_value=total_value)),
@@ -8213,6 +8454,9 @@ def render_paper_trading_dashboard():
         render_auto_trading_workspace()
         render_trading_rules_workspace()
 
+    with st.expander("Paper Trading varselkontroll / Pushover", expanded=False):
+        render_paper_alert_control_workspace_v18611()
+
     st.markdown("#### 🟢 Simulert kjøp av aksjer")
     st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
     selected_position = st.session_state.get("paper_selected_position_v1863by") or {}
@@ -8289,11 +8533,12 @@ def render_paper_trading_dashboard():
         f1, f2, f3, f4 = st.columns([1.0, 1.0, 1.0, 0.9])
         with f1:
             fund_symbol = st.text_input(
-                "Fond/ETF-symbol",
+                "Fondnavn / ISIN / ETF-symbol",
                 value=st.session_state.get("paper_fund_symbol_v18545", "VOO"),
                 key="paper_fund_symbol_v18545",
                 on_change=_paper_fund_symbol_changed_v1863ac,
             ).strip().upper()
+            st.caption("Du kan skrive f.eks. VOO, QQQ, LU2075955943 eller DNB Disruptive. Vanlige fond kan fortsatt kreve manuell NAV.")
         with f2:
             fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545", on_change=_paper_fund_symbol_changed_v1863ac)
         with f3:
@@ -8899,9 +9144,9 @@ def render_interactive_technical_control_center_v18535():
             st.warning("Skriv inn én ticker først.")
             return
         with st.spinner(f"Henter analyse for {clean}..."):
-            item = cached_score_stock_manual(clean, use_news=False)
+            item = cached_score_stock_manual(clean, use_news=False, force=True)
         if not item:
-            st.warning("Fant ikke data for valgt ticker.")
+            st.warning(f"Fant ikke data for {clean}. Sjekk ticker/suffiks, for eksempel DNB.OL, STB.OL, VOLV-B.ST eller AAPL.")
             return
         st.session_state["cc_interactive_last_result_v18535"] = [item]
         st.success(f"Analyse klar for {clean}.")
@@ -16434,7 +16679,6 @@ def control_center_extra_panels_v18535():
         ("⭐ Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),
-        ("Beslutningsgrunnlag", render_decision_support_panel),
         ("🚀 IPO", render_ipo),
         ("🧪 Paper Trading og kontroll", render_paper_trading_dashboard),
         ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),

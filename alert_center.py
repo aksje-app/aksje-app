@@ -200,7 +200,7 @@ def render_common_alert_center(location: str = "top") -> None:
             horizon_filter = st.selectbox("Horisont", horizon_values, key=f"alert_horizon_filter_{location}_v1863m")
 
         refresh_key = f"alert_center_refresh_{location}_v1869"
-        if st.button("Oppdater fra lagrede varsler", key=f"alert_center_run_{location}_v1869", type="secondary", disabled=market_filter == NO_UNIVERSE_SELECTION_LABEL):
+        if st.button("Oppdater visning fra lagrede varsler", key=f"alert_center_run_{location}_v1869", type="secondary", disabled=market_filter == NO_UNIVERSE_SELECTION_LABEL):
             st.session_state[refresh_key] = datetime.now().isoformat(timespec="seconds")
         if st.session_state.get(refresh_key):
             st.caption(f"Sist vist/oppdatert fra lagrede varsler: {st.session_state.get(refresh_key)}")
@@ -255,6 +255,20 @@ def render_common_alert_center(location: str = "top") -> None:
         if rows:
             st.dataframe(rows, use_container_width=True, hide_index=True)
         else:
+            markets: Dict[str, int] = {}
+            sources: Dict[str, int] = {}
+            levels: Dict[str, int] = {}
+            for alert in alerts:
+                market_name = _alert_market(alert)
+                markets[market_name] = markets.get(market_name, 0) + 1
+                src = str(alert.get("source") or "Ukjent")
+                sources[src] = sources.get(src, 0) + 1
+                lvl = str(alert.get("level") or "ukjent").lower()
+                levels[lvl] = levels.get(lvl, 0) + 1
+            market_hint = " | ".join([f"{k}: {v}" for k, v in sorted(markets.items())]) or "ingen markedsdata"
+            source_hint = " | ".join([f"{k}: {v}" for k, v in sorted(sources.items())]) or "ingen kilder"
+            level_hint = " | ".join([f"{k}: {v}" for k, v in sorted(levels.items())]) or "ingen nivåer"
+            st.caption(f"Lagrede varsler finnes som {level_hint}. Markeder: {market_hint}. Kilder: {source_hint}.")
             st.info(
                 f"Ingen varsler matcher valgte filter. Totalt finnes {len(alerts)} lagrede varsler for filtergrunnlaget "
                 f"for nivå: røde {red}, gule {yellow}, grønne {green}."

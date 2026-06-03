@@ -2000,10 +2000,19 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         if not renderer:
             st.info("Velg et panel i hovedvalget.")
             return None
+        def _close_control_center_panel_v18611() -> None:
+            st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+            st.session_state["ai_control_center_group_v1863aj"] = ""
+            st.session_state.pop("ai_control_center_group_radio_v1863aj", None)
+            st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                    st.session_state.pop(key, None)
+
         close_col, spacer_col = st.columns([0.18, 0.82])
         with close_col:
             if st.button("Lukk oppgave", key="ai_cc_home_v1863aj"):
-                st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+                _close_control_center_panel_v18611()
                 st.rerun()
         st.markdown(
             f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_label))}</b>.</div>",
