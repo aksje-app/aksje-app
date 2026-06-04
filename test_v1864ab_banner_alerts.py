@@ -12,8 +12,8 @@ def test_v18610_banner_alerts_static_guards():
     app = (ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.20"' in version
-    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
+    assert 'APP_VERSION = "v18.6.21"' in version
+    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
     assert "BANNER_ALERT_CONFIG_KEY_V18610" in app
     assert "ALERT_LIFECYCLE_STATE_KEY_V18610" in app
     assert "_alert_lifecycle_update_v18610" in app

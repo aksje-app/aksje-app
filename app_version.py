@@ -1,9 +1,15 @@
-APP_VERSION = "v18.6.20"
-APP_VERSION_NAME = "Saerskilt banner under hovedbanner og stabilt panelvalg"
-APP_BUILD_ID = "v18620-special-watch-surface-panel-sticky"
+APP_VERSION = "v18.6.21"
+APP_VERSION_NAME = "Refresh-login, saerskilt bannerlogikk og manuell NAV"
+APP_BUILD_ID = "v18621-auth-special-watch-paper-nav"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Refresh med Husk meg får gjenopprette innlogging før login-skjema vises, og remember-token beholdes i URL mens langtidsinnlogging er aktiv.",
+    "Særskilt overvåking har egen banneranimasjon, egen lifecycle-kilde og egen signalhistorikk slik at hastighet og logg ikke blandes med hovedbanneret.",
+    "Særskilt overvåking har gul nær-grense og Pushover ved rød markør i samme meny som tickerlisten.",
+    "Både hovedbannerloggen og særskilt signalhistorikk kan kappes eller tømmes manuelt.",
+    "Paper Trading har manuell kurs/NAV for åpne posisjoner når automatisk Close/NAV mangler.",
+    "Innkommende paper-hypoteser viser når instrumentet allerede finnes i paper-porteføljen, i stedet for å påstå at det ikke er beholdning.",
     "Særskilt overvåking vises nå som eget banner rett under hovedbanneret når det er aktivert.",
     "Menyen for Særskilt overvåking ligger før Ticker-banner og samler styring, hastighet, tickerliste og fjerning.",
     "Særskilt-banneret bruker samme to-kopi ticker-tape som hovedbanneret, slik at samme hastighet oppleves likere.",

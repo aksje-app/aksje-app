@@ -14,14 +14,14 @@ def test_special_watch_has_own_menu_and_shared_ticker_tape():
     version = _read("app_version.py")
     py_compile.compile(str(ROOT / "app.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.20"' in version
-    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
+    assert 'APP_VERSION = "v18.6.21"' in version
+    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
     assert "def render_special_watch_menu_v18619" in app
     assert 'with st.expander("Særskilt overvåking"' in app
     assert "render_special_watch_menu_v18619()" in app
     assert "render_live_market_banner()\n    render_special_watch_banner_surface_v18620()\n    render_special_watch_menu_v18619()\n    render_banner_main_controls()" in app
-    assert "ticker-tape-wrap' aria-label='Særskilt overvåking'" in app
-    assert "tickerTapeScroll {speed_seconds}s linear infinite !important" in app
+    assert "ticker-tape-wrap special-watch-tape-v18621" in app
+    assert "specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important" in app
     assert "Fjern valgt ticker" in app
     assert "Tøm særskilt overvåking" in app
 

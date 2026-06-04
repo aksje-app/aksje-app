@@ -107,8 +107,8 @@ def test_v1864z_market_climate_control_center_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.20"' in version
-    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
+    assert 'APP_VERSION = "v18.6.21"' in version
+    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
     assert "Grafarkiv" in version
     assert "SEC IPO statistics" in version
     assert "Markedsklima er lagt inn som egen modul" in version

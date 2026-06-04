@@ -14,7 +14,7 @@ def test_special_watch_banner_is_surface_between_main_banner_and_menus():
     version = _read("app_version.py")
     py_compile.compile(str(ROOT / "app.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.20"' in version
+    assert 'APP_VERSION = "v18.6.21"' in version
     assert "def render_special_watch_banner_surface_v18620" in app
     assert (
         "render_live_market_banner()\n"
@@ -36,7 +36,7 @@ def test_special_watch_banner_uses_same_two_copy_tape_pattern_as_main_banner():
     end = app.index("def render_special_watch_banner_surface_v18620", start)
     special_banner_block = app[start:end]
 
-    assert "tickerTapeScroll {speed_seconds}s linear infinite !important" in special_banner_block
+    assert "specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important" in special_banner_block
     assert special_banner_block.count('+ "".join(cards_html)') == 2
 
 

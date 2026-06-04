@@ -73,7 +73,7 @@ def _remember_storage_bridge(token=None, clear=False):
                 }}
                 if (token) {{
                   setStored(token);
-                  parentUrl.searchParams.delete("remember_token");
+                  parentUrl.searchParams.set("remember_token", token);
                   window.parent.history.replaceState(null, "", parentUrl.toString());
                   return;
                 }}
@@ -334,10 +334,6 @@ def _restore_from_remember_token():
                     _save_remember_tokens(tokens)
                 st.session_state["remember_token"] = str(token)
                 _set_logged_in(user, remember=True)
-                try:
-                    del st.query_params["remember_token"]
-                except Exception:
-                    pass
                 return user
     except Exception:
         return None
@@ -502,6 +498,11 @@ def require_login():
 
     user = _restore_from_remember_token()
     if not user:
+        if not st.session_state.get("auth_restore_attempted_v18621"):
+            st.session_state["auth_restore_attempted_v18621"] = True
+            _remember_storage_bridge()
+            st.info("Gjenoppretter innlogging på denne enheten ...")
+            st.stop()
         render_login()
 
     return user

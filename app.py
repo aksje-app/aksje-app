@@ -3885,6 +3885,7 @@ LIVE_BANNER_DEFAULT_TICKERS = {
 
 BANNER_ALERT_CONFIG_KEY_V18610 = "live_banner_alert_config_v18610"
 BANNER_ALERT_LOG_KEY_V18610 = "live_banner_alert_log_v18610"
+SPECIAL_WATCH_ALERT_LOG_KEY_V18621 = "special_watch_alert_log_v18621"
 ALERT_LIFECYCLE_STATE_KEY_V18610 = "alert_lifecycle_state_v18610"
 
 
@@ -4009,14 +4010,14 @@ def _save_banner_alert_config_v18610(config: dict) -> None:
     save_settings(settings)
 
 
-def _append_banner_alert_log_v18610(settings: dict, entry: dict) -> None:
+def _append_banner_alert_log_v18610(settings: dict, entry: dict, log_key: str = BANNER_ALERT_LOG_KEY_V18610) -> None:
     settings = settings if isinstance(settings, dict) else {}
-    log = settings.setdefault(BANNER_ALERT_LOG_KEY_V18610, [])
+    log = settings.setdefault(log_key, [])
     if not isinstance(log, list):
         log = []
     row = {"tid": datetime.now().isoformat(timespec="seconds"), **dict(entry or {})}
     log.insert(0, row)
-    settings[BANNER_ALERT_LOG_KEY_V18610] = log[:200]
+    settings[log_key] = log[:200]
 
 
 def _banner_marker_from_status_v18610(status: str) -> dict:
@@ -4111,7 +4112,7 @@ def _banner_alert_evaluate_card_v18610(card: dict, config: dict) -> dict:
     }
 
 
-def _apply_banner_alerts_v18610(cards: list[dict], config: dict) -> list[dict]:
+def _apply_banner_alerts_v18610(cards: list[dict], config: dict, *, source: str = "ticker_banner", log_key: str = BANNER_ALERT_LOG_KEY_V18610) -> list[dict]:
     cards = [dict(card or {}) for card in cards or []]
     settings = load_settings() or {}
     dirty = False
@@ -4125,7 +4126,7 @@ def _apply_banner_alerts_v18610(cards: list[dict], config: dict) -> list[dict]:
             continue
         transition = _alert_lifecycle_update_v18610(
             settings,
-            "ticker_banner",
+            source,
             ticker,
             str(evaluation.get("status") or "normal"),
             {
@@ -4149,6 +4150,7 @@ def _apply_banner_alerts_v18610(cards: list[dict], config: dict) -> list[dict]:
                     "forklaring": evaluation.get("explanation"),
                     "pushover": "ja" if config.get("pushover") else "nei",
                 },
+                log_key,
             )
             dirty = True
             if config.get("pushover"):
@@ -4171,6 +4173,7 @@ def _apply_banner_alerts_v18610(cards: list[dict], config: dict) -> list[dict]:
                     "forklaring": "Tilbake innenfor grensen. Nytt varsel kan sendes ved neste brudd.",
                     "pushover": "nei",
                 },
+                log_key,
             )
             dirty = True
     if dirty:
@@ -4841,7 +4844,22 @@ def _render_banner_alert_settings_v18610():
         log = settings.get(BANNER_ALERT_LOG_KEY_V18610, [])
         if isinstance(log, list) and log:
             st.markdown("**Siste bannervarsler**")
-            st.dataframe(pd.DataFrame(log[:25]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(log[:50]), use_container_width=True, hide_index=True)
+            l1, l2, l3 = st.columns([0.8, 0.8, 2.0])
+            with l1:
+                keep_n = st.number_input("Behold siste", min_value=25, max_value=1000, value=min(200, max(25, len(log))), step=25, key="banner_alert_keep_n_v18621")
+            with l2:
+                if st.button("Kapp logg", key="banner_alert_trim_log_v18621", use_container_width=False):
+                    settings[BANNER_ALERT_LOG_KEY_V18610] = list(log)[: int(keep_n)]
+                    save_settings(settings)
+                    st.success("Bannerloggen er kappet.")
+                    st.rerun()
+            with l3:
+                if st.button("Tøm bannervarsler", key="banner_alert_clear_log_v18621", use_container_width=False):
+                    settings[BANNER_ALERT_LOG_KEY_V18610] = []
+                    save_settings(settings)
+                    st.success("Bannerloggen er tømt.")
+                    st.rerun()
         else:
             st.info("Ingen bannervarsler logget enna.")
 
@@ -4895,7 +4913,8 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
             unsafe_allow_html=True,
         )
         return
-    speed_seconds = int(settings.get("special_watch_banner_speed_seconds_v18615") or settings.get("live_banner_speed_seconds", 70) or 70)
+    raw_speed = int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0)
+    speed_seconds = raw_speed if raw_speed > 0 else int(settings.get("live_banner_speed_seconds", 70) or 70)
     speed_seconds = max(10, min(speed_seconds, 300))
     cards_html = []
     for ticker, card, _rules in watched[:24]:
@@ -4922,15 +4941,16 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         )
     st.markdown(
         _banner_detail_layout_css_v18614()
-        + f"<style>@keyframes tickerTapeScroll {{ from {{ transform: translateX(0); }} to {{ transform: translateX(-50%); }} }}</style>"
+        + f"<style>@keyframes specialWatchTickerTapeScrollV18621 {{ from {{ transform: translateX(0); }} to {{ transform: translateX(-50%); }} }}</style>"
         + "<div class='follow-banner-title'>Særskilt overvåking</div>"
-        + f"<div class='ticker-tape-wrap' aria-label='Særskilt overvåking'><div class='ticker-tape-track' style='animation: tickerTapeScroll {speed_seconds}s linear infinite !important; min-width: max-content;'>"
+        + f"<div class='ticker-tape-wrap special-watch-tape-v18621' aria-label='Særskilt overvåking'><div class='ticker-tape-track special-watch-track-v18621' style='animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important; min-width: max-content;'>"
         + "".join(cards_html)
         + "".join(cards_html)
         + "</div></div>",
         unsafe_allow_html=True,
     )
-    st.caption(f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s.")
+    mode_txt = "egen hastighet" if raw_speed > 0 else "samme hastighet som hovedbanner"
+    st.caption(f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s · {mode_txt}.")
 
 
 def render_special_watch_banner_surface_v18620() -> None:
@@ -4943,7 +4963,12 @@ def render_special_watch_banner_surface_v18620() -> None:
         except Exception:
             banner_cards = []
     try:
-        banner_cards = _apply_banner_alerts_v18610(banner_cards, config)
+        banner_cards = _apply_banner_alerts_v18610(
+            banner_cards,
+            config,
+            source="special_watch_banner",
+            log_key=SPECIAL_WATCH_ALERT_LOG_KEY_V18621,
+        )
     except Exception:
         pass
     _render_special_banner_watch_v18612(banner_cards, config)
@@ -4959,7 +4984,7 @@ def render_special_watch_menu_v18619() -> None:
         st.caption("Alt som gjelder det nederste banneret er samlet her. Tickere havner her når de har egne varselgrenser.")
 
         with st.form("special_watch_settings_form_v18619", clear_on_submit=False):
-            c_enable, c_speed, c_count = st.columns([0.75, 0.85, 1.4])
+            c_enable, c_speed, c_near, c_push, c_count = st.columns([0.62, 0.75, 0.72, 0.85, 1.15])
             with c_enable:
                 enabled = st.checkbox(
                     "Vis særskilt banner",
@@ -4976,6 +5001,10 @@ def render_special_watch_menu_v18619() -> None:
                     key="special_watch_speed_v18619",
                     help="0 = samme hastighet som hovedbanneret.",
                 )
+            with c_near:
+                near_pct = st.slider("Gul nær grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0, key="special_watch_near_pct_v18621")
+            with c_push:
+                pushover = st.checkbox("Send Pushover ved rød markør", value=bool(config.get("pushover", False)), key="special_watch_pushover_v18621")
             with c_count:
                 st.markdown(f"<div class='v18-dark-row'><b>{len(watched)}</b> tickere i særskilt overvåking</div>", unsafe_allow_html=True)
 
@@ -4997,6 +5026,8 @@ def render_special_watch_menu_v18619() -> None:
         if saved:
             settings["special_watch_banner_enabled_v18615"] = bool(enabled)
             settings["special_watch_banner_speed_seconds_v18615"] = int(speed)
+            config["near_pct"] = float(near_pct)
+            config["pushover"] = bool(pushover)
             if add_ticker:
                 existing = dict(individual.get(add_ticker) or {})
                 existing.update({
@@ -5007,7 +5038,7 @@ def render_special_watch_menu_v18619() -> None:
                 })
                 individual[add_ticker] = existing
                 config["individual"] = individual
-                _save_banner_alert_config_v18610(config)
+            _save_banner_alert_config_v18610(config)
             save_settings(settings)
             st.success("Særskilt overvåking lagret.")
             st.rerun()
@@ -5038,6 +5069,30 @@ def render_special_watch_menu_v18619() -> None:
                     _save_banner_alert_config_v18610(config)
                     st.success("Særskilt overvåking er tømt.")
                     st.rerun()
+        else:
+            st.info("Ingen tickere ligger i særskilt overvåking.")
+
+        special_log = settings.get(SPECIAL_WATCH_ALERT_LOG_KEY_V18621, [])
+        st.markdown("**Signalhistorikk for særskilt overvåking**")
+        if isinstance(special_log, list) and special_log:
+            st.dataframe(pd.DataFrame(special_log[:50]), use_container_width=True, hide_index=True)
+            s1, s2, s3 = st.columns([0.8, 0.8, 2.0])
+            with s1:
+                keep_special = st.number_input("Behold siste signaler", min_value=25, max_value=1000, value=min(200, max(25, len(special_log))), step=25, key="special_watch_keep_log_v18621")
+            with s2:
+                if st.button("Kapp særskilt logg", key="special_watch_trim_log_v18621", use_container_width=False):
+                    settings[SPECIAL_WATCH_ALERT_LOG_KEY_V18621] = list(special_log)[: int(keep_special)]
+                    save_settings(settings)
+                    st.success("Loggen for særskilt overvåking er kappet.")
+                    st.rerun()
+            with s3:
+                if st.button("Tøm særskilt logg", key="special_watch_clear_log_v18621", use_container_width=False):
+                    settings[SPECIAL_WATCH_ALERT_LOG_KEY_V18621] = []
+                    save_settings(settings)
+                    st.success("Loggen for særskilt overvåking er tømt.")
+                    st.rerun()
+        else:
+            st.info("Ingen signaler logget for særskilt overvåking ennå.")
 
 
 def _render_nordnet_datatest_v18610():
@@ -8765,12 +8820,32 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
             )
 
 
-def _render_incoming_paper_hypotheses_v1868(paper_flow_rows):
+def _paper_hypothesis_matches_position_v18621(row: dict, positions: dict) -> bool:
+    ticker = str((row or {}).get("ticker") or "").strip().upper()
+    name = str((row or {}).get("name") or "").strip().lower()
+    for pos_key, pos in (positions or {}).items():
+        pos_ticker = str(pos_key or "").strip().upper()
+        pos_name = str((pos or {}).get("name") or "").strip().lower()
+        if ticker and ticker == pos_ticker:
+            return True
+        if ticker and (ticker in pos_ticker or ticker in pos_name):
+            return True
+        if name and (name in pos_name or pos_name in name):
+            return True
+    return False
+
+
+def _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio=None):
     rows = list(paper_flow_rows or [])
     if not rows:
         return
+    positions = ((portfolio or {}).get("positions", {}) or {})
+    already_count = sum(1 for row in rows if _paper_hypothesis_matches_position_v18621(row, positions))
     with st.expander(f"Innkommende paper-hypoteser ({len(rows)})", expanded=False):
-        st.caption("Dette er kandidater sendt inn til Paper Trading. De er ikke beholdningen din før du faktisk gjør et paper-kjøp.")
+        if already_count:
+            st.caption("Noen hypoteser finnes allerede i paper-porteføljen. Bruk dem til oppfølging, økning eller ny vurdering; nye hypoteser blir først beholdning når du gjør paper-kjøp.")
+        else:
+            st.caption("Dette er kandidater sendt inn til Paper Trading. De blir ikke beholdning før du faktisk gjør et paper-kjøp.")
         st.dataframe(
             pd.DataFrame([
                 {
@@ -8778,7 +8853,8 @@ def _render_incoming_paper_hypotheses_v1868(paper_flow_rows):
                     "Selskap": row.get("name"),
                     "Score": row.get("score"),
                     "Kilde": row.get("source"),
-                    "Forslag": row.get("recommended_action") or "Bruk som paper-hypotese",
+                    "Status": "Finnes i beholdning" if _paper_hypothesis_matches_position_v18621(row, positions) else "Ny hypotese",
+                    "Forslag": ("Følg opp / øk / oppdater vurdering" if _paper_hypothesis_matches_position_v18621(row, positions) else (row.get("recommended_action") or "Bruk som paper-hypotese")),
                 }
                 for row in rows[:25]
             ]),
@@ -8862,6 +8938,45 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
                 st.warning(f"Pushover ble ikke sendt: {err or 'ukjent feil'}")
 
 
+def _render_manual_paper_nav_update_v18621(portfolio):
+    positions = (portfolio or {}).get("positions", {}) or {}
+    with st.expander("Manuell kurs/NAV for paper-beholdning", expanded=False):
+        st.caption("Bruk denne når automatisk kurs/NAV ikke finnes. Verdien lagres på posisjonen og brukes i paper-porteføljen.")
+        if not positions:
+            st.info("Ingen åpne posisjoner å oppdatere.")
+            return
+        options = list(positions.keys())
+        c1, c2, c3 = st.columns([1.4, 0.7, 0.8])
+        with c1:
+            selected = st.selectbox("Posisjon", options, key="manual_paper_nav_symbol_v18621")
+        current = positions.get(selected, {}) or {}
+        with c2:
+            manual_price = st.number_input(
+                "Ny kurs/NAV",
+                min_value=0.0,
+                max_value=10_000_000.0,
+                value=float(current.get("last_price") or current.get("avg_price") or 0.0),
+                step=0.01,
+                key="manual_paper_nav_price_v18621",
+            )
+        with c3:
+            nav_date = st.date_input("Dato", value=datetime.now().date(), key="manual_paper_nav_date_v18621")
+        if st.button("Lagre manuell kurs/NAV", key="manual_paper_nav_save_v18621", use_container_width=False):
+            if float(manual_price or 0.0) <= 0:
+                st.error("Kurs/NAV må være større enn 0.")
+            else:
+                pos = dict(current)
+                pos["last_price"] = float(manual_price)
+                pos["nav_date"] = str(nav_date)
+                pos["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                pos["manual_price_source_v18621"] = "Manuell kurs/NAV"
+                positions[selected] = pos
+                portfolio["positions"] = positions
+                save_portfolio(portfolio)
+                st.success(f"Manuell kurs/NAV lagret for {selected}.")
+                st.rerun()
+
+
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
     st.caption("Simulert handel, beholdning, kontrollkort og regler samlet på én side. Ingen ekte ordre sendes.")
@@ -8892,6 +9007,7 @@ def render_paper_trading_dashboard():
         st.caption(f"Sist oppdatert: {refresh_status.get('time', '-')} · kurser oppdatert: {refresh_status.get('updated', 0)}")
         if refresh_status.get("errors"):
             st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(refresh_status.get("errors", [])[:5]))
+            st.info("Bruk Manuell kurs/NAV under for fond, ETF-er eller instrumenter som mangler automatisk Close-data.")
     else:
         st.caption("Kursene oppdateres når du trykker Oppdater paper-kurser. Lagrede priser brukes ellers.")
 
@@ -8929,6 +9045,7 @@ def render_paper_trading_dashboard():
         ], columns=4)
 
     _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value)
+    _render_manual_paper_nav_update_v18621(portfolio)
 
     st.markdown("#### Posisjoner / beholdning")
     positions = portfolio.get("positions", {})
@@ -8937,7 +9054,7 @@ def render_paper_trading_dashboard():
     else:
         st.info("Ingen åpne paper trading-posisjoner.")
 
-    _render_incoming_paper_hypotheses_v1868(paper_flow_rows)
+    _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio)
 
     # DO_NOT_TOUCH_ZONE v18.5.87: Paper capital/cash semantics are protected. Patch minimally.
     with st.expander("Juster Paper Trading startverdier / porteføljeverdi", expanded=False):

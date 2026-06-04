@@ -14,8 +14,8 @@ def test_paper_trading_panel_uses_stable_plain_label():
     version = _read("app_version.py")
     py_compile.compile(str(ROOT / "app.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.20"' in version
-    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
+    assert 'APP_VERSION = "v18.6.21"' in version
+    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
     assert '("Paper Trading og kontroll", render_paper_trading_dashboard)' in app
     assert 'st.subheader("Paper Trading og kontroll")' in app
     assert 'elif "Paper Trading" in str(active_panel or ""):' in app
