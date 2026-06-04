@@ -4922,9 +4922,9 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         )
     st.markdown(
         _banner_detail_layout_css_v18614()
-        + f"<style>.ticker-tape-wrap.follow-up .ticker-tape-track {{ animation: tickerTapeScroll {speed_seconds}s linear infinite; min-width: max-content; }}</style>"
+        + f"<style>@keyframes tickerTapeScroll {{ from {{ transform: translateX(0); }} to {{ transform: translateX(-50%); }} }}</style>"
         + "<div class='follow-banner-title'>Særskilt overvåking</div>"
-        + "<div class='ticker-tape-wrap follow-up' aria-label='Oppfølgingsbanner'><div class='ticker-tape-track'>"
+        + f"<div class='ticker-tape-wrap' aria-label='Særskilt overvåking'><div class='ticker-tape-track' style='animation: tickerTapeScroll {speed_seconds}s linear infinite !important; min-width: max-content;'>"
         + "".join(cards_html)
         + "".join(cards_html)
         + "".join(cards_html)
@@ -4933,6 +4933,107 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         unsafe_allow_html=True,
     )
     st.caption(f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s.")
+
+
+def render_special_watch_menu_v18619() -> None:
+    settings = load_settings() or {}
+    config = _load_banner_alert_config_v18610(settings)
+    individual = dict(config.get("individual") or {})
+    watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
+
+    with st.expander("Særskilt overvåking", expanded=bool(settings.get("special_watch_banner_enabled_v18615", True))):
+        st.caption("Alt som gjelder det nederste banneret er samlet her. Tickere havner her når de har egne varselgrenser.")
+
+        with st.form("special_watch_settings_form_v18619", clear_on_submit=False):
+            c_enable, c_speed, c_count = st.columns([0.75, 0.85, 1.4])
+            with c_enable:
+                enabled = st.checkbox(
+                    "Vis særskilt banner",
+                    value=bool(settings.get("special_watch_banner_enabled_v18615", True)),
+                    key="special_watch_enabled_v18619",
+                )
+            with c_speed:
+                speed = st.number_input(
+                    "Hastighet sekunder",
+                    min_value=0,
+                    max_value=300,
+                    value=int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0),
+                    step=5,
+                    key="special_watch_speed_v18619",
+                    help="0 = samme hastighet som hovedbanneret.",
+                )
+            with c_count:
+                st.markdown(f"<div class='v18-dark-row'><b>{len(watched)}</b> tickere i særskilt overvåking</div>", unsafe_allow_html=True)
+
+            st.markdown("**Legg til eller oppdater ticker**")
+            a1, a2, a3, a4, a5 = st.columns([0.9, 0.8, 0.8, 0.8, 0.8])
+            with a1:
+                add_ticker = st.text_input("Ticker", value="", key="special_watch_add_ticker_v18619", placeholder="F.eks. YAR.OL").strip().upper()
+            with a2:
+                add_price_upper = st.number_input("Kurs over", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="special_watch_add_price_upper_v18619")
+            with a3:
+                add_price_lower = st.number_input("Kurs under", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="special_watch_add_price_lower_v18619")
+            with a4:
+                add_pct_up = st.number_input("Dagsendring opp %", min_value=0.0, max_value=100.0, value=0.0, step=0.5, key="special_watch_add_pct_up_v18619")
+            with a5:
+                add_pct_down = st.number_input("Dagsendring ned %", min_value=-100.0, max_value=0.0, value=0.0, step=0.5, key="special_watch_add_pct_down_v18619")
+
+            saved = st.form_submit_button("Lagre særskilt overvåking", use_container_width=False)
+
+        if saved:
+            settings["special_watch_banner_enabled_v18615"] = bool(enabled)
+            settings["special_watch_banner_speed_seconds_v18615"] = int(speed)
+            if add_ticker:
+                existing = dict(individual.get(add_ticker) or {})
+                existing.update({
+                    "price_upper": float(add_price_upper),
+                    "price_lower": float(add_price_lower),
+                    "pct_up": float(add_pct_up),
+                    "pct_down": _normalize_down_pct_input_v18616(add_pct_down),
+                })
+                individual[add_ticker] = existing
+                config["individual"] = individual
+                _save_banner_alert_config_v18610(config)
+            save_settings(settings)
+            st.success("Særskilt overvåking lagret.")
+            st.rerun()
+
+        if bool(settings.get("special_watch_banner_enabled_v18615", True)):
+            banner_cards = st.session_state.get("live_banner_cache_v16_latest") or []
+            if not banner_cards:
+                try:
+                    banner_cards = _banner_fallback_cards_v18614(parse_banner_tickers(settings))
+                except Exception:
+                    banner_cards = []
+            try:
+                banner_cards = _apply_banner_alerts_v18610(banner_cards, config)
+            except Exception:
+                pass
+            _render_special_banner_watch_v18612(banner_cards, config)
+        else:
+            st.info("Særskilt banner er skjult.")
+
+        watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
+        if watched:
+            st.markdown("**Tickere i særskilt overvåking**")
+            st.dataframe(pd.DataFrame([{"ticker": t, **(individual.get(t) or {})} for t in watched]), use_container_width=True, hide_index=True)
+            r1, r2 = st.columns([0.8, 1.0])
+            with r1:
+                remove_ticker = st.selectbox("Fjern ticker", watched, key="special_watch_remove_ticker_v18619")
+                if st.button("Fjern valgt ticker", key="special_watch_remove_one_v18619", use_container_width=False):
+                    individual.pop(remove_ticker, None)
+                    config["individual"] = individual
+                    _save_banner_alert_config_v18610(config)
+                    st.success(f"{remove_ticker} er fjernet fra særskilt overvåking.")
+                    st.rerun()
+            with r2:
+                if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18619", use_container_width=False):
+                    for ticker in watched:
+                        individual.pop(ticker, None)
+                    config["individual"] = individual
+                    _save_banner_alert_config_v18610(config)
+                    st.success("Særskilt overvåking er tømt.")
+                    st.rerun()
 
 
 def _render_nordnet_datatest_v18610():
@@ -5294,7 +5395,6 @@ def render_live_market_banner():
         f"Banner: {len(banner_cards)} kort · grønn {alert_counts['green']} · gul {alert_counts['yellow']} · rød {alert_counts['red']} · "
         f"{speed_seconds}s · data ca. hver {refresh_minutes}. min."
     )
-    _render_special_banner_watch_v18612(banner_cards, banner_alert_config)
     if st.session_state.pop("banner_detail_suppress_picker_once_v18611", False):
         st.session_state.pop("live_banner_open_picker_v18610", None)
     option_map = {
@@ -5421,7 +5521,7 @@ def render_banner_main_controls():
     Hard fix: form-renderingen er lagt direkte her, så appen ikke kan krasje med
     NameError hvis en hjelpefunksjon ikke er lastet i runtime.
     """
-    with st.expander("Rediger ticker-banner", expanded=False):
+    with st.expander("Ticker-banner", expanded=False):
         settings = load_settings()
         raw = settings.get("live_banner_tickers", {}) or {}
         if not isinstance(raw, dict):
@@ -5465,27 +5565,6 @@ def render_banner_main_controls():
                     key="banner_v1582_refresh",
                 )
 
-            st.markdown("**Særskilt overvåking**")
-            s_enable, s_speed, s_hint = st.columns([0.7, 0.8, 1.5])
-            with s_enable:
-                special_watch_enabled = st.checkbox(
-                    "Vis særskilt banner",
-                    value=bool(settings.get("special_watch_banner_enabled_v18615", True)),
-                    key="banner_v18615_special_enabled",
-                )
-            with s_speed:
-                special_watch_speed = st.number_input(
-                    "Hastighet sekunder",
-                    min_value=0,
-                    max_value=300,
-                    value=int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0),
-                    step=5,
-                    key="banner_v18615_special_speed",
-                    help="0 bruker samme hastighet som hovedbanneret.",
-                )
-            with s_hint:
-                st.caption("0 = samme hastighet som hovedbanneret. Banneret viser tickere med egne varselgrenser.")
-
             st.markdown("**Markeder som vises i banneret**")
             banner_market_values = {}
             market_cols = st.columns(3)
@@ -5515,8 +5594,6 @@ def render_banner_main_controls():
                 "live_banner_enabled": bool(live_banner_enabled),
                 "live_banner_speed_seconds": int(live_banner_speed),
                 "ui_refresh_minutes": int(ui_refresh_minutes),
-                "special_watch_banner_enabled_v18615": bool(special_watch_enabled),
-                "special_watch_banner_speed_seconds_v18615": int(special_watch_speed),
                 "live_banner_markets_visible": new_visible,
                 "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
             })
@@ -5536,8 +5613,6 @@ def render_banner_main_controls():
                 logging.warning("Ticker-banner refresh after save failed: %s", exc)
             st.session_state["banner_settings_saved_message_v1864p"] = True
             st.rerun()
-
-        _render_special_watch_admin_v18618()
 
         with st.expander("Importer tickere", expanded=False):
             st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel en-kolonne CSV tolkes som tickere i valgt marked.")
@@ -17877,6 +17952,7 @@ try:
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
     render_live_market_banner()
     render_banner_main_controls()
+    render_special_watch_menu_v18619()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
@@ -18139,7 +18215,7 @@ html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
     background: linear-gradient(180deg, rgba(51,65,85,.82), rgba(30,41,59,.90)) !important;
     border-color: rgba(148,163,184,.52) !important;
 }
-/* v18.6.18: final compact action style. Prevent old full-width blue bars from leaking into panels. */
+/* v18.6.19: final compact action style. Prevent old full-width blue bars from leaking into panels. */
 html body .stApp div[data-testid="stButton"] > button,
 html body .stApp div[data-testid="stDownloadButton"] > button,
 html body .stApp div[data-testid="stFormSubmitButton"] > button,
