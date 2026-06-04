@@ -8,7 +8,7 @@ app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 layout = Path("workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.15"' in version
+assert 'APP_VERSION = "v18.6.16"' in version
 assert "def render_ai_control_center(extra_panels" in layout
 assert "st.tabs(" not in layout
 assert "ai_control_center_group_v1863m" in layout
@@ -27,6 +27,7 @@ assert "render_paper_trading_dashboard" in app
 assert "active_panel = None" in app
 assert '"Normal visning": [AI_CONTROL_CENTER_MAIN_PANEL_LABEL_V18598]' not in layout
 assert "Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter" in app
+
 
 
 

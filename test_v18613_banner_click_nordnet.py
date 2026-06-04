@@ -16,8 +16,8 @@ def test_v18614_banner_click_and_nordnet_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.15"' in version
-    assert "Bannerimport, testopprydding og paper-kjop" in version
+    assert 'APP_VERSION = "v18.6.16"' in version
+    assert "Bannerkrasj, tekst og kontrollsenter-fiks" in version
 
     # Bannerklikk må åpne detalj også når det ikke finnes live/cachede bannerkort.
     assert "def _banner_selected_from_query_v18610(cards: list[dict], banner_items=None)" in app

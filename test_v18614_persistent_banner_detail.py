@@ -16,8 +16,8 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.15"' in version
-    assert "Bannerimport, testopprydding og paper-kjop" in version
+    assert 'APP_VERSION = "v18.6.16"' in version
+    assert "Bannerkrasj, tekst og kontrollsenter-fiks" in version
 
     # Hovedbanneret skal fortsatt rendres i manuell/cache-modus.
     assert "_banner_fallback_cards_v18614(banner_items)" in app

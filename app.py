@@ -3964,6 +3964,17 @@ def _banner_alert_default_config_v18610() -> dict:
     }
 
 
+def _normalize_down_pct_input_v18616(value, default=0.0) -> float:
+    """Keep saved down-thresholds inside Streamlit's negative percent input range."""
+    try:
+        pct = float(value)
+    except Exception:
+        pct = float(default)
+    if pct > 0:
+        pct = -pct
+    return max(-100.0, min(0.0, pct))
+
+
 def _load_banner_alert_config_v18610(settings=None) -> dict:
     settings = settings or load_settings()
     defaults = _banner_alert_default_config_v18610()
@@ -3973,6 +3984,10 @@ def _load_banner_alert_config_v18610(settings=None) -> dict:
     merged = {**defaults, **raw}
     if not isinstance(merged.get("individual"), dict):
         merged["individual"] = {}
+    merged["common_pct_down"] = _normalize_down_pct_input_v18616(merged.get("common_pct_down", 0.0))
+    for rules in merged["individual"].values():
+        if isinstance(rules, dict) and "pct_down" in rules:
+            rules["pct_down"] = _normalize_down_pct_input_v18616(rules.get("pct_down", 0.0))
     return merged
 
 
@@ -4727,7 +4742,7 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
             with a3:
                 pct_up = st.number_input("Dagsendring opp %", value=float(current.get("pct_up") or 0.0), min_value=0.0, step=0.5, key=f"banner_pct_up_v18610_{ticker}")
             with a4:
-                pct_down = st.number_input("Dagsendring ned %", value=float(current.get("pct_down") or 0.0), min_value=-100.0, max_value=0.0, step=0.5, key=f"banner_pct_down_v18610_{ticker}")
+                pct_down = st.number_input("Dagsendring ned %", value=_normalize_down_pct_input_v18616(current.get("pct_down", 0.0)), min_value=-100.0, max_value=0.0, step=0.5, key=f"banner_pct_down_v18610_{ticker}")
             saved = st.form_submit_button("Lagre tickervarsel")
         if saved:
             individual[ticker] = {
@@ -4781,20 +4796,20 @@ def _render_banner_alert_settings_v18610():
     settings = load_settings() or {}
     config = _load_banner_alert_config_v18610(settings)
     with st.expander("Bannervarsler", expanded=False):
-        st.caption("Felles regler gjelder alle tickere som vises i banneret. RÃ¸d/gul/grÃ¸nn markÃ¸r vises i bannerkortet; Pushover er valgfritt.")
+        st.caption("Felles regler gjelder alle tickere som vises i banneret. Rod/gul/gronn markor vises i bannerkortet; Pushover er valgfritt.")
         with st.form("banner_alert_settings_form_v18610", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)
             with c1:
                 active = st.checkbox("Aktive bannervarsler", value=bool(config.get("active", True)))
             with c2:
-                pushover = st.checkbox("Send Pushover ved rÃ¸d markÃ¸r", value=bool(config.get("pushover", False)))
+                pushover = st.checkbox("Send Pushover ved rod markor", value=bool(config.get("pushover", False)))
             with c3:
-                near_pct = st.slider("Gul nÃ¦r grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0)
+                near_pct = st.slider("Gul naer grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0)
             r1, r2, r3 = st.columns(3)
             with r1:
                 up = st.number_input("Felles dagsendring opp %", value=float(config.get("common_pct_up", 5.0) or 0.0), min_value=0.0, step=0.5)
             with r2:
-                down = st.number_input("Felles dagsendring ned %", value=float(config.get("common_pct_down", 0.0) or 0.0), min_value=-100.0, max_value=0.0, step=0.5)
+                down = st.number_input("Felles dagsendring ned %", value=_normalize_down_pct_input_v18616(config.get("common_pct_down", 0.0)), min_value=-100.0, max_value=0.0, step=0.5)
             with r3:
                 vol = st.number_input("Felles volum/20d", value=float(config.get("common_volume_ratio20", 2.0) or 0.0), min_value=0.0, step=0.1)
             saved = st.form_submit_button("Lagre bannervarsler")
@@ -4816,7 +4831,7 @@ def _render_banner_alert_settings_v18610():
             st.markdown("**Siste bannervarsler**")
             st.dataframe(pd.DataFrame(log[:25]), use_container_width=True, hide_index=True)
         else:
-            st.info("Ingen bannervarsler logget ennÃ¥.")
+            st.info("Ingen bannervarsler logget enna.")
 
 
 def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) -> None:
@@ -5331,7 +5346,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
                     help="Kommaseparert liste. Bruk markedsindekser eller egne tickere.",
                 )
 
-        submitted = _global_apply_requested_v161()
+        submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)
 
     if submitted:
         new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
@@ -5360,7 +5375,7 @@ def render_banner_main_controls():
     Hard fix: form-renderingen er lagt direkte her, sÃ¥ appen ikke kan krasje med
     NameError hvis en hjelpefunksjon ikke er lastet i runtime.
     """
-    with st.expander("ðŸ“º Rediger ticker-banner", expanded=False):
+    with st.expander("Rediger ticker-banner", expanded=False):
         settings = load_settings()
         raw = settings.get("live_banner_tickers", {}) or {}
         if not isinstance(raw, dict):
@@ -5372,9 +5387,9 @@ def render_banner_main_controls():
         visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
 
         if st.session_state.pop("banner_settings_saved_message_v1864p", False):
-            st.success("Ticker-banner oppdatert âœ…")
+            st.success("Ticker-banner oppdatert.")
 
-        st.caption("Endre flere bannerfelt uten at appen oppdaterer tungt. Endringene brukes fÃ¸rst nÃ¥r du trykker Â«Lagre og bruk bannerÂ».")
+        st.caption("Endre bannerfeltene her. Endringene brukes forst nar du trykker Lagre og bruk banner.")
 
         with st.form("banner_settings_form_v17", clear_on_submit=False):
             c_enable, c_speed, c_refresh = st.columns(3)
@@ -5392,7 +5407,7 @@ def render_banner_main_controls():
                     value=int(settings.get("live_banner_speed_seconds", 70) or 70),
                     step=5,
                     key="banner_v1582_speed",
-                    help="Lavere tall = raskere bevegelse. HÃ¸yere tall = saktere banner.",
+                    help="Lavere tall = raskere bevegelse. Hoyere tall = saktere banner.",
                 )
             with c_refresh:
                 ui_refresh_minutes = st.number_input(
@@ -5404,16 +5419,17 @@ def render_banner_main_controls():
                     key="banner_v1582_refresh",
                 )
 
-            s_enable, s_speed, s_hint = st.columns(3)
+            st.markdown("**Saerskilt overvaking**")
+            s_enable, s_speed, s_hint = st.columns([0.7, 0.8, 1.5])
             with s_enable:
                 special_watch_enabled = st.checkbox(
-                    "Vis oppfÃ¸lgingsbanner",
+                    "Vis banner",
                     value=bool(settings.get("special_watch_banner_enabled_v18615", True)),
                     key="banner_v18615_special_enabled",
                 )
             with s_speed:
                 special_watch_speed = st.number_input(
-                    "OppfÃ¸lgingsbanner hastighet sek",
+                    "Hastighet sek",
                     min_value=0,
                     max_value=300,
                     value=int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0),
@@ -5422,7 +5438,7 @@ def render_banner_main_controls():
                     help="0 bruker samme hastighet som hovedbanneret.",
                 )
             with s_hint:
-                st.caption("OppfÃ¸lgingsbanneret viser tickere med egne varselgrenser og ruller som hovedbanneret.")
+                st.caption("0 bruker hovedbannerets hastighet. Banneret viser tickere med egne varselgrenser.")
 
             st.markdown("**Markeder som vises i banneret**")
             banner_market_values = {}
@@ -5442,7 +5458,7 @@ def render_banner_main_controls():
                         key=f"banner_v1582_{market.lower()}_tickers",
                     )
 
-            submitted = st.form_submit_button("ðŸ’¾ Lagre og bruk banner", use_container_width=True)
+            submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)
 
         if submitted:
             new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
@@ -5475,8 +5491,8 @@ def render_banner_main_controls():
             st.session_state["banner_settings_saved_message_v1864p"] = True
             st.rerun()
 
-        with st.expander("Importer tickere til banner", expanded=False):
-            st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel Ã©n-kolonne CSV tolkes som tickere i valgt marked. Du kan redigere CSV selv i Excel, Notepad eller lignende.")
+        with st.expander("Importer tickere", expanded=False):
+            st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel en-kolonne CSV tolkes som tickere i valgt marked.")
             st.markdown(
                 "<div class='v18-dark-row'>Eksempel CSV: <b>ticker,market</b><br>YAR.OL,Norge<br>ORKLY.OL,Norge<br>VOLV-B.ST,Sverige</div>",
                 unsafe_allow_html=True,
@@ -5489,7 +5505,7 @@ def render_banner_main_controls():
                 import_market = st.selectbox("Standard marked", LIVE_BANNER_MARKETS, index=LIVE_BANNER_MARKETS.index("Norge"), key="banner_import_market_v18615")
                 import_mode = st.radio("Importmodus", ["Legg til", "Erstatt marked"], horizontal=False, key="banner_import_mode_v18615")
             with i3:
-                st.caption("Mulige kilder: bÃ¸rsenes egne lister, Nordnet/megler-eksport, Yahoo-symboler eller egne CSV-lister. Importen sender ingen ordre og kobler ikke mot Nordnet.")
+                st.caption("Mulige kilder: borsenes egne lister, Nordnet/megler-eksport, Yahoo-symboler eller egne CSV-lister.")
                 st.markdown("<div class='v18-dark-row'>Tips: bruk .OL, .ST, .HE, .CO og .SA for nordiske/Brasil-symboler der Yahoo krever suffiks.</div>", unsafe_allow_html=True)
             imported_text = str(pasted or "")
             if upload is not None:
@@ -5511,7 +5527,7 @@ def render_banner_main_controls():
                     current_visible = [m.strip() for m in current_visible.replace(";", ",").split(",") if m.strip()]
                 settings["live_banner_markets_visible"] = list(dict.fromkeys(list(current_visible or []) + imported_markets))
                 save_settings(settings)
-                st.success("Import lagret i tickerfeltene. Ã…pne Rediger ticker-banner igjen for Ã¥ se listen, og trykk Lagre og bruk banner ved behov.")
+                st.success("Import lagret i tickerfeltene. Apne Rediger ticker-banner igjen for a se listen.")
                 st.rerun()
 
     _render_banner_alert_settings_v18610()
@@ -18075,7 +18091,7 @@ html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
     background: linear-gradient(180deg, rgba(51,65,85,.82), rgba(30,41,59,.90)) !important;
     border-color: rgba(148,163,184,.52) !important;
 }
-/* v18.6.15: final compact action style. Prevent old full-width blue bars from leaking into panels. */
+/* v18.6.16: final compact action style. Prevent old full-width blue bars from leaking into panels. */
 html body .stApp div[data-testid="stButton"] > button,
 html body .stApp div[data-testid="stDownloadButton"] > button,
 html body .stApp div[data-testid="stFormSubmitButton"] > button,

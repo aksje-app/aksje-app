@@ -18,8 +18,8 @@ def test_v18614_banner_navigation_paper_static_guards():
     workspace = _read("workspace_layout.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.15"' in version
-    assert "Bannerimport, testopprydding og paper-kjop" in version
+    assert 'APP_VERSION = "v18.6.16"' in version
+    assert "Bannerkrasj, tekst og kontrollsenter-fiks" in version
 
     # Banneret skal alltid være synlig og tickerklikk skal rydde aktivt Kontrollsenter-panel.
     assert "render_live_market_banner()\n    render_banner_main_controls()" in app

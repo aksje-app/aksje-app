@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.15"
-APP_VERSION_NAME = "Bannerimport, testopprydding og paper-kjop"
-APP_BUILD_ID = "v18615-banner-import-paper-tests"
+APP_VERSION = "v18.6.16"
+APP_VERSION_NAME = "Bannerkrasj, tekst og kontrollsenter-fiks"
+APP_BUILD_ID = "v18616-banner-crash-text-control-center"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Bannervarsler normaliserer gamle positive ned-grenser til negative verdier, slik at AI Kontrollsenter ikke forsvinner under rendering.",
+    "Rediger ticker-banner bruker ekte submit-knapp i Streamlit-formen og skal ikke lenger vise Missing Submit Button.",
+    "Sarskilt overvaking har tydeligere pa/av- og hastighetskontroll i bannerinnstillingene.",
+    "De mest synlige bannertekstene er ryddet for encoding-rot i denne flaten.",
     "Manuelle tickerlister i banneret har testbar parser for en ticker, flere tickere, komma, semikolon og linjeskift.",
     "Rediger ticker-banner har importseksjon for CSV eller innlimt tickerliste, med forhåndsvisning og valg for legg til eller erstatt marked.",
     "Oppfølgingsbanneret for særskilt overvåkning kan slås av/på og har egen hastighet, eller kan bruke hovedbannerets hastighet.",
