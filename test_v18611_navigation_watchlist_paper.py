@@ -27,7 +27,7 @@ def test_v18614_navigation_watchlist_paper_static_guards():
     alpha = _read("alpha_radar_ui.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.18"' in version
+    assert 'APP_VERSION = "v18.6.20"' in version
     assert "_close_control_center_panel_v18611" in workspace
     assert "banner_detail_suppress_picker_once_v18611" in app
     assert "remember_token" in app
@@ -41,5 +41,6 @@ def test_v18614_navigation_watchlist_paper_static_guards():
     assert "Fondnavn / ISIN / ETF-symbol" in app
     assert "Oppdater visning fra lagrede varsler" in alert_center
     assert "Send til Beslutningsgrunnlag" not in alpha
+
 
 

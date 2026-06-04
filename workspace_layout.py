@@ -1934,11 +1934,14 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         )
         selected_group = group_by_option.get(selected_group_option or "", "")
         if selected_group != current_group:
+            previous_active_label = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
             st.session_state["ai_control_center_group_v1863aj"] = selected_group
             st.session_state["ai_control_center_active_panel_v1863aj"] = ""
             current_group = selected_group
             direct_panels = [label for label in group_map.get(selected_group, []) if label in panel_map]
-            if len(direct_panels) == 1:
+            if previous_active_label in direct_panels:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = previous_active_label
+            elif len(direct_panels) == 1:
                 st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0]
             elif selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels:
                 st.session_state["ai_control_center_active_panel_v1863aj"] = ai_candidate_primary_label

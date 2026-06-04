@@ -4927,12 +4927,26 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         + f"<div class='ticker-tape-wrap' aria-label='Særskilt overvåking'><div class='ticker-tape-track' style='animation: tickerTapeScroll {speed_seconds}s linear infinite !important; min-width: max-content;'>"
         + "".join(cards_html)
         + "".join(cards_html)
-        + "".join(cards_html)
-        + "".join(cards_html)
         + "</div></div>",
         unsafe_allow_html=True,
     )
     st.caption(f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s.")
+
+
+def render_special_watch_banner_surface_v18620() -> None:
+    settings = load_settings() or {}
+    config = _load_banner_alert_config_v18610(settings)
+    banner_cards = st.session_state.get("live_banner_cache_v16_latest") or []
+    if not banner_cards:
+        try:
+            banner_cards = _banner_fallback_cards_v18614(parse_banner_tickers(settings))
+        except Exception:
+            banner_cards = []
+    try:
+        banner_cards = _apply_banner_alerts_v18610(banner_cards, config)
+    except Exception:
+        pass
+    _render_special_banner_watch_v18612(banner_cards, config)
 
 
 def render_special_watch_menu_v18619() -> None:
@@ -4999,17 +5013,7 @@ def render_special_watch_menu_v18619() -> None:
             st.rerun()
 
         if bool(settings.get("special_watch_banner_enabled_v18615", True)):
-            banner_cards = st.session_state.get("live_banner_cache_v16_latest") or []
-            if not banner_cards:
-                try:
-                    banner_cards = _banner_fallback_cards_v18614(parse_banner_tickers(settings))
-                except Exception:
-                    banner_cards = []
-            try:
-                banner_cards = _apply_banner_alerts_v18610(banner_cards, config)
-            except Exception:
-                pass
-            _render_special_banner_watch_v18612(banner_cards, config)
+            st.info("Særskilt banner vises rett under hovedbanneret. Endringer brukes når du lagrer.")
         else:
             st.info("Særskilt banner er skjult.")
 
@@ -17951,8 +17955,9 @@ try:
     # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
     render_live_market_banner()
-    render_banner_main_controls()
+    render_special_watch_banner_surface_v18620()
     render_special_watch_menu_v18619()
+    render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")

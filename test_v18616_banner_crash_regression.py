@@ -34,7 +34,8 @@ def test_full_pytest_collects_new_v1861_tests():
     version = _read("app_version.py")
 
     assert "test_v1861*.py" in pytest_ini
-    assert 'APP_VERSION = "v18.6.18"' in version
-    assert "Paper Trading og saerskilt banner-fiks" in version
+    assert 'APP_VERSION = "v18.6.20"' in version
+    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
+
 
 

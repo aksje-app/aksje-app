@@ -16,8 +16,8 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.18"' in version
-    assert "Paper Trading og saerskilt banner-fiks" in version
+    assert 'APP_VERSION = "v18.6.20"' in version
+    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
 
     # Hovedbanneret skal fortsatt rendres i manuell/cache-modus.
     assert "_banner_fallback_cards_v18614(banner_items)" in app
@@ -25,7 +25,7 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     assert "target='_self' href='{href}'" in app
 
     # Oppfølgingsaksjer skal vises som tickerkort-banner, ikke blå Streamlit-knapper.
-    assert "ticker-tape-wrap follow-up" in app
+    assert "ticker-tape-wrap' aria-label='Særskilt overvåking'" in app
     assert "special_watch_banner_speed_seconds_v18615" in app
     assert "special_watch_open_v18612" not in app
 
@@ -33,5 +33,6 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     assert "def _banner_detail_layout_css_v18614" in app
     assert "grid-template-columns: repeat(6, minmax(132px, 1fr)) !important" in app
     assert "_banner_detail_layout_css_v18614()" in app
+
 
 

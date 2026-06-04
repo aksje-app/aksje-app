@@ -1,9 +1,16 @@
-APP_VERSION = "v18.6.18"
-APP_VERSION_NAME = "Paper Trading og saerskilt banner-fiks"
-APP_BUILD_ID = "v18618-paper-special-banner"
+APP_VERSION = "v18.6.20"
+APP_VERSION_NAME = "Saerskilt banner under hovedbanner og stabilt panelvalg"
+APP_BUILD_ID = "v18620-special-watch-surface-panel-sticky"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Særskilt overvåking vises nå som eget banner rett under hovedbanneret når det er aktivert.",
+    "Menyen for Særskilt overvåking ligger før Ticker-banner og samler styring, hastighet, tickerliste og fjerning.",
+    "Særskilt-banneret bruker samme to-kopi ticker-tape som hovedbanneret, slik at samme hastighet oppleves likere.",
+    "AI Kontrollsenter beholder valgt panel ved rerun når panelet fortsatt hører til valgt hovedområde, slik at Paper Trading og kontroll ikke faller tilbake til undermeny.",
+    "Særskilt overvåking er flyttet ut av hovedbanner-menyen og har egen meny med banner, styring, tickerliste og fjerning.",
+    "Særskilt-banneret bruker samme ticker-tape-struktur som hovedbanneret, med hastighet direkte på tracken.",
+    "Ticker-banner-menyen gjelder nå bare hovedbannerets oppbygging, markeder, tickerlister og import.",
     "Paper Trading og kontroll bruker stabil tekstlabel uten emoji og fallback-rutingen åpner panelet for både gamle og nye labelvarianter.",
     "Særskilt overvåking vises igjen når banneret er aktivert, også når tickere bare har negativ ned-grense.",
     "Særskilt overvåking har administrasjon for å fjerne én ticker eller tømme listen.",

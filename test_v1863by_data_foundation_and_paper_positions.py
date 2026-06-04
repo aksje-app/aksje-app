@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.18"' in version
-    assert "Paper Trading og saerskilt banner-fiks" in version
+    assert 'APP_VERSION = "v18.6.20"' in version
+    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
     assert "Paper Trading er omdøpt til Paper Trading og kontroll" in version
 
 
@@ -128,6 +128,7 @@ def test_paper_display_rows_share_common_contract_for_holdings_and_trades():
     assert list(trade_rows[0].keys()) == PAPER_SHARED_COLUMNS
     assert position_rows[0]["Status"] == "Åpen"
     assert trade_rows[0]["Status"] == "Historisk"
+
 
 
 

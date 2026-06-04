@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parent
 def test_version_identifies_current_consolidation_round():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.18"' in version
-    assert "Paper Trading og saerskilt banner-fiks" in version
+    assert 'APP_VERSION = "v18.6.20"' in version
+    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
     assert "v18615-banner-import-paper-tests" in version
 
 
@@ -71,11 +71,12 @@ def test_legacy_cleanup_registry_documents_hidden_panels():
     from legacy_cleanup import legacy_cleanup_status
 
     status = legacy_cleanup_status()
-    assert status["version"] == "v18.6.18"
+    assert status["version"] == "v18.6.20"
     for label in ["Markedsklima", "IPO", "Nyheter", "Marked/rangering", "Watchlist/signaler", "Valutavarsler", "Services"]:
         assert label in status["removed_main_panels"]
     assert "Marked/rangering" in status["single_sources"]
     assert "cleanup_candidates" in status and status["cleanup_candidates"]
+
 
 
 

@@ -18,11 +18,16 @@ def test_v18614_banner_navigation_paper_static_guards():
     workspace = _read("workspace_layout.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.18"' in version
-    assert "Paper Trading og saerskilt banner-fiks" in version
+    assert 'APP_VERSION = "v18.6.20"' in version
+    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
 
     # Banneret skal alltid være synlig og tickerklikk skal rydde aktivt Kontrollsenter-panel.
-    assert "render_live_market_banner()\n    render_banner_main_controls()" in app
+    assert (
+        "render_live_market_banner()\n"
+        "    render_special_watch_banner_surface_v18620()\n"
+        "    render_special_watch_menu_v18619()\n"
+        "    render_banner_main_controls()"
+    ) in app
     assert 'st.session_state["ai_control_center_active_panel_v1863aj"] = ""' in app
     assert "_banner_decision_cards_v18612" in app
     assert "_render_special_banner_watch_v18612" in app
@@ -44,5 +49,6 @@ def test_v18614_banner_navigation_paper_static_guards():
     # Refresh med Husk meg skal kunne hente token fra parent-siden, ikke bare komponent-iframe.
     assert "window.parent.localStorage" in auth
     assert "function getStored()" in auth
+
 
 

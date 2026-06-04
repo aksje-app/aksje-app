@@ -28,11 +28,12 @@ def test_v18617_compact_buttons_and_version_label():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.18"' in version
-    assert "Paper Trading og saerskilt banner-fiks" in version
-    assert "v18.6.18: final compact action style" in app
+    assert 'APP_VERSION = "v18.6.20"' in version
+    assert "Saerskilt banner under hovedbanner og stabilt panelvalg" in version
+    assert "v18.6.19: final compact action style" in app
     assert "max-width: min(100%, 220px) !important;" in app
     assert "rgba(20,83,45,.74)" in app
     assert "Hvorfor dette signalet?" in app
     assert chr(0x00F0) + chr(0x0178) not in app
+
 
