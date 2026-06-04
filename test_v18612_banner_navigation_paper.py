@@ -18,26 +18,26 @@ def test_v18614_banner_navigation_paper_static_guards():
     workspace = _read("workspace_layout.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
-    assert "Permanent banner og horisontal tickerdetalj" in version
+    assert 'APP_VERSION = "v18.6.15"' in version
+    assert "Bannerimport, testopprydding og paper-kjop" in version
 
     # Banneret skal alltid være synlig og tickerklikk skal rydde aktivt Kontrollsenter-panel.
     assert "render_live_market_banner()\n    render_banner_main_controls()" in app
     assert 'st.session_state["ai_control_center_active_panel_v1863aj"] = ""' in app
     assert "_banner_decision_cards_v18612" in app
     assert "_render_special_banner_watch_v18612" in app
-    assert "Åpne ticker manuelt hvis bannerkortet er vanskelig å treffe" in app
+    assert "live_banner_open_picker_v18610" in app
 
     # Tickerdetalj skal ha manuell Nordnet-/brokerflate uten ordreintegrasjon.
     assert "Nordnet / manuell handel" in app
-    assert "Åpne Nordnet" in app
-    assert "Marker kjøpt manuelt" in app
-    assert "Marker solgt manuelt" in app
-    assert "appen sender ingen ordre" in app
+    assert "https://www.nordnet.no/" in app
+    assert "manual_broker_bought_v18612" in app
+    assert "manual_broker_sold_v18612" in app
+    assert "manual_broker_order_text_v18612" in app
 
     # Paper Trading skal ha tydelig kjøp/salg-side, og valgt undermeny skal alltid åpne panel.
-    assert "Kjøp aksje" in app
-    assert "Selg aksje" in app
+    assert "paper_stock_symbol_v1863y" in app
+    assert "paper_stock_sell_symbol_v1863y" in app
     assert "if selected_panel:" in workspace
     assert 'st.session_state["ai_control_center_active_panel_v1863aj"] = selected_panel' in workspace
 

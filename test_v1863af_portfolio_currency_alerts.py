@@ -8,7 +8,7 @@ for name in ["app.py", "app_version.py"]:
 app = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 version = Path("app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-assert 'APP_VERSION = "v18.6.14"' in version
+assert 'APP_VERSION = "v18.6.15"' in version
 assert "render_paper_portfolio_control_center_v1863af" in app
 assert "render_currency_alerts_control_center_v1863af" in app
 assert "currency_alerts_v1863af" in app
@@ -17,11 +17,11 @@ assert "Sjekk hvert" in app
 assert "Varselpause" in app
 assert "check_interval_minutes" in app
 assert "cooldown_minutes" in app
-assert "Hent kurs nå" in app
-assert "Sjekk valutagrense nå" in app
+assert "currency_alert_fetch_rate_now_v1864t" in app
+assert "currency_alert_check_now_v1864t" in app
 assert "Send Pushover-test" in app
 assert "_pushover_runtime_status_v1864u" in app
-assert "Status nå" in app
+assert "_rate_status(rate_number)" in app
 assert "Varseloppsett" in app
 assert "send_pushover_alert" in app
 

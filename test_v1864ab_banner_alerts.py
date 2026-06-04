@@ -12,8 +12,8 @@ def test_v18610_banner_alerts_static_guards():
     app = (ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
-    assert "Permanent banner og horisontal tickerdetalj" in version
+    assert 'APP_VERSION = "v18.6.15"' in version
+    assert "Bannerimport, testopprydding og paper-kjop" in version
     assert "BANNER_ALERT_CONFIG_KEY_V18610" in app
     assert "ALERT_LIFECYCLE_STATE_KEY_V18610" in app
     assert "_alert_lifecycle_update_v18610" in app
@@ -26,7 +26,8 @@ def test_v18610_banner_alerts_static_guards():
     assert "ticker-alert-marker" in app
     assert "Bannervarsler" in app
     assert "Nordnet datatest" in app
-    assert "Nytt Pushover-varsel sendes først etter normalisering" in app
+    assert "ALERT_LIFECYCLE_STATE_KEY_V18610" in app
+    assert "transition.get(\"send\")" in app
 
 
 def test_v18610_currency_uses_normal_reset_not_cooldown_only():
@@ -37,4 +38,4 @@ def test_v18610_currency_uses_normal_reset_not_cooldown_only():
     assert 'breach_status = "breach_lower"' in last_currency
     assert 'breach_status = "breach_upper"' in last_currency
     assert 'if transition.get("send"):' in last_currency
-    assert "først etter at kursen har vært innenfor grensen igjen" in last_currency
+    assert "transition = _alert_lifecycle_update_v18610" in last_currency

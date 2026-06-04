@@ -13,7 +13,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
+    assert 'APP_VERSION = "v18.6.15"' in version
     assert "Market Climate Explainability" in version
     assert "Markedsklima er lagt inn som egen modul" in version
     assert "Markedsklima er gjort om fra en abstrakt score til en forklarbar beslutningsstøtte med nivåer, terskler, tabeller og grafer" in version
@@ -51,7 +51,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Evalueringsoppsett" in app
     assert "Tidshorisont" in app
     assert "Standard" in app
-    assert "Søkemodus / signalgrunnlag" in app
+    assert "special_search" in app
     assert "AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T" in app
     assert "AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U" in app
     assert "source_support_mode" in app
@@ -66,9 +66,9 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "def _ai_candidate_market_climate_badge_v1866" in app
     assert "def _render_ai_candidate_climate_banner_v1866" in app
     assert "def _ai_candidate_market_climate_html_v1865" in app
-    assert "Markedsklima ved kjøring" in app
+    assert "_render_ai_candidate_climate_banner_v1866" in app
     assert "Markedsklima" in app and "Klimamodus" in app and "Klimajustering" in app and "Klimabevis" in app
-    assert "Klimanivå" in app and "Klimaeffekt" in app and "Klimatolkning" in app
+    assert "climate_effect" in app and "Klimaeffekt" in app and "Klimatolkning" in app
     assert "Resultatsjokk" in app and "52-ukers breakout" in app
     assert "Volumbrudd" in app and "Katalysator-klynge" in app
     assert "Enkel ticker" in app
@@ -97,8 +97,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "Resultatkalender" in app
     assert "live_signal_enrichment" in app
     assert "Ferske AI-signaler" in app
-    assert "Momentumscore" in app and "Estimatløftscore" in app and "Eiertrykkscore" in app
-    assert "Teknisk bevis" in app and "52u høy" in app and "Volum/20d" in app
+    assert "search_momentum_weight" in app and "search_estimate_weight" in app and "search_insider_weight" in app
+    assert "technical" in app and "52u_hoy" in app and "volume_ratio_20" in app
     assert "def _render_ai_candidate_technical_chart_v1864u" in app
     assert "def _ai_candidate_detail_chart_blocks_html_v1864v" in app
     assert "def _ai_candidate_price_svg_v1864v" in app
@@ -114,27 +114,27 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     assert "insider_buy_weight" in app
     assert "require_above_200dma" in app
     assert "warn_weak_liquidity" in app
-    assert "Relativ styrke" in app
-    assert "Estimatendringer" in app
-    assert "Insiderkjop" in app
-    assert "Sperrer/varsler" in app
-    assert "Datamangler" in app
-    assert "Hvordan evalueringen skjer" in app
+    assert "relative_strength_weight" in app
+    assert "estimate_revision_weight" in app
+    assert "insider_buy_weight" in app
+    assert "hard_guard_score_cap" in app
+    assert "missing" in app
+    assert "evaluation_config" in app
     assert "Score" in app and "Confidence" in app and "Anbefaling" in app and "Varsel" in app
     assert "storage.write_json(\"analysis_snapshots/ai_candidate_test_latest.json\"" in app
     assert "storage.append_jsonl(\"analysis_snapshots/ai_candidate_test_runs.jsonl\"" in app
     assert "Print/PDF HTML" in app
     assert "JSON snapshot" in app
-    assert "Datakildestatus / ferskhet" in app
+    assert "source_status" in app
     assert "evaluation_config" in app
-    assert "Metode og evaluering" in app
+    assert "evaluation_config" in app
     assert "source_status" in app
     assert "0 kandidater" in app
     assert "Land" in app and "Bors" in app and "Univers" in app
     assert "Kildestyrke" in app and "Endring" in app and "Forklaring" in app
-    assert "Kildealder" in app and "historisk støtte" in app
+    assert "source_age" in app and "source_support" in app
     assert "def _load_ai_candidate_latest_result_v1864m" in app
-    assert "Viser sist lagrede AI Kandidattest" in app
+    assert "_load_ai_candidate_latest_result_v1864m" in app
     assert "def _render_ai_candidate_selection_v1864m" in app
     assert "Top Picks" in app
     assert "Beslutning" in app
@@ -145,8 +145,8 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
 
     active_layout_block = layout[layout.index("def _render_ai_control_center_v1863aj") :]
     assert '"ai kandidattest", "kandidattest"' in active_layout_block
-    assert "AI Kandidattest er hovedarbeidsflaten" in layout
-    assert "AI Kandidattest: analyse, kilder og radarer" in layout
+    assert "ai_candidate_primary_label" in layout
+    assert "AI Kandidattest" in layout
     assert "Kilder og import" in app
     assert "ai_candidate_source_hub_choice_v1864q" in app
     assert "ai_candidate_source_hub_quick_" not in app

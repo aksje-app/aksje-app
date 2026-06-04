@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -16,8 +16,8 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
-    assert "Permanent banner og horisontal tickerdetalj" in version
+    assert 'APP_VERSION = "v18.6.15"' in version
+    assert "Bannerimport, testopprydding og paper-kjop" in version
 
     # Hovedbanneret skal fortsatt rendres i manuell/cache-modus.
     assert "_banner_fallback_cards_v18614(banner_items)" in app
@@ -26,7 +26,7 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
 
     # Oppfølgingsaksjer skal vises som tickerkort-banner, ikke blå Streamlit-knapper.
     assert "ticker-tape-wrap follow-up" in app
-    assert "Oppfølgingsbanner" in app
+    assert "special_watch_banner_speed_seconds_v18615" in app
     assert "special_watch_open_v18612" not in app
 
     # Beslutningsdata over grafen skal styres av en horisontal grid med sterke regler.

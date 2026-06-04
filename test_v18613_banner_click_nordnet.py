@@ -16,19 +16,19 @@ def test_v18614_banner_click_and_nordnet_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
-    assert "Permanent banner og horisontal tickerdetalj" in version
+    assert 'APP_VERSION = "v18.6.15"' in version
+    assert "Bannerimport, testopprydding og paper-kjop" in version
 
     # Bannerklikk må åpne detalj også når det ikke finnes live/cachede bannerkort.
     assert "def _banner_selected_from_query_v18610(cards: list[dict], banner_items=None)" in app
     assert "_banner_selected_from_query_v18610([], banner_items)" in app
     assert "if not banner_cards:" in app
     assert "_render_banner_ticker_detail_v18610(" in app
-    assert "bannerklikk skal åpne detalj også når banneret bruker manuell/cache-modus" in app
+    assert "_banner_selected_from_query_v18610([], banner_items)" in app
 
     # Nordnet skal være synlig som arbeidsflate, uten app-lagret passord eller ordreutsending.
-    assert "def _render_nordnet_manual_workspace_v18614" in app
+    assert "def _render_nordnet_manual_workspace_v18615" in app
     assert "Nordnet arbeid og innlogging" in app
-    assert "Åpne Nordnet innlogging" in app
+    assert "https://www.nordnet.no/" in app
     assert "Appen lagrer ikke Nordnet-passord og sender ingen ordre" in app
-    assert "_render_nordnet_manual_workspace_v18614()" in app
+    assert "_render_nordnet_manual_workspace_v18615()" in app

@@ -276,7 +276,7 @@ def _format_pct(value: float) -> str:
     return f"{float(value):.2f}%"
 
 
-def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None):
+def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None):
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
     max_trades_per_day = int(rules.get("max_trades_per_day", 3))
@@ -299,7 +299,14 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         return False, "Ugyldig prisdata - kjøp stoppet"
     total_value = portfolio_value(portfolio)
     available_cash = float(portfolio.get("cash", 0) or 0)
-    amount = min(available_cash, total_value * position_size_pct / 100)
+    if amount_override is not None:
+        try:
+            requested_amount = float(amount_override)
+        except Exception:
+            requested_amount = 0.0
+        amount = min(available_cash, max(0.0, requested_amount))
+    else:
+        amount = min(available_cash, total_value * position_size_pct / 100)
     ok, msg = validate_buy_order(
         portfolio,
         ticker=ticker,

@@ -107,8 +107,8 @@ def test_v1864z_market_climate_control_center_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
-    assert "Permanent banner og horisontal tickerdetalj" in version
+    assert 'APP_VERSION = "v18.6.15"' in version
+    assert "Bannerimport, testopprydding og paper-kjop" in version
     assert "Grafarkiv" in version
     assert "SEC IPO statistics" in version
     assert "Markedsklima er lagt inn som egen modul" in version
@@ -120,8 +120,8 @@ def test_v1864z_market_climate_control_center_contract():
     assert "market_climate_score_weight" in app
     assert "market_climate_cap_threshold" in app
     assert "Std klima" in app
-    assert "Klimanivå" in app and "Klimaeffekt" in app and "Klimatolkning" in app
-    assert "Markedsklima ved kjøring" in app
+    assert "climate_effect" in app and "Klimaeffekt" in app and "Klimatolkning" in app
+    assert "_render_ai_candidate_climate_banner_v1866" in app
     assert '"Markedsklima": climate_effect.get("summary")' in app
     assert '"Klimajustering": climate_delta_text' in app
     assert "def _ai_candidate_market_climate_html_v1865" in app

@@ -70,7 +70,7 @@ def test_folketrygdfondet_has_import_search_export_and_ai_candidate_actions():
 def test_version_records_configurable_ai_candidate_engine():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
-    assert 'APP_VERSION = "v18.6.14"' in version
+    assert 'APP_VERSION = "v18.6.15"' in version
     assert "Market Climate Explainability" in version
     assert "Evalueringsoppsett er lagt inn i AI Kandidattest" in version
 

@@ -1,9 +1,17 @@
-APP_VERSION = "v18.6.14"
-APP_VERSION_NAME = "Permanent banner og horisontal tickerdetalj"
-APP_BUILD_ID = "v18614-persistent-banner-detail"
+APP_VERSION = "v18.6.15"
+APP_VERSION_NAME = "Bannerimport, testopprydding og paper-kjop"
+APP_BUILD_ID = "v18615-banner-import-paper-tests"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Manuelle tickerlister i banneret har testbar parser for en ticker, flere tickere, komma, semikolon og linjeskift.",
+    "Rediger ticker-banner har importseksjon for CSV eller innlimt tickerliste, med forhåndsvisning og valg for legg til eller erstatt marked.",
+    "Oppfølgingsbanneret for særskilt overvåkning kan slås av/på og har egen hastighet, eller kan bruke hovedbannerets hastighet.",
+    "Oppfølgingsbanneret bruker samme tickerkortstil og rullende animasjon som hovedbanneret.",
+    "Felles dagsendring ned starter på 0 og kan reguleres til negative verdier med synlig minus.",
+    "Paper Trading aksjekjøp har fått tilbake kjøpsbeløp, beregnet antall og beløpsstyrt manuelt paper-kjøp.",
+    "Globale Streamlit-knapper, download-, link- og submit-knapper overstyres sent til kompakt stil for å hindre store blå felt i arbeidsflatene.",
+    "Nordnet/manuell handel har versjonsført wrapper slik at tester og UI peker på samme arbeidsflate uten passordlagring eller ordreutsending.",
     "Ticker-banneret har klikkbare tickerkort som åpner større detaljvisning med kursgraf, MA50/MA200, 52-ukers høyde og volum mot 20/50-dagers snitt.",
     "Ticker-banneret har felles bannervarsler for viste markeder og individuelle tickervarsler for kurs, dagsendring og volum.",
     "Bannerkort viser grønne, gule og røde statusmarkører med opp/ned-retning for nær grense eller brudd.",

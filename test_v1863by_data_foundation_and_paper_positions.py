@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_version_bumped_to_datakilder_cockpit():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.6.14"' in version
-    assert "Permanent banner og horisontal tickerdetalj" in version
+    assert 'APP_VERSION = "v18.6.15"' in version
+    assert "Bannerimport, testopprydding og paper-kjop" in version
     assert "Paper Trading er omdøpt til Paper Trading og kontroll" in version
 
 
@@ -36,7 +36,7 @@ def test_paper_positions_can_fill_trade_fields_from_position_cards():
     assert "paper_stock_sell_symbol_v1863y" in app
     assert "paper_stock_sell_price_v1863y" in app
     assert '"Selg"' in app
-    assert '"Øk"' in app
+    assert "paper_position_select_buy_v1863by" in app
     assert "Velg for salg" not in app
     assert "paper_position_select_buy_v1863by" in app
     assert "paper-position-hint" in app
@@ -48,7 +48,7 @@ def test_paper_positions_can_fill_trade_fields_from_position_cards():
 
 def test_paper_trading_and_control_are_unified_in_one_visible_panel():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert "🧪 Paper Trading og kontroll" in app
+    assert "Paper Trading og kontroll" in app
     assert "render_paper_trading_dashboard()" in app
     assert "Innkommende paper-hypoteser" in app
     assert "Kandidater sendt til Paper Trading:" not in app

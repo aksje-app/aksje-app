@@ -1,4 +1,4 @@
-from universe_engine import (
+﻿from universe_engine import (
     candidate_dicts_for_app,
     resolve_universe_tickers,
     run_smart_ai_universe,
@@ -16,6 +16,8 @@ FAKE_DATA = {
         "ret_6m": 0.24,
         "volatility": 0.018,
         "max_drawdown": -0.12,
+        "risk_score": 24,
+        "momentum_strength": 82,
         "sentiment": 0.65,
         "sector": "Technology",
     },
@@ -29,6 +31,8 @@ FAKE_DATA = {
         "ret_6m": 0.18,
         "volatility": 0.016,
         "max_drawdown": -0.15,
+        "risk_score": 28,
+        "momentum_strength": 72,
         "sentiment": 0.55,
         "sector": "Technology",
     },
@@ -42,6 +46,8 @@ FAKE_DATA = {
         "ret_6m": -0.20,
         "volatility": 0.055,
         "max_drawdown": -0.55,
+        "risk_score": 78,
+        "momentum_strength": 25,
         "sentiment": 0.35,
         "sector": "Technology",
     },
@@ -64,6 +70,7 @@ def test_resolve_universe_uses_existing_watchlist_scope():
 def test_run_smart_ai_universe_filters_and_ranks_candidates():
     config = {
         "scopes": ["Watchlist"],
+        "mode": "Watchlist",
         "max_count": 5,
         "manual_ticker": "",
         "use_news": False,
@@ -86,7 +93,7 @@ def test_run_smart_ai_universe_filters_and_ranks_candidates():
 
 def test_candidate_dicts_for_app_are_compatible_with_rank_cache():
     result = run_smart_ai_universe(
-        {"scopes": ["Watchlist"], "max_count": 2, "min_top_pick_score": 0, "max_risk": "Ukjent"},
+        {"scopes": ["Watchlist"], "mode": "Watchlist", "max_count": 2, "min_top_pick_score": 0, "max_risk": "Ukjent"},
         existing_tickers_by_scope={"Watchlist": ["AAPL"]},
         score_provider=fake_score_provider,
     )
@@ -94,3 +101,4 @@ def test_candidate_dicts_for_app_are_compatible_with_rank_cache():
     assert rows[0]["ticker"] == "AAPL"
     assert "score" in rows[0]
     assert rows[0]["source"] == "Smart AI"
+
