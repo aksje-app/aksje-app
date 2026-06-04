@@ -1013,15 +1013,16 @@ html body div[data-testid="stAppViewContainer"]::after {
 .v18572-global-update-shell .stButton > button,
 .v18572-global-update-shell button[kind="primary"] {
     min-height:32px !important;
-    width:100% !important;
-    min-width:230px !important;
-    padding:.45rem 1.1rem !important;
-    border-radius:13px !important;
+    width:auto !important;
+    min-width:0 !important;
+    max-width:260px !important;
+    padding:.38rem .85rem !important;
+    border-radius:8px !important;
     background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
     border:1px solid rgba(224,242,254,.98) !important;
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    font-size:.94rem !important;
+    font-size:.86rem !important;
     font-weight:950 !important;
     opacity:1 !important;
     filter:none !important;
@@ -1032,7 +1033,7 @@ html body div[data-testid="stAppViewContainer"]::after {
 .v18572-global-update-shell button[kind="primary"] p {
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    font-size:.94rem !important;
+    font-size:.86rem !important;
     font-weight:950 !important;
     white-space:nowrap !important;
     opacity:1 !important;
@@ -1547,13 +1548,14 @@ def render_global_update_action_panel_v1863g() -> None:
             margin:.20rem 0 .72rem 0 !important;
         }}
         html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] {{
-            min-height:52px !important;
-            width:100% !important;
-            max-width:100% !important;
-            border-radius:13px !important;
-            font-size:1rem !important;
-            font-weight:1000 !important;
-            white-space:normal !important;
+            min-height:34px !important;
+            width:auto !important;
+            max-width:280px !important;
+            border-radius:8px !important;
+            font-size:.86rem !important;
+            font-weight:900 !important;
+            white-space:nowrap !important;
+            padding:.38rem .85rem !important;
         }}
         @media (max-width:900px) {{
             html body .stApp .v1863g-global-action-card {{
@@ -1574,9 +1576,9 @@ def render_global_update_action_panel_v1863g() -> None:
     )
     with st.form("global_update_action_form_v1863g", clear_on_submit=False):
         _global_run_clicked = st.form_submit_button(
-            "Kjør Global oppdatering",
-            use_container_width=True,
-            type="primary",
+            "Kjør oppdatering",
+            use_container_width=False,
+            type="secondary",
         )
     if _global_run_clicked:
         _click_global_update_v1862()
@@ -5004,8 +5006,25 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         )
         return
     raw_speed = int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0)
-    speed_seconds = raw_speed if raw_speed > 0 else int(settings.get("live_banner_speed_seconds", 70) or 70)
-    speed_seconds = max(10, min(speed_seconds, 300))
+    scroll_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip()
+    if not scroll_mode:
+        scroll_mode = "Egen fart" if raw_speed > 0 else "Arv hovedbanner"
+    scroll_speed = int(settings.get("special_watch_scroll_speed_v18624", 50) or 50)
+    scroll_speed = max(1, min(scroll_speed, 100))
+    inherited_seconds = max(10, min(int(settings.get("live_banner_speed_seconds", 70) or 70), 300))
+    if scroll_mode == "Stoppet":
+        speed_seconds = inherited_seconds
+        animation_style = "animation: none !important;"
+        mode_txt = "stoppet"
+    elif scroll_mode == "Egen fart":
+        # Higher UI speed should feel faster. CSS duration therefore moves the opposite way.
+        speed_seconds = max(12, min(240, int(round(260 - (scroll_speed * 2.2)))))
+        animation_style = f"animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important;"
+        mode_txt = f"egen fart {scroll_speed}/100"
+    else:
+        speed_seconds = inherited_seconds
+        animation_style = f"animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important;"
+        mode_txt = "samme hastighet som hovedbanner"
     cards_html = []
     for ticker, card, _rules in watched[:24]:
         label = html.escape(str(card.get("label") or ticker))
@@ -5016,6 +5035,9 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         delta = float(card.get("delta") or 0.0)
         pct_class = "pos" if pct >= 0 else "neg"
         href = f"?banner_ticker={quote(ticker)}&banner_market={quote(str(card.get('market') or ''))}"
+        remember_token = st.session_state.get("remember_token") or _banner_query_value_v18610("remember_token")
+        if remember_token:
+            href += f"&remember_token={quote(str(remember_token))}"
         marker_html = _banner_marker_html_v18610(card.get("alert_marker"))
         cards_html.append(
             f"<a class='ticker-tape-item' target='_self' href='{href}' title='Åpne oppfølging for {html.escape(ticker)}'>"
@@ -5037,19 +5059,18 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         _banner_detail_layout_css_v18614()
         + f"<style>@keyframes specialWatchTickerTapeScrollV18621 {{ from {{ transform: translateX(0); }} to {{ transform: translateX(-50%); }} }}</style>"
         + "<div class='follow-banner-title'>Særskilt overvåking</div>"
-        + f"<div class='ticker-tape-wrap special-watch-tape-v18621' aria-label='Særskilt overvåking'><div class='ticker-tape-track special-watch-track-v18621' style='animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important; min-width: max-content;'>"
+        + f"<div class='ticker-tape-wrap special-watch-tape-v18621' aria-label='Særskilt overvåking'><div class='ticker-tape-track special-watch-track-v18621' style='{animation_style} min-width: max-content;'>"
         + "".join(render_cards_html_v18623)
         + "".join(render_cards_html_v18623)
         + "</div></div>",
         unsafe_allow_html=True,
     )
-    mode_txt = "egen hastighet" if raw_speed > 0 else "samme hastighet som hovedbanner"
     refresh_raw = int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0)
     refresh_minutes = refresh_raw if refresh_raw > 0 else int(settings.get("ui_refresh_minutes", 60) or 60)
     refresh_txt = "eget intervall" if refresh_raw > 0 else "samme intervall som hovedbanner"
     st.caption(
         f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s · {mode_txt} · data ca. hver {refresh_minutes}. min ({refresh_txt}). "
-        "Lavere tall = raskere, høyere tall = saktere."
+        "Rullefart: høyere tall = raskere."
     )
 
 
@@ -5119,28 +5140,42 @@ def render_special_watch_menu_v18619() -> None:
     individual = dict(config.get("individual") or {})
     watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
 
-    with st.expander("Særskilt overvåking", expanded=bool(settings.get("special_watch_banner_enabled_v18615", True))):
+    with st.expander("Særskilt overvåking", expanded=False):
         st.caption("Alt som gjelder det nederste banneret er samlet her. Tickere havner her når de har egne varselgrenser.")
 
         with st.form("special_watch_settings_form_v18619", clear_on_submit=False):
-            c_enable, c_speed, c_refresh, c_near, c_push, c_count = st.columns([0.62, 0.78, 0.78, 0.72, 0.85, 1.15])
+            c_enable, c_mode, c_speed, c_refresh, c_near, c_push, c_count = st.columns([0.58, 0.75, 0.78, 0.78, 0.72, 0.85, 1.05])
             with c_enable:
                 enabled = st.checkbox(
                     "Vis særskilt banner",
                     value=bool(settings.get("special_watch_banner_enabled_v18615", True)),
                     key="special_watch_enabled_v18619",
                 )
-            with c_speed:
-                speed = st.number_input(
-                    "Hastighet sekunder",
-                    min_value=0,
-                    max_value=300,
-                    value=int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0),
-                    step=5,
-                    key="special_watch_speed_v18619",
-                    help="0 = samme hastighet som hovedbanneret. Lavere tall ruller raskere. Høyere tall ruller saktere.",
+            with c_mode:
+                saved_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip()
+                if not saved_mode:
+                    saved_mode = "Egen fart" if int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0) > 0 else "Arv hovedbanner"
+                modes = ["Arv hovedbanner", "Stoppet", "Egen fart"]
+                if saved_mode not in modes:
+                    saved_mode = "Arv hovedbanner"
+                scroll_mode = st.selectbox(
+                    "Rulling",
+                    modes,
+                    index=modes.index(saved_mode),
+                    key="special_watch_scroll_mode_v18624",
+                    help="Arv bruker hovedbannerets hastighet. Stoppet fryser banneret. Egen fart bruker rullefarten ved siden av.",
                 )
-                st.caption("Lavere tall = raskere. Høyere tall = saktere.")
+            with c_speed:
+                scroll_speed = st.slider(
+                    "Rullefart",
+                    min_value=1,
+                    max_value=100,
+                    value=int(settings.get("special_watch_scroll_speed_v18624", 50) or 50),
+                    step=1,
+                    key="special_watch_speed_v18624",
+                    help="Høyere tall gir raskere rulling når Rulling står på Egen fart.",
+                )
+                st.caption("Høyere tall = raskere.")
             with c_refresh:
                 special_refresh = st.number_input(
                     "Oppdateringsintervall min",
@@ -5172,11 +5207,13 @@ def render_special_watch_menu_v18619() -> None:
             with a5:
                 add_pct_down = st.number_input("Dagsendring ned %", min_value=-100.0, max_value=0.0, value=0.0, step=0.5, key="special_watch_add_pct_down_v18619")
 
-            saved = st.form_submit_button("Lagre særskilt overvåking", use_container_width=False)
+            saved = st.form_submit_button("Lagre", use_container_width=False)
 
         if saved:
             settings["special_watch_banner_enabled_v18615"] = bool(enabled)
-            settings["special_watch_banner_speed_seconds_v18615"] = int(speed)
+            settings["special_watch_scroll_mode_v18624"] = str(scroll_mode)
+            settings["special_watch_scroll_speed_v18624"] = int(scroll_speed)
+            settings["special_watch_banner_speed_seconds_v18615"] = 0
             settings["special_watch_update_interval_minutes_v18623"] = int(special_refresh)
             config["near_pct"] = float(near_pct)
             config["pushover"] = bool(pushover)
@@ -5192,7 +5229,10 @@ def render_special_watch_menu_v18619() -> None:
                 config["individual"] = individual
             _save_banner_alert_config_v18610(config)
             save_settings(settings)
-            st.success("Særskilt overvåking lagret.")
+            try:
+                st.toast("Særskilt overvåking lagret.", icon="✅")
+            except Exception:
+                st.success("Særskilt overvåking lagret.")
             st.rerun()
 
         if bool(settings.get("special_watch_banner_enabled_v18615", True)):

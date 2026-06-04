@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
@@ -6,9 +6,9 @@ ROOT = Path(__file__).resolve().parent
 def test_v18623_version_label():
     namespace = {}
     exec((ROOT / "app_version.py").read_text(encoding="utf-8"), namespace)
-    assert namespace["APP_VERSION"] == "v18.6.23"
-    assert namespace["APP_VERSION_NAME"] == "Sarskilt bannerintervall og tydelig kursvisning"
-    assert namespace["APP_BUILD_ID"] == "v18623-special-banner-interval-price"
+    assert namespace["APP_VERSION"] == "v18.6.24"
+    assert namespace["APP_VERSION_NAME"] == "Sarskilt bannerklikk, fart og kompakte knapper"
+    assert namespace["APP_BUILD_ID"] == "v18624-special-banner-auth-speed-buttons"
 
 
 def test_v18623_special_watch_has_own_interval_and_speed_language():
@@ -16,8 +16,8 @@ def test_v18623_special_watch_has_own_interval_and_speed_language():
     assert "special_watch_update_interval_minutes_v18623" in source
     assert "special_watch_refresh_v18623" in source
     assert "0 = bruk hovedbannerets oppdateringsintervall" in source
-    assert "Lavere tall ruller raskere" in source
-    assert "Høyere tall ruller saktere" in source
+    assert "Rullefart" in source
+    assert "Høyere tall gir raskere rulling" in source
 
 
 def test_v18623_special_watch_normalizes_short_tape_width():
@@ -49,3 +49,4 @@ def test_v18623_fallback_uses_close_not_fake_zero():
     assert '"price_missing": price is None' in fallback
     assert '"price_source": price_source' in fallback
     assert "Sluttkurs" in fallback
+

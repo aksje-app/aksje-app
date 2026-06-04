@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.23"
-APP_VERSION_NAME = "Sarskilt bannerintervall og tydelig kursvisning"
-APP_BUILD_ID = "v18623-special-banner-interval-price"
+APP_VERSION = "v18.6.24"
+APP_VERSION_NAME = "Sarskilt bannerklikk, fart og kompakte knapper"
+APP_BUILD_ID = "v18624-special-banner-auth-speed-buttons"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
