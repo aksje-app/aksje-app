@@ -14,8 +14,8 @@ def test_special_watch_has_own_menu_and_shared_ticker_tape():
     version = _read("app_version.py")
     py_compile.compile(str(ROOT / "app.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.22"' in version
-    assert "Refresh-login uten fastlaast restore" in version
+    assert 'APP_VERSION = "v18.6.23"' in version
+    assert "Sarskilt bannerintervall og tydelig kursvisning" in version
     assert "def render_special_watch_menu_v18619" in app
     assert 'with st.expander("Særskilt overvåking"' in app
     assert "render_special_watch_menu_v18619()" in app
@@ -37,3 +37,4 @@ def test_main_banner_menu_no_longer_contains_special_controls():
     assert "Markeder som vises i banneret" in main_menu_block
     assert "Vis særskilt banner" not in main_menu_block
     assert "special_watch_banner_speed_seconds_v18615" not in main_menu_block
+

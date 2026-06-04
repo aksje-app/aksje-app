@@ -16,8 +16,8 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.22"' in version
-    assert "Refresh-login uten fastlaast restore" in version
+    assert 'APP_VERSION = "v18.6.23"' in version
+    assert "Sarskilt bannerintervall og tydelig kursvisning" in version
 
     # Hovedbanneret skal fortsatt rendres i manuell/cache-modus.
     assert "_banner_fallback_cards_v18614(banner_items)" in app
@@ -33,6 +33,7 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     assert "def _banner_detail_layout_css_v18614" in app
     assert "grid-template-columns: repeat(6, minmax(132px, 1fr)) !important" in app
     assert "_banner_detail_layout_css_v18614()" in app
+
 
 
 

@@ -16,8 +16,8 @@ def test_v18614_banner_click_and_nordnet_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.22"' in version
-    assert "Refresh-login uten fastlaast restore" in version
+    assert 'APP_VERSION = "v18.6.23"' in version
+    assert "Sarskilt bannerintervall og tydelig kursvisning" in version
 
     # Bannerklikk må åpne detalj også når det ikke finnes live/cachede bannerkort.
     assert "def _banner_selected_from_query_v18610(cards: list[dict], banner_items=None)" in app
@@ -32,6 +32,7 @@ def test_v18614_banner_click_and_nordnet_static_guards():
     assert "https://www.nordnet.no/" in app
     assert "Appen lagrer ikke Nordnet-passord og sender ingen ordre" in app
     assert "_render_nordnet_manual_workspace_v18615()" in app
+
 
 
 

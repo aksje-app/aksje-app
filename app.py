@@ -4587,20 +4587,50 @@ def _banner_detail_layout_css_v18614() -> str:
 
 
 def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
+    banner_items = list(banner_items or [])[:80]
+    history = None
+    if yf is not None and banner_items:
+        try:
+            history = _download_live_banner_history(tuple(ticker for _, ticker, _ in banner_items))
+        except Exception as exc:
+            logging.warning("Banner fallback close lookup failed: %s", exc)
     cards = []
-    for market, ticker, label in list(banner_items or [])[:80]:
+    for market, ticker, label in banner_items:
+        close = _close_from_banner_history(history, ticker)
+        price = None
+        delta = 0.0
+        pct = 0.0
+        spark_values = [0, 0]
+        price_source = "Mangler kurs"
+        if close is not None and not close.empty:
+            spark = close.tail(20)
+            price = float(spark.iloc[-1])
+            prev = float(spark.iloc[-2]) if len(spark) >= 2 else price
+            delta = price - prev
+            pct = ((price / prev) - 1.0) * 100 if prev else 0.0
+            spark_values = spark.tolist()
+            price_source = "Sluttkurs"
         cards.append({
             "market": market,
             "ticker": str(ticker or "").upper(),
             "label": label or ticker,
-            "price": 0.0,
-            "delta": 0.0,
-            "pct": 0.0,
-            "sparkline": _sparkline_svg([0, 0], positive=True),
+            "price": price,
+            "price_missing": price is None,
+            "price_source": price_source,
+            "delta": delta,
+            "pct": pct,
+            "sparkline": _sparkline_svg(spark_values, positive=pct >= 0, reference=(spark_values[-2] if len(spark_values) >= 2 else None)),
             "alert_marker": _banner_marker_from_status_v18610("normal"),
-            "alert_explanation": "Åpne tickerdetalj",
+            "alert_explanation": "Åpne tickerdetalj" if price is not None else "Kursdata mangler",
         })
     return cards
+
+
+def _banner_price_text_v18623(value) -> str:
+    price = _float_or_none_v18610(value)
+    if price is None or abs(price) < 1e-12:
+        return "-"
+    return f"{price:,.2f}"
 
 
 def _banner_daily_summary_v18612(hist) -> dict:
@@ -4660,6 +4690,64 @@ def _banner_decision_cards_v18612(ticker: str, summary: dict, daily: dict, confi
     st.markdown(f"<div class='banner-decision-grid'>{html_cards}</div>", unsafe_allow_html=True)
 
 
+def _render_banner_detail_ticker_header_v18623(ticker: str, market: str, label: str, summary: dict, daily: dict, config: dict) -> None:
+    card = {
+        "ticker": str(ticker or "").upper(),
+        "market": market,
+        "label": label,
+        "price": (daily or {}).get("last") or (summary or {}).get("siste"),
+        "pct": (daily or {}).get("pct") or 0.0,
+        "volume_ratio_20": (summary or {}).get("volume_ratio_20"),
+    }
+    evaluation = _banner_alert_evaluate_card_v18610(card, config or {})
+    marker = evaluation.get("marker") or _banner_marker_from_status_v18610("normal")
+    css = html.escape(str(marker.get("css") or "green"))
+    status = html.escape(str(marker.get("label") or "Grønn"))
+    explanation = html.escape(str(evaluation.get("explanation") or "Innenfor grenser."))
+    ticker_txt = html.escape(str(ticker or "").upper())
+    market_txt = html.escape(str(market or "-"))
+    label_txt = html.escape(str(label or ticker or ""))
+    st.markdown(
+        """
+        <style>
+        .banner-detail-ticker-card-v18623 {
+            border: 1px solid rgba(96,165,250,.40);
+            background: rgba(15,23,42,.82);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 8px 0 8px 0;
+        }
+        .banner-detail-ticker-card-v18623 .ticker-name {
+            font-size: 1.38rem;
+            font-weight: 950;
+            line-height: 1.05;
+            margin-bottom: 3px;
+        }
+        .banner-detail-ticker-card-v18623.status-green .ticker-name { color: #22c55e; }
+        .banner-detail-ticker-card-v18623.status-yellow .ticker-name { color: #facc15; }
+        .banner-detail-ticker-card-v18623.status-red .ticker-name { color: #ef4444; }
+        .banner-detail-ticker-card-v18623 .ticker-sub {
+            color: #cbd5e1;
+            font-weight: 850;
+            font-size: .82rem;
+        }
+        .banner-detail-ticker-card-v18623 .ticker-status {
+            color: #e0f2fe;
+            font-weight: 900;
+            font-size: .78rem;
+            margin-top: 5px;
+        }
+        </style>
+        """
+        f"<div class='banner-detail-ticker-card-v18623 status-{css}'>"
+        f"<div class='ticker-name'>{ticker_txt}</div>"
+        f"<div class='ticker-sub'>{market_txt} · {label_txt}</div>"
+        f"<div class='ticker-status'>{status}: {explanation}</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: str = "") -> None:
     ticker = str(ticker or "").strip().upper()
     if not ticker:
@@ -4698,10 +4786,12 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
         summary = _banner_technical_summary_v18610(hist)
         daily_hist, daily_err = _download_banner_detail_history_v18610(ticker, "I dag")
         daily = _banner_daily_summary_v18612(daily_hist if daily_hist is not None and not daily_hist.empty else hist)
-        _banner_decision_cards_v18612(ticker, summary, daily, _load_banner_alert_config_v18610())
+        detail_config = _load_banner_alert_config_v18610()
+        _render_banner_detail_ticker_header_v18623(ticker, market, label, summary, daily, detail_config)
+        _banner_decision_cards_v18612(ticker, summary, daily, detail_config)
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Ticker", ticker, market or "-")
-        m2.metric("Kurs", f"{summary.get('siste', 0):,.2f}")
+        m1.metric("Status", (_banner_alert_evaluate_card_v18610({"ticker": ticker, "price": summary.get("siste"), "pct": daily.get("pct") or 0.0}, detail_config).get("marker") or {}).get("label", "Grønn"), market or "-")
+        m2.metric("Kurs", _banner_price_text_v18623(summary.get("siste")))
         m3.metric("52u høy", f"{summary.get('52u_hoy', 0):,.2f}", f"{summary.get('andel_av_52u_hoy', 0):.1f}% av høy")
         m4.metric("MA50 / MA200", f"{summary.get('ma50') or 0:,.2f}", f"{summary.get('ma200') or 0:,.2f}")
         m5.metric("Volum/20d", f"{summary.get('volume_ratio_20') or 0:.2f}x")
@@ -4921,7 +5011,7 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         label = html.escape(str(card.get("label") or ticker))
         market = html.escape(str(card.get("market") or ""))
         price = card.get("price")
-        price_txt = f"{float(price):,.2f}" if price not in (None, "") else "-"
+        price_txt = _banner_price_text_v18623(price)
         pct = float(card.get("pct") or 0.0)
         delta = float(card.get("delta") or 0.0)
         pct_class = "pos" if pct >= 0 else "neg"
@@ -4939,27 +5029,76 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
             f"<div class='ticker-spark'>{card.get('sparkline', '')}</div>"
             "</a>"
         )
+    render_cards_html_v18623 = list(cards_html)
+    while render_cards_html_v18623 and len(render_cards_html_v18623) < 12:
+        render_cards_html_v18623.extend(cards_html)
+    render_cards_html_v18623 = render_cards_html_v18623[: max(12, len(cards_html))]
     st.markdown(
         _banner_detail_layout_css_v18614()
         + f"<style>@keyframes specialWatchTickerTapeScrollV18621 {{ from {{ transform: translateX(0); }} to {{ transform: translateX(-50%); }} }}</style>"
         + "<div class='follow-banner-title'>Særskilt overvåking</div>"
         + f"<div class='ticker-tape-wrap special-watch-tape-v18621' aria-label='Særskilt overvåking'><div class='ticker-tape-track special-watch-track-v18621' style='animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important; min-width: max-content;'>"
-        + "".join(cards_html)
-        + "".join(cards_html)
+        + "".join(render_cards_html_v18623)
+        + "".join(render_cards_html_v18623)
         + "</div></div>",
         unsafe_allow_html=True,
     )
     mode_txt = "egen hastighet" if raw_speed > 0 else "samme hastighet som hovedbanner"
-    st.caption(f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s · {mode_txt}.")
+    refresh_raw = int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0)
+    refresh_minutes = refresh_raw if refresh_raw > 0 else int(settings.get("ui_refresh_minutes", 60) or 60)
+    refresh_txt = "eget intervall" if refresh_raw > 0 else "samme intervall som hovedbanner"
+    st.caption(
+        f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s · {mode_txt} · data ca. hver {refresh_minutes}. min ({refresh_txt}). "
+        "Lavere tall = raskere, høyere tall = saktere."
+    )
+
+
+def _special_watch_ticker_items_v18623(settings: dict, config: dict) -> list[tuple]:
+    individual = dict((config or {}).get("individual") or {})
+    watched = {str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)}
+    if not watched:
+        return []
+    known = {str(ticker).upper(): (market, ticker, label) for market, ticker, label in parse_banner_tickers(settings)}
+    items = []
+    for ticker in sorted(watched):
+        items.append(known.get(ticker, ("", ticker, LIVE_BANNER_LABELS.get(ticker, ticker))))
+    return items
+
+
+def _special_watch_cache_due_v18623(minutes: int) -> bool:
+    if int(minutes or 0) <= 0:
+        return False
+    stamp = st.session_state.get("special_watch_cache_at_v18623")
+    if not stamp:
+        return True
+    try:
+        previous = datetime.fromisoformat(str(stamp))
+        return datetime.now() - previous >= timedelta(minutes=int(minutes))
+    except Exception:
+        return True
 
 
 def render_special_watch_banner_surface_v18620() -> None:
     settings = load_settings() or {}
     config = _load_banner_alert_config_v18610(settings)
-    banner_cards = st.session_state.get("live_banner_cache_v16_latest") or []
+    special_interval = int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0)
+    banner_cards = []
+    if special_interval > 0:
+        banner_cards = st.session_state.get("special_watch_cache_v18623") or []
+        if _special_watch_cache_due_v18623(special_interval):
+            try:
+                refreshed = fetch_live_banner_snapshot(_special_watch_ticker_items_v18623(settings, config))
+                if refreshed:
+                    banner_cards = refreshed
+                    st.session_state["special_watch_cache_v18623"] = refreshed
+                    st.session_state["special_watch_cache_at_v18623"] = datetime.now().isoformat(timespec="seconds")
+            except Exception as exc:
+                logging.warning("Special watch banner refresh failed: %s", exc)
+    if not banner_cards:
+        banner_cards = st.session_state.get("live_banner_cache_v16_latest") or []
     if not banner_cards:
         try:
-            banner_cards = _banner_fallback_cards_v18614(parse_banner_tickers(settings))
+            banner_cards = _banner_fallback_cards_v18614(_special_watch_ticker_items_v18623(settings, config) or parse_banner_tickers(settings))
         except Exception:
             banner_cards = []
     try:
@@ -4984,7 +5123,7 @@ def render_special_watch_menu_v18619() -> None:
         st.caption("Alt som gjelder det nederste banneret er samlet her. Tickere havner her når de har egne varselgrenser.")
 
         with st.form("special_watch_settings_form_v18619", clear_on_submit=False):
-            c_enable, c_speed, c_near, c_push, c_count = st.columns([0.62, 0.75, 0.72, 0.85, 1.15])
+            c_enable, c_speed, c_refresh, c_near, c_push, c_count = st.columns([0.62, 0.78, 0.78, 0.72, 0.85, 1.15])
             with c_enable:
                 enabled = st.checkbox(
                     "Vis særskilt banner",
@@ -4999,8 +5138,20 @@ def render_special_watch_menu_v18619() -> None:
                     value=int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0),
                     step=5,
                     key="special_watch_speed_v18619",
-                    help="0 = samme hastighet som hovedbanneret.",
+                    help="0 = samme hastighet som hovedbanneret. Lavere tall ruller raskere. Høyere tall ruller saktere.",
                 )
+                st.caption("Lavere tall = raskere. Høyere tall = saktere.")
+            with c_refresh:
+                special_refresh = st.number_input(
+                    "Oppdateringsintervall min",
+                    min_value=0,
+                    max_value=240,
+                    value=int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0),
+                    step=1,
+                    key="special_watch_refresh_v18623",
+                    help="0 = bruk hovedbannerets oppdateringsintervall. Høyere tall gir sjeldnere dataoppdatering.",
+                )
+                st.caption("0 = samme som hovedbanner.")
             with c_near:
                 near_pct = st.slider("Gul nær grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0, key="special_watch_near_pct_v18621")
             with c_push:
@@ -5026,6 +5177,7 @@ def render_special_watch_menu_v18619() -> None:
         if saved:
             settings["special_watch_banner_enabled_v18615"] = bool(enabled)
             settings["special_watch_banner_speed_seconds_v18615"] = int(speed)
+            settings["special_watch_update_interval_minutes_v18623"] = int(special_refresh)
             config["near_pct"] = float(near_pct)
             config["pushover"] = bool(pushover)
             if add_ticker:
@@ -5215,7 +5367,7 @@ def render_live_market_banner():
         market_label = html.escape(str(item.get("market", "")))
         title_label = html.escape(str(item.get("label", item.get("ticker", ""))))
         ticker_value = str(item.get("ticker", "")).upper()
-        price_txt = f"{float(item.get('price', 0.0)):,.2f}"
+        price_txt = _banner_price_text_v18623(item.get("price"))
         delta_txt = f"{delta:+.2f}"
         pct_txt = f"{pct:+.2f}%"
         marker_html = _banner_marker_html_v18610(item.get("alert_marker"))
@@ -5452,7 +5604,7 @@ def render_live_market_banner():
             alert_counts[css] += 1
     st.caption(
         f"Banner: {len(banner_cards)} kort · grønn {alert_counts['green']} · gul {alert_counts['yellow']} · rød {alert_counts['red']} · "
-        f"{speed_seconds}s · data ca. hver {refresh_minutes}. min."
+        f"{speed_seconds}s · data ca. hver {refresh_minutes}. min. Lavere tall = raskere, høyere tall = saktere."
     )
     if st.session_state.pop("banner_detail_suppress_picker_once_v18611", False):
         st.session_state.pop("live_banner_open_picker_v18610", None)
@@ -5612,8 +5764,9 @@ def render_banner_main_controls():
                     value=int(settings.get("live_banner_speed_seconds", 70) or 70),
                     step=5,
                     key="banner_v1582_speed",
-                    help="Lavere tall = raskere bevegelse. Hoyere tall = saktere banner.",
+                    help="Lavere tall ruller raskere. Høyere tall ruller saktere.",
                 )
+                st.caption("Lavere tall = raskere. Høyere tall = saktere.")
             with c_refresh:
                 ui_refresh_minutes = st.number_input(
                     "Oppdateringsintervall min",
@@ -5622,6 +5775,7 @@ def render_banner_main_controls():
                     value=int(settings.get("ui_refresh_minutes", 60) or 60),
                     step=1,
                     key="banner_v1582_refresh",
+                    help="Hvor ofte hovedbanneret forsøker å hente nye kurser.",
                 )
 
             st.markdown("**Markeder som vises i banneret**")

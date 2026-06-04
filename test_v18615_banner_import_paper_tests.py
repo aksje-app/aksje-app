@@ -51,8 +51,8 @@ def test_v18615_static_guards_for_discussed_ui_tasks():
     trading = _read("trading_engine.py")
     auth = _read("auth.py")
 
-    assert 'APP_VERSION = "v18.6.22"' in version
-    assert "Refresh-login uten fastlaast restore" in version
+    assert 'APP_VERSION = "v18.6.23"' in version
+    assert "Sarskilt bannerintervall og tydelig kursvisning" in version
     assert "Importer tickere" in app
     assert "parse_banner_csv_text" in app
     assert "merge_ticker_maps" in app
@@ -68,6 +68,7 @@ def test_v18615_static_guards_for_discussed_ui_tasks():
     assert "div[data-testid=\"stLinkButton\"] > a" in app
     assert "v18.6.19: final compact action style" in app
     assert "width: 22px;" in app and "font-size: 0.92rem;" in app
+
 
 
 

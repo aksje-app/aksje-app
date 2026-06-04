@@ -34,8 +34,9 @@ def test_full_pytest_collects_new_v1861_tests():
     version = _read("app_version.py")
 
     assert "test_v1861*.py" in pytest_ini
-    assert 'APP_VERSION = "v18.6.22"' in version
-    assert "Refresh-login uten fastlaast restore" in version
+    assert 'APP_VERSION = "v18.6.23"' in version
+    assert "Sarskilt bannerintervall og tydelig kursvisning" in version
+
 
 
 

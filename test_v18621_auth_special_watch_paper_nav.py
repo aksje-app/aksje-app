@@ -14,8 +14,8 @@ def test_v18621_version_and_auth_restore_refresh_guard():
     auth = _read("auth.py")
     py_compile.compile(str(ROOT / "auth.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.22"' in version
-    assert "Refresh-login uten fastlaast restore" in version
+    assert 'APP_VERSION = "v18.6.23"' in version
+    assert "Sarskilt bannerintervall og tydelig kursvisning" in version
     assert "auth_restore_attempted_v18621" in auth
     assert "Forsøker å gjenopprette innlogging på denne enheten" in auth
     assert 'parentUrl.searchParams.set("remember_token", token)' in auth
@@ -47,3 +47,4 @@ def test_v18621_paper_nav_and_existing_hypothesis_text():
     assert "def _paper_hypothesis_matches_position_v18621" in app
     assert "Finnes i beholdning" in app
     assert "Følg opp / øk / oppdater vurdering" in app
+

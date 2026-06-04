@@ -1,6 +1,6 @@
-APP_VERSION = "v18.6.22"
-APP_VERSION_NAME = "Refresh-login uten fastlaast restore"
-APP_BUILD_ID = "v18622-auth-restore-fallback"
+APP_VERSION = "v18.6.23"
+APP_VERSION_NAME = "Sarskilt bannerintervall og tydelig kursvisning"
+APP_BUILD_ID = "v18623-special-banner-interval-price"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
