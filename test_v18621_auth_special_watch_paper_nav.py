@@ -14,10 +14,10 @@ def test_v18621_version_and_auth_restore_refresh_guard():
     auth = _read("auth.py")
     py_compile.compile(str(ROOT / "auth.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.21"' in version
-    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
+    assert 'APP_VERSION = "v18.6.22"' in version
+    assert "Refresh-login uten fastlaast restore" in version
     assert "auth_restore_attempted_v18621" in auth
-    assert "Gjenoppretter innlogging på denne enheten" in auth
+    assert "Forsøker å gjenopprette innlogging på denne enheten" in auth
     assert 'parentUrl.searchParams.set("remember_token", token)' in auth
 
 

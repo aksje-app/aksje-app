@@ -16,8 +16,8 @@ def test_v18614_persistent_banner_and_horizontal_detail_static_guards():
     app = _read("app.py")
     version = _read("app_version.py")
 
-    assert 'APP_VERSION = "v18.6.21"' in version
-    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
+    assert 'APP_VERSION = "v18.6.22"' in version
+    assert "Refresh-login uten fastlaast restore" in version
 
     # Hovedbanneret skal fortsatt rendres i manuell/cache-modus.
     assert "_banner_fallback_cards_v18614(banner_items)" in app

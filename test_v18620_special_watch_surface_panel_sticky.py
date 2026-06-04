@@ -14,7 +14,7 @@ def test_special_watch_banner_is_surface_between_main_banner_and_menus():
     version = _read("app_version.py")
     py_compile.compile(str(ROOT / "app.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.21"' in version
+    assert 'APP_VERSION = "v18.6.22"' in version
     assert "def render_special_watch_banner_surface_v18620" in app
     assert (
         "render_live_market_banner()\n"

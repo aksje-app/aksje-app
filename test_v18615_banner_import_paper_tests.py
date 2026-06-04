@@ -51,8 +51,8 @@ def test_v18615_static_guards_for_discussed_ui_tasks():
     trading = _read("trading_engine.py")
     auth = _read("auth.py")
 
-    assert 'APP_VERSION = "v18.6.21"' in version
-    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
+    assert 'APP_VERSION = "v18.6.22"' in version
+    assert "Refresh-login uten fastlaast restore" in version
     assert "Importer tickere" in app
     assert "parse_banner_csv_text" in app
     assert "merge_ticker_maps" in app

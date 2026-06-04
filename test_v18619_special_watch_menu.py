@@ -14,8 +14,8 @@ def test_special_watch_has_own_menu_and_shared_ticker_tape():
     version = _read("app_version.py")
     py_compile.compile(str(ROOT / "app.py"), doraise=True)
 
-    assert 'APP_VERSION = "v18.6.21"' in version
-    assert "Refresh-login, saerskilt bannerlogikk og manuell NAV" in version
+    assert 'APP_VERSION = "v18.6.22"' in version
+    assert "Refresh-login uten fastlaast restore" in version
     assert "def render_special_watch_menu_v18619" in app
     assert 'with st.expander("Særskilt overvåking"' in app
     assert "render_special_watch_menu_v18619()" in app

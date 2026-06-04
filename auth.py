@@ -501,8 +501,7 @@ def require_login():
         if not st.session_state.get("auth_restore_attempted_v18621"):
             st.session_state["auth_restore_attempted_v18621"] = True
             _remember_storage_bridge()
-            st.info("Gjenoppretter innlogging på denne enheten ...")
-            st.stop()
+            st.info("Forsøker å gjenopprette innlogging på denne enheten. Hvis dette ikke skjer automatisk, vises innloggingen under.")
         render_login()
 
     return user

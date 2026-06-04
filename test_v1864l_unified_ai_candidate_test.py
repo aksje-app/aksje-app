@@ -13,7 +13,7 @@ def test_v1864m_version_and_ai_candidate_cockpit_contract():
     layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8", errors="ignore")
     version = (ROOT / "app_version.py").read_text(encoding="utf-8", errors="ignore")
 
-    assert 'APP_VERSION = "v18.6.21"' in version
+    assert 'APP_VERSION = "v18.6.22"' in version
     assert "Market Climate Explainability" in version
     assert "Markedsklima er lagt inn som egen modul" in version
     assert "Markedsklima er gjort om fra en abstrakt score til en forklarbar beslutningsstøtte med nivåer, terskler, tabeller og grafer" in version

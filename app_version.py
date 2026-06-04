@@ -1,9 +1,10 @@
-APP_VERSION = "v18.6.21"
-APP_VERSION_NAME = "Refresh-login, saerskilt bannerlogikk og manuell NAV"
-APP_BUILD_ID = "v18621-auth-special-watch-paper-nav"
+APP_VERSION = "v18.6.22"
+APP_VERSION_NAME = "Refresh-login uten fastlaast restore"
+APP_BUILD_ID = "v18622-auth-restore-fallback"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Refresh-login kan ikke lenger bli stående fast på gjenoppretting; etter restore-forsøk vises innloggingen som fallback.",
     "Refresh med Husk meg får gjenopprette innlogging før login-skjema vises, og remember-token beholdes i URL mens langtidsinnlogging er aktiv.",
     "Særskilt overvåking har egen banneranimasjon, egen lifecycle-kilde og egen signalhistorikk slik at hastighet og logg ikke blandes med hovedbanneret.",
     "Særskilt overvåking har gul nær-grense og Pushover ved rød markør i samme meny som tickerlisten.",
