@@ -25,8 +25,8 @@ def test_banner_forms_have_submit_buttons_and_visible_follow_controls():
     assert 'submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)' in app
     assert 'submitted = _global_apply_requested_v161()' not in app
     assert "Missing Submit Button" not in app
-    assert "Saerskilt overvaking" in app
-    assert '"Hastighet sek"' in app
+    assert "Særskilt overvåking" in app
+    assert '"Hastighet sekunder"' in app
 
 
 def test_full_pytest_collects_new_v1861_tests():
@@ -34,6 +34,7 @@ def test_full_pytest_collects_new_v1861_tests():
     version = _read("app_version.py")
 
     assert "test_v1861*.py" in pytest_ini
-    assert 'APP_VERSION = "v18.6.17"' in version
-    assert "Sprakrydding og kompakte knapper" in version
+    assert 'APP_VERSION = "v18.6.18"' in version
+    assert "Paper Trading og saerskilt banner-fiks" in version
+
 

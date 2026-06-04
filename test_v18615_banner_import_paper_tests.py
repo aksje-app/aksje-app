@@ -51,8 +51,8 @@ def test_v18615_static_guards_for_discussed_ui_tasks():
     trading = _read("trading_engine.py")
     auth = _read("auth.py")
 
-    assert 'APP_VERSION = "v18.6.17"' in version
-    assert "Sprakrydding og kompakte knapper" in version
+    assert 'APP_VERSION = "v18.6.18"' in version
+    assert "Paper Trading og saerskilt banner-fiks" in version
     assert "Importer tickere" in app
     assert "parse_banner_csv_text" in app
     assert "merge_ticker_maps" in app
@@ -66,7 +66,8 @@ def test_v18615_static_guards_for_discussed_ui_tasks():
     assert "def paper_buy(ticker, price, confidence=0, reason=\"BUY signal\", trade_context=None, amount_override=None)" in trading
     assert "localStorage" in auth and "remember_token" in auth
     assert "div[data-testid=\"stLinkButton\"] > a" in app
-    assert "v18.6.17: final compact action style" in app
+    assert "v18.6.18: final compact action style" in app
     assert "width: 22px;" in app and "font-size: 0.92rem;" in app
+
 
 

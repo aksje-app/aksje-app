@@ -1,9 +1,13 @@
-APP_VERSION = "v18.6.17"
-APP_VERSION_NAME = "Sprakrydding og kompakte knapper"
-APP_BUILD_ID = "v18617-language-button-cleanup"
+APP_VERSION = "v18.6.18"
+APP_VERSION_NAME = "Paper Trading og saerskilt banner-fiks"
+APP_BUILD_ID = "v18618-paper-special-banner"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Paper Trading og kontroll bruker stabil tekstlabel uten emoji og fallback-rutingen åpner panelet for både gamle og nye labelvarianter.",
+    "Særskilt overvåking vises igjen når banneret er aktivert, også når tickere bare har negativ ned-grense.",
+    "Særskilt overvåking har administrasjon for å fjerne én ticker eller tømme listen.",
+    "Særskilt overvåking bruker korrekt norsk tekst og dupliserer kortene nok til at banneret kan rulle også med kort liste.",
     "Synlige mojibake-rester i app.py er reparert til vanlig norsk tekst der de lot seg maskinelt rydde uten logikkendring.",
     "Banner- og kontrollsentertekst er strammet opp etter krasjfiksen, med mindre teknisk stoy i brukerflaten.",
     "Primary-, submit-, download-, link- og vanlige Streamlit-knapper bruker na en mer konsekvent kompakt og mork knappestil.",

@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 # v18.5.12 Render import-path guard
 import os as _render_os
 import sys as _render_sys
@@ -1582,7 +1582,7 @@ def render_global_update_action_panel_v1863g() -> None:
         _click_global_update_v1862()
 
 
-_PANEL_OPTIONS_V18531 = ["🇺🇸 USA", "🇳🇴 Norge", "🇸🇪 Sverige", "Norden", "Aktivt univers", "Top Picks Top Picks", "🚀 IPO", "🧪 Paper Trading og kontroll"]
+_PANEL_OPTIONS_V18531 = ["USA", "Norge", "Sverige", "Norden", "Aktivt univers", "Top Picks", "IPO", "Paper Trading og kontroll"]
 
 
 def _on_active_panel_change_v18531():
@@ -1607,7 +1607,7 @@ def _render_active_main_panel_selector_v18531():
         "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
         "Top Picks Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
         "🚀 IPO": "Nye og kommende børsnoteringer.",
-        "🧪 Paper Trading og kontroll": "Simulert handel, beholdning, kontroll og testportefølje.",
+        "Paper Trading og kontroll": "Simulert handel, beholdning, kontroll og testportefølje.",
     }
     st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Hovedpanel</div>", unsafe_allow_html=True)
     active = st.selectbox(
@@ -3991,6 +3991,18 @@ def _load_banner_alert_config_v18610(settings=None) -> dict:
     return merged
 
 
+def _has_special_watch_rules_v18618(rules: dict) -> bool:
+    if not isinstance(rules, dict):
+        return False
+    for key in ("price_upper", "price_lower", "pct_up", "pct_down"):
+        try:
+            if abs(float(rules.get(key) or 0.0)) > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _save_banner_alert_config_v18610(config: dict) -> None:
     settings = load_settings() or {}
     settings[BANNER_ALERT_CONFIG_KEY_V18610] = dict(config or {})
@@ -4834,6 +4846,34 @@ def _render_banner_alert_settings_v18610():
             st.info("Ingen bannervarsler logget enna.")
 
 
+def _render_special_watch_admin_v18618() -> None:
+    config = _load_banner_alert_config_v18610()
+    individual = dict(config.get("individual") or {})
+    watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
+    with st.expander("Særskilt overvåking - administrer tickere", expanded=False):
+        if not watched:
+            st.info("Ingen tickere ligger i særskilt overvåking.")
+            return
+        st.caption("Fjern en ticker her hvis den ikke lenger skal ligge i særskilt overvåking. Dette sletter tickerens individuelle varselgrenser.")
+        remove_ticker = st.selectbox("Ticker", watched, key="special_watch_remove_ticker_v18618")
+        c_remove, c_clear = st.columns([0.6, 0.8])
+        with c_remove:
+            if st.button("Fjern ticker", key="special_watch_remove_one_v18618", use_container_width=False):
+                individual.pop(remove_ticker, None)
+                config["individual"] = individual
+                _save_banner_alert_config_v18610(config)
+                st.success(f"{remove_ticker} er fjernet fra særskilt overvåking.")
+                st.rerun()
+        with c_clear:
+            if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18618", use_container_width=False):
+                for ticker in watched:
+                    individual.pop(ticker, None)
+                config["individual"] = individual
+                _save_banner_alert_config_v18610(config)
+                st.success("Særskilt overvåking er tømt.")
+                st.rerun()
+
+
 def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) -> None:
     from urllib.parse import quote
 
@@ -4844,17 +4884,21 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
     watched = []
     by_ticker = {str(card.get("ticker") or "").upper(): card for card in banner_cards or []}
     for ticker, rules in individual.items():
-        if not isinstance(rules, dict):
-            continue
-        if any(float(rules.get(key) or 0.0) > 0 for key in ("price_upper", "price_lower", "pct_up", "pct_down")):
-            card = by_ticker.get(str(ticker).upper(), {"ticker": ticker, "label": ticker, "market": ""})
-            watched.append((str(ticker).upper(), card, rules))
+        if _has_special_watch_rules_v18618(rules):
+            ticker_key = str(ticker).upper()
+            card = by_ticker.get(ticker_key, {"ticker": ticker_key, "label": ticker_key, "market": "", "price": 0.0, "pct": 0.0, "delta": 0.0, "sparkline": ""})
+            watched.append((ticker_key, card, rules))
     if not watched:
+        st.markdown(
+            "<div class='follow-banner-title'>Særskilt overvåking</div>"
+            "<div class='v18-dark-row'>Ingen tickere ligger i særskilt overvåking. Legg til varselgrenser på en ticker for å vise den her.</div>",
+            unsafe_allow_html=True,
+        )
         return
     speed_seconds = int(settings.get("special_watch_banner_speed_seconds_v18615") or settings.get("live_banner_speed_seconds", 70) or 70)
     speed_seconds = max(10, min(speed_seconds, 300))
     cards_html = []
-    for ticker, card, _rules in watched[:18]:
+    for ticker, card, _rules in watched[:24]:
         label = html.escape(str(card.get("label") or ticker))
         market = html.escape(str(card.get("market") or ""))
         price = card.get("price")
@@ -4878,15 +4922,17 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         )
     st.markdown(
         _banner_detail_layout_css_v18614()
-        + f"<style>.ticker-tape-wrap.follow-up .ticker-tape-track {{ animation: tickerTapeScroll {speed_seconds}s linear infinite; }}</style>"
-        + "<div class='follow-banner-title'>Særskilt overvåkning</div>"
+        + f"<style>.ticker-tape-wrap.follow-up .ticker-tape-track {{ animation: tickerTapeScroll {speed_seconds}s linear infinite; min-width: max-content; }}</style>"
+        + "<div class='follow-banner-title'>Særskilt overvåking</div>"
         + "<div class='ticker-tape-wrap follow-up' aria-label='Oppfølgingsbanner'><div class='ticker-tape-track'>"
+        + "".join(cards_html)
+        + "".join(cards_html)
         + "".join(cards_html)
         + "".join(cards_html)
         + "</div></div>",
         unsafe_allow_html=True,
     )
-    st.caption(f"Oppfølgingsbanner: {len(watched)} kort · {speed_seconds}s.")
+    st.caption(f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s.")
 
 
 def _render_nordnet_datatest_v18610():
@@ -5419,17 +5465,17 @@ def render_banner_main_controls():
                     key="banner_v1582_refresh",
                 )
 
-            st.markdown("**Saerskilt overvaking**")
+            st.markdown("**Særskilt overvåking**")
             s_enable, s_speed, s_hint = st.columns([0.7, 0.8, 1.5])
             with s_enable:
                 special_watch_enabled = st.checkbox(
-                    "Vis banner",
+                    "Vis særskilt banner",
                     value=bool(settings.get("special_watch_banner_enabled_v18615", True)),
                     key="banner_v18615_special_enabled",
                 )
             with s_speed:
                 special_watch_speed = st.number_input(
-                    "Hastighet sek",
+                    "Hastighet sekunder",
                     min_value=0,
                     max_value=300,
                     value=int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0),
@@ -5438,7 +5484,7 @@ def render_banner_main_controls():
                     help="0 bruker samme hastighet som hovedbanneret.",
                 )
             with s_hint:
-                st.caption("0 bruker hovedbannerets hastighet. Banneret viser tickere med egne varselgrenser.")
+                st.caption("0 = samme hastighet som hovedbanneret. Banneret viser tickere med egne varselgrenser.")
 
             st.markdown("**Markeder som vises i banneret**")
             banner_market_values = {}
@@ -5490,6 +5536,8 @@ def render_banner_main_controls():
                 logging.warning("Ticker-banner refresh after save failed: %s", exc)
             st.session_state["banner_settings_saved_message_v1864p"] = True
             st.rerun()
+
+        _render_special_watch_admin_v18618()
 
         with st.expander("Importer tickere", expanded=False):
             st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel en-kolonne CSV tolkes som tickere i valgt marked.")
@@ -8736,7 +8784,7 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
 
 
 def render_paper_trading_dashboard():
-    st.subheader("🧪 Paper Trading og kontroll")
+    st.subheader("Paper Trading og kontroll")
     st.caption("Simulert handel, beholdning, kontrollkort og regler samlet på én side. Ingen ekte ordre sendes.")
     try:
         paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
@@ -17108,19 +17156,19 @@ def control_center_extra_panels_v18535():
         ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
         ("Markedsklima", render_market_climate_panel),
         ("Marked", render_market_room_control_center_v1863cb),
-        ("Top Picks Top Picks", render_top_picks_control_center_v1863s),
+        ("Top Picks", render_top_picks_control_center_v1863s),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),
-        ("🚀 IPO", render_ipo),
-        ("🧪 Paper Trading og kontroll", render_paper_trading_dashboard),
-        ("🔬 Auto Test Lab", render_auto_test_lab_control_center_v18536),
-        ("Fond Fond / ETF", render_fund_etf_control_center_v18538),
-        ("📊 Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
-        ("📰 Nyheter", render_news_control_center_v18535),
-        ("📊 Interaktiv analyse", render_interactive_technical_control_center_v18535),
-        ("Marked Marked/rangering", render_market_ranking_control_center_v18535),
-        ("🔔 Watchlist/signaler", render_watchlist_signals_control_center_v18535),
-        ("System System/admin", lambda: render_system_admin_workspace(expanded=True)),
+        ("IPO", render_ipo),
+        ("Paper Trading og kontroll", render_paper_trading_dashboard),
+        ("Auto Test Lab", render_auto_test_lab_control_center_v18536),
+        ("Fond / ETF", render_fund_etf_control_center_v18538),
+        ("Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
+        ("Nyheter", render_news_control_center_v18535),
+        ("Interaktiv analyse", render_interactive_technical_control_center_v18535),
+        ("Marked/rangering", render_market_ranking_control_center_v18535),
+        ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
+        ("System/admin", lambda: render_system_admin_workspace(expanded=True)),
     ]
 
 
@@ -17917,7 +17965,7 @@ elif active_panel == "Aktivt univers":
         render_ranking(active_results, "🎯 Dynamisk rangering aktivt univers")
         render_analysis(active_results, "Smart Universe Picker")
 
-elif active_panel == "Top Picks Top Picks":
+elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
     st.subheader("Top Picks Automatiske Top Picks")
     st.caption(
         "Top Picks = beste kandidater totalt. "
@@ -18036,10 +18084,10 @@ elif active_panel == "Top Picks Top Picks":
             st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
             st.caption("Systemet tvinger ikke kjøp når timing/risiko ikke er god nok.")
 
-elif active_panel == "🚀 IPO":
+elif str(active_panel or "").endswith("IPO"):
     render_ipo()
 
-elif active_panel in {"🧪 Paper Trading", "🧪 Paper Trading og kontroll"}:
+elif "Paper Trading" in str(active_panel or ""):
     render_paper_trading_dashboard()
 
 # Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.
@@ -18091,7 +18139,7 @@ html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
     background: linear-gradient(180deg, rgba(51,65,85,.82), rgba(30,41,59,.90)) !important;
     border-color: rgba(148,163,184,.52) !important;
 }
-/* v18.6.17: final compact action style. Prevent old full-width blue bars from leaking into panels. */
+/* v18.6.18: final compact action style. Prevent old full-width blue bars from leaking into panels. */
 html body .stApp div[data-testid="stButton"] > button,
 html body .stApp div[data-testid="stDownloadButton"] > button,
 html body .stApp div[data-testid="stFormSubmitButton"] > button,
@@ -18176,4 +18224,5 @@ def add_rsi_current_box(fig, rsi):
 # legacy test marker: main_auto_send_test_pushover_v18590
 
 # legacy test marker: top_apply_all_changes_v18590
+
 
