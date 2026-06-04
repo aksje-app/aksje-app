@@ -1,4 +1,4 @@
-﻿"""
+"""
 workspace_layout.py
 
 v18.5.35 Professional Trading Workspace.
@@ -1203,8 +1203,8 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
 
         mode_map = {
             "Finne kjop": "Marked og signaler",
-            "Overvake portefolje": "Testing og portefÃ¸lje",
-            "Teste strategi": "Testing og portefÃ¸lje",
+            "Overvake portefolje": "Testing og portefølje",
+            "Teste strategi": "Testing og portefølje",
             "Administrere": "System",
         }
         mode_options = list(mode_map.keys())
@@ -1219,7 +1219,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                     st.session_state["ai_control_center_menu_open_v1863ag"] = True
                     st.rerun()
 
-        st.markdown("<div class='ptw-control-mini-title'>HovedomrÃ¥der</div>", unsafe_allow_html=True)
+        st.markdown("<div class='ptw-control-mini-title'>Hovedområder</div>", unsafe_allow_html=True)
         group_cols = st.columns(len(groups))
         for idx, group_name in enumerate(groups):
             labels = [label for label in group_map.get(group_name, []) if label in panel_map]
@@ -1268,13 +1268,13 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                                 break
                         st.rerun()
 
-        search_query = st.text_input("SÃ¸k i funksjoner", value="", key="ai_control_center_search_v1863ag", placeholder="Skriv f.eks. paper, valuta, regime, heatmap")
+        search_query = st.text_input("Søk i funksjoner", value="", key="ai_control_center_search_v1863ag", placeholder="Skriv f.eks. paper, valuta, regime, heatmap")
         quick_panel_options = [label for label in group_map.get(active_group, []) if label in panel_map]
         if search_query.strip():
             q = search_query.strip().lower()
             quick_panel_options = [label for label, _renderer in panels if q in str(label).lower()]
             menu_open = True
-            submenu_title = f"SÃ¸keresultat: {len(quick_panel_options)} treff"
+            submenu_title = f"Søkeresultat: {len(quick_panel_options)} treff"
         else:
             submenu_title = f"Undermeny for {active_group}"
         if not quick_panel_options:
@@ -1300,7 +1300,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                             st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
         elif not menu_open:
-            if st.button("Ã…pne undermeny", key="ai_cc_open_submenu_v1863ag", use_container_width=True):
+            if st.button("Åpne undermeny", key="ai_cc_open_submenu_v1863ag", use_container_width=True):
                 st.session_state["ai_control_center_menu_open_v1863ag"] = True
                 st.rerun()
 

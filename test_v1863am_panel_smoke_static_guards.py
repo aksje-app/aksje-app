@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 
 
@@ -16,7 +16,7 @@ assert "Rapporten kj" in daily and "ikke automatisk" in daily
 assert "Ingen oppgave" in layout
 assert "Oppdater AI Market Briefing" in daily
 assert "Lag portef" in forecast
-assert "Kjor Smart AI-utvalg" in analysis or "KjÃƒÂ¸r Smart AI-utvalg" in analysis
+assert "Kjor Smart AI-utvalg" in analysis or "Kjør Smart AI-utvalg" in analysis
 
 assert "tickerliste/univers" in analysis
 assert "scorede kandidater" in analysis
@@ -41,6 +41,7 @@ for source in [daily, forecast, analysis, layout]:
     assert "background: #fff" not in lowered
     assert "background-color:white" not in lowered
     assert "height:100vh" not in lowered
+
 
 
 

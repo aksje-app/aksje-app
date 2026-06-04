@@ -292,7 +292,7 @@ def _reason(ai_score: float, strength: float, risk: str, sector: str, insider_sc
         elif insider_score <= 35:
             parts.append("svakt insiderbilde")
         else:
-            parts.append("nÃ¸ytralt insiderbilde")
+            parts.append("nøytralt insiderbilde")
     if sector and sector != "Unknown":
         parts.append(f"sektor: {sector}")
     return ", ".join(parts)

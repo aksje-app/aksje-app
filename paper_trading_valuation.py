@@ -88,10 +88,10 @@ def paper_reason_label(reason: Any, trade_type: str = "") -> str:
     lowered = text.lower()
     if "auto buy" in lowered:
         text = text.replace("AUTO BUY", "PAPER-KJØP")
-    if "ui kjøp nå" in lowered or "ui kjÃ¸p nÃ¥" in lowered:
-        text = text.replace("UI Kjøp nå", "PAPER-KJØP").replace("UI KjÃ¸p nÃ¥", "PAPER-KJØP")
-    if "kjøp nå" in lowered or "kjÃ¸p nÃ¥" in lowered:
-        text = text.replace("Kjøp nå", "Kjøp-nå").replace("KjÃ¸p nÃ¥", "Kjøp-nå")
+    if "ui kjøp nå" in lowered or "ui kjøp nå" in lowered:
+        text = text.replace("UI Kjøp nå", "PAPER-KJØP").replace("UI Kjøp nå", "PAPER-KJØP")
+    if "kjøp nå" in lowered or "kjøp nå" in lowered:
+        text = text.replace("Kjøp nå", "Kjøp-nå").replace("Kjøp nå", "Kjøp-nå")
     if trade_type.upper() == "BUY" and not text.upper().startswith("PAPER"):
         text = f"PAPER-KJØP: {text}"
     if trade_type.upper() == "SELL" and not text.upper().startswith("PAPER"):

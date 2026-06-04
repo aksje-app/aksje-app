@@ -370,7 +370,7 @@ def run_once(force=False):
 
                     if traded:
                         trades_executed += 1
-                        print("Trade-varsling hÃ¥ndteres av trading_engine")
+                        print("Trade-varsling håndteres av trading_engine")
                     continue
 
                 if "BUY" in signal_text:

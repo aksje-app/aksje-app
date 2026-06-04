@@ -510,7 +510,7 @@ def _smart_result_dataframe(result: Mapping[str, Any]) -> pd.DataFrame:
         )
     df = pd.DataFrame(rows)
     if is_picker_only and not df.empty:
-        picker_columns = ["Nr", "Ticker", "Selskap", "Land", "BÃ¸rs", "Marked", "Sektor", "Status", "Risiko", "Forklaring"]
+        picker_columns = ["Nr", "Ticker", "Selskap", "Land", "Børs", "Marked", "Sektor", "Status", "Risiko", "Forklaring"]
         return df[[col for col in picker_columns if col in df.columns]]
     return df
 

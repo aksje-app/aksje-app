@@ -659,7 +659,7 @@ def attach_shared_ranking_to_auto_lab_result(
         out["best_single"] = enriched[:10]
         out["test_further"] = [
             row for row in enriched
-            if str(row.get("grade")) in {"Høy", "Hoy", "Middels", "HÃ¸y"}
+            if str(row.get("grade")) in {"Høy", "Hoy", "Middels", "Høy"}
         ][:15]
     summary = dict(out.get("summary") or {})
     summary["shared_ranking_status"] = shared.get("status")

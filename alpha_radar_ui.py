@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import hashlib
@@ -970,7 +970,7 @@ def _candidate_row(candidate: Mapping[str, Any]) -> str:
 
     def metric(value_key: str, label: str, quality_key: str | None = None) -> str:
         quality = str(factor_quality.get(quality_key or value_key) or "").strip()
-        caption = label if not quality else f"{label} Â· {quality}"
+        caption = label if not quality else f"{label} · {quality}"
         return f"<div class='alpha-radar-metric'><b>{_fmt_score(candidate.get(value_key))}</b><span>{html.escape(caption)}</span></div>"
 
     reject_text = compact_list(rejects, "ingen harde avslag")

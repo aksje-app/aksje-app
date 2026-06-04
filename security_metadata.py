@@ -22,7 +22,7 @@ _MARKET_ALIASES = {
     "NORWAY": "Norge",
     "NORGE": "Norge",
     "OSLO": "Norge",
-    "OSLO BÃ˜RS": "Norge",
+    "OSLO BØRS": "Norge",
     "OSLO BØRS": "Norge",
     "NORWAY / OSLO": "Norge",
     "SWEDEN": "Sverige",

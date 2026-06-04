@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import py_compile
 
 
@@ -34,5 +34,6 @@ def test_full_pytest_collects_new_v1861_tests():
     version = _read("app_version.py")
 
     assert "test_v1861*.py" in pytest_ini
-    assert 'APP_VERSION = "v18.6.16"' in version
-    assert "Bannerkrasj, tekst og kontrollsenter-fiks" in version
+    assert 'APP_VERSION = "v18.6.17"' in version
+    assert "Sprakrydding og kompakte knapper" in version
+

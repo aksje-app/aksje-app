@@ -155,7 +155,7 @@ def score_signal(item, technical_context=None, insider=None, analyst=None, earni
             insider_delta = (insider_score - 0.5) * 0.9
             score += insider_delta
             if insider_score >= 0.65:
-                reasons.append("Insiderhandler stÃ¸tter signalet")
+                reasons.append("Insiderhandler støtter signalet")
             elif insider_score <= 0.35:
                 risk_score += 8
                 warnings.append("Insiderhandler trekker signalet ned")
