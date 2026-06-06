@@ -1064,6 +1064,234 @@ def inject_workspace_css() -> None:
             box-shadow: 0 0 22px rgba(34,197,94,.18), 0 0 0 1px rgba(187,247,208,.12) inset !important;
         }
 
+
+        /* v18.6.27: Modern Dashboard Skin - visual-only pass, no analysemotor changes. */
+        :root {
+            --aa-bg: #050914;
+            --aa-panel: rgba(11, 18, 32, .78);
+            --aa-panel-2: rgba(15, 23, 42, .84);
+            --aa-border: rgba(148, 163, 184, .18);
+            --aa-cyan: #22d3ee;
+            --aa-blue: #38bdf8;
+            --aa-green: #22c55e;
+            --aa-text: #f8fafc;
+            --aa-muted: #94a3b8;
+        }
+        html body .stApp {
+            background:
+                radial-gradient(circle at 15% -10%, rgba(14,165,233,.16), transparent 34rem),
+                radial-gradient(circle at 88% 0%, rgba(34,197,94,.10), transparent 38rem),
+                linear-gradient(180deg, #06101f 0%, #050914 48%, #040711 100%) !important;
+        }
+        html body .stApp .block-container {
+            max-width: 97vw !important;
+            padding-top: .35rem !important;
+        }
+        html body .stApp .ptw-app-title {
+            position: relative !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 1rem !important;
+            margin: .16rem 0 .52rem 0 !important;
+            padding: .72rem .92rem !important;
+            border: 1px solid rgba(125,211,252,.22) !important;
+            border-radius: 20px !important;
+            background:
+                linear-gradient(135deg, rgba(15,23,42,.92), rgba(8,47,73,.62) 52%, rgba(6,78,59,.32)) !important;
+            box-shadow: 0 22px 54px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.04) inset !important;
+            overflow: hidden !important;
+        }
+        html body .stApp .ptw-app-title::before {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; top: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(125,211,252,.85), rgba(34,197,94,.55), transparent);
+        }
+        html body .stApp .ptw-title-stack { min-width: 0 !important; }
+        html body .stApp .ptw-title-eyebrow {
+            color: #67e8f9 !important;
+            font-size: .70rem !important;
+            font-weight: 950 !important;
+            letter-spacing: .11em !important;
+            text-transform: uppercase !important;
+            margin-bottom: .08rem !important;
+        }
+        html body .stApp .ptw-title-main {
+            color: #f8fafc !important;
+            font-size: clamp(1.10rem, 1.45vw, 1.68rem) !important;
+            font-weight: 980 !important;
+            letter-spacing: -.035em !important;
+            line-height: 1.02 !important;
+        }
+        html body .stApp .ptw-title-sub {
+            margin-top: .18rem !important;
+            color: #cbd5e1 !important;
+            font-size: .80rem !important;
+            font-weight: 750 !important;
+        }
+        html body .stApp .ptw-title-actions {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: .38rem !important;
+            justify-content: flex-end !important;
+        }
+        html body .stApp .ptw-title-chip,
+        html body .stApp .ptw-pill,
+        html body .stApp .mini-status-chip,
+        html body .stApp .v18-status-chip {
+            border-radius: 999px !important;
+            border: 1px solid rgba(125,211,252,.24) !important;
+            background: rgba(15,23,42,.66) !important;
+            color: #e2e8f0 !important;
+            box-shadow: 0 6px 20px rgba(0,0,0,.12) !important;
+        }
+        html body .stApp .ptw-title-chip {
+            padding: .32rem .58rem !important;
+            font-size: .72rem !important;
+            font-weight: 900 !important;
+        }
+        html body .stApp .ptw-sticky-topbar,
+        html body .stApp .v18548-global-update-wrap,
+        html body .stApp .v18534-trading-control-stack,
+        html body .stApp .v18532-header-status {
+            border-radius: 18px !important;
+            border-color: rgba(148,163,184,.16) !important;
+            background: rgba(7, 12, 24, .66) !important;
+            box-shadow: 0 18px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,255,255,.03) inset !important;
+            backdrop-filter: blur(12px) !important;
+        }
+        html body .stApp .ptw-sticky-topbar {
+            padding: .46rem .62rem !important;
+            margin-bottom: .46rem !important;
+        }
+        html body .stApp .ticker-tape-wrap,
+        html body .stApp .special-watch-tape-v18621 {
+            border: 1px solid rgba(148,163,184,.14) !important;
+            border-radius: 16px !important;
+            background: rgba(248,250,252,.98) !important;
+            box-shadow: 0 16px 34px rgba(0,0,0,.18) !important;
+            min-height: 58px !important;
+        }
+        html body .stApp .ticker-card,
+        html body .stApp .ticker-tape-card,
+        html body .stApp .banner-card {
+            border-radius: 14px !important;
+            border-color: rgba(15,23,42,.08) !important;
+            box-shadow: 0 3px 12px rgba(15,23,42,.06) !important;
+        }
+        html body .stApp div[data-testid="stExpander"] {
+            border: 1px solid rgba(148,163,184,.14) !important;
+            border-radius: 18px !important;
+            background: rgba(7, 12, 24, .54) !important;
+            box-shadow: 0 14px 34px rgba(0,0,0,.16) !important;
+            margin-bottom: .54rem !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details summary {
+            min-height: 46px !important;
+            border: 0 !important;
+            border-bottom: 1px solid rgba(148,163,184,.12) !important;
+            border-radius: 18px 18px 0 0 !important;
+            background: linear-gradient(180deg, rgba(15,23,42,.86), rgba(8,47,73,.34)) !important;
+            box-shadow: none !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details:not([open]) summary {
+            border-radius: 18px !important;
+            border-bottom: 0 !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details[open] summary {
+            background: linear-gradient(180deg, rgba(6,78,59,.48), rgba(15,23,42,.84)) !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details summary p {
+            font-size: .92rem !important;
+            letter-spacing: -.01em !important;
+        }
+        html body .stApp .ptw-control-hero {
+            border: 1px solid rgba(125,211,252,.22) !important;
+            border-radius: 22px !important;
+            padding: 1.05rem 1.15rem !important;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(56,189,248,.24), transparent 28rem),
+                linear-gradient(135deg, rgba(15,23,42,.94), rgba(8,47,73,.66) 50%, rgba(6,78,59,.42)) !important;
+            box-shadow: 0 24px 58px rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.04) inset !important;
+        }
+        html body .stApp .ptw-control-title {
+            font-size: clamp(1.34rem, 2vw, 2.05rem) !important;
+            letter-spacing: -.04em !important;
+        }
+        html body .stApp .ptw-control-caption {
+            max-width: 72rem !important;
+            color: #cbd5e1 !important;
+            font-size: .88rem !important;
+        }
+        html body .stApp .ptw-control-active-chip {
+            border-color: rgba(34,197,94,.36) !important;
+            background: rgba(16,65,52,.42) !important;
+            box-shadow: 0 0 24px rgba(34,197,94,.12) !important;
+        }
+        html body .stApp .ptw-control-selector-shell,
+        html body .stApp .ptw-control-submenu,
+        html body .stApp .ptw-control-panel-shell {
+            border-radius: 20px !important;
+            border-color: rgba(148,163,184,.14) !important;
+            background: rgba(7, 12, 24, .58) !important;
+            box-shadow: 0 18px 42px rgba(0,0,0,.16), 0 0 0 1px rgba(255,255,255,.03) inset !important;
+        }
+        html body .stApp .ptw-control-selector-title,
+        html body .stApp .ptw-control-submenu-title,
+        html body .stApp .ptw-control-panel-title {
+            color: #e0f2fe !important;
+            letter-spacing: .06em !important;
+        }
+        html body .stApp div[data-testid="stRadio"] label {
+            border-radius: 16px !important;
+            padding: .50rem .72rem !important;
+            border-color: rgba(148,163,184,.16) !important;
+            background: rgba(15,23,42,.64) !important;
+            box-shadow: none !important;
+        }
+        html body .stApp div[data-testid="stRadio"] label:hover {
+            border-color: rgba(56,189,248,.45) !important;
+            background: rgba(8,47,73,.54) !important;
+        }
+        html body .stApp div[data-testid="stRadio"] label:has(input:checked) {
+            border-color: rgba(34,197,94,.54) !important;
+            background: linear-gradient(135deg, rgba(22,163,74,.38), rgba(8,47,73,.62)) !important;
+            box-shadow: 0 0 0 1px rgba(187,247,208,.10) inset, 0 12px 28px rgba(34,197,94,.10) !important;
+        }
+        html body .stApp .v18-dark-row,
+        html body .stApp .ptw-control-note-strong {
+            border-radius: 16px !important;
+            border-color: rgba(148,163,184,.14) !important;
+            background: rgba(7, 12, 24, .60) !important;
+            color: #dbeafe !important;
+        }
+        html body .stApp div[data-testid="stDataFrame"] {
+            border-radius: 16px !important;
+            overflow: hidden !important;
+            box-shadow: 0 16px 34px rgba(0,0,0,.18) !important;
+        }
+        html body .stApp div[data-testid="stButton"] > button,
+        html body .stApp div[data-testid="stFormSubmitButton"] > button {
+            border-radius: 12px !important;
+            font-weight: 950 !important;
+            box-shadow: 0 10px 22px rgba(0,0,0,.14) !important;
+        }
+        section[data-testid="stSidebar"] {
+            background:
+                radial-gradient(circle at top, rgba(14,165,233,.14), transparent 18rem),
+                linear-gradient(180deg, #050914, #020617) !important;
+            border-right: 1px solid rgba(148,163,184,.13) !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button {
+            border-radius: 14px !important;
+        }
+        @media (max-width: 980px) {
+            html body .stApp .ptw-app-title { align-items: flex-start !important; flex-direction: column !important; }
+            html body .stApp .ptw-title-actions { justify-content: flex-start !important; }
+            html body .stApp .ptw-control-hero-top { gap: .62rem !important; }
+        }
+
 </style>
         """,
         unsafe_allow_html=True,
@@ -1081,9 +1309,9 @@ def render_workspace_title() -> None:
             <div class="ptw-title-sub">Dashboard · ticker-bannere · AI Kontrollsenter</div>
           </div>
           <div class="ptw-title-actions">
-            <span class="ptw-title-chip">⚡ v18.6.25</span>
-            <span class="ptw-title-chip">Uavhengige bannere</span>
-            <span class="ptw-title-chip">Modernisert hovedside</span>
+            <span class="ptw-title-chip">⚡ v18.6.27</span>
+            <span class="ptw-title-chip">Modern dashboard skin</span>
+            <span class="ptw-title-chip">Visuell opprydding</span>
           </div>
         </div>
         """,
