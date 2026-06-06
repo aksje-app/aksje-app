@@ -5166,41 +5166,64 @@ def render_special_watch_menu_v18619() -> None:
     with st.expander("Særskilt overvåking", expanded=False):
         st.caption("Alt som gjelder det nederste banneret er samlet her. Tickere havner her når de har egne varselgrenser.")
 
+        # v18.6.29: rulling/fart/visning må styres utenfor st.form.
+        # Når dette lå inne i form, ble ikke banneret endret før Lagre ble trykket, og
+        # banneret ligger over menyen i siden. Derfor opplevdes Stoppet/fart som død.
+        saved_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip() or "Egen fart"
+        if saved_mode == "Arv hovedbanner" or saved_mode not in ["Egen fart", "Stoppet"]:
+            saved_mode = "Egen fart"
+        if "special_watch_scroll_mode_v18624" not in st.session_state:
+            st.session_state["special_watch_scroll_mode_v18624"] = saved_mode
+        if "special_watch_speed_v18624" not in st.session_state:
+            st.session_state["special_watch_speed_v18624"] = int(settings.get("special_watch_scroll_speed_v18624", 50) or 50)
+        if "special_watch_enabled_v18619" not in st.session_state:
+            st.session_state["special_watch_enabled_v18619"] = bool(settings.get("special_watch_banner_enabled_v18615", True))
+
+        c_enable, c_mode, c_speed, c_count = st.columns([0.62, 0.82, 0.95, 1.0])
+        with c_enable:
+            enabled = st.checkbox(
+                "Vis særskilt banner",
+                key="special_watch_enabled_v18619",
+            )
+        with c_mode:
+            scroll_mode = st.selectbox(
+                "Rulling",
+                ["Egen fart", "Stoppet"],
+                key="special_watch_scroll_mode_v18624",
+                help="Endres umiddelbart. Stoppet skal fryse nederste banner etter neste rerun.",
+            )
+        with c_speed:
+            scroll_speed = st.slider(
+                "Rullefart",
+                min_value=1,
+                max_value=100,
+                step=1,
+                key="special_watch_speed_v18624",
+                help="Endres umiddelbart. Høyere tall gir raskere rulling når Rulling står på Egen fart.",
+            )
+            st.caption("Høyere tall = raskere. 100 skal være tydelig raskt.")
+        with c_count:
+            st.markdown(f"<div class='v18-dark-row'><b>{len(watched)}</b> tickere i særskilt overvåking</div>", unsafe_allow_html=True)
+
+        # Auto-lagre bare de tre live-kontrollene. Dette gjør at banneret over menyen
+        # bruker riktig verdi på neste Streamlit-rerun uten at brukeren må trykke Lagre.
+        live_changed = (
+            bool(settings.get("special_watch_banner_enabled_v18615", True)) != bool(enabled)
+            or str(settings.get("special_watch_scroll_mode_v18624") or "Egen fart") != str(scroll_mode)
+            or int(settings.get("special_watch_scroll_speed_v18624", 50) or 50) != int(scroll_speed)
+            or int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0) != 0
+        )
+        if live_changed:
+            settings["special_watch_banner_enabled_v18615"] = bool(enabled)
+            settings["special_watch_scroll_mode_v18624"] = "Stoppet" if str(scroll_mode) == "Stoppet" else "Egen fart"
+            settings["special_watch_scroll_speed_v18624"] = int(scroll_speed)
+            settings["special_watch_force_independent_v18626"] = True
+            settings["special_watch_banner_speed_seconds_v18615"] = 0
+            save_settings(settings)
+            st.info("Rulling/fart er oppdatert. Banneret over bruker ny verdi etter denne oppfriskningen.")
+
         with st.form("special_watch_settings_form_v18619", clear_on_submit=False):
-            c_enable, c_mode, c_speed, c_refresh, c_near, c_push, c_count = st.columns([0.58, 0.75, 0.78, 0.78, 0.72, 0.85, 1.05])
-            with c_enable:
-                enabled = st.checkbox(
-                    "Vis særskilt banner",
-                    value=bool(settings.get("special_watch_banner_enabled_v18615", True)),
-                    key="special_watch_enabled_v18619",
-                )
-            with c_mode:
-                saved_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip()
-                if not saved_mode:
-                    saved_mode = "Egen fart"
-                if saved_mode == "Arv hovedbanner":
-                    saved_mode = "Egen fart"
-                modes = ["Egen fart", "Stoppet"]
-                if saved_mode not in modes:
-                    saved_mode = "Egen fart"
-                scroll_mode = st.selectbox(
-                    "Rulling",
-                    modes,
-                    index=modes.index(saved_mode),
-                    key="special_watch_scroll_mode_v18624",
-                    help="Særskilt banner har egen fart og arver ikke lenger hovedbanneret.",
-                )
-            with c_speed:
-                scroll_speed = st.slider(
-                    "Rullefart",
-                    min_value=1,
-                    max_value=100,
-                    value=int(settings.get("special_watch_scroll_speed_v18624", 50) or 50),
-                    step=1,
-                    key="special_watch_speed_v18624",
-                    help="Høyere tall gir raskere rulling når Rulling står på Egen fart.",
-                )
-                st.caption("Høyere tall = raskere.")
+            c_refresh, c_near, c_push = st.columns([0.78, 0.72, 0.85])
             with c_refresh:
                 special_refresh = st.number_input(
                     "Oppdateringsintervall min",
@@ -5216,8 +5239,6 @@ def render_special_watch_menu_v18619() -> None:
                 near_pct = st.slider("Gul nær grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0, key="special_watch_near_pct_v18621")
             with c_push:
                 pushover = st.checkbox("Send Pushover ved rød markør", value=bool(config.get("pushover", False)), key="special_watch_pushover_v18621")
-            with c_count:
-                st.markdown(f"<div class='v18-dark-row'><b>{len(watched)}</b> tickere i særskilt overvåking</div>", unsafe_allow_html=True)
 
             st.markdown("**Legg til eller oppdater ticker**")
             a1, a2, a3, a4, a5 = st.columns([0.9, 0.8, 0.8, 0.8, 0.8])
@@ -5232,12 +5253,12 @@ def render_special_watch_menu_v18619() -> None:
             with a5:
                 add_pct_down = st.number_input("Dagsendring ned %", min_value=-100.0, max_value=0.0, value=0.0, step=0.5, key="special_watch_add_pct_down_v18619")
 
-            saved = st.form_submit_button("Lagre", use_container_width=False)
+            saved = st.form_submit_button("Lagre varselgrenser", use_container_width=False)
 
         if saved:
-            settings["special_watch_banner_enabled_v18615"] = bool(enabled)
-            settings["special_watch_scroll_mode_v18624"] = "Stoppet" if str(scroll_mode) == "Stoppet" else "Egen fart"
-            settings["special_watch_scroll_speed_v18624"] = int(scroll_speed)
+            settings["special_watch_banner_enabled_v18615"] = bool(st.session_state.get("special_watch_enabled_v18619", True))
+            settings["special_watch_scroll_mode_v18624"] = "Stoppet" if str(st.session_state.get("special_watch_scroll_mode_v18624")) == "Stoppet" else "Egen fart"
+            settings["special_watch_scroll_speed_v18624"] = int(st.session_state.get("special_watch_speed_v18624", 50) or 50)
             settings["special_watch_force_independent_v18626"] = True
             settings["special_watch_banner_speed_seconds_v18615"] = 0
             settings["special_watch_update_interval_minutes_v18623"] = int(special_refresh)
