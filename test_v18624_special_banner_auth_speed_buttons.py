@@ -9,9 +9,9 @@ def _read(name: str) -> str:
 
 def test_v18624_version_label():
     version = _read("app_version.py")
-    assert 'APP_VERSION = "v18.6.24"' in version
-    assert "Sarskilt bannerklikk, fart og kompakte knapper" in version
-    assert "v18624-special-banner-auth-speed-buttons" in version
+    assert 'APP_VERSION = "v18.6.25"' in version
+    assert "Modernisert hovedside og raskere særskilt banner" in version
+    assert "v18625-modern-dashboard-independent-banner-speed" in version
 
 
 def test_v18624_special_banner_preserves_remember_token_on_click():
@@ -30,7 +30,7 @@ def test_v18624_special_watch_has_real_scroll_mode_not_seconds_only():
     assert "special_watch_scroll_speed_v18624" in app
     assert 'modes = ["Arv hovedbanner", "Stoppet", "Egen fart"]' in app
     assert "animation: none !important" in app
-    assert "260 - (scroll_speed * 2.2)" in app
+    assert "96 - (scroll_speed * 0.88)" in app
     assert "Rullefart: høyere tall = raskere" in app
 
 

@@ -963,6 +963,107 @@ def inject_workspace_css() -> None:
             opacity:1 !important; filter:none !important; transition:none !important;
         }
 
+        /* v18.6.25: modern dashboard polish without changing analysis logic. */
+        html body .stApp {
+            background:
+                radial-gradient(circle at 12% 0%, rgba(14,165,233,.16), transparent 28%),
+                radial-gradient(circle at 92% 4%, rgba(34,197,94,.10), transparent 25%),
+                linear-gradient(180deg, #070d1d 0%, #0a1020 38%, #070b16 100%) !important;
+        }
+        html body .stApp .block-container {
+            padding-left: 1.0rem !important;
+            padding-right: 1.0rem !important;
+        }
+        .ptw-app-title {
+            border: 1px solid rgba(125,211,252,.28) !important;
+            background: linear-gradient(135deg, rgba(15,23,42,.92), rgba(8,47,73,.72) 52%, rgba(6,78,59,.28)) !important;
+            border-radius: 18px !important;
+            padding: .72rem .90rem !important;
+            margin: .10rem 0 .46rem 0 !important;
+            box-shadow: 0 18px 42px rgba(0,0,0,.28), 0 0 0 1px rgba(125,211,252,.08) inset !important;
+            justify-content: space-between !important;
+            flex-wrap: wrap !important;
+        }
+        .ptw-title-stack { display:flex; flex-direction:column; gap:.10rem; }
+        .ptw-title-eyebrow {
+            color:#67e8f9;
+            font-size:.72rem;
+            font-weight:950;
+            letter-spacing:.08em;
+            text-transform:uppercase;
+        }
+        .ptw-title-main {
+            color:#f8fafc;
+            font-size:1.48rem;
+            font-weight:950;
+            line-height:1.04;
+        }
+        .ptw-title-sub {
+            color:rgba(219,234,254,.82);
+            font-size:.82rem;
+            font-weight:750;
+            margin-top:.04rem;
+        }
+        .ptw-title-actions { display:flex; gap:.42rem; flex-wrap:wrap; align-items:center; }
+        .ptw-title-chip {
+            display:inline-flex;
+            align-items:center;
+            gap:.28rem;
+            border:1px solid rgba(125,211,252,.34);
+            background:rgba(15,23,42,.72);
+            color:#e0f2fe;
+            border-radius:999px;
+            padding:.28rem .56rem;
+            font-size:.76rem;
+            font-weight:900;
+        }
+        .ptw-sticky-topbar,
+        .v18532-header-status,
+        .v18532-top-controls,
+        .v18581-global-toolbar,
+        .v18548-global-update-wrap {
+            border-radius: 16px !important;
+            border-color: rgba(125,211,252,.26) !important;
+            background: linear-gradient(180deg, rgba(15,23,42,.82), rgba(8,16,34,.74)) !important;
+            box-shadow: 0 12px 28px rgba(0,0,0,.20), 0 0 0 1px rgba(125,211,252,.05) inset !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details summary {
+            min-height: 42px !important;
+            border-radius: 14px !important;
+            background: linear-gradient(135deg, rgba(8,47,73,.68), rgba(15,23,42,.92)) !important;
+            border-color: rgba(125,211,252,.34) !important;
+            box-shadow: 0 10px 22px rgba(0,0,0,.16), 0 0 0 1px rgba(125,211,252,.07) inset !important;
+        }
+        html body .stApp div[data-testid="stExpander"] details[open] summary {
+            background: linear-gradient(135deg, rgba(6,78,59,.62), rgba(15,23,42,.94)) !important;
+            border-color: rgba(34,197,94,.42) !important;
+        }
+        .ptw-control-hero {
+            border-radius: 20px !important;
+            padding: .95rem 1.05rem !important;
+            background: linear-gradient(135deg, rgba(6,78,59,.56), rgba(8,47,73,.82) 44%, rgba(15,23,42,.96)) !important;
+        }
+        .ptw-control-selector-shell {
+            border-radius: 18px !important;
+            background: linear-gradient(135deg, rgba(15,23,42,.88), rgba(8,47,73,.58)) !important;
+            box-shadow: 0 14px 32px rgba(0,0,0,.20), 0 0 0 1px rgba(125,211,252,.10) inset !important;
+        }
+        .ptw-control-submenu {
+            border-radius: 16px !important;
+            background: rgba(2,6,23,.30) !important;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] { gap:.44rem .48rem !important; }
+        div[data-testid="stRadio"] label {
+            border-radius: 14px !important;
+            padding: .40rem .64rem !important;
+            background: linear-gradient(180deg, rgba(15,23,42,.82), rgba(8,47,73,.48)) !important;
+            box-shadow: 0 8px 18px rgba(0,0,0,.12) !important;
+        }
+        div[data-testid="stRadio"] label:has(input:checked) {
+            background: linear-gradient(180deg, rgba(22,163,74,.56), rgba(8,47,73,.66)) !important;
+            box-shadow: 0 0 22px rgba(34,197,94,.18), 0 0 0 1px rgba(187,247,208,.12) inset !important;
+        }
+
 </style>
         """,
         unsafe_allow_html=True,
@@ -974,7 +1075,16 @@ def render_workspace_title() -> None:
     st.markdown(
         """
         <div class="ptw-app-title">
-          <span>📊 Market Overview – 📈 AI Aksje Analyzer Pro</span>
+          <div class="ptw-title-stack">
+            <div class="ptw-title-eyebrow">Market Intelligence Workspace</div>
+            <div class="ptw-title-main">📈 AI Aksje Analyzer Pro</div>
+            <div class="ptw-title-sub">Dashboard · ticker-bannere · AI Kontrollsenter</div>
+          </div>
+          <div class="ptw-title-actions">
+            <span class="ptw-title-chip">⚡ v18.6.25</span>
+            <span class="ptw-title-chip">Uavhengige bannere</span>
+            <span class="ptw-title-chip">Modernisert hovedside</span>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,

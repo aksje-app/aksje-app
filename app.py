@@ -5017,8 +5017,9 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         animation_style = "animation: none !important;"
         mode_txt = "stoppet"
     elif scroll_mode == "Egen fart":
-        # Higher UI speed should feel faster. CSS duration therefore moves the opposite way.
-        speed_seconds = max(12, min(240, int(round(260 - (scroll_speed * 2.2)))))
+        # v18.6.25: Slider is a SPEED control, not a progress/duration control.
+        # 1 = very slow, 50 = normal, 100 = fast. This fixes the old 40-150s feel.
+        speed_seconds = max(6, min(90, int(round(96 - (scroll_speed * 0.88)))))
         animation_style = f"animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important;"
         mode_txt = f"egen fart {scroll_speed}/100"
     else:
@@ -5070,7 +5071,7 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
     refresh_txt = "eget intervall" if refresh_raw > 0 else "samme intervall som hovedbanner"
     st.caption(
         f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s · {mode_txt} · data ca. hver {refresh_minutes}. min ({refresh_txt}). "
-        "Rullefart: høyere tall = raskere."
+        "Rullefart: høyere tall = raskere. Hovedbanner og særskilt banner styres uavhengig når modus er Egen fart."
     )
 
 

@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.24"
-APP_VERSION_NAME = "Sarskilt bannerklikk, fart og kompakte knapper"
-APP_BUILD_ID = "v18624-special-banner-auth-speed-buttons"
+APP_VERSION = "v18.6.25"
+APP_VERSION_NAME = "Modernisert hovedside og raskere særskilt banner"
+APP_BUILD_ID = "v18625-modern-dashboard-independent-banner-speed"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Hovedsiden har fått mer moderne dashboard-preg med oppdatert toppfelt, glass/premium-kort og tydeligere AI Kontrollsenter.",
+    "Særskilt overvåking bruker nå reell hastighetsmapping fra 1-100, der 100 gir ca. 8 sekunder i stedet for ca. 40 sekunder.",
+    "Særskilt banner kan fortsatt arve hovedbanneret, men i Egen fart styres hastigheten helt uavhengig av hovedbanneret.",
     "Refresh-login kan ikke lenger bli stående fast på gjenoppretting; etter restore-forsøk vises innloggingen som fallback.",
     "Refresh med Husk meg får gjenopprette innlogging før login-skjema vises, og remember-token beholdes i URL mens langtidsinnlogging er aktiv.",
     "Særskilt overvåking har egen banneranimasjon, egen lifecycle-kilde og egen signalhistorikk slik at hastighet og logg ikke blandes med hovedbanneret.",
