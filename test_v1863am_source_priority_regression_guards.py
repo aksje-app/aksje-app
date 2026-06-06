@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 
 import universe_engine

@@ -1,4 +1,4 @@
-﻿from nbim_radar import compare_nbim_holdings
+from nbim_radar import compare_nbim_holdings
 from ranking_evidence_adapters import (
     apply_actor_registry_to_rows,
     finansavisen_to_ranking_rows,
@@ -132,6 +132,7 @@ def test_rank_local_evidence_sources_combines_sources_and_dedupes_same_ticker():
     assert "Oljefond/NBIM" in row["source"]
     assert row["evidence_summary"]["totalt"] == 2
     assert row["recommended_action"] in {"Til beslutningsgrunnlag", "Analyser videre"}
+
 
 
 

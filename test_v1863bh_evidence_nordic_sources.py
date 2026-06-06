@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import py_compile
 
@@ -104,6 +104,7 @@ def test_source_budget_and_actor_registry_editor_static_guards():
     assert "Unmatched Workbench" in ui
     assert "actor_registry_selected_actor_v1863bj" in ui
     assert "Raske alias-forslag" in ui
+
 
 
 

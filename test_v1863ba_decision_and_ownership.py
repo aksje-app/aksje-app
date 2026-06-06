@@ -1,4 +1,4 @@
-﻿from alpha_radar_engine import run_alpha_radar
+from alpha_radar_engine import run_alpha_radar
 from alpha_radar_ownership import classify_ownership_item, split_ownership_evidence
 from decision_engine import build_decision_case, decision_source_rows_from_radar_result
 from early_warning_engine import run_early_warning
@@ -145,6 +145,7 @@ def test_decision_source_rows_can_select_subset_from_radar_result():
     assert len(rows) == 1
     assert rows[0]["ticker"] == "BBB.OL"
     assert rows[0]["decision_source"] == "Early Warning"
+
 
 
 

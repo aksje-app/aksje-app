@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 # v18.5.12 Render import-path guard
 import os as _render_os
 import sys as _render_sys

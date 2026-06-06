@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 
 from auto_test_lab import (
@@ -137,6 +137,7 @@ def test_auto_test_lab_shared_ranking_static_guards():
     assert "run_clicked = st.button" in block
     assert "if run_clicked:" in block
     assert block.find("run_auto_test_lab(") > block.find("if run_clicked:")
+
 
 
 

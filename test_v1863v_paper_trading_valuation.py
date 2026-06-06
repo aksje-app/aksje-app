@@ -67,3 +67,4 @@ def test_common_display_contract_contains_weight_and_explanation():
     assert holdings[0]["Vekt %"] == 10.0
     assert "paper-posisjon" in holdings[0]["Forklaring"]
     assert "Vekt %" in trades[0]
+

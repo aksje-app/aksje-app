@@ -1,4 +1,4 @@
-﻿from actor_registry import actor_aliases_for_matching, actor_registry_to_csv, match_actor_text, normalize_actor_row, parse_actor_registry_upload
+from actor_registry import actor_aliases_for_matching, actor_registry_to_csv, match_actor_text, normalize_actor_row, parse_actor_registry_upload
 from decision_engine import build_decision_case
 from early_warning_engine import run_early_warning
 from financial_evidence_search import build_financial_search_plan, search_financial_evidence
@@ -194,6 +194,7 @@ def test_actor_registry_csv_roundtrip_and_financial_search_plan():
     result = search_financial_evidence({"ticker": "NOVO-B.CO", "name": "Novo Nordisk", "market": "Danmark"}, news_provider=provider, days_back=31, max_queries=1)
     assert result["articles"]
     assert result["insider_evidence"]
+
 
 
 

@@ -58,3 +58,4 @@ def test_v1864y_fmp_live_source_contract(monkeypatch):
 
     nordic = fmp_signals.fmp_candidate_tickers("Norden", limit=5)
     assert nordic == ["EQNR.OL", "VOLV-B.ST"]
+

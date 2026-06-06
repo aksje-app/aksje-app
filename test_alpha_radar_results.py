@@ -1,4 +1,4 @@
-﻿import io
+import io
 import zipfile
 
 from alpha_radar_results import (
@@ -97,6 +97,7 @@ def test_alpha_radar_result_can_become_active_universe_payload():
     assert payload["source"] == "Alpha Radar"
     assert payload["tickers"] == ["MICRO.OL", "HIDE.ST"]
     assert payload["rows"][0]["status"] == "Alpha Radar hypotese"
+
 
 
 

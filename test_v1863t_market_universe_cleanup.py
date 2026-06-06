@@ -1,4 +1,4 @@
-﻿from universe_engine import resolve_universe_tickers
+from universe_engine import resolve_universe_tickers
 from services.universe_service import _extract_non_legacy_tickers, _legacy_seed_only
 
 
@@ -52,6 +52,7 @@ def test_picker_empty_scope_stays_empty(tmp_path):
     assert resolved.ok
     assert resolved.status == "empty"
     assert resolved.data["tickers"] == []
+
 
 
 

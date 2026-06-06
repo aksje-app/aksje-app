@@ -28,3 +28,4 @@ def test_paper_button_css_no_longer_forces_primary_full_width():
     assert "giant full-width" in primary_block
     assert "width:auto !important" in primary_block
     assert "\n    width:100% !important" not in primary_block
+

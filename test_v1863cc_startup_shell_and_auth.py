@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
@@ -43,6 +43,7 @@ def test_primary_buttons_are_normal_height_globally():
     assert "min-height:50px !important;" not in app
     assert ".ptw-control-selector-shell div[data-testid=\"stButton\"] button" in layout
     assert "min-height: 34px !important;" in layout
+
 
 
 

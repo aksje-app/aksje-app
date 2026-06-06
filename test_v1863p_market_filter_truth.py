@@ -1,4 +1,4 @@
-﻿from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter
+from security_metadata import filter_tickers_for_market, infer_security_listing, market_matches_filter
 
 
 def test_market_filter_uses_ticker_listing_before_source_or_stale_market():
@@ -25,6 +25,7 @@ def test_market_filter_uses_ticker_listing_before_source_or_stale_market():
 
     assert filter_tickers_for_market(["AAPL", "STB.OL", "VOLV-B.ST"], "Norge") == ["STB.OL"]
     assert filter_tickers_for_market(["AAPL", "NOKIA.HE", "NOVO-B.CO", "PETR4.SA"], "Norden") == ["NOKIA.HE", "NOVO-B.CO"]
+
 
 
 

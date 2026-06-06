@@ -1,4 +1,4 @@
-﻿from analysis import apply_insider_adjustment, score_from_metrics
+from analysis import apply_insider_adjustment, score_from_metrics
 from auto_test_lab import compute_decision_quality
 from signal_engine import calculate_signal_intelligence
 from universe_engine import candidate_from_score_item
@@ -70,6 +70,7 @@ def test_universe_and_auto_lab_preserve_insider_metadata():
     assert candidate.insider_score == 80.0
     assert "insiderbilde" in candidate.reason
     assert quality.insider_score == 80.0
+
 
 
 

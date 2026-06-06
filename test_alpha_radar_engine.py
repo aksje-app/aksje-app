@@ -1,4 +1,4 @@
-﻿from alpha_radar_engine import normalize_alpha_radar_parameters, run_alpha_radar
+from alpha_radar_engine import normalize_alpha_radar_parameters, run_alpha_radar
 
 
 FAKE_ROWS = {
@@ -404,6 +404,7 @@ def test_alpha_radar_balanced_market_output_keeps_non_us_visible():
     assert result["market_scan_counts"]["USA/annet"] == 4
     assert result["market_scan_counts"]["Norge"] == 1
     assert result["market_candidate_counts"]["Norge"] >= 1 or result["market_candidate_counts"]["Sverige"] >= 1
+
 
 
 

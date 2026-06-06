@@ -1,4 +1,4 @@
-﻿from universe_engine import (
+from universe_engine import (
     candidate_dicts_for_app,
     resolve_universe_tickers,
     run_smart_ai_universe,

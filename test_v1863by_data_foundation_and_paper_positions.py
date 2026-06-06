@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from paper_trading_valuation import (
     PAPER_SHARED_COLUMNS,

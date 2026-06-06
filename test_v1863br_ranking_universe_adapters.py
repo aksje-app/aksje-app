@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from ranking_universe_adapters import (
     attach_shared_ranking_to_smart_result,
@@ -103,6 +103,7 @@ def test_universe_adapter_stays_pure_and_lightweight():
     lowered = source.lower()
     for forbidden in ("streamlit", "requests", "yfinance", "score_stock", "auto_rank_market", "rank_stocks"):
         assert forbidden not in lowered
+
 
 
 

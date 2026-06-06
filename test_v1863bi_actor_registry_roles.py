@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import py_compile
 
@@ -96,6 +96,7 @@ def test_actor_registry_ui_roles_search_sort_and_privacy_static_guards():
     assert "Lagres lokalt" in ui
     assert "actor_roles" in ui
     assert "st.data_editor" not in ui
+
 
 
 

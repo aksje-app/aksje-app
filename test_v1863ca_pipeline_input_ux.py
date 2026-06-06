@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from services.analysis_pipeline_service import stage_wizard_info
 
@@ -98,6 +98,7 @@ def test_known_us_names_are_resolved_in_quick_cards():
 
     assert '"MO": {"name": "Altria Group, Inc."' in metadata
     assert '"AKAM": {"name": "Akamai Technologies, Inc."' in metadata
+
 
 
 

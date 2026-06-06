@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 
 from banner_tools import parse_banner_csv_text, parse_banner_settings, parse_ticker_text, merge_ticker_maps

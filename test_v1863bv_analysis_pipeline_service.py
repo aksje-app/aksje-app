@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import pytest
 
@@ -259,6 +259,7 @@ def test_pipeline_wizard_numbers_defaults_and_navigation_are_static():
     assert "auto_lab_limit_v18537" in app_source
     assert "mixed_portfolio_max_rows_v18544" in app_source
     assert "_clamp_slider_state_v1864e" in smart_source
+
 
 
 

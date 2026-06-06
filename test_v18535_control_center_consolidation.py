@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import py_compile
 
 for name in ["app.py", "workspace_layout.py", "app_version.py"]:
