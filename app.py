@@ -5008,24 +5008,39 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
     raw_speed = int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0)
     scroll_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip()
     if not scroll_mode:
-        scroll_mode = "Egen fart" if raw_speed > 0 else "Arv hovedbanner"
+        scroll_mode = "Egen fart" if raw_speed > 0 else "Egen fart"
+    # v18.6.26: The special banner must be independent by default.
+    # Earlier installs may have saved "Arv hovedbanner", which made the slider look broken.
+    # Keep the option in the admin UI, but make the visible surface default to its own speed.
+    if scroll_mode == "Arv hovedbanner" and bool(settings.get("special_watch_force_independent_v18626", True)):
+        scroll_mode = "Egen fart"
     scroll_speed = int(settings.get("special_watch_scroll_speed_v18624", 50) or 50)
     scroll_speed = max(1, min(scroll_speed, 100))
-    inherited_seconds = max(10, min(int(settings.get("live_banner_speed_seconds", 70) or 70), 300))
+    inherited_seconds = max(6, min(int(settings.get("live_banner_speed_seconds", 70) or 70), 300))
     if scroll_mode == "Stoppet":
         speed_seconds = inherited_seconds
-        animation_style = "animation: none !important;"
+        animation_style = "animation-name: none !important; animation-duration: 0s !important;"
         mode_txt = "stoppet"
     elif scroll_mode == "Egen fart":
-        # v18.6.25: Slider is a SPEED control, not a progress/duration control.
-        # 1 = very slow, 50 = normal, 100 = fast. This fixes the old 40-150s feel.
-        speed_seconds = max(6, min(90, int(round(96 - (scroll_speed * 0.88)))))
-        animation_style = f"animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important;"
+        # Slider is now a real SPEED control: 1 ~= 69s, 50 ~= 22s, 100 ~= 4s.
+        speed_seconds = max(4, min(70, int(round((0.006 * scroll_speed * scroll_speed) - (1.26 * scroll_speed) + 70))))
+        animation_style = (
+            "animation-name: specialWatchTickerTapeScrollV18626 !important; "
+            f"animation-duration: {speed_seconds}s !important; "
+            "animation-timing-function: linear !important; "
+            "animation-iteration-count: infinite !important; "
+            "animation-play-state: running !important;"
+        )
         mode_txt = f"egen fart {scroll_speed}/100"
     else:
         speed_seconds = inherited_seconds
-        animation_style = f"animation: specialWatchTickerTapeScrollV18621 {speed_seconds}s linear infinite !important;"
-        mode_txt = "samme hastighet som hovedbanner"
+        animation_style = (
+            "animation-name: specialWatchTickerTapeScrollV18626 !important; "
+            f"animation-duration: {speed_seconds}s !important; "
+            "animation-timing-function: linear !important; "
+            "animation-iteration-count: infinite !important;"
+        )
+        mode_txt = "arver hovedbanner"
     cards_html = []
     for ticker, card, _rules in watched[:24]:
         label = html.escape(str(card.get("label") or ticker))
@@ -5058,7 +5073,11 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
     render_cards_html_v18623 = render_cards_html_v18623[: max(12, len(cards_html))]
     st.markdown(
         _banner_detail_layout_css_v18614()
-        + f"<style>@keyframes specialWatchTickerTapeScrollV18621 {{ from {{ transform: translateX(0); }} to {{ transform: translateX(-50%); }} }}</style>"
+        + "<style>"
+        + "@keyframes specialWatchTickerTapeScrollV18626 { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }"
+        + ".special-watch-track-v18621 { will-change: transform !important; }"
+        + ".special-watch-tape-v18621:hover .special-watch-track-v18621 { animation-play-state: paused !important; }"
+        + "</style>"
         + "<div class='follow-banner-title'>Særskilt overvåking</div>"
         + f"<div class='ticker-tape-wrap special-watch-tape-v18621' aria-label='Særskilt overvåking'><div class='ticker-tape-track special-watch-track-v18621' style='{animation_style} min-width: max-content;'>"
         + "".join(render_cards_html_v18623)
@@ -5155,8 +5174,10 @@ def render_special_watch_menu_v18619() -> None:
             with c_mode:
                 saved_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip()
                 if not saved_mode:
-                    saved_mode = "Egen fart" if int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0) > 0 else "Arv hovedbanner"
-                modes = ["Arv hovedbanner", "Stoppet", "Egen fart"]
+                    saved_mode = "Egen fart"
+                if saved_mode == "Arv hovedbanner" and bool(settings.get("special_watch_force_independent_v18626", True)):
+                    saved_mode = "Egen fart"
+                modes = ["Egen fart", "Stoppet", "Arv hovedbanner"]
                 if saved_mode not in modes:
                     saved_mode = "Arv hovedbanner"
                 scroll_mode = st.selectbox(
@@ -5214,6 +5235,7 @@ def render_special_watch_menu_v18619() -> None:
             settings["special_watch_banner_enabled_v18615"] = bool(enabled)
             settings["special_watch_scroll_mode_v18624"] = str(scroll_mode)
             settings["special_watch_scroll_speed_v18624"] = int(scroll_speed)
+            settings["special_watch_force_independent_v18626"] = True
             settings["special_watch_banner_speed_seconds_v18615"] = 0
             settings["special_watch_update_interval_minutes_v18623"] = int(special_refresh)
             config["near_pct"] = float(near_pct)
