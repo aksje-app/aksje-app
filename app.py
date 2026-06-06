@@ -1754,6 +1754,131 @@ def _rank_cache_get(label, fp):
     return None
 
 
+# v18.6.31: Dashboard 2026 KPI-rad øverst. Kun lesing fra eksisterende state/cache.
+def _dashboard2026_safe_float(value, default=0.0):
+    try:
+        return float(value or default)
+    except Exception:
+        return float(default)
+
+
+def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
+    rows: list[dict] = []
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    if isinstance(latest, dict):
+        for _label, items in latest.items():
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        rows.append(item)
+    # Behold unik ticker og beste score, uten å starte ny analyse.
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in sorted(rows, key=lambda x: _dashboard2026_safe_float(x.get("score"), 0), reverse=True):
+        ticker = str(item.get("ticker") or item.get("symbol") or "").upper().strip()
+        if ticker and ticker in seen:
+            continue
+        if ticker:
+            seen.add(ticker)
+        out.append(item)
+        if len(out) >= int(limit or 250):
+            break
+    return out
+
+
+def _dashboard2026_decision_text(item: dict) -> str:
+    fields = (
+        item.get("decision"),
+        item.get("signal"),
+        item.get("recommendation"),
+        item.get("action"),
+        item.get("action_now"),
+        item.get("rating"),
+    )
+    text = " ".join(str(x or "") for x in fields).upper()
+    score = _dashboard2026_safe_float(item.get("score"), 0)
+    if not text.strip():
+        # Kun for dashboard-visning: bruk eksisterende score som lett indikator.
+        if score >= 7.5:
+            return "BUY"
+        if score <= 4.0:
+            return "SELL"
+        return "HOLD"
+    return text
+
+
+def _dashboard2026_kpi_snapshot() -> dict:
+    rows = _dashboard2026_latest_rank_rows()
+    buy = 0
+    sell = 0
+    for item in rows:
+        text = _dashboard2026_decision_text(item)
+        if "BUY" in text or "KJØP" in text:
+            buy += 1
+        elif "SELL" in text or "AVOID" in text or "UNNG" in text or "SELG" in text:
+            sell += 1
+    best = rows[0] if rows else {}
+    best_ticker = str(best.get("ticker") or best.get("symbol") or "-").upper()
+    best_score = _dashboard2026_safe_float(best.get("score"), 0)
+    alerts = 0
+    try:
+        alerts += len(st.session_state.get("live_banner_alert_log_v18610") or [])
+    except Exception:
+        pass
+    try:
+        alerts += len(st.session_state.get("special_watch_alert_log_v18621") or [])
+    except Exception:
+        pass
+    try:
+        alerts += len(st.session_state.get("paper_alert_events_v18611") or [])
+    except Exception:
+        pass
+    return {
+        "buy": buy,
+        "sell": sell,
+        "alerts": alerts,
+        "best_ticker": best_ticker,
+        "best_score": best_score,
+        "rows": len(rows),
+    }
+
+
+def render_dashboard2026_kpis_v18631() -> None:
+    """Modern dashboard header cards. Skal ikke trigge datainnhenting."""
+    snap = _dashboard2026_kpi_snapshot()
+    best_value = f"{html.escape(snap['best_ticker'])}"
+    best_sub = "Ingen cachet score ennå" if not snap.get("rows") else f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater i cache"
+    st.markdown(
+        f"""
+        <div class='dash2026-section-label'>Dashboard 2026 · markedsoversikt</div>
+        <div class='dash2026-kpi-grid'>
+          <div class='dash2026-kpi-card buy'>
+            <div class='dash2026-kpi-label'>BUY</div>
+            <div class='dash2026-kpi-value'>{int(snap['buy'])}</div>
+            <div class='dash2026-kpi-sub'>Kandidater med kjøpssignal eller høy score</div>
+          </div>
+          <div class='dash2026-kpi-card sell'>
+            <div class='dash2026-kpi-label'>SELL / UNNGÅ</div>
+            <div class='dash2026-kpi-value'>{int(snap['sell'])}</div>
+            <div class='dash2026-kpi-sub'>Kandidater med negativt signal</div>
+          </div>
+          <div class='dash2026-kpi-card alerts'>
+            <div class='dash2026-kpi-label'>Varsler</div>
+            <div class='dash2026-kpi-value'>{int(snap['alerts'])}</div>
+            <div class='dash2026-kpi-sub'>Registrerte banner-, watchlist- og paper-hendelser</div>
+          </div>
+          <div class='dash2026-kpi-card best'>
+            <div class='dash2026-kpi-label'>Beste kandidat</div>
+            <div class='dash2026-kpi-value'>{best_value}</div>
+            <div class='dash2026-kpi-sub'>{html.escape(best_sub)}</div>
+          </div>
+        </div>
+        <div class='dash2026-section-label'>Live banner</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
     """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
 
@@ -2763,7 +2888,7 @@ div[role="option"][aria-selected="true"] {
     padding: 5px 4px;
     line-height: 1.05;
     overflow: hidden;
-    min-height: 34px;
+    min-height: 24px;
     border: 1px solid rgba(148,163,184,0.28);
     background: rgba(15,23,42,0.84);
 }
@@ -3060,7 +3185,7 @@ div[role="tooltip"] *,
     background: rgba(15,23,42,0.88);
     border: 1px solid rgba(148,163,184,0.38);
     border-radius: 14px;
-    padding: 10px 11px;
+    padding: 6px 8px;
     margin: 8px 0 8px 0;
 }
 .trading-engine-pill {
@@ -3219,7 +3344,7 @@ div[role="tooltip"] *,
     background: rgba(15,23,42,0.72);
     border: 1px solid rgba(148,163,184,0.32);
     border-radius: 14px;
-    padding: 10px 11px;
+    padding: 6px 8px;
     margin: 6px 0 10px 0;
 }
 
@@ -5491,13 +5616,13 @@ def render_live_market_banner():
     .ticker-tape-wrap {
         width: 100%;
         overflow: hidden;
-        margin: 0.36rem 0 0.72rem 0;
+        margin: 0.20rem 0 0.42rem 0;
         padding: 0;
         border-top: 1px solid rgba(15,23,42,0.10);
         border-bottom: 1px solid rgba(15,23,42,0.14);
         background: #f8fafc;
         border-radius: 12px;
-        min-height: 92px;
+        min-height: 54px;
         box-shadow: inset 0 0 0 1px rgba(15,23,42,0.03);
     }
     .ticker-tape-track {
@@ -5507,7 +5632,7 @@ def render_live_market_banner():
         gap: 10px;
         white-space: nowrap;
         animation: tickerTapeScroll __SPEED__s linear infinite;
-        padding: 10px 11px;
+        padding: 6px 8px;
     }
     .ticker-tape-wrap:hover .ticker-tape-track {
         animation-play-state: paused;
@@ -5517,9 +5642,9 @@ def render_live_market_banner():
         grid-template-columns: 22px 132px 96px;
         align-items: center;
         gap: 8px;
-        min-width: 266px;
-        height: 70px;
-        padding: 8px 11px;
+        min-width: 236px;
+        height: 42px;
+        padding: 5px 9px;
         border-radius: 0;
         background: #ffffff;
         border-right: 1px solid rgba(15,23,42,0.10);
@@ -5601,7 +5726,7 @@ def render_live_market_banner():
     .ticker-spark svg {
         display: block;
         width: 94px;
-        height: 34px;
+        height: 24px;
     }
     .banner-decision-grid {
         display: grid;
@@ -5614,7 +5739,7 @@ def render_live_market_banner():
         background: rgba(15,23,42,.78);
         border-radius: 7px;
         padding: 8px 10px;
-        min-height: 64px;
+        min-height: 46px;
     }
     .banner-decision-label {
         color: #93c5fd;
@@ -5639,21 +5764,21 @@ def render_live_market_banner():
         to { transform: translateX(-50%); }
     }
     @media (max-width: 1100px) {
-        .ticker-tape-wrap { min-height: 96px; }
+        .ticker-tape-wrap { min-height: 58px; }
         .ticker-tape-item {
             grid-template-columns: 22px 134px 102px;
             min-width: 276px;
-            height: 74px;
+            height: 48px;
             padding: 8px 12px;
         }
         .ticker-title { font-size: 0.96rem; }
         .ticker-price { font-size: 1.04rem; }
         .ticker-change { font-size: 0.90rem; }
-        .ticker-spark svg { width: 102px; height: 38px; }
+        .ticker-spark svg { width: 102px; height: 26px; }
     }
     @media (max-width: 700px) {
         .ticker-tape-wrap {
-            min-height: 86px;
+            min-height: 56px;
             border-radius: 8px;
         }
         .ticker-tape-track {
@@ -5663,7 +5788,7 @@ def render_live_market_banner():
         .ticker-tape-item {
             grid-template-columns: 22px 120px 86px;
             min-width: 244px;
-            height: 64px;
+            height: 46px;
             padding: 7px 10px;
             gap: 10px;
         }
@@ -5671,7 +5796,7 @@ def render_live_market_banner():
         .ticker-title { font-size: 0.82rem; margin-bottom: 3px; }
         .ticker-price { font-size: 0.92rem; }
         .ticker-change { font-size: 0.78rem; margin-top: 4px; }
-        .ticker-spark svg { width: 86px; height: 34px; }
+        .ticker-spark svg { width: 86px; height: 24px; }
     }
     /* v18.5.26: stop banner text from being clipped under the tape. */
     .ticker-tape-wrap + div, .ticker-tape-wrap + p { margin-top: .35rem !important; }
@@ -9735,7 +9860,7 @@ st.sidebar.markdown(
         color: #cbd5e1;
         font-size: 0.78rem;
         line-height: 1.35;
-        padding: 10px 11px;
+        padding: 6px 8px;
         border-radius: 11px;
         background: rgba(2,6,23,0.32);
         border: 1px solid rgba(148,163,184,0.16);
@@ -16850,6 +16975,28 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 
 
 
+
+
+def control_center_extra_panels_v18535():
+    return [
+        ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
+        ("Markedsklima", render_market_climate_panel),
+        ("Marked", render_market_room_control_center_v1863cb),
+        ("Top Picks", render_top_picks_control_center_v1863s),
+        ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
+        ("Aktørregister", render_actor_registry_panel),
+        ("IPO", render_ipo),
+        ("Paper Trading og kontroll", render_paper_trading_dashboard),
+        ("Auto Test Lab", render_auto_test_lab_control_center_v18536),
+        ("Fond / ETF", render_fund_etf_control_center_v18538),
+        ("Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
+        ("Nyheter", render_news_control_center_v18535),
+        ("Interaktiv analyse", render_interactive_technical_control_center_v18535),
+        ("Marked/rangering", render_market_ranking_control_center_v18535),
+        ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
+        ("System/admin", lambda: render_system_admin_workspace(expanded=True)),
+    ]
+
 _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
 
 
@@ -17549,6 +17696,8 @@ if not st.session_state.get("ai_control_center_landed_default_v1864l"):
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
+    # v18.6.31: Dashboard 2026 KPI-rad øverst. Leser kun eksisterende cache/session state.
+    render_dashboard2026_kpis_v18631()
     # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
     render_live_market_banner()
