@@ -1754,7 +1754,7 @@ def _rank_cache_get(label, fp):
     return None
 
 
-# v18.6.31: Dashboard 2026 KPI-rad øverst. Kun lesing fra eksisterende state/cache.
+# v18.6.32: Dashboard 2026 KPI-rad øverst. Kun lesing fra eksisterende state/cache.
 def _dashboard2026_safe_float(value, default=0.0):
     try:
         return float(value or default)
@@ -1786,17 +1786,65 @@ def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
     return out
 
 
+
+
+def _dashboard2026_scan_session_candidates_v18632(limit: int = 250) -> list[dict]:
+    """Fallback for Dashboard 2026 KPI boxes when latest_rankings_v148 is empty.
+
+    Leser kun eksisterende session_state-data. Starter ingen nett/datahenting.
+    Dette gjør at KPI-kortene ikke blir tomme dersom en annen modul har lagret
+    kandidater under andre nøkler enn latest_rankings_v148.
+    """
+    rows: list[dict] = []
+    interesting = ("rank", "candidate", "top", "pick", "score", "signal", "watchlist", "paper")
+    for key, value in list(st.session_state.items()):
+        key_l = str(key).lower()
+        if not any(token in key_l for token in interesting):
+            continue
+        try:
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        rows.append(dict(item))
+            elif isinstance(value, dict):
+                vals = list(value.values())
+                if vals and all(isinstance(x, dict) for x in vals[: min(len(vals), 8)]):
+                    rows.extend(dict(x) for x in vals if isinstance(x, dict))
+                elif any(k in value for k in ("ticker", "symbol", "Ticker", "score", "Score")):
+                    rows.append(dict(value))
+            elif hasattr(value, "to_dict") and hasattr(value, "columns"):
+                cols = {str(c).lower() for c in getattr(value, "columns", [])}
+                if cols.intersection({"ticker", "symbol", "score", "signal", "decision", "recommendation"}):
+                    rows.extend(value.head(limit).to_dict("records"))
+        except Exception:
+            continue
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in sorted(rows, key=lambda x: _dashboard2026_safe_float(x.get("score") or x.get("Score"), 0), reverse=True):
+        ticker = str(item.get("ticker") or item.get("symbol") or item.get("Ticker") or item.get("Symbol") or "").upper().strip()
+        if ticker and ticker in seen:
+            continue
+        if ticker:
+            seen.add(ticker)
+        out.append(item)
+        if len(out) >= int(limit or 250):
+            break
+    return out
+
 def _dashboard2026_decision_text(item: dict) -> str:
     fields = (
         item.get("decision"),
+        item.get("Decision"),
         item.get("signal"),
+        item.get("Signal"),
         item.get("recommendation"),
+        item.get("Recommendation"),
         item.get("action"),
         item.get("action_now"),
         item.get("rating"),
     )
     text = " ".join(str(x or "") for x in fields).upper()
-    score = _dashboard2026_safe_float(item.get("score"), 0)
+    score = _dashboard2026_safe_float(item.get("score") or item.get("Score"), 0)
     if not text.strip():
         # Kun for dashboard-visning: bruk eksisterende score som lett indikator.
         if score >= 7.5:
@@ -1818,8 +1866,8 @@ def _dashboard2026_kpi_snapshot() -> dict:
         elif "SELL" in text or "AVOID" in text or "UNNG" in text or "SELG" in text:
             sell += 1
     best = rows[0] if rows else {}
-    best_ticker = str(best.get("ticker") or best.get("symbol") or "-").upper()
-    best_score = _dashboard2026_safe_float(best.get("score"), 0)
+    best_ticker = str(best.get("ticker") or best.get("symbol") or best.get("Ticker") or best.get("Symbol") or "-").upper()
+    best_score = _dashboard2026_safe_float(best.get("score") or best.get("Score"), 0)
     alerts = 0
     try:
         alerts += len(st.session_state.get("live_banner_alert_log_v18610") or [])
@@ -9422,7 +9470,11 @@ def render_paper_trading_dashboard():
 
     _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio)
 
-    # DO_NOT_TOUCH_ZONE v18.5.87: Paper capital/cash semantics are protected. Patch minimally.
+    
+
+
+
+# DO_NOT_TOUCH_ZONE v18.5.87: Paper capital/cash semantics are protected. Patch minimally.
     with st.expander("Juster Paper Trading startverdier / porteføljeverdi", expanded=False):
         st.markdown("""
         <div class="paper-edit-card">
@@ -17679,6 +17731,151 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
 </style>
 """, unsafe_allow_html=True)
 
+
+
+st.markdown("""
+<style>
+/* v18.6.32 Dashboard 2026 Phase 2: compact icon rail + stronger dashboard hierarchy */
+html body section[data-testid="stSidebar"] {
+    width: 118px !important;
+    min-width: 118px !important;
+    max-width: 118px !important;
+    background: linear-gradient(180deg, #020617 0%, #07111f 100%) !important;
+    border-right: 1px solid rgba(56,189,248,.18) !important;
+    box-shadow: 12px 0 30px rgba(0,0,0,.20) !important;
+}
+html body section[data-testid="stSidebar"] > div:first-child {
+    padding: .72rem .46rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+    font-size: 0 !important;
+    margin: .15rem 0 .45rem 0 !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title::before {
+    content: "⚙️";
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:42px; height:42px;
+    margin:0 auto .25rem auto;
+    border-radius:16px;
+    border:1px solid rgba(125,211,252,.42);
+    background:linear-gradient(135deg, rgba(14,165,233,.28), rgba(15,23,42,.90));
+    box-shadow:0 10px 22px rgba(14,165,233,.12);
+    font-size:1.1rem;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-card {
+    padding:.46rem .34rem !important;
+    border-radius:18px !important;
+    background:linear-gradient(180deg, rgba(15,23,42,.86), rgba(2,6,23,.76)) !important;
+    border-color:rgba(125,211,252,.20) !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-title,
+html body section[data-testid="stSidebar"] .auth-mini-heading,
+html body section[data-testid="stSidebar"] .sidebar-small-note,
+html body section[data-testid="stSidebar"] .stCaptionContainer,
+html body section[data-testid="stSidebar"] p {
+    font-size:.64rem !important;
+    line-height:1.12 !important;
+    text-align:center !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-user,
+html body section[data-testid="stSidebar"] .auth-user-row {
+    flex-direction:column !important;
+    gap:.10rem !important;
+    text-align:center !important;
+    font-size:.62rem !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+html body section[data-testid="stSidebar"] button {
+    width:100% !important;
+    min-height:40px !important;
+    border-radius:16px !important;
+    padding:.34rem .28rem !important;
+    font-size:.66rem !important;
+    font-weight:950 !important;
+    background:linear-gradient(180deg, rgba(14,165,233,.24), rgba(15,23,42,.92)) !important;
+    border:1px solid rgba(125,211,252,.30) !important;
+}
+html body section[data-testid="stSidebar"] label {
+    font-size:.62rem !important;
+    line-height:1.10 !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stCheckbox"] label {
+    align-items:flex-start !important;
+}
+html body .stApp .dash2026-section-label {
+    margin-top:.28rem !important;
+    letter-spacing:.08em !important;
+}
+html body .stApp .dash2026-kpi-grid {
+    gap:.74rem !important;
+    margin:.42rem 0 .42rem 0 !important;
+}
+html body .stApp .dash2026-kpi-card {
+    min-height:94px !important;
+    border-radius:18px !important;
+    padding:.92rem 1.02rem !important;
+    box-shadow:0 18px 46px rgba(0,0,0,.22), 0 0 0 1px rgba(255,255,255,.04) inset !important;
+}
+html body .stApp .dash2026-kpi-value {
+    font-size:2.15rem !important;
+    line-height:1 !important;
+}
+html body .stApp .ticker-card,
+html body .stApp .live-banner-card,
+html body .stApp .special-watch-card {
+    min-height:48px !important;
+    height:48px !important;
+}
+html body .stApp div[data-testid="stExpander"] details {
+    border-radius:16px !important;
+    background:rgba(8,16,34,.38) !important;
+    border-color:rgba(125,211,252,.18) !important;
+}
+html body .stApp div[data-testid="stExpander"] details summary {
+    min-height:42px !important;
+    background:linear-gradient(180deg, rgba(8,47,73,.44), rgba(8,16,34,.84)) !important;
+    border-color:rgba(125,211,252,.24) !important;
+}
+html body .stApp .ptw-control-hero {
+    border-radius:22px !important;
+    padding:1.05rem 1.12rem !important;
+    margin:.56rem 0 .70rem 0 !important;
+    background:radial-gradient(circle at top left, rgba(56,189,248,.22), transparent 38%), linear-gradient(135deg, rgba(8,47,73,.90), rgba(15,23,42,.94) 54%, rgba(6,78,59,.54)) !important;
+}
+html body .stApp .ptw-control-selector-shell {
+    border-radius:22px !important;
+    padding:1.0rem !important;
+    background:linear-gradient(135deg, rgba(2,6,23,.62), rgba(8,47,73,.50)) !important;
+    border-color:rgba(125,211,252,.30) !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height:58px !important;
+    border-radius:18px !important;
+    justify-content:flex-start !important;
+    padding:.62rem .82rem !important;
+    background:linear-gradient(135deg, rgba(15,23,42,.92), rgba(8,47,73,.55)) !important;
+    border-color:rgba(125,211,252,.24) !important;
+    box-shadow:0 14px 32px rgba(0,0,0,.16) !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[kind="primary"],
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
+    background:linear-gradient(135deg, rgba(6,78,59,.90), rgba(14,165,233,.34)) !important;
+    border-color:rgba(34,197,94,.55) !important;
+    box-shadow:0 18px 44px rgba(34,197,94,.14) !important;
+}
+html body .stApp .v18-dark-row {
+    border-radius:14px !important;
+    border-color:rgba(125,211,252,.14) !important;
+    background:rgba(2,6,23,.38) !important;
+}
+@media (max-width:900px) {
+  html body section[data-testid="stSidebar"] { max-width:min(88vw, 340px) !important; width:min(88vw, 340px) !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
 # v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
 if bool(globals().get("show_drift_controls_v1863cc", False)):
@@ -17696,7 +17893,7 @@ if not st.session_state.get("ai_control_center_landed_default_v1864l"):
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
-    # v18.6.31: Dashboard 2026 KPI-rad øverst. Leser kun eksisterende cache/session state.
+    # v18.6.32: Dashboard 2026 KPI-rad øverst. Leser kun eksisterende cache/session state.
     render_dashboard2026_kpis_v18631()
     # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.

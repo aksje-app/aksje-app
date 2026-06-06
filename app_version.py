@@ -1,9 +1,10 @@
-APP_VERSION = "v18.6.31"
-APP_VERSION_NAME = "Dashboard 2026"
-APP_BUILD_ID = "v18631-dashboard-2026"
+APP_VERSION = "v18.6.32"
+APP_VERSION_NAME = "Dashboard 2026 Phase 2"
+APP_BUILD_ID = "v18632-dashboard-2026-phase2"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Dashboard 2026 Phase 2: ny kompakt ikonbasert venstremarg, mer kortbasert AI Kontrollsenter og forbedret KPI-fallback når ranking-cache er tom.",
     "Dashboard 2026: lagt inn fire KPI-kort øverst for BUY, SELL, varsler og beste kandidat.",
     "Komprimert ticker-bannerområdet og redusert visuell høyde på bannerkortene.",
     "AI Kontrollsenter er flyttet visuelt frem som hovedarbeidsflate, uten gammel expander-innramming.",
