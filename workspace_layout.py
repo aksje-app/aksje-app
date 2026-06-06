@@ -25,6 +25,7 @@ from macro_rates_breadth_ui import render_macro_rates_breadth_panel
 from forecast_ui import render_forecast_section
 from analysis_universe_ai import render_ai_analysis_universe_workspace
 from persistent_storage_status import compact_storage_status_rows, storage_status_snapshot
+from app_version import get_app_build_label
 
 
 def inject_workspace_css() -> None:
@@ -1292,6 +1293,111 @@ def inject_workspace_css() -> None:
             html body .stApp .ptw-control-hero-top { gap: .62rem !important; }
         }
 
+
+
+        /* v18.6.31 Dashboard 2026 */
+        html body .stApp .ptw-app-title {
+            border: 1px solid rgba(148,163,184,.14) !important;
+            border-radius: 22px !important;
+            padding: .78rem .90rem !important;
+            margin: .10rem 0 .64rem 0 !important;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(56,189,248,.20), transparent 26rem),
+                linear-gradient(135deg, rgba(7,12,24,.94), rgba(15,23,42,.84) 55%, rgba(6,78,59,.26)) !important;
+            box-shadow: 0 24px 60px rgba(0,0,0,.22), 0 0 0 1px rgba(255,255,255,.035) inset !important;
+        }
+        html body .stApp .ptw-title-main { font-size: clamp(1.35rem, 2.2vw, 2.35rem) !important; }
+        html body .stApp .ptw-title-sub { color:#cbd5e1 !important; }
+
+        html body .stApp .dash2026-kpi-grid {
+            display:grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap:.72rem;
+            margin:.36rem 0 .72rem 0;
+        }
+        html body .stApp .dash2026-kpi-card {
+            border:1px solid rgba(148,163,184,.14);
+            border-radius:20px;
+            padding:.78rem .88rem;
+            min-height:92px;
+            background:rgba(7,12,24,.68);
+            box-shadow:0 18px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,255,255,.03) inset;
+        }
+        html body .stApp .dash2026-kpi-label {
+            color:#94a3b8;
+            font-size:.74rem;
+            font-weight:950;
+            letter-spacing:.06em;
+            text-transform:uppercase;
+            margin-bottom:.22rem;
+        }
+        html body .stApp .dash2026-kpi-value {
+            color:#f8fafc;
+            font-size:clamp(1.32rem, 2vw, 2.05rem);
+            font-weight:980;
+            line-height:1.02;
+            letter-spacing:-.04em;
+        }
+        html body .stApp .dash2026-kpi-sub {
+            color:#cbd5e1;
+            font-size:.78rem;
+            font-weight:760;
+            margin-top:.28rem;
+            line-height:1.22;
+        }
+        html body .stApp .dash2026-kpi-card.buy { border-color:rgba(34,197,94,.28); background:linear-gradient(135deg, rgba(6,78,59,.50), rgba(7,12,24,.74)); }
+        html body .stApp .dash2026-kpi-card.sell { border-color:rgba(248,113,113,.26); background:linear-gradient(135deg, rgba(127,29,29,.38), rgba(7,12,24,.74)); }
+        html body .stApp .dash2026-kpi-card.alerts { border-color:rgba(251,191,36,.26); background:linear-gradient(135deg, rgba(120,53,15,.38), rgba(7,12,24,.74)); }
+        html body .stApp .dash2026-kpi-card.best { border-color:rgba(56,189,248,.28); background:linear-gradient(135deg, rgba(8,47,73,.54), rgba(7,12,24,.74)); }
+        html body .stApp .dash2026-section-label {
+            margin:.12rem 0 .32rem 0;
+            color:#bae6fd;
+            font-size:.78rem;
+            font-weight:950;
+            letter-spacing:.08em;
+            text-transform:uppercase;
+        }
+        html body .stApp .ptw-ai-control-anchor {
+            height:1px;
+            margin:.76rem 0 .12rem 0;
+        }
+        html body .stApp .ptw-control-hero {
+            margin-top:.18rem !important;
+            border-radius:24px !important;
+        }
+        html body .stApp .ptw-control-selector-shell div[data-testid="stRadio"] > div {
+            display:grid !important;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+            gap:.62rem !important;
+            align-items:stretch !important;
+        }
+        html body .stApp .ptw-control-selector-shell div[data-testid="stRadio"] label {
+            min-height:74px !important;
+            align-items:flex-start !important;
+            justify-content:flex-start !important;
+            padding:.78rem .88rem !important;
+            border-radius:18px !important;
+            background:linear-gradient(135deg, rgba(15,23,42,.84), rgba(8,47,73,.34)) !important;
+            border:1px solid rgba(148,163,184,.16) !important;
+            box-shadow:0 12px 30px rgba(0,0,0,.14) !important;
+        }
+        html body .stApp .ptw-control-selector-shell div[data-testid="stRadio"] label p {
+            font-size:.92rem !important;
+            font-weight:950 !important;
+            line-height:1.16 !important;
+            color:#e2e8f0 !important;
+        }
+        html body .stApp .ptw-control-selector-shell div[data-testid="stRadio"] label:has(input:checked) {
+            background:linear-gradient(135deg, rgba(6,78,59,.58), rgba(8,47,73,.62)) !important;
+            border-color:rgba(34,197,94,.50) !important;
+            box-shadow:0 0 0 1px rgba(187,247,208,.10) inset, 0 18px 44px rgba(34,197,94,.11) !important;
+        }
+        @media (max-width: 980px) {
+            html body .stApp .dash2026-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 560px) {
+            html body .stApp .dash2026-kpi-grid { grid-template-columns: 1fr; }
+        }
 </style>
         """,
         unsafe_allow_html=True,
@@ -1301,7 +1407,7 @@ def inject_workspace_css() -> None:
 def render_workspace_title() -> None:
     """Render app title at the very top of the workspace."""
     st.markdown(
-        """
+        f"""
         <div class="ptw-app-title">
           <div class="ptw-title-stack">
             <div class="ptw-title-eyebrow">Market Intelligence Workspace</div>
@@ -1309,9 +1415,9 @@ def render_workspace_title() -> None:
             <div class="ptw-title-sub">Dashboard · ticker-bannere · AI Kontrollsenter</div>
           </div>
           <div class="ptw-title-actions">
-            <span class="ptw-title-chip">⚡ v18.6.27</span>
-            <span class="ptw-title-chip">Modern dashboard skin</span>
-            <span class="ptw-title-chip">Visuell opprydding</span>
+            <span class="ptw-title-chip">⚡ {html.escape(get_app_build_label())}</span>
+            <span class="ptw-title-chip">Dashboard 2026</span>
+            <span class="ptw-title-chip">AI først</span>
           </div>
         </div>
         """,
@@ -2118,8 +2224,9 @@ def _pipeline_relevant_panel_labels_v1864j(active_stage: str, panels: Sequence[T
 
 
 def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
-    """Stable radio-based control center navigation."""
-    with st.expander("AI KONTROLLSENTER - samlet arbeidsflate", expanded=True):
+    """Stable card-styled control center navigation for Dashboard 2026."""
+    st.markdown("<div class='ptw-ai-control-anchor'></div>", unsafe_allow_html=True)
+    with st.container():
         base_panels: list[Tuple[str, Callable[[], None]]] = [
             ("Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
             ("Prognose", _render_forecast_workspace_tab),
