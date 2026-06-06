@@ -1754,7 +1754,7 @@ def _rank_cache_get(label, fp):
     return None
 
 
-# v18.6.32: Dashboard 2026 KPI-rad øverst. Kun lesing fra eksisterende state/cache.
+# v18.6.34: Dashboard 2026 KPI-rad øverst. Kun lesing fra eksisterende state/cache.
 def _dashboard2026_safe_float(value, default=0.0):
     try:
         return float(value or default)
@@ -1857,6 +1857,8 @@ def _dashboard2026_decision_text(item: dict) -> str:
 
 def _dashboard2026_kpi_snapshot() -> dict:
     rows = _dashboard2026_latest_rank_rows()
+    if not rows:
+        rows = _dashboard2026_scan_session_candidates_v18632()
     buy = 0
     sell = 0
     for item in rows:
@@ -1894,26 +1896,30 @@ def _dashboard2026_kpi_snapshot() -> dict:
 def render_dashboard2026_kpis_v18631() -> None:
     """Modern dashboard header cards. Skal ikke trigge datainnhenting."""
     snap = _dashboard2026_kpi_snapshot()
-    best_value = f"{html.escape(snap['best_ticker'])}"
-    best_sub = "Ingen cachet score ennå" if not snap.get("rows") else f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater i cache"
+    has_data = bool(snap.get("rows"))
+    buy_value = str(int(snap["buy"])) if has_data else "Ingen data"
+    sell_value = str(int(snap["sell"])) if has_data else "Ingen data"
+    alerts_value = str(int(snap["alerts"])) if int(snap.get("alerts") or 0) else ("0" if has_data else "Ingen data")
+    best_value = html.escape(str(snap["best_ticker"] if has_data else "Ingen data"))
+    best_sub = "Kjør rangering/Top Picks for live kandidatdata" if not has_data else f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater i cache"
     st.markdown(
         f"""
-        <div class='dash2026-section-label'>Dashboard 2026 · markedsoversikt</div>
+        <div class='dash2026-section-label'>Marked nå</div>
         <div class='dash2026-kpi-grid'>
           <div class='dash2026-kpi-card buy'>
             <div class='dash2026-kpi-label'>BUY</div>
-            <div class='dash2026-kpi-value'>{int(snap['buy'])}</div>
-            <div class='dash2026-kpi-sub'>Kandidater med kjøpssignal eller høy score</div>
+            <div class='dash2026-kpi-value'>{html.escape(buy_value)}</div>
+            <div class='dash2026-kpi-sub'>Aktive kjøpskandidater fra siste ranking/cache</div>
           </div>
           <div class='dash2026-kpi-card sell'>
             <div class='dash2026-kpi-label'>SELL / UNNGÅ</div>
-            <div class='dash2026-kpi-value'>{int(snap['sell'])}</div>
-            <div class='dash2026-kpi-sub'>Kandidater med negativt signal</div>
+            <div class='dash2026-kpi-value'>{html.escape(sell_value)}</div>
+            <div class='dash2026-kpi-sub'>Negative signaler fra siste ranking/cache</div>
           </div>
           <div class='dash2026-kpi-card alerts'>
             <div class='dash2026-kpi-label'>Varsler</div>
-            <div class='dash2026-kpi-value'>{int(snap['alerts'])}</div>
-            <div class='dash2026-kpi-sub'>Registrerte banner-, watchlist- og paper-hendelser</div>
+            <div class='dash2026-kpi-value'>{html.escape(alerts_value)}</div>
+            <div class='dash2026-kpi-sub'>Åpne banner-, watchlist- og paper-hendelser</div>
           </div>
           <div class='dash2026-kpi-card best'>
             <div class='dash2026-kpi-label'>Beste kandidat</div>
@@ -1921,7 +1927,7 @@ def render_dashboard2026_kpis_v18631() -> None:
             <div class='dash2026-kpi-sub'>{html.escape(best_sub)}</div>
           </div>
         </div>
-        <div class='dash2026-section-label'>Live banner</div>
+        <div class='dash2026-section-label dash2026-banner-label'>Live</div>
         """,
         unsafe_allow_html=True,
     )
@@ -17735,11 +17741,11 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
 
 st.markdown("""
 <style>
-/* v18.6.32 Dashboard 2026 Phase 2: compact icon rail + stronger dashboard hierarchy */
+/* v18.6.34 Dashboard 2026 Phase 3: compact rail, clean topbar, tile-like control center */
 html body section[data-testid="stSidebar"] {
-    width: 118px !important;
-    min-width: 118px !important;
-    max-width: 118px !important;
+    width: 94px !important;
+    min-width: 94px !important;
+    max-width: 94px !important;
     background: linear-gradient(180deg, #020617 0%, #07111f 100%) !important;
     border-right: 1px solid rgba(56,189,248,.18) !important;
     box-shadow: 12px 0 30px rgba(0,0,0,.20) !important;
@@ -17813,20 +17819,20 @@ html body .stApp .dash2026-kpi-grid {
     margin:.42rem 0 .42rem 0 !important;
 }
 html body .stApp .dash2026-kpi-card {
-    min-height:94px !important;
-    border-radius:18px !important;
-    padding:.92rem 1.02rem !important;
+    min-height:82px !important;
+    border-radius:20px !important;
+    padding:.78rem .92rem !important;
     box-shadow:0 18px 46px rgba(0,0,0,.22), 0 0 0 1px rgba(255,255,255,.04) inset !important;
 }
 html body .stApp .dash2026-kpi-value {
-    font-size:2.15rem !important;
+    font-size:1.82rem !important;
     line-height:1 !important;
 }
 html body .stApp .ticker-card,
 html body .stApp .live-banner-card,
 html body .stApp .special-watch-card {
-    min-height:48px !important;
-    height:48px !important;
+    min-height:34px !important;
+    height:34px !important;
 }
 html body .stApp div[data-testid="stExpander"] details {
     border-radius:16px !important;
@@ -17869,6 +17875,95 @@ html body .stApp .v18-dark-row {
     border-radius:14px !important;
     border-color:rgba(125,211,252,.14) !important;
     background:rgba(2,6,23,.38) !important;
+}
+
+/* Phase 3 polish: mindre topplinje, færre rammer, mer arbeidsflate */
+html body .stApp .ptw-sticky-topbar {
+    padding:.42rem .58rem !important;
+    margin:.10rem 0 .34rem 0 !important;
+    border-radius:18px !important;
+    background:linear-gradient(135deg, rgba(2,6,23,.84), rgba(8,47,73,.42)) !important;
+    border-color:rgba(125,211,252,.14) !important;
+}
+html body .stApp .ptw-version-chip {
+    font-size:.76rem !important;
+    padding:.26rem .52rem !important;
+    border-radius:999px !important;
+    color:#bae6fd !important;
+    background:rgba(15,23,42,.72) !important;
+    border:1px solid rgba(125,211,252,.28) !important;
+    box-shadow:none !important;
+}
+html body .stApp .ptw-pill {
+    font-size:.72rem !important;
+    padding:.22rem .46rem !important;
+}
+html body .stApp .dash2026-section-label {
+    margin:.18rem 0 .22rem 0 !important;
+    font-size:.68rem !important;
+    opacity:.76 !important;
+}
+html body .stApp .dash2026-banner-label { display:none !important; }
+html body .stApp .dash2026-kpi-grid {
+    margin:.18rem 0 .24rem 0 !important;
+    gap:.54rem !important;
+}
+html body .stApp .dash2026-kpi-card {
+    border-color:rgba(125,211,252,.16) !important;
+    box-shadow:0 12px 32px rgba(0,0,0,.18) !important;
+}
+html body .stApp .dash2026-kpi-label { font-size:.68rem !important; opacity:.82 !important; }
+html body .stApp .dash2026-kpi-sub { font-size:.68rem !important; opacity:.72 !important; }
+html body .stApp .ptw-control-hero {
+    margin:.34rem 0 .42rem 0 !important;
+    padding:.78rem .92rem !important;
+    border-radius:20px !important;
+    border-color:rgba(125,211,252,.22) !important;
+}
+html body .stApp .ptw-control-eyebrow { display:none !important; }
+html body .stApp .ptw-control-title { font-size:1.34rem !important; }
+html body .stApp .ptw-control-caption { font-size:.78rem !important; max-width:56rem !important; opacity:.78 !important; }
+html body .stApp .ptw-control-active-chip { font-size:.70rem !important; padding:.24rem .46rem !important; }
+html body .stApp .ptw-status-line { display:none !important; }
+html body .stApp .ptw-control-selector-title { display:none !important; }
+html body .stApp .ptw-control-selector-shell {
+    margin:.30rem 0 .40rem 0 !important;
+    padding:.64rem !important;
+    border-radius:20px !important;
+    border-color:rgba(125,211,252,.16) !important;
+    background:rgba(2,6,23,.38) !important;
+    box-shadow:none !important;
+}
+html body .stApp .ptw-control-mini-title {
+    margin:.36rem 0 .22rem 0 !important;
+    font-size:.70rem !important;
+    letter-spacing:.08em !important;
+    color:#93c5fd !important;
+    text-transform:uppercase !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height:66px !important;
+    border-radius:18px !important;
+    padding:.58rem .70rem !important;
+    font-size:.80rem !important;
+    justify-content:flex-start !important;
+    border-color:rgba(125,211,252,.16) !important;
+    background:linear-gradient(135deg, rgba(15,23,42,.92), rgba(8,47,73,.36)) !important;
+    box-shadow:0 10px 24px rgba(0,0,0,.16) !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[kind="primary"],
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
+    background:linear-gradient(135deg, rgba(6,78,59,.82), rgba(14,165,233,.26)) !important;
+    border-color:rgba(34,197,94,.42) !important;
+}
+html body .stApp .ptw-control-submenu {
+    border-color:rgba(125,211,252,.13) !important;
+    background:rgba(2,6,23,.24) !important;
+    box-shadow:none !important;
+}
+html body .stApp div[data-testid="stExpander"] details {
+    border-color:rgba(125,211,252,.10) !important;
+    box-shadow:none !important;
 }
 @media (max-width:900px) {
   html body section[data-testid="stSidebar"] { max-width:min(88vw, 340px) !important; width:min(88vw, 340px) !important; }

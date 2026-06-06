@@ -1410,14 +1410,10 @@ def render_workspace_title() -> None:
         f"""
         <div class="ptw-app-title">
           <div class="ptw-title-stack">
-            <div class="ptw-title-eyebrow">Market Intelligence Workspace</div>
             <div class="ptw-title-main">📈 AI Aksje Analyzer Pro</div>
-            <div class="ptw-title-sub">Dashboard · ticker-bannere · AI Kontrollsenter</div>
           </div>
           <div class="ptw-title-actions">
-            <span class="ptw-title-chip">⚡ {html.escape(get_app_build_label())}</span>
-            <span class="ptw-title-chip">Dashboard 2026</span>
-            <span class="ptw-title-chip">AI først</span>
+            <span class="ptw-title-chip">{html.escape(get_app_build_label())}</span>
           </div>
         </div>
         """,
@@ -1598,16 +1594,15 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             <div class="ptw-control-hero">
               <div class="ptw-control-hero-top">
                 <div>
-                  <div class="ptw-control-eyebrow">Samlet arbeidsflate</div>
+                  <div class="ptw-control-eyebrow">AI workspace</div>
                   <div class="ptw-control-title">🧠 AI Kontrollsenter</div>
-                  <div class="ptw-control-caption">Analyseunivers, prognose, varsler, nyheter, marked, testing og system er samlet her. Velg ett område og ett panel, så kjøres bare det panelet.</div>
+                  <div class="ptw-control-caption">Velg én arbeidsflate. Bare valgt panel kjøres, slik at dashboardet holder seg raskt og ryddig.</div>
                 </div>
                 <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(previous_label or first_real_panel or "-"))}</div>
               </div>
               <div class="ptw-status-line" style="margin-top:.55rem;">
-                <span class="ptw-pill ptw-pill-ai">🟢 Samlet AI workspace aktivt</span>
+                <span class="ptw-pill ptw-pill-ai">🟢 AI workspace</span>
                 <span class="ptw-pill">Kun valgt panel kjøres</span>
-                <span class="ptw-pill">Ingen skjulte analyser</span>
               </div>
             </div>
             <div class="ptw-control-selector-shell">
@@ -1646,10 +1641,11 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         menu_open = bool(st.session_state.get("ai_control_center_menu_open_v1863ag", True))
 
         mode_map = {
-            "Finne kjop": "Marked og signaler",
-            "Overvake portefolje": "Testing og portefølje",
-            "Teste strategi": "Testing og portefølje",
-            "Administrere": "System",
+            "📈 Kandidater": "Marked og signaler",
+            "🧠 Analyse": "Analyse og prognose",
+            "🌍 Marked": "Marked og signaler",
+            "💼 Portefølje": "Testing og portefølje",
+            "⚙️ System": "System",
         }
         mode_options = list(mode_map.keys())
         current_mode = st.session_state.get("ai_control_center_work_mode_v1863ag") or mode_options[0]
