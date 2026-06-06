@@ -1,9 +1,12 @@
-APP_VERSION = "v18.6.25"
-APP_VERSION_NAME = "Modernisert hovedside og raskere særskilt banner"
-APP_BUILD_ID = "v18625-modern-dashboard-independent-banner-speed"
+APP_VERSION = "v18.6.28"
+APP_VERSION_NAME = "Reell hastighetskontroll for særskilt banner"
+APP_BUILD_ID = "v18628-special-banner-real-speed-control"
 APP_BUILD_LABEL = f"{APP_VERSION} - {APP_VERSION_NAME}"
 
 APP_PATCH_NOTES = [
+    "Særskilt banner arver ikke lenger hovedbannerets hastighet; gammel Arv hovedbanner-verdi behandles som Egen fart.",
+    "Rullefart for særskilt banner bruker nå egen CSS-keyframe per hastighetsverdi slik at nettleseren faktisk starter animasjonen på nytt.",
+    "Rullefart 100 er gjort tydelig rask, mens lavere verdier gir synlig tregere rulling.",
     "Hovedsiden har fått mer moderne dashboard-preg med oppdatert toppfelt, glass/premium-kort og tydeligere AI Kontrollsenter.",
     "Særskilt overvåking bruker nå reell hastighetsmapping fra 1-100, der 100 gir ca. 8 sekunder i stedet for ca. 40 sekunder.",
     "Særskilt banner kan fortsatt arve hovedbanneret, men i Egen fart styres hastigheten helt uavhengig av hovedbanneret.",
