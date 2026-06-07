@@ -1771,8 +1771,9 @@ def _dashboard2026_score_value(item: dict) -> float:
     if not isinstance(item, dict):
         return 0.0
     for key in (
-        "score", "Score", "total_score", "totalScore", "ai_score", "AI_score",
-        "rank_score", "ranking_score", "confidence_score", "confidence", "Confidence",
+        "score", "Score", "total_score", "totalScore", "Total score", "Total Score",
+        "ai_score", "AI_score", "rank_score", "ranking_score",
+        "confidence_score", "confidence", "Confidence", "Konfidens",
     ):
         if key in item and item.get(key) not in (None, ""):
             return _dashboard2026_safe_float(item.get(key), 0.0)
@@ -1876,6 +1877,11 @@ def _dashboard2026_decision_text(item: dict) -> str:
         item.get("Recommendation"),
         item.get("action"),
         item.get("action_now"),
+        item.get("Beste handling"),
+        item.get("beste_handling"),
+        item.get("Teknisk"),
+        item.get("teknisk"),
+        item.get("Anbefaling"),
         item.get("rating"),
     )
     text = " ".join(str(x or "") for x in fields).upper()
@@ -9909,7 +9915,15 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-st.sidebar.markdown("<div class='sidebar-section-title'>Innstillinger Innstillinger</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div class='sidebar-section-title'>Meny</div>", unsafe_allow_html=True)
+st.sidebar.markdown("""
+<div class='sidebar2026-nav'>
+  <div class='sidebar2026-nav-item'>🏠 <span>Dashboard</span></div>
+  <div class='sidebar2026-nav-item'>🎯 <span>Top Picks</span></div>
+  <div class='sidebar2026-nav-item'>🧠 <span>AI</span></div>
+  <div class='sidebar2026-nav-item'>⚙️ <span>System</span></div>
+</div>
+""", unsafe_allow_html=True)
 render_user_admin(current_user)
 show_drift_controls_v1863cc = st.sidebar.checkbox(
     "Drift: vis global oppdatering",
@@ -9917,7 +9931,7 @@ show_drift_controls_v1863cc = st.sidebar.checkbox(
     key="show_drift_controls_v1863cc",
     help="Viser bare global oppdatering for avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
 )
-st.sidebar.caption("Vanlig arbeid starter uten valgt panel. Driftvalg er skjult til du trenger dem.")
+# v18.6.36: fjernet mikrotekst i venstremeny; driftvalg forklares i System/admin.
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -10611,6 +10625,10 @@ def render_top_picks_control_center_v1863s():
         st.success(f"Top Picks ferdig: {len(top_rows or [])} kandidater fra {scope}.")
 
     top_picks = _ranked_for_display(latest.get(storage_key, []) or [])
+    if top_picks:
+        # v18.6.36: KPI-kortene ligger over Kontrollsenteret og må kunne lese data
+        # som panelet akkurat nå viser. Dette lagrer kun eksisterende rows; ingen ny henting.
+        st.session_state["dashboard2026_force_rows_v18635"] = list(top_picks or [])
     buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
     view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
     if top_picks:
@@ -18011,6 +18029,76 @@ html body .stApp div[data-testid="stExpander"] details {
 }
 
 
+/* v18.6.36: Sidebar Rescue + clean version header */
+html body section[data-testid="stSidebar"] {
+  min-width: 58px !important;
+  border-right: 1px solid rgba(125,211,252,.16) !important;
+}
+html body [data-testid="collapsedControl"],
+html body [data-testid="stSidebarCollapsedControl"],
+html body button[kind="header"]:has(svg) {
+  position: fixed !important;
+  top: .55rem !important;
+  left: .55rem !important;
+  z-index: 1000000 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+  font-size: .76rem !important;
+  letter-spacing: .08em !important;
+  margin: .4rem 0 .45rem 0 !important;
+  color: #bae6fd !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav {
+  display:flex;
+  flex-direction:column;
+  gap:.36rem;
+  margin:.25rem 0 .55rem 0;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  display:flex;
+  align-items:center;
+  gap:.45rem;
+  min-height:34px;
+  padding:.32rem .42rem;
+  border-radius:14px;
+  border:1px solid rgba(125,211,252,.16);
+  background:rgba(15,23,42,.58);
+  color:#e5f3ff;
+  font-weight:850;
+  font-size:.78rem;
+  white-space:nowrap;
+}
+html body section[data-testid="stSidebar"] .sidebar-small-note,
+html body section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
+  font-size:.68rem !important;
+  line-height:1.25 !important;
+  color:#a8c7dd !important;
+}
+html body .stApp .ptw-title-chip {
+  font-size: .72rem !important;
+  padding: .24rem .50rem !important;
+}
+html body .stApp .ptw-global-busy-fixed {
+  display:none !important;
+}
+@media (max-width:760px) {
+  html body [data-testid="collapsedControl"],
+  html body [data-testid="stSidebarCollapsedControl"] {
+    display:flex !important;
+    width:38px !important;
+    height:38px !important;
+    border-radius:999px !important;
+    background:rgba(8,47,73,.94) !important;
+    border:1px solid rgba(125,211,252,.55) !important;
+    box-shadow:0 8px 24px rgba(0,0,0,.35) !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    font-size:.76rem !important;
+  }
+}
+
 /* v18.6.35: Mobile Rescue - egen mobil-layout i stedet for krympet desktop */
 @media (max-width: 760px) {
   html, body, .stApp {
@@ -18164,8 +18252,11 @@ if not st.session_state.get("ai_control_center_landed_default_v1864l"):
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
-    # v18.6.32: Dashboard 2026 KPI-rad øverst. Leser kun eksisterende cache/session state.
-    render_dashboard2026_kpis_v18631()
+    # v18.6.36: KPI-raden rendres i en placeholder. Da kan den oppdateres på nytt
+    # etter at aktivt Kontrollsenter-panel har fylt Top Picks/ranking-cache i samme run.
+    _dashboard2026_kpi_slot_v18636 = st.empty()
+    with _dashboard2026_kpi_slot_v18636:
+        render_dashboard2026_kpis_v18631()
     # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
     render_live_market_banner()
@@ -18173,6 +18264,10 @@ try:
     render_special_watch_menu_v18619()
     render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
+    # Oppdater KPI-raden etter panelrendering, slik at data som Top Picks akkurat har
+    # lagt i session_state faktisk vises i toppkortene uten neste manuelle refresh.
+    with _dashboard2026_kpi_slot_v18636:
+        render_dashboard2026_kpis_v18631()
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 

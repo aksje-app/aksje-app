@@ -1,7 +1,7 @@
 """
 sticky_topbar.py
 
-v18.6.34 compact version topbar
+v18.6.36 compact status topbar
 Sticky topbar / AI status bar with consolidated market status.
 
 Ingen auto-trading-kobling.
@@ -15,7 +15,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import summarize_alerts, load_learning_stats
-from app_version import get_app_build_label, get_app_version
+from app_version import get_app_version
 from market_hours import market_statuses
 import html
 
@@ -117,7 +117,6 @@ def render_sticky_topbar() -> None:
             {_market_status_chips_html()}
           </div>
           <div class="ptw-topbar-right ptw-v18570-status-zone" aria-live="polite">
-            <span class="ptw-version-chip" title="Aktiv versjon: {get_app_build_label()}" aria-label="Aktiv versjon">{get_app_build_label()}</span>
             {global_busy_chip_html()}
           </div>
         </div>
