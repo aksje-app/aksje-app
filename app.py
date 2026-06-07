@@ -1762,8 +1762,34 @@ def _dashboard2026_safe_float(value, default=0.0):
         return float(default)
 
 
+def _dashboard2026_score_value(item: dict) -> float:
+    """Robust score reader for KPI cards.
+
+    Top Picks/ranking rows have used several field names through the project.
+    This keeps the dashboard connected without starting new data fetches.
+    """
+    if not isinstance(item, dict):
+        return 0.0
+    for key in (
+        "score", "Score", "total_score", "totalScore", "ai_score", "AI_score",
+        "rank_score", "ranking_score", "confidence_score", "confidence", "Confidence",
+    ):
+        if key in item and item.get(key) not in (None, ""):
+            return _dashboard2026_safe_float(item.get(key), 0.0)
+    return 0.0
+
+
 def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
     rows: list[dict] = []
+    # Prioritert: siste data som faktisk ble rendret/kjørt av Top Picks/ranking.
+    for key in (
+        "dashboard2026_force_rows_v18635",
+        "dashboard2026_last_rendered_rankings_v18635",
+    ):
+        value = st.session_state.get(key)
+        if isinstance(value, list):
+            rows.extend([dict(x) for x in value if isinstance(x, dict)])
+
     latest = st.session_state.get("latest_rankings_v148", {}) or {}
     if isinstance(latest, dict):
         for _label, items in latest.items():
@@ -1771,10 +1797,19 @@ def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
                 for item in items:
                     if isinstance(item, dict):
                         rows.append(item)
+
+    # Ta også med rank_cache_* fordi noen paneler lagrer der før latest_rankings oppdateres.
+    for key, value in list(st.session_state.items()):
+        if not str(key).startswith("rank_cache_v148_") or not isinstance(value, dict):
+            continue
+        data = value.get("data")
+        if isinstance(data, list):
+            rows.extend([dict(x) for x in data if isinstance(x, dict)])
+
     # Behold unik ticker og beste score, uten å starte ny analyse.
     out: list[dict] = []
     seen: set[str] = set()
-    for item in sorted(rows, key=lambda x: _dashboard2026_safe_float(x.get("score"), 0), reverse=True):
+    for item in sorted(rows, key=_dashboard2026_score_value, reverse=True):
         ticker = str(item.get("ticker") or item.get("symbol") or "").upper().strip()
         if ticker and ticker in seen:
             continue
@@ -1820,7 +1855,7 @@ def _dashboard2026_scan_session_candidates_v18632(limit: int = 250) -> list[dict
             continue
     out: list[dict] = []
     seen: set[str] = set()
-    for item in sorted(rows, key=lambda x: _dashboard2026_safe_float(x.get("score") or x.get("Score"), 0), reverse=True):
+    for item in sorted(rows, key=_dashboard2026_score_value, reverse=True):
         ticker = str(item.get("ticker") or item.get("symbol") or item.get("Ticker") or item.get("Symbol") or "").upper().strip()
         if ticker and ticker in seen:
             continue
@@ -1844,7 +1879,7 @@ def _dashboard2026_decision_text(item: dict) -> str:
         item.get("rating"),
     )
     text = " ".join(str(x or "") for x in fields).upper()
-    score = _dashboard2026_safe_float(item.get("score") or item.get("Score"), 0)
+    score = _dashboard2026_score_value(item)
     if not text.strip():
         # Kun for dashboard-visning: bruk eksisterende score som lett indikator.
         if score >= 7.5:
@@ -1869,7 +1904,7 @@ def _dashboard2026_kpi_snapshot() -> dict:
             sell += 1
     best = rows[0] if rows else {}
     best_ticker = str(best.get("ticker") or best.get("symbol") or best.get("Ticker") or best.get("Symbol") or "-").upper()
-    best_score = _dashboard2026_safe_float(best.get("score") or best.get("Score"), 0)
+    best_score = _dashboard2026_score_value(best)
     alerts = 0
     try:
         alerts += len(st.session_state.get("live_banner_alert_log_v18610") or [])
@@ -6982,6 +7017,11 @@ def _ranking_display_limit_choice_v1864(title: str, total: int) -> tuple[str, in
 def render_ranking(results, title):
     st.subheader(title)
     results = _ranked_for_display(results)
+    try:
+        if results:
+            st.session_state["dashboard2026_last_rendered_rankings_v18635"] = list(results or [])
+    except Exception:
+        pass
 
     if not results:
         st.markdown("""
@@ -10547,6 +10587,7 @@ def render_top_picks_control_center_v1863s():
             )
         top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit)))
         latest[storage_key] = top_rows or []
+        st.session_state["dashboard2026_force_rows_v18635"] = list(top_rows or [])
         if scope in MARKET_SCOPE_OPTIONS:
             latest[scope] = ranked or []
         try:
@@ -17967,6 +18008,141 @@ html body .stApp div[data-testid="stExpander"] details {
 }
 @media (max-width:900px) {
   html body section[data-testid="stSidebar"] { max-width:min(88vw, 340px) !important; width:min(88vw, 340px) !important; }
+}
+
+
+/* v18.6.35: Mobile Rescue - egen mobil-layout i stedet for krympet desktop */
+@media (max-width: 760px) {
+  html, body, .stApp {
+    overflow-x: hidden !important;
+    width: 100% !important;
+  }
+  html body .stApp .block-container {
+    padding: .32rem .42rem 1.2rem .42rem !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .ptw-sticky-topbar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 20 !important;
+    padding: .38rem .46rem !important;
+    margin: 0 0 .34rem 0 !important;
+    border-radius: 0 0 16px 16px !important;
+  }
+  html body .stApp .ptw-title,
+  html body .stApp .ptw-app-title,
+  html body .stApp h1 {
+    font-size: 1.02rem !important;
+    line-height: 1.08 !important;
+  }
+  html body .stApp .ptw-subtitle,
+  html body .stApp .ptw-pill:not(.ptw-version-chip) {
+    display: none !important;
+  }
+  html body .stApp .ptw-version-chip {
+    font-size: .62rem !important;
+    padding: .18rem .38rem !important;
+  }
+  html body .stApp .dash2026-kpi-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: .42rem !important;
+    margin: .28rem 0 .48rem 0 !important;
+  }
+  html body .stApp .dash2026-kpi-card {
+    min-height: 62px !important;
+    padding: .58rem .68rem !important;
+    border-radius: 15px !important;
+  }
+  html body .stApp .dash2026-kpi-value {
+    font-size: 1.15rem !important;
+    line-height: 1.05 !important;
+    word-break: break-word !important;
+  }
+  html body .stApp .dash2026-kpi-label,
+  html body .stApp .dash2026-kpi-sub {
+    font-size: .64rem !important;
+  }
+  html body .stApp .ticker-tape-wrap {
+    min-height: 38px !important;
+    max-height: 42px !important;
+    border-radius: 10px !important;
+    margin: .12rem 0 .28rem 0 !important;
+  }
+  html body .stApp .ticker-tape-track {
+    gap: 5px !important;
+    padding: 4px 5px !important;
+  }
+  html body .stApp .ticker-tape-item {
+    min-width: 168px !important;
+    width: 168px !important;
+    height: 32px !important;
+    grid-template-columns: 16px 78px 54px !important;
+    gap: 4px !important;
+    padding: 3px 5px !important;
+  }
+  html body .stApp .ticker-alert-marker { width: 16px !important; height: 16px !important; font-size: .62rem !important; }
+  html body .stApp .ticker-market { display:none !important; }
+  html body .stApp .ticker-title { font-size: .62rem !important; margin-bottom: 1px !important; }
+  html body .stApp .ticker-price { font-size: .66rem !important; line-height: 1 !important; }
+  html body .stApp .ticker-change { font-size: .58rem !important; margin-top: 0 !important; }
+  html body .stApp .ticker-spark svg { width: 54px !important; height: 16px !important; }
+  html body .stApp div[data-testid="stExpander"] details summary {
+    min-height: 34px !important;
+    padding: .22rem .42rem !important;
+  }
+  html body .stApp div[data-testid="stExpander"] details summary p {
+    font-size: .76rem !important;
+  }
+  html body .stApp .ptw-control-hero {
+    padding: .58rem .62rem !important;
+    margin: .32rem 0 .34rem 0 !important;
+    border-radius: 16px !important;
+  }
+  html body .stApp .ptw-control-title { font-size: 1.02rem !important; }
+  html body .stApp .ptw-control-caption { font-size: .66rem !important; line-height: 1.2 !important; }
+  html body .stApp .ptw-control-selector-shell {
+    padding: .42rem !important;
+    border-radius: 16px !important;
+  }
+  html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height: 48px !important;
+    padding: .44rem .52rem !important;
+    font-size: .72rem !important;
+    border-radius: 14px !important;
+  }
+  html body .stApp [data-testid="stHorizontalBlock"] {
+    gap: .32rem !important;
+  }
+  html body .stApp [data-testid="stHorizontalBlock"] > div {
+    min-width: 0 !important;
+  }
+  html body .stApp div[data-testid="stDataFrame"],
+  html body .stApp div[data-testid="stTable"],
+  html body .stApp .element-container:has(table) {
+    overflow-x: auto !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .v18-dark-row,
+  html body .stApp .visual-truth-empty-state {
+    font-size: .68rem !important;
+    padding: .42rem .52rem !important;
+    border-radius: 12px !important;
+  }
+  html body section[data-testid="stSidebar"] {
+    max-width: 78vw !important;
+    width: 78vw !important;
+  }
+}
+
+@media (max-width: 420px) {
+  html body .stApp .ticker-tape-item {
+    min-width: 150px !important;
+    width: 150px !important;
+    grid-template-columns: 15px 72px 48px !important;
+  }
+  html body .stApp .ticker-spark svg { width: 48px !important; }
+  html body .stApp .dash2026-kpi-card { min-height: 58px !important; }
 }
 </style>
 """, unsafe_allow_html=True)
