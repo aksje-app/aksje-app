@@ -9926,7 +9926,7 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-st.sidebar.markdown("<div class='sidebar-section-title'>Meny</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
 st.sidebar.markdown("""
 <div class='sidebar2026-nav'>
   <div class='sidebar2026-nav-item'><b>🏠</b><span>Dashboard</span></div>
@@ -9936,15 +9936,17 @@ st.sidebar.markdown("""
   <div class='sidebar2026-nav-item'><b>⚙️</b><span>System</span></div>
 </div>
 """, unsafe_allow_html=True)
+st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
 render_user_admin(current_user)
-with st.sidebar.expander("⚙️ Drift", expanded=False):
+st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-advanced'>Avansert</div>", unsafe_allow_html=True)
+with st.sidebar.expander("🔧 Drift", expanded=False):
     show_drift_controls_v1863cc = st.checkbox(
         "Vis global oppdatering",
         value=False,
         key="show_drift_controls_v1863cc",
         help="Avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
     )
-# v18.6.38: meny, KPI, banner og kontrollsenter ryddet videre.
+# v18.6.39: venstremeny ryddet og tekstklipping fjernet.
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -18851,3 +18853,154 @@ def add_rsi_current_box(fig, rsi):
 # legacy test marker: top_apply_all_changes_v18590
 
 
+
+
+# v18.6.39: endelig venstremeny-opprydding. Hindrer tekstklipping som viste Admin/Drift som "Adr/Dri".
+st.markdown("""
+<style>
+/* v18.6.39 sidebar polish */
+html body section[data-testid="stSidebar"] {
+  width: 168px !important;
+  min-width: 168px !important;
+  max-width: 168px !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] > div:first-child {
+  padding: .70rem .62rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+  display: block !important;
+  font-size: .68rem !important;
+  line-height: 1.05 !important;
+  letter-spacing: .115em !important;
+  text-align: left !important;
+  margin: .62rem .14rem .36rem .14rem !important;
+  color: #93c5fd !important;
+  text-transform: uppercase !important;
+  font-weight: 950 !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title:first-of-type {
+  margin-top: .20rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav {
+  gap: .36rem !important;
+  margin-bottom: .70rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  min-height: 36px !important;
+  grid-template-columns: 28px 1fr !important;
+  gap: .46rem !important;
+  padding: .34rem .48rem !important;
+  border-radius: 15px !important;
+  font-size: .82rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
+  width: 28px !important;
+  height: 28px !important;
+  font-size: 1.02rem !important;
+  border-radius: 10px !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+  font-size: .82rem !important;
+  line-height: 1.05 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-card {
+  padding: .52rem .54rem !important;
+  margin: 0 0 .44rem 0 !important;
+  border-radius: 16px !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-title {
+  font-size: .72rem !important;
+  margin-bottom: .22rem !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-user {
+  font-size: .82rem !important;
+  line-height: 1.18 !important;
+  text-align: left !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-user span {
+  display: inline-block !important;
+  margin-top: .10rem !important;
+  font-size: .68rem !important;
+  color: #93c5fd !important;
+}
+html body section[data-testid="stSidebar"] .auth-remember-chip {
+  display: inline-flex !important;
+  width: auto !important;
+  max-width: 100% !important;
+  margin-top: .34rem !important;
+  padding: .18rem .38rem !important;
+  border-radius: 999px !important;
+  font-size: .64rem !important;
+  line-height: 1.05 !important;
+  white-space: nowrap !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+  min-height: 36px !important;
+  padding: .32rem .46rem !important;
+  border-radius: 14px !important;
+  font-size: .80rem !important;
+  white-space: nowrap !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+  margin-top: .20rem !important;
+  border-radius: 16px !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+  min-height: 36px !important;
+  padding: .34rem .48rem !important;
+  font-size: .80rem !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary * {
+  font-size: .80rem !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] label,
+html body section[data-testid="stSidebar"] p,
+html body section[data-testid="stSidebar"] .stMarkdown,
+html body section[data-testid="stSidebar"] .stCaptionContainer {
+  font-size: .72rem !important;
+  line-height: 1.20 !important;
+}
+@media (max-width: 760px) {
+  html body section[data-testid="stSidebar"] {
+    width: 128px !important;
+    min-width: 128px !important;
+    max-width: 128px !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar-section-title {
+    text-align: center !important;
+    font-size: .58rem !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+    grid-template-columns: 1fr !important;
+    justify-items: center !important;
+    min-height: 46px !important;
+    gap: .14rem !important;
+    padding: .34rem .24rem !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    font-size: .64rem !important;
+    text-align: center !important;
+    white-space: normal !important;
+  }
+  html body section[data-testid="stSidebar"] .auth-sidebar-user {
+    text-align: center !important;
+    font-size: .70rem !important;
+  }
+  html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary,
+  html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary * {
+    font-size: .70rem !important;
+    white-space: normal !important;
+    text-align: center !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)

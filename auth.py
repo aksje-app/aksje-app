@@ -522,10 +522,10 @@ def render_user_admin(current_user):
     remember_txt = "På" if remember_on else "Av"
     st.sidebar.markdown(
         f"""
-        <div class="auth-sidebar-card auth-sidebar-card-v18638">
-            <div class="auth-sidebar-title">👤 Konto</div>
-            <div class="auth-sidebar-user"><b>{username}</b><br/><span>{role}</span></div>
-            <div class="auth-remember-chip {remember_cls}">● Husk meg: <b>{remember_txt}</b></div>
+        <div class="auth-sidebar-card auth-sidebar-card-v18639">
+            <div class="auth-sidebar-title">👤 Bruker</div>
+            <div class="auth-sidebar-user"><b>{username}</b><br/><span>Rolle: {role}</span></div>
+            <div class="auth-remember-chip {remember_cls}">● Husk: <b>{remember_txt}</b></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -538,7 +538,7 @@ def render_user_admin(current_user):
     if current_user.get("role") != "admin":
         return
 
-    with st.sidebar.expander("🔐 Admin", expanded=False):  # v18.6.38: samlet under konto/meny
+    with st.sidebar.expander("🛡️ Admin", expanded=False):  # v18.6.39: tydelig label, ikke avkortet
         users = list_users()
         if users:
             rows = []

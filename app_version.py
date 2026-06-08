@@ -1,12 +1,12 @@
-APP_VERSION = "v18.6.38"
-APP_VERSION_NAME = "KPI, meny, kontrollsenter og kompakte bannere"
-APP_BUILD_ID = "v18635-dashboard-2026-phase4-mobile-kpi"
+APP_VERSION = "v18.6.39"
+APP_VERSION_NAME = "Ryddet venstremeny og stoppet tekstklipping"
+APP_BUILD_ID = "v18639-sidebar-polish"
 # Kort label til UI. Fullt navn brukes kun i patch notes/admin.
 APP_BUILD_LABEL = APP_VERSION
 
 APP_PATCH_NOTES = [
-    "Dashboard 2026 Phase 5: KPI-kort oppdateres etter aktivt panel, venstremeny er ryddet og dobbelt versjonsnummer er fjernet.",
-    "KPI-kortene leser aktive Top Picks/ranking-data og refreshes etter Kontrollsenter-rendering slik at toppkortene ikke blir liggende tomme når panelet har data.",
+    "v18.6.39: Venstremeny er gjort bredere og mer lesbar, med tydelige seksjoner for Navigasjon, Konto og Avansert.",
+    "Tekstklipping som kunne vise Admin/Drift som korte fragmenter er fjernet med nye sidebar-regler.",
     "Top Picks-run lagrer eksplisitt en dashboard-snapshot slik at øverste kort ikke blir stående tomme etter kjøring.",
     "Ticker-bannerkort er komprimert på mobil for å gjøre startsiden brukbar igjen.",
     "Analysemotor og datainnhenting er ikke endret i denne runden.",
