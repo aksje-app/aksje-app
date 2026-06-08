@@ -125,7 +125,7 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 
-st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
 
 # v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
@@ -9918,20 +9918,22 @@ def render_strategy_backtest(tickers, label):
 st.sidebar.markdown("<div class='sidebar-section-title'>Meny</div>", unsafe_allow_html=True)
 st.sidebar.markdown("""
 <div class='sidebar2026-nav'>
-  <div class='sidebar2026-nav-item'>🏠 <span>Dashboard</span></div>
-  <div class='sidebar2026-nav-item'>🎯 <span>Top Picks</span></div>
-  <div class='sidebar2026-nav-item'>🧠 <span>AI</span></div>
-  <div class='sidebar2026-nav-item'>⚙️ <span>System</span></div>
+  <div class='sidebar2026-nav-item'><b>🏠</b><span>Dashboard</span></div>
+  <div class='sidebar2026-nav-item'><b>📈</b><span>Analyse</span></div>
+  <div class='sidebar2026-nav-item'><b>🎯</b><span>Top Picks</span></div>
+  <div class='sidebar2026-nav-item'><b>🤖</b><span>AI</span></div>
+  <div class='sidebar2026-nav-item'><b>⚙️</b><span>System</span></div>
 </div>
 """, unsafe_allow_html=True)
 render_user_admin(current_user)
-show_drift_controls_v1863cc = st.sidebar.checkbox(
-    "Drift: vis global oppdatering",
-    value=False,
-    key="show_drift_controls_v1863cc",
-    help="Viser bare global oppdatering for avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
-)
-# v18.6.36: fjernet mikrotekst i venstremeny; driftvalg forklares i System/admin.
+with st.sidebar.expander("⚙️ Drift", expanded=False):
+    show_drift_controls_v1863cc = st.checkbox(
+        "Vis global oppdatering",
+        value=False,
+        key="show_drift_controls_v1863cc",
+        help="Avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
+    )
+# v18.6.37: driftvalg flyttet inn i expander og venstremeny er gjort lesbar/stabil.
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -18096,6 +18098,124 @@ html body .stApp .ptw-global-busy-fixed {
   }
   html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
     font-size:.76rem !important;
+  }
+}
+
+
+
+/* v18.6.37: Sidebar Guard - menyen skal aldri kunne forsvinne eller bli mikroskopisk */
+html body section[data-testid="stSidebar"] {
+  width: 142px !important;
+  min-width: 142px !important;
+  max-width: 142px !important;
+  transform: translateX(0) !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background: linear-gradient(180deg, #020617 0%, #07111f 100%) !important;
+  z-index: 999999 !important;
+}
+html body section[data-testid="stSidebar"] > div:first-child {
+  padding: .72rem .54rem !important;
+}
+/* Skjul native Streamlit-pilene. De kunne låse brukeren uten meny. */
+html body [data-testid="collapsedControl"],
+html body [data-testid="stSidebarCollapsedControl"],
+html body button[title*="sidebar" i],
+html body button[aria-label*="sidebar" i] {
+  display: none !important;
+  pointer-events: none !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+  font-size: .72rem !important;
+  line-height: 1.05 !important;
+  letter-spacing: .10em !important;
+  text-align: center !important;
+  margin: .28rem 0 .55rem 0 !important;
+  color: #bae6fd !important;
+  text-transform: uppercase !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title::before {
+  display: none !important;
+  content: none !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: .44rem !important;
+  margin: .10rem 0 .72rem 0 !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  display: grid !important;
+  grid-template-columns: 25px 1fr !important;
+  align-items: center !important;
+  gap: .42rem !important;
+  min-height: 42px !important;
+  padding: .42rem .50rem !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(125,211,252,.22) !important;
+  background: linear-gradient(135deg, rgba(8,47,73,.72), rgba(15,23,42,.84)) !important;
+  color: #e5f3ff !important;
+  font-weight: 900 !important;
+  font-size: .78rem !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,.18) !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
+  display:flex !important; align-items:center !important; justify-content:center !important;
+  width:25px !important; height:25px !important; border-radius:10px !important;
+  background: rgba(14,165,233,.16) !important;
+  font-size: .95rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+  display:block !important;
+  font-size:.78rem !important;
+  line-height:1.05 !important;
+  white-space:nowrap !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+html body section[data-testid="stSidebar"] button {
+  min-height: 40px !important;
+  font-size: .76rem !important;
+  border-radius: 14px !important;
+  padding: .36rem .42rem !important;
+}
+html body section[data-testid="stSidebar"] label,
+html body section[data-testid="stSidebar"] p,
+html body section[data-testid="stSidebar"] .stMarkdown,
+html body section[data-testid="stSidebar"] .stCaptionContainer {
+  font-size: .72rem !important;
+  line-height: 1.22 !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+  border-radius: 16px !important;
+  border: 1px solid rgba(125,211,252,.18) !important;
+  background: rgba(15,23,42,.58) !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+  min-height: 38px !important;
+  font-size: .74rem !important;
+  font-weight: 900 !important;
+}
+@media (max-width: 760px) {
+  html body section[data-testid="stSidebar"] {
+    width: 116px !important;
+    min-width: 116px !important;
+    max-width: 116px !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+    grid-template-columns: 1fr !important;
+    justify-items: center !important;
+    min-height: 48px !important;
+    padding: .40rem .28rem !important;
+    gap: .18rem !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    font-size: .62rem !important;
+    white-space: normal !important;
+    text-align: center !important;
+  }
+  html body .stApp .block-container {
+    padding-left: .45rem !important;
+    padding-right: .45rem !important;
   }
 }
 

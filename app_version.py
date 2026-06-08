@@ -1,5 +1,5 @@
-APP_VERSION = "v18.6.36"
-APP_VERSION_NAME = "Dashboard 2026 Phase 5 KPI + Sidebar"
+APP_VERSION = "v18.6.37"
+APP_VERSION_NAME = "Sidebar guard og mobilmeny"
 APP_BUILD_ID = "v18635-dashboard-2026-phase4-mobile-kpi"
 # Kort label til UI. Fullt navn brukes kun i patch notes/admin.
 APP_BUILD_LABEL = APP_VERSION
