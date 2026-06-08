@@ -1897,33 +1897,44 @@ def _dashboard2026_decision_text(item: dict) -> str:
 
 
 def _dashboard2026_kpi_snapshot() -> dict:
+    """Build live KPI data from the same rows the visible Top Picks panel uses.
+
+    v18.6.38: prefer the current displayed/buy-now Top Picks rows when they exist.
+    This keeps the header aligned with the visible list instead of older generic
+    ranking caches. No network calls or new analysis are started here.
+    """
     rows = _dashboard2026_latest_rank_rows()
     if not rows:
         rows = _dashboard2026_scan_session_candidates_v18632()
+
+    buy_now_rows = [dict(x) for x in (st.session_state.get("dashboard2026_buy_now_rows_v18638") or []) if isinstance(x, dict)]
+    visible_rows = [dict(x) for x in (st.session_state.get("dashboard2026_visible_rows_v18638") or []) if isinstance(x, dict)]
+    if visible_rows:
+        rows = visible_rows
+
     buy = 0
     sell = 0
     for item in rows:
         text = _dashboard2026_decision_text(item)
-        if "BUY" in text or "KJØP" in text:
+        if "KJØP NÅ" in text or "BUY NOW" in text or "BUY" in text or "KJØP" in text:
             buy += 1
         elif "SELL" in text or "AVOID" in text or "UNNG" in text or "SELG" in text:
             sell += 1
-    best = rows[0] if rows else {}
+    if buy_now_rows:
+        buy = max(buy, len(buy_now_rows))
+
+    # Best candidate should match the practical dashboard: choose buy-now rows first,
+    # otherwise choose the highest-score displayed row.
+    best_pool = buy_now_rows or rows
+    best = max(best_pool, key=_dashboard2026_score_value) if best_pool else {}
     best_ticker = str(best.get("ticker") or best.get("symbol") or best.get("Ticker") or best.get("Symbol") or "-").upper()
     best_score = _dashboard2026_score_value(best)
     alerts = 0
-    try:
-        alerts += len(st.session_state.get("live_banner_alert_log_v18610") or [])
-    except Exception:
-        pass
-    try:
-        alerts += len(st.session_state.get("special_watch_alert_log_v18621") or [])
-    except Exception:
-        pass
-    try:
-        alerts += len(st.session_state.get("paper_alert_events_v18611") or [])
-    except Exception:
-        pass
+    for alert_key in ("live_banner_alert_log_v18610", "special_watch_alert_log_v18621", "paper_alert_events_v18611"):
+        try:
+            alerts += len(st.session_state.get(alert_key) or [])
+        except Exception:
+            pass
     return {
         "buy": buy,
         "sell": sell,
@@ -1942,7 +1953,7 @@ def render_dashboard2026_kpis_v18631() -> None:
     sell_value = str(int(snap["sell"])) if has_data else "Ingen data"
     alerts_value = str(int(snap["alerts"])) if int(snap.get("alerts") or 0) else ("0" if has_data else "Ingen data")
     best_value = html.escape(str(snap["best_ticker"] if has_data else "Ingen data"))
-    best_sub = "Kjør rangering/Top Picks for live kandidatdata" if not has_data else f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater i cache"
+    best_sub = "Kjør rangering/Top Picks for live kandidatdata" if not has_data else f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater"
     st.markdown(
         f"""
         <div class='dash2026-section-label'>Marked nå</div>
@@ -1950,12 +1961,12 @@ def render_dashboard2026_kpis_v18631() -> None:
           <div class='dash2026-kpi-card buy'>
             <div class='dash2026-kpi-label'>BUY</div>
             <div class='dash2026-kpi-value'>{html.escape(buy_value)}</div>
-            <div class='dash2026-kpi-sub'>Aktive kjøpskandidater fra siste ranking/cache</div>
+            <div class='dash2026-kpi-sub'>Kjøp-nå/BUY fra synlig Top Picks</div>
           </div>
           <div class='dash2026-kpi-card sell'>
             <div class='dash2026-kpi-label'>SELL / UNNGÅ</div>
             <div class='dash2026-kpi-value'>{html.escape(sell_value)}</div>
-            <div class='dash2026-kpi-sub'>Negative signaler fra siste ranking/cache</div>
+            <div class='dash2026-kpi-sub'>SELL/UNNGÅ fra synlig Top Picks</div>
           </div>
           <div class='dash2026-kpi-card alerts'>
             <div class='dash2026-kpi-label'>Varsler</div>
@@ -9933,7 +9944,7 @@ with st.sidebar.expander("⚙️ Drift", expanded=False):
         key="show_drift_controls_v1863cc",
         help="Avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
     )
-# v18.6.37: driftvalg flyttet inn i expander og venstremeny er gjort lesbar/stabil.
+# v18.6.38: meny, KPI, banner og kontrollsenter ryddet videre.
 # v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
 # Statusinformasjon vises i toppkortene.
 
@@ -10632,6 +10643,9 @@ def render_top_picks_control_center_v1863s():
         # som panelet akkurat nå viser. Dette lagrer kun eksisterende rows; ingen ny henting.
         st.session_state["dashboard2026_force_rows_v18635"] = list(top_picks or [])
     buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
+    # v18.6.38: dashboard header uses these exact rows after this panel renders.
+    st.session_state["dashboard2026_visible_rows_v18638"] = list(top_picks or [])
+    st.session_state["dashboard2026_buy_now_rows_v18638"] = list(buy_now_picks or [])
     view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
     if top_picks:
         st.markdown(
@@ -18103,7 +18117,7 @@ html body .stApp .ptw-global-busy-fixed {
 
 
 
-/* v18.6.37: Sidebar Guard - menyen skal aldri kunne forsvinne eller bli mikroskopisk */
+/* v18.6.38: Sidebar Guard - menyen skal aldri kunne forsvinne eller bli mikroskopisk */
 html body section[data-testid="stSidebar"] {
   width: 142px !important;
   min-width: 142px !important;
@@ -18688,6 +18702,107 @@ html body .stApp .paper-trade-box-v18615 {
     border-radius: 8px;
     padding: .58rem .66rem .40rem .66rem;
     margin-bottom: .55rem;
+}
+
+
+/* v18.6.38: KPI, sidebar, banner og kontrollsenter phase 4 */
+html body .stApp .dash2026-kpi-card {
+  min-height: 70px !important;
+  padding: .62rem .78rem !important;
+  border-radius: 18px !important;
+}
+html body .stApp .dash2026-kpi-value {
+  font-size: 1.55rem !important;
+  line-height: 1.02 !important;
+}
+html body .stApp .dash2026-kpi-sub {
+  white-space: normal !important;
+  line-height: 1.18 !important;
+}
+html body .stApp .ticker-card,
+html body .stApp .live-banner-card,
+html body .stApp .special-watch-card,
+html body .stApp .ticker-tape-item {
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+html body .stApp .ticker-tape,
+html body .stApp .ticker-tape-track,
+html body .stApp .live-banner-strip,
+html body .stApp .special-watch-strip {
+  min-height: 31px !important;
+  max-height: 34px !important;
+}
+html body .stApp .ticker-card * {
+  font-size: .64rem !important;
+  line-height: 1.02 !important;
+}
+html body .stApp .ticker-spark svg,
+html body .stApp .sparkline svg {
+  max-height: 24px !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-card {
+  padding: .60rem .50rem !important;
+  margin: .48rem 0 .45rem 0 !important;
+  border-radius: 18px !important;
+  background: linear-gradient(180deg, rgba(8,47,73,.82), rgba(15,23,42,.88)) !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-title {
+  font-size: .70rem !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-user {
+  display:block !important;
+  font-size: .76rem !important;
+  line-height: 1.22 !important;
+}
+html body section[data-testid="stSidebar"] .auth-remember-chip {
+  font-size: .66rem !important;
+  padding: .20rem .42rem !important;
+  margin-top: .36rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  min-height: 38px !important;
+  padding: .40rem .46rem !important;
+  border-radius: 15px !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stSelectbox"],
+html body .stApp .ptw-control-selector-shell label:has(+ div[data-baseweb="select"]) {
+  max-width: 520px !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+  min-height: 76px !important;
+  align-items: flex-start !important;
+  white-space: normal !important;
+  line-height: 1.15 !important;
+  font-size: .88rem !important;
+}
+html body .stApp .ptw-control-mini-title {
+  margin-top: .55rem !important;
+  margin-bottom: .30rem !important;
+}
+html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
+  min-height: 46px !important;
+  font-size: .80rem !important;
+}
+@media (max-width: 760px) {
+  html body .stApp .dash2026-kpi-grid { grid-template-columns: 1fr !important; }
+  html body .stApp .ticker-card,
+  html body .stApp .live-banner-card,
+  html body .stApp .special-watch-card,
+  html body .stApp .ticker-tape-item {
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+  }
+  html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height: 54px !important;
+    font-size: .78rem !important;
+  }
 }
 </style>
 """, unsafe_allow_html=True)

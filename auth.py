@@ -522,23 +522,23 @@ def render_user_admin(current_user):
     remember_txt = "På" if remember_on else "Av"
     st.sidebar.markdown(
         f"""
-        <div class="auth-sidebar-card">
-            <div class="auth-sidebar-title">👤 Bruker</div>
-            <div class="auth-sidebar-user"><b>{username}</b> <span>{role}</span></div>
+        <div class="auth-sidebar-card auth-sidebar-card-v18638">
+            <div class="auth-sidebar-title">👤 Konto</div>
+            <div class="auth-sidebar-user"><b>{username}</b><br/><span>{role}</span></div>
             <div class="auth-remember-chip {remember_cls}">● Husk meg: <b>{remember_txt}</b></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=False):
+    if st.sidebar.button("Logg ut", key="auth_logout_btn", use_container_width=True):
         st.session_state["auth_last_redirect_reason_v1865c"] = "manual_logout"
         _logout()
 
     if current_user.get("role") != "admin":
         return
 
-    with st.sidebar.expander("🔐 Admin", expanded=False):  # tidligere: Administrer brukere
+    with st.sidebar.expander("🔐 Admin", expanded=False):  # v18.6.38: samlet under konto/meny
         users = list_users()
         if users:
             rows = []
