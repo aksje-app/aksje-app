@@ -1,19 +1,20 @@
-APP_VERSION = "v18.6.43"
-APP_VERSION_NAME = "Import hotfix for app build label"
+APP_VERSION = "v18.6.46"
+APP_VERSION_NAME = "Mobile nav and sidebar text fix"
 APP_BUILD_LABEL = APP_VERSION
-APP_PATCH_NOTES = [
+
+CHANGELOG = [
+    "v18.6.46: Mobil bunnmeny bruker ekte lenker/query-param og setter Kontrollsenter-state; Admin/Drift-sidebar bredde/tekstklipping strammet opp; KPI debug skjult bak kpi_debug=1.",
+    "v18.6.45: Midlertidig KPI DEBUG-panel viste råfelt, kilde, snapshot og klassifisering fra Top Picks/ranking.",
+    "v18.6.44: Mobilnavigasjon renderes i hoved-DOM som fast bunnmeny, uavhengig av Streamlit-sidebar.",
     "v18.6.43: Gjenopprettet get_app_build_label() som brukes av app.py og workspace_layout.py.",
-    "v18.6.42: KPI beholder siste gyldige Top Picks-data og oppdateres fra synlige kandidater.",
-    "v18.6.42: Mobilmeny er gjort om til bunnnavigasjon slik at hovedvinduet ikke blokkeres.",
-    "v18.6.42: Top Picks sorteres primært etter total score; Kjøp nå har egen visning.",
-    "v18.6.42: Høyresiden i kandidatkortene har større tekst og mindre overlapp.",
 ]
 
 def get_app_version():
     return APP_VERSION
 
-def get_app_version_badge():
-    return APP_BUILD_LABEL
+
+def get_app_version_label():
+    return APP_VERSION
 
 
 def get_app_build_label():

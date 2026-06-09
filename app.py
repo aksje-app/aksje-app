@@ -11,6 +11,7 @@ from ui_components import market_pulse, top_movers
 import os
 import re
 import json
+from urllib.parse import urlencode
 import streamlit as st
 from sticky_topbar import render_sticky_topbar
 from workspace_layout import inject_workspace_css, render_workspace_title, render_ai_control_center
@@ -2090,9 +2091,11 @@ def _dashboard2026_render_kpi_debug_v18645(snap: dict) -> None:
     Remove/disable after KPI mapping is confirmed.
     """
     try:
-        # Keep this visible in the debug build; it is the evidence we need from Render/mobile.
+        params = _query_params_plain_v18646() if "_query_params_plain_v18646" in globals() else {}
+        if str(params.get("kpi_debug") or "").lower() not in {"1", "true", "ja", "on"}:
+            return
         rows, buy_now_rows, meta = _dashboard2026_debug_candidate_rows_v18645(limit=40)
-        with st.expander("🧪 KPI DEBUG v18.6.45 – råfelt fra Top Picks/ranking", expanded=True):
+        with st.expander("🧪 KPI DEBUG v18.6.46 – råfelt fra Top Picks/ranking", expanded=False):
             st.caption("Dette panelet er midlertidig. Send skjermbilde herfra hvis BUY/SELL-tallene ikke stemmer.")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("KPI BUY", snap.get("buy", "-"))
@@ -10104,18 +10107,87 @@ def render_strategy_backtest(tickers, label):
 
 # --- Stabil sidebar v18.6.41 ---
 # Sidebar er flyttet ut av app.py for å unngå at flere CSS-/HTML-lag kjemper mot hverandre.
+
+def _query_params_plain_v18646() -> dict:
+    """Returner query params uten å kaste ved gamle/nye Streamlit-versjoner."""
+    try:
+        raw = dict(st.query_params)
+    except Exception:
+        try:
+            raw = {k: v[0] if isinstance(v, list) and v else v for k, v in st.experimental_get_query_params().items()}
+        except Exception:
+            raw = {}
+    out = {}
+    for k, v in raw.items():
+        if isinstance(v, (list, tuple)):
+            out[k] = str(v[0]) if v else ""
+        else:
+            out[k] = str(v)
+    return out
+
+
+def _mobile_nav_href_v18646(nav: str) -> str:
+    params = _query_params_plain_v18646()
+    params["mobile_nav"] = str(nav)
+    return "?" + urlencode(params)
+
+
+def _apply_mobile_nav_query_v18646() -> None:
+    """Gjør HTML-bunnmenyen faktisk klikkbar via query param + session_state.
+
+    Tidligere var mobilmenyen bare visuelle <a href="#">-knapper. Denne funksjonen
+    leser mobile_nav og setter samme kontrollsenter-state som de vanlige knappene.
+    """
+    nav = (_query_params_plain_v18646().get("mobile_nav") or "").strip().lower()
+    if not nav:
+        return
+    # Unngå unødige reruns hvis samme nav allerede er brukt i denne sesjonen.
+    if st.session_state.get("mobile_nav_applied_v18646") == nav:
+        return
+    st.session_state["mobile_nav_applied_v18646"] = nav
+    if nav == "dashboard":
+        st.session_state["ai_control_center_menu_open_v1863ag"] = True
+        st.session_state["ai_control_center_active_panel_v1863m"] = ""
+        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+    elif nav == "analysis":
+        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "top_picks":
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "ai":
+        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = True
+    elif nav == "system":
+        st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+
+
+_apply_mobile_nav_query_v18646()
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 
 
-# v18.6.45: independent mobile navigation rail. It is rendered in the main DOM
-# so it remains visible even when Streamlit's sidebar drawer is hidden on phones.
-st.markdown("""
+# v18.6.46: mobilnavigasjon er ekte lenker som setter mobile_nav og utløser rerun.
+_mobile_nav_links_v18646 = {
+    "dashboard": _mobile_nav_href_v18646("dashboard"),
+    "analysis": _mobile_nav_href_v18646("analysis"),
+    "top_picks": _mobile_nav_href_v18646("top_picks"),
+    "ai": _mobile_nav_href_v18646("ai"),
+    "system": _mobile_nav_href_v18646("system"),
+}
+st.markdown(f"""
 <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
-  <a href="#" title="Dashboard"><b>🏠</b><span>Dashboard</span></a>
-  <a href="#" title="Analyse"><b>📈</b><span>Analyse</span></a>
-  <a href="#" title="Top Picks"><b>🎯</b><span>Top Picks</span></a>
-  <a href="#" title="AI"><b>🤖</b><span>AI</span></a>
-  <a href="#" title="System"><b>⚙️</b><span>System</span></a>
+  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
+  <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
+  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
+  <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
+  <a href="{_mobile_nav_links_v18646['system']}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
 </div>
 """, unsafe_allow_html=True)
 
