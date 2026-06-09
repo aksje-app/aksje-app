@@ -46,17 +46,17 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
 
 _SIDEBAR_CSS_V18641 = """
 <style>
-/* v18.6.42 stable sidebar: desktop full menu, mobile bottom rail. */
+/* v18.6.46 stable sidebar: desktop full menu, mobile bottom rail. */
 html body section[data-testid="stSidebar"] {
-  width: 188px !important;
-  min-width: 188px !important;
-  max-width: 188px !important;
+  width: 224px !important;
+  min-width: 224px !important;
+  max-width: 224px !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
   border-right: 1px solid rgba(56,189,248,.20) !important;
 }
 html body section[data-testid="stSidebar"] > div:first-child {
-  padding: .72rem .62rem !important;
+  padding: .70rem .70rem !important;
 }
 html body section[data-testid="stSidebar"] .sidebar-section-title {
   display: block !important;
@@ -137,16 +137,35 @@ html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button 
   font-size: .82rem !important;
   white-space: nowrap !important;
 }
-html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details { margin-top: .20rem !important; border-radius: 16px !important; }
-html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary,
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+  margin-top: .20rem !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+  min-height: 34px !important;
+  padding: .12rem .22rem !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+}
 html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary * {
-  min-height: 36px !important;
-  padding: .16rem .28rem !important;
-  font-size: .82rem !important;
-  line-height: 1.1 !important;
+  font-size: .76rem !important;
+  line-height: 1.0 !important;
   white-space: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
+}
+/* v18.6.46: Admin/Drift labels must not be cut to Adr/Dri. */
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary p {
+  font-size: .78rem !important;
+  max-width: 100% !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary svg {
+  width: 13px !important;
+  min-width: 13px !important;
 }
 /* Do not let Streamlit collapse buttons trap the layout. */
 html body [data-testid="stSidebarCollapsedControl"],
@@ -243,6 +262,16 @@ html body button[aria-label*="sidebar" i] {
     max-width: 100% !important;
   }
   html body .stApp { overflow-x: hidden !important; }
+}
+
+/* v18.6.46 final desktop sidebar override: keep advanced labels readable. */
+@media (min-width: 761px) {
+  html body section[data-testid="stSidebar"] {
+    width: 224px !important; min-width: 224px !important; max-width: 224px !important;
+  }
+  html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+    display: flex !important; align-items: center !important; gap: .20rem !important;
+  }
 }
 
 </style>
