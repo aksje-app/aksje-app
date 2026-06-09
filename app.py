@@ -1878,6 +1878,43 @@ def _dashboard2026_scan_session_candidates_v18632(limit: int = 250) -> list[dict
             break
     return out
 
+
+def _dashboard2026_kpi_cache_path_v18644():
+    """Shared lightweight KPI cache across browser sessions on the same Render instance."""
+    try:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        os.makedirs(base, exist_ok=True)
+        return os.path.join(base, "dashboard2026_kpi_cache.json")
+    except Exception:
+        return "dashboard2026_kpi_cache.json"
+
+
+def _dashboard2026_write_kpi_cache_v18644(snapshot: dict) -> None:
+    try:
+        if not isinstance(snapshot, dict) or int(snapshot.get("rows") or 0) <= 0:
+            return
+        payload = dict(snapshot)
+        payload["saved_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        with open(_dashboard2026_kpi_cache_path_v18644(), "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.warning("Could not write dashboard KPI cache v18.6.44: %s", e)
+
+
+def _dashboard2026_read_kpi_cache_v18644() -> dict | None:
+    try:
+        path = _dashboard2026_kpi_cache_path_v18644()
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and int(data.get("rows") or 0) > 0:
+            data["stale"] = True
+            return data
+    except Exception as e:
+        logging.warning("Could not read dashboard KPI cache v18.6.44: %s", e)
+    return None
+
 def _dashboard2026_decision_text(item: dict) -> str:
     fields = (
         item.get("decision"),
@@ -1954,6 +1991,7 @@ def _dashboard2026_store_visible_kpi_snapshot_v18642(rows: list[dict], buy_now_r
         if int(snap.get("rows") or 0) > 0:
             st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
             st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(snap)
+            _dashboard2026_write_kpi_cache_v18644(snap)
     except Exception as e:
         logging.warning("Could not store dashboard KPI snapshot v18.6.42: %s", e)
 
@@ -1979,12 +2017,17 @@ def _dashboard2026_kpi_snapshot() -> dict:
     if int(snap.get("rows") or 0) > 0:
         st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
         st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(snap)
+        _dashboard2026_write_kpi_cache_v18644(snap)
         return snap
 
     if isinstance(previous, dict) and int(previous.get("rows") or 0) > 0:
         cached = dict(previous)
         cached["stale"] = True
         return cached
+    disk_cached = _dashboard2026_read_kpi_cache_v18644()
+    if isinstance(disk_cached, dict) and int(disk_cached.get("rows") or 0) > 0:
+        st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(disk_cached)
+        return disk_cached
     return snap
 
 def render_dashboard2026_kpis_v18631() -> None:
@@ -9978,6 +10021,19 @@ def render_strategy_backtest(tickers, label):
 # --- Stabil sidebar v18.6.41 ---
 # Sidebar er flyttet ut av app.py for å unngå at flere CSS-/HTML-lag kjemper mot hverandre.
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
+
+
+# v18.6.44: independent mobile navigation rail. It is rendered in the main DOM
+# so it remains visible even when Streamlit's sidebar drawer is hidden on phones.
+st.markdown("""
+<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
+  <a href="#" title="Dashboard"><b>🏠</b><span>Dashboard</span></a>
+  <a href="#" title="Analyse"><b>📈</b><span>Analyse</span></a>
+  <a href="#" title="Top Picks"><b>🎯</b><span>Top Picks</span></a>
+  <a href="#" title="AI"><b>🤖</b><span>AI</span></a>
+  <a href="#" title="System"><b>⚙️</b><span>System</span></a>
+</div>
+""", unsafe_allow_html=True)
 
 # --- Lagrede auto-innstillinger ---
 st.sidebar.markdown(
@@ -18396,6 +18452,104 @@ html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary
 if bool(globals().get("show_drift_controls_v1863cc", False)):
     render_global_update_bar_v18548()
 # GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
+
+
+st.markdown("""
+<style>
+/* v18.6.44 final mobile/dashboard guard: overrides old sidebar CSS blocks. */
+.mobile-bottom-nav-v18644 { display:none; }
+@media (max-width: 760px) {
+  html body section[data-testid="stSidebar"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+  }
+  html body .mobile-bottom-nav-v18644 {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    height: 66px !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) 8px !important;
+    z-index: 2147483000 !important;
+    background: rgba(2, 6, 23, .97) !important;
+    border-top: 1px solid rgba(56,189,248,.38) !important;
+    box-shadow: 0 -12px 32px rgba(0,0,0,.46) !important;
+  }
+  html body .mobile-bottom-nav-v18644 a {
+    min-width: 0 !important;
+    height: 52px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+    border-radius: 14px !important;
+    text-decoration: none !important;
+    color: #e0f2fe !important;
+    background: linear-gradient(180deg, rgba(14,56,90,.88), rgba(8,30,55,.92)) !important;
+    border: 1px solid rgba(96,165,250,.30) !important;
+  }
+  html body .mobile-bottom-nav-v18644 b { font-size: 1.05rem !important; line-height: 1 !important; }
+  html body .mobile-bottom-nav-v18644 span {
+    font-size: .58rem !important;
+    line-height: 1 !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .block-container {
+    padding-left: .55rem !important;
+    padding-right: .55rem !important;
+    padding-bottom: 5.6rem !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .ptw-sticky-topbar {
+    margin-top: .35rem !important;
+    padding: .65rem .55rem !important;
+    text-align: center !important;
+  }
+  html body .stApp .ptw-app-title { font-size: 1.32rem !important; justify-content: center !important; }
+  html body .stApp .dash2026-kpi-grid { grid-template-columns: 1fr !important; gap: .55rem !important; }
+  html body .stApp .dash2026-kpi-card { min-height: 76px !important; padding: .72rem .78rem !important; }
+  html body .stApp .dash2026-kpi-value { font-size: 1.48rem !important; }
+  html body .stApp .dash2026-kpi-sub { font-size: .76rem !important; line-height: 1.15 !important; }
+  html body .stApp .stCaptionContainer,
+  html body .stApp div[data-testid="stCaptionContainer"] {
+    font-size: .68rem !important;
+    line-height: 1.12 !important;
+    max-height: 2.35em !important;
+    overflow: hidden !important;
+    opacity: .72 !important;
+  }
+  html body .stApp .ticker-tape,
+  html body .stApp .ticker-tape-track,
+  html body .stApp .live-banner-strip,
+  html body .stApp .special-watch-strip {
+    overflow: hidden !important;
+    min-height: 42px !important;
+    max-height: 46px !important;
+  }
+  html body .stApp .ticker-card,
+  html body .stApp .live-banner-card,
+  html body .stApp .special-watch-card,
+  html body .stApp .ticker-tape-item {
+    height: 40px !important;
+    min-height: 40px !important;
+    max-height: 40px !important;
+    min-width: 170px !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
 
 # v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
 # v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
