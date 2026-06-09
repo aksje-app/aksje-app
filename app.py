@@ -19004,3 +19004,87 @@ html body section[data-testid="stSidebar"] .stCaptionContainer {
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+# v18.6.40: Mobile sidebar emergency fix. Desktop sidebar stays readable; mobile becomes a narrow rail so main window is always usable.
+st.markdown("""
+<style>
+/* v18.6.40 mobile sidebar guard: never trap the user behind a drawer */
+@media (max-width: 760px) {
+  html body section[data-testid="stSidebar"] {
+    width: 74px !important;
+    min-width: 74px !important;
+    max-width: 74px !important;
+    left: 0 !important;
+    transform: none !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 25 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    border-right: 1px solid rgba(56,189,248,.24) !important;
+    box-shadow: 8px 0 22px rgba(0,0,0,.24) !important;
+  }
+  html body section[data-testid="stSidebar"] > div:first-child {
+    padding: .42rem .26rem !important;
+    width: 74px !important;
+    min-width: 74px !important;
+    max-width: 74px !important;
+  }
+  /* Hide Streamlit collapse arrows on mobile; they were trapping the view. */
+  html body [data-testid="stSidebarCollapsedControl"],
+  html body [data-testid="collapsedControl"],
+  html body button[title*="sidebar" i],
+  html body button[aria-label*="sidebar" i] {
+    display: none !important;
+    pointer-events: none !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar-section-title {
+    font-size: 0 !important;
+    margin: .08rem 0 .22rem 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav {
+    gap: .32rem !important;
+    margin: .18rem 0 .42rem 0 !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+    width: 48px !important;
+    height: 48px !important;
+    min-height: 48px !important;
+    max-height: 48px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 16px !important;
+    margin: 0 auto !important;
+    grid-template-columns: none !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 1.16rem !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    display: none !important;
+  }
+  /* Account/admin/drift boxes are too large for mobile rail; keep them desktop-only for now. */
+  html body section[data-testid="stSidebar"] .auth-sidebar-card,
+  html body section[data-testid="stSidebar"] div[data-testid="stExpander"],
+  html body section[data-testid="stSidebar"] div[data-testid="stCheckbox"],
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] {
+    display: none !important;
+  }
+  html body .stApp .block-container {
+    padding-left: .44rem !important;
+    padding-right: .38rem !important;
+    max-width: 100% !important;
+  }
+  html body .stApp {
+    overflow-x: hidden !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)

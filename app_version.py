@@ -1,15 +1,13 @@
-APP_VERSION = "v18.6.39"
-APP_VERSION_NAME = "Ryddet venstremeny og stoppet tekstklipping"
-APP_BUILD_ID = "v18639-sidebar-polish"
-# Kort label til UI. Fullt navn brukes kun i patch notes/admin.
+APP_VERSION = "v18.6.40"
+APP_VERSION_NAME = "Mobilmeny gjort brukbar igjen"
+APP_BUILD_ID = "v18640-mobile-sidebar-guard"
 APP_BUILD_LABEL = APP_VERSION
 
 APP_PATCH_NOTES = [
-    "v18.6.39: Venstremeny er gjort bredere og mer lesbar, med tydelige seksjoner for Navigasjon, Konto og Avansert.",
-    "Tekstklipping som kunne vise Admin/Drift som korte fragmenter er fjernet med nye sidebar-regler.",
-    "Top Picks-run lagrer eksplisitt en dashboard-snapshot slik at øverste kort ikke blir stående tomme etter kjøring.",
-    "Ticker-bannerkort er komprimert på mobil for å gjøre startsiden brukbar igjen.",
-    "Analysemotor og datainnhenting er ikke endret i denne runden.",
+    "v18.6.40: Mobilvisning av venstremeny er endret til smal ikon-rail slik at hovedvinduet ikke blokkeres.",
+    "Streamlit-sidepiler som kunne låse mobilvisningen er skjult på mobil.",
+    "Desktop-menyen fra v18.6.39 beholdes.",
+    "Ingen endringer i analysemotor eller datainnhenting.",
 ]
 
 
