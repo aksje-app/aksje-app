@@ -1,6 +1,6 @@
 """Stable sidebar renderer for AI Aksje Analyzer Pro.
 
-v18.6.41 goal:
+v18.6.42 goal:
 - One source of truth for sidebar structure.
 - Avoid fragmented inline sidebar HTML in app.py.
 - Keep desktop readable and prevent mobile drawer from blocking the app.
@@ -46,11 +46,11 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
 
 _SIDEBAR_CSS_V18641 = """
 <style>
-/* v18.6.41 stable sidebar: single source of truth for layout. */
+/* v18.6.42 stable sidebar: desktop full menu, mobile bottom rail. */
 html body section[data-testid="stSidebar"] {
-  width: 176px !important;
-  min-width: 176px !important;
-  max-width: 176px !important;
+  width: 188px !important;
+  min-width: 188px !important;
+  max-width: 188px !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
   border-right: 1px solid rgba(56,189,248,.20) !important;
@@ -79,10 +79,10 @@ html body section[data-testid="stSidebar"] .sidebar2026-nav {
 }
 html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
   display: grid !important;
-  grid-template-columns: 30px minmax(0, 1fr) !important;
+  grid-template-columns: 32px minmax(0, 1fr) !important;
   align-items: center !important;
   gap: .46rem !important;
-  min-height: 38px !important;
+  min-height: 40px !important;
   padding: .34rem .48rem !important;
   border-radius: 15px !important;
   background: linear-gradient(180deg, rgba(14,56,90,.92), rgba(8,30,55,.92)) !important;
@@ -103,7 +103,7 @@ html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
   display: block !important;
   min-width: 0 !important;
   color: #f8fafc !important;
-  font-size: .84rem !important;
+  font-size: .88rem !important;
   font-weight: 900 !important;
   line-height: 1.05 !important;
   white-space: nowrap !important;
@@ -118,7 +118,7 @@ html body section[data-testid="stSidebar"] .auth-sidebar-card {
   border: 1px solid rgba(148,163,184,.24) !important;
 }
 html body section[data-testid="stSidebar"] .auth-sidebar-title { font-size: .76rem !important; margin-bottom: .20rem !important; }
-html body section[data-testid="stSidebar"] .auth-sidebar-user { font-size: .84rem !important; line-height: 1.18 !important; text-align: left !important; }
+html body section[data-testid="stSidebar"] .auth-sidebar-user { font-size: .88rem !important; line-height: 1.18 !important; text-align: left !important; }
 html body section[data-testid="stSidebar"] .auth-sidebar-user span { font-size: .70rem !important; color: #93c5fd !important; }
 html body section[data-testid="stSidebar"] .auth-remember-chip {
   display: inline-flex !important;
@@ -157,53 +157,93 @@ html body button[aria-label*="sidebar" i] {
   pointer-events: none !important;
 }
 @media (max-width: 760px) {
+  /* v18.6.42: mobile must never be trapped behind a wide drawer.
+     Sidebar becomes a bottom navigation rail and leaves the main window visible. */
   html body section[data-testid="stSidebar"] {
-    width: 62px !important;
-    min-width: 62px !important;
-    max-width: 62px !important;
+    position: fixed !important;
     left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100vw !important;
+    min-width: 100vw !important;
+    max-width: 100vw !important;
+    height: 68px !important;
+    min-height: 68px !important;
+    max-height: 68px !important;
     transform: none !important;
     visibility: visible !important;
     opacity: 1 !important;
-    z-index: 25 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    box-shadow: 7px 0 20px rgba(0,0,0,.22) !important;
+    z-index: 9999 !important;
+    overflow: hidden !important;
+    border-right: 0 !important;
+    border-top: 1px solid rgba(56,189,248,.35) !important;
+    background: rgba(2,6,23,.96) !important;
+    box-shadow: 0 -10px 30px rgba(0,0,0,.38) !important;
   }
   html body section[data-testid="stSidebar"] > div:first-child {
-    padding: .42rem .20rem !important;
-    width: 62px !important;
-    min-width: 62px !important;
-    max-width: 62px !important;
+    padding: .30rem .42rem !important;
+    width: 100vw !important;
+    min-width: 100vw !important;
+    max-width: 100vw !important;
+    height: 68px !important;
+    overflow: hidden !important;
   }
   html body section[data-testid="stSidebar"] .sidebar-section-title,
   html body section[data-testid="stSidebar"] .sidebar-section-title-account,
-  html body section[data-testid="stSidebar"] .sidebar-section-title-advanced {
-    display: none !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav { gap: .32rem !important; margin: .10rem 0 .35rem 0 !important; }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
-    width: 44px !important;
-    height: 44px !important;
-    min-height: 44px !important;
-    max-height: 44px !important;
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border-radius: 15px !important;
-    margin: 0 auto !important;
-    grid-template-columns: none !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item b { width: 30px !important; height: 30px !important; font-size: 1.05rem !important; }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span { display: none !important; }
-  /* Account/admin/drift controls are moved out of mobile rail for stability. */
+  html body section[data-testid="stSidebar"] .sidebar-section-title-advanced,
   html body section[data-testid="stSidebar"] .auth-sidebar-card,
   html body section[data-testid="stSidebar"] div[data-testid="stExpander"],
   html body section[data-testid="stSidebar"] div[data-testid="stCheckbox"],
-  html body section[data-testid="stSidebar"] div[data-testid="stButton"] { display: none !important; }
-  html body .stApp .block-container { padding-left: .38rem !important; padding-right: .34rem !important; max-width: 100% !important; }
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] {
+    display: none !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: .26rem !important;
+    width: calc(100vw - .84rem) !important;
+    margin: 0 !important;
+    align-items: center !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+    width: auto !important;
+    min-width: 0 !important;
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px !important;
+    padding: .20rem .12rem !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: .12rem !important;
+    border-radius: 14px !important;
+    margin: 0 !important;
+    grid-template-columns: none !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: .98rem !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    display: block !important;
+    font-size: .58rem !important;
+    line-height: 1 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  html body .stApp .block-container {
+    padding-left: .42rem !important;
+    padding-right: .42rem !important;
+    padding-bottom: 5.2rem !important;
+    max-width: 100% !important;
+  }
   html body .stApp { overflow-x: hidden !important; }
 }
+
 </style>
 """

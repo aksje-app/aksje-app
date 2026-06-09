@@ -33,7 +33,10 @@ from finansavisen_bjellesau_ui import render_finansavisen_bjellesau_panel
 from folketrygdfondet_ui import render_folketrygdfondet_panel
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
-from ui_sidebar_stable import render_stable_sidebar_v18641
+try:
+    from ui_sidebar_stable import render_stable_sidebar_v18641
+except ModuleNotFoundError:
+    from tools.ui_sidebar_stable import render_stable_sidebar_v18641
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines, market_statuses
@@ -1094,16 +1097,23 @@ body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-cont
 .v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.82rem !important; line-height:1.32 !important; }
 .v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.42rem; margin:.40rem 0 .62rem 0; align-items:center; }
 .v1863m-quick-meta span { border:1px solid rgba(56,189,248,.32); background:rgba(8,47,73,.42); border-radius:999px; padding:.20rem .48rem; font-size:.76rem; font-weight:850; color:#bae6fd; line-height:1.22; white-space:nowrap; }
-.v1863m-quick-action { min-height:auto; display:flex; flex-direction:column; gap:.68rem; justify-content:flex-start; padding-top:.22rem; }
+.v1863m-quick-action { min-height:auto; display:flex; flex-direction:column; gap:.46rem; justify-content:flex-start; padding-top:.12rem; max-width:100%; overflow:visible; }
 .v1863m-quick-action [data-testid="stProgress"] { margin-bottom:.10rem !important; }
-.v1863m-quick-action [data-testid="stCaptionContainer"] { max-width:760px !important; line-height:1.55 !important; margin:.12rem 0 .18rem 0 !important; color:rgba(226,232,240,.88) !important; }
-.v1863m-quick-action-note { font-size:.86rem; line-height:1.48; color:rgba(226,232,240,.92); min-height:1.55rem; margin:.10rem 0 .14rem 0; }
-.v18611-score-explain { border:1px solid rgba(125,211,252,.22); background:rgba(14,165,233,.08); border-radius:8px; padding:.46rem .58rem; color:rgba(226,232,240,.94); font-size:.82rem; line-height:1.42; margin:.12rem 0 .16rem 0; }
+.v1863m-quick-action [data-testid="stCaptionContainer"] { max-width:100% !important; line-height:1.42 !important; margin:.08rem 0 .12rem 0 !important; color:rgba(226,232,240,.90) !important; font-size:.92rem !important; white-space:normal !important; overflow-wrap:anywhere !important; }
+.v1863m-quick-action-note { font-size:.94rem; line-height:1.45; color:rgba(226,232,240,.94); min-height:0; margin:.06rem 0 .10rem 0; padding:.34rem .52rem; border-radius:10px; background:rgba(15,23,42,.45); border:1px solid rgba(148,163,184,.22); white-space:normal; overflow-wrap:anywhere; }
+.v18611-score-explain { border:1px solid rgba(125,211,252,.28); background:rgba(14,165,233,.09); border-radius:10px; padding:.50rem .62rem; color:rgba(226,232,240,.96); font-size:.94rem; line-height:1.48; margin:.08rem 0 .12rem 0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
 .v18611-score-explain b { color:#f8fafc; }
 @media (max-width:900px) {
     .v18574-quick-title { font-size:1rem !important; }
     .v18574-quick-sub { font-size:.82rem !important; }
     .v1863m-quick-meta span { font-size:.74rem !important; }
+    .v1863m-quick-action [data-testid="stCaptionContainer"] { font-size:.88rem !important; line-height:1.38 !important; }
+    .v18611-score-explain, .v1863m-quick-action-note { font-size:.90rem !important; line-height:1.42 !important; }
+}
+@media (max-width:760px) {
+    div[data-testid="stHorizontalBlock"] { gap:.35rem !important; }
+    .dash2026-kpi-grid { grid-template-columns:1fr !important; }
+    .v1863m-quick-action { gap:.36rem !important; }
 }
 
 </style>
@@ -1897,22 +1907,14 @@ def _dashboard2026_decision_text(item: dict) -> str:
     return text
 
 
-def _dashboard2026_kpi_snapshot() -> dict:
-    """Build live KPI data from the same rows the visible Top Picks panel uses.
+def _dashboard2026_make_kpi_snapshot_from_rows_v18642(rows: list[dict], buy_now_rows: list[dict] | None = None) -> dict:
+    """Create KPI snapshot without fetching new data.
 
-    v18.6.38: prefer the current displayed/buy-now Top Picks rows when they exist.
-    This keeps the header aligned with the visible list instead of older generic
-    ranking caches. No network calls or new analysis are started here.
+    v18.6.42: shared by dashboard header and the Top Picks panel itself so
+    KPI cards keep the same rows that the user can see below.
     """
-    rows = _dashboard2026_latest_rank_rows()
-    if not rows:
-        rows = _dashboard2026_scan_session_candidates_v18632()
-
-    buy_now_rows = [dict(x) for x in (st.session_state.get("dashboard2026_buy_now_rows_v18638") or []) if isinstance(x, dict)]
-    visible_rows = [dict(x) for x in (st.session_state.get("dashboard2026_visible_rows_v18638") or []) if isinstance(x, dict)]
-    if visible_rows:
-        rows = visible_rows
-
+    rows = [dict(x) for x in (rows or []) if isinstance(x, dict)]
+    buy_now_rows = [dict(x) for x in (buy_now_rows or []) if isinstance(x, dict)]
     buy = 0
     sell = 0
     for item in rows:
@@ -1924,9 +1926,7 @@ def _dashboard2026_kpi_snapshot() -> dict:
     if buy_now_rows:
         buy = max(buy, len(buy_now_rows))
 
-    # Best candidate should match the practical dashboard: choose buy-now rows first,
-    # otherwise choose the highest-score displayed row.
-    best_pool = buy_now_rows or rows
+    best_pool = rows or buy_now_rows
     best = max(best_pool, key=_dashboard2026_score_value) if best_pool else {}
     best_ticker = str(best.get("ticker") or best.get("symbol") or best.get("Ticker") or best.get("Symbol") or "-").upper()
     best_score = _dashboard2026_score_value(best)
@@ -1936,27 +1936,56 @@ def _dashboard2026_kpi_snapshot() -> dict:
             alerts += len(st.session_state.get(alert_key) or [])
         except Exception:
             pass
-    snap = {
-        "buy": buy,
-        "sell": sell,
-        "alerts": alerts,
+    return {
+        "buy": int(buy),
+        "sell": int(sell),
+        "alerts": int(alerts),
         "best_ticker": best_ticker,
-        "best_score": best_score,
+        "best_score": float(best_score or 0),
         "rows": len(rows),
         "stale": False,
     }
-    # v18.6.41: Ikke overskriv et fungerende dashboard med tomme rerun-verdier.
-    # Streamlit rerunner ofte ved banner-/sidebar-/mobilvalg; KPI skal da beholde siste gyldige snapshot.
+
+
+def _dashboard2026_store_visible_kpi_snapshot_v18642(rows: list[dict], buy_now_rows: list[dict] | None = None) -> None:
+    """Persist last valid KPI snapshot from the actual visible Top Picks rows."""
+    try:
+        snap = _dashboard2026_make_kpi_snapshot_from_rows_v18642(rows, buy_now_rows)
+        if int(snap.get("rows") or 0) > 0:
+            st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
+            st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(snap)
+    except Exception as e:
+        logging.warning("Could not store dashboard KPI snapshot v18.6.42: %s", e)
+
+
+def _dashboard2026_kpi_snapshot() -> dict:
+    """Build live KPI data from the same rows the visible Top Picks panel uses.
+
+    v18.6.42: never replace a valid KPI with an empty rerun; prefer the
+    snapshot saved directly by Top Picks rendering.
+    """
+    previous = st.session_state.get("dashboard2026_last_valid_kpi_snapshot_v18642") or st.session_state.get("dashboard2026_last_valid_kpi_snapshot_v18641")
+
+    rows = _dashboard2026_latest_rank_rows()
+    if not rows:
+        rows = _dashboard2026_scan_session_candidates_v18632()
+
+    buy_now_rows = [dict(x) for x in (st.session_state.get("dashboard2026_buy_now_rows_v18638") or []) if isinstance(x, dict)]
+    visible_rows = [dict(x) for x in (st.session_state.get("dashboard2026_visible_rows_v18638") or []) if isinstance(x, dict)]
+    if visible_rows:
+        rows = visible_rows
+
+    snap = _dashboard2026_make_kpi_snapshot_from_rows_v18642(rows, buy_now_rows)
     if int(snap.get("rows") or 0) > 0:
         st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
+        st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(snap)
         return snap
-    previous = st.session_state.get("dashboard2026_last_valid_kpi_snapshot_v18641")
+
     if isinstance(previous, dict) and int(previous.get("rows") or 0) > 0:
         cached = dict(previous)
         cached["stale"] = True
         return cached
     return snap
-
 
 def render_dashboard2026_kpis_v18631() -> None:
     """Modern dashboard header cards. Skal ikke trigge datainnhenting."""
@@ -6894,7 +6923,9 @@ def _rank_display_key(item):
         conf = 0.0
     priority = _signal_group_priority(str(decision.get("decision", "")), str(decision.get("action_now", "")))
     ticker = str((item or {}).get("ticker", ""))
-    return (priority, -score, -conf, ticker)
+    # v18.6.42: Top Picks skal primært rangeres på total score.
+    # Kjøp-nå-status har egen visning/filter og skal ikke skyve en lavere score over en høyere score.
+    return (-score, priority, -conf, ticker)
 
 
 STOCK_NAME_FALLBACKS_V18569 = {
@@ -7074,7 +7105,7 @@ def render_ranking(results, title):
 
     if APP_VIEW_MODE == "Full":
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Beste kandidat", f"{best['ticker']} {best.get('score', 0)}/10")
+        c1.metric("Beste kandidat", f"{best.get('ticker', best.get('symbol', '-'))} {best.get('score', 0)}/10")
         c2.metric("Analyserte", len(results))
         c3.metric(
             "Siste kurs",
@@ -10636,6 +10667,7 @@ def render_top_picks_control_center_v1863s():
     # v18.6.38: dashboard header uses these exact rows after this panel renders.
     st.session_state["dashboard2026_visible_rows_v18638"] = list(top_picks or [])
     st.session_state["dashboard2026_buy_now_rows_v18638"] = list(buy_now_picks or [])
+    _dashboard2026_store_visible_kpi_snapshot_v18642(top_picks or [], buy_now_picks or [])
     view = st.radio("Visning", ["Top Picks", "Kjøp nå"], horizontal=True, key="cc_top_picks_view_v1863s")
     if top_picks:
         st.markdown(
