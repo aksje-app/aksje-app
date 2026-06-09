@@ -1,13 +1,13 @@
-APP_VERSION = "v18.6.40"
-APP_VERSION_NAME = "Mobilmeny gjort brukbar igjen"
-APP_BUILD_ID = "v18640-mobile-sidebar-guard"
+APP_VERSION = "v18.6.41"
+APP_VERSION_NAME = "Stabiliseringspakke: audit, modulert sidebar og KPI-cache"
+APP_BUILD_ID = "v18641-stabilization-package"
 APP_BUILD_LABEL = APP_VERSION
 
 APP_PATCH_NOTES = [
-    "v18.6.40: Mobilvisning av venstremeny er endret til smal ikon-rail slik at hovedvinduet ikke blokkeres.",
-    "Streamlit-sidepiler som kunne låse mobilvisningen er skjult på mobil.",
-    "Desktop-menyen fra v18.6.39 beholdes.",
-    "Ingen endringer i analysemotor eller datainnhenting.",
+    "v18.6.41: Stabiliseringspakke etter flere UI-regresjoner.",
+    "Sidebar-rendering er flyttet ut av app.py til ui_sidebar_stable.py.",
+    "KPI-kort beholder siste gyldige data og overskriver ikke med tomme rerun-verdier.",
+    "Audit- og verifikasjonsnotater lagt ved for videre arbeid.",
 ]
 
 

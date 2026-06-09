@@ -33,6 +33,7 @@ from finansavisen_bjellesau_ui import render_finansavisen_bjellesau_panel
 from folketrygdfondet_ui import render_folketrygdfondet_panel
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
+from ui_sidebar_stable import render_stable_sidebar_v18641
 from settings_store import load_settings, save_settings, reset_settings
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines, market_statuses
@@ -1935,25 +1936,42 @@ def _dashboard2026_kpi_snapshot() -> dict:
             alerts += len(st.session_state.get(alert_key) or [])
         except Exception:
             pass
-    return {
+    snap = {
         "buy": buy,
         "sell": sell,
         "alerts": alerts,
         "best_ticker": best_ticker,
         "best_score": best_score,
         "rows": len(rows),
+        "stale": False,
     }
+    # v18.6.41: Ikke overskriv et fungerende dashboard med tomme rerun-verdier.
+    # Streamlit rerunner ofte ved banner-/sidebar-/mobilvalg; KPI skal da beholde siste gyldige snapshot.
+    if int(snap.get("rows") or 0) > 0:
+        st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
+        return snap
+    previous = st.session_state.get("dashboard2026_last_valid_kpi_snapshot_v18641")
+    if isinstance(previous, dict) and int(previous.get("rows") or 0) > 0:
+        cached = dict(previous)
+        cached["stale"] = True
+        return cached
+    return snap
 
 
 def render_dashboard2026_kpis_v18631() -> None:
     """Modern dashboard header cards. Skal ikke trigge datainnhenting."""
     snap = _dashboard2026_kpi_snapshot()
     has_data = bool(snap.get("rows"))
+    is_cached = bool(snap.get("stale"))
     buy_value = str(int(snap["buy"])) if has_data else "Ingen data"
     sell_value = str(int(snap["sell"])) if has_data else "Ingen data"
     alerts_value = str(int(snap["alerts"])) if int(snap.get("alerts") or 0) else ("0" if has_data else "Ingen data")
     best_value = html.escape(str(snap["best_ticker"] if has_data else "Ingen data"))
-    best_sub = "Kjør rangering/Top Picks for live kandidatdata" if not has_data else f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater"
+    if not has_data:
+        best_sub = "Kjør rangering/Top Picks for live kandidatdata"
+    else:
+        suffix = " · cache" if is_cached else ""
+        best_sub = f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater{suffix}"
     st.markdown(
         f"""
         <div class='dash2026-section-label'>Marked nå</div>
@@ -9926,39 +9944,9 @@ def render_strategy_backtest(tickers, label):
         st.markdown("#### Valgte aksjer per måned")
         st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
 
-st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
-st.sidebar.markdown("""
-<div class='sidebar2026-nav'>
-  <div class='sidebar2026-nav-item'><b>🏠</b><span>Dashboard</span></div>
-  <div class='sidebar2026-nav-item'><b>📈</b><span>Analyse</span></div>
-  <div class='sidebar2026-nav-item'><b>🎯</b><span>Top Picks</span></div>
-  <div class='sidebar2026-nav-item'><b>🤖</b><span>AI</span></div>
-  <div class='sidebar2026-nav-item'><b>⚙️</b><span>System</span></div>
-</div>
-""", unsafe_allow_html=True)
-st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
-render_user_admin(current_user)
-st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-advanced'>Avansert</div>", unsafe_allow_html=True)
-with st.sidebar.expander("🔧 Drift", expanded=False):
-    show_drift_controls_v1863cc = st.checkbox(
-        "Vis global oppdatering",
-        value=False,
-        key="show_drift_controls_v1863cc",
-        help="Avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
-    )
-# v18.6.39: venstremeny ryddet og tekstklipping fjernet.
-# v18.2: Duplisert Kontrollsenter-kort er fjernet fra venstre side.
-# Statusinformasjon vises i toppkortene.
-
-# --- Sidebar Structure v2 ---
-def render_sidebar_structure_v2():
-    """v18.1: Hurtignavigasjon-tekst fjernet, venstreside beholdes."""
-    return None
-
-
-render_sidebar_structure_v2()
-# SIDEBAR_DEDUPE_V1: old duplicate Cron/status block removed
-
+# --- Stabil sidebar v18.6.41 ---
+# Sidebar er flyttet ut av app.py for å unngå at flere CSS-/HTML-lag kjemper mot hverandre.
+show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 
 # --- Lagrede auto-innstillinger ---
 st.sidebar.markdown(
@@ -18855,236 +18843,5 @@ def add_rsi_current_box(fig, rsi):
 
 
 
-# v18.6.39: endelig venstremeny-opprydding. Hindrer tekstklipping som viste Admin/Drift som "Adr/Dri".
-st.markdown("""
-<style>
-/* v18.6.39 sidebar polish */
-html body section[data-testid="stSidebar"] {
-  width: 168px !important;
-  min-width: 168px !important;
-  max-width: 168px !important;
-  overflow: visible !important;
-}
-html body section[data-testid="stSidebar"] > div:first-child {
-  padding: .70rem .62rem !important;
-}
-html body section[data-testid="stSidebar"] .sidebar-section-title {
-  display: block !important;
-  font-size: .68rem !important;
-  line-height: 1.05 !important;
-  letter-spacing: .115em !important;
-  text-align: left !important;
-  margin: .62rem .14rem .36rem .14rem !important;
-  color: #93c5fd !important;
-  text-transform: uppercase !important;
-  font-weight: 950 !important;
-}
-html body section[data-testid="stSidebar"] .sidebar-section-title:first-of-type {
-  margin-top: .20rem !important;
-}
-html body section[data-testid="stSidebar"] .sidebar2026-nav {
-  gap: .36rem !important;
-  margin-bottom: .70rem !important;
-}
-html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
-  min-height: 36px !important;
-  grid-template-columns: 28px 1fr !important;
-  gap: .46rem !important;
-  padding: .34rem .48rem !important;
-  border-radius: 15px !important;
-  font-size: .82rem !important;
-}
-html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
-  width: 28px !important;
-  height: 28px !important;
-  font-size: 1.02rem !important;
-  border-radius: 10px !important;
-}
-html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
-  font-size: .82rem !important;
-  line-height: 1.05 !important;
-  white-space: nowrap !important;
-  overflow: visible !important;
-}
-html body section[data-testid="stSidebar"] .auth-sidebar-card {
-  padding: .52rem .54rem !important;
-  margin: 0 0 .44rem 0 !important;
-  border-radius: 16px !important;
-}
-html body section[data-testid="stSidebar"] .auth-sidebar-title {
-  font-size: .72rem !important;
-  margin-bottom: .22rem !important;
-}
-html body section[data-testid="stSidebar"] .auth-sidebar-user {
-  font-size: .82rem !important;
-  line-height: 1.18 !important;
-  text-align: left !important;
-}
-html body section[data-testid="stSidebar"] .auth-sidebar-user span {
-  display: inline-block !important;
-  margin-top: .10rem !important;
-  font-size: .68rem !important;
-  color: #93c5fd !important;
-}
-html body section[data-testid="stSidebar"] .auth-remember-chip {
-  display: inline-flex !important;
-  width: auto !important;
-  max-width: 100% !important;
-  margin-top: .34rem !important;
-  padding: .18rem .38rem !important;
-  border-radius: 999px !important;
-  font-size: .64rem !important;
-  line-height: 1.05 !important;
-  white-space: nowrap !important;
-}
-html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
-  min-height: 36px !important;
-  padding: .32rem .46rem !important;
-  border-radius: 14px !important;
-  font-size: .80rem !important;
-  white-space: nowrap !important;
-}
-html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
-  margin-top: .20rem !important;
-  border-radius: 16px !important;
-}
-html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
-  min-height: 36px !important;
-  padding: .34rem .48rem !important;
-  font-size: .80rem !important;
-  line-height: 1.1 !important;
-  white-space: nowrap !important;
-  overflow: visible !important;
-}
-html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary * {
-  font-size: .80rem !important;
-  line-height: 1.1 !important;
-  white-space: nowrap !important;
-  overflow: visible !important;
-}
-html body section[data-testid="stSidebar"] label,
-html body section[data-testid="stSidebar"] p,
-html body section[data-testid="stSidebar"] .stMarkdown,
-html body section[data-testid="stSidebar"] .stCaptionContainer {
-  font-size: .72rem !important;
-  line-height: 1.20 !important;
-}
-@media (max-width: 760px) {
-  html body section[data-testid="stSidebar"] {
-    width: 128px !important;
-    min-width: 128px !important;
-    max-width: 128px !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar-section-title {
-    text-align: center !important;
-    font-size: .58rem !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
-    grid-template-columns: 1fr !important;
-    justify-items: center !important;
-    min-height: 46px !important;
-    gap: .14rem !important;
-    padding: .34rem .24rem !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
-    font-size: .64rem !important;
-    text-align: center !important;
-    white-space: normal !important;
-  }
-  html body section[data-testid="stSidebar"] .auth-sidebar-user {
-    text-align: center !important;
-    font-size: .70rem !important;
-  }
-  html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary,
-  html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary * {
-    font-size: .70rem !important;
-    white-space: normal !important;
-    text-align: center !important;
-  }
-}
-</style>
-""", unsafe_allow_html=True)
+# v18.6.41: Sidebar CSS/rendering moved to ui_sidebar_stable.py.
 
-
-# v18.6.40: Mobile sidebar emergency fix. Desktop sidebar stays readable; mobile becomes a narrow rail so main window is always usable.
-st.markdown("""
-<style>
-/* v18.6.40 mobile sidebar guard: never trap the user behind a drawer */
-@media (max-width: 760px) {
-  html body section[data-testid="stSidebar"] {
-    width: 74px !important;
-    min-width: 74px !important;
-    max-width: 74px !important;
-    left: 0 !important;
-    transform: none !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 25 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    border-right: 1px solid rgba(56,189,248,.24) !important;
-    box-shadow: 8px 0 22px rgba(0,0,0,.24) !important;
-  }
-  html body section[data-testid="stSidebar"] > div:first-child {
-    padding: .42rem .26rem !important;
-    width: 74px !important;
-    min-width: 74px !important;
-    max-width: 74px !important;
-  }
-  /* Hide Streamlit collapse arrows on mobile; they were trapping the view. */
-  html body [data-testid="stSidebarCollapsedControl"],
-  html body [data-testid="collapsedControl"],
-  html body button[title*="sidebar" i],
-  html body button[aria-label*="sidebar" i] {
-    display: none !important;
-    pointer-events: none !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar-section-title {
-    font-size: 0 !important;
-    margin: .08rem 0 .22rem 0 !important;
-    height: 0 !important;
-    overflow: hidden !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav {
-    gap: .32rem !important;
-    margin: .18rem 0 .42rem 0 !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
-    width: 48px !important;
-    height: 48px !important;
-    min-height: 48px !important;
-    max-height: 48px !important;
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border-radius: 16px !important;
-    margin: 0 auto !important;
-    grid-template-columns: none !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
-    width: 32px !important;
-    height: 32px !important;
-    font-size: 1.16rem !important;
-  }
-  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
-    display: none !important;
-  }
-  /* Account/admin/drift boxes are too large for mobile rail; keep them desktop-only for now. */
-  html body section[data-testid="stSidebar"] .auth-sidebar-card,
-  html body section[data-testid="stSidebar"] div[data-testid="stExpander"],
-  html body section[data-testid="stSidebar"] div[data-testid="stCheckbox"],
-  html body section[data-testid="stSidebar"] div[data-testid="stButton"] {
-    display: none !important;
-  }
-  html body .stApp .block-container {
-    padding-left: .44rem !important;
-    padding-right: .38rem !important;
-    max-width: 100% !important;
-  }
-  html body .stApp {
-    overflow-x: hidden !important;
-  }
-}
-</style>
-""", unsafe_allow_html=True)
