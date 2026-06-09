@@ -1898,7 +1898,7 @@ def _dashboard2026_write_kpi_cache_v18644(snapshot: dict) -> None:
         with open(_dashboard2026_kpi_cache_path_v18644(), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logging.warning("Could not write dashboard KPI cache v18.6.44: %s", e)
+        logging.warning("Could not write dashboard KPI cache v18.6.45: %s", e)
 
 
 def _dashboard2026_read_kpi_cache_v18644() -> dict | None:
@@ -1912,7 +1912,7 @@ def _dashboard2026_read_kpi_cache_v18644() -> dict | None:
             data["stale"] = True
             return data
     except Exception as e:
-        logging.warning("Could not read dashboard KPI cache v18.6.44: %s", e)
+        logging.warning("Could not read dashboard KPI cache v18.6.45: %s", e)
     return None
 
 def _dashboard2026_decision_text(item: dict) -> str:
@@ -2030,6 +2030,87 @@ def _dashboard2026_kpi_snapshot() -> dict:
         return disk_cached
     return snap
 
+
+
+def _dashboard2026_debug_candidate_rows_v18645(limit: int = 30) -> tuple[list[dict], list[dict], dict]:
+    """Return raw rows used by KPI debug without fetching new data.
+
+    This is intentionally diagnostic: it shows which field names Top Picks uses
+    so KPI counting can be fixed based on evidence, not guessing.
+    """
+    visible_rows = [dict(x) for x in (st.session_state.get("dashboard2026_visible_rows_v18638") or []) if isinstance(x, dict)]
+    buy_now_rows = [dict(x) for x in (st.session_state.get("dashboard2026_buy_now_rows_v18638") or []) if isinstance(x, dict)]
+    force_rows = [dict(x) for x in (st.session_state.get("dashboard2026_force_rows_v18635") or []) if isinstance(x, dict)]
+    latest_rows = _dashboard2026_latest_rank_rows(limit=limit)
+    scanned_rows = [] if (visible_rows or force_rows or latest_rows) else _dashboard2026_scan_session_candidates_v18632(limit=limit)
+
+    source = "visible_rows_v18638" if visible_rows else ("force_rows_v18635" if force_rows else ("latest_rank_rows" if latest_rows else "session_scan"))
+    rows = visible_rows or force_rows or latest_rows or scanned_rows
+    rows = rows[: int(limit or 30)]
+    meta = {
+        "source": source,
+        "visible_rows": len(visible_rows),
+        "buy_now_rows": len(buy_now_rows),
+        "force_rows": len(force_rows),
+        "latest_rows": len(latest_rows),
+        "scanned_rows": len(scanned_rows),
+    }
+    return rows, buy_now_rows, meta
+
+
+def _dashboard2026_debug_row_record_v18645(item: dict) -> dict:
+    """Flatten one candidate row for the KPI debug table."""
+    item = dict(item or {})
+    keys_to_show = [
+        "ticker", "symbol", "Ticker", "Symbol", "name", "company", "company_name",
+        "score", "total_score", "ai_score", "rank_score", "confidence", "confidence_score",
+        "decision", "Decision", "signal", "Signal", "recommendation", "Recommendation",
+        "action", "action_now", "beste_handling", "Beste handling", "Teknisk", "teknisk",
+        "technical_signal", "rating", "risk", "risk_label",
+    ]
+    rec = {
+        "ticker_resolved": str(item.get("ticker") or item.get("symbol") or item.get("Ticker") or item.get("Symbol") or ""),
+        "score_resolved": _dashboard2026_score_value(item),
+        "decision_text_used_by_KPI": _dashboard2026_decision_text(item),
+    }
+    for key in keys_to_show:
+        if key in item:
+            value = item.get(key)
+            if isinstance(value, (dict, list, tuple)):
+                value = json.dumps(value, ensure_ascii=False)[:240]
+            rec[key] = value
+    rec["all_keys"] = ", ".join(sorted(str(k) for k in item.keys()))[:500]
+    return rec
+
+
+def _dashboard2026_render_kpi_debug_v18645(snap: dict) -> None:
+    """Visible debug panel for v18.6.45.
+
+    Shows exactly what fields KPI receives and how the current logic classifies them.
+    Remove/disable after KPI mapping is confirmed.
+    """
+    try:
+        # Keep this visible in the debug build; it is the evidence we need from Render/mobile.
+        rows, buy_now_rows, meta = _dashboard2026_debug_candidate_rows_v18645(limit=40)
+        with st.expander("🧪 KPI DEBUG v18.6.45 – råfelt fra Top Picks/ranking", expanded=True):
+            st.caption("Dette panelet er midlertidig. Send skjermbilde herfra hvis BUY/SELL-tallene ikke stemmer.")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("KPI BUY", snap.get("buy", "-"))
+            c2.metric("KPI SELL", snap.get("sell", "-"))
+            c3.metric("Rows i KPI", snap.get("rows", "-"))
+            c4.metric("Kilde", meta.get("source", "-"))
+            st.code(json.dumps({"snapshot": snap, "sources": meta}, ensure_ascii=False, indent=2), language="json")
+            if rows:
+                debug_records = [_dashboard2026_debug_row_record_v18645(x) for x in rows]
+                st.dataframe(pd.DataFrame(debug_records), use_container_width=True, height=min(520, 120 + 36 * len(debug_records)))
+            else:
+                st.warning("Ingen kandidatrader funnet i session/cache akkurat nå.")
+            if buy_now_rows:
+                st.markdown("**buy_now_rows_v18638**")
+                st.dataframe(pd.DataFrame([_dashboard2026_debug_row_record_v18645(x) for x in buy_now_rows[:20]]), use_container_width=True)
+    except Exception as e:
+        st.warning(f"KPI debug-panelet feilet: {e}")
+
 def render_dashboard2026_kpis_v18631() -> None:
     """Modern dashboard header cards. Skal ikke trigge datainnhenting."""
     snap = _dashboard2026_kpi_snapshot()
@@ -2073,6 +2154,9 @@ def render_dashboard2026_kpis_v18631() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+    _dashboard2026_render_kpi_debug_v18645(snap)
 
 
 def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
@@ -10023,7 +10107,7 @@ def render_strategy_backtest(tickers, label):
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 
 
-# v18.6.44: independent mobile navigation rail. It is rendered in the main DOM
+# v18.6.45: independent mobile navigation rail. It is rendered in the main DOM
 # so it remains visible even when Streamlit's sidebar drawer is hidden on phones.
 st.markdown("""
 <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
@@ -18456,7 +18540,7 @@ if bool(globals().get("show_drift_controls_v1863cc", False)):
 
 st.markdown("""
 <style>
-/* v18.6.44 final mobile/dashboard guard: overrides old sidebar CSS blocks. */
+/* v18.6.45 final mobile/dashboard guard: overrides old sidebar CSS blocks. */
 .mobile-bottom-nav-v18644 { display:none; }
 @media (max-width: 760px) {
   html body section[data-testid="stSidebar"] {
