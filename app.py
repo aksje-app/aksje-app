@@ -2095,7 +2095,7 @@ def _dashboard2026_render_kpi_debug_v18645(snap: dict) -> None:
         if str(params.get("kpi_debug") or "").lower() not in {"1", "true", "ja", "on"}:
             return
         rows, buy_now_rows, meta = _dashboard2026_debug_candidate_rows_v18645(limit=40)
-        with st.expander("🧪 KPI DEBUG v18.6.46 – råfelt fra Top Picks/ranking", expanded=False):
+        with st.expander("🧪 KPI DEBUG v18.6.47 – råfelt fra Top Picks/ranking", expanded=False):
             st.caption("Dette panelet er midlertidig. Send skjermbilde herfra hvis BUY/SELL-tallene ikke stemmer.")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("KPI BUY", snap.get("buy", "-"))
@@ -10173,7 +10173,7 @@ _apply_mobile_nav_query_v18646()
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 
 
-# v18.6.46: mobilnavigasjon er ekte lenker som setter mobile_nav og utløser rerun.
+# v18.6.47: mobilnavigasjon er ekte lenker som setter mobile_nav og utløser rerun.
 _mobile_nav_links_v18646 = {
     "dashboard": _mobile_nav_href_v18646("dashboard"),
     "analysis": _mobile_nav_href_v18646("analysis"),
@@ -10447,7 +10447,6 @@ if not bool(globals().get("show_drift_controls_v1863cc", False)):
     st.markdown(
         """
         <style>
-        html body .stApp .v18532-header-status,
         html body .stApp .v18534-trading-control-stack,
         html body .stApp .v18534-control-button-gap,
         html body .stApp .v18534-trading-warning,
@@ -10464,18 +10463,67 @@ if not bool(globals().get("show_drift_controls_v1863cc", False)):
         unsafe_allow_html=True,
     )
 
+st.markdown("""
+<style>
+/* v18.6.47 top mini menu and trading status */
+html body .stApp div[data-testid="stButton"] > button[kind="secondary"] {
+  border-radius: 999px !important;
+}
+html body .stApp .v18647-top-status {
+  margin-top: .20rem !important;
+  margin-bottom: .45rem !important;
+}
+html body .stApp .v18647-top-status .v18532-status-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: .38rem !important;
+  align-items: center !important;
+}
+@media (max-width: 760px){
+  html body .stApp .v18647-top-status .mini-status-chip {
+    font-size: .68rem !important;
+    padding: .18rem .34rem !important;
+  }
+  html body .stApp div[data-testid="stButton"] > button {
+    min-height: 34px !important;
+    padding: .20rem .38rem !important;
+    font-size: .76rem !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# v18.6.47: Admin/Drift er flyttet ut av venstresiden og inn i en liten toppmeny.
+_col_admin_v18647, _col_drift_v18647, _col_space_v18647 = st.columns([1.0, 1.0, 6.0])
+with _col_admin_v18647:
+    if st.button("⚙️ Admin", key="top_admin_menu_v18647", help="Åpne System/admin i AI Kontrollsenter"):
+        st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+        try:
+            st.rerun()
+        except Exception:
+            pass
+with _col_drift_v18647:
+    _drift_now_v18647 = bool(st.session_state.get("show_drift_controls_v18647", False))
+    if st.button("🔧 Drift" if not _drift_now_v18647 else "🔧 Skjul drift", key="top_drift_menu_v18647", help="Vis/skjul avanserte driftkontroller"):
+        st.session_state["show_drift_controls_v18647"] = not _drift_now_v18647
+        try:
+            st.rerun()
+        except Exception:
+            pass
+show_drift_controls_v1863cc = bool(st.session_state.get("show_drift_controls_v18647", False))
+
 # v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
     f"""
-    <div class='v18532-header-status'>
+    <div class='v18532-header-status v18647-top-status'>
         <div class='v18532-status-row'>
-            <span class='v18532-status-label'>Drift</span>
-            <span class='mini-status-chip {_top_auto_color}'>Auto trading: <b>{_top_auto_state}</b></span>
-            <span class='mini-status-chip {_top_paper_color}'>Paper: <b>{_top_paper_label}</b></span>
+            <span class='mini-status-chip {_top_auto_color}'>🔵 Auto Trading: <b>{_top_auto_state}</b></span>
+            <span class='mini-status-chip {_top_paper_color}'>🟢 Paper Trading: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
-            <span class='v18532-status-label'>Oppdatert</span>
             <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
-            <span class='mini-status-chip'>Tung: <b>{html.escape(_last_update_label())}</b></span>
         </div>
     </div>
     """,

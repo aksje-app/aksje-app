@@ -1,12 +1,11 @@
-APP_VERSION = "v18.6.46"
-APP_VERSION_NAME = "Mobile nav and sidebar text fix"
+APP_VERSION = "v18.6.47"
+APP_VERSION_NAME = "UI cleanup and runtime data hygiene"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.47: Admin/Drift flyttet ut av sidebar til toppmeny; Auto/Paper Trading-status vises i toppstatus; sidebar holdes ren; runtime/cache ryddet uten å slette viktige tjenestedata.",
     "v18.6.46: Mobil bunnmeny bruker ekte lenker/query-param og setter Kontrollsenter-state; Admin/Drift-sidebar bredde/tekstklipping strammet opp; KPI debug skjult bak kpi_debug=1.",
     "v18.6.45: Midlertidig KPI DEBUG-panel viste råfelt, kilde, snapshot og klassifisering fra Top Picks/ranking.",
-    "v18.6.44: Mobilnavigasjon renderes i hoved-DOM som fast bunnmeny, uavhengig av Streamlit-sidebar.",
-    "v18.6.43: Gjenopprettet get_app_build_label() som brukes av app.py og workspace_layout.py.",
 ]
 
 def get_app_version():
