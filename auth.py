@@ -538,6 +538,7 @@ def render_user_admin(current_user):
     if current_user.get("role") != "admin":
         return
 
+    st.sidebar.error("TRACE v18.6.48: auth.py render_user_admin() renderer Admin-expander")
     with st.sidebar.expander("🛡️ Admin", expanded=False):  # v18.6.39: tydelig label, ikke avkortet
         users = list_users()
         if users:
