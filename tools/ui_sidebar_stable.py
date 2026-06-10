@@ -15,7 +15,6 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     changing login/session logic in this stabilization step.
     """
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
-    st.sidebar.success("TRACE v18.6.48: tools/ui_sidebar_stable.py er aktiv — ingen Admin/Drift her")
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
     st.sidebar.markdown(
