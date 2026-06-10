@@ -1,6 +1,6 @@
 """Stable sidebar renderer for AI Aksje Analyzer Pro.
 
-v18.6.42 goal:
+v18.6.47 goal:
 - One source of truth for sidebar structure.
 - Avoid fragmented inline sidebar HTML in app.py.
 - Keep desktop readable and prevent mobile drawer from blocking the app.
@@ -33,20 +33,15 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
 
-    st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-advanced'>Avansert</div>", unsafe_allow_html=True)
-    with st.sidebar.expander("🔧 Drift", expanded=False):
-        show_drift = st.checkbox(
-            "Vis global oppdatering",
-            value=False,
-            key="show_drift_controls_v1863cc",
-            help="Avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
-        )
-    return bool(show_drift)
+    # v18.6.47: Admin/Drift fjernes fra smal sidebar.
+    # De rendres i toppmenyen i app.py slik at tekst ikke kuttes til Adr/Dri,
+    # og slik at samme løsning fungerer bedre på mobil.
+    return bool(st.session_state.get("show_drift_controls_v18647", False))
 
 
 _SIDEBAR_CSS_V18641 = """
 <style>
-/* v18.6.46 stable sidebar: desktop full menu, mobile bottom rail. */
+/* v18.6.47 stable sidebar: clean desktop nav, mobile bottom rail. */
 html body section[data-testid="stSidebar"] {
   width: 224px !important;
   min-width: 224px !important;
@@ -156,7 +151,7 @@ html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary
   overflow: visible !important;
   text-overflow: clip !important;
 }
-/* v18.6.46: Admin/Drift labels must not be cut to Adr/Dri. */
+/* v18.6.47: Admin/Drift moved out of sidebar. */
 html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary p {
   font-size: .78rem !important;
   max-width: 100% !important;
@@ -264,7 +259,7 @@ html body button[aria-label*="sidebar" i] {
   html body .stApp { overflow-x: hidden !important; }
 }
 
-/* v18.6.46 final desktop sidebar override: keep advanced labels readable. */
+/* v18.6.47 final desktop sidebar override. */
 @media (min-width: 761px) {
   html body section[data-testid="stSidebar"] {
     width: 224px !important; min-width: 224px !important; max-width: 224px !important;
