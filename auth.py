@@ -535,73 +535,7 @@ def render_user_admin(current_user):
         st.session_state["auth_last_redirect_reason_v1865c"] = "manual_logout"
         _logout()
 
-    if current_user.get("role") != "admin":
-        return
+    # v18.6.49: Admin-panelet rendres ikke lenger i venstremenyen.
+    # Bruk toppmenyen "⚙️ Admin" for å åpne System/admin i hovedvinduet.
+    return
 
-    st.sidebar.error("TRACE v18.6.48: auth.py render_user_admin() renderer Admin-expander")
-    with st.sidebar.expander("🛡️ Admin", expanded=False):  # v18.6.39: tydelig label, ikke avkortet
-        users = list_users()
-        if users:
-            rows = []
-            for u in users:
-                active_cls = "on" if bool(u.get("active", True)) else "off"
-                rows.append(
-                    f"<div class='auth-user-row'>"
-                    f"<span><b>{u.get('username','-')}</b> · {u.get('role','user')}</span>"
-                    f"<span class='auth-dot {active_cls}'></span>"
-                    f"</div>"
-                )
-            st.markdown("<div class='auth-user-list'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
-
-        st.markdown("<div class='auth-mini-heading'>Legg til</div>", unsafe_allow_html=True)
-        with st.form("add_user_form"):
-            new_username = st.text_input("Brukernavn", label_visibility="visible")
-            new_password = st.text_input("Passord", type="password", label_visibility="visible")
-            new_role = st.selectbox("Rolle", ["user", "admin"], index=0)
-            add_submitted = st.form_submit_button("Legg til", use_container_width=True)
-
-        if add_submitted:
-            ok, msg = create_user(new_username, new_password, role=new_role, active=True)
-            if ok:
-                st.success(msg)
-                st.rerun()
-            else:
-                st.error(msg)
-
-        st.markdown("<div class='auth-mini-heading'>Endre</div>", unsafe_allow_html=True)
-        usernames = [u["username"] for u in users]
-        if usernames:
-            selected = st.selectbox("Velg", usernames, key="manage_user_select")
-            selected_data = next((u for u in users if u["username"] == selected), {})
-
-            new_active = st.checkbox(
-                "Aktiv",
-                value=bool(selected_data.get("active", True)),
-                key=f"user_active_{selected}",
-            )
-            new_role = st.selectbox(
-                "Rolle",
-                ["user", "admin"],
-                index=1 if selected_data.get("role") == "admin" else 0,
-                key=f"user_role_{selected}",
-            )
-            new_pw = st.text_input("Nytt passord", type="password", key=f"user_pw_{selected}")
-
-            if st.button("Lagre", key=f"save_user_{selected}", use_container_width=True):
-                ok, msg = update_user(selected, role=new_role, active=new_active, password=new_pw or None)
-                if ok:
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
-
-            if selected != current_user.get("username"):
-                if st.button("Slett", key=f"delete_user_{selected}", use_container_width=True):
-                    ok, msg = delete_user(selected)
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-            else:
-                st.caption("Kan ikke slette innlogget bruker.")

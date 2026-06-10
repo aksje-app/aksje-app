@@ -15,7 +15,6 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     changing login/session logic in this stabilization step.
     """
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
-    st.sidebar.warning("TRACE v18.6.48: ROOT ui_sidebar_stable.py er aktiv")
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
     st.sidebar.markdown(
@@ -34,16 +33,9 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
 
-    st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-advanced'>Avansert</div>", unsafe_allow_html=True)
-    st.sidebar.error("TRACE v18.6.48: ROOT ui_sidebar_stable.py renderer Drift-expander")
-    with st.sidebar.expander("🔧 Drift", expanded=False):
-        show_drift = st.checkbox(
-            "Vis global oppdatering",
-            value=False,
-            key="show_drift_controls_v1863cc",
-            help="Avansert drift/admin. Paper-kontrollene ligger i Paper Trading.",
-        )
-    return bool(show_drift)
+    # v18.6.49: Admin/Drift skal ikke renderes i venstremeny.
+    # Admin åpnes via toppmeny. Drift toggles via toppmeny/show_drift_controls_v18647.
+    return bool(st.session_state.get("show_drift_controls_v18647", False))
 
 
 _SIDEBAR_CSS_V18641 = """
