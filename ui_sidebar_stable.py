@@ -8,35 +8,68 @@ v18.6.42 goal:
 from __future__ import annotations
 
 
-def render_stable_sidebar_v18641(st, current_user, render_user_admin):
-    """Render the left sidebar and return the advanced drift toggle state.
+def _sidebar_nav_set_v18650(st, nav: str) -> None:
+    """Single real navigation path for desktop sidebar buttons.
 
-    The function intentionally receives `st` and auth renderer from app.py to avoid
-    changing login/session logic in this stabilization step.
+    v18.6.50 removes fake HTML-only sidebar cards. These buttons set the
+    same session_state keys as the mobile navigation, then rerun the app.
+    """
+    nav = str(nav or "").strip().lower()
+    if nav == "dashboard":
+        st.session_state["ai_control_center_menu_open_v1863ag"] = True
+        st.session_state["ai_control_center_active_panel_v1863m"] = ""
+        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+    elif nav == "analysis":
+        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "top_picks":
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "ai":
+        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_active_panel_v1863m"] = ""
+        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        st.session_state["ai_control_center_menu_open_v1863ag"] = True
+    elif nav == "system":
+        st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    try:
+        st.rerun()
+    except Exception:
+        pass
+
+
+def _sidebar_nav_button_v18650(st, label: str, nav: str, key: str) -> None:
+    if st.sidebar.button(label, key=key, use_container_width=True):
+        _sidebar_nav_set_v18650(st, nav)
+
+
+def render_stable_sidebar_v18641(st, current_user, render_user_admin):
+    """Render real clickable sidebar navigation and return drift visibility.
+
+    v18.6.50 rebuild: the old HTML nav cards looked clickable, but were dead.
+    This version uses real Streamlit buttons for desktop navigation.
     """
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
-    st.sidebar.markdown(
-        """
-        <div class='sidebar2026-nav'>
-          <div class='sidebar2026-nav-item' title='Dashboard'><b>🏠</b><span>Dashboard</span></div>
-          <div class='sidebar2026-nav-item' title='Analyse'><b>📈</b><span>Analyse</span></div>
-          <div class='sidebar2026-nav-item' title='Top Picks'><b>🎯</b><span>Top Picks</span></div>
-          <div class='sidebar2026-nav-item' title='AI'><b>🤖</b><span>AI</span></div>
-          <div class='sidebar2026-nav-item' title='System'><b>⚙️</b><span>System</span></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18650")
+    _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18650")
+    _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18650")
+    _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18650")
+    _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18650")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
 
-    # v18.6.49: Admin/Drift skal ikke renderes i venstremeny.
-    # Admin åpnes via toppmeny. Drift toggles via toppmeny/show_drift_controls_v18647.
+    # Admin/Drift skal ikke renderes i venstremeny. De styres fra toppmenyen.
     return bool(st.session_state.get("show_drift_controls_v18647", False))
-
 
 _SIDEBAR_CSS_V18641 = """
 <style>
@@ -125,11 +158,18 @@ html body section[data-testid="stSidebar"] .auth-remember-chip {
   white-space: nowrap !important;
 }
 html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
-  min-height: 36px !important;
-  padding: .32rem .48rem !important;
-  border-radius: 14px !important;
-  font-size: .82rem !important;
+  min-height: 40px !important;
+  width: 100% !important;
+  justify-content: flex-start !important;
+  padding: .36rem .58rem !important;
+  border-radius: 15px !important;
+  font-size: .86rem !important;
+  font-weight: 900 !important;
+  color: #f8fafc !important;
   white-space: nowrap !important;
+  background: linear-gradient(180deg, rgba(14,56,90,.92), rgba(8,30,55,.92)) !important;
+  border: 1px solid rgba(96,165,250,.32) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.18) !important;
 }
 html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
   margin-top: .20rem !important;
