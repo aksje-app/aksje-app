@@ -1596,7 +1596,7 @@ def render_global_update_action_panel_v1863g() -> None:
         _click_global_update_v1862()
 
 
-_PANEL_OPTIONS_V18531 = ["USA", "Norge", "Sverige", "Norden", "Aktivt univers", "Top Picks", "IPO", "Paper Trading og kontroll"]
+_PANEL_OPTIONS_V18531 = ["USA", "Norge", "Sverige", "Norden", "Aktivt univers", "Top Picks", "Long Engine", "IPO", "Paper Trading og kontroll"]
 
 
 def _on_active_panel_change_v18531():
@@ -1620,6 +1620,7 @@ def _render_active_main_panel_selector_v18531():
         "Norden": "Viser samlet rangering for Norge og Sverige.",
         "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
         "Top Picks Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
+        "Long Engine": "Smart Money-basert Top Long USA Alpha.",
         "🚀 IPO": "Nye og kommende børsnoteringer.",
         "Paper Trading og kontroll": "Simulert handel, beholdning, kontroll og testportefølje.",
     }
@@ -10159,6 +10160,11 @@ def _apply_mobile_nav_query_v18646() -> None:
         st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "long_engine":
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
@@ -10178,6 +10184,7 @@ _mobile_nav_links_v18646 = {
     "dashboard": _mobile_nav_href_v18646("dashboard"),
     "analysis": _mobile_nav_href_v18646("analysis"),
     "top_picks": _mobile_nav_href_v18646("top_picks"),
+    "long_engine": _mobile_nav_href_v18646("long_engine"),
     "ai": _mobile_nav_href_v18646("ai"),
     "system": _mobile_nav_href_v18646("system"),
 }
@@ -10186,6 +10193,7 @@ st.markdown(f"""
   <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
   <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
   <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
+  <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
   <a href="{_mobile_nav_links_v18646['system']}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
 </div>
@@ -10964,6 +10972,176 @@ def render_top_picks_control_center_v1863s():
             render_analysis(buy_now_picks, f"KjopNa_{storage_scope}")
         else:
             st.warning(f"Top Picks finnes ({len(top_picks)}), men ingen har grønt teknisk Kjøp nå-signal akkurat nå. Bytt til Top Picks for å se kandidatene.")
+
+
+
+
+def _long_engine_load_cached_rows_v18653(path: str = "data/long_engine/top_long_usa_alpha.json") -> list[dict]:
+    """Load latest Long Engine Alpha cache without triggering API calls."""
+    try:
+        from pathlib import Path
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        rows = payload.get("results") if isinstance(payload, dict) else payload
+        if isinstance(rows, list):
+            return [dict(x) for x in rows if isinstance(x, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def _long_engine_latest_top_picks_rows_v18653(limit: int = 50) -> list[dict]:
+    """Use already-visible/latest Top Picks rows for overlap; never fetch new market data."""
+    rows: list[dict] = []
+    for key in (
+        "dashboard2026_visible_rows_v18638",
+        "dashboard2026_force_rows_v18635",
+        "dashboard2026_last_rendered_rankings_v18635",
+    ):
+        val = st.session_state.get(key)
+        if isinstance(val, list):
+            rows.extend([dict(x) for x in val if isinstance(x, dict)])
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    if isinstance(latest, dict):
+        for k, val in latest.items():
+            if "TopPicks" in str(k) or "Top Picks" in str(k):
+                if isinstance(val, list):
+                    rows.extend([dict(x) for x in val if isinstance(x, dict)])
+    seen = set()
+    out = []
+    for row in rows:
+        t = normalize_user_ticker(row.get("ticker") or row.get("symbol") or "")
+        if t and t not in seen:
+            row["ticker"] = t
+            seen.add(t)
+            out.append(row)
+        if len(out) >= int(limit or 50):
+            break
+    return out
+
+
+def _long_engine_display_rows_v18653(rows: list[dict]) -> list[dict]:
+    display = []
+    for row in rows or []:
+        display.append({
+            "Rank": row.get("rank", ""),
+            "Ticker": row.get("ticker", ""),
+            "Long Alpha": row.get("long_alpha_score", ""),
+            "Ownership": row.get("ownership_score", ""),
+            "Insider": row.get("insider_score", ""),
+            "Earnings": row.get("earnings_score", ""),
+            "Analyst": row.get("analyst_score", ""),
+        })
+    return display
+
+
+def render_long_engine_control_center_v18653():
+    """Visible UI for Long Engine Alpha.
+
+    v18.6.53 makes the engine testable from the app:
+    - run Long Engine Alpha on USA universe
+    - show Top Long USA Alpha
+    - show overlap against existing Top Picks cache
+    """
+    st.subheader("🚀 Long Engine Alpha")
+    st.caption(
+        "Smart Money-basert Long Alpha. Bruker Ownership, Insider, Earnings og Analyst. "
+        "Momentum er bevisst utelatt for å unngå å kopiere dagens Top Picks."
+    )
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.35])
+    with c1:
+        market = st.selectbox("Marked", ["USA"], key="long_engine_market_v18653")
+    with c2:
+        limit = st.slider("Antall kandidater", 5, 50, 20, 5, key="long_engine_limit_v18653")
+    with c3:
+        st.markdown("**Modell**")
+        st.caption("Ownership 35 % · Insider 30 % · Earnings 25 % · Analyst 10 %")
+
+    if market != "USA":
+        st.info("v18.6.53 støtter USA først. Norge/Sverige legges inn etter at Alpha er verifisert.")
+        return
+
+    try:
+        universe_limit = max(int(max_count or 100), int(limit or 20))
+    except Exception:
+        universe_limit = max(100, int(limit or 20))
+    try:
+        universe = resolve_universe_tickers(["USA"], max_count=universe_limit)
+    except Exception:
+        universe = list(globals().get("tickers_us") or [])[:universe_limit]
+    universe = [normalize_user_ticker(x) for x in (universe or []) if normalize_user_ticker(x)]
+
+    st.caption(f"USA-univers klart: {len(universe)} tickere. Eksempel: {', '.join(universe[:8]) if universe else '-'}")
+
+    run_clicked = st.button(
+        "Kjør Long Engine Alpha",
+        key="long_engine_run_alpha_v18653",
+        type="primary",
+        use_container_width=True,
+        disabled=not bool(universe),
+    )
+
+    if run_clicked and universe:
+        with st.spinner(f"Kjører Long Engine Alpha på {len(universe)} USA-tickere..."):
+            try:
+                from engines.long_engine import run_top_long_usa_alpha
+
+                rows = run_top_long_usa_alpha(universe, top_n=int(limit), save=True)
+                st.session_state["long_engine_alpha_rows_v18653"] = list(rows or [])
+                st.success(f"Long Engine Alpha ferdig: {len(rows or [])} kandidater.")
+            except Exception as exc:
+                st.error(f"Long Engine Alpha feilet: {type(exc).__name__}: {exc}")
+
+    rows = st.session_state.get("long_engine_alpha_rows_v18653") or _long_engine_load_cached_rows_v18653()
+    rows = [dict(x) for x in rows if isinstance(x, dict)]
+
+    if not rows:
+        st.info("Ingen Long Engine-resultater ennå. Trykk «Kjør Long Engine Alpha» for å lage Top Long USA Alpha.")
+        return
+
+    top = rows[0]
+    top_picks_rows = _long_engine_latest_top_picks_rows_v18653(limit=max(20, int(limit or 20)))
+    overlap = {}
+    try:
+        from engines.long_engine import overlap_score
+
+        overlap = overlap_score(rows, top_picks_rows, top_n=min(20, len(rows)))
+    except Exception:
+        overlap = {"overlap_pct": 0, "overlap_count": 0, "overlap_tickers": []}
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Top Long #1", str(top.get("ticker") or "-"))
+    m2.metric("Long Alpha", str(top.get("long_alpha_score") or "-"))
+    m3.metric("Kandidater", len(rows))
+    m4.metric("Overlap mot Top Picks", f"{float(overlap.get('overlap_pct') or 0):.1f}%")
+
+    if overlap.get("overlap_tickers"):
+        st.caption("Overlap-tickere: " + ", ".join(overlap.get("overlap_tickers", [])[:12]))
+    elif top_picks_rows:
+        st.caption("Ingen overlap i topputvalget mot siste synlige Top Picks-cache.")
+    else:
+        st.caption("Kjør Top Picks først for å måle overlap mot eksisterende motor.")
+
+    st.markdown("#### Top Long USA Alpha")
+    try:
+        st.dataframe(pd.DataFrame(_long_engine_display_rows_v18653(rows)), use_container_width=True, hide_index=True)
+    except Exception:
+        st.write(_long_engine_display_rows_v18653(rows))
+
+    with st.expander("Scoreforklaring / datakobling", expanded=False):
+        st.write("Long Alpha bruker faktiske scoremoduler fra `engines/long_scores/`:")
+        st.code(
+            "ownership_score.py -> alpha_radar_ownership.py\n"
+            "insider_score.py   -> insider.py / FMP fallback\n"
+            "earnings_score.py  -> earnings.py / FMP fallback\n"
+            "analyst_score.py   -> analyst.py / FMP fallback"
+        )
+        st.json({
+            "weights": {"ownership": 0.35, "insider": 0.30, "earnings": 0.25, "analyst": 0.10},
+            "cache": "data/long_engine/top_long_usa_alpha.json",
+            "overlap": overlap,
+        })
+
 
 
 def render_alpha_radar_control_center_v1863ap():
@@ -17398,6 +17576,7 @@ def control_center_extra_panels_v18535():
         ("Markedsklima", render_market_climate_panel),
         ("Marked", render_market_room_control_center_v1863cb),
         ("Top Picks", render_top_picks_control_center_v1863s),
+        ("Long Engine", render_long_engine_control_center_v18653),
         ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
         ("Aktørregister", render_actor_registry_panel),
         ("IPO", render_ipo),
