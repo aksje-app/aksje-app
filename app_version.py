@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.54"
-APP_VERSION_NAME = "Long Engine Production UI"
+APP_VERSION = "v18.6.56"
+APP_VERSION_NAME = "Long Engine Professional Table"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.56: Long Engine Professional Table med land/flagg, selskapsnavn, børs, sektor, kompakte kolonner, filtre for land/sektor/risiko/exclusive og bedre kandidatkort.",
     "v18.6.54: Long Engine flyttet til egen hovedgruppe, venstre/mobilknapp åpner direkte, kandidatkort, confidence/risiko/forklaring og CSV/Excel/Print-PDF/JSON eksport lagt til.",
     "v18.6.53: Long Engine Alpha gjort synlig i UI med egen Kontrollsenter-fane, kjør-knapp, Top Long USA Alpha-tabell og overlap-score mot Top Picks.",
     "v18.6.50: Venstremeny bygget om til ekte Streamlit-knapper; HTML-kort som så klikkbare ut, men var døde, er fjernet fra sidebar-renderingen; Admin/Drift ligger fortsatt i toppmeny.",

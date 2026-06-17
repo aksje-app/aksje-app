@@ -11024,21 +11024,162 @@ def _long_engine_latest_top_picks_rows_v18653(limit: int = 50) -> list[dict]:
     return out
 
 
-def _long_engine_display_rows_v18653(rows: list[dict]) -> list[dict]:
+
+
+def _long_engine_country_from_ticker_v18656(ticker: str) -> tuple[str, str, str]:
+    """Return country label, flag and exchange hint from ticker suffix.
+
+    Kept local to the UI so Long Engine can later mix USA/Norge/Sverige/Norden
+    without changing the score engine.
+    """
+    t = str(ticker or "").upper().strip()
+    if t.endswith(".OL"):
+        return "Norge", "🇳🇴", "Oslo Børs"
+    if t.endswith(".ST"):
+        return "Sverige", "🇸🇪", "Stockholm"
+    if t.endswith(".HE"):
+        return "Finland", "🇫🇮", "Helsinki"
+    if t.endswith(".CO"):
+        return "Danmark", "🇩🇰", "København"
+    if t.endswith(".SA"):
+        return "Brasil", "🇧🇷", "B3"
+    return "USA", "🇺🇸", "USA"
+
+
+_LONG_ENGINE_COMPANY_FALLBACK_V18656 = {
+    "MMM": ("3M Company", "NYSE", "Industrials"),
+    "AOS": ("A. O. Smith", "NYSE", "Industrials"),
+    "ABT": ("Abbott Laboratories", "NYSE", "Healthcare"),
+    "ABBV": ("AbbVie Inc.", "NYSE", "Healthcare"),
+    "ACN": ("Accenture plc", "NYSE", "IT Services"),
+    "ADBE": ("Adobe Inc.", "Nasdaq", "Technology"),
+    "AMD": ("Advanced Micro Devices", "Nasdaq", "Semiconductors"),
+    "AES": ("AES Corporation", "NYSE", "Utilities"),
+    "AIG": ("American International Group", "NYSE", "Insurance"),
+    "AXP": ("American Express", "NYSE", "Financials"),
+    "AWK": ("American Water Works", "NYSE", "Utilities"),
+    "ARE": ("Alexandria Real Estate Equities", "NYSE", "Real Estate"),
+    "LNT": ("Alliant Energy", "Nasdaq", "Utilities"),
+    "ALGN": ("Align Technology", "Nasdaq", "Healthcare"),
+    "APD": ("Air Products and Chemicals", "NYSE", "Materials"),
+    "AAPL": ("Apple Inc.", "Nasdaq", "Technology"),
+    "MSFT": ("Microsoft Corporation", "Nasdaq", "Technology"),
+    "NVDA": ("NVIDIA Corporation", "Nasdaq", "Semiconductors"),
+    "META": ("Meta Platforms", "Nasdaq", "Communication Services"),
+    "AMZN": ("Amazon.com", "Nasdaq", "Consumer Discretionary"),
+    "GOOGL": ("Alphabet Inc.", "Nasdaq", "Communication Services"),
+    "TSLA": ("Tesla", "Nasdaq", "Consumer Discretionary"),
+    "JPM": ("JPMorgan Chase", "NYSE", "Financials"),
+    "LLY": ("Eli Lilly", "NYSE", "Healthcare"),
+    "UNH": ("UnitedHealth Group", "NYSE", "Healthcare"),
+    "XOM": ("Exxon Mobil", "NYSE", "Energy"),
+    "MA": ("Mastercard", "NYSE", "Financials"),
+    "V": ("Visa", "NYSE", "Financials"),
+    "COST": ("Costco Wholesale", "Nasdaq", "Consumer Staples"),
+    "NFLX": ("Netflix", "Nasdaq", "Communication Services"),
+    "WMT": ("Walmart", "NYSE", "Consumer Staples"),
+    "HD": ("Home Depot", "NYSE", "Consumer Discretionary"),
+    "PG": ("Procter & Gamble", "NYSE", "Consumer Staples"),
+    "JNJ": ("Johnson & Johnson", "NYSE", "Healthcare"),
+    "CRM": ("Salesforce", "NYSE", "Technology"),
+    "BAC": ("Bank of America", "NYSE", "Financials"),
+    "ORCL": ("Oracle", "NYSE", "Technology"),
+    "KO": ("Coca-Cola", "NYSE", "Consumer Staples"),
+    "PEP": ("PepsiCo", "Nasdaq", "Consumer Staples"),
+    "CSCO": ("Cisco Systems", "Nasdaq", "Technology"),
+    "MRK": ("Merck & Co.", "NYSE", "Healthcare"),
+}
+
+_LONG_ENGINE_SECTOR_BY_SUFFIX_V18656 = {
+    ".OL": "Norsk marked",
+    ".ST": "Svensk marked",
+    ".HE": "Finsk marked",
+    ".CO": "Dansk marked",
+    ".SA": "Brasiliansk marked",
+}
+
+
+def _long_engine_meta_v18656(row: dict) -> dict[str, str]:
+    ticker = str(row.get("ticker") or row.get("symbol") or "").upper().strip()
+    country, flag, exchange_hint = _long_engine_country_from_ticker_v18656(ticker)
+    name = str(row.get("name") or row.get("company") or row.get("company_name") or "").strip()
+    exchange = str(row.get("exchange") or row.get("børs") or row.get("bors") or "").strip()
+    sector = str(row.get("sector") or row.get("sektor") or row.get("industry") or "").strip()
+    if not name or not exchange or not sector:
+        fallback = _LONG_ENGINE_COMPANY_FALLBACK_V18656.get(ticker)
+        if fallback:
+            name = name or fallback[0]
+            exchange = exchange or fallback[1]
+            sector = sector or fallback[2]
+    if not exchange:
+        exchange = exchange_hint
+    if not sector:
+        for suffix, label in _LONG_ENGINE_SECTOR_BY_SUFFIX_V18656.items():
+            if ticker.endswith(suffix):
+                sector = label
+                break
+    if not sector:
+        sector = "Ukjent"
+    return {
+        "country": country,
+        "flag": flag,
+        "exchange": exchange,
+        "sector": sector,
+        "name": name or ticker,
+    }
+
+
+def _long_engine_driver_icon_v18656(driver: str) -> str:
+    text = str(driver or "").lower()
+    if "insider" in text:
+        return "💰 Insider"
+    if "ownership" in text:
+        return "🏢 Ownership"
+    if "earning" in text:
+        return "📊 Earnings"
+    if "analyst" in text:
+        return "📈 Analyst"
+    return str(driver or "-")
+
+
+def _long_engine_risk_icon_v18656(risk: str) -> str:
+    risk = str(risk or "")
+    if risk.lower().startswith("lav"):
+        return "🟢 Lav"
+    if risk.lower().startswith("middels"):
+        return "🟡 Middels"
+    if risk.lower().startswith("høy") or risk.lower().startswith("hoy"):
+        return "🔴 Høy"
+    return risk or "Ukjent"
+
+
+def _long_engine_overlap_label_v18656(ticker: str, overlap_tickers: set[str] | None = None) -> str:
+    return "✓ Begge" if str(ticker or "").upper().strip() in (overlap_tickers or set()) else "🚀 Long Exclusive"
+
+def _long_engine_display_rows_v18653(rows: list[dict], overlap_tickers: set[str] | None = None) -> list[dict]:
+    """Compact professional table rows for Long Engine.
+
+    v18.6.56 keeps raw component scores out of the main table so there is room
+    for name, country, exchange and sector when USA/Norge/Sverige are mixed later.
+    """
     display = []
     for row in rows or []:
+        ticker = str(row.get("ticker") or "").upper().strip()
+        meta = _long_engine_meta_v18656(row)
         confidence = _long_engine_confidence_v18654(row)
+        risk = _long_engine_risk_label_v18654(row)
         display.append({
-            "Rank": row.get("rank", ""),
-            "Ticker": row.get("ticker", ""),
-            "Long Alpha": row.get("long_alpha_score", ""),
-            "Confidence": f"{confidence}%",
-            "Risiko": _long_engine_risk_label_v18654(row),
-            "Primær driver": _long_engine_primary_driver_v18654(row),
-            "Ownership": row.get("ownership_score", ""),
-            "Insider": row.get("insider_score", ""),
-            "Earnings": row.get("earnings_score", ""),
-            "Analyst": row.get("analyst_score", ""),
+            "#": row.get("rank", ""),
+            "🌍": meta.get("flag", ""),
+            "Ticker": ticker,
+            "Navn": meta.get("name", ticker),
+            "Børs": meta.get("exchange", ""),
+            "Sektor": meta.get("sector", ""),
+            "Score": row.get("long_alpha_score", ""),
+            "Conf": f"{confidence}%",
+            "Risiko": _long_engine_risk_icon_v18656(risk),
+            "Driver": _long_engine_driver_icon_v18656(_long_engine_primary_driver_v18654(row)),
+            "Top Picks": _long_engine_overlap_label_v18656(ticker, overlap_tickers),
         })
     return display
 
@@ -11116,26 +11257,31 @@ def _long_engine_render_score_bar_v18654(label: str, value: float) -> None:
 
 
 def _long_engine_render_candidate_card_v18654(row: dict, overlap_tickers: set[str] | None = None) -> None:
-    ticker = str(row.get("ticker") or "-")
-    name = str(row.get("name") or row.get("company") or "")
+    ticker = str(row.get("ticker") or "-").upper().strip()
+    meta = _long_engine_meta_v18656(row)
     score = row.get("long_alpha_score", "-")
     confidence = _long_engine_confidence_v18654(row)
     risk = _long_engine_risk_label_v18654(row)
     primary = _long_engine_primary_driver_v18654(row)
     secondary = _long_engine_secondary_driver_v18654(row)
-    is_overlap = ticker in (overlap_tickers or set())
-    tag = "Overlap mot Top Picks" if is_overlap else "Long Engine Exclusive"
+    tag = _long_engine_overlap_label_v18656(ticker, overlap_tickers)
     with st.container(border=True):
-        st.markdown(f"### #{row.get('rank', '-')} {html.escape(ticker)} {html.escape('– ' + name if name else '')}")
+        st.markdown(
+            f"### #{row.get('rank', '-')} {html.escape(ticker)} – {html.escape(meta.get('name') or ticker)}"
+        )
+        st.caption(
+            f"{meta.get('flag','')} {meta.get('country','')} | {html.escape(meta.get('exchange',''))} | "
+            f"{html.escape(meta.get('sector',''))}"
+        )
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Long Alpha", score)
         c2.metric("Confidence", f"{confidence}%")
-        c3.metric("Risiko", risk)
+        c3.metric("Risiko", _long_engine_risk_icon_v18656(risk))
         c4.metric("Status", tag)
-        d1, d2 = st.columns([1.1, 1.25])
+        d1, d2 = st.columns([1.0, 1.35])
         with d1:
-            st.markdown(f"**Primær driver:** {primary}")
-            st.markdown(f"**Sekundær driver:** {secondary}")
+            st.markdown(f"**Primær driver:** {_long_engine_driver_icon_v18656(primary)}")
+            st.markdown(f"**Sekundær driver:** {_long_engine_driver_icon_v18656(secondary)}")
             for bullet in _long_engine_explanation_bullets_v18654(row)[:5]:
                 st.markdown(f"- {bullet}")
         with d2:
@@ -11266,29 +11412,66 @@ def render_long_engine_control_center_v18653():
 
     overlap_tickers = set(overlap.get("overlap_tickers") or [])
 
+    # v18.6.56: professional filters before candidate cards/table.
+    enriched_rows = []
+    for row in rows:
+        meta = _long_engine_meta_v18656(row)
+        clean = dict(row)
+        clean["_country"] = meta.get("country")
+        clean["_sector"] = meta.get("sector")
+        clean["_risk"] = _long_engine_risk_label_v18654(row)
+        clean["_exclusive"] = str(clean.get("ticker") or "").upper().strip() not in overlap_tickers
+        enriched_rows.append(clean)
+
+    f1, f2, f3, f4 = st.columns([0.9, 1.1, 0.9, 1.0])
+    countries = ["Alle"] + sorted({str(x.get("_country") or "Ukjent") for x in enriched_rows})
+    sectors = ["Alle"] + sorted({str(x.get("_sector") or "Ukjent") for x in enriched_rows})
+    with f1:
+        country_filter = st.selectbox("Land", countries, key="long_engine_country_filter_v18656")
+    with f2:
+        sector_filter = st.selectbox("Sektor", sectors, key="long_engine_sector_filter_v18656")
+    with f3:
+        risk_filter = st.selectbox("Risiko", ["Alle", "Lav", "Middels", "Høy"], key="long_engine_risk_filter_v18656")
+    with f4:
+        exclusive_only = st.checkbox("Kun Long Exclusive", value=False, key="long_engine_exclusive_filter_v18656")
+
+    filtered_rows = []
+    for row in enriched_rows:
+        if country_filter != "Alle" and row.get("_country") != country_filter:
+            continue
+        if sector_filter != "Alle" and row.get("_sector") != sector_filter:
+            continue
+        if risk_filter != "Alle" and row.get("_risk") != risk_filter:
+            continue
+        if exclusive_only and not row.get("_exclusive"):
+            continue
+        filtered_rows.append(row)
+
+    st.caption(f"Viser {len(filtered_rows)} av {len(rows)} kandidater etter filter. Tabellen er sorterbar i Streamlit.")
+
     st.markdown("#### Viktigste kandidater")
-    for row in rows[: min(5, len(rows))]:
+    for row in filtered_rows[: min(5, len(filtered_rows))]:
         _long_engine_render_candidate_card_v18654(row, overlap_tickers=overlap_tickers)
 
-    st.markdown("#### Top Long USA Alpha – tabell")
-    display_df = pd.DataFrame(_long_engine_display_rows_v18653(rows))
+    st.markdown("#### Top Long USA Alpha – profesjonell tabell")
+    display_df = pd.DataFrame(_long_engine_display_rows_v18653(filtered_rows, overlap_tickers=overlap_tickers))
     try:
         st.dataframe(display_df, use_container_width=True, hide_index=True)
     except Exception:
-        st.write(_long_engine_display_rows_v18653(rows))
+        st.write(_long_engine_display_rows_v18653(filtered_rows, overlap_tickers=overlap_tickers))
 
     st.markdown("#### Rapport / eksport")
     st.caption("Print/PDF HTML kan åpnes i nettleser og lagres som PDF fra utskriftsdialogen.")
     basename = f"long_engine_usa_alpha_{datetime.now().strftime('%Y%m%d_%H%M')}"
     e1, e2, e3, e4 = st.columns(4)
     with e1:
-        st.download_button("CSV", data=_long_engine_csv_v18654(rows), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+        st.download_button("CSV", data=_long_engine_csv_v18654(filtered_rows), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
     with e2:
-        st.download_button("Excel", data=_long_engine_excel_v18654(rows), file_name=f"{basename}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.download_button("Excel", data=_long_engine_excel_v18654(filtered_rows), file_name=f"{basename}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
     with e3:
-        st.download_button("Print/PDF HTML", data=_long_engine_html_report_v18654(rows, overlap), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+        st.download_button("Print/PDF HTML", data=_long_engine_html_report_v18654(filtered_rows, overlap), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
     with e4:
-        st.download_button("JSON", data=json.dumps({"rows": rows, "overlap": overlap}, indent=2, ensure_ascii=False), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+        st.download_button("JSON", data=json.dumps({"rows": filtered_rows, "overlap": overlap}, indent=2, ensure_ascii=False), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
 
     with st.expander("Tekniske detaljer / datakobling", expanded=False):
         st.caption("Kun for kontroll og feilsøking. Skjules i normal bruk.")
