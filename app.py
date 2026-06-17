@@ -11,6 +11,7 @@ from ui_components import market_pulse, top_movers
 import os
 import re
 import json
+import io
 from urllib.parse import urlencode
 import streamlit as st
 from sticky_topbar import render_sticky_topbar
@@ -10161,9 +10162,13 @@ def _apply_mobile_nav_query_v18646() -> None:
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
-        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
+        st.session_state["ai_control_center_group_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Long Engine (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Long Engine"] = "Long Engine"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
@@ -11022,16 +11027,153 @@ def _long_engine_latest_top_picks_rows_v18653(limit: int = 50) -> list[dict]:
 def _long_engine_display_rows_v18653(rows: list[dict]) -> list[dict]:
     display = []
     for row in rows or []:
+        confidence = _long_engine_confidence_v18654(row)
         display.append({
             "Rank": row.get("rank", ""),
             "Ticker": row.get("ticker", ""),
             "Long Alpha": row.get("long_alpha_score", ""),
+            "Confidence": f"{confidence}%",
+            "Risiko": _long_engine_risk_label_v18654(row),
+            "Primær driver": _long_engine_primary_driver_v18654(row),
             "Ownership": row.get("ownership_score", ""),
             "Insider": row.get("insider_score", ""),
             "Earnings": row.get("earnings_score", ""),
             "Analyst": row.get("analyst_score", ""),
         })
     return display
+
+
+def _long_engine_component_scores_v18654(row: dict) -> dict[str, float]:
+    out = {}
+    for key, label in (("ownership_score", "Ownership"), ("insider_score", "Insider"), ("earnings_score", "Earnings"), ("analyst_score", "Analyst")):
+        try:
+            out[label] = float(row.get(key) or 0)
+        except Exception:
+            out[label] = 0.0
+    return out
+
+
+def _long_engine_confidence_v18654(row: dict) -> int:
+    scores = list(_long_engine_component_scores_v18654(row).values())
+    if not scores:
+        return 0
+    avg = sum(scores) / len(scores)
+    spread = max(scores) - min(scores)
+    confidence = (avg / 10.0) * 82 + max(0, 18 - spread * 3.2)
+    return int(max(0, min(100, round(confidence))))
+
+
+def _long_engine_risk_label_v18654(row: dict) -> str:
+    scores = list(_long_engine_component_scores_v18654(row).values())
+    if not scores:
+        return "Ukjent"
+    spread = max(scores) - min(scores)
+    low = min(scores)
+    if low >= 6.5 and spread <= 2.0:
+        return "Lav"
+    if low < 4.5 or spread >= 4.0:
+        return "Høy"
+    return "Middels"
+
+
+def _long_engine_primary_driver_v18654(row: dict) -> str:
+    scores = _long_engine_component_scores_v18654(row)
+    if not scores:
+        return "-"
+    return max(scores.items(), key=lambda kv: kv[1])[0]
+
+
+def _long_engine_secondary_driver_v18654(row: dict) -> str:
+    scores = sorted(_long_engine_component_scores_v18654(row).items(), key=lambda kv: kv[1], reverse=True)
+    return scores[1][0] if len(scores) > 1 else "-"
+
+
+def _long_engine_driver_text_v18654(label: str, score: float) -> str:
+    if score >= 8.5:
+        return f"Sterk {label}-støtte"
+    if score >= 7.0:
+        return f"God {label}-støtte"
+    if score >= 5.0:
+        return f"Nøytral {label}-støtte"
+    return f"Svak {label}-støtte"
+
+
+def _long_engine_explanation_bullets_v18654(row: dict) -> list[str]:
+    scores = _long_engine_component_scores_v18654(row)
+    bullets = []
+    for label, score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True):
+        bullets.append(_long_engine_driver_text_v18654(label, score))
+    bullets.append(f"Risiko: {_long_engine_risk_label_v18654(row)} · Confidence: {_long_engine_confidence_v18654(row)}%")
+    return bullets
+
+
+def _long_engine_render_score_bar_v18654(label: str, value: float) -> None:
+    try:
+        value = float(value or 0)
+    except Exception:
+        value = 0.0
+    st.progress(max(0.0, min(1.0, value / 10.0)), text=f"{label}: {value:.2f}/10")
+
+
+def _long_engine_render_candidate_card_v18654(row: dict, overlap_tickers: set[str] | None = None) -> None:
+    ticker = str(row.get("ticker") or "-")
+    name = str(row.get("name") or row.get("company") or "")
+    score = row.get("long_alpha_score", "-")
+    confidence = _long_engine_confidence_v18654(row)
+    risk = _long_engine_risk_label_v18654(row)
+    primary = _long_engine_primary_driver_v18654(row)
+    secondary = _long_engine_secondary_driver_v18654(row)
+    is_overlap = ticker in (overlap_tickers or set())
+    tag = "Overlap mot Top Picks" if is_overlap else "Long Engine Exclusive"
+    with st.container(border=True):
+        st.markdown(f"### #{row.get('rank', '-')} {html.escape(ticker)} {html.escape('– ' + name if name else '')}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Long Alpha", score)
+        c2.metric("Confidence", f"{confidence}%")
+        c3.metric("Risiko", risk)
+        c4.metric("Status", tag)
+        d1, d2 = st.columns([1.1, 1.25])
+        with d1:
+            st.markdown(f"**Primær driver:** {primary}")
+            st.markdown(f"**Sekundær driver:** {secondary}")
+            for bullet in _long_engine_explanation_bullets_v18654(row)[:5]:
+                st.markdown(f"- {bullet}")
+        with d2:
+            for label, val in _long_engine_component_scores_v18654(row).items():
+                _long_engine_render_score_bar_v18654(label, val)
+
+
+def _long_engine_csv_v18654(rows: list[dict]) -> str:
+    return pd.DataFrame(_long_engine_display_rows_v18653(rows)).to_csv(index=False)
+
+
+def _long_engine_excel_v18654(rows: list[dict]) -> bytes:
+    output = io.BytesIO()
+    display_df = pd.DataFrame(_long_engine_display_rows_v18653(rows))
+    detail_df = pd.DataFrame(rows or [])
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        display_df.to_excel(writer, index=False, sheet_name="Top Long USA")
+        detail_df.to_excel(writer, index=False, sheet_name="Detaljer")
+    return output.getvalue()
+
+
+def _long_engine_html_report_v18654(rows: list[dict], overlap: dict | None = None) -> str:
+    overlap = overlap or {}
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cards = []
+    for row in rows[:20]:
+        bullets = ''.join(f"<li>{html.escape(b)}</li>" for b in _long_engine_explanation_bullets_v18654(row))
+        cards.append(
+            f"<section class='card'><h2>#{row.get('rank','')} {html.escape(str(row.get('ticker','')))}</h2>"
+            f"<p><b>Long Alpha:</b> {row.get('long_alpha_score','-')} · <b>Confidence:</b> {_long_engine_confidence_v18654(row)}% · "
+            f"<b>Risiko:</b> {_long_engine_risk_label_v18654(row)} · <b>Primær driver:</b> {_long_engine_primary_driver_v18654(row)}</p>"
+            f"<ul>{bullets}</ul></section>"
+        )
+    table = pd.DataFrame(_long_engine_display_rows_v18653(rows)).to_html(index=False, escape=True) if rows else "<p>Ingen resultater.</p>"
+    return f"""<!doctype html><html><head><meta charset='utf-8'><title>Long Engine USA Alpha</title>
+<style>body{{font-family:Arial,sans-serif;margin:28px;color:#111827}}h1{{margin-bottom:0}}.meta{{color:#4b5563}}.card{{border:1px solid #d1d5db;border-radius:12px;padding:14px;margin:12px 0;page-break-inside:avoid}}table{{border-collapse:collapse;width:100%;font-size:12px}}td,th{{border:1px solid #d1d5db;padding:6px;text-align:left}}th{{background:#f3f4f6}}@media print{{button{{display:none}}}}</style></head>
+<body><h1>Long Engine USA Alpha</h1><p class='meta'>Generert {generated}. Overlap mot Top Picks: {overlap.get('overlap_pct',0)}%.</p>
+<h2>Kandidatforklaringer</h2>{''.join(cards)}<h2>Resultattabell</h2>{table}</body></html>"""
 
 
 def render_long_engine_control_center_v18653():
@@ -11122,14 +11264,34 @@ def render_long_engine_control_center_v18653():
     else:
         st.caption("Kjør Top Picks først for å måle overlap mot eksisterende motor.")
 
-    st.markdown("#### Top Long USA Alpha")
+    overlap_tickers = set(overlap.get("overlap_tickers") or [])
+
+    st.markdown("#### Viktigste kandidater")
+    for row in rows[: min(5, len(rows))]:
+        _long_engine_render_candidate_card_v18654(row, overlap_tickers=overlap_tickers)
+
+    st.markdown("#### Top Long USA Alpha – tabell")
+    display_df = pd.DataFrame(_long_engine_display_rows_v18653(rows))
     try:
-        st.dataframe(pd.DataFrame(_long_engine_display_rows_v18653(rows)), use_container_width=True, hide_index=True)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
     except Exception:
         st.write(_long_engine_display_rows_v18653(rows))
 
-    with st.expander("Scoreforklaring / datakobling", expanded=False):
-        st.write("Long Alpha bruker faktiske scoremoduler fra `engines/long_scores/`:")
+    st.markdown("#### Rapport / eksport")
+    st.caption("Print/PDF HTML kan åpnes i nettleser og lagres som PDF fra utskriftsdialogen.")
+    basename = f"long_engine_usa_alpha_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    e1, e2, e3, e4 = st.columns(4)
+    with e1:
+        st.download_button("CSV", data=_long_engine_csv_v18654(rows), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+    with e2:
+        st.download_button("Excel", data=_long_engine_excel_v18654(rows), file_name=f"{basename}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    with e3:
+        st.download_button("Print/PDF HTML", data=_long_engine_html_report_v18654(rows, overlap), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+    with e4:
+        st.download_button("JSON", data=json.dumps({"rows": rows, "overlap": overlap}, indent=2, ensure_ascii=False), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+
+    with st.expander("Tekniske detaljer / datakobling", expanded=False):
+        st.caption("Kun for kontroll og feilsøking. Skjules i normal bruk.")
         st.code(
             "ownership_score.py -> alpha_radar_ownership.py\n"
             "insider_score.py   -> insider.py / FMP fallback\n"

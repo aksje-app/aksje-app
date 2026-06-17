@@ -2268,6 +2268,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         ai_candidate_labels = list(dict.fromkeys(ai_candidate_primary_labels + ai_candidate_source_labels))
         group_map = {
             ai_candidate_group_name: ai_candidate_labels,
+            "Long Engine": _matching_panel_labels("long engine"),
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
             "Marked og signaler": _matching_panel_labels("marked", "varsler og watchlist", "top picks", "beslut", "muligheter", "alpha"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),

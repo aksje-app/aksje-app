@@ -30,9 +30,13 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
-        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
+        st.session_state["ai_control_center_group_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Long Engine (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Long Engine"] = "Long Engine"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
