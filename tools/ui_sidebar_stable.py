@@ -29,6 +29,11 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "long_engine":
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
         st.session_state["ai_control_center_active_panel_v1863m"] = ""
@@ -62,6 +67,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18650")
     _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18650")
     _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18650")
+    _sidebar_nav_button_v18650(st, "🚀 Long Engine", "long_engine", "sidebar_nav_long_engine_v18653")
     _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18650")
     _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18650")
 
@@ -253,7 +259,7 @@ html body button[aria-label*="sidebar" i] {
   }
   html body section[data-testid="stSidebar"] .sidebar2026-nav {
     display: grid !important;
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
     gap: .26rem !important;
     width: calc(100vw - .84rem) !important;
     margin: 0 !important;
