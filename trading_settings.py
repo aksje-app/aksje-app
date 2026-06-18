@@ -14,6 +14,9 @@ DEFAULT_RULES = {
     "min_buy_score": 7.5,
     "min_buy_confidence": 70,
     "max_buy_rsi": 72,
+    # Re-entry protection: after stop-loss sell, block new BUY in same ticker.
+    "stop_loss_cooldown_days": 5,
+    "stop_loss_reentry_min_confidence_delta": 3,
 
     # HOLD
     "min_hold_days": 1,

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Mapping
 from signal_engine import score_signal
 from notifier import notify_trade
@@ -275,6 +275,66 @@ def _default_trade_explanation(trade_type: str, reason: str, ctx: Mapping[str, A
 def _format_pct(value: float) -> str:
     return f"{float(value):.2f}%"
 
+def _parse_trade_time_v18660(value):
+    try:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
+    """Block immediate re-buy after a stop-loss sell in same paper ticker.
+
+    This prevents SELL by stop-loss followed by BUY in the same symbol on the
+    next cron/update while the symbol is still visible as a buy candidate.
+    """
+    try:
+        cooldown_days = int(rules.get("stop_loss_cooldown_days", 5) or 0)
+    except Exception:
+        cooldown_days = 5
+    if cooldown_days <= 0:
+        return False, ""
+    ticker = str(ticker or "").upper().strip()
+    now = datetime.now()
+    trades = list((portfolio or {}).get("trades", []) or [])
+    for trade in reversed(trades):
+        try:
+            if str(trade.get("ticker") or "").upper().strip() != ticker:
+                continue
+            if str(trade.get("type") or "").upper() != "SELL":
+                continue
+            reason = str(trade.get("reason") or "").lower()
+            rule_used = str(trade.get("rule_used") or "").lower()
+            if "stop loss" not in reason and "stop-loss" not in rule_used and "stop loss" not in rule_used:
+                continue
+            sold_at = _parse_trade_time_v18660(trade.get("time"))
+            if sold_at is None:
+                # If timestamp is missing, be conservative for current run.
+                return True, f"{ticker} er blokkert for nytt kjøp etter stop-loss. Cooldown: {cooldown_days} dager."
+            age_days = (now - sold_at).total_seconds() / 86400.0
+            if age_days < cooldown_days:
+                remaining = max(1, int(round(cooldown_days - age_days)))
+                try:
+                    delta = int(rules.get("stop_loss_reentry_min_confidence_delta", 3) or 0)
+                    old_conf = int(trade.get("confidence") or 0)
+                    new_conf = int(confidence or 0)
+                    if delta > 0 and new_conf >= old_conf + delta and age_days >= 1:
+                        return False, ""
+                except Exception:
+                    pass
+                return True, (
+                    f"{ticker} ble nylig solgt på stop-loss og kan ikke kjøpes igjen ennå. "
+                    f"Cooldown gjenstår ca. {remaining} dag(er)."
+                )
+            return False, ""
+        except Exception:
+            continue
+    return False, ""
+
+
 
 def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None):
     rules = load_rules()
@@ -292,6 +352,10 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         trade_ctx["measured_value"] = f"confidence {int(confidence or 0)}"
     trade_ctx["trade_explanation"] = _default_trade_explanation("BUY", reason, trade_ctx)
     reason = paper_reason_label(reason, "BUY") or "PAPER-KJØP"
+    blocked, cooldown_msg = _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules)
+    if blocked:
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "message": cooldown_msg}, level="WARNING")
+        return False, explain_blocked_action([cooldown_msg], action="Kjøp")
     try:
         price = float(price)
     except Exception:

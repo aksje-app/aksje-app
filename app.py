@@ -10147,7 +10147,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") ->
             "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.59",
+            "version": "v18.6.60",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -11330,13 +11330,13 @@ def _long_engine_data_quality_v18657(row: dict) -> int:
 
 
 def _long_engine_confidence_badge_v18657(row: dict) -> str:
+    # v18.6.60 calibration: Long Alpha is a discovery/alternative motor.
+    # A top candidate with score around 7 and confidence above 60 should not look red.
     conf = _long_engine_confidence_v18654(row)
-    if conf >= 85:
+    if conf >= 60:
         icon = "🟢"
-    elif conf >= 70:
+    elif conf >= 50:
         icon = "🟡"
-    elif conf >= 60:
-        icon = "🟠"
     else:
         icon = "🔴"
     return f"{icon} {conf}%"
@@ -11348,7 +11348,11 @@ def _long_engine_confidence_v18654(row: dict) -> int:
         return 0
     avg = sum(scores) / len(scores)
     spread = max(scores) - min(scores)
-    confidence = (avg / 10.0) * 82 + max(0, 18 - spread * 3.2)
+    data_quality = _long_engine_data_quality_v18657(row)
+    # v18.6.60: less punitive confidence model.
+    # Strong average score + full data coverage should be readable as usable,
+    # while high spread still reduces confidence.
+    confidence = 38 + (avg * 5.8) + (data_quality * 0.16) - (spread * 3.0)
     return int(max(0, min(100, round(confidence))))
 
 
@@ -11358,9 +11362,14 @@ def _long_engine_risk_label_v18654(row: dict) -> str:
         return "Ukjent"
     spread = max(scores) - min(scores)
     low = min(scores)
-    if low >= 6.5 and spread <= 2.0:
+    score = float(row.get("long_alpha_score") or 0)
+    conf = _long_engine_confidence_v18654(row)
+    # v18.6.60 calibration: avoid classifying most useful candidates as High risk
+    # solely because one component is neutral. High risk should mean weak data,
+    # low confidence or extreme disagreement between components.
+    if score >= 7.2 and conf >= 65 and low >= 5.0 and spread <= 4.5:
         return "Lav"
-    if low < 4.5 or spread >= 4.0:
+    if conf < 50 or low < 3.5 or spread >= 6.0:
         return "Høy"
     return "Middels"
 

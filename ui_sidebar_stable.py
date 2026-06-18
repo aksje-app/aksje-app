@@ -137,10 +137,16 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
-    # v18.6.59: real href navigation. Buttons remained as Streamlit widgets in
-    # v18.6.58, but persistent state could make only the current Long Engine
-    # target appear to work. URL links force the panel parameter before rerun.
-    _sidebar_nav_links_v18659(st)
+    # v18.6.60: back to real Streamlit buttons.
+    # v18.6.59 URL links fixed dead clicks, but could force a fresh auth/login
+    # and also made long labels overflow. Buttons keep the user inside the same
+    # authenticated Streamlit session while still persisting panel state.
+    _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18660")
+    _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18660")
+    _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18660")
+    _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
+    _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
+    _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
@@ -238,12 +244,15 @@ html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button 
   min-height: 40px !important;
   width: 100% !important;
   justify-content: flex-start !important;
-  padding: .36rem .58rem !important;
+  padding: .34rem .46rem !important;
   border-radius: 15px !important;
-  font-size: .86rem !important;
+  font-size: .80rem !important;
   font-weight: 900 !important;
+  line-height: 1.05 !important;
   color: #f8fafc !important;
   white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
   background: linear-gradient(180deg, rgba(14,56,90,.92), rgba(8,30,55,.92)) !important;
   border: 1px solid rgba(96,165,250,.32) !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.18) !important;
