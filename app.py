@@ -12,6 +12,7 @@ import os
 import re
 import json
 import io
+from pathlib import Path
 from urllib.parse import urlencode
 import streamlit as st
 from sticky_topbar import render_sticky_topbar
@@ -10134,32 +10135,74 @@ def _mobile_nav_href_v18646(nav: str) -> str:
     return "?" + urlencode(params)
 
 
-def _apply_mobile_nav_query_v18646() -> None:
-    """Gjør HTML-bunnmenyen faktisk klikkbar via query param + session_state.
+def _ui_state_path_v18658() -> Path:
+    return Path("data/ui_state_v18658.json")
 
-    Tidligere var mobilmenyen bare visuelle <a href="#">-knapper. Denne funksjonen
-    leser mobile_nav og setter samme kontrollsenter-state som de vanlige knappene.
-    """
-    nav = (_query_params_plain_v18646().get("mobile_nav") or "").strip().lower()
+
+def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") -> None:
+    """Persist last visible workspace so browser refresh does not reset the app."""
+    try:
+        payload = {
+            "nav": str(nav or ""),
+            "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
+            "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "version": "v18.6.58",
+        }
+        path = _ui_state_path_v18658()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_ui_state_v18658() -> dict:
+    try:
+        path = _ui_state_path_v18658()
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _set_query_panel_v18658(nav: str) -> None:
+    """Store active high-level nav in the URL when supported by Streamlit."""
+    try:
+        if nav:
+            st.query_params["panel"] = str(nav)
+            # Avoid old mobile_nav fighting the persistent panel value.
+            if "mobile_nav" in st.query_params:
+                del st.query_params["mobile_nav"]
+    except Exception:
+        pass
+
+
+def _apply_nav_target_v18658(nav: str) -> bool:
+    """Apply one canonical navigation target to all known control-center keys."""
+    nav = str(nav or "").strip().lower()
     if not nav:
-        return
-    # Unngå unødige reruns hvis samme nav allerede er brukt i denne sesjonen.
-    if st.session_state.get("mobile_nav_applied_v18646") == nav:
-        return
-    st.session_state["mobile_nav_applied_v18646"] = nav
+        return False
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
         st.session_state["ai_control_center_active_panel_v1863m"] = ""
         st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        st.session_state["ai_control_center_group_v1863aj"] = ""
+        st.session_state["ai_control_center_active_panel_v1863aj"] = ""
     elif nav == "analysis":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
         st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
+        st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "top_picks":
         st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
@@ -10172,12 +10215,38 @@ def _apply_mobile_nav_query_v18646() -> None:
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
+        st.session_state["ai_control_center_group_v1863aj"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "System/admin"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    else:
+        return False
+    _persist_ui_state_v18658(nav=nav)
+    return True
+
+
+def _apply_mobile_nav_query_v18646() -> None:
+    """Apply URL/file-persisted navigation so refresh returns to last workspace."""
+    params = _query_params_plain_v18646()
+    nav = (params.get("mobile_nav") or params.get("panel") or "").strip().lower()
+    source = "query"
+    if not nav:
+        saved = _load_ui_state_v18658()
+        nav = str(saved.get("nav") or "").strip().lower()
+        source = "file"
+    if not nav:
+        return
+    # Same run/session should not keep resetting unless it came from the URL.
+    applied_key = f"{source}:{nav}"
+    if source == "file" and st.session_state.get("persistent_nav_applied_v18658") == applied_key:
+        return
+    st.session_state["persistent_nav_applied_v18658"] = applied_key
+    _apply_nav_target_v18658(nav)
 
 
 _apply_mobile_nav_query_v18646()
@@ -19409,6 +19478,14 @@ try:
     render_special_watch_menu_v18619()
     render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
+    try:
+        _panel_to_nav_v18658 = {"Long Engine": "long_engine", "Top Picks": "top_picks", "AI Kandidattest": "analysis", "System/admin": "system"}
+        _nav_to_store_v18658 = _panel_to_nav_v18658.get(str(_active_control_center_panel_v18598 or ""))
+        if _nav_to_store_v18658:
+            _set_query_panel_v18658(_nav_to_store_v18658)
+            _persist_ui_state_v18658(nav=_nav_to_store_v18658, panel=str(_active_control_center_panel_v18598 or ""))
+    except Exception:
+        pass
     # Oppdater KPI-raden etter panelrendering, slik at data som Top Picks akkurat har
     # lagt i session_state faktisk vises i toppkortene uten neste manuelle refresh.
     with _dashboard2026_kpi_slot_v18636:

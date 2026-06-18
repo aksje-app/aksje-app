@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.57"
-APP_VERSION_NAME = "Long Engine Decision View"
+APP_VERSION = "v18.6.58"
+APP_VERSION_NAME = "Persistent UI State"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.58: Persistent UI State slik at refresh beholder aktiv side/motor og Long Engine kan lese siste resultater fra cache.",
     "v18.6.57: Long Engine Decision View med 1M/3M/6M-horisonter, kompakt/detaljvisning, tydelig land/børs/sektor, datakvalitet, exclusive-badge og forbedret kandidatforklaring.",
     "v18.6.56: Long Engine Professional Table med land/flagg, selskapsnavn, børs, sektor, kompakte kolonner, filtre for land/sektor/risiko/exclusive og bedre kandidatkort.",
     "v18.6.54: Long Engine flyttet til egen hovedgruppe, venstre/mobilknapp åpner direkte, kandidatkort, confidence/risiko/forklaring og CSV/Excel/Print-PDF/JSON eksport lagt til.",

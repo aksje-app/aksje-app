@@ -8,6 +8,25 @@ v18.6.42 goal:
 from __future__ import annotations
 
 
+def _sidebar_persist_nav_v18658(st, nav: str) -> None:
+    """Persist desktop sidebar navigation in URL and lightweight disk state."""
+    try:
+        if nav:
+            st.query_params["panel"] = str(nav)
+            if "mobile_nav" in st.query_params:
+                del st.query_params["mobile_nav"]
+    except Exception:
+        pass
+    try:
+        import json
+        from pathlib import Path
+        path = Path("data/ui_state_v18658.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"nav": str(nav or ""), "version": "v18.6.58"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _sidebar_nav_set_v18650(st, nav: str) -> None:
     """Single real navigation path for desktop sidebar buttons.
 
@@ -48,6 +67,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    _sidebar_persist_nav_v18658(st, nav)
     try:
         st.rerun()
     except Exception:
