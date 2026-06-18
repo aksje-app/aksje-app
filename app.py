@@ -10147,7 +10147,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") ->
             "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.58",
+            "version": "v18.6.59",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)

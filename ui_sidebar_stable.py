@@ -7,6 +7,8 @@ v18.6.42 goal:
 """
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 
 def _sidebar_persist_nav_v18658(st, nav: str) -> None:
     """Persist desktop sidebar navigation in URL and lightweight disk state."""
@@ -26,6 +28,53 @@ def _sidebar_persist_nav_v18658(st, nav: str) -> None:
     except Exception:
         pass
 
+
+
+def _sidebar_nav_href_v18659(st, nav: str) -> str:
+    """Real href fallback for desktop nav.
+
+    v18.6.59: Streamlit buttons can be blocked by persistent query state on
+    some sessions. These links make every sidebar item navigate by URL first,
+    using the same panel parameter that the app already applies on startup.
+    """
+    params = {}
+    try:
+        for k, v in dict(st.query_params).items():
+            if isinstance(v, (list, tuple)):
+                params[k] = str(v[0]) if v else ""
+            else:
+                params[k] = str(v)
+    except Exception:
+        params = {}
+    params.pop("mobile_nav", None)
+    params["panel"] = str(nav or "")
+    return "?" + urlencode(params)
+
+
+def _sidebar_nav_links_v18659(st) -> None:
+    items = [
+        ("🏠", "Dashboard", "dashboard"),
+        ("📈", "Analyse", "analysis"),
+        ("🎯", "Top Picks", "top_picks"),
+        ("🚀", "Long Engine", "long_engine"),
+        ("🤖", "AI", "ai"),
+        ("⚙️", "System", "system"),
+    ]
+    current = ""
+    try:
+        current = str(st.query_params.get("panel", "") or "").lower()
+    except Exception:
+        current = ""
+    html = ["<div class='sidebar2026-nav-links-v18659'>"]
+    for icon, label, nav in items:
+        active = " active" if current == nav else ""
+        href = _sidebar_nav_href_v18659(st, nav)
+        html.append(
+            f"<a class='sidebar2026-nav-link-v18659{active}' href='{href}' target='_self' "
+            f"title='{label}'><span class='nav-ico'>{icon}</span><span class='nav-label'>{label}</span></a>"
+        )
+    html.append("</div>")
+    st.sidebar.markdown("".join(html), unsafe_allow_html=True)
 
 def _sidebar_nav_set_v18650(st, nav: str) -> None:
     """Single real navigation path for desktop sidebar buttons.
@@ -88,12 +137,10 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
-    _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18650")
-    _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18650")
-    _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18650")
-    _sidebar_nav_button_v18650(st, "🚀 Long Engine", "long_engine", "sidebar_nav_long_engine_v18653")
-    _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18650")
-    _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18650")
+    # v18.6.59: real href navigation. Buttons remained as Streamlit widgets in
+    # v18.6.58, but persistent state could make only the current Long Engine
+    # target appear to work. URL links force the panel parameter before rerun.
+    _sidebar_nav_links_v18659(st)
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
@@ -336,6 +383,53 @@ html body button[aria-label*="sidebar" i] {
   html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
     display: flex !important; align-items: center !important; gap: .20rem !important;
   }
+}
+
+html body section[data-testid="stSidebar"] .sidebar2026-nav-links-v18659 {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: .38rem !important;
+  margin-bottom: .72rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 {
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: .42rem !important;
+  min-height: 40px !important;
+  padding: .34rem .48rem !important;
+  border-radius: 15px !important;
+  text-decoration: none !important;
+  color: #f8fafc !important;
+  background: linear-gradient(180deg, rgba(14,56,90,.92), rgba(8,30,55,.92)) !important;
+  border: 1px solid rgba(96,165,250,.32) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.18) !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659:hover,
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659.active {
+  border-color: rgba(56,189,248,.68) !important;
+  background: linear-gradient(180deg, rgba(14,116,144,.82), rgba(8,47,73,.94)) !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-ico {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 10px !important;
+  background: rgba(14,116,144,.45) !important;
+  font-size: 1.0rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-label {
+  display: block !important;
+  min-width: 0 !important;
+  font-size: .86rem !important;
+  font-weight: 950 !important;
+  line-height: 1.05 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
 }
 
 </style>

@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.58"
-APP_VERSION_NAME = "Persistent UI State"
+APP_VERSION = "v18.6.59"
+APP_VERSION_NAME = "Navigation State Fix"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.59: Navigation State Fix: venstremenyen bruker ekte URL-lenker slik at Dashboard, Analyse, Top Picks, AI og System reagerer igjen samtidig som Long Engine og persistent state beholdes.",
     "v18.6.58: Persistent UI State slik at refresh beholder aktiv side/motor og Long Engine kan lese siste resultater fra cache.",
     "v18.6.57: Long Engine Decision View med 1M/3M/6M-horisonter, kompakt/detaljvisning, tydelig land/børs/sektor, datakvalitet, exclusive-badge og forbedret kandidatforklaring.",
     "v18.6.56: Long Engine Professional Table med land/flagg, selskapsnavn, børs, sektor, kompakte kolonner, filtre for land/sektor/risiko/exclusive og bedre kandidatkort.",
