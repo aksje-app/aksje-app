@@ -10147,7 +10147,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") ->
             "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.62",
+            "version": "v18.6.63",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -10184,11 +10184,36 @@ def _set_query_panel_v18658(nav: str) -> None:
         pass
 
 
+
+def _clear_control_center_nav_state_v18663() -> None:
+    """Clear stale radio/panel state before applying a fresh navigation target."""
+    for key in [
+        "ai_control_center_group_v1863m",
+        "ai_control_center_active_panel_v1863m",
+        "ai_control_center_active_real_panel_v18598",
+        "ai_control_center_group_v1863aj",
+        "ai_control_center_active_panel_v1863aj",
+        "ai_control_center_group_radio_v1863aj",
+        "analysis_pipeline_active_stage_v1863bz",
+    ]:
+        try:
+            st.session_state.pop(key, None)
+        except Exception:
+            pass
+    try:
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                st.session_state.pop(key, None)
+    except Exception:
+        pass
+
 def _apply_nav_target_v18658(nav: str) -> bool:
     """Apply one canonical navigation target to all known control-center keys."""
     nav = str(nav or "").strip().lower()
     if not nav:
         return False
+    _clear_control_center_nav_state_v18663()
+    st.session_state["ai_control_center_force_nav_v18663"] = nav
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
         st.session_state["ai_control_center_active_panel_v1863m"] = ""
@@ -10196,10 +10221,10 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_v1863aj"] = ""
         st.session_state["ai_control_center_active_panel_v1863aj"] = ""
     elif nav == "analysis":
-        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_group_v1863m"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
-        st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
+        st.session_state["ai_control_center_group_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "top_picks":
@@ -11625,12 +11650,33 @@ def render_long_engine_control_center_v18653():
     )
 
     if run_clicked and universe:
+        progress_slot = st.empty()
+        status_slot = st.empty()
+        progress_bar = progress_slot.progress(0)
+
+        def _long_engine_progress_v18663(done: int, total: int, ticker: str | None = None) -> None:
+            total = max(1, int(total or 1))
+            pct = min(1.0, max(0.0, float(done or 0) / float(total)))
+            try:
+                progress_bar.progress(pct)
+            except Exception:
+                pass
+            try:
+                status_slot.info(f"Kjører Long Engine Alpha: {int(done or 0)} av {total} tickere" + (f" · {ticker}" if ticker else ""))
+            except Exception:
+                pass
+
         with st.spinner(f"Kjører Long Engine Alpha på {len(universe)} USA-tickere..."):
             try:
                 from engines.long_engine import run_top_long_usa_alpha
 
-                rows = run_top_long_usa_alpha(universe, top_n=int(limit), save=True)
+                rows = run_top_long_usa_alpha(universe, top_n=int(limit), save=True, progress_callback=_long_engine_progress_v18663)
                 st.session_state["long_engine_alpha_rows_v18653"] = list(rows or [])
+                try:
+                    progress_bar.progress(1.0)
+                    status_slot.success(f"Long Engine Alpha ferdig: {len(rows or [])} kandidater.")
+                except Exception:
+                    pass
                 st.success(f"Long Engine Alpha ferdig: {len(rows or [])} kandidater.")
             except Exception as exc:
                 st.error(f"Long Engine Alpha feilet: {type(exc).__name__}: {exc}")

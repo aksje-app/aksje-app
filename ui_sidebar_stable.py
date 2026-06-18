@@ -75,44 +75,84 @@ def _sidebar_nav_links_v18659(st) -> None:
     html.append("</div>")
     st.sidebar.markdown("".join(html), unsafe_allow_html=True)
 
+def _clear_control_center_nav_state_v18663(st) -> None:
+    """Clear stale control-center selection keys before a fresh sidebar click.
+
+    v18.6.63: previous versions left Long Engine radio/session keys alive.
+    Then every menu click reacted, but the control center snapped back to Long.
+    """
+    clear_exact = [
+        "ai_control_center_group_v1863m",
+        "ai_control_center_active_panel_v1863m",
+        "ai_control_center_active_real_panel_v18598",
+        "ai_control_center_group_v1863aj",
+        "ai_control_center_active_panel_v1863aj",
+        "ai_control_center_group_radio_v1863aj",
+        "analysis_pipeline_active_stage_v1863bz",
+    ]
+    for key in clear_exact:
+        try:
+            st.session_state.pop(key, None)
+        except Exception:
+            pass
+    try:
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                st.session_state.pop(key, None)
+    except Exception:
+        pass
+    try:
+        if "panel" in st.query_params:
+            del st.query_params["panel"]
+        if "mobile_nav" in st.query_params:
+            del st.query_params["mobile_nav"]
+    except Exception:
+        pass
+
+
 def _sidebar_nav_set_v18650(st, nav: str) -> None:
     """Single real navigation path for desktop sidebar buttons.
 
-    v18.6.50 removes fake HTML-only sidebar cards. These buttons set the
-    same session_state keys as the mobile navigation, then rerun the app.
+    v18.6.63: menu click is the source of truth. Stale Long Engine state is
+    cleared first so saved UI-state cannot override Dashboard/Analyse/Top Picks.
     """
     nav = str(nav or "").strip().lower()
+    _clear_control_center_nav_state_v18663(st)
+    st.session_state["ai_control_center_force_nav_v18663"] = nav
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
-        st.session_state["ai_control_center_active_panel_v1863m"] = ""
-        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
     elif nav == "analysis":
-        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_group_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_group_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "top_picks":
         st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
-        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
-        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
         st.session_state["ai_control_center_group_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
         st.session_state["ai_control_center_group_radio_v1863aj"] = "Long Engine (1)"
         st.session_state["ai_control_center_panel_radio_v1863aj_Long Engine"] = "Long Engine"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
-        st.session_state["ai_control_center_active_panel_v1863m"] = ""
-        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_group_v1863aj"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "System/admin"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     _sidebar_persist_nav_v18658(st, nav)
@@ -120,7 +160,6 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.rerun()
     except Exception:
         pass
-
 
 def _sidebar_nav_button_v18650(st, label: str, nav: str, key: str) -> None:
     if st.sidebar.button(label, key=key, use_container_width=True):

@@ -1556,6 +1556,25 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
+
+        forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
+        if forced_nav_v18663 == "dashboard":
+            for key in [
+                "ai_control_center_group_v1863aj",
+                "ai_control_center_active_panel_v1863aj",
+                "ai_control_center_active_real_panel_v18598",
+                "ai_control_center_group_radio_v1863aj",
+                "analysis_pipeline_active_stage_v1863bz",
+            ]:
+                st.session_state.pop(key, None)
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                    st.session_state.pop(key, None)
+            st.markdown(
+                "<div class='ptw-control-note-strong'>Dashboard er aktivt. Velg en menyknapp eller et hovedområde for å åpne et panel.</div>",
+                unsafe_allow_html=True,
+            )
+            return None
         active_stage_hint = str(st.session_state.get("analysis_pipeline_active_stage_v1863bz") or "")
         stage_relevant_labels = _pipeline_relevant_panel_labels_v1864j(active_stage_hint, panels)
         stage_group_name = ""
@@ -1813,6 +1832,25 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
 
+        forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
+        if forced_nav_v18663 == "dashboard":
+            for key in [
+                "ai_control_center_group_v1863aj",
+                "ai_control_center_active_panel_v1863aj",
+                "ai_control_center_active_real_panel_v18598",
+                "ai_control_center_group_radio_v1863aj",
+                "analysis_pipeline_active_stage_v1863bz",
+            ]:
+                st.session_state.pop(key, None)
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                    st.session_state.pop(key, None)
+            st.markdown(
+                "<div class='ptw-control-note-strong'>Dashboard er aktivt. Velg en menyknapp eller et hovedområde for å åpne et panel.</div>",
+                unsafe_allow_html=True,
+            )
+            return None
+
         first_panel = next((labels[0] for labels in group_map.values() if labels), None)
         active_label = st.session_state.get("ai_control_center_active_panel_v1863ah") or first_panel or ""
         active_group = st.session_state.get("ai_control_center_group_v1863ah") or next((g for g, labels in group_map.items() if active_label in labels), "Analyse og prognose")
@@ -2002,6 +2040,25 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
+
+        forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
+        if forced_nav_v18663 == "dashboard":
+            for key in [
+                "ai_control_center_group_v1863aj",
+                "ai_control_center_active_panel_v1863aj",
+                "ai_control_center_active_real_panel_v18598",
+                "ai_control_center_group_radio_v1863aj",
+                "analysis_pipeline_active_stage_v1863bz",
+            ]:
+                st.session_state.pop(key, None)
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                    st.session_state.pop(key, None)
+            st.markdown(
+                "<div class='ptw-control-note-strong'>Dashboard er aktivt. Velg en menyknapp eller et hovedområde for å åpne et panel.</div>",
+                unsafe_allow_html=True,
+            )
+            return None
 
         active_group = st.session_state.get("ai_control_center_group_v1863ai") or ""
         active_label = st.session_state.get("ai_control_center_active_panel_v1863ai") or ""
@@ -2278,6 +2335,25 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
         if extra_labels:
             group_map["Andre paneler"] = extra_labels
+
+        forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
+        if forced_nav_v18663 == "dashboard":
+            for key in [
+                "ai_control_center_group_v1863aj",
+                "ai_control_center_active_panel_v1863aj",
+                "ai_control_center_active_real_panel_v18598",
+                "ai_control_center_group_radio_v1863aj",
+                "analysis_pipeline_active_stage_v1863bz",
+            ]:
+                st.session_state.pop(key, None)
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                    st.session_state.pop(key, None)
+            st.markdown(
+                "<div class='ptw-control-note-strong'>Dashboard er aktivt. Velg en menyknapp eller et hovedområde for å åpne et panel.</div>",
+                unsafe_allow_html=True,
+            )
+            return None
 
         def _stage_for_active_panel_v1864h(active_panel_label: str, stage_labels: dict[str, str]) -> str:
             if active_panel_label == "Alpha Radar":
