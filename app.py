@@ -10147,7 +10147,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") ->
             "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.61",
+            "version": "v18.6.62",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -11260,6 +11260,10 @@ def _long_engine_display_rows_v18653(rows: list[dict], overlap_tickers: set[str]
         meta = _long_engine_meta_v18656(row)
         horizons = _long_engine_horizon_scores_v18657(row)
         risk = _long_engine_risk_label_v18654(row)
+        active_h = str(row.get("active_horizon") or _long_engine_active_horizon_v18662())
+        active_score = row.get("active_horizon_score")
+        if active_score in (None, ""):
+            active_score = _long_engine_active_horizon_score_v18662(row, active_h)
         display.append({
             "#": row.get("rank", ""),
             "🌍": meta.get("flag", ""),
@@ -11267,11 +11271,13 @@ def _long_engine_display_rows_v18653(rows: list[dict], overlap_tickers: set[str]
             "Navn": meta.get("name", ticker),
             "Børs": meta.get("exchange", ""),
             "Sektor": meta.get("sector", ""),
+            "Valgt": active_h,
+            "Valgt score": active_score,
             "1M": horizons.get("1M", ""),
             "3M": horizons.get("3M", ""),
             "6M": horizons.get("6M", ""),
             "Best": _long_engine_best_horizon_v18657(row),
-            "Score": row.get("long_alpha_score", ""),
+            "Alpha": row.get("long_alpha_score", ""),
             "Conf": _long_engine_confidence_badge_v18657(row),
             "Data": f"{_long_engine_data_quality_v18657(row)}%",
             "Risiko": _long_engine_risk_icon_v18656(risk),
@@ -11342,6 +11348,47 @@ def _long_engine_best_horizon_v18657(row: dict) -> str:
     return f"{label} ({value:.2f})"
 
 
+def _long_engine_active_horizon_v18662() -> str:
+    """Active decision horizon for v18.6.62. Default is 3M."""
+    value = str(st.session_state.get("long_engine_active_horizon_v18662") or "3M").upper().strip()
+    return value if value in {"1M", "3M", "6M"} else "3M"
+
+
+def _long_engine_active_horizon_score_v18662(row: dict, horizon: str | None = None) -> float:
+    horizons = _long_engine_horizon_scores_v18657(row)
+    label = str(horizon or _long_engine_active_horizon_v18662()).upper().strip()
+    try:
+        return float(horizons.get(label) if label in horizons else horizons.get("3M", 0.0))
+    except Exception:
+        return 0.0
+
+
+def _long_engine_rank_by_horizon_v18662(rows: list[dict], horizon: str | None = None) -> list[dict]:
+    """Sort candidates by selected 1M/3M/6M horizon and rewrite visible ranks."""
+    label = str(horizon or _long_engine_active_horizon_v18662()).upper().strip()
+    ranked = sorted([dict(x) for x in (rows or []) if isinstance(x, dict)], key=lambda r: _long_engine_active_horizon_score_v18662(r, label), reverse=True)
+    for idx, row in enumerate(ranked, start=1):
+        row["rank"] = idx
+        row["active_horizon"] = label
+        row["active_horizon_score"] = round(_long_engine_active_horizon_score_v18662(row, label), 2)
+    return ranked
+
+
+def _long_engine_conf_thresholds_v18662() -> tuple[int, int]:
+    """Manual-overridable confidence thresholds. Defaults prevent all candidates from becoming green."""
+    try:
+        green = int(st.session_state.get("long_engine_conf_green_v18662", 85))
+    except Exception:
+        green = 85
+    try:
+        yellow = int(st.session_state.get("long_engine_conf_yellow_v18662", 70))
+    except Exception:
+        yellow = 70
+    green = max(50, min(100, green))
+    yellow = max(0, min(green - 1, yellow))
+    return green, yellow
+
+
 def _long_engine_data_quality_v18657(row: dict) -> int:
     scores = _long_engine_component_scores_v18654(row)
     if not scores:
@@ -11353,12 +11400,13 @@ def _long_engine_data_quality_v18657(row: dict) -> int:
 
 
 def _long_engine_confidence_badge_v18657(row: dict) -> str:
-    # v18.6.60 calibration: Long Alpha is a discovery/alternative motor.
-    # A top candidate with score around 7 and confidence above 60 should not look red.
+    # v18.6.62: calibrated thresholds with manual override.
+    # Default: green >= 85, yellow >= 70, red below 70.
     conf = _long_engine_confidence_v18654(row)
-    if conf >= 60:
+    green, yellow = _long_engine_conf_thresholds_v18662()
+    if conf >= green:
         icon = "🟢"
-    elif conf >= 50:
+    elif conf >= yellow:
         icon = "🟡"
     else:
         icon = "🔴"
@@ -11385,14 +11433,14 @@ def _long_engine_risk_label_v18654(row: dict) -> str:
         return "Ukjent"
     spread = max(scores) - min(scores)
     low = min(scores)
-    score = float(row.get("long_alpha_score") or 0)
+    score = float(row.get("active_horizon_score") or row.get("long_alpha_score") or 0)
     conf = _long_engine_confidence_v18654(row)
-    # v18.6.60 calibration: avoid classifying most useful candidates as High risk
-    # solely because one component is neutral. High risk should mean weak data,
-    # low confidence or extreme disagreement between components.
-    if score >= 7.2 and conf >= 65 and low >= 5.0 and spread <= 4.5:
+    green, yellow = _long_engine_conf_thresholds_v18662()
+    # v18.6.62: risk follows selected decision horizon and calibrated confidence.
+    # High risk should be reserved for weak confidence/data or extreme disagreement.
+    if score >= 7.0 and conf >= green and low >= 5.0 and spread <= 4.5:
         return "Lav"
-    if conf < 50 or low < 3.5 or spread >= 6.0:
+    if conf < yellow or low < 3.5 or spread >= 6.0:
         return "Høy"
     return "Middels"
 
@@ -11440,6 +11488,10 @@ def _long_engine_render_candidate_card_v18654(row: dict, overlap_tickers: set[st
     ticker = str(row.get("ticker") or "-").upper().strip()
     meta = _long_engine_meta_v18656(row)
     score = row.get("long_alpha_score", "-")
+    active_h = str(row.get("active_horizon") or _long_engine_active_horizon_v18662())
+    active_score = row.get("active_horizon_score")
+    if active_score in (None, ""):
+        active_score = _long_engine_active_horizon_score_v18662(row, active_h)
     confidence = _long_engine_confidence_v18654(row)
     data_quality = _long_engine_data_quality_v18657(row)
     risk = _long_engine_risk_label_v18654(row)
@@ -11451,14 +11503,15 @@ def _long_engine_render_candidate_card_v18654(row: dict, overlap_tickers: set[st
         st.markdown(f"### #{row.get('rank', '-')} {html.escape(ticker)} – {html.escape(meta.get('name') or ticker)}")
         st.caption(f"{meta.get('flag','')} {meta.get('country','')} | {html.escape(meta.get('exchange',''))} | {html.escape(meta.get('sector',''))}")
         st.markdown(
-            f"**Long Alpha:** `{score}` &nbsp; | &nbsp; **Confidence:** `{confidence}%` &nbsp; | &nbsp; "
+            f"**Valgt horisont:** `{active_h}` &nbsp; | &nbsp; **Valgt score:** `{active_score}` &nbsp; | &nbsp; "
+            f"**Alpha:** `{score}` &nbsp; | &nbsp; **Confidence:** `{confidence}%` &nbsp; | &nbsp; "
             f"**Datakvalitet:** `{data_quality}%` &nbsp; | &nbsp; **Risiko:** `{_long_engine_risk_icon_v18656(risk)}` &nbsp; | &nbsp; **Status:** `{tag}`"
         )
         h1, h2, h3, h4 = st.columns(4)
         h1.metric("1M", horizons.get("1M", "-"))
         h2.metric("3M", horizons.get("3M", "-"))
         h3.metric("6M", horizons.get("6M", "-"))
-        h4.metric("Beste horisont", _long_engine_best_horizon_v18657(row))
+        h4.metric("Aktiv", f"{active_h} ({active_score})")
         d1, d2 = st.columns([1.0, 1.35])
         with d1:
             st.markdown(f"**Primær driver:** {_long_engine_driver_icon_v18656(primary)}")
@@ -11530,6 +11583,23 @@ def render_long_engine_control_center_v18653():
         st.markdown("**Modell**")
         st.caption("Ownership 35 % · Insider 30 % · Earnings 25 % · Analyst 10 %")
 
+    hcol1, hcol2 = st.columns([1.0, 1.5])
+    with hcol1:
+        active_horizon = st.radio(
+            "Aktiv horisont",
+            ["1M", "3M", "6M"],
+            index=["1M", "3M", "6M"].index(_long_engine_active_horizon_v18662()),
+            horizontal=True,
+            key="long_engine_active_horizon_v18662",
+            help="Standard er 3M. Rangering og valgt score styres av valgt horisont.",
+        )
+    with hcol2:
+        with st.expander("Terskler / manuell overstyring", expanded=False):
+            st.slider("Grønn confidence fra", 50, 100, int(st.session_state.get("long_engine_conf_green_v18662", 85)), 1, key="long_engine_conf_green_v18662")
+            st.slider("Gul confidence fra", 0, 99, int(st.session_state.get("long_engine_conf_yellow_v18662", 70)), 1, key="long_engine_conf_yellow_v18662")
+            green_t, yellow_t = _long_engine_conf_thresholds_v18662()
+            st.caption(f"Aktiv standard: 🟢 ≥ {green_t}% · 🟡 {yellow_t}-{green_t-1}% · 🔴 < {yellow_t}%")
+
     if market != "USA":
         st.info("v18.6.53 støtter USA først. Norge/Sverige legges inn etter at Alpha er verifisert.")
         return
@@ -11567,6 +11637,7 @@ def render_long_engine_control_center_v18653():
 
     rows = st.session_state.get("long_engine_alpha_rows_v18653") or _long_engine_load_cached_rows_v18653()
     rows = [dict(x) for x in rows if isinstance(x, dict)]
+    rows = _long_engine_rank_by_horizon_v18662(rows, _long_engine_active_horizon_v18662())
 
     if not rows:
         st.info("Ingen Long Engine-resultater ennå. Trykk «Kjør Long Engine Alpha» for å lage Top Long USA Alpha.")
@@ -11583,8 +11654,9 @@ def render_long_engine_control_center_v18653():
         overlap = {"overlap_pct": 0, "overlap_count": 0, "overlap_tickers": []}
 
     m1, m2, m3, m4 = st.columns(4)
+    active_h = _long_engine_active_horizon_v18662()
     m1.metric("Top Long #1", str(top.get("ticker") or "-"))
-    m2.metric("Long Alpha", str(top.get("long_alpha_score") or "-"))
+    m2.metric(f"Score {active_h}", str(top.get("active_horizon_score") or _long_engine_active_horizon_score_v18662(top, active_h) or "-"))
     m3.metric("Kandidater", len(rows))
     m4.metric("Overlap mot Top Picks", f"{float(overlap.get('overlap_pct') or 0):.1f}%")
 
@@ -11632,7 +11704,7 @@ def render_long_engine_control_center_v18653():
             continue
         filtered_rows.append(row)
 
-    st.caption(f"Viser {len(filtered_rows)} av {len(rows)} kandidater etter filter. Tabellen er sorterbar i Streamlit.")
+    st.caption(f"Viser {len(filtered_rows)} av {len(rows)} kandidater etter filter. Rangering styres av aktiv horisont: {_long_engine_active_horizon_v18662()}.")
 
     view_mode = st.radio(
         "Visning",
@@ -11650,9 +11722,9 @@ def render_long_engine_control_center_v18653():
             _long_engine_render_candidate_card_v18654(row, overlap_tickers=overlap_tickers)
     else:
         st.markdown("#### Kompakt beslutningsliste")
-        st.caption("Bruk tabellen til rask sortering på 1M, 3M, 6M, confidence, sektor og risiko.")
+        st.caption("Bruk tabellen til rask sortering på valgt score, 1M, 3M, 6M, confidence, sektor og risiko.")
 
-    st.markdown("#### Top Long USA Alpha – beslutningstabell")
+    st.markdown(f"#### Top Long USA Alpha – beslutningstabell ({_long_engine_active_horizon_v18662()})")
     try:
         st.dataframe(display_df, use_container_width=True, hide_index=True)
     except Exception:

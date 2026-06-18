@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.61"
-APP_VERSION_NAME = "Navigation Session Lock Fix"
+APP_VERSION = "v18.6.62"
+APP_VERSION_NAME = "Long Engine Horizon Threshold Calibration"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.62: Long Engine får aktiv horisontvelger 1M/3M/6M med standard 3M, manuelle confidence-terskler, rangering etter valgt horisont og strammere grønn/gul/rød-kalibrering.",
     "v18.6.61: Navigation Session Lock Fix: URL-panel låser ikke lenger appen til Long Engine; venstremeny og Lukk oppgave skal fungere uten ny login, mens refresh/new login fortsatt huskes via fil-state.",
     "v18.6.60: Navigation Hotfix: menyknapper holder login/session, layout er komprimert, Long Engine confidence/risiko kalibrert og Paper Trading får stop-loss cooldown.",
     "v18.6.59: Navigation State Fix: venstremenyen bruker ekte URL-lenker slik at Dashboard, Analyse, Top Picks, AI og System reagerer igjen samtidig som Long Engine og persistent state beholdes.",
