@@ -10147,7 +10147,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") ->
             "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.60",
+            "version": "v18.6.61",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -10168,13 +10168,18 @@ def _load_ui_state_v18658() -> dict:
 
 
 def _set_query_panel_v18658(nav: str) -> None:
-    """Store active high-level nav in the URL when supported by Streamlit."""
+    """v18.6.61: no-op for desktop navigation.
+
+    Earlier versions wrote panel=... to the URL. That preserved refresh, but it
+    also kept forcing Long Engine back on every rerun and made sidebar buttons
+    and Lukk oppgave appear dead. Refresh persistence now comes from
+    data/ui_state_v18658.json, not from a permanent URL panel parameter.
+    """
     try:
-        if nav:
-            st.query_params["panel"] = str(nav)
-            # Avoid old mobile_nav fighting the persistent panel value.
-            if "mobile_nav" in st.query_params:
-                del st.query_params["mobile_nav"]
+        # Clear stale desktop panel params when possible. Mobile links may still
+        # use mobile_nav for one run only.
+        if "panel" in st.query_params:
+            del st.query_params["panel"]
     except Exception:
         pass
 
@@ -10231,22 +10236,40 @@ def _apply_nav_target_v18658(nav: str) -> bool:
 
 
 def _apply_mobile_nav_query_v18646() -> None:
-    """Apply URL/file-persisted navigation so refresh returns to last workspace."""
+    """Apply one-time mobile/file navigation without locking the UI.
+
+    v18.6.61: Only mobile_nav from URL is treated as a fresh navigation event.
+    The old panel query param is ignored because it forced the same workspace
+    on every rerun. File state is loaded once per session so refresh/new login
+    can restore the last page, but later button clicks/Lukk oppgave are not
+    overwritten.
+    """
     params = _query_params_plain_v18646()
-    nav = (params.get("mobile_nav") or params.get("panel") or "").strip().lower()
-    source = "query"
-    if not nav:
-        saved = _load_ui_state_v18658()
-        nav = str(saved.get("nav") or "").strip().lower()
-        source = "file"
-    if not nav:
+    mobile_nav = (params.get("mobile_nav") or "").strip().lower()
+    if mobile_nav:
+        st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+        _apply_nav_target_v18658(mobile_nav)
+        try:
+            if "mobile_nav" in st.query_params:
+                del st.query_params["mobile_nav"]
+            if "panel" in st.query_params:
+                del st.query_params["panel"]
+        except Exception:
+            pass
         return
-    # Same run/session should not keep resetting unless it came from the URL.
-    applied_key = f"{source}:{nav}"
-    if source == "file" and st.session_state.get("persistent_nav_applied_v18658") == applied_key:
+
+    if st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         return
-    st.session_state["persistent_nav_applied_v18658"] = applied_key
-    _apply_nav_target_v18658(nav)
+    st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+    saved = _load_ui_state_v18658()
+    nav = str(saved.get("nav") or "").strip().lower()
+    if nav:
+        _apply_nav_target_v18658(nav)
+        try:
+            if "panel" in st.query_params:
+                del st.query_params["panel"]
+        except Exception:
+            pass
 
 
 _apply_mobile_nav_query_v18646()

@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.60"
-APP_VERSION_NAME = "Navigation Hotfix + Threshold Calibration"
+APP_VERSION = "v18.6.61"
+APP_VERSION_NAME = "Navigation Session Lock Fix"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.61: Navigation Session Lock Fix: URL-panel låser ikke lenger appen til Long Engine; venstremeny og Lukk oppgave skal fungere uten ny login, mens refresh/new login fortsatt huskes via fil-state.",
     "v18.6.60: Navigation Hotfix: menyknapper holder login/session, layout er komprimert, Long Engine confidence/risiko kalibrert og Paper Trading får stop-loss cooldown.",
     "v18.6.59: Navigation State Fix: venstremenyen bruker ekte URL-lenker slik at Dashboard, Analyse, Top Picks, AI og System reagerer igjen samtidig som Long Engine og persistent state beholdes.",
     "v18.6.58: Persistent UI State slik at refresh beholder aktiv side/motor og Long Engine kan lese siste resultater fra cache.",

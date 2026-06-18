@@ -11,20 +11,19 @@ from urllib.parse import urlencode
 
 
 def _sidebar_persist_nav_v18658(st, nav: str) -> None:
-    """Persist desktop sidebar navigation in URL and lightweight disk state."""
-    try:
-        if nav:
-            st.query_params["panel"] = str(nav)
-            if "mobile_nav" in st.query_params:
-                del st.query_params["mobile_nav"]
-    except Exception:
-        pass
+    """Persist desktop sidebar navigation without forcing URL redirects.
+
+    v18.6.61: Do NOT write panel/mobile_nav query params from desktop buttons.
+    Query params kept re-applying the old page on every rerun and could make
+    Dashboard/Analyse/Top Picks/AI/System appear dead. File persistence is
+    enough for refresh/new login; button clicks update session_state directly.
+    """
     try:
         import json
         from pathlib import Path
         path = Path("data/ui_state_v18658.json")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"nav": str(nav or ""), "version": "v18.6.58"}, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(json.dumps({"nav": str(nav or ""), "version": "v18.6.61"}, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
 
