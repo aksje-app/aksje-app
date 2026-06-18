@@ -11159,14 +11159,14 @@ def _long_engine_overlap_label_v18656(ticker: str, overlap_tickers: set[str] | N
 def _long_engine_display_rows_v18653(rows: list[dict], overlap_tickers: set[str] | None = None) -> list[dict]:
     """Compact professional table rows for Long Engine.
 
-    v18.6.56 keeps raw component scores out of the main table so there is room
-    for name, country, exchange and sector when USA/Norge/Sverige are mixed later.
+    v18.6.57 adds decision columns (1M/3M/6M), data quality and a compact
+    investment-view layout while keeping component scores in candidate details.
     """
     display = []
     for row in rows or []:
         ticker = str(row.get("ticker") or "").upper().strip()
         meta = _long_engine_meta_v18656(row)
-        confidence = _long_engine_confidence_v18654(row)
+        horizons = _long_engine_horizon_scores_v18657(row)
         risk = _long_engine_risk_label_v18654(row)
         display.append({
             "#": row.get("rank", ""),
@@ -11175,8 +11175,13 @@ def _long_engine_display_rows_v18653(rows: list[dict], overlap_tickers: set[str]
             "Navn": meta.get("name", ticker),
             "Børs": meta.get("exchange", ""),
             "Sektor": meta.get("sector", ""),
+            "1M": horizons.get("1M", ""),
+            "3M": horizons.get("3M", ""),
+            "6M": horizons.get("6M", ""),
+            "Best": _long_engine_best_horizon_v18657(row),
             "Score": row.get("long_alpha_score", ""),
-            "Conf": f"{confidence}%",
+            "Conf": _long_engine_confidence_badge_v18657(row),
+            "Data": f"{_long_engine_data_quality_v18657(row)}%",
             "Risiko": _long_engine_risk_icon_v18656(risk),
             "Driver": _long_engine_driver_icon_v18656(_long_engine_primary_driver_v18654(row)),
             "Top Picks": _long_engine_overlap_label_v18656(ticker, overlap_tickers),
@@ -11192,6 +11197,80 @@ def _long_engine_component_scores_v18654(row: dict) -> dict[str, float]:
         except Exception:
             out[label] = 0.0
     return out
+
+
+def _long_engine_weighted_score_v18657(scores: dict[str, float], weights: dict[str, float]) -> float:
+    total = 0.0
+    weight_sum = 0.0
+    for label, weight in weights.items():
+        try:
+            total += float(scores.get(label, 0.0)) * float(weight)
+            weight_sum += float(weight)
+        except Exception:
+            continue
+    if weight_sum <= 0:
+        return 0.0
+    return round(max(0.0, min(10.0, total / weight_sum)), 2)
+
+
+def _long_engine_horizon_scores_v18657(row: dict) -> dict[str, float]:
+    """Decision-view horizon estimates based on the existing Alpha components.
+
+    The Alpha engine is intentionally Smart-Money weighted. Until separate historical
+    1M/3M/6M backtests are added, these horizon scores re-weight the same component
+    signals so the UI can show whether a candidate looks short, medium or longer term.
+    """
+    scores = _long_engine_component_scores_v18654(row)
+    one_m = _long_engine_weighted_score_v18657(scores, {
+        "Insider": 0.35,
+        "Analyst": 0.25,
+        "Earnings": 0.25,
+        "Ownership": 0.15,
+    })
+    three_m = _long_engine_weighted_score_v18657(scores, {
+        "Ownership": 0.35,
+        "Insider": 0.30,
+        "Earnings": 0.25,
+        "Analyst": 0.10,
+    })
+    six_m = _long_engine_weighted_score_v18657(scores, {
+        "Ownership": 0.40,
+        "Earnings": 0.25,
+        "Analyst": 0.20,
+        "Insider": 0.15,
+    })
+    return {"1M": one_m, "3M": three_m, "6M": six_m}
+
+
+def _long_engine_best_horizon_v18657(row: dict) -> str:
+    horizons = _long_engine_horizon_scores_v18657(row)
+    if not horizons:
+        return "-"
+    label, value = max(horizons.items(), key=lambda kv: kv[1])
+    return f"{label} ({value:.2f})"
+
+
+def _long_engine_data_quality_v18657(row: dict) -> int:
+    scores = _long_engine_component_scores_v18654(row)
+    if not scores:
+        return 0
+    valid = sum(1 for v in scores.values() if float(v or 0) > 0)
+    strong = sum(1 for v in scores.values() if float(v or 0) >= 5)
+    quality = (valid / len(scores)) * 60 + (strong / len(scores)) * 40
+    return int(max(0, min(100, round(quality))))
+
+
+def _long_engine_confidence_badge_v18657(row: dict) -> str:
+    conf = _long_engine_confidence_v18654(row)
+    if conf >= 85:
+        icon = "🟢"
+    elif conf >= 70:
+        icon = "🟡"
+    elif conf >= 60:
+        icon = "🟠"
+    else:
+        icon = "🔴"
+    return f"{icon} {conf}%"
 
 
 def _long_engine_confidence_v18654(row: dict) -> int:
@@ -11261,29 +11340,33 @@ def _long_engine_render_candidate_card_v18654(row: dict, overlap_tickers: set[st
     meta = _long_engine_meta_v18656(row)
     score = row.get("long_alpha_score", "-")
     confidence = _long_engine_confidence_v18654(row)
+    data_quality = _long_engine_data_quality_v18657(row)
     risk = _long_engine_risk_label_v18654(row)
     primary = _long_engine_primary_driver_v18654(row)
     secondary = _long_engine_secondary_driver_v18654(row)
     tag = _long_engine_overlap_label_v18656(ticker, overlap_tickers)
+    horizons = _long_engine_horizon_scores_v18657(row)
     with st.container(border=True):
+        st.markdown(f"### #{row.get('rank', '-')} {html.escape(ticker)} – {html.escape(meta.get('name') or ticker)}")
+        st.caption(f"{meta.get('flag','')} {meta.get('country','')} | {html.escape(meta.get('exchange',''))} | {html.escape(meta.get('sector',''))}")
         st.markdown(
-            f"### #{row.get('rank', '-')} {html.escape(ticker)} – {html.escape(meta.get('name') or ticker)}"
+            f"**Long Alpha:** `{score}` &nbsp; | &nbsp; **Confidence:** `{confidence}%` &nbsp; | &nbsp; "
+            f"**Datakvalitet:** `{data_quality}%` &nbsp; | &nbsp; **Risiko:** `{_long_engine_risk_icon_v18656(risk)}` &nbsp; | &nbsp; **Status:** `{tag}`"
         )
-        st.caption(
-            f"{meta.get('flag','')} {meta.get('country','')} | {html.escape(meta.get('exchange',''))} | "
-            f"{html.escape(meta.get('sector',''))}"
-        )
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Long Alpha", score)
-        c2.metric("Confidence", f"{confidence}%")
-        c3.metric("Risiko", _long_engine_risk_icon_v18656(risk))
-        c4.metric("Status", tag)
+        h1, h2, h3, h4 = st.columns(4)
+        h1.metric("1M", horizons.get("1M", "-"))
+        h2.metric("3M", horizons.get("3M", "-"))
+        h3.metric("6M", horizons.get("6M", "-"))
+        h4.metric("Beste horisont", _long_engine_best_horizon_v18657(row))
         d1, d2 = st.columns([1.0, 1.35])
         with d1:
             st.markdown(f"**Primær driver:** {_long_engine_driver_icon_v18656(primary)}")
             st.markdown(f"**Sekundær driver:** {_long_engine_driver_icon_v18656(secondary)}")
+            st.markdown("**Hvorfor:**")
             for bullet in _long_engine_explanation_bullets_v18654(row)[:5]:
                 st.markdown(f"- {bullet}")
+            if tag.startswith("🚀"):
+                st.markdown("- Long Engine Exclusive: finnes ikke i siste synlige Top Picks-utvalg")
         with d2:
             for label, val in _long_engine_component_scores_v18654(row).items():
                 _long_engine_render_score_bar_v18654(label, val)
@@ -11310,9 +11393,10 @@ def _long_engine_html_report_v18654(rows: list[dict], overlap: dict | None = Non
     for row in rows[:20]:
         bullets = ''.join(f"<li>{html.escape(b)}</li>" for b in _long_engine_explanation_bullets_v18654(row))
         cards.append(
-            f"<section class='card'><h2>#{row.get('rank','')} {html.escape(str(row.get('ticker','')))}</h2>"
-            f"<p><b>Long Alpha:</b> {row.get('long_alpha_score','-')} · <b>Confidence:</b> {_long_engine_confidence_v18654(row)}% · "
-            f"<b>Risiko:</b> {_long_engine_risk_label_v18654(row)} · <b>Primær driver:</b> {_long_engine_primary_driver_v18654(row)}</p>"
+            f"<section class='card'><h2>#{row.get('rank','')} {html.escape(str(row.get('ticker','')))} – {html.escape(_long_engine_meta_v18656(row).get('name',''))}</h2>"
+            f"<p><b>Marked:</b> {_long_engine_meta_v18656(row).get('flag','')} {_long_engine_meta_v18656(row).get('country','')} · {_long_engine_meta_v18656(row).get('exchange','')} · {_long_engine_meta_v18656(row).get('sector','')}</p>"
+            f"<p><b>Long Alpha:</b> {row.get('long_alpha_score','-')} · <b>1M/3M/6M:</b> {_long_engine_horizon_scores_v18657(row).get('1M')} / {_long_engine_horizon_scores_v18657(row).get('3M')} / {_long_engine_horizon_scores_v18657(row).get('6M')} · <b>Confidence:</b> {_long_engine_confidence_v18654(row)}% · "
+            f"<b>Datakvalitet:</b> {_long_engine_data_quality_v18657(row)}% · <b>Risiko:</b> {_long_engine_risk_label_v18654(row)} · <b>Primær driver:</b> {_long_engine_primary_driver_v18654(row)}</p>"
             f"<ul>{bullets}</ul></section>"
         )
     table = pd.DataFrame(_long_engine_display_rows_v18653(rows)).to_html(index=False, escape=True) if rows else "<p>Ingen resultater.</p>"
@@ -11449,16 +11533,39 @@ def render_long_engine_control_center_v18653():
 
     st.caption(f"Viser {len(filtered_rows)} av {len(rows)} kandidater etter filter. Tabellen er sorterbar i Streamlit.")
 
-    st.markdown("#### Viktigste kandidater")
-    for row in filtered_rows[: min(5, len(filtered_rows))]:
-        _long_engine_render_candidate_card_v18654(row, overlap_tickers=overlap_tickers)
+    view_mode = st.radio(
+        "Visning",
+        ["Kompakt", "Detalj"],
+        horizontal=True,
+        key="long_engine_view_mode_v18657",
+        help="Kompakt viser flere kandidater raskt. Detalj viser kandidatkort med forklaring.",
+    )
 
-    st.markdown("#### Top Long USA Alpha – profesjonell tabell")
     display_df = pd.DataFrame(_long_engine_display_rows_v18653(filtered_rows, overlap_tickers=overlap_tickers))
+
+    if view_mode == "Detalj":
+        st.markdown("#### Viktigste kandidater")
+        for row in filtered_rows[: min(5, len(filtered_rows))]:
+            _long_engine_render_candidate_card_v18654(row, overlap_tickers=overlap_tickers)
+    else:
+        st.markdown("#### Kompakt beslutningsliste")
+        st.caption("Bruk tabellen til rask sortering på 1M, 3M, 6M, confidence, sektor og risiko.")
+
+    st.markdown("#### Top Long USA Alpha – beslutningstabell")
     try:
         st.dataframe(display_df, use_container_width=True, hide_index=True)
     except Exception:
         st.write(_long_engine_display_rows_v18653(filtered_rows, overlap_tickers=overlap_tickers))
+
+    if view_mode == "Kompakt" and filtered_rows:
+        selected = st.selectbox(
+            "Åpne kandidatdetaljer",
+            [str(x.get("ticker") or "") for x in filtered_rows],
+            key="long_engine_selected_detail_v18657",
+        )
+        selected_row = next((x for x in filtered_rows if str(x.get("ticker") or "") == selected), None)
+        if selected_row:
+            _long_engine_render_candidate_card_v18654(selected_row, overlap_tickers=overlap_tickers)
 
     st.markdown("#### Rapport / eksport")
     st.caption("Print/PDF HTML kan åpnes i nettleser og lagres som PDF fra utskriftsdialogen.")
