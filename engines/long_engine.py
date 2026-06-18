@@ -79,14 +79,21 @@ def explain_long_alpha(candidate: Mapping[str, Any] | str) -> dict[str, Any]:
     }
 
 
-def rank_long_candidates(candidates: Iterable[Mapping[str, Any] | str], *, top_n: int | None = None) -> list[dict[str, Any]]:
+def rank_long_candidates(candidates: Iterable[Mapping[str, Any] | str], *, top_n: int | None = None, progress_callback: Any | None = None) -> list[dict[str, Any]]:
+    items = list(candidates or [])
+    total = len(items)
     ranked: list[dict[str, Any]] = []
-    for candidate in candidates or []:
+    for idx, candidate in enumerate(items, start=1):
         row = _as_candidate(candidate)
         if not row.get("ticker"):
             continue
         row.update(calculate_long_alpha_components(row))
         ranked.append(row)
+        if progress_callback:
+            try:
+                progress_callback(idx, total, row.get("ticker"))
+            except Exception:
+                pass
 
     ranked.sort(
         key=lambda item: (
@@ -135,8 +142,8 @@ def save_top_long_usa_alpha(results: list[dict[str, Any]], path: str | Path = "d
     return target
 
 
-def run_top_long_usa_alpha(candidates: Iterable[Mapping[str, Any] | str], *, top_n: int = 20, save: bool = True) -> list[dict[str, Any]]:
-    ranked = rank_long_candidates(candidates, top_n=top_n)
+def run_top_long_usa_alpha(candidates: Iterable[Mapping[str, Any] | str], *, top_n: int = 20, save: bool = True, progress_callback: Any | None = None) -> list[dict[str, Any]]:
+    ranked = rank_long_candidates(candidates, top_n=top_n, progress_callback=progress_callback)
     if save:
         save_top_long_usa_alpha(ranked)
     return ranked
