@@ -20213,6 +20213,254 @@ html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
 """, unsafe_allow_html=True)
 
 
+
+# v18.6.66: Professional UI Refactor – final global density pass.
+def _inject_professional_ui_refactor_v18666():
+    st.markdown("""
+    <style>
+    /* v18.6.66 PROFESSIONAL UI REFACTOR
+       Global tetthet: mindre tallfelt, kompakte KPI-er, mindre ekspanderere og mindre tom luft.
+       Ingen motorlogikk endres. */
+    :root {
+        --v66-num-w: 128px;
+        --v66-money-w: 148px;
+        --v66-date-w: 168px;
+        --v66-text-w: 300px;
+        --v66-select-w: 320px;
+        --v66-slider-w: 420px;
+        --v66-control-h: 30px;
+        --v66-radius: 10px;
+    }
+
+    /* --- Global field density --- */
+    html body .stApp div[data-testid="stNumberInput"] {
+        max-width: var(--v66-num-w) !important;
+        min-width: 78px !important;
+        width: fit-content !important;
+    }
+    html body .stApp div[data-testid="stNumberInput"] input {
+        height: var(--v66-control-h) !important;
+        min-height: var(--v66-control-h) !important;
+        padding: .18rem .40rem !important;
+        text-align: center !important;
+        font-size: .84rem !important;
+        font-weight: 850 !important;
+    }
+    html body .stApp div[data-testid="stNumberInput"] button {
+        height: var(--v66-control-h) !important;
+        min-height: var(--v66-control-h) !important;
+        width: 24px !important;
+        min-width: 24px !important;
+        padding: 0 !important;
+    }
+
+    html body .stApp div[data-testid="stTextInput"] {
+        max-width: var(--v66-text-w) !important;
+        min-width: 110px !important;
+        width: auto !important;
+    }
+    html body .stApp div[data-testid="stTextInput"] input {
+        height: var(--v66-control-h) !important;
+        min-height: var(--v66-control-h) !important;
+        padding: .18rem .46rem !important;
+        font-size: .84rem !important;
+    }
+
+    html body .stApp div[data-testid="stDateInput"] {
+        max-width: var(--v66-date-w) !important;
+        min-width: 138px !important;
+    }
+    html body .stApp div[data-testid="stDateInput"] input {
+        height: var(--v66-control-h) !important;
+        min-height: var(--v66-control-h) !important;
+        padding: .18rem .45rem !important;
+        font-size: .84rem !important;
+    }
+
+    html body .stApp div[data-testid="stSelectbox"] {
+        max-width: var(--v66-select-w) !important;
+        min-width: 120px !important;
+        width: auto !important;
+    }
+    html body .stApp div[data-baseweb="select"] > div {
+        min-height: var(--v66-control-h) !important;
+        height: var(--v66-control-h) !important;
+        font-size: .84rem !important;
+        border-radius: var(--v66-radius) !important;
+    }
+
+    html body .stApp div[data-testid="stSlider"] {
+        max-width: var(--v66-slider-w) !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    html body .stApp div[data-testid="stSlider"] [role="slider"] {
+        width: 14px !important;
+        height: 14px !important;
+    }
+
+    html body .stApp label,
+    html body .stApp .stCaption,
+    html body .stApp div[data-testid="stCaptionContainer"],
+    html body .stApp div[data-testid="stMarkdownContainer"] p {
+        line-height: 1.18 !important;
+    }
+
+    html body .stApp .stButton > button,
+    html body .stApp div[data-testid="stFormSubmitButton"] button,
+    html body .stApp div[data-testid="stDownloadButton"] button {
+        min-height: 30px !important;
+        height: auto !important;
+        padding: .26rem .60rem !important;
+        border-radius: 9px !important;
+        font-size: .82rem !important;
+        line-height: 1.08 !important;
+    }
+    html body .stApp .stButton > button p,
+    html body .stApp div[data-testid="stDownloadButton"] button p {
+        font-size: .82rem !important;
+        line-height: 1.08 !important;
+    }
+
+    /* --- Metrics and KPI cards: much flatter --- */
+    html body .stApp div[data-testid="stMetric"] {
+        min-height: 42px !important;
+        padding: .34rem .48rem !important;
+        border-radius: 10px !important;
+        margin-bottom: .20rem !important;
+    }
+    html body .stApp div[data-testid="stMetricLabel"] { font-size: .66rem !important; line-height: 1.05 !important; }
+    html body .stApp div[data-testid="stMetricValue"] { font-size: 1.00rem !important; line-height: 1.05 !important; }
+    html body .stApp div[data-testid="stMetricDelta"] { font-size: .66rem !important; }
+
+    html body .stApp .compact-stat-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+        gap: .36rem !important;
+        margin: .32rem 0 .42rem 0 !important;
+    }
+    html body .stApp .compact-stat-card,
+    html body .stApp .info-mini-card {
+        min-height: 38px !important;
+        padding: .32rem .44rem !important;
+        border-radius: 10px !important;
+    }
+    html body .stApp .compact-stat-label { font-size: .61rem !important; margin-bottom: .10rem !important; }
+    html body .stApp .compact-stat-value { font-size: .90rem !important; }
+
+    html body .stApp .dash2026-kpi-grid {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: .34rem !important;
+        margin: .18rem 0 .20rem 0 !important;
+    }
+    html body .stApp .dash2026-kpi-card {
+        min-height: 46px !important;
+        padding: .36rem .48rem !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+    }
+    html body .stApp .dash2026-kpi-value {
+        font-size: 1.03rem !important;
+        line-height: 1.0 !important;
+        white-space: nowrap !important;
+    }
+    html body .stApp .dash2026-kpi-label,
+    html body .stApp .dash2026-kpi-sub {
+        font-size: .58rem !important;
+        line-height: 1.05 !important;
+    }
+    html body .stApp .dash2026-kpi-sub {
+        max-height: 1.15em !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    /* --- Expander and section containers: less admin-panel bulk --- */
+    html body .stApp div[data-testid="stExpander"] details {
+        border-radius: 10px !important;
+        margin-bottom: .28rem !important;
+    }
+    html body .stApp div[data-testid="stExpander"] details > summary {
+        min-height: 30px !important;
+        padding: .20rem .52rem !important;
+        font-size: .82rem !important;
+        line-height: 1.05 !important;
+    }
+    html body .stApp div[data-testid="stExpander"] details > div {
+        padding-top: .32rem !important;
+        padding-bottom: .40rem !important;
+    }
+
+    html body .stApp .card,
+    html body .stApp .analysis-card,
+    html body .stApp .quicklist-card,
+    html body .stApp .paper-edit-card,
+    html body .stApp .paper-trade-box-v18615,
+    html body .stApp .control-center-status,
+    html body .stApp .trading-engine-details,
+    html body .stApp .v18-dark-row {
+        padding: .42rem .52rem !important;
+        border-radius: 10px !important;
+        margin-bottom: .34rem !important;
+    }
+
+    html body .stApp .ptw-control-hero,
+    html body .stApp .ptw-control-selector-shell,
+    html body .stApp .v1863g-global-action-card,
+    html body .stApp .v18572-global-update-shell {
+        padding: .45rem .58rem !important;
+        border-radius: 12px !important;
+        margin: .26rem 0 .34rem 0 !important;
+    }
+
+    /* Tables keep full width, but reduce row height/font. */
+    html body .stApp div[data-testid="stDataFrame"] {
+        max-width: none !important;
+        font-size: .82rem !important;
+    }
+
+    /* Desktop-only: split wide generated columns from stretching tiny controls. */
+    @media (min-width: 761px) {
+        html body .stApp div[data-testid="column"]:has(div[data-testid="stNumberInput"]) {
+            flex: 0 1 auto !important;
+            min-width: 96px !important;
+        }
+        html body .stApp div[data-testid="column"]:has(div[data-testid="stDateInput"]) {
+            flex: 0 1 auto !important;
+            min-width: 150px !important;
+        }
+        html body .stApp div[data-testid="column"]:has(div[data-testid="stSelectbox"]) {
+            min-width: 150px !important;
+        }
+    }
+
+    /* Mobile remains touch-friendly and full width. */
+    @media (max-width: 760px) {
+        html body .stApp div[data-testid="stNumberInput"],
+        html body .stApp div[data-testid="stTextInput"],
+        html body .stApp div[data-testid="stDateInput"],
+        html body .stApp div[data-testid="stSelectbox"],
+        html body .stApp div[data-testid="stSlider"] {
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+        html body .stApp .stButton > button,
+        html body .stApp div[data-testid="stFormSubmitButton"] button,
+        html body .stApp div[data-testid="stDownloadButton"] button {
+            min-height: 38px !important;
+            font-size: .92rem !important;
+        }
+        html body .stApp .dash2026-kpi-grid,
+        html body .stApp .compact-stat-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+_inject_professional_ui_refactor_v18666()
+
 def add_rsi_current_box(fig, rsi):
     try:
         current_rsi = float(rsi.dropna().iloc[-1])

@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.65"
-APP_VERSION_NAME = "Global Compact UI"
+APP_VERSION = "v18.6.66"
+APP_VERSION_NAME = "Professional UI Refactor"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.66: Professional UI Refactor: global tetthet for tallfelt, datofelt, selectbokser, KPI-kort, expandere og store containere. Ingen motorlogikk endret.",
     "v18.6.65: Global Compact UI: reduserer overbrede tallfelt, tekstfelt, selectbokser, slidere, knapper og metric-kort globalt uten å endre motorlogikk.",
     "v18.6.63: Navigation Repair: menyklikk rydder gammel Long Engine-state før nytt panel åpnes; Dashboard/Analyse/Top Picks/Long/AI/System skal ikke låses til Long. Long Engine-søk får progressbar.",
     "v18.6.62: Long Engine får aktiv horisontvelger 1M/3M/6M med standard 3M, manuelle confidence-terskler, rangering etter valgt horisont og strammere grønn/gul/rød-kalibrering.",
