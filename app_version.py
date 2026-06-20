@@ -1,5 +1,5 @@
-APP_VERSION = "v18.6.63"
-APP_VERSION_NAME = "Navigation Repair + Long Engine Progress"
+APP_VERSION = "v18.6.64"
+APP_VERSION_NAME = "Paper Trading Layout Cleanup"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [

@@ -9782,8 +9782,9 @@ def render_paper_trading_dashboard():
     with st.expander("Paper Trading varselkontroll / Pushover", expanded=False):
         render_paper_alert_control_workspace_v18611()
 
-    st.markdown("#### 🟢 Simulert kjøp av aksjer")
-    st.caption("Manuelt paper-kjøp/-salg av aksjer. Handler bruker samme paper-regler, cash og risikologg som auto trading. Ingen ekte ordre sendes.")
+    st.markdown("#### 🧾 Simulert handel")
+    st.caption("Manuelt paper-kjøp/-salg. Ingen ekte ordre sendes. Kjøp og salg er delt i egne arbeidskort for bedre oversikt på PC og mobil.")
+
     selected_position = st.session_state.get("paper_selected_position_v1863by") or {}
     if selected_position.get("ticker"):
         st.info(
@@ -9792,28 +9793,54 @@ def render_paper_trading_dashboard():
             f"antall {float(selected_position.get('units') or 0.0):,.4f}. "
             "Kontroller pris og trykk kjøp eller salg."
         )
-    with st.container():
+
+    stock_tab, fund_tab = st.tabs(["📈 Aksjer", "💼 Fond / ETF"])
+
+    with stock_tab:
         st.session_state.setdefault("paper_stock_price_input_v1863y", 0.0)
         st.session_state.setdefault("paper_stock_confidence_v1863y", 0)
         st.session_state.setdefault("paper_stock_amount_input_v18615", 10000)
-        buy_col, sell_col = st.columns([1.15, 0.85], gap="large")
+
+        buy_col, sell_col = st.columns([1.05, 0.95], gap="large")
+
         with buy_col:
-            st.markdown("<div class='paper-trade-box-v18615'>", unsafe_allow_html=True)
-            st.markdown("<div class='v18581-paper-section-title'>Kjøp aksje</div>", unsafe_allow_html=True)
-            b1, b2, b_amount = st.columns([1.05, 0.85, 0.85])
+            st.markdown("### 🟢 Kjøp aksje")
+            st.caption("1) Skriv ticker  2) Hent kurs  3) Kontroller systemvurdering  4) Trykk PAPER-KJØP")
+            b1, b2 = st.columns([1.05, 0.95])
             with b1:
                 stock_symbol = st.text_input(
                     "Aksjesymbol",
                     value=st.session_state.get("paper_stock_symbol_v1863y", ""),
                     key="paper_stock_symbol_v1863y",
                     on_change=_paper_stock_symbol_changed_v1863ac,
+                    placeholder="f.eks. MEDI, AAPL, SUBC.OL",
                 ).strip().upper()
             with b2:
-                stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
-            with b_amount:
-                stock_amount = st.number_input("Kjopsbelop", min_value=0, max_value=10_000_000, value=int(st.session_state.get("paper_stock_amount_input_v18615", 10000) or 0), step=500, key="paper_stock_amount_input_v18615")
-            b3, b4, b5 = st.columns([0.75, 0.75, 0.9])
+                stock_price = st.number_input(
+                    "Kjøpspris",
+                    min_value=0.0,
+                    max_value=1_000_000.0,
+                    value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0),
+                    step=0.01,
+                    key="paper_stock_price_input_v1863y",
+                )
+
+            b3, b4 = st.columns([0.95, 0.95])
             with b3:
+                stock_amount = st.number_input(
+                    "Kjøpsbeløp",
+                    min_value=0,
+                    max_value=10_000_000,
+                    value=int(st.session_state.get("paper_stock_amount_input_v18615", 10000) or 0),
+                    step=500,
+                    key="paper_stock_amount_input_v18615",
+                )
+            with b4:
+                estimated_stock_shares = (float(stock_amount or 0) / float(stock_price or 0)) if float(stock_price or 0) > 0 else 0.0
+                st.metric("Beregnet antall", f"{estimated_stock_shares:,.4f}" if estimated_stock_shares else "0")
+
+            a1, a2 = st.columns([0.95, 1.05])
+            with a1:
                 stock_confidence = st.number_input(
                     "System-confidence",
                     min_value=0,
@@ -9824,35 +9851,42 @@ def render_paper_trading_dashboard():
                     disabled=True,
                     help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
                 )
-            with b4:
-                estimated_stock_shares = (float(stock_amount or 0) / float(stock_price or 0)) if float(stock_price or 0) > 0 else 0.0
-                st.metric("Antall", f"{estimated_stock_shares:,.4f}" if estimated_stock_shares else "0")
-            with b5:
-                st.button("Hent aksjekurs", key="paper_stock_fetch_price_v1863z", use_container_width=False, on_click=_paper_fetch_stock_price_v1863z)
+            with a2:
+                st.write("")
+                st.button("🔎 Hent aksjekurs", key="paper_stock_fetch_price_v1864", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
+
             _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
-            buy_stock_clicked = st.button("Paper-kjøp aksje", key="paper_stock_buy_v1863z", type="primary", use_container_width=False)
+
+            buy_stock_clicked = st.button("🟢 PAPER-KJØP AKSJE", key="paper_stock_buy_v1864", type="primary", use_container_width=True)
             if buy_stock_clicked:
                 if not stock_symbol:
                     st.error("Skriv inn aksjesymbol først.")
                 elif float(stock_amount or 0.0) <= 0:
-                    st.error("Skriv inn kjopsbelop forst.")
+                    st.error("Skriv inn kjøpsbeløp først.")
                 elif float(stock_price or 0.0) <= 0:
                     st.error("Skriv inn kjøpspris eller hent aksjekurs først.")
                 else:
-                    ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjop", amount_override=float(stock_amount or 0.0))
+                    ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0))
                     if ok:
                         st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
-            st.markdown("</div>", unsafe_allow_html=True)
+
         with sell_col:
-            st.markdown("<div class='paper-trade-box-v18615'>", unsafe_allow_html=True)
-            st.markdown("<div class='v18581-paper-section-title'>Selg aksje</div>", unsafe_allow_html=True)
+            st.markdown("### 🔴 Selg aksje")
+            st.caption("Velg eksisterende aksje i porteføljen. Salgspris kan fylles manuelt eller hentes fra sist kjent pris.")
             stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
-            sell_stock_symbol = st.selectbox("Selg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1863y")
-            sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1863y")
-            sell_stock_clicked = st.button("Paper-selg aksje", key="paper_stock_sell_v1863z", use_container_width=False, disabled=(sell_stock_symbol == "Ingen"))
+            sell_stock_symbol = st.selectbox("Velg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1864")
+            sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1864")
+            if sell_stock_symbol != "Ingen":
+                pos = stock_positions.get(sell_stock_symbol, {}) or {}
+                st.info(
+                    f"Beholdning: {float(pos.get('units') or 0.0):,.4f} stk | "
+                    f"Snitt: {float(pos.get('avg_price') or 0.0):,.2f} | "
+                    f"Sist: {float(pos.get('last_price') or 0.0):,.2f}"
+                )
+            sell_stock_clicked = st.button("🔴 PAPER-SELG AKSJE", key="paper_stock_sell_v1864", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
             if sell_stock_clicked:
                 price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
                 if price_to_use <= 0:
@@ -9864,40 +9898,46 @@ def render_paper_trading_dashboard():
                         st.rerun()
                     else:
                         st.error(msg)
-            st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("#### Fond Simulert kjøp av fond / ETF")
-    st.caption("Fond/ETF handles som paper trading med beløp. ETF-er bruker siste pris, mens vanlige fond kan bruke NAV/manuell pris. Ekte handel er ikke aktivert.")
-    with st.container():
-        f1, f2, f3, f4 = st.columns([1.0, 1.0, 1.0, 0.9])
-        with f1:
-            fund_symbol = st.text_input(
-                "Fondnavn / ISIN / ETF-symbol",
-                value=st.session_state.get("paper_fund_symbol_v18545", "VOO"),
-                key="paper_fund_symbol_v18545",
-                on_change=_paper_fund_symbol_changed_v1863ac,
-            ).strip().upper()
-            st.caption("Du kan skrive f.eks. VOO, QQQ, LU2075955943 eller DNB Disruptive. Vanlige fond kan fortsatt kreve manuell NAV.")
-        with f2:
-            fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545", on_change=_paper_fund_symbol_changed_v1863ac)
-        with f3:
-            fund_amount = st.number_input("Beløp", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
-        with f4:
-            fund_currency = st.selectbox("Valuta", ["NOK", "USD", "EUR", "SEK"], key="paper_fund_currency_v18545")
+    with fund_tab:
+        st.markdown("### 💼 Fond / ETF")
+        st.caption("Fond og ETF er skilt fra aksjer for å unngå feilkjøp. ETF bruker siste pris, vanlige fond kan bruke NAV/manuell pris.")
+        fund_buy_col, fund_sell_col = st.columns([1.05, 0.95], gap="large")
 
-        pf1, pf2, pf3 = st.columns([1.0, 1.0, 0.9])
-        with pf1:
-            default_price = float(st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
-            fund_price = st.number_input("Pris / NAV", min_value=0.0, max_value=1_000_000.0, value=default_price, step=0.01, key="paper_fund_price_input_v18545")
-        with pf2:
-            purchase_mode = st.selectbox("Kjøpstype", ["Engangskjøp", "Månedlig spareplan"], key="paper_fund_purchase_mode_v18545")
-        with pf3:
-            st.button("Hent pris/NAV", key="paper_fund_fetch_price_v1863z", use_container_width=False, on_click=_paper_fetch_fund_price_v1863z)
-        _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
+        with fund_buy_col:
+            st.markdown("#### 🟢 Kjøp fond / ETF")
+            f1, f2 = st.columns([1.05, 0.95])
+            with f1:
+                fund_symbol = st.text_input(
+                    "Fondnavn / ISIN / ETF-symbol",
+                    value=st.session_state.get("paper_fund_symbol_v18545", "VOO"),
+                    key="paper_fund_symbol_v18545",
+                    on_change=_paper_fund_symbol_changed_v1863ac,
+                    placeholder="VOO, QQQ, LU2075955943, DNB Disruptive",
+                ).strip().upper()
+            with f2:
+                fund_asset_type = st.selectbox("Type", ["ETF", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond", "Fond"], key="paper_fund_type_v18545", on_change=_paper_fund_symbol_changed_v1863ac)
 
-        ba, bb = st.columns([1.0, 1.0])
-        with ba:
-            buy_fund_clicked = st.button("Paper-kjøp fond/ETF", key="paper_fund_buy_v1863z", type="primary", use_container_width=False)
+            f3, f4 = st.columns([1.0, 0.8])
+            with f3:
+                fund_amount = st.number_input("Beløp", min_value=100, max_value=10_000_000, value=10_000, step=500, key="paper_fund_amount_v18545")
+            with f4:
+                fund_currency = st.selectbox("Valuta", ["NOK", "USD", "EUR", "SEK"], key="paper_fund_currency_v18545")
+
+            pf1, pf2 = st.columns([1.0, 1.0])
+            with pf1:
+                default_price = float(st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
+                fund_price = st.number_input("Pris / NAV", min_value=0.0, max_value=1_000_000.0, value=default_price, step=0.01, key="paper_fund_price_input_v18545")
+            with pf2:
+                purchase_mode = st.selectbox("Kjøpstype", ["Engangskjøp", "Månedlig spareplan"], key="paper_fund_purchase_mode_v18545")
+
+            h1, h2 = st.columns([1.0, 1.0])
+            with h1:
+                st.button("🔎 Hent pris/NAV", key="paper_fund_fetch_price_v1864", use_container_width=True, on_click=_paper_fetch_fund_price_v1863z)
+            with h2:
+                buy_fund_clicked = st.button("🟢 PAPER-KJØP FOND/ETF", key="paper_fund_buy_v1864", type="primary", use_container_width=True)
+            _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
+
             if buy_fund_clicked:
                 price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
                 ok, msg = paper_buy_instrument(
@@ -9916,12 +9956,30 @@ def render_paper_trading_dashboard():
                     st.rerun()
                 else:
                     st.error(msg)
-        with bb:
+
+            if purchase_mode == "Månedlig spareplan":
+                save_fund_plan_clicked = st.button("💾 Lagre spareplan", key="paper_fund_save_plan_v1864", use_container_width=True)
+                if save_fund_plan_clicked:
+                    plan = {
+                        "symbol": fund_symbol,
+                        "asset_type": fund_asset_type,
+                        "monthly_amount": float(fund_amount or 0),
+                        "currency": fund_currency,
+                        "created_at": datetime.now().isoformat(timespec="seconds"),
+                        "status": "Simulert",
+                    }
+                    portfolio.setdefault("fund_savings_plans", []).append(plan)
+                    save_portfolio(portfolio)
+                    st.success("Spareplan lagret som simulering ✅")
+                    st.rerun()
+
+        with fund_sell_col:
+            st.markdown("#### 🔴 Selg fond / ETF")
             fund_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) in {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}}
-            sell_symbol = st.selectbox("Selg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v18545")
-            sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v18545")
-            sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v18545")
-            sell_fund_clicked = st.button("Paper-selg fond/ETF", key="paper_fund_sell_v1863z", use_container_width=False, disabled=(sell_symbol == "Ingen"))
+            sell_symbol = st.selectbox("Velg fond/ETF", list(fund_positions.keys()) or ["Ingen"], key="paper_fund_sell_symbol_v1864")
+            sell_price = st.number_input("Salgspris/NAV", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_fund_sell_price_v1864")
+            sell_amount = st.number_input("Salgsbeløp (0 = alt)", min_value=0, max_value=10_000_000, value=0, step=500, key="paper_fund_sell_amount_v1864")
+            sell_fund_clicked = st.button("🔴 PAPER-SELG FOND/ETF", key="paper_fund_sell_v1864", use_container_width=True, disabled=(sell_symbol == "Ingen"))
             if sell_fund_clicked:
                 price_to_use = float(sell_price or (fund_positions.get(sell_symbol, {}) or {}).get("last_price", 0.0) or 0.0)
                 ok, msg = paper_sell_instrument(
@@ -9938,25 +9996,9 @@ def render_paper_trading_dashboard():
                 else:
                     st.error(msg)
 
-        if purchase_mode == "Månedlig spareplan":
-            save_fund_plan_clicked = st.button("Lagre spareplan", key="paper_fund_save_plan_v1863z", use_container_width=False)
-            if save_fund_plan_clicked:
-                plan = {
-                    "symbol": fund_symbol,
-                    "asset_type": fund_asset_type,
-                    "monthly_amount": float(fund_amount or 0),
-                    "currency": fund_currency,
-                    "created_at": datetime.now().isoformat(timespec="seconds"),
-                    "status": "Simulert",
-                }
-                portfolio.setdefault("fund_savings_plans", []).append(plan)
-                save_portfolio(portfolio)
-                st.success("Spareplan lagret som simulering ✅")
-                st.rerun()
-
         plans = list(portfolio.get("fund_savings_plans") or [])
         if plans:
-            st.markdown("<div class='ptw-control-panel-title'>Simulerte spareplaner</div>", unsafe_allow_html=True)
+            st.markdown("#### Simulerte spareplaner")
             for plan in plans[-5:]:
                 st.markdown(
                     f"<div class='v18-dark-row'><b>{html.escape(str(plan.get('symbol','-')))}</b> · {html.escape(str(plan.get('asset_type','Fond')))} · {float(plan.get('monthly_amount') or 0):,.0f} {html.escape(str(plan.get('currency','NOK')))} / mnd · {html.escape(str(plan.get('status','Simulert')))}</div>",
