@@ -135,6 +135,131 @@ from security_metadata import resolve_security_metadata, display_label, fund_dis
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
 
+# v18.6.65: Global Compact UI. Reduserer overbrede input-/parameterbokser globalt.
+def _inject_global_compact_ui_v18665():
+    st.markdown("""
+    <style>
+    /* v18.6.65 GLOBAL COMPACT UI
+       Målet er å redusere svært brede tall-/parameterfelt i hele appen uten å endre motorlogikk. */
+    :root {
+        --compact-num-w: 170px;
+        --compact-text-w: 360px;
+        --compact-select-w: 420px;
+        --compact-slider-w: 520px;
+        --compact-btn-h: 34px;
+    }
+
+    /* Tallfelt: prosent, grenser, antall, dager, beløp osv. */
+    div[data-testid="stNumberInput"] {
+        max-width: var(--compact-num-w) !important;
+        min-width: 96px !important;
+    }
+    div[data-testid="stNumberInput"] input {
+        min-height: 34px !important;
+        height: 34px !important;
+        padding: 0.28rem 0.55rem !important;
+        text-align: center !important;
+        font-size: 0.92rem !important;
+    }
+    div[data-testid="stNumberInput"] button {
+        min-height: 34px !important;
+        height: 34px !important;
+        width: 30px !important;
+        padding: 0 !important;
+    }
+
+    /* Vanlige tekstfelt: ticker, ISIN, korte navn. Ikke textarea/logg. */
+    div[data-testid="stTextInput"] {
+        max-width: var(--compact-text-w) !important;
+    }
+    div[data-testid="stTextInput"] input {
+        min-height: 34px !important;
+        height: 34px !important;
+        padding: 0.28rem 0.62rem !important;
+        font-size: 0.92rem !important;
+    }
+
+    /* Selectbokser: behold mer plass enn tallfelt, men ikke full skjermbredde. */
+    div[data-testid="stSelectbox"] {
+        max-width: var(--compact-select-w) !important;
+    }
+    div[data-baseweb="select"] > div {
+        min-height: 34px !important;
+        height: 34px !important;
+        font-size: 0.92rem !important;
+    }
+
+    /* Slidere og radio/checkbox får mindre høyde og bedre avstand. */
+    div[data-testid="stSlider"] {
+        max-width: var(--compact-slider-w) !important;
+        padding-top: 0.1rem !important;
+        padding-bottom: 0.1rem !important;
+    }
+    div[data-testid="stCheckbox"] label,
+    div[data-testid="stRadio"] label {
+        min-height: 26px !important;
+        font-size: 0.90rem !important;
+    }
+
+    /* Knapper mer kompakte globalt, men fortsatt trykkbare på mobil. */
+    .stButton > button {
+        min-height: var(--compact-btn-h) !important;
+        padding: 0.36rem 0.72rem !important;
+        font-size: 0.90rem !important;
+        line-height: 1.1 !important;
+    }
+
+    /* Metrics/kort litt lavere. */
+    div[data-testid="stMetric"] {
+        padding: 0.55rem 0.70rem !important;
+        min-height: 58px !important;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.22rem !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        font-size: 0.78rem !important;
+    }
+
+    /* Expander og avsnitt mindre luft. */
+    div[data-testid="stExpander"] details > summary {
+        min-height: 34px !important;
+        padding-top: 0.28rem !important;
+        padding-bottom: 0.28rem !important;
+    }
+
+    /* Hjelpetekster/labels får mindre vertikal footprint. */
+    label, .stCaption, div[data-testid="stMarkdownContainer"] p {
+        line-height: 1.25 !important;
+    }
+
+    /* Unntak: DataFrames, tekstområder og brede rapport-/loggflater skal fortsatt være brede. */
+    div[data-testid="stDataFrame"],
+    div[data-testid="stTextArea"],
+    div[data-testid="stTextArea"] textarea {
+        max-width: none !important;
+    }
+
+    /* Mobil: bruk full bredde igjen slik at små felt ikke blir for trange. */
+    @media (max-width: 760px) {
+        div[data-testid="stNumberInput"],
+        div[data-testid="stTextInput"],
+        div[data-testid="stSelectbox"],
+        div[data-testid="stSlider"] {
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+        .stButton > button {
+            min-height: 40px !important;
+            font-size: 0.95rem !important;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+_inject_global_compact_ui_v18665()
+
+
 # v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
 def _inject_ui_data_trust_css_v18589():
     try:
