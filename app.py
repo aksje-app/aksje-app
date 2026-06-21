@@ -383,6 +383,70 @@ def _inject_information_density_ui_v18667():
 _inject_information_density_ui_v18667()
 
 
+# v18.6.69: Interaktiv Analyse Layout Rebuild CSS. Ekte layoutkonsolidering for analyse/toppstripe/grafkontroller.
+def _inject_interactive_analysis_rebuild_css_v18669():
+    st.markdown("""
+    <style>
+    /* v18.6.69 INTERAKTIV ANALYSE LAYOUT REBUILD
+       Målet er færre store bokser og tydeligere analysearbeidsflate. */
+    .ia-hero-row {
+        display:flex; flex-wrap:wrap; align-items:flex-start; gap:.45rem .70rem;
+        padding:.28rem 0 .35rem 0; margin:.10rem 0 .20rem 0;
+    }
+    .ia-hero-chip {
+        display:inline-flex; flex-direction:column; justify-content:center;
+        min-width:92px; max-width:185px; min-height:36px;
+        padding:.30rem .55rem; border:1px solid rgba(148,163,184,.28);
+        border-radius:12px; background:rgba(15,23,42,.58);
+    }
+    .ia-hero-chip .k { font-size:.62rem; opacity:.72; line-height:1; text-transform:uppercase; letter-spacing:.03em; }
+    .ia-hero-chip .v { font-size:.88rem; font-weight:900; line-height:1.05; margin-top:.12rem; color:#f8fafc; }
+    .ia-mini-toolbar {
+        display:flex; flex-wrap:wrap; align-items:end; gap:.45rem .60rem;
+        padding:.42rem .55rem; margin:.25rem 0 .42rem 0;
+        border:1px solid rgba(148,163,184,.20); border-radius:14px;
+        background:rgba(15,23,42,.30);
+    }
+    .ia-toolbar-note {
+        display:inline-flex; align-items:center; gap:.30rem;
+        padding:.18rem .46rem; border-radius:999px;
+        border:1px solid rgba(234,179,8,.45); color:#fde68a;
+        background:rgba(113,63,18,.16); font-size:.72rem; font-weight:850;
+        margin:.15rem 0 .2rem 0;
+    }
+    .ia-status-line {
+        display:flex; flex-wrap:wrap; gap:.35rem; align-items:center;
+        margin:.20rem 0 .30rem 0;
+    }
+    .ia-status-line span {
+        display:inline-flex; align-items:center; gap:.22rem; padding:.17rem .42rem;
+        border:1px solid rgba(148,163,184,.25); border-radius:999px;
+        background:rgba(15,23,42,.50); font-size:.72rem; font-weight:800;
+    }
+    .ia-controls-compact div[data-testid="stSelectbox"] { max-width: 210px !important; }
+    .ia-controls-compact div[data-testid="stMultiSelect"] { max-width: 100% !important; }
+    .ia-controls-compact div[data-testid="stTextInput"] { max-width: 230px !important; }
+    .ia-controls-compact .stButton > button { min-height: 30px !important; padding:.26rem .62rem !important; }
+    .ia-controls-compact div[data-testid="stVerticalBlock"] { gap:.18rem !important; }
+    .ia-controls-compact div[data-testid="stHorizontalBlock"] { gap:.38rem !important; }
+    .ia-controls-compact label { font-size:.72rem !important; line-height:1.05 !important; margin-bottom:.08rem !important; }
+    .ia-controls-compact div[data-baseweb="select"] > div,
+    .ia-controls-compact div[data-testid="stTextInput"] input { min-height:30px !important; height:30px !important; }
+    /* Ikke la grafkontroll-former lage svære adminbokser. */
+    .ia-controls-compact div[data-testid="stForm"] {
+        border:none !important; padding:0 !important; background:transparent !important;
+    }
+    @media (max-width: 760px) {
+        .ia-hero-chip { min-width:48%; max-width:100%; }
+        .ia-controls-compact div[data-testid="stSelectbox"],
+        .ia-controls-compact div[data-testid="stTextInput"] { max-width:100% !important; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+_inject_interactive_analysis_rebuild_css_v18669()
+
+
 # v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
 def _inject_ui_data_trust_css_v18589():
     try:
@@ -8063,19 +8127,19 @@ def render_analysis(results, label):
     else:
         df = item["hist"].copy()
 
-    if APP_VIEW_MODE == "Full":
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Score", f"{item['score']}/10")
-        m2.metric("P/E", item.get("forward_pe") or item.get("trailing_pe") or "N/A")
-        m3.metric("Revenue growth", f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A")
-        m4.metric("Max drawdown", f"{item['max_drawdown']*100:.1f}%")
-    else:
-        render_compact_stat_grid([
-            ("Score", f"{item['score']}/10"),
-            ("P/E", item.get("forward_pe") or item.get("trailing_pe") or "N/A"),
-            ("Revenue growth", f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A"),
-            ("Max drawdown", f"{item['max_drawdown']*100:.1f}%"),
-        ], columns=4)
+    # v18.6.69: nøkkeltall vises som kompakte badges, ikke fire store metrickort.
+    pe_value_v18669 = item.get("forward_pe") or item.get("trailing_pe") or "N/A"
+    growth_value_v18669 = f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A"
+    dd_value_v18669 = f"{item['max_drawdown']*100:.1f}%" if isinstance(item.get("max_drawdown"), (int,float)) else "N/A"
+    st.markdown(
+        "<div class='ia-hero-row'>"
+        f"<div class='ia-hero-chip'><span class='k'>Score</span><span class='v'>{_safe_html_value(item.get('score','N/A'))}/10</span></div>"
+        f"<div class='ia-hero-chip'><span class='k'>P/E</span><span class='v'>{_safe_html_value(pe_value_v18669)}</span></div>"
+        f"<div class='ia-hero-chip'><span class='k'>Revenue growth</span><span class='v'>{_safe_html_value(growth_value_v18669)}</span></div>"
+        f"<div class='ia-hero-chip'><span class='k'>Max drawdown</span><span class='v'>{_safe_html_value(dd_value_v18669)}</span></div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     st.markdown("#### 📈 Teknisk analyse")
 

@@ -1998,7 +1998,9 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="pro-section-title">Tidsvalg og graf</div>', unsafe_allow_html=True)
+    # v18.6.69: bygg grafkontroller som kompakt toolbar i stedet for store rader/form-container.
+    st.markdown("<div class='ia-controls-compact'>", unsafe_allow_html=True)
+    st.markdown("<div class='density-badge-row'><span class='density-badge'>📈 Grafkontroll</span><span class='density-badge'>Velg flere endringer og trykk Oppdater</span></div>", unsafe_allow_html=True)
 
     _all_indicators = ["MA", "EMA", "BOLL", "SAR", "VWAP", "KANAL", "VOL", "MACD", "KDJ", "RSI", "ATR", "OBV", "ADX", "MND%"]
     _tf_key = f"mobile_timeframe_{label}_{ticker}"
@@ -2038,127 +2040,103 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     _settings_for_auto = load_settings()
     _global_auto_update = bool(_settings_for_auto.get("chart_auto_update_enabled", False))
     _global_toggle_key = f"{_auto_key}_global_toggle"
+
+    # Temp keys gjør at kontroller kan stå på én toolbar uten stor st.form-container.
+    _tmp_tf_key = f"tmp_{_tf_key}_v18669"
+    _tmp_period_key = f"tmp_{_period_label_key}_v18669"
+    _tmp_chart_key = f"tmp_{_chart_type_key}_v18669"
+    _tmp_preset_key = f"tmp_indicator_preset_{label}_{ticker}_{timeframe}_v18669"
+    _tmp_ind_key = f"tmp_mobile_indicators_{label}_{ticker}_{timeframe}_v18669"
+    st.session_state.setdefault(_tmp_tf_key, st.session_state.get(_tf_key, "1d"))
+    st.session_state.setdefault(_tmp_period_key, st.session_state.get(_period_label_key, "Auto"))
+    st.session_state.setdefault(_tmp_chart_key, st.session_state.get(_chart_type_key, "Candles"))
+    st.session_state.setdefault(_tmp_preset_key, "Behold valgt")
+    st.session_state.setdefault(_tmp_ind_key, current_indicators)
+
+    top_cols = st.columns([0.72, 0.95, 0.82, 0.90, 2.20, 0.78])
+    with top_cols[0]:
+        new_timeframe = st.selectbox(
+            "Tid",
+            _timeframe_options,
+            index=_timeframe_options.index(st.session_state.get(_tmp_tf_key, st.session_state.get(_tf_key, "1d"))),
+            format_func=lambda x: TIMEFRAME_LABELS.get(x, x),
+            key=_tmp_tf_key,
+        )
+    with top_cols[1]:
+        new_period_label = st.selectbox(
+            "Historikk",
+            _period_labels,
+            index=_period_labels.index(st.session_state.get(_tmp_period_key, st.session_state.get(_period_label_key, "Auto"))),
+            key=_tmp_period_key,
+        )
+    with top_cols[2]:
+        new_chart_type = st.selectbox(
+            "Chart",
+            _chart_type_options,
+            index=_chart_type_options.index(st.session_state.get(_tmp_chart_key, st.session_state.get(_chart_type_key, "Candles"))),
+            key=_tmp_chart_key,
+        )
+    with top_cols[3]:
+        preset_choice = st.selectbox(
+            "Preset",
+            ["Behold valgt", "Standard", "Momentum", "Volatilitet", "Volum", "Full"],
+            index=["Behold valgt", "Standard", "Momentum", "Volatilitet", "Volum", "Full"].index(st.session_state.get(_tmp_preset_key, "Behold valgt")),
+            key=_tmp_preset_key,
+        )
+    with top_cols[4]:
+        default_indicators = _preset_values(preset_choice) if preset_choice != "Behold valgt" else st.session_state.get(_tmp_ind_key, current_indicators)
+        new_indicators = st.multiselect(
+            "Indikatorer",
+            _all_indicators,
+            default=[x for x in default_indicators if x in _all_indicators],
+            key=_tmp_ind_key,
+            help="Velg indikatorer. MND% = månedlig avkastning i prosent.",
+        )
+    with top_cols[5]:
+        st.markdown("<div style='height:1.15rem'></div>", unsafe_allow_html=True)
+        apply_chart_settings = st.button("Oppdater", key=f"apply_chart_toolbar_{label}_{ticker}_v18669", use_container_width=True)
+
     auto_update = st.checkbox(
-        "Auto-oppdater ved endringer",
+        "Auto",
         value=_global_auto_update,
         key=_global_toggle_key,
-        help="Av = du kan endre flere valg først, og grafen oppdateres først når du trykker Oppdater / bruk endringer.",
+        help="Auto = grafen oppdateres når du bruker kontroller. Av = trykk Oppdater.",
     )
     if bool(auto_update) != _global_auto_update:
         _settings_for_auto["chart_auto_update_enabled"] = bool(auto_update)
         save_settings(_settings_for_auto)
         st.rerun()
 
-    if auto_update:
-        c1, c2, c3 = st.columns([0.85, 1.05, 1.0])
-        with c1:
-            timeframe = st.selectbox(
-                "Tidsoppløsning",
-                _timeframe_options,
-                index=_timeframe_options.index(st.session_state.get(_tf_key, "1d")),
-                format_func=lambda x: TIMEFRAME_LABELS.get(x, x),
-                key=_tf_key,
-                help="Auto-modus: grafen oppdateres straks valget endres.",
-            )
-        with c2:
-            period_label = st.selectbox(
-                "Historikkperiode",
-                _period_labels,
-                index=_period_labels.index(st.session_state.get(_period_label_key, "Auto")),
-                key=_period_label_key,
-                help="Velg hvor langt tilbake analyse-grafene skal se. Intradag-data kan ha begrensninger hos dataleverandøren.",
-            )
-        with c3:
-            chart_type = st.selectbox(
-                "Chart-type",
-                _chart_type_options,
-                index=_chart_type_options.index(st.session_state.get(_chart_type_key, "Candles")),
-                key=_chart_type_key,
-            )
+    if auto_update or apply_chart_settings:
+        new_indicator_key = f"mobile_indicators_{label}_{ticker}_{new_timeframe}"
+        if preset_choice != "Behold valgt":
+            new_indicators = _preset_values(preset_choice)
+        st.session_state[_tf_key] = new_timeframe
+        st.session_state[_period_label_key] = new_period_label
+        st.session_state[_chart_type_key] = new_chart_type
+        st.session_state[new_indicator_key] = [x for x in new_indicators if x in _all_indicators]
+        st.session_state[f"chart_settings_applied_{label}_{ticker}"] = True
+        if apply_chart_settings:
+            st.rerun()
 
-        _indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
-        if _indicator_key not in st.session_state:
-            st.session_state[_indicator_key] = _preset_values("Standard")
-        pc1, pc2 = st.columns([0.95, 2.05])
-        with pc1:
-            preset_choice = st.selectbox(
-                "Indikator-preset",
-                ["Egendefinert", "Standard", "Momentum", "Volatilitet", "Volum", "Full"],
-                index=0,
-                key=f"indicator_preset_select_{label}_{ticker}_{timeframe}",
-            )
-            if preset_choice != "Egendefinert":
-                st.session_state[_indicator_key] = _preset_values(preset_choice)
-        with pc2:
-            indicators = st.multiselect(
-                "Indikatorer",
-                _all_indicators,
-                default=st.session_state.get(_indicator_key, _preset_values("Standard")),
-                key=_indicator_key,
-                help="Velg indikatorer. MND% = månedlig avkastning i prosent.",
-            )
-    else:
-        st.info("Kontrollert oppdatering er aktiv: gjør flere endringer, og trykk Oppdater / bruk endringer når du er klar.")
-        st.markdown("<span class='pro-dirty-status'>Endringer lagres først når du trykker Oppdater / bruk endringer</span>", unsafe_allow_html=True)
-        with st.form(_safe_key("chart_settings_form_v9", label, ticker), clear_on_submit=False):
-            c1, c2, c3 = st.columns([0.85, 1.05, 1.0])
-            with c1:
-                new_timeframe = st.selectbox(
-                    "Tidsoppløsning",
-                    _timeframe_options,
-                    index=_timeframe_options.index(st.session_state.get(_tf_key, "1d")),
-                    format_func=lambda x: TIMEFRAME_LABELS.get(x, x),
-                    help="Velg candle-størrelse. Endringen brukes først når du trykker knappen under.",
-                )
-            with c2:
-                new_period_label = st.selectbox(
-                    "Historikkperiode",
-                    _period_labels,
-                    index=_period_labels.index(st.session_state.get(_period_label_key, "Auto")),
-                    help="Kompakt rullegardin. Endringen brukes først når du trykker knappen under.",
-                )
-            with c3:
-                new_chart_type = st.selectbox(
-                    "Chart-type",
-                    _chart_type_options,
-                    index=_chart_type_options.index(st.session_state.get(_chart_type_key, "Candles")),
-                )
+    timeframe = st.session_state.get(_tf_key, "1d")
+    period_label = st.session_state.get(_period_label_key, "Auto")
+    chart_type = st.session_state.get(_chart_type_key, "Candles")
+    _indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
+    indicators = [x for x in st.session_state.get(_indicator_key, _preset_values("Standard")) if x in _all_indicators]
+    if not indicators:
+        indicators = _preset_values("Standard")
 
-            pc1, pc2 = st.columns([0.95, 2.05])
-            with pc1:
-                preset_choice = st.selectbox(
-                    "Indikator-preset",
-                    ["Behold valgt", "Standard", "Momentum", "Volatilitet", "Volum", "Full"],
-                    index=0,
-                    help="Velg preset og trykk Oppdater. Behold valgt lar listen til høyre styre.",
-                )
-            with pc2:
-                new_indicators = st.multiselect(
-                    "Indikatorer",
-                    _all_indicators,
-                    default=current_indicators,
-                    help="Velg flere indikatorer uten at grafen oppdateres for hvert klikk.",
-                )
-
-            submitted = st.form_submit_button("🔄 Oppdater / bruk endringer", use_container_width=False)
-            if submitted:
-                if preset_choice != "Behold valgt":
-                    new_indicators = _preset_values(preset_choice)
-                new_indicator_key = f"mobile_indicators_{label}_{ticker}_{new_timeframe}"
-                st.session_state[_tf_key] = new_timeframe
-                st.session_state[_period_label_key] = new_period_label
-                st.session_state[_chart_type_key] = new_chart_type
-                st.session_state[new_indicator_key] = [x for x in new_indicators if x in _all_indicators]
-                st.session_state[f"chart_settings_applied_{label}_{ticker}"] = True
-                st.rerun()
-
-        timeframe = st.session_state.get(_tf_key, "1d")
-        period_label = st.session_state.get(_period_label_key, "Auto")
-        chart_type = st.session_state.get(_chart_type_key, "Candles")
-        _indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
-        indicators = [x for x in st.session_state.get(_indicator_key, _preset_values("Standard")) if x in _all_indicators]
-        if not indicators:
-            indicators = _preset_values("Standard")
+    st.markdown(
+        "<div class='ia-status-line'>"
+        f"<span>Tid: {html.escape(TIMEFRAME_LABELS.get(timeframe, timeframe))}</span>"
+        f"<span>Historikk: {html.escape(str(period_label))}</span>"
+        f"<span>Chart: {html.escape(str(chart_type))}</span>"
+        f"<span>Indikatorer: {len(indicators)}</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if period_label not in _period_labels:
         period_label = "Auto"
