@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.66"
-APP_VERSION_NAME = "Professional UI Refactor"
+APP_VERSION = "v18.6.67"
+APP_VERSION_NAME = "State + Information Density + Chart Readability"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.67: State + Information Density + Chart Readability: refresh-state for Interaktiv analyse, færre store bokser/statusfelt og grafmodus Standard/Teknisk/Avansert. Ingen motorlogikk endret.",
     "v18.6.66: Professional UI Refactor: global tetthet for tallfelt, datofelt, selectbokser, KPI-kort, expandere og store containere. Ingen motorlogikk endret.",
     "v18.6.65: Global Compact UI: reduserer overbrede tallfelt, tekstfelt, selectbokser, slidere, knapper og metric-kort globalt uten å endre motorlogikk.",
     "v18.6.63: Navigation Repair: menyklikk rydder gammel Long Engine-state før nytt panel åpnes; Dashboard/Analyse/Top Picks/Long/AI/System skal ikke låses til Long. Long Engine-søk får progressbar.",

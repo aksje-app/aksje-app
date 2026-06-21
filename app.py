@@ -260,6 +260,111 @@ def _inject_global_compact_ui_v18665():
 _inject_global_compact_ui_v18665()
 
 
+# v18.6.67: Information Density Refactor + Chart Readability CSS.
+def _inject_information_density_ui_v18667():
+    st.markdown("""
+    <style>
+    /* v18.6.67 INFORMATION DENSITY REFACTOR
+       Gjor ikke motorendringer. Reduserer visuell vekt, padding og tomme bokser globalt. */
+    :root {
+        --density-card-pad-y: .42rem;
+        --density-card-pad-x: .58rem;
+        --density-border: rgba(148,163,184,.28);
+        --density-bg: rgba(15,23,42,.62);
+    }
+
+    /* Strammere hovedcontainer og vertikal avstand mellom elementer. */
+    div[data-testid="stVerticalBlock"] { gap: .42rem !important; }
+    div[data-testid="stHorizontalBlock"] { gap: .52rem !important; }
+    div[data-testid="stMarkdownContainer"] p { margin-bottom: .22rem !important; }
+    div[data-testid="stMarkdownContainer"] h1,
+    div[data-testid="stMarkdownContainer"] h2,
+    div[data-testid="stMarkdownContainer"] h3,
+    div[data-testid="stMarkdownContainer"] h4 { margin-top: .22rem !important; margin-bottom: .28rem !important; }
+    hr { margin: .42rem 0 !important; }
+
+    /* Streamlit alert/statusbokser skal ikke ta full adminpanel-hoyde. */
+    div[data-testid="stAlert"] { padding: .38rem .58rem !important; min-height: 0 !important; }
+    div[data-testid="stAlert"] p { margin: 0 !important; line-height: 1.22 !important; }
+
+    /* Expander-rader blir mer som kompakte seksjonslinjer. */
+    div[data-testid="stExpander"] details {
+        margin: .24rem 0 !important;
+        border-radius: 13px !important;
+    }
+    div[data-testid="stExpander"] details > summary {
+        min-height: 30px !important;
+        padding: .24rem .54rem !important;
+        font-size: .88rem !important;
+    }
+    div[data-testid="stExpander"] details > div {
+        padding: .40rem .55rem .48rem .55rem !important;
+    }
+
+    /* Metrics og kort: mindre boks, mer tallinformasjon per skjerm. */
+    div[data-testid="stMetric"] {
+        min-height: 44px !important;
+        padding: .35rem .48rem !important;
+        border-radius: 10px !important;
+    }
+    div[data-testid="stMetricValue"] { font-size: 1.02rem !important; line-height: 1.0 !important; }
+    div[data-testid="stMetricLabel"] { font-size: .68rem !important; line-height: 1.05 !important; }
+
+    /* Generelle data-/statuskort brukt rundt i appen. */
+    .compact-stat-grid { gap: .35rem !important; margin: .20rem 0 .35rem 0 !important; }
+    .compact-stat-card,
+    .info-mini-card,
+    .rsi-box,
+    .macd-explain-box,
+    .visual-truth-empty-state,
+    .visual-truth-pushover-box,
+    .data-trust-card {
+        padding: var(--density-card-pad-y) var(--density-card-pad-x) !important;
+        min-height: 0 !important;
+        border-radius: 11px !important;
+    }
+    .compact-stat-label, .info-mini-title { font-size: .66rem !important; opacity: .78 !important; }
+    .compact-stat-value, .info-mini-main { font-size: .98rem !important; line-height: 1.05 !important; }
+    .info-mini-sub, .info-mini-small { font-size: .72rem !important; line-height: 1.18 !important; }
+
+    /* Knapper: fullbredde knapper finnes fortsatt, men hoyden reduseres. */
+    .stButton > button {
+        min-height: 30px !important;
+        padding-top: .26rem !important;
+        padding-bottom: .26rem !important;
+    }
+
+    /* Tomme/store dashboardkort skal bli diskrete når innholdet er kort. */
+    .market-card, .kpi-card, .status-card, .signal-card {
+        padding: .45rem .62rem !important;
+        min-height: 46px !important;
+    }
+
+    /* v18.6.67 kompakte analysebadges. */
+    .density-badge-row { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; margin:.20rem 0 .42rem 0; }
+    .density-badge {
+        display:inline-flex; align-items:center; gap:.25rem;
+        padding:.20rem .46rem; border:1px solid var(--density-border);
+        border-radius:999px; background:var(--density-bg); font-size:.78rem; line-height:1.05;
+    }
+    .density-badge b { font-size:.82rem; }
+    .density-panel {
+        border:1px solid var(--density-border); border-radius:12px;
+        background:rgba(15,23,42,.45); padding:.45rem .60rem; margin:.22rem 0;
+    }
+    .density-panel-title { font-size:.72rem; opacity:.75; text-transform:uppercase; letter-spacing:.02em; margin-bottom:.18rem; }
+
+    @media (max-width: 760px) {
+        div[data-testid="stVerticalBlock"] { gap: .55rem !important; }
+        .density-badge { font-size:.82rem; padding:.28rem .50rem; }
+        div[data-testid="stMetric"] { min-height: 50px !important; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+_inject_information_density_ui_v18667()
+
+
 # v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
 def _inject_ui_data_trust_css_v18589():
     try:
@@ -6596,31 +6701,27 @@ def render_decision_explanation(decision):
 
 
 def render_rsi_box(rsi_value):
+    """v18.6.67: Kompakt RSI-badge i stedet for stor fullbredde RSI-boks."""
     try:
         rsi_float = float(rsi_value)
     except Exception:
         rsi_float = 50.0
 
     if rsi_float >= 80:
-        status = "Ekstremt overkjøpt"
-        cls = "rsi-status-bad"
+        status = "Ekstremt overkjøpt"; icon = "🔴"
     elif rsi_float >= 70:
-        status = "Overkjøpt"
-        cls = "rsi-status-bad"
+        status = "Overkjøpt"; icon = "🟠"
     elif rsi_float <= 30:
-        status = "Oversolgt"
-        cls = "rsi-status-good"
+        status = "Oversolgt"; icon = "🟢"
     else:
-        status = "Nøytral"
-        cls = "rsi-status-mid"
+        status = "Nøytral"; icon = "🟡"
 
     st.markdown(
         f"""
-        <div class="rsi-box">
-            <div class="rsi-title">📊 RSI-boks</div>
-            <div class="rsi-value">{rsi_float:.1f}</div>
-            <div class="{cls}">{status}</div>
-            <div class="small">30 = oversolgt · 70 = overkjøpt · 80 = ekstremt overkjøpt</div>
+        <div class="density-badge-row">
+            <span class="density-badge">📊 RSI <b>{rsi_float:.1f}</b></span>
+            <span class="density-badge">{icon} {status}</span>
+            <span class="density-badge">30 oversolgt · 70 overkjøpt · 80 ekstremt</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -7673,84 +7774,49 @@ def render_latest_insider_transactions(insider):
 
 
 def render_intelligence_cards(insider, analyst, earnings):
+    """v18.6.67: Kompakt Signal Intelligence i én badge-/panelrad."""
     insider = insider or {}
     analyst = analyst or {}
     earnings = earnings or {}
 
     insider_score = insider.get("score", "N/A")
     insider_label, insider_class = insider_signal_label(insider_score)
-
-    buy_shares = format_big_number(insider.get("buy_shares", 0))
-    sell_shares = format_big_number(insider.get("sell_shares", 0))
-    buy_count = insider.get("buy_count", 0)
-    sell_count = insider.get("sell_count", 0)
-    transactions = insider.get("transactions", 0)
-
     analyst_trend = analyst.get("trend", "N/A")
-    analyst_buy = analyst.get("buy", 0)
-    analyst_hold = analyst.get("hold", 0)
-    analyst_sell = analyst.get("sell", 0)
-
     earnings_date = earnings.get("date") or "Ingen nær dato"
     days_until = earnings.get("days_until", "N/A")
 
-    c1, c2, c3 = st.columns(3)
+    st.markdown(
+        f"""
+        <div class="density-badge-row">
+            <span class="density-badge">Insider <b>{_safe_html_value(insider_label)}</b> · score {_safe_html_value(insider_score)}</span>
+            <span class="density-badge">Analyst <b>{_safe_html_value(analyst_trend)}</b> · B/H/S {_safe_html_value(analyst.get('buy',0))}/{_safe_html_value(analyst.get('hold',0))}/{_safe_html_value(analyst.get('sell',0))}</span>
+            <span class="density-badge">Earnings <b>{_safe_html_value(earnings_date)}</b> · dager {_safe_html_value(days_until)}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with c1:
-        st.markdown(
-            f"""
-            <div class="info-mini-card">
-                <div class="info-mini-title">Insider</div>
-                <div class="info-mini-main {insider_class}">{insider_label}</div>
-                <div class="info-mini-sub">
-                    Score: <b>{insider_score}</b><br>
-                    Kjøp: <b>{buy_shares}</b> aksjer<br>
-                    Salg: <b>{sell_shares}</b> aksjer
-                </div>
-                <div class="info-mini-small">
-                    Transaksjoner: {transactions} · Kjøp: {buy_count} · Salg: {sell_count}<br>
-                    Siste: {insider.get("latest_type", "N/A")} {insider.get("latest_date", "")}<br>Tallene er summerte insider-transaksjoner i aksjer fra siste periode.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c2:
-        st.markdown(
-            f"""
-            <div class="info-mini-card">
-                <div class="info-mini-title">📈 Analyst</div>
-                <div class="info-mini-main">{analyst_trend}</div>
-                <div class="info-mini-sub">
-                    Buy: <b>{analyst_buy}</b><br>
-                    Hold: <b>{analyst_hold}</b><br>
-                    Sell: <b>{analyst_sell}</b>
-                </div>
-                <div class="info-mini-small">
-                    Analytikerbildet brukes som støtte, ikke som eneste beslutningsgrunnlag.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c3:
-        st.markdown(
-            f"""
-            <div class="info-mini-card">
-                <div class="info-mini-title">Earnings</div>
-                <div class="info-mini-main">{earnings_date}</div>
-                <div class="info-mini-sub">
-                    Dager igjen: <b>{days_until}</b>
-                </div>
-                <div class="info-mini-small">
-                    Nær rapportdato kan gi ekstra volatilitet og høyere risiko.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    with st.expander("Detaljer: insider / analyst / earnings", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f"""
+            <div class="density-panel"><div class="density-panel-title">Insider</div>
+            Kjøp: <b>{_safe_html_value(format_big_number(insider.get('buy_shares',0)))}</b> aksjer<br>
+            Salg: <b>{_safe_html_value(format_big_number(insider.get('sell_shares',0)))}</b> aksjer<br>
+            Transaksjoner: {_safe_html_value(insider.get('transactions',0))}</div>
+            """, unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""
+            <div class="density-panel"><div class="density-panel-title">Analyst</div>
+            Trend: <b>{_safe_html_value(analyst_trend)}</b><br>
+            Buy/Hold/Sell: {_safe_html_value(analyst.get('buy',0))}/{_safe_html_value(analyst.get('hold',0))}/{_safe_html_value(analyst.get('sell',0))}</div>
+            """, unsafe_allow_html=True)
+        with c3:
+            st.markdown(f"""
+            <div class="density-panel"><div class="density-panel-title">Earnings</div>
+            Dato: <b>{_safe_html_value(earnings_date)}</b><br>
+            Dager igjen: {_safe_html_value(days_until)}</div>
+            """, unsafe_allow_html=True)
 
 
 
@@ -7995,6 +8061,15 @@ def render_analysis(results, label):
 
     st.markdown("#### 📈 Teknisk analyse")
 
+    chart_readability_mode_v18667 = st.radio(
+        "Grafmodus",
+        ["Standard", "Teknisk", "Avansert"],
+        index=0,
+        horizontal=True,
+        key=f"chart_readability_mode_{label}_{selected}_v18667",
+        help="Standard viser færre indikatorer og tydelig trend. Teknisk legger til MACD/RSI. Avansert viser flere støtte-/motstands- og pattern-detaljer.",
+    )
+
     rsi = calculate_rsi(df)
     macd, macd_signal, macd_hist = calculate_macd(df)
     bb_ma, bb_upper, bb_lower = calculate_bollinger(df)
@@ -8083,67 +8158,59 @@ def render_analysis(results, label):
         for reason in decision["reasons"]:
             st.write("•", reason)
 
-    t1, t2, t3, t4 = st.columns(4)
-    t1.metric("RSI", f"{latest_rsi:.1f}")
-    t2.metric("Trend", trend)
-    t3.metric("MACD", "Bullish 🟢" if latest_macd > latest_macd_signal else "Bearish 🔴")
-    t4.metric("Breakout", breakout.get("signal", "N/A"))
-
-    render_rsi_box(latest_rsi)
-
-    st.markdown("#### 🔔 Signal alerts")
-    for title, desc, kind in alerts:
-        if kind == "bullish":
-            st.success(f"🟢 {title}: {desc}")
-        elif kind == "bearish":
-            st.error(f"🔴 {title}: {desc}")
-        else:
-            st.info(f"⚪ {title}: {desc}")
-
-    c1, c2, c3 = st.columns(3)
     chart_currency = currency_suffix(selected)
     def _level_with_currency_v1863ae(value):
         try:
             return f"{float(value):.2f} {chart_currency}"
         except Exception:
             return "N/A"
-    c1.metric("Motstand", _level_with_currency_v1863ae(breakout.get("resistance")))
-    c2.metric("Stotte", _level_with_currency_v1863ae(breakout.get("support")))
-    c3.metric("Volum boost", breakout.get("volume_boost", "N/A"))
 
-    st.markdown("#### 🧩 Pattern detection")
-    p1, p2 = st.columns(2)
-    with p1:
-        if hs.get("found"):
-            st.warning(f"{hs['label']} | confidence: {hs['confidence']}")
-        else:
-            st.info(hs.get("label", "Ingen pattern"))
-    with p2:
-        if inv_hs.get("found"):
-            st.success(f"{inv_hs['label']} | confidence: {inv_hs['confidence']}")
-        else:
-            st.info(inv_hs.get("label", "Ingen pattern"))
+    render_compact_stat_grid([
+        ("RSI", f"{latest_rsi:.1f}"),
+        ("Trend", trend),
+        ("MACD", "Bullish 🟢" if latest_macd > latest_macd_signal else "Bearish 🔴"),
+        ("Breakout", breakout.get("signal", "N/A")),
+        ("Motstand", _level_with_currency_v1863ae(breakout.get("resistance"))),
+        ("Støtte", _level_with_currency_v1863ae(breakout.get("support"))),
+        ("Volum boost", breakout.get("volume_boost", "N/A")),
+    ], columns=7)
+
+    render_rsi_box(latest_rsi)
+
+    alert_items_v18667 = []
+    for title, desc, kind in alerts:
+        icon = "🟢" if kind == "bullish" else ("🔴" if kind == "bearish" else "⚪")
+        alert_items_v18667.append(f"<span class='density-badge'>{icon} {_safe_html_value(title)}</span>")
+    if alert_items_v18667:
+        st.markdown("<div class='density-badge-row'>" + "".join(alert_items_v18667) + "</div>", unsafe_allow_html=True)
+
+    with st.expander("Pattern detection og signal-alerts", expanded=False):
+        for title, desc, kind in alerts:
+            st.write(f"• {title}: {desc}")
+        st.write("•", hs.get("label", "Ingen tydelig hode/skulder"))
+        st.write("•", inv_hs.get("label", "Ingen tydelig invertert hode/skulder"))
 
     fig_ta = go.Figure()
-    fig_ta.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Pris", mode="lines"))
-    fig_ta.add_trace(go.Scatter(x=df.index, y=bb_ma, name="BB midt", mode="lines", line=dict(dash="dot")))
-    fig_ta.add_trace(go.Scatter(x=df.index, y=bb_upper, name="BB øvre", mode="lines", line=dict(dash="dot")))
-    fig_ta.add_trace(go.Scatter(x=df.index, y=bb_lower, name="BB nedre", mode="lines", line=dict(dash="dot")))
+    fig_ta.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Pris", mode="lines", line=dict(width=2.4)))
+    fig_ta.add_trace(go.Scatter(x=df.index, y=bb_ma, name="Trend/MA", mode="lines", line=dict(width=1.5, dash="dot")))
+    if chart_readability_mode_v18667 in ("Teknisk", "Avansert"):
+        fig_ta.add_trace(go.Scatter(x=df.index, y=bb_upper, name="Kanal øvre", mode="lines", line=dict(dash="dot", width=1.0), opacity=0.55))
+        fig_ta.add_trace(go.Scatter(x=df.index, y=bb_lower, name="Kanal nedre", mode="lines", line=dict(dash="dot", width=1.0), opacity=0.55))
 
-    if breakout.get("support") != "N/A":
+    if chart_readability_mode_v18667 in ("Teknisk", "Avansert") and breakout.get("support") != "N/A":
         fig_ta.add_hline(y=breakout.get("support"), line_dash="dash", annotation_text="Støtte")
-    if breakout.get("resistance") != "N/A":
+    if chart_readability_mode_v18667 in ("Teknisk", "Avansert") and breakout.get("resistance") != "N/A":
         fig_ta.add_hline(y=breakout.get("resistance"), line_dash="dash", annotation_text="Motstand")
 
-    if hs.get("found"):
+    if chart_readability_mode_v18667 == "Avansert" and hs.get("found"):
         fig_ta = add_pattern_markers(fig_ta, hs, "Hode/skulder")
-    if inv_hs.get("found"):
+    if chart_readability_mode_v18667 == "Avansert" and inv_hs.get("found"):
         fig_ta = add_pattern_markers(fig_ta, inv_hs, "Invertert hode/skulder")
 
     fig_ta.update_layout(
-        title=f"{selected} - Bollinger, støtte/motstand, patterns og breakout",
+        title=f"{selected} - Prisgraf ({chart_readability_mode_v18667})",
         template="plotly_dark",
-        height=480,
+        height=420 if chart_readability_mode_v18667 == "Standard" else 470,
         paper_bgcolor="#0b111c",
         plot_bgcolor="#0b111c",
     )
@@ -8179,8 +8246,8 @@ def render_analysis(results, label):
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
         fig_ta.update_layout(
-            margin=dict(l=20, r=170, t=90, b=30),
-            legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
+            margin=dict(l=20, r=110 if chart_readability_mode_v18667 == "Standard" else 150, t=70, b=28),
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
             annotations=[
                 *fig_ta.layout.annotations,
                 dict(
@@ -8201,7 +8268,11 @@ def render_analysis(results, label):
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
     render_interactive_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
-    render_graph_explanation("ta")
+    if chart_readability_mode_v18667 in ("Teknisk", "Avansert"):
+        render_graph_explanation("ta")
+
+    if chart_readability_mode_v18667 == "Standard":
+        return
 
     fig_macd = go.Figure()
 
@@ -8321,7 +8392,8 @@ def render_analysis(results, label):
     )
     render_interactive_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
 
-    render_macd_explanation()
+    if chart_readability_mode_v18667 == "Avansert":
+        render_macd_explanation()
 
     fig_rsi = go.Figure()
     fig_rsi.add_trace(go.Scatter(x=df.index, y=rsi, name="RSI", mode="lines"))
@@ -8337,7 +8409,8 @@ def render_analysis(results, label):
         yaxis=dict(range=[0, 100]),
     )
     render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
-    render_graph_explanation("rsi")
+    if chart_readability_mode_v18667 == "Avansert":
+        render_graph_explanation("rsi")
 
     # v18.5.30 Legacy cleanup: standalone strategy testing and strategy
     # optimization were removed from per-ticker analysis cards. Use
@@ -10457,6 +10530,19 @@ def _apply_mobile_nav_query_v18646() -> None:
     nav = str(saved.get("nav") or "").strip().lower()
     if nav:
         _apply_nav_target_v18658(nav)
+        saved_panel = str(saved.get("panel") or "").strip()
+        saved_group = str(saved.get("group") or "").strip()
+        if saved_panel:
+            try:
+                if saved_group:
+                    st.session_state["ai_control_center_group_v1863m"] = saved_group
+                    st.session_state["ai_control_center_group_v1863aj"] = saved_group
+                st.session_state["ai_control_center_active_panel_v1863m"] = saved_panel
+                st.session_state["ai_control_center_active_real_panel_v18598"] = saved_panel
+                st.session_state["ai_control_center_active_panel_v1863aj"] = saved_panel
+                st.session_state["ai_control_center_menu_open_v1863ag"] = False
+            except Exception:
+                pass
         try:
             if "panel" in st.query_params:
                 del st.query_params["panel"]
@@ -10878,6 +10964,10 @@ def render_news_control_center_v18535(default_ticker: str = ""):
 
 def render_interactive_technical_control_center_v18535():
     """Manual single-ticker analysis panel for interactive/technical/trading-engine views."""
+    try:
+        _persist_ui_state_v18658(nav="analysis", panel="Interaktiv analyse", group="Analyse og prognose")
+    except Exception:
+        pass
     st.subheader("📊 Interaktiv / teknisk analyse")
     st.caption("Panelet henter ikke data før du trykker Kjør analyse. Teknisk analyse og Trading engine vises i samme aksjekort.")
     default_ticker = normalize_user_ticker(search or "")
@@ -20214,11 +20304,11 @@ html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
 
 
 
-# v18.6.66: Professional UI Refactor – final global density pass.
+# v18.6.67: Professional UI Refactor – final global density pass.
 def _inject_professional_ui_refactor_v18666():
     st.markdown("""
     <style>
-    /* v18.6.66 PROFESSIONAL UI REFACTOR
+    /* v18.6.67 PROFESSIONAL UI REFACTOR
        Global tetthet: mindre tallfelt, kompakte KPI-er, mindre ekspanderere og mindre tom luft.
        Ingen motorlogikk endres. */
     :root {
