@@ -115,7 +115,11 @@ def validate_buy_order(
     if not allow_existing and ticker in positions:
         return False, f"{ticker} eies allerede"
     if max_open_positions is not None and not allow_existing and len(positions) >= int(max_open_positions):
-        return False, "Maks åpne posisjoner nådd"
+        return False, (
+            f"Maks åpne posisjoner nådd: {len(positions)} av {int(max_open_positions)} brukt. "
+            "Dette er aktiv regel fra trading_settings akkurat nå. Hvis UI viser en annen grense, "
+            "er innstillingen ikke aktivert/lagret, eller en eldre regel brukes i runtime."
+        )
     if int(confidence or 0) < int(min_confidence or 0):
         return False, f"Confidence for lav ({int(confidence or 0)} < {int(min_confidence or 0)})"
     if max_buys_per_day is not None and count_buys_today(portfolio) >= int(max_buys_per_day):

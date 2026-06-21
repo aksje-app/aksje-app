@@ -354,10 +354,28 @@ def _inject_information_density_ui_v18667():
     }
     .density-panel-title { font-size:.72rem; opacity:.75; text-transform:uppercase; letter-spacing:.02em; margin-bottom:.18rem; }
 
+    /* v18.6.68 Paper Trading Layout Rebuild: compact badges and action cards. */
+    .paper-trade-summary-row, .paper-compact-info-row {
+        display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; margin:.22rem 0 .45rem 0;
+    }
+    .paper-pill, .paper-info-badge {
+        display:inline-flex; align-items:center; gap:.25rem;
+        padding:.22rem .52rem; border:1px solid rgba(148,163,184,.30);
+        border-radius:999px; background:rgba(15,23,42,.66);
+        font-size:.78rem; line-height:1.05; white-space:nowrap;
+    }
+    .paper-info-badge b, .paper-pill b { font-size:.82rem; }
+    .paper-work-card {
+        border:1px solid rgba(148,163,184,.25);
+        border-radius:14px; padding:.58rem .70rem;
+        background:rgba(15,23,42,.44);
+    }
+
     @media (max-width: 760px) {
         div[data-testid="stVerticalBlock"] { gap: .55rem !important; }
         .density-badge { font-size:.82rem; padding:.28rem .50rem; }
         div[data-testid="stMetric"] { min-height: 50px !important; }
+        .paper-pill, .paper-info-badge { font-size:.82rem; padding:.30rem .54rem; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -9995,107 +10013,139 @@ def render_paper_trading_dashboard():
     stock_tab, fund_tab = st.tabs(["📈 Aksjer", "💼 Fond / ETF"])
 
     with stock_tab:
+        # v18.6.68: Paper Trading Layout Rebuild.
+        # This section is intentionally rebuilt as compact action cards, not wide admin rows.
         st.session_state.setdefault("paper_stock_price_input_v1863y", 0.0)
         st.session_state.setdefault("paper_stock_confidence_v1863y", 0)
         st.session_state.setdefault("paper_stock_amount_input_v18615", 10000)
 
-        buy_col, sell_col = st.columns([1.05, 0.95], gap="large")
+        stock_symbol = str(st.session_state.get("paper_stock_symbol_v1863y", "") or "").strip().upper()
+        stock_price_current = float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0)
+        stock_amount_current = int(st.session_state.get("paper_stock_amount_input_v18615", 10000) or 0)
+        stock_confidence_current = int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0)
+        estimated_stock_shares_current = (float(stock_amount_current or 0) / float(stock_price_current or 0)) if float(stock_price_current or 0) > 0 else 0.0
+
+        st.markdown(
+            f"""
+            <div class="paper-trade-summary-row">
+                <span class="paper-pill">💵 Beløp <b>{float(stock_amount_current or 0):,.0f}</b></span>
+                <span class="paper-pill">💲 Kurs <b>{float(stock_price_current or 0):,.2f}</b></span>
+                <span class="paper-pill">📦 Antall <b>{estimated_stock_shares_current:,.4f}</b></span>
+                <span class="paper-pill">🎯 Confidence <b>{stock_confidence_current}%</b></span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        buy_col, sell_col = st.columns([1, 1], gap="large")
 
         with buy_col:
             st.markdown("### 🟢 Kjøp aksje")
-            st.caption("1) Skriv ticker  2) Hent kurs  3) Kontroller systemvurdering  4) Trykk PAPER-KJØP")
-            b1, b2 = st.columns([1.05, 0.95])
-            with b1:
-                stock_symbol = st.text_input(
-                    "Aksjesymbol",
-                    value=st.session_state.get("paper_stock_symbol_v1863y", ""),
-                    key="paper_stock_symbol_v1863y",
-                    on_change=_paper_stock_symbol_changed_v1863ac,
-                    placeholder="f.eks. MEDI, AAPL, SUBC.OL",
-                ).strip().upper()
-            with b2:
-                stock_price = st.number_input(
-                    "Kjøpspris",
-                    min_value=0.0,
-                    max_value=1_000_000.0,
-                    value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0),
-                    step=0.01,
-                    key="paper_stock_price_input_v1863y",
-                )
+            st.caption("Kompakt arbeidskort: ticker → kurs → beløp → kjøp.")
+            with st.container(border=True):
+                r1a, r1b, r1c = st.columns([1.55, 0.62, 0.72], gap="small")
+                with r1a:
+                    stock_symbol = st.text_input(
+                        "Aksjesymbol",
+                        value=st.session_state.get("paper_stock_symbol_v1863y", ""),
+                        key="paper_stock_symbol_v1863y",
+                        on_change=_paper_stock_symbol_changed_v1863ac,
+                        placeholder="MEDI, AAPL, SUBC.OL",
+                    ).strip().upper()
+                with r1b:
+                    stock_price = st.number_input(
+                        "Kjøpspris",
+                        min_value=0.0,
+                        max_value=1_000_000.0,
+                        value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0),
+                        step=0.01,
+                        key="paper_stock_price_input_v1863y",
+                    )
+                with r1c:
+                    stock_amount = st.number_input(
+                        "Beløp",
+                        min_value=0,
+                        max_value=10_000_000,
+                        value=int(st.session_state.get("paper_stock_amount_input_v18615", 10000) or 0),
+                        step=500,
+                        key="paper_stock_amount_input_v18615",
+                    )
 
-            b3, b4 = st.columns([0.95, 0.95])
-            with b3:
-                stock_amount = st.number_input(
-                    "Kjøpsbeløp",
-                    min_value=0,
-                    max_value=10_000_000,
-                    value=int(st.session_state.get("paper_stock_amount_input_v18615", 10000) or 0),
-                    step=500,
-                    key="paper_stock_amount_input_v18615",
-                )
-            with b4:
                 estimated_stock_shares = (float(stock_amount or 0) / float(stock_price or 0)) if float(stock_price or 0) > 0 else 0.0
-                st.metric("Beregnet antall", f"{estimated_stock_shares:,.4f}" if estimated_stock_shares else "0")
-
-            a1, a2 = st.columns([0.95, 1.05])
-            with a1:
-                stock_confidence = st.number_input(
-                    "System-confidence",
-                    min_value=0,
-                    max_value=100,
-                    value=int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0),
-                    step=1,
-                    key="paper_stock_confidence_v1863y",
-                    disabled=True,
-                    help="Fylles fra markedsmotoren når du henter kurs/analyse. Ikke en manuell kvalitetsscore.",
+                stock_confidence = int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0)
+                recommendation = "BUY / OK" if stock_confidence >= 70 else ("HOLD / WAIT" if stock_confidence >= 50 else "SVAK / VENT")
+                st.markdown(
+                    f"""
+                    <div class="paper-compact-info-row">
+                        <span class="paper-info-badge">📦 Antall: <b>{estimated_stock_shares:,.4f}</b></span>
+                        <span class="paper-info-badge">🎯 Confidence: <b>{stock_confidence}%</b></span>
+                        <span class="paper-info-badge">🧭 System: <b>{recommendation}</b></span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
-            with a2:
-                st.write("")
-                st.button("🔎 Hent aksjekurs", key="paper_stock_fetch_price_v1864", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
 
-            _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
+                a1, a2 = st.columns([0.95, 1.05], gap="small")
+                with a1:
+                    st.button("🔎 Hent kurs", key="paper_stock_fetch_price_v1868", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
+                with a2:
+                    buy_stock_clicked = st.button("🟢 PAPER-KJØP", key="paper_stock_buy_v1868", type="primary", use_container_width=True)
 
-            buy_stock_clicked = st.button("🟢 PAPER-KJØP AKSJE", key="paper_stock_buy_v1864", type="primary", use_container_width=True)
-            if buy_stock_clicked:
-                if not stock_symbol:
-                    st.error("Skriv inn aksjesymbol først.")
-                elif float(stock_amount or 0.0) <= 0:
-                    st.error("Skriv inn kjøpsbeløp først.")
-                elif float(stock_price or 0.0) <= 0:
-                    st.error("Skriv inn kjøpspris eller hent aksjekurs først.")
-                else:
-                    ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0))
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
+                _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
+
+                if buy_stock_clicked:
+                    if not stock_symbol:
+                        st.error("Skriv inn aksjesymbol først.")
+                    elif float(stock_amount or 0.0) <= 0:
+                        st.error("Skriv inn kjøpsbeløp først.")
+                    elif float(stock_price or 0.0) <= 0:
+                        st.error("Skriv inn kjøpspris eller hent aksjekurs først.")
                     else:
-                        st.error(msg)
+                        ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0))
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
 
         with sell_col:
             st.markdown("### 🔴 Selg aksje")
-            st.caption("Velg eksisterende aksje i porteføljen. Salgspris kan fylles manuelt eller hentes fra sist kjent pris.")
+            st.caption("Kompakt arbeidskort: velg posisjon → pris → selg.")
             stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
-            sell_stock_symbol = st.selectbox("Velg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1864")
-            sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1864")
-            if sell_stock_symbol != "Ingen":
-                pos = stock_positions.get(sell_stock_symbol, {}) or {}
-                st.info(
-                    f"Beholdning: {float(pos.get('units') or 0.0):,.4f} stk | "
-                    f"Snitt: {float(pos.get('avg_price') or 0.0):,.2f} | "
-                    f"Sist: {float(pos.get('last_price') or 0.0):,.2f}"
-                )
-            sell_stock_clicked = st.button("🔴 PAPER-SELG AKSJE", key="paper_stock_sell_v1864", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
-            if sell_stock_clicked:
-                price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
-                if price_to_use <= 0:
-                    st.error("Skriv inn salgspris først.")
+            with st.container(border=True):
+                s1a, s1b = st.columns([1.45, 0.58], gap="small")
+                with s1a:
+                    sell_stock_symbol = st.selectbox("Velg aksje", list(stock_positions.keys()) or ["Ingen"], key="paper_stock_sell_symbol_v1868")
+                with s1b:
+                    sell_stock_price = st.number_input("Salgspris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.01, key="paper_stock_sell_price_v1868")
+
+                if sell_stock_symbol != "Ingen":
+                    pos = stock_positions.get(sell_stock_symbol, {}) or {}
+                    st.markdown(
+                        f"""
+                        <div class="paper-compact-info-row">
+                            <span class="paper-info-badge">📊 Beholdning: <b>{float(pos.get('units') or pos.get('shares') or 0.0):,.4f}</b></span>
+                            <span class="paper-info-badge">Snitt: <b>{float(pos.get('avg_price') or pos.get('entry_price') or 0.0):,.2f}</b></span>
+                            <span class="paper-info-badge">Sist: <b>{float(pos.get('last_price') or 0.0):,.2f}</b></span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    ok, msg = paper_sell(sell_stock_symbol, price_to_use, "UI paper aksjesalg")
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
+                    st.markdown("<div class='paper-compact-info-row'><span class='paper-info-badge'>Ingen aksjeposisjon valgt</span></div>", unsafe_allow_html=True)
+
+                sell_stock_clicked = st.button("🔴 PAPER-SELG", key="paper_stock_sell_v1868", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
+                if sell_stock_clicked:
+                    price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
+                    if price_to_use <= 0:
+                        st.error("Skriv inn salgspris først.")
                     else:
-                        st.error(msg)
+                        ok, msg = paper_sell(sell_stock_symbol, price_to_use, "UI paper aksjesalg")
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
 
     with fund_tab:
         st.markdown("### 💼 Fond / ETF")

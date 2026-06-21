@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.67"
-APP_VERSION_NAME = "State + Information Density + Chart Readability"
+APP_VERSION = "v18.6.68"
+APP_VERSION_NAME = "Paper Trading Layout Rebuild"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.68: Paper Trading Layout Rebuild: aksjekjop og aksjesalg bygget om til kompakte arbeidskort; antall, confidence, systemvurdering og beholdning vises som badges; blokkering ved maks åpne posisjoner viser faktisk aktiv grense og opptelling.",
     "v18.6.67: State + Information Density + Chart Readability: refresh-state for Interaktiv analyse, færre store bokser/statusfelt og grafmodus Standard/Teknisk/Avansert. Ingen motorlogikk endret.",
     "v18.6.66: Professional UI Refactor: global tetthet for tallfelt, datofelt, selectbokser, KPI-kort, expandere og store containere. Ingen motorlogikk endret.",
     "v18.6.65: Global Compact UI: reduserer overbrede tallfelt, tekstfelt, selectbokser, slidere, knapper og metric-kort globalt uten å endre motorlogikk.",
