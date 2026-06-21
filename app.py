@@ -53,6 +53,7 @@ import html
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
+from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
 from governance_registry import get_changelog, get_protected_zones
 from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
@@ -18559,6 +18560,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 def control_center_extra_panels_v18535():
     return [
         ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
+        ("AI Discovery", render_ai_discovery_foundation_panel),
         ("Markedsklima", render_market_climate_panel),
         ("Marked", render_market_room_control_center_v1863cb),
         ("Top Picks", render_top_picks_control_center_v1863s),
