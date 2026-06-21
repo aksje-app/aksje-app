@@ -26,6 +26,13 @@ DB_PATH = DATA_DIR / "ai_discovery.db"
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 REPORT_DIR = DATA_DIR / "reports"
 
+
+try:
+    from ai_signal_discovery import render_signal_discovery_tab, build_signal_discovery_report
+except Exception:  # pragma: no cover
+    render_signal_discovery_tab = None  # type: ignore
+    build_signal_discovery_report = None  # type: ignore
+
 DEFAULT_SIGNALS: List[Dict[str, Any]] = [
     {
         "signal_id": "OWNERSHIP_ANALYST_MOMENTUM_V1",
@@ -368,9 +375,9 @@ def build_report() -> Dict[str, Any]:
             "hit_rate_pct": hit_rate,
         }
     report = {
-        "version": "v18.6.72",
+        "version": "v18.6.73",
         "created_at": _now_iso(),
-        "scope": "AI Discovery Foundation",
+        "scope": "AI Discovery Foundation + Signal Discovery",
         "learning_loop": "OFF",
         "signals": len(signals),
         "observations": len(observations),
@@ -471,8 +478,8 @@ def render_ai_discovery_foundation_panel() -> None:
     k3.metric("Resultater", len(results))
     k4.metric("Learning Loop", "OFF")
 
-    tab_library, tab_tracking, tab_results, tab_history, tab_reports = st.tabs(
-        ["Signal Library", "Signal Tracking", "Resultatdatabase", "Historikk", "Rapportering"]
+    tab_library, tab_tracking, tab_results, tab_history, tab_reports, tab_discovery = st.tabs(
+        ["Signal Library", "Signal Tracking", "Resultatdatabase", "Historikk", "Rapportering", "Signal Discovery"]
     )
 
     with tab_library:
@@ -596,3 +603,10 @@ def render_ai_discovery_foundation_panel() -> None:
         md = report_to_markdown(report)
         st.download_button("Last ned rapport Markdown", data=md, file_name="AI_DISCOVERY_FOUNDATION_REPORT.md", mime="text/markdown")
         st.download_button("Last ned rapport JSON", data=json.dumps(report, ensure_ascii=False, indent=2), file_name="AI_DISCOVERY_FOUNDATION_REPORT.json", mime="application/json")
+
+
+    with tab_discovery:
+        if render_signal_discovery_tab is None:
+            st.error("Signal Discovery-modulen kunne ikke lastes.")
+        else:
+            render_signal_discovery_tab()
