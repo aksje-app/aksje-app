@@ -1638,7 +1638,7 @@ def render_info_panel_v3(ticker, price, currency, decision, item, technical_cont
     st.caption("Dette er analyse og paper trading, ikke investeringsråd.")
 
 
-def render_mobile_analysis_view(item, ticker, label, decision=None, technical_context=None, chart_renderer=None):
+def render_mobile_analysis_view(item, ticker, label, decision=None, technical_context=None, chart_renderer=None, chart_mode=None):
     """
     Mobilvennlig analysevisning v2 chart.
     """
@@ -2019,6 +2019,17 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         "Full": _all_indicators,
     }
 
+    # v18.6.70: Grafmodus-knappene i Interaktiv analyse skal faktisk styre grafinnholdet.
+    # Standard = renere oversikt, Teknisk = flere tekniske signaler, Avansert = full indikatorpakke.
+    _chart_mode_map_v1870 = {
+        "Standard": ["MA", "VOL"],
+        "Teknisk": ["MA", "VOL", "MACD", "RSI"],
+        "Avansert": ["MA", "EMA", "BOLL", "KANAL", "VOL", "MACD", "RSI", "MND%"],
+    }
+    chart_mode = str(chart_mode or "").strip()
+    _chart_mode_indicators_v1870 = _chart_mode_map_v1870.get(chart_mode)
+
+
     def _preset_values(name):
         return list(_preset_map.get(name, _preset_map["Standard"]))
 
@@ -2031,7 +2042,11 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     timeframe = st.session_state.get(_tf_key, "1d")
     _indicator_key = f"mobile_indicators_{label}_{ticker}_{timeframe}"
-    if _indicator_key not in st.session_state:
+    _chart_mode_state_key_v1870 = f"mobile_chart_mode_bound_{label}_{ticker}_{timeframe}_v1870"
+    if _chart_mode_indicators_v1870 and st.session_state.get(_chart_mode_state_key_v1870) != chart_mode:
+        st.session_state[_indicator_key] = list(_chart_mode_indicators_v1870)
+        st.session_state[_chart_mode_state_key_v1870] = chart_mode
+    elif _indicator_key not in st.session_state:
         st.session_state[_indicator_key] = _preset_values("Standard")
     current_indicators = [x for x in st.session_state.get(_indicator_key, _preset_values("Standard")) if x in _all_indicators]
     if not current_indicators:
@@ -2050,7 +2065,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     st.session_state.setdefault(_tmp_tf_key, st.session_state.get(_tf_key, "1d"))
     st.session_state.setdefault(_tmp_period_key, st.session_state.get(_period_label_key, "Auto"))
     st.session_state.setdefault(_tmp_chart_key, st.session_state.get(_chart_type_key, "Candles"))
-    st.session_state.setdefault(_tmp_preset_key, "Behold valgt")
+    st.session_state.setdefault(_tmp_preset_key, chart_mode if chart_mode in ["Standard", "Teknisk", "Avansert"] else "Behold valgt")
     st.session_state.setdefault(_tmp_ind_key, current_indicators)
 
     top_cols = st.columns([0.72, 0.95, 0.82, 0.90, 2.20, 0.78])
@@ -2079,12 +2094,15 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
     with top_cols[3]:
         preset_choice = st.selectbox(
             "Preset",
-            ["Behold valgt", "Standard", "Momentum", "Volatilitet", "Volum", "Full"],
-            index=["Behold valgt", "Standard", "Momentum", "Volatilitet", "Volum", "Full"].index(st.session_state.get(_tmp_preset_key, "Behold valgt")),
+            ["Behold valgt", "Standard", "Teknisk", "Avansert", "Momentum", "Volatilitet", "Volum", "Full"],
+            index=["Behold valgt", "Standard", "Teknisk", "Avansert", "Momentum", "Volatilitet", "Volum", "Full"].index(st.session_state.get(_tmp_preset_key, "Behold valgt") if st.session_state.get(_tmp_preset_key, "Behold valgt") in ["Behold valgt", "Standard", "Teknisk", "Avansert", "Momentum", "Volatilitet", "Volum", "Full"] else "Behold valgt"),
             key=_tmp_preset_key,
         )
     with top_cols[4]:
-        default_indicators = _preset_values(preset_choice) if preset_choice != "Behold valgt" else st.session_state.get(_tmp_ind_key, current_indicators)
+        if preset_choice in _chart_mode_map_v1870:
+            default_indicators = list(_chart_mode_map_v1870[preset_choice])
+        else:
+            default_indicators = _preset_values(preset_choice) if preset_choice != "Behold valgt" else st.session_state.get(_tmp_ind_key, current_indicators)
         new_indicators = st.multiselect(
             "Indikatorer",
             _all_indicators,
@@ -2109,7 +2127,9 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
     if auto_update or apply_chart_settings:
         new_indicator_key = f"mobile_indicators_{label}_{ticker}_{new_timeframe}"
-        if preset_choice != "Behold valgt":
+        if preset_choice in _chart_mode_map_v1870:
+            new_indicators = list(_chart_mode_map_v1870[preset_choice])
+        elif preset_choice != "Behold valgt":
             new_indicators = _preset_values(preset_choice)
         st.session_state[_tf_key] = new_timeframe
         st.session_state[_period_label_key] = new_period_label
@@ -2132,6 +2152,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         f"<span>Tid: {html.escape(TIMEFRAME_LABELS.get(timeframe, timeframe))}</span>"
         f"<span>Historikk: {html.escape(str(period_label))}</span>"
         f"<span>Chart: {html.escape(str(chart_type))}</span>"
+        f"<span>Modus: {html.escape(chart_mode or 'Manuell')}</span>"
         f"<span>Indikatorer: {len(indicators)}</span>"
         "</div>",
         unsafe_allow_html=True,

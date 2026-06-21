@@ -115,10 +115,13 @@ def validate_buy_order(
     if not allow_existing and ticker in positions:
         return False, f"{ticker} eies allerede"
     if max_open_positions is not None and not allow_existing and len(positions) >= int(max_open_positions):
+        open_list = ", ".join(sorted(str(x) for x in list(positions.keys())[:12]))
+        more = " ..." if len(positions) > 12 else ""
         return False, (
-            f"Maks åpne posisjoner nådd: {len(positions)} av {int(max_open_positions)} brukt. "
-            "Dette er aktiv regel fra trading_settings akkurat nå. Hvis UI viser en annen grense, "
-            "er innstillingen ikke aktivert/lagret, eller en eldre regel brukes i runtime."
+            f"Totalgrense for åpne posisjoner er nådd: {len(positions)} av {int(max_open_positions)} brukt. "
+            f"Åpne tickere: {open_list}{more}. "
+            "Dette er aktiv trading_rules-grense i runtime. Hvis UI viser en annen grense, er auto-innstillingen lagret som ventende, "
+            "ikke aktivert i trading_rules, eller appen kjører med gammel runtime/cache."
         )
     if int(confidence or 0) < int(min_confidence or 0):
         return False, f"Confidence for lav ({int(confidence or 0)} < {int(min_confidence or 0)})"

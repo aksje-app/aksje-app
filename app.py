@@ -383,11 +383,11 @@ def _inject_information_density_ui_v18667():
 _inject_information_density_ui_v18667()
 
 
-# v18.6.69: Interaktiv Analyse Layout Rebuild CSS. Ekte layoutkonsolidering for analyse/toppstripe/grafkontroller.
+# v18.6.70: Interaktiv Analyse Layout Rebuild CSS. Ekte layoutkonsolidering for analyse/toppstripe/grafkontroller.
 def _inject_interactive_analysis_rebuild_css_v18669():
     st.markdown("""
     <style>
-    /* v18.6.69 INTERAKTIV ANALYSE LAYOUT REBUILD
+    /* v18.6.70 INTERAKTIV ANALYSE LAYOUT REBUILD
        Målet er færre store bokser og tydeligere analysearbeidsflate. */
     .ia-hero-row {
         display:flex; flex-wrap:wrap; align-items:flex-start; gap:.45rem .70rem;
@@ -8127,7 +8127,7 @@ def render_analysis(results, label):
     else:
         df = item["hist"].copy()
 
-    # v18.6.69: nøkkeltall vises som kompakte badges, ikke fire store metrickort.
+    # v18.6.70: nøkkeltall vises som kompakte badges, ikke fire store metrickort.
     pe_value_v18669 = item.get("forward_pe") or item.get("trailing_pe") or "N/A"
     growth_value_v18669 = f"{item['revenue_growth']*100:.1f}%" if isinstance(item.get("revenue_growth"), (int,float)) else "N/A"
     dd_value_v18669 = f"{item['max_drawdown']*100:.1f}%" if isinstance(item.get("max_drawdown"), (int,float)) else "N/A"
@@ -8207,6 +8207,7 @@ def render_analysis(results, label):
         decision=decision,
         technical_context=technical_context,
         chart_renderer=render_interactive_chart,
+        chart_mode=chart_readability_mode_v18667,
     )
 
     st.markdown("---")
@@ -8349,7 +8350,7 @@ def render_analysis(results, label):
         )
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    render_interactive_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}")
+    render_interactive_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}_{chart_readability_mode_v18667}")
     if chart_readability_mode_v18667 in ("Teknisk", "Avansert"):
         render_graph_explanation("ta")
 
@@ -8472,7 +8473,7 @@ def render_analysis(results, label):
             borderwidth=1,
         ),
     )
-    render_interactive_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}")
+    render_interactive_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}_{chart_readability_mode_v18667}")
 
     if chart_readability_mode_v18667 == "Avansert":
         render_macd_explanation()
@@ -8490,7 +8491,7 @@ def render_analysis(results, label):
         plot_bgcolor="#0b111c",
         yaxis=dict(range=[0, 100]),
     )
-    render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}")
+    render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}_{chart_readability_mode_v18667}")
     if chart_readability_mode_v18667 == "Avansert":
         render_graph_explanation("rsi")
 
@@ -8996,7 +8997,20 @@ def render_auto_trading_workspace():
                     5,
                     key="main_auto_cooldown_v155",
                 )
-                st.caption("Cooldown og maks kjøp gjelder bare nye kjøp. Salg/exit blokkeres ikke.")
+                try:
+                    _rules_for_cooldown = load_rules()
+                except Exception:
+                    _rules_for_cooldown = {}
+                _stop_loss_cooldown_days = st.number_input(
+                    "Re-entry etter stop-loss (dager)",
+                    0,
+                    30,
+                    int(_rules_for_cooldown.get("stop_loss_cooldown_days", _settings.get("stop_loss_cooldown_days", 5))),
+                    1,
+                    key="main_auto_stop_loss_cooldown_days_v1870",
+                    help="Blokkerer nytt kjøp i samme ticker etter salg på stop-loss. 0 = av.",
+                )
+                st.caption("Cooldown mellom kjøp gjelder nye kjøp generelt. Re-entry gjelder samme ticker etter stop-loss.")
             risk_col, safe_col = st.columns(2)
             with risk_col:
                 st.markdown("#### Kapasitet / risiko")
@@ -9064,6 +9078,7 @@ def render_auto_trading_workspace():
                 "max_buys_per_day": int(_max_buys),
                 "position_size_pct": float(_pos_size),
                 "cooldown_minutes": int(_cooldown),
+                "stop_loss_cooldown_days": int(_stop_loss_cooldown_days),
                 "scan_top_picks_only": bool(_top_only),
                 "pushover_enabled": bool(_push),
                 "auto_buy_safety_mode": bool(_safety_mode),
@@ -9072,6 +9087,11 @@ def render_auto_trading_workspace():
             try:
                 _r = load_rules()
                 _r["max_trades_per_day"] = int(_max_buys)
+                _r["max_open_positions"] = int(_max_pos)
+                _r["min_buy_confidence"] = int(_min_conf)
+                _r["min_buy_score"] = float(_min_score)
+                _r["position_size_pct"] = float(_pos_size)
+                _r["stop_loss_cooldown_days"] = int(_stop_loss_cooldown_days)
                 save_rules(_r)
             except Exception as e:
                 logging.warning("Silenced exception restored in v18.6.3: %s", e)
