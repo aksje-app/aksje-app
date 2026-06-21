@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.70"
-APP_VERSION_NAME = "Functional Fixes"
+APP_VERSION = "v18.6.71"
+APP_VERSION_NAME = "Paper Trading Architecture Rebuild"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.71: Paper Trading Architecture Rebuild: Paper Trading delt i fem arbeidsområder (Handel, Portefølje, Regler, Varsler, Hypoteser/Test); eksisterende funksjoner flyttet til riktige faner; blokkeringer viser mer konkret årsak uten motorlogikk-endring.",
     "v18.6.68: Paper Trading Layout Rebuild: aksjekjop og aksjesalg bygget om til kompakte arbeidskort; antall, confidence, systemvurdering og beholdning vises som badges; blokkering ved maks åpne posisjoner viser faktisk aktiv grense og opptelling.",
     "v18.6.70: Functional Fixes: Grafmodus Standard/Teknisk/Avansert styrer faktisk indikatorer/grafnøkler; Paper Trading får tydeligere blokkeringer, re-entry cooldown UI og aktiv lagring til trading_rules; Long Engine confidence/risiko beholdes kalibrert.",
     "v18.6.66: Professional UI Refactor: global tetthet for tallfelt, datofelt, selectbokser, KPI-kort, expandere og store containere. Ingen motorlogikk endret.",
