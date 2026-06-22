@@ -31,6 +31,45 @@ TAKE_PROFIT_PCT = 12.0
 TRAILING_STOP_PCT = 8.0
 MIN_BUY_CONFIDENCE = 60
 
+MANUAL_OVERRIDE_STATES = {"OFF", "REVIEW_ONLY", "FORCE_ALLOW", "FORCE_BLOCK"}
+
+
+def normalize_manual_override_state(value: Any = "OFF") -> str:
+    """Normalize paper-trading manual override state.
+
+    OFF never blocks. FORCE_BLOCK is the only manual state that blocks by itself.
+    FORCE_ALLOW may bypass soft paper rules, but hard checks like price, ticker,
+    cash and duplicate stock positions still protect the simulated portfolio.
+    """
+    raw = str(value or "OFF").strip().upper().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "": "OFF",
+        "NONE": "OFF",
+        "INGEN": "OFF",
+        "FALSE": "OFF",
+        "0": "OFF",
+        "TRUE": "REVIEW_ONLY",
+        "1": "REVIEW_ONLY",
+        "ALLOW": "FORCE_ALLOW",
+        "TILLAT": "FORCE_ALLOW",
+        "BLOCK": "FORCE_BLOCK",
+        "BLOKKER": "FORCE_BLOCK",
+        "REVIEW": "REVIEW_ONLY",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in MANUAL_OVERRIDE_STATES else "OFF"
+
+
+def _manual_override_note(state: str) -> str:
+    state = normalize_manual_override_state(state)
+    if state == "FORCE_BLOCK":
+        return "Manuell overstyring: FORCE_BLOCK - kjøp stoppet eksplisitt av bruker."
+    if state == "FORCE_ALLOW":
+        return "Manuell overstyring: FORCE_ALLOW - myke paper-regler kan overstyres, hardvalidering beholdes."
+    if state == "REVIEW_ONLY":
+        return "Manuell overstyring: REVIEW_ONLY - merkes for vurdering, blokkerer ikke alene."
+    return "Manuell overstyring: OFF - påvirker ikke kjøp."
+
 
 def build_trading_decision(item, technical_context=None):
     """
@@ -336,7 +375,7 @@ def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
 
 
 
-def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None):
+def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF"):
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
     max_trades_per_day = int(rules.get("max_trades_per_day", 3))
@@ -346,16 +385,27 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     before = build_paper_state_snapshot(portfolio, rules=rules)
     ticker = str(ticker).upper()
     trade_ctx = _merge_trade_context(ticker, trade_context)
+    manual_override_state = normalize_manual_override_state(manual_override)
     if not trade_ctx.get("rule_used"):
         trade_ctx["rule_used"] = "BUY signal"
     if not trade_ctx.get("measured_value"):
         trade_ctx["measured_value"] = f"confidence {int(confidence or 0)}"
+    trade_ctx["manual_override"] = manual_override_state
+    trade_ctx["manual_override_note"] = _manual_override_note(manual_override_state)
     trade_ctx["trade_explanation"] = _default_trade_explanation("BUY", reason, trade_ctx)
+    if manual_override_state in {"FORCE_ALLOW", "FORCE_BLOCK", "REVIEW_ONLY"}:
+        trade_ctx["trade_explanation"] = (str(trade_ctx.get("trade_explanation") or "") + " " + _manual_override_note(manual_override_state)).strip()
     reason = paper_reason_label(reason, "BUY") or "PAPER-KJØP"
+    if manual_override_state == "FORCE_BLOCK":
+        msg = "Manuell overstyring: FORCE_BLOCK - kjøp stoppet eksplisitt."
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "manual_force_block", "manual_override": manual_override_state, "message": msg}, level="WARNING")
+        return False, explain_blocked_action([msg], action="Kjøp")
     blocked, cooldown_msg = _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules)
-    if blocked:
-        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "message": cooldown_msg}, level="WARNING")
+    if blocked and manual_override_state != "FORCE_ALLOW":
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
         return False, explain_blocked_action([cooldown_msg], action="Kjøp")
+    if blocked and manual_override_state == "FORCE_ALLOW":
+        audit_state_transition("paper_buy_manual_override_bypass", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
     try:
         price = float(price)
     except Exception:
@@ -371,20 +421,21 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         amount = min(available_cash, max(0.0, requested_amount))
     else:
         amount = min(available_cash, total_value * position_size_pct / 100)
+    force_allow = manual_override_state == "FORCE_ALLOW"
     ok, msg = validate_buy_order(
         portfolio,
         ticker=ticker,
         price=price,
         amount=amount,
         confidence=int(confidence or 0),
-        min_confidence=min_buy_confidence,
+        min_confidence=0 if force_allow else min_buy_confidence,
         allow_existing=False,
-        max_open_positions=max_open_positions,
-        max_buys_per_day=max_trades_per_day,
+        max_open_positions=None if force_allow else max_open_positions,
+        max_buys_per_day=None if force_allow else max_trades_per_day,
         safety_mode=_settings_bool("auto_buy_safety_mode", True),
     )
     if not ok:
-        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "amount": round(float(amount or 0), 2), "reason": msg}, level="WARNING")
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "amount": round(float(amount or 0), 2), "reason": msg, "manual_override": manual_override_state}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
     shares = amount / price
     sl, tp, tr = calc_levels(price, price)
@@ -401,10 +452,12 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         "type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason,
         "order_kind":"paper", "asset_type": "Aksje",
+        "manual_override": manual_override_state,
+        "manual_override_note": _manual_override_note(manual_override_state),
         **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
     })
     after = build_paper_state_snapshot(portfolio, rules=rules)
-    audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason})
+    audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason, "manual_override": manual_override_state})
     notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
     return True, f"PAPER-KJØP {ticker} @ {price:.2f}"
 
@@ -562,6 +615,7 @@ def paper_buy_instrument(
     currency="NOK",
     nav_date="",
     purchase_mode="Engangskjøp",
+    manual_override="OFF",
 ):
     """Buy a paper-trading instrument by amount.
 
@@ -586,6 +640,11 @@ def paper_buy_instrument(
 
     portfolio = load_portfolio()
     before = build_paper_state_snapshot(portfolio)
+    manual_override_state = normalize_manual_override_state(manual_override)
+    if manual_override_state == "FORCE_BLOCK":
+        msg = "Manuell overstyring: FORCE_BLOCK - kjøp stoppet eksplisitt."
+        audit_state_transition("paper_instrument_buy_blocked", before, detail={"symbol": symbol, "reason": "manual_force_block", "manual_override": manual_override_state, "message": msg}, level="WARNING")
+        return False, explain_blocked_action([msg], action="Kjøp")
     ok, msg = validate_buy_order(
         portfolio,
         ticker=symbol,
@@ -597,7 +656,7 @@ def paper_buy_instrument(
         safety_mode=_settings_bool("auto_buy_safety_mode", True),
     )
     if not ok:
-        audit_state_transition("paper_instrument_buy_blocked", before, detail={"symbol": symbol, "amount": round(float(amount or 0), 2), "reason": msg}, level="WARNING")
+        audit_state_transition("paper_instrument_buy_blocked", before, detail={"symbol": symbol, "amount": round(float(amount or 0), 2), "reason": msg, "manual_override": manual_override_state}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
     cash = float(portfolio.get("cash", 0) or 0)
 
@@ -657,6 +716,8 @@ def paper_buy_instrument(
         "confidence": int(confidence or 0),
         "reason": reason,
         "asset_type": asset_type,
+        "manual_override": manual_override_state,
+        "manual_override_note": _manual_override_note(manual_override_state),
         "currency": currency,
         "nav_date": nav_date,
         "order_kind": "amount_buy",

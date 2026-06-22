@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.73"
-APP_VERSION_NAME = "Signal Discovery"
+APP_VERSION = "v18.6.74a"
+APP_VERSION_NAME = "Panel State + Manual Override Repair"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.74a: Panel State + Manual Override Repair: AI Discovery Foundation blir liggende under Andre paneler, aktivt hovedområde/panel synkes før toppstatus rendres, Signal Discovery lazy-loades uten circular import, og Paper Trading får eksplisitt manuell overstyring med OFF som ufarlig standard, FORCE_BLOCK som eneste manuelle blokkering, FORCE_ALLOW for myke regler og tydelige blokkårsaker.",
     "v18.6.73: Signal Discovery: passiv mining av kandidatsignaler fra AI Discovery-observasjoner/resultater, kandidat-tabell, rapport og promotering til Signal Library som OBSERVE. Learning Loop er fortsatt AV og ingen motorlogikk endres.",
     "v18.6.72: AI Discovery Foundation: Signal Library, Signal Tracking, Resultatdatabase, Historikk og Rapportering. Learning Loop er AV; ingen motorlogikk eller tradingbeslutninger endres.",
     "v18.6.71: Paper Trading Architecture Rebuild: Paper Trading delt i fem arbeidsområder (Handel, Portefølje, Regler, Varsler, Hypoteser/Test); eksisterende funksjoner flyttet til riktige faner; blokkeringer viser mer konkret årsak uten motorlogikk-endring.",

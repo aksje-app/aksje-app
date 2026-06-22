@@ -2398,13 +2398,40 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             if pending_group and pending_panel:
                 st.session_state[f"ai_control_center_panel_radio_v1863aj_{pending_group}"] = pending_panel
 
+        group_radio_key = "ai_control_center_group_radio_v1863aj"
         current_group = st.session_state.get("ai_control_center_group_v1863aj", "")
         if current_group and current_group not in group_map:
             current_group = ""
             st.session_state["ai_control_center_group_v1863aj"] = ""
             st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+
+        # v18.6.74a: Streamlit reruns after a radio click with the radio value
+        # already stored, but the previous implementation rendered the top chip
+        # before syncing that value into the active panel state. This caused
+        # stale messages like "Aktivt panel: Paper Trading og kontroll" while
+        # the user was actually inside Andre paneler -> AI Discovery.
+        preselected_group_option = st.session_state.get(group_radio_key)
+        preselected_group = group_by_option.get(preselected_group_option or "", "")
+        if preselected_group and preselected_group != current_group:
+            previous_active_label = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
+            direct_panels = [label for label in group_map.get(preselected_group, []) if label in panel_map]
+            st.session_state["ai_control_center_group_v1863aj"] = preselected_group
+            if previous_active_label in direct_panels:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = previous_active_label
+            elif len(direct_panels) == 1:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0]
+            elif preselected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = ai_candidate_primary_label
+            else:
+                st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+            current_group = preselected_group
+
+        active_for_group = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
+        if current_group and active_for_group and active_for_group not in [label for label in group_map.get(current_group, []) if label in panel_map]:
+            direct_panels = [label for label in group_map.get(current_group, []) if label in panel_map]
+            st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0] if len(direct_panels) == 1 else ""
+
         current_group_option = next((opt for opt, name in group_by_option.items() if name == current_group), None)
-        group_radio_key = "ai_control_center_group_radio_v1863aj"
         if st.session_state.get(group_radio_key) not in group_options:
             st.session_state.pop(group_radio_key, None)
 
@@ -2428,7 +2455,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                   <div class="ptw-control-caption">Velg hovedområde for å åpne relevant arbeidsflate.</div>
                   <div class="ptw-control-caption">AI Kandidattest er hovedarbeidsflaten; datakilder, eierimport og radarer ligger samlet under samme valg.</div>
                 </div>
-                <div class="ptw-control-active-chip">Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Lukket"))}</div>
+                <div class="ptw-control-active-chip">Aktivt hovedområde: {html.escape(str(st.session_state.get("ai_control_center_group_v1863aj") or "Lukket"))}<br>Aktivt panel: {html.escape(str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "Lukket"))}</div>
               </div>
             </div>
             """,
@@ -2537,8 +2564,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             if st.button("Lukk oppgave", key="ai_cc_home_v1863aj"):
                 _close_control_center_panel_v18611()
                 st.rerun()
+        active_group_label = st.session_state.get("ai_control_center_group_v1863aj") or next((g for g, labels in group_map.items() if active_label in labels), "")
         st.markdown(
-            f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_label))}</b>.</div>",
+            f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_group_label or '-'))}</b> → <b>{html.escape(str(active_label))}</b>.</div>",
             unsafe_allow_html=True,
         )
         _run_control_panel(active_label, renderer)

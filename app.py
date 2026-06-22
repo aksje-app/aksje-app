@@ -81,7 +81,7 @@ from universe_engine import resolve_universe_tickers
 from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar, get_nordic_ipo_calendar, get_rumored_ipo_watchlist
 from news import get_news, simple_finance_sentiment
-from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument, paper_liquidity_snapshot
+from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument, paper_liquidity_snapshot, normalize_manual_override_state
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 from strategy_test_pro import render_strategy_test_pro
 from signal_engine import calculate_signal_intelligence
@@ -9939,7 +9939,7 @@ def _render_manual_paper_nav_update_v18621(portfolio):
 
 
 
-def _render_paper_block_reason_v1871(message: str, portfolio: dict, rules: dict, ticker: str = "", confidence: int = 0, amount: float = 0.0) -> None:
+def _render_paper_block_reason_v1871(message: str, portfolio: dict, rules: dict, ticker: str = "", confidence: int = 0, amount: float = 0.0, manual_override: str = "") -> None:
     """Show concrete validation context for blocked manual paper trades without changing engine rules."""
     try:
         positions = portfolio.get("positions", {}) or {}
@@ -9953,6 +9953,8 @@ def _render_paper_block_reason_v1871(message: str, portfolio: dict, rules: dict,
 
     raw = str(message or "Ukjent blokkering")
     reasons = []
+    manual_state = normalize_manual_override_state(manual_override or st.session_state.get("paper_manual_override_state_v18674a", "OFF"))
+    reasons.append(f"Manuell overstyring: {manual_state} ({_paper_manual_override_status_text_v18674a(manual_state)[1]})")
     lower = raw.lower()
     if "confidence" in lower or "lav" in lower:
         reasons.append(f"Confidence: {int(confidence or 0)} mot min {min_conf}")
@@ -9989,9 +9991,138 @@ def _render_paper_rule_badges_v1871(rules: dict) -> None:
         unsafe_allow_html=True,
     )
 
+PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A = ["OFF", "REVIEW_ONLY", "FORCE_ALLOW", "FORCE_BLOCK"]
+
+
+def _paper_manual_override_state_v18674a() -> str:
+    try:
+        state = normalize_manual_override_state(st.session_state.get("paper_manual_override_state_v18674a", "OFF"))
+    except Exception:
+        state = "OFF"
+    if state not in PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A:
+        state = "OFF"
+    st.session_state["paper_manual_override_state_v18674a"] = state
+    return state
+
+
+def _paper_manual_override_status_text_v18674a(state: str) -> tuple[str, str]:
+    state = _paper_manual_override_state_v18674a() if not state else normalize_manual_override_state(state)
+    if state == "FORCE_BLOCK":
+        return "FORCE_BLOCK", "Blokkerer alle nye paper-kjøp eksplisitt. Dette er eneste manuelle modus som blokkerer alene."
+    if state == "FORCE_ALLOW":
+        return "FORCE_ALLOW", "Tillater paper-kjøp gjennom myke regler som min confidence, maks åpne posisjoner, dagsgrense og stop-loss cooldown. Hardvalidering beholdes."
+    if state == "REVIEW_ONLY":
+        return "REVIEW_ONLY", "Markerer kjøp for manuell vurdering, men blokkerer ikke alene. Vanlige regler gjelder fortsatt."
+    return "OFF", "Ingen manuell overstyring. Denne modusen påvirker ikke kjøp."
+
+
+def _render_paper_manual_override_control_v18674a() -> str:
+    current = _paper_manual_override_state_v18674a()
+    st.markdown("#### Manuell overstyring")
+    state = st.selectbox(
+        "Manuell overstyring",
+        PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A,
+        index=PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A.index(current),
+        key="paper_manual_override_state_v18674a",
+        help="Standard er OFF. OFF blokkerer aldri kjøp. Kun FORCE_BLOCK blokkerer manuelt.",
+    )
+    state = normalize_manual_override_state(state)
+    label, detail = _paper_manual_override_status_text_v18674a(state)
+    if state == "FORCE_BLOCK":
+        st.error(f"{label}: {detail}")
+    elif state == "FORCE_ALLOW":
+        st.warning(f"{label}: {detail}")
+    else:
+        st.success(f"{label}: {detail}")
+    st.caption("v18.6.74a: gammel checkbox 'Manuell overstyring ved advarsel' er fjernet slik at lagret UI-state ikke kan blokkere kjøp skjult.")
+    return state
+
+
+def _render_paper_manual_override_readonly_v18674a() -> str:
+    state = _paper_manual_override_state_v18674a()
+    label, detail = _paper_manual_override_status_text_v18674a(state)
+    css = "v18-dark-row"
+    st.markdown(
+        f"<div class='{css}'><b>Manuell overstyring:</b> {html.escape(label)}<br>"
+        f"<span style='color:#94a3b8'>{html.escape(detail)} Endres i fanen Regler → Manuell overstyring.</span></div>",
+        unsafe_allow_html=True,
+    )
+    return state
+
+
+def _paper_buy_decision_rows_v18674a(portfolio: dict, rules: dict, *, ticker: str = "", price: float = 0.0, amount: float = 0.0, confidence: int = 0, manual_override: str = "OFF") -> list[dict]:
+    rules = rules or {}
+    portfolio = portfolio or {}
+    manual_override = normalize_manual_override_state(manual_override)
+    positions = portfolio.get("positions", {}) or {}
+    ticker_clean = str(ticker or "").strip().upper()
+    cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
+    price_f = _safe_float_v18581(price, 0.0)
+    amount_f = _safe_float_v18581(amount, 0.0)
+    min_conf = int(rules.get("min_buy_confidence", 0) or 0)
+    max_open = int(rules.get("max_open_positions", 0) or 0)
+    max_trades = int(rules.get("max_trades_per_day", rules.get("max_buys_per_day", 0)) or 0)
+    try:
+        stats = performance_stats(portfolio, {}) or {}
+    except Exception:
+        stats = {}
+    buys_today = int(stats.get("buys_today", stats.get("trades_today", 0)) or 0)
+
+    def row(rule: str, status: str, detail: str) -> dict:
+        return {"Kontrollpunkt": rule, "Status": status, "Detalj": detail}
+
+    rows = []
+    if manual_override == "FORCE_BLOCK":
+        rows.append(row("Manuell overstyring", "BLOKKERT", "FORCE_BLOCK er aktiv og stopper kjøp eksplisitt."))
+    elif manual_override == "FORCE_ALLOW":
+        rows.append(row("Manuell overstyring", "FORCE_ALLOW", "Myke regler kan overstyres. Pris, ticker, cash og duplikatbeskyttelse beholdes."))
+    elif manual_override == "REVIEW_ONLY":
+        rows.append(row("Manuell overstyring", "REVIEW_ONLY", "Markerer for vurdering, men blokkerer ikke alene."))
+    else:
+        rows.append(row("Manuell overstyring", "OFF", "Påvirker ikke kjøp og blokkerer aldri alene."))
+
+    rows.append(row("Ticker", "OK" if ticker_clean else "MANGLER", ticker_clean or "Skriv inn ticker/symbol"))
+    rows.append(row("Pris", "OK" if price_f > 0 else "BLOKKERT", f"{price_f:,.2f}" if price_f > 0 else "Pris må være større enn 0"))
+    rows.append(row("Beløp", "OK" if amount_f > 0 else "BLOKKERT", f"{amount_f:,.0f}" if amount_f > 0 else "Beløp må være større enn 0"))
+    rows.append(row("Cash/kjøpekraft", "OK" if cash >= amount_f and amount_f > 0 else "BLOKKERT", f"Cash {cash:,.0f} mot kjøp {amount_f:,.0f}"))
+    duplicate = bool(ticker_clean and ticker_clean in positions)
+    rows.append(row("Eksisterende aksjeposisjon", "BLOKKERT" if duplicate else "OK", f"{ticker_clean} finnes allerede" if duplicate else "Ingen duplikat for aksjekjøp"))
+
+    soft_override = manual_override == "FORCE_ALLOW"
+    conf_ok = int(confidence or 0) >= min_conf
+    rows.append(row("Min confidence", "OVERSTYRT" if soft_override and not conf_ok else ("OK" if conf_ok else "BLOKKERT"), f"{int(confidence or 0)} mot min {min_conf}"))
+    max_open_ok = (not max_open) or len(positions) < max_open
+    rows.append(row("Maks åpne posisjoner", "OVERSTYRT" if soft_override and not max_open_ok else ("OK" if max_open_ok else "BLOKKERT"), f"{len(positions)} av {max_open or '-'} brukt"))
+    buys_ok = (not max_trades) or buys_today < max_trades
+    rows.append(row("Kjøp i dag", "OVERSTYRT" if soft_override and not buys_ok else ("OK" if buys_ok else "BLOKKERT"), f"{buys_today} av {max_trades or '-'}"))
+    rows.append(row("Stop-loss cooldown", "SJEKKES", "Sjekkes av paper-motoren ved trykk på kjøp. FORCE_ALLOW kan overstyre denne myke regelen." if soft_override else "Sjekkes av paper-motoren ved trykk på kjøp."))
+    return rows
+
+
+def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, ticker: str = "", price: float = 0.0, amount: float = 0.0, confidence: int = 0, manual_override: str = "OFF") -> None:
+    rows = _paper_buy_decision_rows_v18674a(portfolio, rules, ticker=ticker, price=price, amount=amount, confidence=confidence, manual_override=manual_override)
+    blocked = [r for r in rows if r.get("Status") == "BLOKKERT"]
+    hard_blocked = [r for r in blocked if r.get("Kontrollpunkt") not in {"Min confidence", "Maks åpne posisjoner", "Kjøp i dag", "Stop-loss cooldown"}]
+    soft_blocked = [r for r in blocked if r.get("Kontrollpunkt") in {"Min confidence", "Maks åpne posisjoner", "Kjøp i dag", "Stop-loss cooldown"}]
+    manual_override = normalize_manual_override_state(manual_override)
+    if manual_override == "FORCE_BLOCK":
+        summary = "Kjøp blokkert av manuell FORCE_BLOCK."
+    elif hard_blocked:
+        summary = "Kjøp er blokkert av hardvalidering."
+    elif soft_blocked and manual_override != "FORCE_ALLOW":
+        summary = "Kjøp vil bli stoppet av vanlige paper-regler."
+    elif soft_blocked and manual_override == "FORCE_ALLOW":
+        summary = "Kjøp kan tillates av FORCE_ALLOW, men hardvalidering beholdes."
+    else:
+        summary = "Kjøpsgrunnlaget ser klart ut ut fra synlige regler."
+    with st.expander(f"Blokkårsaker / kjøpskontroll – {summary}", expanded=False):
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
-    st.caption("v18.6.71: Paper Trading er delt i fem arbeidsområder: Handel, Portefølje, Regler, Varsler og Hypoteser/Test. Ingen ekte ordre sendes.")
+    st.caption("v18.6.74a: Paper Trading er delt i fem arbeidsområder. Manuell overstyring er flyttet til Regler, OFF blokkerer aldri, og blokkårsaker vises eksplisitt.")
+    st.session_state.pop("paper_manual_override_v1871", None)
+    _paper_manual_override_state_v18674a()
     try:
         paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
     except Exception:
@@ -10087,9 +10218,16 @@ def render_paper_trading_dashboard():
                         """,
                         unsafe_allow_html=True,
                     )
-                    manual_override = st.checkbox("Manuell overstyring ved advarsel", value=False, key="paper_manual_override_v1871")
-                    if manual_override:
-                        st.caption("Overstyring er synliggjort her. Motorreglene endres ikke i v18.6.71; blokkeringer logges og forklares tydelig.")
+                    manual_override = _render_paper_manual_override_readonly_v18674a()
+                    _render_paper_buy_decision_context_v18674a(
+                        portfolio,
+                        _paper_rules,
+                        ticker=stock_symbol,
+                        price=float(stock_price or 0.0),
+                        amount=float(stock_amount or 0.0),
+                        confidence=int(stock_confidence or 0),
+                        manual_override=manual_override,
+                    )
                     a1, a2 = st.columns([0.95, 1.05], gap="small")
                     with a1:
                         st.button("🔎 Hent kurs", key="paper_stock_fetch_price_v1871", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
@@ -10104,13 +10242,14 @@ def render_paper_trading_dashboard():
                         elif float(stock_price or 0.0) <= 0:
                             st.error("Skriv inn kjøpspris eller hent aksjekurs først.")
                         else:
-                            ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0))
+                            manual_override_state = _paper_manual_override_state_v18674a()
+                            ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0), manual_override=manual_override_state)
                             if ok:
                                 st.success(msg)
                                 st.rerun()
                             else:
                                 st.error(msg)
-                                _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, stock_symbol, stock_confidence, float(stock_amount or 0.0))
+                                _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, stock_symbol, stock_confidence, float(stock_amount or 0.0), manual_override_state)
             with sell_col:
                 st.markdown("### 🔴 Selg aksje")
                 stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
@@ -10177,13 +10316,14 @@ def render_paper_trading_dashboard():
                 _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
                 if buy_fund_clicked:
                     price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
-                    ok, msg = paper_buy_instrument(fund_symbol, price_to_use, float(fund_amount or 0), asset_type=fund_asset_type, confidence=75, reason=f"UI paper {fund_asset_type}: {purchase_mode}", currency=fund_currency, nav_date=datetime.now().date().isoformat(), purchase_mode=purchase_mode)
+                    manual_override_state = _paper_manual_override_state_v18674a()
+                    ok, msg = paper_buy_instrument(fund_symbol, price_to_use, float(fund_amount or 0), asset_type=fund_asset_type, confidence=75, reason=f"UI paper {fund_asset_type}: {purchase_mode}", currency=fund_currency, nav_date=datetime.now().date().isoformat(), purchase_mode=purchase_mode, manual_override=manual_override_state)
                     if ok:
                         st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
-                        _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, fund_symbol, 75, float(fund_amount or 0.0))
+                        _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, fund_symbol, 75, float(fund_amount or 0.0), _paper_manual_override_state_v18674a())
                 if purchase_mode == "Månedlig spareplan":
                     if st.button("💾 Lagre spareplan", key="paper_fund_save_plan_v1871", use_container_width=True):
                         plan = {"symbol": fund_symbol, "asset_type": fund_asset_type, "monthly_amount": float(fund_amount or 0), "currency": fund_currency, "created_at": datetime.now().isoformat(timespec="seconds"), "status": "Simulert"}
@@ -10260,7 +10400,8 @@ def render_paper_trading_dashboard():
     with rules_tab:
         st.markdown("### ⚙ Trading-regler")
         _render_paper_rule_badges_v1871(_paper_rules)
-        st.caption("Hold/cooldown-regler er synlige her. Endring av selve motorlogikken er ikke gjort i v18.6.71.")
+        st.caption("Hold/cooldown-regler er synlige her. v18.6.74a skiller hardvalidering, myke regler og manuell overstyring.")
+        _render_paper_manual_override_control_v18674a()
         _render_paper_trading_control_toolbar_v1864p()
         render_auto_trading_workspace()
         render_trading_rules_workspace()

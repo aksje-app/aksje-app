@@ -27,11 +27,13 @@ SNAPSHOT_DIR = DATA_DIR / "snapshots"
 REPORT_DIR = DATA_DIR / "reports"
 
 
-try:
-    from ai_signal_discovery import render_signal_discovery_tab, build_signal_discovery_report
-except Exception:  # pragma: no cover
-    render_signal_discovery_tab = None  # type: ignore
-    build_signal_discovery_report = None  # type: ignore
+def _load_signal_discovery_renderer_v18674a():
+    """Lazy-load Signal Discovery to avoid circular imports with this foundation module."""
+    try:
+        from ai_signal_discovery import render_signal_discovery_tab as _renderer  # type: ignore
+        return _renderer, None
+    except Exception as exc:  # pragma: no cover
+        return None, exc
 
 DEFAULT_SIGNALS: List[Dict[str, Any]] = [
     {
@@ -606,7 +608,10 @@ def render_ai_discovery_foundation_panel() -> None:
 
 
     with tab_discovery:
-        if render_signal_discovery_tab is None:
+        signal_discovery_renderer, signal_discovery_error = _load_signal_discovery_renderer_v18674a()
+        if signal_discovery_renderer is None:
             st.error("Signal Discovery-modulen kunne ikke lastes.")
+            if signal_discovery_error is not None:
+                st.caption(f"Importfeil: {signal_discovery_error}")
         else:
-            render_signal_discovery_tab()
+            signal_discovery_renderer()
