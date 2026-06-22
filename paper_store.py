@@ -12,7 +12,7 @@ except Exception:
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STORE_FILE = Path("paper_portfolio.json")  # legacy fallback only; new runtime storage uses StorageService.
 STORAGE_KEY = "paper_trading/portfolio.json"
-DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": [], "fund_savings_plans": []}
+DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": [], "fund_savings_plans": [], "review_queue": []}
 
 
 def _storage():
@@ -32,6 +32,7 @@ def _merge_portfolio(data):
         out.setdefault("positions", {})
         out.setdefault("trades", [])
         out.setdefault("fund_savings_plans", [])
+        out.setdefault("review_queue", [])
     return out
 
 
@@ -306,7 +307,20 @@ def load_portfolio():
             })
 
         conn.close()
-        portfolio = _merge_portfolio({"cash": cash, "positions": positions, "trades": trades})
+        persisted_extra = {}
+        storage = _storage()
+        if storage is not None:
+            try:
+                persisted_extra = storage.read_json(STORAGE_KEY, default={}) or {}
+            except Exception:
+                persisted_extra = {}
+        portfolio = _merge_portfolio({
+            "cash": cash,
+            "positions": positions,
+            "trades": trades,
+            "fund_savings_plans": (persisted_extra or {}).get("fund_savings_plans", []),
+            "review_queue": (persisted_extra or {}).get("review_queue", []),
+        })
         storage = _storage()
         if storage is not None:
             try:
@@ -429,7 +443,7 @@ def add_trade(portfolio, trade):
         save_portfolio(portfolio)
 
 def reset_portfolio(start_cash=100000.0):
-    p = {"cash": float(start_cash), "positions": {}, "trades": [], "fund_savings_plans": []}
+    p = {"cash": float(start_cash), "positions": {}, "trades": [], "fund_savings_plans": [], "review_queue": []}
     if using_postgres():
         init_db()
         conn = get_conn()
@@ -442,6 +456,12 @@ def reset_portfolio(start_cash=100000.0):
         )
         conn.commit()
         conn.close()
+        storage = _storage()
+        if storage is not None:
+            try:
+                storage.write_json(STORAGE_KEY, _merge_portfolio(p))
+            except Exception as e:
+                logging.warning("Silenced exception restored in v18.6.74c: %s", e)
     else:
         save_portfolio(p)
     return p

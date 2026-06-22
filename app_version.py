@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.74a"
-APP_VERSION_NAME = "Panel State + Manual Override Repair"
+APP_VERSION = "v18.6.74c"
+APP_VERSION_NAME = "Global State + Review Queue"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.74c: Global State + Review Queue: browser refresh/F5 gjenoppretter hovedområde, panel og intern fane via aa_nav/aa_group/aa_panel/aa_tab uten å slette remember_token. Paper Trading får review_queue under Hypoteser/Test; REVIEW_ONLY gjennomfører ikke kjøp, men lagrer kandidat som gult flagg med status ÅPEN/GODKJENT/AVVIST/KJØPT, notat, Avvis og Kjøp manuelt.",
     "v18.6.74a: Panel State + Manual Override Repair: AI Discovery Foundation blir liggende under Andre paneler, aktivt hovedområde/panel synkes før toppstatus rendres, Signal Discovery lazy-loades uten circular import, og Paper Trading får eksplisitt manuell overstyring med OFF som ufarlig standard, FORCE_BLOCK som eneste manuelle blokkering, FORCE_ALLOW for myke regler og tydelige blokkårsaker.",
     "v18.6.73: Signal Discovery: passiv mining av kandidatsignaler fra AI Discovery-observasjoner/resultater, kandidat-tabell, rapport og promotering til Signal Library som OBSERVE. Learning Loop er fortsatt AV og ingen motorlogikk endres.",
     "v18.6.72: AI Discovery Foundation: Signal Library, Signal Tracking, Resultatdatabase, Historikk og Rapportering. Learning Loop er AV; ingen motorlogikk eller tradingbeslutninger endres.",

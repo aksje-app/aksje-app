@@ -400,6 +400,10 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         msg = "Manuell overstyring: FORCE_BLOCK - kjøp stoppet eksplisitt."
         audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "manual_force_block", "manual_override": manual_override_state, "message": msg}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
+    if manual_override_state == "REVIEW_ONLY":
+        msg = "Manuell overstyring: REVIEW_ONLY - kjøp er ikke gjennomført. Aksjen skal legges i Gule flagg / Manuell vurdering."
+        audit_state_transition("paper_buy_review_only", before, detail={"ticker": ticker, "reason": "manual_review_only", "manual_override": manual_override_state, "message": msg}, level="INFO")
+        return False, msg
     blocked, cooldown_msg = _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules)
     if blocked and manual_override_state != "FORCE_ALLOW":
         audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
@@ -645,6 +649,10 @@ def paper_buy_instrument(
         msg = "Manuell overstyring: FORCE_BLOCK - kjøp stoppet eksplisitt."
         audit_state_transition("paper_instrument_buy_blocked", before, detail={"symbol": symbol, "reason": "manual_force_block", "manual_override": manual_override_state, "message": msg}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
+    if manual_override_state == "REVIEW_ONLY":
+        msg = "Manuell overstyring: REVIEW_ONLY - kjøp er ikke gjennomført. Instrumentet skal legges i Gule flagg / Manuell vurdering."
+        audit_state_transition("paper_instrument_buy_review_only", before, detail={"symbol": symbol, "reason": "manual_review_only", "manual_override": manual_override_state, "message": msg}, level="INFO")
+        return False, msg
     ok, msg = validate_buy_order(
         portfolio,
         ticker=symbol,

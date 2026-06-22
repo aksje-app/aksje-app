@@ -132,6 +132,7 @@ from paper_trading_valuation import (
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
+from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
@@ -10012,7 +10013,7 @@ def _paper_manual_override_status_text_v18674a(state: str) -> tuple[str, str]:
     if state == "FORCE_ALLOW":
         return "FORCE_ALLOW", "Tillater paper-kjøp gjennom myke regler som min confidence, maks åpne posisjoner, dagsgrense og stop-loss cooldown. Hardvalidering beholdes."
     if state == "REVIEW_ONLY":
-        return "REVIEW_ONLY", "Markerer kjøp for manuell vurdering, men blokkerer ikke alene. Vanlige regler gjelder fortsatt."
+        return "REVIEW_ONLY", "Legger aksjen/instrumentet i Gule flagg / Manuell vurdering. Ingen kjøp gjennomføres i denne modusen."
     return "OFF", "Ingen manuell overstyring. Denne modusen påvirker ikke kjøp."
 
 
@@ -10034,7 +10035,7 @@ def _render_paper_manual_override_control_v18674a() -> str:
         st.warning(f"{label}: {detail}")
     else:
         st.success(f"{label}: {detail}")
-    st.caption("v18.6.74a: gammel checkbox 'Manuell overstyring ved advarsel' er fjernet slik at lagret UI-state ikke kan blokkere kjøp skjult.")
+    st.caption("v18.6.74c: REVIEW_ONLY lagrer kandidat i review_queue under Hypoteser/Test. OFF påvirker ikke kjøp; FORCE_BLOCK er eneste manuelle blokkering.")
     return state
 
 
@@ -10049,6 +10050,203 @@ def _render_paper_manual_override_readonly_v18674a() -> str:
     )
     return state
 
+
+
+
+PAPER_REVIEW_STATUSES_V18674C = ["ÅPEN", "GODKJENT", "AVVIST", "KJØPT"]
+PAPER_REVIEW_STATUS_ALIASES_V18674C = {
+    "OPEN": "ÅPEN",
+    "APEN": "ÅPEN",
+    "ÅPEN": "ÅPEN",
+    "GODKJENT": "GODKJENT",
+    "APPROVED": "GODKJENT",
+    "AVVIST": "AVVIST",
+    "REJECTED": "AVVIST",
+    "KJØPT": "KJØPT",
+    "KJOPT": "KJØPT",
+    "BOUGHT": "KJØPT",
+}
+
+
+def _paper_review_status_v18674c(status: str = "ÅPEN") -> str:
+    raw = str(status or "ÅPEN").strip().upper().replace(" ", "_").replace("-", "_")
+    return PAPER_REVIEW_STATUS_ALIASES_V18674C.get(raw, "ÅPEN")
+
+
+def _paper_review_queue_v18674c(portfolio: dict | None = None) -> list[dict]:
+    portfolio = portfolio or load_portfolio()
+    queue = portfolio.setdefault("review_queue", [])
+    if not isinstance(queue, list):
+        queue = []
+        portfolio["review_queue"] = queue
+    normalized = []
+    for item in queue:
+        if isinstance(item, dict):
+            row = dict(item)
+            row["status"] = _paper_review_status_v18674c(row.get("status", "ÅPEN"))
+            normalized.append(row)
+    portfolio["review_queue"] = normalized
+    return normalized
+
+
+def _paper_review_item_id_v18674c(symbol: str) -> str:
+    clean = str(symbol or "ITEM").strip().upper().replace("/", "_").replace(" ", "_")[:24]
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return f"REV_{stamp}_{clean}"
+
+
+def _paper_add_review_candidate_v18674c(
+    *,
+    symbol: str,
+    price: float,
+    amount: float,
+    confidence: int = 0,
+    asset_type: str = "Aksje",
+    market: str = "",
+    currency: str = "",
+    source: str = "Paper Trading",
+    reason: str = "REVIEW_ONLY",
+    note: str = "",
+    extra: dict | None = None,
+) -> tuple[bool, str]:
+    symbol = str(symbol or "").strip().upper()
+    if not symbol:
+        return False, "Mangler ticker/symbol – kan ikke legge til vurdering."
+    try:
+        price_f = float(price or 0.0)
+    except Exception:
+        price_f = 0.0
+    try:
+        amount_f = float(amount or 0.0)
+    except Exception:
+        amount_f = 0.0
+    if price_f <= 0:
+        return False, "Pris/NAV må være større enn 0 før kandidaten kan legges i vurdering."
+    if amount_f <= 0:
+        return False, "Beløp må være større enn 0 før kandidaten kan legges i vurdering."
+    portfolio = load_portfolio()
+    queue = _paper_review_queue_v18674c(portfolio)
+    item = {
+        "id": _paper_review_item_id_v18674c(symbol),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "symbol": symbol,
+        "ticker": symbol,
+        "asset_type": str(asset_type or "Aksje"),
+        "market": str(market or ""),
+        "currency": str(currency or ""),
+        "price": round(price_f, 6),
+        "amount": round(amount_f, 2),
+        "confidence": int(confidence or 0),
+        "source": str(source or "Paper Trading"),
+        "reason": str(reason or "REVIEW_ONLY"),
+        "status": "ÅPEN",
+        "note": str(note or ""),
+        "extra": dict(extra or {}),
+    }
+    queue.insert(0, item)
+    portfolio["review_queue"] = queue[:500]
+    save_portfolio(portfolio)
+    return True, f"{symbol} er lagt i Gule flagg / Manuell vurdering. Ingen kjøp er gjennomført."
+
+
+def _paper_update_review_item_v18674c(review_id: str, **updates) -> tuple[bool, str]:
+    portfolio = load_portfolio()
+    queue = _paper_review_queue_v18674c(portfolio)
+    review_id = str(review_id or "")
+    for item in queue:
+        if str(item.get("id") or "") == review_id:
+            if "status" in updates:
+                updates["status"] = _paper_review_status_v18674c(updates.get("status"))
+            item.update(updates)
+            item["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            portfolio["review_queue"] = queue
+            save_portfolio(portfolio)
+            return True, "Vurdering oppdatert."
+    return False, "Fant ikke valgt vurdering."
+
+
+def _paper_review_display_rows_v18674c(queue: list[dict]) -> list[dict]:
+    rows = []
+    for item in queue:
+        rows.append({
+            "Status": _paper_review_status_v18674c(item.get("status")),
+            "Ticker": item.get("symbol") or item.get("ticker"),
+            "Type": item.get("asset_type", "Aksje"),
+            "Marked": item.get("market", ""),
+            "Pris/NAV": item.get("price", 0),
+            "Beløp": item.get("amount", 0),
+            "Confidence": item.get("confidence", 0),
+            "Årsak": item.get("reason", ""),
+            "Notat": item.get("note", ""),
+            "Opprettet": item.get("created_at", ""),
+            "Oppdatert": item.get("updated_at", ""),
+        })
+    return rows
+
+
+def _render_paper_review_queue_v18674c(portfolio: dict, rules: dict) -> None:
+    st.markdown("#### 🟡 Gule flagg / Manuell vurdering")
+    st.caption("REVIEW_ONLY kjøper ikke. Kandidaten lagres her med status ÅPEN, GODKJENT, AVVIST eller KJØPT.")
+    queue = _paper_review_queue_v18674c(portfolio)
+    if not queue:
+        st.info("Ingen aksjer/instrumenter til manuell vurdering ennå.")
+        return
+
+    status_filter = st.multiselect(
+        "Vis status",
+        PAPER_REVIEW_STATUSES_V18674C,
+        default=["ÅPEN", "GODKJENT"],
+        key="paper_review_status_filter_v18674c",
+    )
+    visible = [item for item in queue if _paper_review_status_v18674c(item.get("status")) in set(status_filter or PAPER_REVIEW_STATUSES_V18674C)]
+    st.dataframe(pd.DataFrame(_paper_review_display_rows_v18674c(visible)), use_container_width=True, hide_index=True)
+
+    for item in visible[:25]:
+        review_id = str(item.get("id") or "")
+        symbol = str(item.get("symbol") or item.get("ticker") or "-")
+        status = _paper_review_status_v18674c(item.get("status"))
+        title = f"{status} · {symbol} · {item.get('asset_type', 'Aksje')} · confidence {int(item.get('confidence') or 0)}"
+        with st.expander(title, expanded=(status == "ÅPEN")):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Pris/NAV", f"{float(item.get('price') or 0):,.2f}")
+            c2.metric("Beløp", f"{float(item.get('amount') or 0):,.0f}")
+            c3.metric("Confidence", f"{int(item.get('confidence') or 0)}%")
+            c4.metric("Status", status)
+            note_key = f"paper_review_note_v18674c_{review_id}"
+            note_val = st.text_area("Notat", value=str(item.get("note") or ""), key=note_key, height=74)
+            b1, b2, b3, b4 = st.columns(4)
+            with b1:
+                if st.button("💾 Lagre notat", key=f"paper_review_save_note_v18674c_{review_id}", use_container_width=True):
+                    ok, msg = _paper_update_review_item_v18674c(review_id, note=note_val)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
+            with b2:
+                if st.button("✅ Godkjenn", key=f"paper_review_approve_v18674c_{review_id}", use_container_width=True, disabled=(status == "KJØPT")):
+                    ok, msg = _paper_update_review_item_v18674c(review_id, status="GODKJENT", note=note_val)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
+            with b3:
+                if st.button("🟢 Kjøp manuelt", key=f"paper_review_buy_v18674c_{review_id}", use_container_width=True, disabled=(status == "KJØPT")):
+                    asset_type = str(item.get("asset_type") or "Aksje")
+                    price = float(item.get("price") or 0.0)
+                    amount = float(item.get("amount") or 0.0)
+                    confidence = int(item.get("confidence") or 0)
+                    if asset_type == "Aksje":
+                        ok, msg = paper_buy(symbol, price, confidence, "Review queue manuell vurdering", amount_override=amount, manual_override="FORCE_ALLOW")
+                    else:
+                        ok, msg = paper_buy_instrument(symbol, price, amount, asset_type=asset_type, confidence=confidence, reason="Review queue manuell vurdering", currency=str(item.get("currency") or ""), manual_override="FORCE_ALLOW")
+                    if ok:
+                        _paper_update_review_item_v18674c(review_id, status="KJØPT", note=note_val, bought_at=datetime.now().isoformat(timespec="seconds"), buy_message=msg)
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            with b4:
+                if st.button("⛔ Avvis", key=f"paper_review_reject_v18674c_{review_id}", use_container_width=True, disabled=(status == "KJØPT")):
+                    ok, msg = _paper_update_review_item_v18674c(review_id, status="AVVIST", note=note_val)
+                    st.warning(msg) if ok else st.error(msg)
+                    st.rerun()
 
 def _paper_buy_decision_rows_v18674a(portfolio: dict, rules: dict, *, ticker: str = "", price: float = 0.0, amount: float = 0.0, confidence: int = 0, manual_override: str = "OFF") -> list[dict]:
     rules = rules or {}
@@ -10077,7 +10275,7 @@ def _paper_buy_decision_rows_v18674a(portfolio: dict, rules: dict, *, ticker: st
     elif manual_override == "FORCE_ALLOW":
         rows.append(row("Manuell overstyring", "FORCE_ALLOW", "Myke regler kan overstyres. Pris, ticker, cash og duplikatbeskyttelse beholdes."))
     elif manual_override == "REVIEW_ONLY":
-        rows.append(row("Manuell overstyring", "REVIEW_ONLY", "Markerer for vurdering, men blokkerer ikke alene."))
+        rows.append(row("Manuell overstyring", "REVIEW_ONLY", "Kjøp gjennomføres ikke. Kandidaten legges i Gule flagg / Manuell vurdering."))
     else:
         rows.append(row("Manuell overstyring", "OFF", "Påvirker ikke kjøp og blokkerer aldri alene."))
 
@@ -10107,6 +10305,8 @@ def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, 
     manual_override = normalize_manual_override_state(manual_override)
     if manual_override == "FORCE_BLOCK":
         summary = "Kjøp blokkert av manuell FORCE_BLOCK."
+    elif manual_override == "REVIEW_ONLY":
+        summary = "REVIEW_ONLY: Legg til vurdering, ikke kjøp."
     elif hard_blocked:
         summary = "Kjøp er blokkert av hardvalidering."
     elif soft_blocked and manual_override != "FORCE_ALLOW":
@@ -10118,9 +10318,43 @@ def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, 
     with st.expander(f"Blokkårsaker / kjøpskontroll – {summary}", expanded=False):
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
+
+
+PAPER_TRADING_TAB_OPTIONS_V18674C = {
+    "📈 Handel": "handel",
+    "📊 Portefølje": "portefolje",
+    "⚙ Regler": "regler",
+    "🔔 Varsler": "varsler",
+    "🧪 Hypoteser/Test": "hypoteser",
+}
+PAPER_TRADING_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in PAPER_TRADING_TAB_OPTIONS_V18674C.items()}
+
+
+def _paper_trading_active_tab_v18674c() -> str:
+    url_state = get_global_navigation_state(st)
+    if "paper_trading_active_tab_label_v18674c" not in st.session_state:
+        initial_slug = str(st.session_state.get("paper_trading_active_tab_slug_v18674c") or url_state.get("tab") or "handel").strip().lower()
+        initial_label = PAPER_TRADING_TAB_LABEL_BY_SLUG_V18674C.get(initial_slug, "📈 Handel")
+        st.session_state["paper_trading_active_tab_label_v18674c"] = initial_label
+    selected_label = st.radio(
+        "Paper Trading arbeidsområde",
+        list(PAPER_TRADING_TAB_OPTIONS_V18674C.keys()),
+        horizontal=True,
+        key="paper_trading_active_tab_label_v18674c",
+        label_visibility="collapsed",
+    )
+    slug = PAPER_TRADING_TAB_OPTIONS_V18674C.get(selected_label, "handel")
+    st.session_state["paper_trading_active_tab_slug_v18674c"] = slug
+    set_global_navigation_state(st, nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
+    try:
+        _persist_ui_state_v18658(nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
+    except Exception:
+        pass
+    return slug
+
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
-    st.caption("v18.6.74a: Paper Trading er delt i fem arbeidsområder. Manuell overstyring er flyttet til Regler, OFF blokkerer aldri, og blokkårsaker vises eksplisitt.")
+    st.caption("v18.6.74c: Paper Trading husker fane ved refresh og REVIEW_ONLY lagrer gule flagg i Hypoteser/Test uten å kjøpe.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     try:
@@ -10161,9 +10395,9 @@ def render_paper_trading_dashboard():
         ("Kjøp i dag", f"{stats.get('buys_today', stats.get('trades_today', 0))}/{stats.get('max_buys_per_day', stats.get('max_trades_per_day', 0))}"),
     ], columns=5)
 
-    trade_tab, portfolio_tab, rules_tab, alerts_tab, hypo_tab = st.tabs(["📈 Handel", "📊 Portefølje", "⚙ Regler", "🔔 Varsler", "🧪 Hypoteser/Test"])
+    active_paper_tab_slug = _paper_trading_active_tab_v18674c()
 
-    with trade_tab:
+    if active_paper_tab_slug == "handel":
         _render_paper_rule_badges_v1871(_paper_rules)
         selected_position = st.session_state.get("paper_selected_position_v1863by") or {}
         if selected_position.get("ticker"):
@@ -10232,7 +10466,8 @@ def render_paper_trading_dashboard():
                     with a1:
                         st.button("🔎 Hent kurs", key="paper_stock_fetch_price_v1871", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
                     with a2:
-                        buy_stock_clicked = st.button("🟢 PAPER-KJØP", key="paper_stock_buy_v1871", type="primary", use_container_width=True)
+                        buy_stock_label_v18674c = "🟡 LEGG TIL VURDERING" if _paper_manual_override_state_v18674a() == "REVIEW_ONLY" else "🟢 PAPER-KJØP"
+                        buy_stock_clicked = st.button(buy_stock_label_v18674c, key="paper_stock_buy_v1871", type="primary", use_container_width=True)
                     _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
                     if buy_stock_clicked:
                         if not stock_symbol:
@@ -10243,13 +10478,33 @@ def render_paper_trading_dashboard():
                             st.error("Skriv inn kjøpspris eller hent aksjekurs først.")
                         else:
                             manual_override_state = _paper_manual_override_state_v18674a()
-                            ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0), manual_override=manual_override_state)
-                            if ok:
-                                st.success(msg)
-                                st.rerun()
+                            if manual_override_state == "REVIEW_ONLY":
+                                ok, msg = _paper_add_review_candidate_v18674c(
+                                    symbol=stock_symbol,
+                                    price=float(stock_price),
+                                    amount=float(stock_amount or 0.0),
+                                    confidence=int(stock_confidence or 0),
+                                    asset_type="Aksje",
+                                    source="Paper Trading",
+                                    reason="REVIEW_ONLY fra Handel-fanen",
+                                    extra={"rule_rows": _paper_buy_decision_rows_v18674a(portfolio, _paper_rules, ticker=stock_symbol, price=float(stock_price or 0.0), amount=float(stock_amount or 0.0), confidence=int(stock_confidence or 0), manual_override=manual_override_state)},
+                                )
+                                if ok:
+                                    st.warning(msg)
+                                    st.session_state["paper_trading_active_tab_slug_v18674c"] = "hypoteser"
+                                    st.session_state["paper_trading_active_tab_label_v18674c"] = "🧪 Hypoteser/Test"
+                                    set_global_navigation_state(st, nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="hypoteser")
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
                             else:
-                                st.error(msg)
-                                _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, stock_symbol, stock_confidence, float(stock_amount or 0.0), manual_override_state)
+                                ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0), manual_override=manual_override_state)
+                                if ok:
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                                    _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, stock_symbol, stock_confidence, float(stock_amount or 0.0), manual_override_state)
             with sell_col:
                 st.markdown("### 🔴 Selg aksje")
                 stock_positions = {k: v for k, v in (portfolio.get("positions", {}) or {}).items() if str((v or {}).get("asset_type", "Aksje")) == "Aksje"}
@@ -10312,18 +10567,40 @@ def render_paper_trading_dashboard():
                 with h1:
                     st.button("🔎 Hent pris/NAV", key="paper_fund_fetch_price_v1871", use_container_width=True, on_click=_paper_fetch_fund_price_v1863z)
                 with h2:
-                    buy_fund_clicked = st.button("🟢 PAPER-KJØP FOND/ETF", key="paper_fund_buy_v1871", type="primary", use_container_width=True)
+                    buy_fund_label_v18674c = "🟡 LEGG TIL VURDERING" if _paper_manual_override_state_v18674a() == "REVIEW_ONLY" else "🟢 PAPER-KJØP FOND/ETF"
+                    buy_fund_clicked = st.button(buy_fund_label_v18674c, key="paper_fund_buy_v1871", type="primary", use_container_width=True)
                 _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
                 if buy_fund_clicked:
                     price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
                     manual_override_state = _paper_manual_override_state_v18674a()
-                    ok, msg = paper_buy_instrument(fund_symbol, price_to_use, float(fund_amount or 0), asset_type=fund_asset_type, confidence=75, reason=f"UI paper {fund_asset_type}: {purchase_mode}", currency=fund_currency, nav_date=datetime.now().date().isoformat(), purchase_mode=purchase_mode, manual_override=manual_override_state)
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
+                    if manual_override_state == "REVIEW_ONLY":
+                        ok, msg = _paper_add_review_candidate_v18674c(
+                            symbol=fund_symbol,
+                            price=price_to_use,
+                            amount=float(fund_amount or 0),
+                            confidence=75,
+                            asset_type=fund_asset_type,
+                            currency=fund_currency,
+                            source="Paper Trading Fond/ETF",
+                            reason=f"REVIEW_ONLY fra Handel-fanen: {purchase_mode}",
+                            extra={"purchase_mode": purchase_mode},
+                        )
+                        if ok:
+                            st.warning(msg)
+                            st.session_state["paper_trading_active_tab_slug_v18674c"] = "hypoteser"
+                            st.session_state["paper_trading_active_tab_label_v18674c"] = "🧪 Hypoteser/Test"
+                            set_global_navigation_state(st, nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="hypoteser")
+                            st.rerun()
+                        else:
+                            st.error(msg)
                     else:
-                        st.error(msg)
-                        _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, fund_symbol, 75, float(fund_amount or 0.0), _paper_manual_override_state_v18674a())
+                        ok, msg = paper_buy_instrument(fund_symbol, price_to_use, float(fund_amount or 0), asset_type=fund_asset_type, confidence=75, reason=f"UI paper {fund_asset_type}: {purchase_mode}", currency=fund_currency, nav_date=datetime.now().date().isoformat(), purchase_mode=purchase_mode, manual_override=manual_override_state)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                            _render_paper_block_reason_v1871(msg, portfolio, _paper_rules, fund_symbol, 75, float(fund_amount or 0.0), _paper_manual_override_state_v18674a())
                 if purchase_mode == "Månedlig spareplan":
                     if st.button("💾 Lagre spareplan", key="paper_fund_save_plan_v1871", use_container_width=True):
                         plan = {"symbol": fund_symbol, "asset_type": fund_asset_type, "monthly_amount": float(fund_amount or 0), "currency": fund_currency, "created_at": datetime.now().isoformat(timespec="seconds"), "status": "Simulert"}
@@ -10351,7 +10628,7 @@ def render_paper_trading_dashboard():
                     for plan in plans[-5:]:
                         st.markdown(f"<div class='v18-dark-row'><b>{html.escape(str(plan.get('symbol','-')))}</b> · {html.escape(str(plan.get('asset_type','Fond')))} · {float(plan.get('monthly_amount') or 0):,.0f} {html.escape(str(plan.get('currency','NOK')))} / mnd · {html.escape(str(plan.get('status','Simulert')))}</div>", unsafe_allow_html=True)
 
-    with portfolio_tab:
+    if active_paper_tab_slug == "portefolje":
         st.markdown("### 📊 Portefølje")
         _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value)
         _render_manual_paper_nav_update_v18621(portfolio)
@@ -10397,24 +10674,26 @@ def render_paper_trading_dashboard():
         else:
             st.info("Ingen handler ennå.")
 
-    with rules_tab:
+    if active_paper_tab_slug == "regler":
         st.markdown("### ⚙ Trading-regler")
         _render_paper_rule_badges_v1871(_paper_rules)
-        st.caption("Hold/cooldown-regler er synlige her. v18.6.74a skiller hardvalidering, myke regler og manuell overstyring.")
+        st.caption("Hold/cooldown-regler er synlige her. v18.6.74c skiller hardvalidering, myke regler, manuell overstyring og review_queue.")
         _render_paper_manual_override_control_v18674a()
         _render_paper_trading_control_toolbar_v1864p()
         render_auto_trading_workspace()
         render_trading_rules_workspace()
 
-    with alerts_tab:
+    if active_paper_tab_slug == "varsler":
         st.markdown("### 🔔 Varsler")
         render_paper_alert_control_workspace_v18611()
         st.markdown("#### 💰 Klar for ekte trading senere")
         st.info("Systemet er strukturert for paper trading med risikoregler. Ekte handel er IKKE aktivert.")
 
-    with hypo_tab:
+    if active_paper_tab_slug == "hypoteser":
         st.markdown("### 🧪 Hypoteser / Test")
-        st.caption("Inkommende paper-hypoteser og testgrunnlag er flyttet hit for å redusere støy i Handel-fanen.")
+        st.caption("Inkommende paper-hypoteser, testgrunnlag og gule flagg ligger her for å redusere støy i Handel-fanen.")
+        _render_paper_review_queue_v18674c(load_portfolio(), _paper_rules)
+        st.divider()
         _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio)
 
 def render_ipo():
@@ -10579,15 +10858,21 @@ def _ui_state_path_v18658() -> Path:
     return Path("data/ui_state_v18658.json")
 
 
-def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "") -> None:
-    """Persist last visible workspace so browser refresh does not reset the app."""
+def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", tab: str = "", subtab: str = "") -> None:
+    """Persist last visible workspace so browser refresh does not reset the app.
+
+    v18.6.74c also persists inner panel tabs. URL query state is still the
+    strongest source on a browser refresh, but this file remains a safe fallback.
+    """
     try:
         payload = {
-            "nav": str(nav or ""),
+            "nav": str(nav or st.session_state.get("active_nav_target_v18674c") or ""),
             "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
+            "tab": str(tab or st.session_state.get("paper_trading_active_tab_slug_v18674c") or st.session_state.get("ai_discovery_active_tab_slug_v18674c") or ""),
+            "subtab": str(subtab or st.session_state.get("paper_trading_active_subtab_slug_v18674c") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.63",
+            "version": "v18.6.74c",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -10696,7 +10981,12 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     else:
         return False
-    _persist_ui_state_v18658(nav=nav)
+    st.session_state["active_nav_target_v18674c"] = nav
+    active_group = str(st.session_state.get("ai_control_center_group_v1863aj") or "")
+    active_panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
+    _persist_ui_state_v18658(nav=nav, group=active_group, panel=active_panel)
+    # v18.6.74c: preserve refresh state in URL without deleting remember_token.
+    set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel)
     return True
 
 
@@ -10710,6 +11000,36 @@ def _apply_mobile_nav_query_v18646() -> None:
     overwritten.
     """
     params = _query_params_plain_v18646()
+
+    # v18.6.74c: Deep-link/browser-refresh state has priority over the
+    # fallback file. This prevents F5 from sending the user back to the start
+    # page when the URL already carries aa_group/aa_panel/aa_tab.
+    url_state_v18674c = get_global_navigation_state(st)
+    has_url_state_v18674c = any(url_state_v18674c.get(k) for k in ("nav", "group", "panel", "tab", "subtab"))
+    if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
+        st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+        nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "long_engine", "ai", "system"}:
+            _apply_nav_target_v18658(nav_from_url)
+        group_from_url = str(url_state_v18674c.get("group") or "").strip()
+        panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
+        tab_from_url = str(url_state_v18674c.get("tab") or "").strip()
+        subtab_from_url = str(url_state_v18674c.get("subtab") or "").strip()
+        if group_from_url:
+            st.session_state["ai_control_center_group_v1863aj"] = group_from_url
+            st.session_state["ai_control_center_group_v1863m"] = group_from_url
+        if panel_from_url:
+            st.session_state["ai_control_center_active_panel_v1863aj"] = panel_from_url
+            st.session_state["ai_control_center_active_panel_v1863m"] = panel_from_url
+            st.session_state["ai_control_center_active_real_panel_v18598"] = panel_from_url
+            st.session_state["ai_control_center_menu_open_v1863ag"] = False
+        if tab_from_url:
+            st.session_state["paper_trading_active_tab_slug_v18674c"] = tab_from_url
+            st.session_state["ai_discovery_active_tab_slug_v18674c"] = tab_from_url
+        if subtab_from_url:
+            st.session_state["paper_trading_active_subtab_slug_v18674c"] = subtab_from_url
+        return
+
     mobile_nav = (params.get("mobile_nav") or "").strip().lower()
     if mobile_nav:
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
@@ -10741,6 +11061,14 @@ def _apply_mobile_nav_query_v18646() -> None:
                 st.session_state["ai_control_center_active_real_panel_v18598"] = saved_panel
                 st.session_state["ai_control_center_active_panel_v1863aj"] = saved_panel
                 st.session_state["ai_control_center_menu_open_v1863ag"] = False
+                saved_tab = str(saved.get("tab") or "").strip()
+                saved_subtab = str(saved.get("subtab") or "").strip()
+                if saved_tab:
+                    st.session_state["paper_trading_active_tab_slug_v18674c"] = saved_tab
+                    st.session_state["ai_discovery_active_tab_slug_v18674c"] = saved_tab
+                if saved_subtab:
+                    st.session_state["paper_trading_active_subtab_slug_v18674c"] = saved_subtab
+                set_global_navigation_state(st, nav=nav, group=saved_group, panel=saved_panel, tab=saved_tab, subtab=saved_subtab)
             except Exception:
                 pass
         try:

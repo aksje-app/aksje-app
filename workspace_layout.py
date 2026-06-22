@@ -26,6 +26,7 @@ from forecast_ui import render_forecast_section
 from analysis_universe_ai import render_ai_analysis_universe_workspace
 from persistent_storage_status import compact_storage_status_rows, storage_status_snapshot
 from app_version import get_app_build_label
+from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
 
 
 def inject_workspace_css() -> None:
@@ -2389,6 +2390,30 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         for name, labels in group_map.items():
             group_by_option[f"{name} ({len([x for x in labels if x in panel_map])})"] = name
 
+        # v18.6.74c: Browser refresh/deep-link restore. On a fresh
+        # Streamlit session the URL may carry aa_group/aa_panel from the last
+        # click. Apply it once after group_map/panel_map exist, before radio
+        # widgets render, and preserve remember_token.
+        if not st.session_state.get("ai_cc_url_bootstrap_done_v18674c"):
+            st.session_state["ai_cc_url_bootstrap_done_v18674c"] = True
+            url_state_v18674c = get_global_navigation_state(st)
+            url_group = str(url_state_v18674c.get("group") or "").strip()
+            url_panel = str(url_state_v18674c.get("panel") or "").strip()
+            if url_panel and url_panel in panel_map and (not url_group or url_group not in group_map):
+                url_group = next((g for g, labels in group_map.items() if url_panel in labels), url_group)
+            if url_group in group_map:
+                valid_panels = [label for label in group_map.get(url_group, []) if label in panel_map]
+                if not url_panel and len(valid_panels) == 1:
+                    url_panel = valid_panels[0]
+                st.session_state["ai_control_center_group_v1863aj"] = url_group
+                group_option = next((opt for opt, name in group_by_option.items() if name == url_group), "")
+                if group_option:
+                    st.session_state["ai_control_center_group_radio_v1863aj"] = group_option
+                if url_panel in valid_panels:
+                    st.session_state["ai_control_center_active_panel_v1863aj"] = url_panel
+                    st.session_state["ai_control_center_active_real_panel_v18598"] = url_panel
+                    st.session_state[f"ai_control_center_panel_radio_v1863aj_{url_group}"] = url_panel
+
         if pending_nav_sync:
             pending_group = pending_nav_sync.get("group", "")
             pending_panel = pending_nav_sync.get("panel", "")
@@ -2490,6 +2515,12 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0]
             elif selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels:
                 st.session_state["ai_control_center_active_panel_v1863aj"] = ai_candidate_primary_label
+            set_global_navigation_state(
+                st,
+                nav="control_center",
+                group=selected_group,
+                panel=st.session_state.get("ai_control_center_active_panel_v1863aj") or "",
+            )
 
         active_label = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
         if selected_group:
@@ -2526,6 +2557,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 if selected_panel:
                     st.session_state["ai_control_center_active_panel_v1863aj"] = selected_panel
                     active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
+                    set_global_navigation_state(st, nav="control_center", group=selected_group, panel=selected_panel)
                     if selected_panel != current_panel_option:
                         st.session_state["ai_control_center_active_real_panel_v18598"] = selected_panel
 
@@ -2558,6 +2590,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             for key in list(st.session_state.keys()):
                 if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
                     st.session_state.pop(key, None)
+            clear_global_navigation_state(st)
 
         close_col, spacer_col = st.columns([0.18, 0.82])
         with close_col:
@@ -2565,6 +2598,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 _close_control_center_panel_v18611()
                 st.rerun()
         active_group_label = st.session_state.get("ai_control_center_group_v1863aj") or next((g for g, labels in group_map.items() if active_label in labels), "")
+        set_global_navigation_state(st, nav="control_center", group=active_group_label, panel=active_label)
         st.markdown(
             f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_group_label or '-'))}</b> → <b>{html.escape(str(active_label))}</b>.</div>",
             unsafe_allow_html=True,

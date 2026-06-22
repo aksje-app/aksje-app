@@ -26,6 +26,52 @@ DB_PATH = DATA_DIR / "ai_discovery.db"
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 REPORT_DIR = DATA_DIR / "reports"
 
+AI_DISCOVERY_TAB_OPTIONS_V18674C = {
+    "Signal Library": "signal_library",
+    "Signal Tracking": "signal_tracking",
+    "Resultatdatabase": "resultatdatabase",
+    "Historikk": "historikk",
+    "Rapportering": "rapportering",
+    "Signal Discovery": "signal_discovery",
+}
+AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
+
+
+def _global_nav_helpers_v18674c():
+    try:
+        from navigation_state import get_global_navigation_state, set_global_navigation_state
+        return get_global_navigation_state, set_global_navigation_state
+    except Exception:
+        return None, None
+
+
+def _active_ai_discovery_tab_v18674c(st) -> str:
+    get_state, set_state = _global_nav_helpers_v18674c()
+    url_tab = ""
+    if callable(get_state):
+        try:
+            url_tab = str((get_state(st) or {}).get("tab") or "")
+        except Exception:
+            url_tab = ""
+    if "ai_discovery_active_tab_label_v18674c" not in st.session_state:
+        initial_slug = str(st.session_state.get("ai_discovery_active_tab_slug_v18674c") or url_tab or "signal_library").strip().lower()
+        st.session_state["ai_discovery_active_tab_label_v18674c"] = AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C.get(initial_slug, "Signal Library")
+    selected_label = st.radio(
+        "AI Discovery-fane",
+        list(AI_DISCOVERY_TAB_OPTIONS_V18674C.keys()),
+        horizontal=True,
+        key="ai_discovery_active_tab_label_v18674c",
+        label_visibility="collapsed",
+    )
+    slug = AI_DISCOVERY_TAB_OPTIONS_V18674C.get(selected_label, "signal_library")
+    st.session_state["ai_discovery_active_tab_slug_v18674c"] = slug
+    if callable(set_state):
+        try:
+            set_state(st, nav="control_center", group="Andre paneler", panel="AI Discovery", tab=slug)
+        except Exception:
+            pass
+    return slug
+
 
 def _load_signal_discovery_renderer_v18674a():
     """Lazy-load Signal Discovery to avoid circular imports with this foundation module."""
@@ -480,11 +526,9 @@ def render_ai_discovery_foundation_panel() -> None:
     k3.metric("Resultater", len(results))
     k4.metric("Learning Loop", "OFF")
 
-    tab_library, tab_tracking, tab_results, tab_history, tab_reports, tab_discovery = st.tabs(
-        ["Signal Library", "Signal Tracking", "Resultatdatabase", "Historikk", "Rapportering", "Signal Discovery"]
-    )
+    active_ai_disc_tab = _active_ai_discovery_tab_v18674c(st)
 
-    with tab_library:
+    if active_ai_disc_tab == "signal_library":
         st.markdown("#### Signal Library")
         st.caption("Standard-signaler opprettes automatisk. Nye signaler kan legges inn som observasjonssignaler uten å påvirke trading.")
         if signals:
@@ -519,7 +563,7 @@ def render_ai_discovery_foundation_panel() -> None:
                 except Exception as exc:
                     st.error(f"Kunne ikke lagre signal: {exc}")
 
-    with tab_tracking:
+    if active_ai_disc_tab == "signal_tracking":
         st.markdown("#### Signal Tracking")
         st.caption("Legg inn passive observasjoner. Dette er en logg for senere evaluering, ikke kjøpssignal.")
         sig_options = [s.get("signal_id") for s in signals]
@@ -553,7 +597,7 @@ def render_ai_discovery_foundation_panel() -> None:
         else:
             st.info("Ingen observasjoner ennå.")
 
-    with tab_results:
+    if active_ai_disc_tab == "resultatdatabase":
         st.markdown("#### Resultatdatabase")
         st.caption("Registrer resultat etter 30/60/90/180 dager. Resultat brukes kun til rapportering i FASE 5A.")
         if observations:
@@ -584,7 +628,7 @@ def render_ai_discovery_foundation_panel() -> None:
         else:
             st.info("Ingen målte resultater ennå.")
 
-    with tab_history:
+    if active_ai_disc_tab == "historikk":
         st.markdown("#### Historikk")
         hist = list_history(500)
         if hist:
@@ -593,7 +637,7 @@ def render_ai_discovery_foundation_panel() -> None:
         else:
             st.info("Ingen historikk ennå.")
 
-    with tab_reports:
+    if active_ai_disc_tab == "rapportering":
         st.markdown("#### Rapportering")
         st.caption("Rapporten oppsummerer signaler, observasjoner og målte resultater. Learning Loop er fortsatt av.")
         if st.button("Bygg rapport", key="ai_disc_build_report_v1872"):
@@ -607,7 +651,7 @@ def render_ai_discovery_foundation_panel() -> None:
         st.download_button("Last ned rapport JSON", data=json.dumps(report, ensure_ascii=False, indent=2), file_name="AI_DISCOVERY_FOUNDATION_REPORT.json", mime="application/json")
 
 
-    with tab_discovery:
+    if active_ai_disc_tab == "signal_discovery":
         signal_discovery_renderer, signal_discovery_error = _load_signal_discovery_renderer_v18674a()
         if signal_discovery_renderer is None:
             st.error("Signal Discovery-modulen kunne ikke lastes.")

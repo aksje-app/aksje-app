@@ -10,6 +10,26 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 
+
+
+def _sidebar_set_query_state_v18674c(st, nav: str, group: str = "", panel: str = "") -> None:
+    """Set refresh-safe URL state while preserving remember_token."""
+    try:
+        st.query_params["aa_nav"] = str(nav or "")
+        if group:
+            st.query_params["aa_group"] = str(group)
+        elif "aa_group" in st.query_params:
+            del st.query_params["aa_group"]
+        if panel:
+            st.query_params["aa_panel"] = str(panel)
+        elif "aa_panel" in st.query_params:
+            del st.query_params["aa_panel"]
+        for k in ("aa_tab", "aa_subtab"):
+            if k in st.query_params:
+                del st.query_params[k]
+    except Exception:
+        pass
+
 def _sidebar_persist_nav_v18658(st, nav: str) -> None:
     """Persist desktop sidebar navigation without forcing URL redirects.
 
@@ -106,6 +126,9 @@ def _clear_control_center_nav_state_v18663(st) -> None:
             del st.query_params["panel"]
         if "mobile_nav" in st.query_params:
             del st.query_params["mobile_nav"]
+        for k in ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab"):
+            if k in st.query_params:
+                del st.query_params[k]
     except Exception:
         pass
 
@@ -155,6 +178,16 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863aj"] = "System/admin"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    sidebar_group_panel_v18674c = {
+        "dashboard": ("", ""),
+        "analysis": ("AI Kandidattest", "AI Kandidattest"),
+        "top_picks": ("Marked og signaler", "Top Picks"),
+        "long_engine": ("Long Engine", "Long Engine"),
+        "ai": ("Analyse og prognose", ""),
+        "system": ("System", "System/admin"),
+    }
+    q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
+    _sidebar_set_query_state_v18674c(st, nav, q_group, q_panel)
     _sidebar_persist_nav_v18658(st, nav)
     try:
         st.rerun()
