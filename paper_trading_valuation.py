@@ -81,6 +81,45 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+
+
+FUND_ASSET_TYPES_V18674D = {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}
+
+
+def _paper_rule_float_v18674d(name: str, default: float) -> float:
+    try:
+        from trading_settings import load_rules
+
+        rules = load_rules() or {}
+        return float(rules.get(name, default) or default)
+    except Exception:
+        return float(default)
+
+
+def _position_trailing_pct_v18674d(row: Mapping[str, Any]) -> float:
+    asset_type = str((row or {}).get("asset_type") or "Aksje")
+    explicit = _safe_float((row or {}).get("trailing_stop_pct"), -1.0)
+    if explicit >= 0:
+        return explicit
+    # Funds/ETF had trailing disabled in earlier versions unless explicitly set.
+    if asset_type in FUND_ASSET_TYPES_V18674D:
+        return 0.0
+    return _paper_rule_float_v18674d("trailing_stop_pct", 8.0)
+
+
+def _trailing_stop_status_v18674d(*, entry: float, last: float, highest: float, stop_level: float, distance_pct: float, trailing_pct: float) -> str:
+    if trailing_pct <= 0 or stop_level <= 0:
+        return "IKKE AKTIV"
+    if highest <= entry:
+        return "VENTER PÅ GEVINST"
+    if last <= stop_level:
+        return "STOP UTLØST"
+    near_threshold = max(1.0, min(3.0, trailing_pct / 3.0))
+    if distance_pct <= near_threshold:
+        return "NÆR STOP"
+    return "OK"
+
+
 def paper_reason_label(reason: Any, trade_type: str = "") -> str:
     text = str(reason or "").strip()
     if not text:
@@ -128,6 +167,25 @@ def normalize_paper_position(
     pnl_pct = ((last - entry) / entry * 100.0) if entry else 0.0
     highest = max(_safe_float(row.get("highest_price"), 0.0), last, entry)
 
+    trailing_pct = _position_trailing_pct_v18674d(row)
+    stop_loss_pct = _paper_rule_float_v18674d("stop_loss_pct", 7.0)
+    take_profit_pct = _paper_rule_float_v18674d("take_profit_pct", 12.0)
+    existing_stop_loss = _safe_float(row.get("stop_loss"), 0.0)
+    existing_take_profit = _safe_float(row.get("take_profit"), 0.0)
+    stop_loss_level = existing_stop_loss if existing_stop_loss > 0 else (entry * (1 - stop_loss_pct / 100.0) if entry > 0 else 0.0)
+    take_profit_level = existing_take_profit if existing_take_profit > 0 else (entry * (1 + take_profit_pct / 100.0) if entry > 0 else 0.0)
+    trailing_stop_level = highest * (1 - trailing_pct / 100.0) if highest > 0 and trailing_pct > 0 else 0.0
+    distance_pct = ((last - trailing_stop_level) / last * 100.0) if last > 0 and trailing_stop_level > 0 else 0.0
+    stop_status = _trailing_stop_status_v18674d(
+        entry=entry,
+        last=last,
+        highest=highest,
+        stop_level=trailing_stop_level,
+        distance_pct=distance_pct,
+        trailing_pct=trailing_pct,
+    )
+    exit_signal = "Trailing stop utløst" if stop_status == "STOP UTLØST" else ("Nær trailing stop" if stop_status == "NÆR STOP" else "")
+
     row.update({
         "ticker": symbol,
         "shares": shares,
@@ -136,6 +194,14 @@ def normalize_paper_position(
         "avg_price": entry,
         "last_price": last,
         "highest_price": highest,
+        "stop_loss": stop_loss_level,
+        "take_profit": take_profit_level,
+        "trailing_stop_pct": trailing_pct,
+        "trailing_stop": trailing_stop_level,
+        "trailing_stop_level": trailing_stop_level,
+        "trailing_stop_distance_pct": distance_pct,
+        "stop_status": stop_status,
+        "exit_signal": exit_signal,
         "market_value": value,
         "cost_basis": cost,
         "unrealized_pnl": pnl,
@@ -184,6 +250,14 @@ def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapp
             "unit_label": pos.get("units_label", "shares"),
             "avg_price": round(_safe_float(pos.get("avg_price")), 4),
             "last_price": round(_safe_float(pos.get("last_price")), 4),
+            "highest_price": round(_safe_float(pos.get("highest_price")), 4),
+            "stop_loss": round(_safe_float(pos.get("stop_loss")), 4),
+            "take_profit": round(_safe_float(pos.get("take_profit")), 4),
+            "trailing_stop_pct": round(_safe_float(pos.get("trailing_stop_pct")), 2),
+            "trailing_stop_level": round(_safe_float(pos.get("trailing_stop_level", pos.get("trailing_stop"))), 4),
+            "trailing_stop_distance_pct": round(_safe_float(pos.get("trailing_stop_distance_pct")), 2),
+            "stop_status": pos.get("stop_status", ""),
+            "exit_signal": pos.get("exit_signal", ""),
             "value": round(_safe_float(pos.get("market_value")), 2),
             "currency": pos.get("currency", ""),
             "pnl_pct": round(_safe_float(pos.get("pnl_pct")), 2),
@@ -229,13 +303,19 @@ def paper_position_display_rows(
             "Beløp/verdi": round(value, 2),
             "P/L kr": row.get("pnl", ""),
             "P/L %": row.get("pnl_pct", ""),
+            "Høyeste kurs": row.get("highest_price", ""),
+            "Trailing %": row.get("trailing_stop_pct", ""),
+            "Stop-nivå": row.get("trailing_stop_level", ""),
+            "Avstand stop %": row.get("trailing_stop_distance_pct", ""),
+            "Stop-status": row.get("stop_status", ""),
+            "Exit-forslag": row.get("exit_signal", ""),
             "Vekt %": round(weight, 1),
             "Confidence": row.get("confidence", ""),
             "Kilde/signal": row.get("reason", ""),
             "Regel": "",
             "Grense": "",
             "Målt verdi": "",
-            "Forklaring": "Åpen paper-posisjon beregnet fra beholdning, siste kurs og snittpris.",
+            "Forklaring": "Åpen paper-posisjon beregnet fra beholdning, siste kurs, snittpris og per-posisjon trailing stop-regel.",
             "Oppdatert": row.get("updated") or "Lagret kurs",
         })
     return out

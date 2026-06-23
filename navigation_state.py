@@ -1,7 +1,7 @@
 """Global navigation/query-state helpers for AI Aksje Analyzer Pro.
 
-v18.6.74c goal:
-- Browser refresh/F5 should restore current main area, panel and inner tab.
+v18.6.74d goal:
+- Browser refresh/F5 should restore current main area, panel and inner tab across all main panels.
 - Existing remember_token and other query parameters must be preserved.
 - Query parameters are additive: aa_nav, aa_group, aa_panel, aa_tab, aa_subtab.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 QUERY_KEYS_V18674C = ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab")
+SESSION_KEYS_V18674D = ("active_nav_target_v18674c", "ai_control_center_group_v1863aj", "ai_control_center_active_panel_v1863aj", "paper_trading_active_tab_slug_v18674c", "ai_discovery_active_tab_slug_v18674c")
 
 
 def _plain_query_params(st) -> dict[str, str]:
@@ -31,13 +32,13 @@ def _plain_query_params(st) -> dict[str, str]:
 
 def get_global_navigation_state(st) -> dict[str, str]:
     params = _plain_query_params(st)
-    return {
-        "nav": str(params.get("aa_nav") or "").strip(),
-        "group": str(params.get("aa_group") or "").strip(),
-        "panel": str(params.get("aa_panel") or "").strip(),
-        "tab": str(params.get("aa_tab") or "").strip(),
-        "subtab": str(params.get("aa_subtab") or "").strip(),
-    }
+    # v18.6.74d: allow old query names as read-only fallback, but only write aa_* keys.
+    nav = str(params.get("aa_nav") or params.get("mobile_nav") or "").strip()
+    group = str(params.get("aa_group") or "").strip()
+    panel = str(params.get("aa_panel") or params.get("panel") or "").strip()
+    tab = str(params.get("aa_tab") or params.get("tab") or "").strip()
+    subtab = str(params.get("aa_subtab") or params.get("subtab") or "").strip()
+    return {"nav": nav, "group": group, "panel": panel, "tab": tab, "subtab": subtab}
 
 
 def set_global_navigation_state(

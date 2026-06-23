@@ -156,22 +156,23 @@ def portfolio_value(portfolio=None, latest_prices=None):
     return round(total, 2)
 
 
-def calc_levels(entry_price, highest_price=None):
+def calc_levels(entry_price, highest_price=None, *, stop_loss_pct=None, take_profit_pct=None, trailing_stop_pct=None):
     """
-    Bruker lagrede trading-regler, slik at stop-loss/take-profit/trailing
-    er likt i sidebar, paper trading og auto trading.
+    Bruker lagrede trading-regler som standard, men v18.6.74d kan bruke
+    per-posisjon trailing_stop_pct slik at gamle posisjoner ikke endres
+    tilfeldig når global slider justeres.
     """
     rules = load_rules()
     entry_price = float(entry_price)
     highest_price = float(highest_price or entry_price)
 
-    stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT))
-    take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT))
-    trailing_stop_pct = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT))
+    stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT) if stop_loss_pct is None else stop_loss_pct)
+    take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT) if take_profit_pct is None else take_profit_pct)
+    trailing_stop_pct = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT) if trailing_stop_pct is None else trailing_stop_pct)
 
     stop_loss = entry_price * (1 - stop_loss_pct / 100)
     take_profit = entry_price * (1 + take_profit_pct / 100)
-    trailing_stop = highest_price * (1 - trailing_stop_pct / 100)
+    trailing_stop = highest_price * (1 - trailing_stop_pct / 100) if trailing_stop_pct > 0 else 0.0
 
     return round(stop_loss, 2), round(take_profit, 2), round(trailing_stop, 2)
 
@@ -179,6 +180,25 @@ def calc_levels(entry_price, highest_price=None):
 
 
 
+
+
+
+
+def position_trailing_stop_pct_v18674d(pos: Mapping[str, Any] | None, rules: Mapping[str, Any] | None = None) -> float:
+    """Return the trailing stop percent stored on the position, or current rule for legacy positions."""
+    rules = rules or load_rules()
+    try:
+        if pos and pos.get("trailing_stop_pct") not in (None, ""):
+            return float(pos.get("trailing_stop_pct") or 0)
+    except Exception:
+        pass
+    try:
+        asset_type = str((pos or {}).get("asset_type") or "Aksje")
+        if asset_type in {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}:
+            return 0.0
+    except Exception:
+        pass
+    return float((rules or {}).get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT)
 
 
 def trades_today_count(portfolio=None, trade_type=None):
@@ -442,12 +462,13 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "amount": round(float(amount or 0), 2), "reason": msg, "manual_override": manual_override_state}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
     shares = amount / price
-    sl, tp, tr = calc_levels(price, price)
+    trailing_pct_for_position = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT)
+    sl, tp, tr = calc_levels(price, price, trailing_stop_pct=trailing_pct_for_position)
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) - amount, 2)
     portfolio.setdefault("positions", {})[ticker] = {
         "ticker": ticker, "shares": shares, "entry_price": price, "avg_price": price,
         "last_price": price, "highest_price": price, "stop_loss": sl,
-        "take_profit": tp, "trailing_stop": tr, "confidence": int(confidence or 0), "reason": reason,
+        "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_pct_for_position, "confidence": int(confidence or 0), "reason": reason,
         "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
         "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
         "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
@@ -458,6 +479,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         "order_kind":"paper", "asset_type": "Aksje",
         "manual_override": manual_override_state,
         "manual_override_note": _manual_override_note(manual_override_state),
+        "trailing_stop_pct": trailing_pct_for_position,
         **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
     })
     after = build_paper_state_snapshot(portfolio, rules=rules)
@@ -512,14 +534,14 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
     if pos:
         entry = float(pos.get("entry_price", pos.get("avg_price", price)))
         high = max(float(pos.get("highest_price", entry) or entry), price)
-        sl, tp, tr = calc_levels(entry, high)
-        pos.update({"last_price":price, "highest_price":high, "stop_loss":sl, "take_profit":tp, "trailing_stop":tr})
+        trailing_stop_pct = position_trailing_stop_pct_v18674d(pos, rules)
+        sl, tp, tr = calc_levels(entry, high, trailing_stop_pct=trailing_stop_pct)
+        pos.update({"last_price": price, "highest_price": high, "stop_loss": sl, "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_stop_pct})
         portfolio["positions"][ticker] = pos
         save_portfolio(portfolio)
         pnl_pct = ((price-entry)/entry*100) if entry else 0
         stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT))
         take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT))
-        trailing_stop_pct = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT))
         rsi_exit_level = float(rules.get("rsi_exit_level", 75))
         rsi_must_fall = bool(rules.get("rsi_must_fall", True))
 
@@ -677,13 +699,21 @@ def paper_buy_instrument(
         old_avg = float(existing.get("entry_price", existing.get("avg_price", price)) or price)
         new_units = old_units + units
         new_avg = ((old_units * old_avg) + amount) / new_units if new_units else price
+        existing_trailing_pct = position_trailing_stop_pct_v18674d(existing, load_rules())
+        existing_high = max(float(existing.get("highest_price", price) or price), price)
+        existing_sl, existing_tp, existing_tr = calc_levels(new_avg, existing_high, trailing_stop_pct=existing_trailing_pct)
         existing.update({
             "ticker": symbol,
             "shares": new_units,
             "entry_price": round(new_avg, 6),
             "avg_price": round(new_avg, 6),
             "last_price": price,
-            "highest_price": max(float(existing.get("highest_price", price) or price), price),
+            "highest_price": existing_high,
+            "stop_loss": 0 if asset_type in FUND_ASSET_TYPES else existing_sl,
+            "take_profit": 0 if asset_type in FUND_ASSET_TYPES else existing_tp,
+            "trailing_stop": 0 if asset_type in FUND_ASSET_TYPES else existing_tr,
+            "trailing_stop_level": 0 if asset_type in FUND_ASSET_TYPES else existing_tr,
+            "trailing_stop_pct": 0 if asset_type in FUND_ASSET_TYPES else existing_trailing_pct,
             "asset_type": asset_type,
             "units_label": units_label,
             "currency": currency,
@@ -693,7 +723,8 @@ def paper_buy_instrument(
             "reason": reason,
         })
     else:
-        sl, tp, tr = calc_levels(price, price)
+        trailing_pct_for_position = 0.0 if asset_type in FUND_ASSET_TYPES else float(load_rules().get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT)
+        sl, tp, tr = calc_levels(price, price, trailing_stop_pct=trailing_pct_for_position)
         positions[symbol] = {
             "ticker": symbol,
             "shares": units,
@@ -704,6 +735,8 @@ def paper_buy_instrument(
             "stop_loss": 0 if asset_type in FUND_ASSET_TYPES else sl,
             "take_profit": 0 if asset_type in FUND_ASSET_TYPES else tp,
             "trailing_stop": 0 if asset_type in FUND_ASSET_TYPES else tr,
+            "trailing_stop_level": 0 if asset_type in FUND_ASSET_TYPES else tr,
+            "trailing_stop_pct": trailing_pct_for_position,
             "confidence": int(confidence or 0),
             "reason": reason,
             "opened_at": datetime.now().isoformat(timespec="seconds"),
@@ -726,6 +759,7 @@ def paper_buy_instrument(
         "asset_type": asset_type,
         "manual_override": manual_override_state,
         "manual_override_note": _manual_override_note(manual_override_state),
+        "trailing_stop_pct": trailing_pct_for_position if 'trailing_pct_for_position' in locals() else position_trailing_stop_pct_v18674d(positions.get(symbol, {}), load_rules()),
         "currency": currency,
         "nav_date": nav_date,
         "order_kind": "amount_buy",

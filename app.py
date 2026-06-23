@@ -9456,16 +9456,75 @@ def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = Fals
     normalized = normalize_paper_portfolio(portfolio, latest_prices, updated_at=updated_at)
     should_save = bool(fetch_live and latest_prices)
     if not should_save:
-        for old_pos in positions.values():
-            if _safe_float_v18581((old_pos or {}).get("avg_price"), 0.0) <= 0 and (
-                _safe_float_v18581((old_pos or {}).get("entry_price"), 0.0) > 0
-                or _safe_float_v18581((old_pos or {}).get("last_price"), 0.0) > 0
+        for old_ticker, old_pos in positions.items():
+            old_pos = old_pos or {}
+            new_pos = (normalized.get("positions", {}) or {}).get(str(old_ticker).upper(), {}) or {}
+            if _safe_float_v18581(old_pos.get("avg_price"), 0.0) <= 0 and (
+                _safe_float_v18581(old_pos.get("entry_price"), 0.0) > 0
+                or _safe_float_v18581(old_pos.get("last_price"), 0.0) > 0
             ):
                 should_save = True
+                break
+            # v18.6.74d: persist calculated trailing fields for legacy positions as soon as they are normalized.
+            for field in ("highest_price", "trailing_stop_pct", "trailing_stop", "trailing_stop_level", "trailing_stop_distance_pct", "stop_status"):
+                if field not in old_pos and field in new_pos:
+                    should_save = True
+                    break
+            if should_save:
                 break
     if should_save:
         save_portfolio(normalized)
     return normalized, latest_prices, errors, updated_at
+
+
+
+
+def _paper_trailing_stop_alert_rows_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None) -> list[dict]:
+    rows = paper_position_rows(portfolio or load_portfolio(), latest_prices or {})
+    alerts = []
+    for row in rows:
+        status = str(row.get("stop_status") or "").strip().upper()
+        if status not in {"NÆR STOP", "STOP UTLØST"}:
+            continue
+        ticker = str(row.get("ticker") or "-")
+        stop_level = _safe_float_v18581(row.get("trailing_stop_level"), 0.0)
+        last_price = _safe_float_v18581(row.get("last_price"), 0.0)
+        distance = _safe_float_v18581(row.get("trailing_stop_distance_pct"), 0.0)
+        alerts.append({
+            "Ticker": ticker,
+            "Status": status,
+            "Siste kurs": round(last_price, 4),
+            "Høyeste kurs": row.get("highest_price"),
+            "Trailing %": row.get("trailing_stop_pct"),
+            "Stop-nivå": round(stop_level, 4),
+            "Avstand %": round(distance, 2),
+            "Forslag": "Kontroller og selg / paper-selg" if status == "STOP UTLØST" else "Følg tett - nær trailing stop",
+        })
+    return alerts
+
+
+def _render_paper_trailing_stop_alerts_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None) -> None:
+    alerts = _paper_trailing_stop_alert_rows_v18674d(portfolio or load_portfolio(), latest_prices or {})
+    st.markdown("#### 🛑 Trailing stop-varsler")
+    if not alerts:
+        st.success("Ingen posisjoner er nær eller under trailing stop akkurat nå.")
+        return
+    triggered = [a for a in alerts if a.get("Status") == "STOP UTLØST"]
+    near = [a for a in alerts if a.get("Status") == "NÆR STOP"]
+    if triggered:
+        st.error(f"{len(triggered)} posisjon(er) har STOP UTLØST. Kontroller salg manuelt eller via paper-salg.")
+    if near:
+        st.warning(f"{len(near)} posisjon(er) er NÆR STOP og bør følges tett.")
+    st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
+
+
+def _paper_stop_action_v18674d(row: dict, fallback: str = "Hold / overvåk") -> str:
+    status = str((row or {}).get("stop_status") or "").strip().upper()
+    if status == "STOP UTLØST":
+        return "Stop utløst - vurder paper-salg"
+    if status == "NÆR STOP":
+        return "Nær trailing stop - følg tett"
+    return fallback
 
 
 def _paper_price_candidates_v1863z(symbol: str, *, asset_type: str = "Aksje"):
@@ -9749,6 +9808,11 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
                 <span>Antall <b>{row.get('units')}</b></span>
                 <span>Snitt <b>{row.get('avg_price')}</b></span>
                 <span>Siste <b>{row.get('last_price')}</b></span>
+                <span>Høyeste <b>{row.get('highest_price')}</b></span>
+                <span>Trailing <b>{row.get('trailing_stop_pct')}%</b></span>
+                <span>Stop-nivå <b>{row.get('trailing_stop_level')}</b></span>
+                <span>Avstand stop <b>{row.get('trailing_stop_distance_pct')}%</b></span>
+                <span>Stop-status <b>{html.escape(str(row.get('stop_status') or '-'))}</b></span>
                 <span>Verdi <b>{float(row.get('value') or 0):,.2f}</b></span>
                 <span>Land <b>{html.escape(str(row.get('land') or '-'))}</b></span>
                 <span>Marked <b>{html.escape(str(row.get('marked') or '-'))}</b></span>
@@ -9843,6 +9907,7 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
                 action = "Sjekk konsentrasjon"
             else:
                 action = "Hold / overvåk"
+            action = _paper_stop_action_v18674d(row, action)
             control_rows.append({
                 "Ticker": ticker,
                 "Type": row.get("type") or "",
@@ -9856,6 +9921,11 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
                 "Verdi": round(value, 2),
                 "P/L kr": row.get("pnl"),
                 "P/L %": round(pnl_pct, 2),
+                "Høyeste kurs": row.get("highest_price"),
+                "Trailing %": row.get("trailing_stop_pct"),
+                "Stop-nivå": row.get("trailing_stop_level"),
+                "Avstand stop %": row.get("trailing_stop_distance_pct"),
+                "Stop-status": row.get("stop_status"),
                 "Vekt %": round(weight, 1),
                 "Forslag": action,
                 "Oppdatert": row.get("updated") or "Lagret kurs",
@@ -10035,7 +10105,7 @@ def _render_paper_manual_override_control_v18674a() -> str:
         st.warning(f"{label}: {detail}")
     else:
         st.success(f"{label}: {detail}")
-    st.caption("v18.6.74c: REVIEW_ONLY lagrer kandidat i review_queue under Hypoteser/Test. OFF påvirker ikke kjøp; FORCE_BLOCK er eneste manuelle blokkering.")
+    st.caption("v18.6.74d: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
     return state
 
 
@@ -10126,6 +10196,25 @@ def _paper_add_review_candidate_v18674c(
         return False, "Beløp må være større enn 0 før kandidaten kan legges i vurdering."
     portfolio = load_portfolio()
     queue = _paper_review_queue_v18674c(portfolio)
+    # v18.6.74d: avoid several identical open yellow flags for the same symbol/type.
+    for existing in queue:
+        if (
+            str(existing.get("symbol") or existing.get("ticker") or "").strip().upper() == symbol
+            and str(existing.get("asset_type") or "Aksje") == str(asset_type or "Aksje")
+            and _paper_review_status_v18674c(existing.get("status")) in {"ÅPEN", "GODKJENT"}
+        ):
+            existing.update({
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+                "price": round(price_f, 6),
+                "amount": round(amount_f, 2),
+                "confidence": int(confidence or 0),
+                "reason": str(reason or "REVIEW_ONLY"),
+                "note": str(note or existing.get("note") or ""),
+                "extra": dict(extra or existing.get("extra") or {}),
+            })
+            portfolio["review_queue"] = queue
+            save_portfolio(portfolio)
+            return True, f"{symbol} finnes allerede i Gule flagg og er oppdatert. Ingen kjøp er gjennomført."
     item = {
         "id": _paper_review_item_id_v18674c(symbol),
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -10315,8 +10404,43 @@ def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, 
         summary = "Kjøp kan tillates av FORCE_ALLOW, men hardvalidering beholdes."
     else:
         summary = "Kjøpsgrunnlaget ser klart ut ut fra synlige regler."
+    def _rule_css(status: str) -> str:
+        status = str(status or "").upper()
+        if status in {"OK", "OFF"}:
+            return "ok"
+        if status in {"BLOKKERT", "MANGLER", "FORCE_BLOCK"}:
+            return "bad"
+        if status in {"OVERSTYRT", "FORCE_ALLOW", "REVIEW_ONLY", "SJEKKES"}:
+            return "warn"
+        return "neutral"
+
     with st.expander(f"Blokkårsaker / kjøpskontroll – {summary}", expanded=False):
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.markdown("""
+        <style>
+        .paper-rule-mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:.35rem;margin:.25rem 0;}
+        .paper-rule-item{border:1px solid rgba(148,163,184,.22);border-radius:9px;padding:.42rem .55rem;background:rgba(15,23,42,.65);font-size:.78rem;}
+        .paper-rule-item b{color:#e2e8f0;}
+        .paper-rule-item span{display:inline-block;margin-top:.15rem;color:#94a3b8;font-size:.72rem;}
+        .paper-rule-badge{float:right;border-radius:999px;padding:.07rem .42rem;font-weight:900;font-size:.68rem;}
+        .paper-rule-badge.ok{background:rgba(34,197,94,.16);color:#86efac;border:1px solid rgba(34,197,94,.35);}
+        .paper-rule-badge.bad{background:rgba(239,68,68,.16);color:#fecaca;border:1px solid rgba(239,68,68,.35);}
+        .paper-rule-badge.warn{background:rgba(245,158,11,.16);color:#fde68a;border:1px solid rgba(245,158,11,.35);}
+        .paper-rule-badge.neutral{background:rgba(148,163,184,.14);color:#cbd5e1;border:1px solid rgba(148,163,184,.28);}
+        </style>
+        """, unsafe_allow_html=True)
+        html_rows = []
+        for r in rows:
+            status = str(r.get("Status") or "")
+            html_rows.append(
+                "<div class='paper-rule-item'>"
+                f"<b>{html.escape(str(r.get('Kontrollpunkt') or '-'))}</b>"
+                f"<em class='paper-rule-badge {_rule_css(status)}'>{html.escape(status)}</em>"
+                f"<span>{html.escape(str(r.get('Detalj') or ''))}</span>"
+                "</div>"
+            )
+        st.markdown("<div class='paper-rule-mini'>" + "".join(html_rows) + "</div>", unsafe_allow_html=True)
+        with st.expander("Detaljtabell", expanded=False):
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 
@@ -10354,7 +10478,7 @@ def _paper_trading_active_tab_v18674c() -> str:
 
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
-    st.caption("v18.6.74c: Paper Trading husker fane ved refresh og REVIEW_ONLY lagrer gule flagg i Hypoteser/Test uten å kjøpe.")
+    st.caption("v18.6.74d: Paper Trading husker fane ved refresh, REVIEW_ONLY lagrer gule flagg, og trailing stop følges per posisjon.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     try:
@@ -10677,7 +10801,7 @@ def render_paper_trading_dashboard():
     if active_paper_tab_slug == "regler":
         st.markdown("### ⚙ Trading-regler")
         _render_paper_rule_badges_v1871(_paper_rules)
-        st.caption("Hold/cooldown-regler er synlige her. v18.6.74c skiller hardvalidering, myke regler, manuell overstyring og review_queue.")
+        st.caption("Hold/cooldown-regler er synlige her. v18.6.74d skiller hardvalidering, myke regler, manuell overstyring, review_queue og per-posisjon trailing stop.")
         _render_paper_manual_override_control_v18674a()
         _render_paper_trading_control_toolbar_v1864p()
         render_auto_trading_workspace()
@@ -10685,6 +10809,8 @@ def render_paper_trading_dashboard():
 
     if active_paper_tab_slug == "varsler":
         st.markdown("### 🔔 Varsler")
+        _render_paper_trailing_stop_alerts_v18674d(load_portfolio(), latest_prices)
+        st.divider()
         render_paper_alert_control_workspace_v18611()
         st.markdown("#### 💰 Klar for ekte trading senere")
         st.info("Systemet er strukturert for paper trading med risikoregler. Ekte handel er IKKE aktivert.")
@@ -10872,7 +10998,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", ta
             "tab": str(tab or st.session_state.get("paper_trading_active_tab_slug_v18674c") or st.session_state.get("ai_discovery_active_tab_slug_v18674c") or ""),
             "subtab": str(subtab or st.session_state.get("paper_trading_active_subtab_slug_v18674c") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.74c",
+            "version": "v18.6.74d",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -12729,6 +12855,11 @@ def _paper_control_flags_v1863af(rows, total_value: float):
             flags.append({"ticker": ticker, "nivå": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
         if weight >= 25:
             flags.append({"ticker": ticker, "nivå": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
+        stop_status = str(row.get("stop_status") or "").strip().upper()
+        if stop_status == "STOP UTLØST":
+            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Trailing stop utløst", "forslag": "Kontroller posisjonen og vurder paper-salg."})
+        elif stop_status == "NÆR STOP":
+            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Nær trailing stop", "forslag": "Følg tett; liten kursnedgang kan utløse salgssignal."})
         if not updated:
             flags.append({"ticker": ticker, "nivå": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
     return flags
@@ -12751,6 +12882,8 @@ def _paper_control_learning_points_v1863af(rows, stats, flags):
         points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
     if any((f.get("nivå") or f.get("nivaa")) == "Konsentrasjon" for f in flags):
         points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Stop" for f in flags):
+        points.append("Trailing stop-varsel funnet. Sjekk om exit-regelen beskytter gevinst eller begrenser tap som planlagt.")
     if any((f.get("nivå") or f.get("nivaa")) == "Datakvalitet" for f in flags):
         points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
     return points[:5]
@@ -12806,11 +12939,15 @@ def render_paper_portfolio_control_center_v1863af():
                 action = "Sjekk konsentrasjon"
             else:
                 action = "Hold / overvåk"
+            action = _paper_stop_action_v18674d(row, action)
             control_rows.append({
                 "Ticker": ticker,
                 "Valuta": row.get("currency") or currency_suffix(ticker),
                 "Verdi": round(value, 2),
                 "P/L %": round(pnl_pct, 2),
+                "Stop-status": row.get("stop_status"),
+                "Stop-nivå": row.get("trailing_stop_level"),
+                "Avstand stop %": row.get("trailing_stop_distance_pct"),
                 "Vekt %": round(weight, 1),
                 "Forslag": action,
             })

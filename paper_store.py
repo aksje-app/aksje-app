@@ -62,6 +62,8 @@ def init_db():
         stop_loss REAL,
         take_profit REAL,
         trailing_stop REAL,
+        trailing_stop_level REAL,
+        trailing_stop_pct REAL,
         highest_price REAL,
         confidence INTEGER,
         reason TEXT,
@@ -102,6 +104,8 @@ def init_db():
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trailing_stop REAL;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trailing_stop_level REAL;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trailing_stop_pct REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS confidence INTEGER;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS reason TEXT;",
@@ -221,6 +225,8 @@ def load_portfolio():
         cur.execute("""
             SELECT ticker, shares, COALESCE(entry_price, avg_price) AS entry_price,
                    last_price, stop_loss, take_profit, trailing_stop,
+                   COALESCE(trailing_stop_level, trailing_stop) AS trailing_stop_level,
+                   COALESCE(trailing_stop_pct, 0) AS trailing_stop_pct,
                    highest_price, confidence, reason, opened_at,
                    COALESCE(asset_type, 'Aksje') AS asset_type,
                    COALESCE(units_label, 'shares') AS units_label,
@@ -247,19 +253,21 @@ def load_portfolio():
                 "stop_loss": float(r[4] or 0),
                 "take_profit": float(r[5] or 0),
                 "trailing_stop": float(r[6] or 0),
-                "highest_price": float(r[7] or last),
-                "confidence": int(r[8] or 0),
-                "reason": r[9] or "",
-                "opened_at": r[10] or "",
-                "asset_type": r[11] or "Aksje",
-                "units_label": r[12] or "shares",
-                "currency": r[13] or "",
-                "nav_date": r[14] or "",
-                "purchase_mode": r[15] or "",
-                "country": r[16] or "",
-                "market": r[17] or "",
-                "sector": r[18] or "",
-                "industry": r[19] or "",
+                "trailing_stop_level": float(r[7] or r[6] or 0),
+                "trailing_stop_pct": float(r[8] or 0),
+                "highest_price": float(r[9] or last),
+                "confidence": int(r[10] or 0),
+                "reason": r[11] or "",
+                "opened_at": r[12] or "",
+                "asset_type": r[13] or "Aksje",
+                "units_label": r[14] or "shares",
+                "currency": r[15] or "",
+                "nav_date": r[16] or "",
+                "purchase_mode": r[17] or "",
+                "country": r[18] or "",
+                "market": r[19] or "",
+                "sector": r[20] or "",
+                "industry": r[21] or "",
             }
 
         cur.execute("""
@@ -354,9 +362,9 @@ def save_portfolio(portfolio):
             cur.execute("""
                 INSERT INTO paper_positions
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
-                 trailing_stop, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode,
+                 trailing_stop, trailing_stop_level, trailing_stop_pct, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode,
                  country, market, sector, industry)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 ticker,
                 float(pos.get("shares", 0)),
@@ -365,7 +373,9 @@ def save_portfolio(portfolio):
                 float(pos.get("last_price", 0)),
                 float(pos.get("stop_loss", 0)),
                 float(pos.get("take_profit", 0)),
-                float(pos.get("trailing_stop", 0)),
+                float(pos.get("trailing_stop", pos.get("trailing_stop_level", 0))),
+                float(pos.get("trailing_stop_level", pos.get("trailing_stop", 0))),
+                float(pos.get("trailing_stop_pct", 0)),
                 float(pos.get("highest_price", pos.get("last_price", 0))),
                 int(pos.get("confidence", 0)),
                 pos.get("reason", ""),
@@ -461,7 +471,7 @@ def reset_portfolio(start_cash=100000.0):
             try:
                 storage.write_json(STORAGE_KEY, _merge_portfolio(p))
             except Exception as e:
-                logging.warning("Silenced exception restored in v18.6.74c: %s", e)
+                logging.warning("Silenced exception restored in v18.6.74d: %s", e)
     else:
         save_portfolio(p)
     return p
