@@ -8,11 +8,11 @@ STOP_LOSS_PCT = float(load_rules().get("stop_loss_pct", 7.0)) / 100
 TRAILING_STOP_PCT = float(load_rules().get("trailing_stop_pct", 8.0)) / 100
 
 
-def performance_stats(portfolio=None, latest_prices=None):
+def performance_stats(portfolio=None, latest_prices=None, rules=None):
     portfolio = portfolio or load_portfolio()
-    rules = load_rules()
+    rules = rules or load_rules()
     start_cash = float(rules.get("start_cash", 100000))
-    total = portfolio_value(portfolio, latest_prices or {})
+    total = portfolio_value(portfolio, latest_prices or {}, rules=rules)
     ret = ((total - start_cash) / start_cash * 100) if start_cash else 0
     trades = portfolio.get("trades", [])
     closed = [t for t in trades if t.get("type") == "SELL"]

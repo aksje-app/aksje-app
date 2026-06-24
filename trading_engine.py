@@ -39,7 +39,7 @@ def normalize_manual_override_state(value: Any = "OFF") -> str:
 
     OFF never blocks. FORCE_BLOCK is the only manual state that blocks by itself.
     FORCE_ALLOW may bypass soft paper rules, but hard checks like price, ticker,
-    cash and duplicate stock positions still protect the simulated portfolio.
+    cash and hard validation still protect the simulated portfolio. Existing stock positions can be increased with weighted average price.
     """
     raw = str(value or "OFF").strip().upper().replace(" ", "_").replace("-", "_")
     aliases = {
@@ -91,12 +91,12 @@ def _settings_bool(name, default=False):
         return bool(default)
 
 
-def _position_market_value(portfolio):
+def _position_market_value(portfolio, rules=None):
     """Current market value of open positions using last_price/entry fallback."""
     total = 0.0
     for _ticker, pos in (portfolio or {}).get("positions", {}).items():
         try:
-            normalized = normalize_paper_position(_ticker, pos)
+            normalized = normalize_paper_position(_ticker, pos, rules=rules)
             shares = float(normalized.get("shares", normalized.get("units", 0)) or 0)
             price = float(normalized.get("last_price", normalized.get("entry_price", 0)) or 0)
             total += shares * price
@@ -105,7 +105,7 @@ def _position_market_value(portfolio):
     return round(total, 2)
 
 
-def paper_liquidity_snapshot(portfolio=None, latest_prices=None):
+def paper_liquidity_snapshot(portfolio=None, latest_prices=None, rules=None):
     """Single source of truth for paper cash, exposure and buying power.
 
     Cash/buying_power is the only amount available for new purchases.
@@ -118,7 +118,7 @@ def paper_liquidity_snapshot(portfolio=None, latest_prices=None):
     cost_basis = 0.0
     for ticker, pos in (portfolio or {}).get("positions", {}).items():
         try:
-            normalized = normalize_paper_position(ticker, pos, latest_price=latest_prices.get(ticker))
+            normalized = normalize_paper_position(ticker, pos, latest_price=latest_prices.get(ticker), rules=rules)
             shares = float(normalized.get("shares", normalized.get("units", 0)) or 0)
             entry = float(normalized.get("entry_price", normalized.get("avg_price", 0)) or 0)
             price = float(normalized.get("last_price", entry) or 0)
@@ -146,12 +146,12 @@ def adjusted_score(item, decision):
     return round(base, 2)
 
 
-def portfolio_value(portfolio=None, latest_prices=None):
+def portfolio_value(portfolio=None, latest_prices=None, rules=None):
     portfolio = portfolio or load_portfolio()
     latest_prices = latest_prices or {}
     total = float(portfolio.get("cash", 0))
     for ticker, pos in portfolio.get("positions", {}).items():
-        normalized = normalize_paper_position(ticker, pos, latest_price=latest_prices.get(ticker))
+        normalized = normalize_paper_position(ticker, pos, latest_price=latest_prices.get(ticker), rules=rules)
         total += float(normalized.get("shares", 0)) * float(normalized.get("last_price", 0) or 0)
     return round(total, 2)
 
@@ -446,6 +446,8 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     else:
         amount = min(available_cash, total_value * position_size_pct / 100)
     force_allow = manual_override_state == "FORCE_ALLOW"
+    positions = portfolio.setdefault("positions", {})
+    existing_pos = positions.get(ticker)
     ok, msg = validate_buy_order(
         portfolio,
         ticker=ticker,
@@ -453,8 +455,8 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         amount=amount,
         confidence=int(confidence or 0),
         min_confidence=0 if force_allow else min_buy_confidence,
-        allow_existing=False,
-        max_open_positions=None if force_allow else max_open_positions,
+        allow_existing=True,
+        max_open_positions=None if (force_allow or existing_pos) else max_open_positions,
         max_buys_per_day=None if force_allow else max_trades_per_day,
         safety_mode=_settings_bool("auto_buy_safety_mode", True),
     )
@@ -462,30 +464,69 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "amount": round(float(amount or 0), 2), "reason": msg, "manual_override": manual_override_state}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
     shares = amount / price
-    trailing_pct_for_position = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT)
-    sl, tp, tr = calc_levels(price, price, trailing_stop_pct=trailing_pct_for_position)
+    is_add_to_position = bool(existing_pos)
+    if is_add_to_position:
+        old_shares = float(existing_pos.get("shares", existing_pos.get("units", 0)) or 0)
+        old_avg = float(existing_pos.get("entry_price", existing_pos.get("avg_price", price)) or price)
+        new_shares = old_shares + shares
+        new_avg = ((old_shares * old_avg) + amount) / new_shares if new_shares else price
+        trailing_pct_for_position = position_trailing_stop_pct_v18674d(existing_pos, rules)
+        old_high = float(existing_pos.get("highest_price", existing_pos.get("last_price", old_avg)) or old_avg)
+        existing_last = float(existing_pos.get("last_price", old_avg) or old_avg)
+        highest = max(old_high, existing_last, price, new_avg)
+        sl, tp, tr = calc_levels(new_avg, highest, trailing_stop_pct=trailing_pct_for_position)
+        existing_pos.update({
+            "ticker": ticker,
+            "shares": new_shares,
+            "units": new_shares,
+            "entry_price": round(new_avg, 6),
+            "avg_price": round(new_avg, 6),
+            "last_price": price,
+            "highest_price": highest,
+            "stop_loss": sl,
+            "take_profit": tp,
+            "trailing_stop": tr,
+            "trailing_stop_level": tr,
+            "trailing_stop_pct": trailing_pct_for_position,
+            "confidence": int(confidence or existing_pos.get("confidence", 0) or 0),
+            "reason": reason,
+            "asset_type": "Aksje",
+            "units_label": "shares",
+            "last_added_at": datetime.now().isoformat(timespec="seconds"),
+            "country": trade_ctx.get("country", existing_pos.get("country", "")),
+            "market": trade_ctx.get("market", existing_pos.get("market", "")),
+            "sector": trade_ctx.get("sector", existing_pos.get("sector", "")),
+            "industry": trade_ctx.get("industry", existing_pos.get("industry", "")),
+        })
+        order_kind = "paper_add_to_position"
+        result_label = "PAPER-TILLEGGSKJØP"
+    else:
+        trailing_pct_for_position = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT)
+        sl, tp, tr = calc_levels(price, price, trailing_stop_pct=trailing_pct_for_position)
+        positions[ticker] = {
+            "ticker": ticker, "shares": shares, "entry_price": price, "avg_price": price,
+            "last_price": price, "highest_price": price, "stop_loss": sl,
+            "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_pct_for_position, "confidence": int(confidence or 0), "reason": reason,
+            "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
+            "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
+            "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
+        }
+        order_kind = "paper"
+        result_label = "PAPER-KJØP"
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) - amount, 2)
-    portfolio.setdefault("positions", {})[ticker] = {
-        "ticker": ticker, "shares": shares, "entry_price": price, "avg_price": price,
-        "last_price": price, "highest_price": price, "stop_loss": sl,
-        "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_pct_for_position, "confidence": int(confidence or 0), "reason": reason,
-        "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
-        "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
-        "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
-    }
     add_trade(portfolio, {
         "type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason,
-        "order_kind":"paper", "asset_type": "Aksje",
+        "order_kind":order_kind, "asset_type": "Aksje",
         "manual_override": manual_override_state,
         "manual_override_note": _manual_override_note(manual_override_state),
         "trailing_stop_pct": trailing_pct_for_position,
         **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
     })
     after = build_paper_state_snapshot(portfolio, rules=rules)
-    audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason, "manual_override": manual_override_state})
+    audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason, "manual_override": manual_override_state, "add_to_existing": is_add_to_position})
     notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
-    return True, f"PAPER-KJØP {ticker} @ {price:.2f}"
+    return True, f"{result_label} {ticker} @ {price:.2f}"
 
 
 def paper_sell(ticker, price, reason="SELL signal", trade_context=None):

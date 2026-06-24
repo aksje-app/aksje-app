@@ -86,17 +86,17 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 FUND_ASSET_TYPES_V18674D = {"ETF", "Fond", "Indeksfond", "Aktivt fond", "Rente-/obligasjonsfond", "High yield-fond", "Pengemarkedsfond", "Kombinasjonsfond"}
 
 
-def _paper_rule_float_v18674d(name: str, default: float) -> float:
+def _paper_rule_float_v18674d(name: str, default: float, rules: Mapping[str, Any] | None = None) -> float:
     try:
-        from trading_settings import load_rules
-
-        rules = load_rules() or {}
-        return float(rules.get(name, default) or default)
+        if rules is None:
+            from trading_settings import load_rules
+            rules = load_rules() or {}
+        return float((rules or {}).get(name, default) or default)
     except Exception:
         return float(default)
 
 
-def _position_trailing_pct_v18674d(row: Mapping[str, Any]) -> float:
+def _position_trailing_pct_v18674d(row: Mapping[str, Any], rules: Mapping[str, Any] | None = None) -> float:
     asset_type = str((row or {}).get("asset_type") or "Aksje")
     explicit = _safe_float((row or {}).get("trailing_stop_pct"), -1.0)
     if explicit >= 0:
@@ -104,7 +104,7 @@ def _position_trailing_pct_v18674d(row: Mapping[str, Any]) -> float:
     # Funds/ETF had trailing disabled in earlier versions unless explicitly set.
     if asset_type in FUND_ASSET_TYPES_V18674D:
         return 0.0
-    return _paper_rule_float_v18674d("trailing_stop_pct", 8.0)
+    return _paper_rule_float_v18674d("trailing_stop_pct", 8.0, rules=rules)
 
 
 def _trailing_stop_status_v18674d(*, entry: float, last: float, highest: float, stop_level: float, distance_pct: float, trailing_pct: float) -> str:
@@ -144,6 +144,7 @@ def normalize_paper_position(
     *,
     latest_price: Optional[float] = None,
     updated_at: str = "",
+    rules: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     row = dict(pos or {})
     symbol = str(row.get("ticker") or ticker or "").upper().strip()
@@ -167,9 +168,9 @@ def normalize_paper_position(
     pnl_pct = ((last - entry) / entry * 100.0) if entry else 0.0
     highest = max(_safe_float(row.get("highest_price"), 0.0), last, entry)
 
-    trailing_pct = _position_trailing_pct_v18674d(row)
-    stop_loss_pct = _paper_rule_float_v18674d("stop_loss_pct", 7.0)
-    take_profit_pct = _paper_rule_float_v18674d("take_profit_pct", 12.0)
+    trailing_pct = _position_trailing_pct_v18674d(row, rules=rules)
+    stop_loss_pct = _paper_rule_float_v18674d("stop_loss_pct", 7.0, rules=rules)
+    take_profit_pct = _paper_rule_float_v18674d("take_profit_pct", 12.0, rules=rules)
     existing_stop_loss = _safe_float(row.get("stop_loss"), 0.0)
     existing_take_profit = _safe_float(row.get("take_profit"), 0.0)
     stop_loss_level = existing_stop_loss if existing_stop_loss > 0 else (entry * (1 - stop_loss_pct / 100.0) if entry > 0 else 0.0)
@@ -220,6 +221,7 @@ def normalize_paper_portfolio(
     latest_prices: Mapping[str, Any] | None = None,
     *,
     updated_at: str = "",
+    rules: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     latest_prices = latest_prices or {}
     out = dict(portfolio or {})
@@ -227,15 +229,15 @@ def normalize_paper_portfolio(
     for ticker, pos in (out.get("positions", {}) or {}).items():
         symbol = str(ticker or (pos or {}).get("ticker") or "").upper().strip()
         latest = latest_prices.get(symbol, latest_prices.get(ticker))
-        positions[symbol] = normalize_paper_position(symbol, pos, latest_price=latest, updated_at=updated_at)
+        positions[symbol] = normalize_paper_position(symbol, pos, latest_price=latest, updated_at=updated_at, rules=rules)
     out["positions"] = positions
     out.setdefault("cash", 0.0)
     out.setdefault("trades", [])
     return out
 
 
-def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapping[str, Any] | None = None) -> List[Dict[str, Any]]:
-    normalized = normalize_paper_portfolio(portfolio, latest_prices)
+def paper_position_rows(portfolio: Mapping[str, Any] | None, latest_prices: Mapping[str, Any] | None = None, *, rules: Mapping[str, Any] | None = None) -> List[Dict[str, Any]]:
+    normalized = normalize_paper_portfolio(portfolio, latest_prices, rules=rules)
     rows: List[Dict[str, Any]] = []
     for ticker, pos in normalized.get("positions", {}).items():
         context = _security_context_from_ticker(ticker, pos)
@@ -276,8 +278,9 @@ def paper_position_display_rows(
     latest_prices: Mapping[str, Any] | None = None,
     *,
     total_value: float | None = None,
+    rules: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
-    base_rows = paper_position_rows(portfolio, latest_prices)
+    base_rows = paper_position_rows(portfolio, latest_prices, rules=rules)
     if total_value is None:
         total_value = sum(_safe_float(row.get("value"), 0.0) for row in base_rows)
     out: List[Dict[str, Any]] = []

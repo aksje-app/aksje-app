@@ -9441,7 +9441,7 @@ def _fetch_latest_paper_price_v1863v(ticker: str):
     return None, last_error or "fant ingen pris"
 
 
-def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = False):
+def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = False, rules: dict | None = None):
     positions = (portfolio or {}).get("positions", {}) or {}
     latest_prices = {}
     errors = []
@@ -9453,34 +9453,19 @@ def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = Fals
                 latest_prices[str(ticker).upper()] = price
             else:
                 errors.append(f"{ticker}: {err or 'ingen pris'}")
-    normalized = normalize_paper_portfolio(portfolio, latest_prices, updated_at=updated_at)
-    should_save = bool(fetch_live and latest_prices)
-    if not should_save:
-        for old_ticker, old_pos in positions.items():
-            old_pos = old_pos or {}
-            new_pos = (normalized.get("positions", {}) or {}).get(str(old_ticker).upper(), {}) or {}
-            if _safe_float_v18581(old_pos.get("avg_price"), 0.0) <= 0 and (
-                _safe_float_v18581(old_pos.get("entry_price"), 0.0) > 0
-                or _safe_float_v18581(old_pos.get("last_price"), 0.0) > 0
-            ):
-                should_save = True
-                break
-            # v18.6.74d: persist calculated trailing fields for legacy positions as soon as they are normalized.
-            for field in ("highest_price", "trailing_stop_pct", "trailing_stop", "trailing_stop_level", "trailing_stop_distance_pct", "stop_status"):
-                if field not in old_pos and field in new_pos:
-                    should_save = True
-                    break
-            if should_save:
-                break
-    if should_save:
+    normalized = normalize_paper_portfolio(portfolio, latest_prices, updated_at=updated_at, rules=rules)
+    # v18.6.74e: Never save during ordinary render. Persist only after an
+    # explicit price refresh. stop_status/trailing_stop_distance_pct are display
+    # fields and must not trigger database writes.
+    if fetch_live and latest_prices:
         save_portfolio(normalized)
     return normalized, latest_prices, errors, updated_at
 
 
 
 
-def _paper_trailing_stop_alert_rows_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None) -> list[dict]:
-    rows = paper_position_rows(portfolio or load_portfolio(), latest_prices or {})
+def _paper_trailing_stop_alert_rows_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None, position_rows: list[dict] | None = None, rules: dict | None = None) -> list[dict]:
+    rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio or load_portfolio(), latest_prices or {}, rules=rules)
     alerts = []
     for row in rows:
         status = str(row.get("stop_status") or "").strip().upper()
@@ -9760,8 +9745,8 @@ def _select_paper_position_for_trade_v1863by(ticker: str, price: float, units: f
     )
 
 
-def _render_paper_positions_cards_v1863ac(portfolio, latest_prices):
-    rows = paper_position_rows(portfolio, latest_prices)
+def _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_rows: list[dict] | None = None, rules: dict | None = None):
+    rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio, latest_prices, rules=rules)
     if not rows:
         st.info("Ingen åpne paper trading-posisjoner.")
         return
@@ -9888,8 +9873,8 @@ def _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio=None):
         )
 
 
-def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value):
-    rows = paper_position_rows(portfolio, latest_prices)
+def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value, position_rows: list[dict] | None = None, rules: dict | None = None):
+    rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio, latest_prices, rules=rules)
     flags = _paper_control_flags_v1863af(rows, _safe_float_v18581(total_value, 0.0))
     st.markdown("#### Paper-portefølje kontroll")
     if rows:
@@ -9934,7 +9919,7 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
         with st.expander("Detaljert Paper-portefølje kontroll", expanded=True):
             st.caption("Samme feltfamilie som handelsloggen: tidspunkt/status, ticker, marked, sektor, pris, antall, verdi, P/L, signal og forklaring.")
             st.dataframe(
-                pd.DataFrame(paper_position_display_rows(portfolio, latest_prices, total_value=total_value)),
+                pd.DataFrame(paper_position_display_rows(portfolio, latest_prices, total_value=total_value, rules=rules)),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -10105,7 +10090,7 @@ def _render_paper_manual_override_control_v18674a() -> str:
         st.warning(f"{label}: {detail}")
     else:
         st.success(f"{label}: {detail}")
-    st.caption("v18.6.74d: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
+    st.caption("v18.6.74e: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
     return state
 
 
@@ -10196,7 +10181,7 @@ def _paper_add_review_candidate_v18674c(
         return False, "Beløp må være større enn 0 før kandidaten kan legges i vurdering."
     portfolio = load_portfolio()
     queue = _paper_review_queue_v18674c(portfolio)
-    # v18.6.74d: avoid several identical open yellow flags for the same symbol/type.
+    # v18.6.74e: avoid several identical open yellow flags for the same symbol/type.
     for existing in queue:
         if (
             str(existing.get("symbol") or existing.get("ticker") or "").strip().upper() == symbol
@@ -10362,7 +10347,7 @@ def _paper_buy_decision_rows_v18674a(portfolio: dict, rules: dict, *, ticker: st
     if manual_override == "FORCE_BLOCK":
         rows.append(row("Manuell overstyring", "BLOKKERT", "FORCE_BLOCK er aktiv og stopper kjøp eksplisitt."))
     elif manual_override == "FORCE_ALLOW":
-        rows.append(row("Manuell overstyring", "FORCE_ALLOW", "Myke regler kan overstyres. Pris, ticker, cash og duplikatbeskyttelse beholdes."))
+        rows.append(row("Manuell overstyring", "FORCE_ALLOW", "Myke regler kan overstyres. Pris, ticker og cash beholdes som hardvalidering. Eksisterende aksjeposisjon økes i samme linje."))
     elif manual_override == "REVIEW_ONLY":
         rows.append(row("Manuell overstyring", "REVIEW_ONLY", "Kjøp gjennomføres ikke. Kandidaten legges i Gule flagg / Manuell vurdering."))
     else:
@@ -10373,13 +10358,20 @@ def _paper_buy_decision_rows_v18674a(portfolio: dict, rules: dict, *, ticker: st
     rows.append(row("Beløp", "OK" if amount_f > 0 else "BLOKKERT", f"{amount_f:,.0f}" if amount_f > 0 else "Beløp må være større enn 0"))
     rows.append(row("Cash/kjøpekraft", "OK" if cash >= amount_f and amount_f > 0 else "BLOKKERT", f"Cash {cash:,.0f} mot kjøp {amount_f:,.0f}"))
     duplicate = bool(ticker_clean and ticker_clean in positions)
-    rows.append(row("Eksisterende aksjeposisjon", "BLOKKERT" if duplicate else "OK", f"{ticker_clean} finnes allerede" if duplicate else "Ingen duplikat for aksjekjøp"))
+    if duplicate:
+        existing = positions.get(ticker_clean, {}) or {}
+        existing_units = _safe_float_v18581(existing.get("shares", existing.get("units", 0)), 0.0)
+        existing_avg = _safe_float_v18581(existing.get("avg_price", existing.get("entry_price", 0)), 0.0)
+        rows.append(row("Eksisterende aksjeposisjon", "ØK BEHOLDNING", f"{ticker_clean} finnes allerede: {existing_units:,.4f} stk, snitt {existing_avg:,.2f}. Nytt kjøp legges til samme posisjon."))
+    else:
+        rows.append(row("Eksisterende aksjeposisjon", "OK", "Ny aksjeposisjon"))
 
     soft_override = manual_override == "FORCE_ALLOW"
     conf_ok = int(confidence or 0) >= min_conf
     rows.append(row("Min confidence", "OVERSTYRT" if soft_override and not conf_ok else ("OK" if conf_ok else "BLOKKERT"), f"{int(confidence or 0)} mot min {min_conf}"))
-    max_open_ok = (not max_open) or len(positions) < max_open
-    rows.append(row("Maks åpne posisjoner", "OVERSTYRT" if soft_override and not max_open_ok else ("OK" if max_open_ok else "BLOKKERT"), f"{len(positions)} av {max_open or '-'} brukt"))
+    max_open_ok = (not max_open) or len(positions) < max_open or duplicate
+    max_open_detail = (f"{len(positions)} av {max_open or '-'} brukt" + (" · eksisterende posisjon, øker ikke antall åpne linjer" if duplicate else ""))
+    rows.append(row("Maks åpne posisjoner", "OVERSTYRT" if soft_override and not max_open_ok else ("OK" if max_open_ok else "BLOKKERT"), max_open_detail))
     buys_ok = (not max_trades) or buys_today < max_trades
     rows.append(row("Kjøp i dag", "OVERSTYRT" if soft_override and not buys_ok else ("OK" if buys_ok else "BLOKKERT"), f"{buys_today} av {max_trades or '-'}"))
     rows.append(row("Stop-loss cooldown", "SJEKKES", "Sjekkes av paper-motoren ved trykk på kjøp. FORCE_ALLOW kan overstyre denne myke regelen." if soft_override else "Sjekkes av paper-motoren ved trykk på kjøp."))
@@ -10410,7 +10402,7 @@ def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, 
             return "ok"
         if status in {"BLOKKERT", "MANGLER", "FORCE_BLOCK"}:
             return "bad"
-        if status in {"OVERSTYRT", "FORCE_ALLOW", "REVIEW_ONLY", "SJEKKES"}:
+        if status in {"OVERSTYRT", "FORCE_ALLOW", "REVIEW_ONLY", "SJEKKES", "ØK BEHOLDNING"}:
             return "warn"
         return "neutral"
 
@@ -10478,14 +10470,9 @@ def _paper_trading_active_tab_v18674c() -> str:
 
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
-    st.caption("v18.6.74d: Paper Trading husker fane ved refresh, REVIEW_ONLY lagrer gule flagg, og trailing stop følges per posisjon.")
+    st.caption("v18.6.74e: Paper Trading husker fane ved refresh, REVIEW_ONLY lagrer gule flagg, og trailing stop følges per posisjon.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
-    try:
-        paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
-    except Exception:
-        paper_flow_rows = []
-
     portfolio = load_portfolio()
     _paper_rules = load_rules()
 
@@ -10497,7 +10484,7 @@ def render_paper_trading_dashboard():
     with status_cols[2]:
         st.markdown("<div class='v18-dark-row'><b>Simulert handel.</b> Ingen ordre sendes til broker.</div>", unsafe_allow_html=True)
 
-    portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=bool(refresh_prices))
+    portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=bool(refresh_prices), rules=_paper_rules)
     if refresh_prices:
         st.session_state["paper_price_refresh_status_v1863v"] = {"time": refreshed_at, "updated": len(refreshed_prices), "errors": refresh_errors[:8]}
     refresh_status = st.session_state.get("paper_price_refresh_status_v1863v") or {}
@@ -10507,9 +10494,11 @@ def render_paper_trading_dashboard():
             st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(refresh_status.get("errors", [])[:5]))
 
     latest_prices = {ticker: pos.get("last_price", pos.get("avg_price", pos.get("entry_price", 0))) for ticker, pos in (portfolio.get("positions", {}) or {}).items()}
-    total_value = portfolio_value(portfolio, latest_prices)
-    liq = paper_liquidity_snapshot(portfolio, latest_prices)
-    stats = performance_stats(portfolio, latest_prices)
+    # v18.6.74e: build position rows once for this render and reuse in Portefølje/Varsler/cards.
+    paper_position_rows_cache = paper_position_rows(portfolio, latest_prices, rules=_paper_rules)
+    total_value = portfolio_value(portfolio, latest_prices, rules=_paper_rules)
+    liq = paper_liquidity_snapshot(portfolio, latest_prices, rules=_paper_rules)
+    stats = performance_stats(portfolio, latest_prices, rules=_paper_rules)
 
     render_compact_stat_grid([
         ("Cash/kjøpekraft", _format_nok_no_decimals_v1827(liq.get('buying_power', portfolio.get('cash', 0)))),
@@ -10577,6 +10566,14 @@ def render_paper_trading_dashboard():
                         unsafe_allow_html=True,
                     )
                     manual_override = _render_paper_manual_override_readonly_v18674a()
+                    existing_stock_pos = (portfolio.get("positions", {}) or {}).get(stock_symbol)
+                    if existing_stock_pos:
+                        old_units = _safe_float_v18581(existing_stock_pos.get("shares", existing_stock_pos.get("units", 0)), 0.0)
+                        old_avg = _safe_float_v18581(existing_stock_pos.get("avg_price", existing_stock_pos.get("entry_price", 0)), 0.0)
+                        add_units = estimated_stock_shares
+                        new_units = old_units + add_units
+                        new_avg = (((old_units * old_avg) + float(stock_amount or 0.0)) / new_units) if new_units else old_avg
+                        st.info(f"Eksisterende posisjon funnet: {stock_symbol}. Kjøpet vil øke beholdningen fra {old_units:,.4f} til ca. {new_units:,.4f} aksjer. Estimert ny snittkurs: {new_avg:,.2f}.")
                     _render_paper_buy_decision_context_v18674a(
                         portfolio,
                         _paper_rules,
@@ -10590,7 +10587,12 @@ def render_paper_trading_dashboard():
                     with a1:
                         st.button("🔎 Hent kurs", key="paper_stock_fetch_price_v1871", use_container_width=True, on_click=_paper_fetch_stock_price_v1863z)
                     with a2:
-                        buy_stock_label_v18674c = "🟡 LEGG TIL VURDERING" if _paper_manual_override_state_v18674a() == "REVIEW_ONLY" else "🟢 PAPER-KJØP"
+                        if _paper_manual_override_state_v18674a() == "REVIEW_ONLY":
+                            buy_stock_label_v18674c = "🟡 LEGG TIL VURDERING"
+                        elif stock_symbol and stock_symbol in (portfolio.get("positions", {}) or {}):
+                            buy_stock_label_v18674c = "🟢 ØK BEHOLDNING"
+                        else:
+                            buy_stock_label_v18674c = "🟢 PAPER-KJØP"
                         buy_stock_clicked = st.button(buy_stock_label_v18674c, key="paper_stock_buy_v1871", type="primary", use_container_width=True)
                     _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
                     if buy_stock_clicked:
@@ -10754,7 +10756,7 @@ def render_paper_trading_dashboard():
 
     if active_paper_tab_slug == "portefolje":
         st.markdown("### 📊 Portefølje")
-        _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value)
+        _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value, position_rows=paper_position_rows_cache, rules=_paper_rules)
         _render_manual_paper_nav_update_v18621(portfolio)
         with st.expander("Juster startverdier / porteføljeverdi", expanded=False):
             c_start, c_value = st.columns(2)
@@ -10788,7 +10790,7 @@ def render_paper_trading_dashboard():
                     st.rerun()
         st.markdown("#### Åpne posisjoner")
         if portfolio.get("positions", {}):
-            _render_paper_positions_cards_v1863ac(portfolio, latest_prices)
+            _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_rows=paper_position_rows_cache, rules=_paper_rules)
         else:
             st.info("Ingen åpne paper trading-posisjoner.")
         st.markdown("#### Handelslogg")
@@ -10801,7 +10803,7 @@ def render_paper_trading_dashboard():
     if active_paper_tab_slug == "regler":
         st.markdown("### ⚙ Trading-regler")
         _render_paper_rule_badges_v1871(_paper_rules)
-        st.caption("Hold/cooldown-regler er synlige her. v18.6.74d skiller hardvalidering, myke regler, manuell overstyring, review_queue og per-posisjon trailing stop.")
+        st.caption("Hold/cooldown-regler er synlige her. v18.6.74e skiller hardvalidering, myke regler, manuell overstyring, review_queue og per-posisjon trailing stop.")
         _render_paper_manual_override_control_v18674a()
         _render_paper_trading_control_toolbar_v1864p()
         render_auto_trading_workspace()
@@ -10809,7 +10811,7 @@ def render_paper_trading_dashboard():
 
     if active_paper_tab_slug == "varsler":
         st.markdown("### 🔔 Varsler")
-        _render_paper_trailing_stop_alerts_v18674d(load_portfolio(), latest_prices)
+        _render_paper_trailing_stop_alerts_v18674d(portfolio, latest_prices, position_rows=paper_position_rows_cache, rules=_paper_rules)
         st.divider()
         render_paper_alert_control_workspace_v18611()
         st.markdown("#### 💰 Klar for ekte trading senere")
@@ -10820,6 +10822,10 @@ def render_paper_trading_dashboard():
         st.caption("Inkommende paper-hypoteser, testgrunnlag og gule flagg ligger her for å redusere støy i Handel-fanen.")
         _render_paper_review_queue_v18674c(load_portfolio(), _paper_rules)
         st.divider()
+        try:
+            paper_flow_rows = _pipeline_input_rows_from_package_v1864h(_analysis_pipeline_service_v1863bw().load_stage_input("paper_trading"))
+        except Exception:
+            paper_flow_rows = []
         _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio)
 
 def render_ipo():
@@ -10998,7 +11004,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", ta
             "tab": str(tab or st.session_state.get("paper_trading_active_tab_slug_v18674c") or st.session_state.get("ai_discovery_active_tab_slug_v18674c") or ""),
             "subtab": str(subtab or st.session_state.get("paper_trading_active_subtab_slug_v18674c") or ""),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.74d",
+            "version": "v18.6.74e",
         }
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -12836,9 +12842,9 @@ def _paper_control_latest_prices_v1863af(portfolio):
     return latest_prices
 
 
-def _paper_control_rows_v1863af(portfolio):
+def _paper_control_rows_v1863af(portfolio, rules: dict | None = None):
     latest_prices = _paper_control_latest_prices_v1863af(portfolio)
-    return paper_position_rows(portfolio, latest_prices), latest_prices
+    return paper_position_rows(portfolio, latest_prices, rules=rules), latest_prices
 
 
 def _paper_control_flags_v1863af(rows, total_value: float):

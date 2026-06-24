@@ -1,6 +1,6 @@
 """Global navigation/query-state helpers for AI Aksje Analyzer Pro.
 
-v18.6.74d goal:
+v18.6.74e goal:
 - Browser refresh/F5 should restore current main area, panel and inner tab across all main panels.
 - Existing remember_token and other query parameters must be preserved.
 - Query parameters are additive: aa_nav, aa_group, aa_panel, aa_tab, aa_subtab.
@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 QUERY_KEYS_V18674C = ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab")
-SESSION_KEYS_V18674D = ("active_nav_target_v18674c", "ai_control_center_group_v1863aj", "ai_control_center_active_panel_v1863aj", "paper_trading_active_tab_slug_v18674c", "ai_discovery_active_tab_slug_v18674c")
+SESSION_KEYS_V18674E = ("active_nav_target_v18674c", "ai_control_center_group_v1863aj", "ai_control_center_active_panel_v1863aj", "paper_trading_active_tab_slug_v18674c", "ai_discovery_active_tab_slug_v18674c")
 
 
 def _plain_query_params(st) -> dict[str, str]:
@@ -50,7 +50,12 @@ def set_global_navigation_state(
     tab: Any | None = None,
     subtab: Any | None = None,
 ) -> None:
-    """Set only our navigation query keys and preserve remember_token/other keys."""
+    """Set only our navigation query keys and preserve remember_token/other keys.
+
+    v18.6.74e: Do not write query params when they already have the same
+    values. Streamlit reruns on query-param writes, so repeated no-op writes can
+    make the app feel slow.
+    """
     updates = {
         "aa_nav": nav,
         "aa_group": group,
@@ -59,12 +64,29 @@ def set_global_navigation_state(
         "aa_subtab": subtab,
     }
     try:
+        current = _plain_query_params(st)
+        changed = False
         for key, value in updates.items():
             if value is None:
                 continue
             value_s = str(value or "").strip()
+            current_s = str(current.get(key, "") or "").strip()
+            if value_s and current_s != value_s:
+                changed = True
+                break
+            if not value_s and key in current:
+                changed = True
+                break
+        if not changed:
+            return
+        for key, value in updates.items():
+            if value is None:
+                continue
+            value_s = str(value or "").strip()
+            current_s = str(current.get(key, "") or "").strip()
             if value_s:
-                st.query_params[key] = value_s
+                if current_s != value_s:
+                    st.query_params[key] = value_s
             else:
                 if key in st.query_params:
                     del st.query_params[key]
