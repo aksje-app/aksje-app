@@ -8,6 +8,7 @@ if _render_root not in _render_sys.path:
 
 # BANNER_SAFE_PRO_V7
 from ui_components import market_pulse, top_movers
+from ui_library import inject_design_system
 import os
 import re
 import json
@@ -143,6 +144,7 @@ from security_metadata import resolve_security_metadata, display_label, fund_dis
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+inject_design_system(st)  # v18.6.83 shared UI design system
 
 
 # v18.6.65: Global Compact UI. Reduserer overbrede input-/parameterbokser globalt.

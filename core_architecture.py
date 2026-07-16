@@ -334,20 +334,26 @@ def system_health_snapshot() -> Dict[str, Any]:
 def render_system_health_dashboard() -> None:
     import streamlit as st
     from performance_monitor import snapshot as performance_snapshot
+    from ui_library import compact_status_grid, kpi_row, page_header, render_table, section_header
 
     data = system_health_snapshot()
     perf = performance_snapshot()
-    st.subheader("System Health")
-    st.caption("Samlet helsesjekk for runtime, storage, tjenester, scheduler og ytelse. Ingen tradinglogikk endres her.")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Status", data["overall"])
-    c2.metric("RAM", f"{data['memory'].get('rss_mb')} MB" if data['memory'].get('rss_mb') is not None else "Ukjent")
-    c3.metric("Reruns", perf.get("reruns", 0))
+    page_header(st, "System Health", "Runtime, storage, tjenester, scheduler og ytelse. Panelet endrer ikke tradinglogikk.")
     slowest = (perf.get("panel_summary") or [{}])[0]
-    c4.metric("Tregeste panel", slowest.get("Panel", "-"), f"{slowest.get('Snitt ms', 0)} ms" if slowest else None)
-    st.dataframe(data["checks"], use_container_width=True, hide_index=True)
+    kpi_row(st, [
+        {"label": "Status", "value": data["overall"]},
+        {"label": "RAM", "value": f"{data['memory'].get('rss_mb')} MB" if data['memory'].get('rss_mb') is not None else "Ukjent"},
+        {"label": "Reruns", "value": perf.get("reruns", 0)},
+        {"label": "Tregeste panel", "value": slowest.get("Panel", "-"), "delta": f"{slowest.get('Snitt ms', 0)} ms" if slowest else ""},
+    ], columns=4)
+    compact_status_grid(st, [
+        {"label": row.get("component"), "value": row.get("status"), "tone": {"GREEN": "success", "YELLOW": "warning", "RED": "danger"}.get(row.get("status"), "neutral")}
+        for row in data["checks"]
+    ])
+    section_header(st, "Detaljert helsesjekk")
+    render_table(st, data["checks"])
     with st.expander("Scheduler", expanded=False):
-        st.dataframe(data["scheduler"], use_container_width=True, hide_index=True)
+        render_table(st, data["scheduler"])
     with st.expander("Registrerte tjenester og hendelser", expanded=False):
         st.write({"services": get_services().names()})
-        st.dataframe(data["recent_events"], use_container_width=True, hide_index=True)
+        render_table(st, data["recent_events"])
