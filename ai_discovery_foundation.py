@@ -14,6 +14,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from storage_architecture import runtime_data_path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
@@ -21,7 +22,7 @@ try:
 except Exception:  # pragma: no cover
     pd = None  # type: ignore
 
-DATA_DIR = Path("data") / "ai_discovery"
+DATA_DIR = runtime_data_path("ai_discovery")
 DB_PATH = DATA_DIR / "ai_discovery.db"
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 REPORT_DIR = DATA_DIR / "reports"

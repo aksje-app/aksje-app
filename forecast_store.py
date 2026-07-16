@@ -19,13 +19,14 @@ import json
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from storage_architecture import runtime_data_path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from forecast_engine import build_all_horizons, SUPPORTED_HORIZONS
 
 
-DATA_DIR = Path("data")
-FORECAST_DIR = DATA_DIR / "forecasts"
+DATA_DIR = runtime_data_path()
+FORECAST_DIR = runtime_data_path("forecasts")
 FORECAST_LOG = FORECAST_DIR / "forecast_log.jsonl"
 FORECAST_ALERTS = FORECAST_DIR / "forecast_alerts.jsonl"
 

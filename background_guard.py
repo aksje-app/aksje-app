@@ -14,12 +14,13 @@ Cache:
 """
 
 from pathlib import Path
+from storage_architecture import runtime_cache_path
 from datetime import datetime, timedelta, timezone
 import pickle
 
 from market_hours import market_status, ticker_market, open_markets
 
-CACHE_DIR = Path("cache")
+CACHE_DIR = runtime_cache_path("background_guard")
 CACHE_FILE = CACHE_DIR / "score_stock_cache.pkl"
 DEFAULT_CACHE_MAX_HOURS = 72
 _MEMORY_CACHE = None

@@ -69,7 +69,13 @@ zip_stage*/
 *_changed_files_only.zip
 *_qa.png
 
-# Runtime-data
-storage/performance_metrics*.json
-storage/runtime/
-storage/cache/
+# v18.6.77 central runtime root (never commit mutable application state)
+.app_runtime/**
+!.app_runtime/
+!.app_runtime/.gitkeep
+runtime_data/**
+local_runtime/**
+
+# Generated runtime backups and diagnostics
+runtime_backup_*.zip
+runtime_manifest.json

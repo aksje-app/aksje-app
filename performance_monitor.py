@@ -5,9 +5,11 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+
+from storage_architecture import runtime_data_path
 from typing import Any, Dict, List
 
-_METRICS_PATH = Path('storage/performance_metrics_v18676.json')
+_METRICS_PATH = runtime_data_path('metrics', 'performance_metrics.json')
 _SESSION: Dict[str, Any] = {'render_times': [], 'api_calls': {}, 'cache': {'hit': 0, 'miss': 0}, 'reruns': 0}
 
 
