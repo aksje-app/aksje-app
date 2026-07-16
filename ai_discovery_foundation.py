@@ -36,6 +36,7 @@ AI_DISCOVERY_TAB_OPTIONS_V18674C = {
     "Signal Discovery": "signal_discovery",
     "Learning Foundation": "learning_foundation",
     "Discovery Analytics": "discovery_analytics",
+    "Strategy Optimization": "strategy_optimization",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -668,6 +669,13 @@ def render_ai_discovery_foundation_panel() -> None:
             render_ai_discovery_analytics_tab()
         except Exception as exc:
             st.error(f"Discovery Analytics kunne ikke lastes: {exc}")
+
+    if active_ai_disc_tab == "strategy_optimization":
+        try:
+            from ai_strategy_optimization import render_ai_strategy_optimization_tab
+            render_ai_strategy_optimization_tab()
+        except Exception as exc:
+            st.error(f"Strategy Optimization kunne ikke lastes: {exc}")
 
     if active_ai_disc_tab == "signal_discovery":
         signal_discovery_renderer, signal_discovery_error = _load_signal_discovery_renderer_v18674a()

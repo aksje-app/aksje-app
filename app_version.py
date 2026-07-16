@@ -1,5 +1,5 @@
-APP_VERSION = "v18.6.83"
-APP_VERSION_NAME = "UI Component Library & Final Cleanup"
+APP_VERSION = "v18.6.84"
+APP_VERSION_NAME = "AI Assisted Strategy Optimization"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
