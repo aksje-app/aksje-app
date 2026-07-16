@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.79"
-APP_VERSION_NAME = "AI Discovery Analytics & Intelligence"
+APP_VERSION = "v18.6.80"
+APP_VERSION_NAME = "Core Architecture & Code Quality"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.80: Core Architecture & Code Quality: typed AppState, EventBus, ServiceContainer, SchedulerRegistry, standardisert runtime-logging, System Health-panel, statisk architecture audit og enhetstestgrunnlag. Eksisterende tradinglogikk er ikke endret.",
     "v18.6.79: AI Discovery Analytics & Intelligence: observerende dashboard med signal/marked/sektor-leaderboards, signalhelse, confidence- og holdingtidsanalyse, strategi/exit-sammenligning, replay, ukesrapport og ikke-autonome anbefalinger. Automatisk optimalisering og regelendring er fortsatt AV.",
     "v18.6.78: Paper Trading Professional: delvise salg, målpris, planlagt risikobeløp og R-multiple, kapitalbinding, exit-prioritet, posisjonskort og passiv exit-simulering. Ingen ekte handel eller autonom strategiendring er aktivert.",
     "v18.6.76: Performance & Explainability: global panelprofilering med render-tider, rerun-teller, cache/API-metrikk og eget Performance Dashboard. Paper Trading lagrer strukturert Explain AI-grunnlag for kjøp og salg i audit/replay uten å endre handelsregler.",

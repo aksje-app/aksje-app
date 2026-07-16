@@ -55,6 +55,8 @@ from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
 
 from performance_monitor import measure as perf_measure, mark_rerun, render_performance_dashboard
+from core_architecture import initialize_core_runtime, render_system_health_dashboard
+initialize_core_runtime()  # v18.6.80 shared architecture runtime
 mark_rerun()  # v18.6.76 performance counter
 from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
@@ -19227,6 +19229,7 @@ def control_center_extra_panels_v18535():
         ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
         ("System/admin", lambda: render_system_admin_workspace(expanded=True)),
         ("Performance Dashboard", render_performance_dashboard),
+        ("System Health", render_system_health_dashboard),
     ]
 
 _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
