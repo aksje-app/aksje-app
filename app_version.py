@@ -1,9 +1,9 @@
-APP_VERSION = "v18.6.77"
-APP_VERSION_NAME = "Storage & Data Architecture"
+APP_VERSION = "v18.6.78"
+APP_VERSION_NAME = "Paper Trading Professional"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
-    "v18.6.77: Storage & Data Architecture: sentral APP_RUNTIME_ROOT-layout skiller runtime-data, cache, logger, backup og temp fra Git-sporet kode/config/dokumentasjon; StorageService og nøkkelmoduler bruker felles runtime-stier; backup/restore/migreringsverktøy og strengere .gitignore er lagt til.",
+    "v18.6.78: Paper Trading Professional: delvise salg, målpris, planlagt risikobeløp og R-multiple, kapitalbinding, exit-prioritet, posisjonskort og passiv exit-simulering. Ingen ekte handel eller autonom strategiendring er aktivert.",
     "v18.6.76: Performance & Explainability: global panelprofilering med render-tider, rerun-teller, cache/API-metrikk og eget Performance Dashboard. Paper Trading lagrer strukturert Explain AI-grunnlag for kjøp og salg i audit/replay uten å endre handelsregler.",
     "v18.6.75: AI Learning Foundation + Alert/Lifecycle Repair: valutavarsler kjører i bakgrunnsscanner uavhengig av børsåpning og gjentar brudd etter cooldown; Paper Trading beskytter nye posisjoner mot raske signal-flip SELL/AVOID med minimum holdetid, mens harde risikoutganger beholdes; AI Discovery får passiv Learning Queue, Trade Outcomes, Signal Scorecard, Confidence Calibration, Exit Analytics og Audit/Replay uten automatisk regelendring.",
     "v18.6.74e: Performance + Existing Position Repair: skjult save_portfolio ved vanlig Paper Trading-visning er stoppet, trailing stop-status/avstand beregnes kun i visningen, trading-regler/posisjonsrader gjenbrukes i samme render, Hypoteser/Test lazy-loader paper-flow først når fanen åpnes, URL-state skrives ikke ved no-op, og aksjekjøp kan nå øke eksisterende posisjon med vektet snittkurs.",

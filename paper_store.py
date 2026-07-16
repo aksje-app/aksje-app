@@ -121,6 +121,8 @@ def init_db():
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS market TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS sector TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS industry TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS target_price REAL;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS initial_risk_amount REAL;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS confidence INTEGER;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;",
@@ -236,7 +238,9 @@ def load_portfolio():
                    COALESCE(country, '') AS country,
                    COALESCE(market, '') AS market,
                    COALESCE(sector, '') AS sector,
-                   COALESCE(industry, '') AS industry
+                   COALESCE(industry, '') AS industry,
+                   COALESCE(target_price, 0) AS target_price,
+                   COALESCE(initial_risk_amount, 0) AS initial_risk_amount
             FROM paper_positions
             ORDER BY ticker
         """)
@@ -268,6 +272,8 @@ def load_portfolio():
                 "market": r[19] or "",
                 "sector": r[20] or "",
                 "industry": r[21] or "",
+                "target_price": float(r[22] or 0),
+                "initial_risk_amount": float(r[23] or 0),
             }
 
         cur.execute("""
@@ -363,8 +369,8 @@ def save_portfolio(portfolio):
                 INSERT INTO paper_positions
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
                  trailing_stop, trailing_stop_level, trailing_stop_pct, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode,
-                 country, market, sector, industry)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 country, market, sector, industry, target_price, initial_risk_amount)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 ticker,
                 float(pos.get("shares", 0)),
@@ -389,6 +395,8 @@ def save_portfolio(portfolio):
                 pos.get("market", ""),
                 pos.get("sector", ""),
                 pos.get("industry", ""),
+                float(pos.get("target_price", 0) or 0),
+                float(pos.get("initial_risk_amount", 0) or 0),
             ))
 
         conn.commit()

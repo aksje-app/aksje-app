@@ -13,6 +13,7 @@ except Exception:
 from paper_store import load_portfolio, save_portfolio, add_trade
 from paper_trading_valuation import normalize_paper_position, paper_reason_label
 from explainability import explain_buy_decision, explain_sell_decision
+from paper_trading_professional import exit_priority_decision
 
 try:
     from state_audit import build_paper_state_snapshot, validate_buy_order, audit_state_transition
@@ -396,7 +397,7 @@ def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
 
 
 
-def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF"):
+def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF", target_price=None, initial_risk_amount=None):
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
     max_trades_per_day = int(rules.get("max_trades_per_day", 3))
@@ -490,11 +491,15 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "trailing_stop": tr,
             "trailing_stop_level": tr,
             "trailing_stop_pct": trailing_pct_for_position,
+        "target_price": float(target_price or 0),
+        "initial_risk_amount": float(initial_risk_amount or 0),
             "confidence": int(confidence or existing_pos.get("confidence", 0) or 0),
             "reason": reason,
             "asset_type": "Aksje",
             "units_label": "shares",
             "last_added_at": datetime.now().isoformat(timespec="seconds"),
+            "target_price": float(target_price or existing_pos.get("target_price", 0) or 0),
+            "initial_risk_amount": float(initial_risk_amount or existing_pos.get("initial_risk_amount", 0) or 0),
             "country": trade_ctx.get("country", existing_pos.get("country", "")),
             "market": trade_ctx.get("market", existing_pos.get("market", "")),
             "sector": trade_ctx.get("sector", existing_pos.get("sector", "")),
@@ -510,6 +515,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "last_price": price, "highest_price": price, "stop_loss": sl,
             "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_pct_for_position, "confidence": int(confidence or 0), "reason": reason,
             "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
+            "target_price": float(target_price or 0), "initial_risk_amount": float(initial_risk_amount or 0),
             "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
             "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
         }
@@ -531,7 +537,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     return True, f"{result_label} {ticker} @ {price:.2f}"
 
 
-def paper_sell(ticker, price, reason="SELL signal", trade_context=None):
+def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct=100.0, sell_shares=None):
     portfolio = load_portfolio()
     before = build_paper_state_snapshot(portfolio)
     ticker = str(ticker).upper()
@@ -547,25 +553,43 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None):
     reason = paper_reason_label(reason, "SELL") or "PAPER-SALG"
     trade_ctx = _merge_trade_context(ticker, trade_context, source=pos)
     normalized_pos = normalize_paper_position(ticker, pos, latest_price=price)
-    shares = float(normalized_pos.get("shares", 0))
+    total_shares = float(normalized_pos.get("shares", 0))
     entry = float(normalized_pos.get("entry_price", normalized_pos.get("avg_price", price)))
+    if sell_shares is not None:
+        shares = min(total_shares, max(0.0, float(sell_shares)))
+    else:
+        pct = min(100.0, max(0.0, float(sell_pct or 100.0)))
+        shares = total_shares * pct / 100.0
+    if shares <= 0:
+        return False, "Salgsantall må være større enn 0"
     amount = shares * price
     pnl_pct = ((price-entry)/entry*100) if entry else 0
     trade_ctx["trade_explanation"] = _default_trade_explanation("SELL", reason, trade_ctx)
     trade_ctx["explain_ai"] = explain_sell_decision(reason, trade_ctx)
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
-    del portfolio["positions"][ticker]
+    remaining_shares = max(0.0, total_shares - shares)
+    is_partial = remaining_shares > 1e-9
+    if is_partial:
+        pos["shares"] = remaining_shares
+        pos["units"] = remaining_shares
+        pos["last_price"] = price
+        pos["last_partial_sell_at"] = datetime.now().isoformat(timespec="seconds")
+        portfolio["positions"][ticker] = pos
+    else:
+        del portfolio["positions"][ticker]
     add_trade(portfolio, {
         "type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0),
-        "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper",
+        "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper_partial_sell" if is_partial else "paper",
+        "sell_pct": round((shares / total_shares * 100.0) if total_shares else 100.0, 2),
+        "remaining_shares": round(remaining_shares, 6),
         "asset_type": pos.get("asset_type", "Aksje"),
         **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
     notify_executed_trade("SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason)
-    return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
+    return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)" + (f" - {shares:.4f} solgt, {remaining_shares:.4f} gjenstår" if is_partial else "")
 
 
 def _auto_sell_hold_guard_v18675(pos, rules, reason_kind="signal"):
@@ -629,6 +653,14 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
                 "rule_limit": _format_pct(-trailing_stop_pct),
                 "measured_value": _format_pct(drop_from_high),
                 "trade_explanation": f"Solgt fordi kursen falt {abs(drop_from_high):.2f}% fra topp etter at posisjonen hadde vaert i pluss.",
+            })
+        target_price = float(pos.get("target_price", 0) or 0)
+        if target_price > 0 and price >= target_price:
+            return paper_sell(ticker, price, f"Target price {pnl_pct:.2f}%", {
+                "rule_used": "Target price",
+                "rule_limit": f"{target_price:.2f}",
+                "measured_value": f"{price:.2f}",
+                "trade_explanation": f"Solgt fordi målpris {target_price:.2f} ble nådd.",
             })
         try:
             current_rsi = float(rsi) if rsi is not None else None

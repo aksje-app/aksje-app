@@ -85,6 +85,7 @@ from backtest_strategy import run_monthly_score_strategy, add_stats
 from ipo import get_ipo_calendar, get_nordic_ipo_calendar, get_rumored_ipo_watchlist
 from news import get_news, simple_finance_sentiment
 from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument, paper_liquidity_snapshot, normalize_manual_override_state
+from paper_trading_professional import position_professional_metrics, portfolio_professional_summary, exit_simulation
 from strategy_engine import run_strategy, strategy_stats, optimize_strategy
 from strategy_test_pro import render_strategy_test_pro
 from signal_engine import calculate_signal_intelligence
@@ -9801,6 +9802,10 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_row
                 <span>Stop-nivå <b>{row.get('trailing_stop_level')}</b></span>
                 <span>Avstand stop <b>{row.get('trailing_stop_distance_pct')}%</b></span>
                 <span>Stop-status <b>{html.escape(str(row.get('stop_status') or '-'))}</b></span>
+                <span>Målpris <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('target_price')}</b></span>
+                <span>R-multiple <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('r_multiple')}R</b></span>
+                <span>Kapitalbinding <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('capital_binding_pct')}%</b></span>
+                <span>Holdt <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('holding_days')} d</b></span>
                 <span>Verdi <b>{float(row.get('value') or 0):,.2f}</b></span>
                 <span>Land <b>{html.escape(str(row.get('land') or '-'))}</b></span>
                 <span>Marked <b>{html.escape(str(row.get('marked') or '-'))}</b></span>
@@ -10555,6 +10560,11 @@ def render_paper_trading_dashboard():
                         stock_price = st.number_input("Kjøpspris", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_price_input_v1863y", 0.0) or 0.0), step=0.01, key="paper_stock_price_input_v1863y")
                     with r1c:
                         stock_amount = st.number_input("Beløp", min_value=0, max_value=10_000_000, value=int(st.session_state.get("paper_stock_amount_input_v18615", 10000) or 0), step=500, key="paper_stock_amount_input_v18615")
+                    pr1, pr2 = st.columns(2, gap="small")
+                    with pr1:
+                        stock_target_price = st.number_input("Målpris (0 = ingen)", min_value=0.0, max_value=1_000_000.0, value=float(st.session_state.get("paper_stock_target_price_v18678", 0.0) or 0.0), step=0.01, key="paper_stock_target_price_v18678")
+                    with pr2:
+                        stock_risk_amount = st.number_input("Planlagt risiko, kr (0 = beregn)", min_value=0.0, max_value=10_000_000.0, value=float(st.session_state.get("paper_stock_risk_amount_v18678", 0.0) or 0.0), step=100.0, key="paper_stock_risk_amount_v18678")
                     estimated_stock_shares = (float(stock_amount or 0) / float(stock_price or 0)) if float(stock_price or 0) > 0 else 0.0
                     stock_confidence = int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0)
                     recommendation = "BUY / OK" if stock_confidence >= 70 else ("HOLD / WAIT" if stock_confidence >= 50 else "SVAK / VENT")
@@ -10627,7 +10637,7 @@ def render_paper_trading_dashboard():
                                 else:
                                     st.error(msg)
                             else:
-                                ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0), manual_override=manual_override_state)
+                                ok, msg = paper_buy(stock_symbol, float(stock_price), int(stock_confidence or 0), "UI paper aksjekjøp", amount_override=float(stock_amount or 0.0), manual_override=manual_override_state, target_price=float(stock_target_price or 0.0), initial_risk_amount=float(stock_risk_amount or 0.0))
                                 if ok:
                                     st.success(msg)
                                     st.rerun()
@@ -10657,13 +10667,14 @@ def render_paper_trading_dashboard():
                         )
                     else:
                         st.markdown("<div class='paper-compact-info-row'><span class='paper-info-badge'>Ingen aksjeposisjon valgt</span></div>", unsafe_allow_html=True)
-                    sell_stock_clicked = st.button("🔴 PAPER-SELG", key="paper_stock_sell_v1871", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
+                    sell_stock_pct = st.select_slider("Andel som skal selges", options=[25, 50, 75, 100], value=100, key="paper_stock_sell_pct_v18678", format_func=lambda x: f"{x}%")
+                    sell_stock_clicked = st.button(f"🔴 PAPER-SELG {sell_stock_pct}%", key="paper_stock_sell_v1871", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
                     if sell_stock_clicked:
                         price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
                         if price_to_use <= 0:
                             st.error("Skriv inn salgspris først.")
                         else:
-                            ok, msg = paper_sell(sell_stock_symbol, price_to_use, "UI paper aksjesalg")
+                            ok, msg = paper_sell(sell_stock_symbol, price_to_use, "UI paper aksjesalg", sell_pct=float(sell_stock_pct))
                             if ok:
                                 st.success(msg)
                                 st.rerun()
@@ -10760,6 +10771,12 @@ def render_paper_trading_dashboard():
     if active_paper_tab_slug == "portefolje":
         st.markdown("### 📊 Portefølje")
         _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value, position_rows=paper_position_rows_cache, rules=_paper_rules)
+        pro_summary = portfolio_professional_summary(portfolio)
+        pc1, pc2, pc3, pc4 = st.columns(4)
+        pc1.metric("Investert", f"{pro_summary['invested']:,.0f}")
+        pc2.metric("Kontanter", f"{pro_summary['cash']:,.0f}")
+        pc3.metric("Kapitalbinding", f"{pro_summary['capital_binding_pct']:.1f}%")
+        pc4.metric("Ledig kapital", f"{pro_summary['free_capital_pct']:.1f}%")
         _render_manual_paper_nav_update_v18621(portfolio)
         with st.expander("Juster startverdier / porteføljeverdi", expanded=False):
             c_start, c_value = st.columns(2)
@@ -10794,6 +10811,11 @@ def render_paper_trading_dashboard():
         st.markdown("#### Åpne posisjoner")
         if portfolio.get("positions", {}):
             _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_rows=paper_position_rows_cache, rules=_paper_rules)
+            with st.expander("Exit-simulering (påvirker ikke handler)", expanded=False):
+                sim_symbol = st.selectbox("Posisjon", list((portfolio.get("positions", {}) or {}).keys()), key="paper_exit_sim_symbol_v18678")
+                sim_rows = exit_simulation((portfolio.get("positions", {}) or {}).get(sim_symbol, {}))
+                if sim_rows:
+                    st.dataframe(pd.DataFrame(sim_rows), use_container_width=True, hide_index=True)
         else:
             st.info("Ingen åpne paper trading-posisjoner.")
         st.markdown("#### Handelslogg")
