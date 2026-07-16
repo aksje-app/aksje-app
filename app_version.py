@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.78"
-APP_VERSION_NAME = "Paper Trading Professional"
+APP_VERSION = "v18.6.79"
+APP_VERSION_NAME = "AI Discovery Analytics & Intelligence"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.79: AI Discovery Analytics & Intelligence: observerende dashboard med signal/marked/sektor-leaderboards, signalhelse, confidence- og holdingtidsanalyse, strategi/exit-sammenligning, replay, ukesrapport og ikke-autonome anbefalinger. Automatisk optimalisering og regelendring er fortsatt AV.",
     "v18.6.78: Paper Trading Professional: delvise salg, målpris, planlagt risikobeløp og R-multiple, kapitalbinding, exit-prioritet, posisjonskort og passiv exit-simulering. Ingen ekte handel eller autonom strategiendring er aktivert.",
     "v18.6.76: Performance & Explainability: global panelprofilering med render-tider, rerun-teller, cache/API-metrikk og eget Performance Dashboard. Paper Trading lagrer strukturert Explain AI-grunnlag for kjøp og salg i audit/replay uten å endre handelsregler.",
     "v18.6.75: AI Learning Foundation + Alert/Lifecycle Repair: valutavarsler kjører i bakgrunnsscanner uavhengig av børsåpning og gjentar brudd etter cooldown; Paper Trading beskytter nye posisjoner mot raske signal-flip SELL/AVOID med minimum holdetid, mens harde risikoutganger beholdes; AI Discovery får passiv Learning Queue, Trade Outcomes, Signal Scorecard, Confidence Calibration, Exit Analytics og Audit/Replay uten automatisk regelendring.",
