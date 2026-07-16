@@ -22,6 +22,8 @@ import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+from storage_architecture import get_runtime_paths
 from typing import Any, Dict, List, Optional
 
 try:
@@ -76,8 +78,8 @@ class StorageService:
     - returns False when local fallback was used.
     """
 
-    def __init__(self, base_dir: str = "data/services", database_url: Optional[str] = None):
-        self.base_dir = Path(base_dir)
+    def __init__(self, base_dir: str | Path | None = None, database_url: Optional[str] = None):
+        self.base_dir = Path(base_dir) if base_dir is not None else get_runtime_paths().services
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.database_url = (database_url if database_url is not None else DATABASE_URL).strip()
         self._db_initialized = False
@@ -281,8 +283,8 @@ class StorageService:
 _default_storage = StorageService()
 
 
-def get_storage_service(base_dir: str = "data/services") -> StorageService:
-    if base_dir != "data/services":
+def get_storage_service(base_dir: str | Path | None = None) -> StorageService:
+    if base_dir is not None:
         return StorageService(base_dir=base_dir)
     return _default_storage
 
