@@ -1,6 +1,7 @@
 import logging
 from cron_control import should_run_background_scan, mark_background_scan_started
 from currency_alert_service import run_currency_alert_checks
+from scheduler_event_system import get_domain_event_bus, get_scheduler
 
 def _ticker_market(ticker):
     t = str(ticker).upper()
@@ -293,7 +294,7 @@ def maybe_send_trade_alert(result, msg):
     return sent
 
 
-def run_once(force=False):
+def _run_once_impl(force=False):
     if force:
         print("Cron control: FORCE=true, kjører auto-motor nå")
     else:
@@ -437,6 +438,19 @@ def run_once(force=False):
     print(f"Trades executed this run: {trades_executed}")
 
     return trades_executed
+
+
+def run_once(force=False):
+    scheduler = get_scheduler()
+    event_bus = get_domain_event_bus()
+    scheduler.register("Background Market Scan", 900, enabled=True)
+    event_bus.publish("scanner.requested", source="scanner_worker", force=bool(force))
+    result = scheduler.run_job(
+        "Background Market Scan",
+        lambda: _run_once_impl(force=force),
+        force=bool(force),
+    )
+    return int(result or 0)
 
 
 if __name__ == "__main__":

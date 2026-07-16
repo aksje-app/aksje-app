@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.81"
-APP_VERSION_NAME = "Services & State Consolidation"
+APP_VERSION = "v18.6.82"
+APP_VERSION_NAME = "Scheduler & Event System"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.82: Scheduler & Event System: felles SchedulerCoordinator med per-job lock, status, varighet og feilstatistikk; persistent scheduler-state og append-only event journal; domain events med correlation-id; scanner_worker kjøres gjennom samme koordinator; System Health viser samlet scheduler/event-status. Ingen skjulte tråder eller konkurrerende scheduler er startet.",
     "v18.6.81: Services & State Consolidation: typed AppState expanded for portfolio/discovery/notifications/runtime, legacy session-state migration, consolidated review queue/trading rules/currency/notification service facades, registry integration, regression tests and architecture documentation. Existing UI and trading behavior remain compatible.",
     "v18.6.80: Core Architecture & Code Quality: typed AppState, EventBus, ServiceContainer, SchedulerRegistry, standardisert runtime-logging, System Health-panel, statisk architecture audit og enhetstestgrunnlag. Eksisterende tradinglogikk er ikke endret.",
     "v18.6.79: AI Discovery Analytics & Intelligence: observerende dashboard med signal/marked/sektor-leaderboards, signalhelse, confidence- og holdingtidsanalyse, strategi/exit-sammenligning, replay, ukesrapport og ikke-autonome anbefalinger. Automatisk optimalisering og regelendring er fortsatt AV.",

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from storage_architecture import runtime_data_path, runtime_log_path
+from scheduler_event_system import get_domain_event_bus, get_scheduler
 
 
 @dataclass
@@ -224,13 +225,13 @@ class SchedulerRegistry:
             return [asdict(job) for job in self._jobs.values()]
 
 
-_EVENT_BUS = EventBus()
+_EVENT_BUS = get_domain_event_bus()
 _SERVICES = ServiceContainer()
-_SCHEDULER = SchedulerRegistry()
+_SCHEDULER = get_scheduler()
 _INITIALIZED = False
 
 
-def get_event_bus() -> EventBus:
+def get_event_bus() -> Any:
     return _EVENT_BUS
 
 
@@ -238,7 +239,7 @@ def get_services() -> ServiceContainer:
     return _SERVICES
 
 
-def get_scheduler_registry() -> SchedulerRegistry:
+def get_scheduler_registry() -> Any:
     return _SCHEDULER
 
 
@@ -261,6 +262,7 @@ def initialize_core_runtime() -> None:
         return
     configure_logging()
     _SERVICES.register("event_bus", _EVENT_BUS)
+    _SERVICES.register("scheduler", _SCHEDULER)
     _SERVICES.register("scheduler_registry", _SCHEDULER)
     from services.app_state_service import get_app_state_service
     from services.currency_service import get_currency_service
@@ -272,11 +274,13 @@ def initialize_core_runtime() -> None:
     _SERVICES.register("notifications", get_notification_service())
     _SERVICES.register("review_queue", get_review_queue_service())
     _SERVICES.register("trading_rules", get_trading_rule_service())
+    _SCHEDULER.register("Background Market Scan", 900)
     _SCHEDULER.register("Currency Monitor", 300)
     _SCHEDULER.register("Market Update", 300)
     _SCHEDULER.register("AI Discovery", 900)
     _SCHEDULER.register("Learning Analytics", 3600)
-    _SCHEDULER.register("Cleanup", 86400)
+    _SCHEDULER.register("Runtime Cleanup", 86400)
+    _EVENT_BUS.publish("runtime.initialized", source="core_architecture", services=_SERVICES.names())
     _INITIALIZED = True
 
 
@@ -307,7 +311,8 @@ def system_health_snapshot() -> Dict[str, Any]:
     add("Python", True, platform.python_version())
     add("Event Bus", True, f"{len(_EVENT_BUS.recent(200))} nylige hendelser")
     add("Services", True, ", ".join(_SERVICES.names()) or "Ingen")
-    add("Scheduler registry", True, f"{len(_SCHEDULER.snapshot())} registrerte jobber")
+    scheduler_health = _SCHEDULER.health()
+    add("Scheduler", scheduler_health.get("status") != "RED", f"{len(_SCHEDULER.snapshot())} registrerte jobber / {scheduler_health.get('status')}", "WARN")
 
     overall = "GREEN"
     if any(row["status"] == "RED" for row in checks):
@@ -322,7 +327,7 @@ def system_health_snapshot() -> Dict[str, Any]:
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "scheduler": _SCHEDULER.snapshot(),
-        "recent_events": [asdict(event) for event in _EVENT_BUS.recent(25)],
+        "recent_events": [asdict(event) for event in _EVENT_BUS.recent(25, include_persisted=True)],
     }
 
 
