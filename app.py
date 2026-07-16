@@ -53,6 +53,9 @@ import html
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
+
+from performance_monitor import measure as perf_measure, mark_rerun, render_performance_dashboard
+mark_rerun()  # v18.6.76 performance counter
 from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
 from governance_registry import get_changelog, get_protected_zones
@@ -10470,7 +10473,7 @@ def _paper_trading_active_tab_v18674c() -> str:
 
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
-    st.caption("v18.6.75: Paper Trading husker fane ved refresh, REVIEW_ONLY lagrer gule flagg, og trailing stop følges per posisjon.")
+    st.caption("v18.6.76: Paper Trading profileres med render-tider. Kjøp/salg lagrer forklaringsgrunnlag for audit og replay.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
@@ -19201,6 +19204,7 @@ def control_center_extra_panels_v18535():
         ("Marked/rangering", render_market_ranking_control_center_v18535),
         ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
         ("System/admin", lambda: render_system_admin_workspace(expanded=True)),
+        ("Performance Dashboard", render_performance_dashboard),
     ]
 
 _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
@@ -19243,7 +19247,14 @@ def control_center_extra_panels_v18535():
             inserted_alerts = True
     if not inserted_alerts:
         panels.insert(2, ("Varsler og watchlist", render_alerts_watchlist_control_center_v1869))
-    return panels
+
+    measured_panels = []
+    for _label, _renderer in panels:
+        def _measured_renderer(renderer=_renderer, label=_label):
+            with perf_measure(f"panel:{label}"):
+                return renderer()
+        measured_panels.append((_label, _measured_renderer))
+    return measured_panels
 
 
 def render_safe_infrastructure_panel_v18587() -> None:

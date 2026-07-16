@@ -12,6 +12,7 @@ except Exception:
 
 from paper_store import load_portfolio, save_portfolio, add_trade
 from paper_trading_valuation import normalize_paper_position, paper_reason_label
+from explainability import explain_buy_decision, explain_sell_decision
 
 try:
     from state_audit import build_paper_state_snapshot, validate_buy_order, audit_state_transition
@@ -413,6 +414,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     trade_ctx["manual_override"] = manual_override_state
     trade_ctx["manual_override_note"] = _manual_override_note(manual_override_state)
     trade_ctx["trade_explanation"] = _default_trade_explanation("BUY", reason, trade_ctx)
+    trade_ctx["explain_ai"] = explain_buy_decision(trade_ctx, {"decision": "BUY", "confidence": confidence})
     if manual_override_state in {"FORCE_ALLOW", "FORCE_BLOCK", "REVIEW_ONLY"}:
         trade_ctx["trade_explanation"] = (str(trade_ctx.get("trade_explanation") or "") + " " + _manual_override_note(manual_override_state)).strip()
     reason = paper_reason_label(reason, "BUY") or "PAPER-KJØP"
@@ -550,6 +552,7 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None):
     amount = shares * price
     pnl_pct = ((price-entry)/entry*100) if entry else 0
     trade_ctx["trade_explanation"] = _default_trade_explanation("SELL", reason, trade_ctx)
+    trade_ctx["explain_ai"] = explain_sell_decision(reason, trade_ctx)
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
     del portfolio["positions"][ticker]
     add_trade(portfolio, {
