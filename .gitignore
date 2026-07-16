@@ -68,3 +68,8 @@ patch_v18_*/
 zip_stage*/
 *_changed_files_only.zip
 *_qa.png
+
+# Runtime-data
+storage/performance_metrics*.json
+storage/runtime/
+storage/cache/
