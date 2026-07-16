@@ -565,6 +565,25 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None):
     return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)"
 
 
+def _auto_sell_hold_guard_v18675(pos, rules, reason_kind="signal"):
+    """Protect newly opened positions from rapid signal-flip exits.
+
+    Hard risk exits (stop-loss, trailing stop and take-profit) remain active.
+    The guard only blocks ordinary SELL/AVOID and RSI exits during minimum hold.
+    """
+    try:
+        minimum_hours = max(0.0, float((rules or {}).get("minimum_hold_hours", 24) or 0))
+    except Exception:
+        minimum_hours = 24.0
+    raw = (pos or {}).get("last_added_at") or (pos or {}).get("opened_at") or (pos or {}).get("entry_time")
+    try:
+        opened = datetime.fromisoformat(str(raw))
+        age_hours = max(0.0, (datetime.now() - opened).total_seconds() / 3600.0)
+    except Exception:
+        return True, 0.0, minimum_hours
+    return age_hours >= minimum_hours, age_hours, minimum_hours
+
+
 def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
     portfolio = load_portfolio()
     rules = load_rules()
@@ -613,6 +632,9 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
             previous_rsi = float(prev_rsi) if prev_rsi is not None else None
             rsi_is_falling = previous_rsi is not None and current_rsi is not None and current_rsi < previous_rsi
             if current_rsi is not None and current_rsi >= rsi_exit_level and (not rsi_must_fall or rsi_is_falling):
+                allowed_exit, age_hours, min_hours = _auto_sell_hold_guard_v18675(pos, rules, "rsi")
+                if not allowed_exit:
+                    return False, f"HOLD {ticker}: RSI-exit blokkert av minimum holdetid ({age_hours:.1f}/{min_hours:.1f} timer)"
                 return paper_sell(ticker, price, f"RSI sell {current_rsi:.1f}", {
                     "rule_used": "RSI exit",
                     "rule_limit": f"{rsi_exit_level:.1f}",
@@ -625,6 +647,10 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
         if "SELL" in sig or "AVOID" in sig:
+            allowed_exit, age_hours, min_hours = _auto_sell_hold_guard_v18675(pos, rules, "signal")
+            if not allowed_exit:
+                audit_state_transition("paper_auto_sell_hold_blocked", build_paper_state_snapshot(portfolio, rules=rules), detail={"ticker": ticker, "signal": sig, "age_hours": round(age_hours, 2), "minimum_hold_hours": min_hours})
+                return False, f"HOLD {ticker}: SELL/AVOID blokkert av minimum holdetid ({age_hours:.1f}/{min_hours:.1f} timer)"
             return paper_sell(ticker, price, "SELL signal", {
                 "rule_used": "SELL/AVOID signal",
                 "rule_limit": "signal",

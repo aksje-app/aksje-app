@@ -33,6 +33,7 @@ AI_DISCOVERY_TAB_OPTIONS_V18674C = {
     "Historikk": "historikk",
     "Rapportering": "rapportering",
     "Signal Discovery": "signal_discovery",
+    "Learning Foundation": "learning_foundation",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -514,7 +515,7 @@ def render_ai_discovery_foundation_panel() -> None:
     st.subheader("🧠 AI Discovery Foundation")
     st.caption(
         "FASE 5A: passivt signalbibliotek, tracking, resultatdatabase, historikk og rapportering. "
-        "Learning Loop er AV og ingen motorlogikk endres."
+        "Learning Loop er AV. Passiv Learning Foundation samler og analyserer avsluttede paper-handler uten å endre motorlogikk."
     )
 
     signals = list_signals()
@@ -650,6 +651,14 @@ def render_ai_discovery_foundation_panel() -> None:
         st.download_button("Last ned rapport Markdown", data=md, file_name="AI_DISCOVERY_FOUNDATION_REPORT.md", mime="text/markdown")
         st.download_button("Last ned rapport JSON", data=json.dumps(report, ensure_ascii=False, indent=2), file_name="AI_DISCOVERY_FOUNDATION_REPORT.json", mime="application/json")
 
+
+
+    if active_ai_disc_tab == "learning_foundation":
+        try:
+            from ai_learning_foundation import render_learning_foundation_tab
+            render_learning_foundation_tab()
+        except Exception as exc:
+            st.error(f"Learning Foundation kunne ikke lastes: {exc}")
 
     if active_ai_disc_tab == "signal_discovery":
         signal_discovery_renderer, signal_discovery_error = _load_signal_discovery_renderer_v18674a()

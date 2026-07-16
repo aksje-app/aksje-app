@@ -9454,7 +9454,7 @@ def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = Fals
             else:
                 errors.append(f"{ticker}: {err or 'ingen pris'}")
     normalized = normalize_paper_portfolio(portfolio, latest_prices, updated_at=updated_at, rules=rules)
-    # v18.6.74e: Never save during ordinary render. Persist only after an
+    # v18.6.75: Never save during ordinary render. Persist only after an
     # explicit price refresh. stop_status/trailing_stop_distance_pct are display
     # fields and must not trigger database writes.
     if fetch_live and latest_prices:
@@ -10090,7 +10090,7 @@ def _render_paper_manual_override_control_v18674a() -> str:
         st.warning(f"{label}: {detail}")
     else:
         st.success(f"{label}: {detail}")
-    st.caption("v18.6.74e: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
+    st.caption("v18.6.75: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
     return state
 
 
@@ -10181,7 +10181,7 @@ def _paper_add_review_candidate_v18674c(
         return False, "Beløp må være større enn 0 før kandidaten kan legges i vurdering."
     portfolio = load_portfolio()
     queue = _paper_review_queue_v18674c(portfolio)
-    # v18.6.74e: avoid several identical open yellow flags for the same symbol/type.
+    # v18.6.75: avoid several identical open yellow flags for the same symbol/type.
     for existing in queue:
         if (
             str(existing.get("symbol") or existing.get("ticker") or "").strip().upper() == symbol
@@ -10470,7 +10470,7 @@ def _paper_trading_active_tab_v18674c() -> str:
 
 def render_paper_trading_dashboard():
     st.subheader("Paper Trading og kontroll")
-    st.caption("v18.6.74e: Paper Trading husker fane ved refresh, REVIEW_ONLY lagrer gule flagg, og trailing stop følges per posisjon.")
+    st.caption("v18.6.75: Paper Trading husker fane ved refresh, REVIEW_ONLY lagrer gule flagg, og trailing stop følges per posisjon.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
@@ -10494,7 +10494,7 @@ def render_paper_trading_dashboard():
             st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(refresh_status.get("errors", [])[:5]))
 
     latest_prices = {ticker: pos.get("last_price", pos.get("avg_price", pos.get("entry_price", 0))) for ticker, pos in (portfolio.get("positions", {}) or {}).items()}
-    # v18.6.74e: build position rows once for this render and reuse in Portefølje/Varsler/cards.
+    # v18.6.75: build position rows once for this render and reuse in Portefølje/Varsler/cards.
     paper_position_rows_cache = paper_position_rows(portfolio, latest_prices, rules=_paper_rules)
     total_value = portfolio_value(portfolio, latest_prices, rules=_paper_rules)
     liq = paper_liquidity_snapshot(portfolio, latest_prices, rules=_paper_rules)
@@ -13194,6 +13194,18 @@ def render_currency_alerts_control_center_v1863af():
         if not current.get("active", True):
             st.info("Valutavarselet er deaktivert.")
         else:
+            try:
+                from currency_alert_service import run_currency_alert_checks
+                service_results = run_currency_alert_checks(force=True)
+                selected_result = next((r for r in service_results if str(r.get("symbol") or "").upper() == symbol_value), service_results[0] if service_results else {})
+                if selected_result.get("sent"):
+                    st.success("Pushover-varsel sendt.")
+                elif selected_result.get("send_error"):
+                    st.warning(f"Pushover ble ikke sendt: {selected_result.get('send_error')}")
+                elif selected_result.get("status") in {"breach_lower", "breach_upper"}:
+                    st.info("Grensen er brutt, men varselpause/cooldown er aktiv.")
+            except Exception as service_exc:
+                st.warning(f"Bakgrunnstjenesten feilet: {service_exc}")
             rate, err = _fetch_fx_rate_v1863af(symbol_value)
             if rate is None:
                 st.warning(f"Kunne ikke hente valutakurs: {err}")
@@ -13228,7 +13240,7 @@ def render_currency_alerts_control_center_v1863af():
                     if current.get("pushover", True):
                         settings = load_settings() or {}
                         alert_key = f"{pair_label}:{symbol_value}"
-                        if transition.get("send"):
+                        if transition.get("send") and not locals().get("service_results"):
                             ok, send_err = _send_pushover_safe_v1863af(breach, f"Valutavarsel {pair_label}")
                             settings.setdefault("currency_alert_last_sent_v1863af", {})[alert_key] = datetime.now().isoformat(timespec="seconds")
                             save_settings(settings)

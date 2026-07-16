@@ -28,6 +28,7 @@ DEFAULT_RULES = {
     "stop_loss_pct": 7.0,
     "take_profit_pct": 12.0,
     "trailing_stop_pct": 8.0,
+    "minimum_hold_hours": 24,
     "rsi_exit_level": 75,
     "rsi_must_fall": True,
 }

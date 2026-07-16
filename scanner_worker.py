@@ -1,5 +1,6 @@
 import logging
 from cron_control import should_run_background_scan, mark_background_scan_started
+from currency_alert_service import run_currency_alert_checks
 
 def _ticker_market(ticker):
     t = str(ticker).upper()
@@ -302,6 +303,14 @@ def run_once(force=False):
             print("⏸ Cron våknet, men scanner ikke nå.")
             return 0
         mark_background_scan_started()
+
+    # Currency alerts are independent of stock-market opening hours.
+    try:
+        fx_results = run_currency_alert_checks(force=force)
+        for fx in fx_results:
+            print(f"FX {fx.get('pair')}: {fx.get('status')} rate={fx.get('rate', '-')} sent={fx.get('sent', False)}")
+    except Exception as exc:
+        print(f"Valutavarsel-kontroll feilet: {exc}")
 
     print_market_guard_summary()
     for line in market_status_lines():
