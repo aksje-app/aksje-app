@@ -57,6 +57,8 @@ from app_version import get_app_build_label
 from performance_monitor import measure as perf_measure, mark_rerun, render_performance_dashboard
 from core_architecture import initialize_core_runtime, render_system_health_dashboard
 initialize_core_runtime()  # v18.6.80 shared architecture runtime
+from services.app_state_service import get_app_state_service
+get_app_state_service(st.session_state).load(migrate=True)  # v18.6.81 typed state migration
 mark_rerun()  # v18.6.76 performance counter
 from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks

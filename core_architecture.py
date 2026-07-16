@@ -33,6 +33,30 @@ class PaperTradingState:
 
 
 @dataclass
+class PortfolioState:
+    selected_symbol: str = ""
+    selected_asset_type: str = "Aksje"
+
+
+@dataclass
+class DiscoveryState:
+    selected_tab: str = "Discovery Dashboard"
+    selected_signal: str = ""
+
+
+@dataclass
+class NotificationState:
+    pushover_enabled: bool = True
+    last_event: str = ""
+
+
+@dataclass
+class RuntimeState:
+    last_error: str = ""
+    last_action: str = ""
+
+
+@dataclass
 class LearningState:
     collect_data: bool = True
     analyze: bool = True
@@ -45,6 +69,10 @@ class LearningState:
 class AppState:
     navigation: NavigationState = field(default_factory=NavigationState)
     paper_trading: PaperTradingState = field(default_factory=PaperTradingState)
+    portfolio: PortfolioState = field(default_factory=PortfolioState)
+    discovery: DiscoveryState = field(default_factory=DiscoveryState)
+    notifications: NotificationState = field(default_factory=NotificationState)
+    runtime: RuntimeState = field(default_factory=RuntimeState)
     learning: LearningState = field(default_factory=LearningState)
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
@@ -75,6 +103,10 @@ class AppStateStore:
             state = AppState(
                 navigation=NavigationState(**(raw.get("navigation") or {})),
                 paper_trading=PaperTradingState(**(raw.get("paper_trading") or {})),
+                portfolio=PortfolioState(**(raw.get("portfolio") or {})),
+                discovery=DiscoveryState(**(raw.get("discovery") or {})),
+                notifications=NotificationState(**(raw.get("notifications") or {})),
+                runtime=RuntimeState(**(raw.get("runtime") or {})),
                 learning=LearningState(**(raw.get("learning") or {})),
                 updated_at=str(raw.get("updated_at") or ""),
             )
@@ -230,6 +262,16 @@ def initialize_core_runtime() -> None:
     configure_logging()
     _SERVICES.register("event_bus", _EVENT_BUS)
     _SERVICES.register("scheduler_registry", _SCHEDULER)
+    from services.app_state_service import get_app_state_service
+    from services.currency_service import get_currency_service
+    from services.notification_service import get_notification_service
+    from services.review_queue_service import get_review_queue_service
+    from services.trading_rule_service import get_trading_rule_service
+    _SERVICES.register("app_state", get_app_state_service())
+    _SERVICES.register("currency", get_currency_service())
+    _SERVICES.register("notifications", get_notification_service())
+    _SERVICES.register("review_queue", get_review_queue_service())
+    _SERVICES.register("trading_rules", get_trading_rule_service())
     _SCHEDULER.register("Currency Monitor", 300)
     _SCHEDULER.register("Market Update", 300)
     _SCHEDULER.register("AI Discovery", 900)
