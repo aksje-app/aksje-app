@@ -1,7 +1,6 @@
 import logging
 from cron_control import should_run_background_scan, mark_background_scan_started
 from currency_alert_service import run_currency_alert_checks
-from scheduler_event_system import get_domain_event_bus, get_scheduler
 
 def _ticker_market(ticker):
     t = str(ticker).upper()
@@ -294,24 +293,30 @@ def maybe_send_trade_alert(result, msg):
     return sent
 
 
-def _run_once_impl(force=False):
+def run_once(force=False):
+    # Currency alerts are independent of the stock scanner gate and market hours.
+    # This must run before should_run_background_scan(), otherwise closed markets,
+    # pause windows or scanner cooldowns silently suppress every FX alert.
+    try:
+        fx_results = run_currency_alert_checks(force=force)
+        for fx in fx_results:
+            print(
+                f"FX {fx.get('pair')}: {fx.get('status')} "
+                f"rate={fx.get('rate', '-')} sent={fx.get('sent', False)} "
+                f"reason={fx.get('reason', '-')}"
+            )
+    except Exception as exc:
+        print(f"Valutavarsel-kontroll feilet: {exc}")
+
     if force:
         print("Cron control: FORCE=true, kjører auto-motor nå")
     else:
         _allowed, _reason = should_run_background_scan()
         print(f"Cron control: {_reason}")
         if not _allowed:
-            print("⏸ Cron våknet, men scanner ikke nå.")
+            print("⏸ Cron våknet, aksjescanner kjører ikke nå. Valutavarsler er allerede kontrollert.")
             return 0
         mark_background_scan_started()
-
-    # Currency alerts are independent of stock-market opening hours.
-    try:
-        fx_results = run_currency_alert_checks(force=force)
-        for fx in fx_results:
-            print(f"FX {fx.get('pair')}: {fx.get('status')} rate={fx.get('rate', '-')} sent={fx.get('sent', False)}")
-    except Exception as exc:
-        print(f"Valutavarsel-kontroll feilet: {exc}")
 
     print_market_guard_summary()
     for line in market_status_lines():
@@ -438,19 +443,6 @@ def _run_once_impl(force=False):
     print(f"Trades executed this run: {trades_executed}")
 
     return trades_executed
-
-
-def run_once(force=False):
-    scheduler = get_scheduler()
-    event_bus = get_domain_event_bus()
-    scheduler.register("Background Market Scan", 900, enabled=True)
-    event_bus.publish("scanner.requested", source="scanner_worker", force=bool(force))
-    result = scheduler.run_job(
-        "Background Market Scan",
-        lambda: _run_once_impl(force=force),
-        force=bool(force),
-    )
-    return int(result or 0)
 
 
 if __name__ == "__main__":

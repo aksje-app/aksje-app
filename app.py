@@ -8,7 +8,6 @@ if _render_root not in _render_sys.path:
 
 # BANNER_SAFE_PRO_V7
 from ui_components import market_pulse, top_movers
-from ui_library import inject_design_system
 import os
 import re
 import json
@@ -56,10 +55,6 @@ from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
 
 from performance_monitor import measure as perf_measure, mark_rerun, render_performance_dashboard
-from core_architecture import initialize_core_runtime, render_system_health_dashboard
-initialize_core_runtime()  # v18.6.80 shared architecture runtime
-from services.app_state_service import get_app_state_service
-get_app_state_service(st.session_state).load(migrate=True)  # v18.6.81 typed state migration
 mark_rerun()  # v18.6.76 performance counter
 from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
@@ -144,7 +139,6 @@ from security_metadata import resolve_security_metadata, display_label, fund_dis
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
-inject_design_system(st)  # v18.6.83 shared UI design system
 
 
 # v18.6.65: Global Compact UI. Reduserer overbrede input-/parameterbokser globalt.
@@ -13200,7 +13194,7 @@ def render_currency_alerts_control_center_v1863af():
             f"sist oppdatert {lifecycle_state.get('updated_at', '-')}. Nytt Pushover-varsel sendes først etter normalisering."
         )
 
-    action_left, action_mid, action_test, action_right = st.columns([0.13, 0.19, 0.18, 0.50])
+    action_left, action_mid, action_test, action_diag = st.columns([0.16, 0.24, 0.22, 0.24])
     with action_left:
         fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t")
     with action_mid:
@@ -13210,6 +13204,13 @@ def render_currency_alerts_control_center_v1863af():
             "Send Pushover-test",
             key="currency_alert_pushover_test_now_v1864u",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
+        )
+    with action_diag:
+        currency_trigger_test_now = st.button(
+            "Test hele varselkjeden",
+            key="currency_alert_full_chain_test_v18678a",
+            disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
+            help="Tester kursinnhenting, trigger, varselmotor og Pushover i samme kjede.",
         )
 
     if fetch_now:
@@ -13296,6 +13297,58 @@ def render_currency_alerts_control_center_v1863af():
             st.success("Pushover-test sendt.")
         else:
             st.warning(f"Pushover-test feilet: {send_err or 'ukjent feil'}")
+
+    if currency_trigger_test_now:
+        try:
+            from currency_alert_service import run_currency_alert_diagnostic_test
+            diagnostic_rows = run_currency_alert_diagnostic_test(symbol_value)
+            selected = diagnostic_rows[0] if diagnostic_rows else {}
+            if selected.get("sent"):
+                st.success("Hele varselkjeden fungerte: kurs -> trigger -> varselmotor -> Pushover.")
+            else:
+                st.error(
+                    "Varselkjeden stoppet før Pushover. "
+                    f"Status: {selected.get('status', '-')}; årsak: {selected.get('reason', '-')}; "
+                    f"feil: {selected.get('send_error') or selected.get('error') or '-'}"
+                )
+        except Exception as diagnostic_exc:
+            st.error(f"Diagnosetesten feilet: {diagnostic_exc}")
+
+    st.markdown("#### Bakgrunnsstatus og diagnose")
+    try:
+        from currency_alert_service import get_currency_alert_runtime, get_currency_alert_events
+        runtime_rows = []
+        for runtime_key, runtime_value in (get_currency_alert_runtime() or {}).items():
+            if not isinstance(runtime_value, dict):
+                continue
+            runtime_rows.append({
+                "Valuta": runtime_value.get("pair") or runtime_key,
+                "Symbol": runtime_value.get("symbol") or "-",
+                "Kurs": runtime_value.get("rate"),
+                "Status": runtime_value.get("status") or "-",
+                "Sist sjekket": runtime_value.get("last_checked_at") or "-",
+                "Neste sjekk": runtime_value.get("next_check_at") or "-",
+                "Sist sendt": runtime_value.get("last_sent_at") or "-",
+                "Årsak": runtime_value.get("last_reason") or "-",
+                "Feil": runtime_value.get("last_error") or "",
+            })
+        if runtime_rows:
+            st.dataframe(runtime_rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("Ingen bakgrunnskontroll er registrert ennå. Kjør kontroll eller vent på neste worker-kjøring.")
+
+        with st.expander("Valutavarsel-logg", expanded=False):
+            event_rows = get_currency_alert_events(limit=80)
+            if event_rows:
+                st.dataframe(event_rows, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen diagnostikkhendelser er registrert.")
+            st.caption(
+                "Valutakontrollen kjøres nå før aksjescannerens markedstids- og cooldown-sperrer. "
+                "Dermed kontrolleres valuta også når børsene er stengt eller aksjescanneren er pauset."
+            )
+    except Exception as runtime_exc:
+        st.warning(f"Kunne ikke lese valutadiagnostikk: {runtime_exc}")
 
     st.markdown("#### Varseloppsett")
     current_pair = current.get("pair", "BRL/NOK")
@@ -19233,7 +19286,6 @@ def control_center_extra_panels_v18535():
         ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
         ("System/admin", lambda: render_system_admin_workspace(expanded=True)),
         ("Performance Dashboard", render_performance_dashboard),
-        ("System Health", render_system_health_dashboard),
     ]
 
 _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535

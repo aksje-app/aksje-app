@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 try:
     import yfinance as yf
@@ -21,7 +21,10 @@ DEFAULT_ALERT = {
     "check_interval_minutes": 60,
     "cooldown_minutes": 720,
 }
-STATE_KEY = "currency_alert_runtime_v18675"
+STATE_KEY = "currency_alert_runtime_v18678a"
+LEGACY_STATE_KEY = "currency_alert_runtime_v18675"
+EVENT_LOG_KEY = "alerts/currency_alert_events_v18678a.jsonl"
+MAX_EVENT_ROWS = 250
 
 
 def _now() -> datetime:
@@ -38,11 +41,51 @@ def _parse(value: Any) -> datetime | None:
         return None
 
 
+def _storage():
+    try:
+        from services.storage_service import get_storage_service
+        return get_storage_service()
+    except Exception:
+        return None
+
+
+def _event(event: str, **data: Any) -> dict:
+    row = {"timestamp": _now().isoformat(), "event": event, **data}
+    storage = _storage()
+    if storage is not None:
+        try:
+            storage.append_jsonl(EVENT_LOG_KEY, row)
+        except Exception:
+            pass
+    return row
+
+
+def get_currency_alert_events(limit: int = 100) -> list[dict]:
+    storage = _storage()
+    if storage is None:
+        return []
+    try:
+        return list(storage.read_jsonl(EVENT_LOG_KEY, limit=max(1, min(int(limit), MAX_EVENT_ROWS))) or [])
+    except Exception:
+        return []
+
+
+def get_currency_alert_runtime() -> dict:
+    settings = load_settings() or {}
+    root = settings.get(STATE_KEY)
+    if not isinstance(root, dict):
+        root = settings.get(LEGACY_STATE_KEY)
+    return dict(root or {})
+
+
 def _fetch(symbol: str) -> tuple[float | None, str]:
     if yf is None:
         return None, "yfinance er ikke tilgjengelig"
+    if not str(symbol or "").strip():
+        return None, "mangler valutasymbol"
     try:
-        hist = yf.Ticker(str(symbol).upper()).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+        ticker = yf.Ticker(str(symbol).upper())
+        hist = ticker.history(period="5d", interval="1d", auto_adjust=False, prepost=False)
         if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
             return None, "fant ingen Close-data"
         close = hist["Close"].dropna()
@@ -61,68 +104,155 @@ def _status(rate: float, lower: float, upper: float) -> str:
     return "normal"
 
 
-def run_currency_alert_checks(force: bool = False) -> list[dict]:
-    """Evaluate every saved currency alert and send Pushover on breach.
+def _normalize_send_response(response: Any) -> tuple[bool, str]:
+    if isinstance(response, tuple):
+        return bool(response[0]), str(response[1] if len(response) > 1 and response[1] else "")
+    return bool(response), ""
 
-    A notification is sent on a new breach and repeated after cooldown while the
-    breach remains active. Returning to normal resets the lifecycle.
+
+def run_currency_alert_checks(
+    force: bool = False,
+    *,
+    fetcher: Callable[[str], tuple[float | None, str]] | None = None,
+    sender: Callable[..., Any] | None = None,
+    diagnostic_test: bool = False,
+) -> list[dict]:
+    """Evaluate all saved FX alerts and persist a complete diagnostic trail.
+
+    Currency checks must be callable independently of stock-market hours. A new
+    breach is sent immediately; a continuing breach is repeated after cooldown.
+    Returning to normal resets the lifecycle.
     """
+    fetcher = fetcher or _fetch
+    sender = sender or send_pushover_alert
     settings = load_settings() or {}
     alerts = settings.get("currency_alerts_v1863af")
     if not isinstance(alerts, list) or not alerts:
         alerts = [dict(DEFAULT_ALERT)]
+
     root = settings.setdefault(STATE_KEY, {})
+    if not root and isinstance(settings.get(LEGACY_STATE_KEY), dict):
+        root.update(settings.get(LEGACY_STATE_KEY) or {})
+
     now = _now()
+    run_id = now.strftime("%Y%m%dT%H%M%SZ")
+    _event("scanner_started", run_id=run_id, force=bool(force), alerts=len(alerts), diagnostic_test=bool(diagnostic_test))
     results: list[dict] = []
 
     for raw in alerts:
         alert = {**DEFAULT_ALERT, **(raw or {})}
         pair = str(alert.get("pair") or alert.get("symbol") or "Valuta")
-        symbol = str(alert.get("symbol") or "").upper()
+        symbol = str(alert.get("symbol") or "").upper().strip()
         key = f"{pair}:{symbol}"
         state = dict(root.get(key) or {})
         interval = max(1, int(alert.get("check_interval_minutes") or 60))
         cooldown = max(1, int(alert.get("cooldown_minutes") or int(alert.get("cooldown_hours") or 12) * 60))
         last_checked = _parse(state.get("last_checked_at"))
-        if not force and last_checked and now - last_checked < timedelta(minutes=interval):
-            results.append({"pair": pair, "symbol": symbol, "status": state.get("status", "skipped"), "sent": False, "skipped": True})
-            continue
+
+        base = {
+            "run_id": run_id,
+            "pair": pair,
+            "symbol": symbol,
+            "lower": float(alert.get("lower") or 0),
+            "upper": float(alert.get("upper") or 0),
+            "check_interval_minutes": interval,
+            "cooldown_minutes": cooldown,
+        }
+
         if not bool(alert.get("active", True)):
-            results.append({"pair": pair, "symbol": symbol, "status": "disabled", "sent": False})
-            continue
-
-        rate, error = _fetch(symbol)
-        state["last_checked_at"] = now.isoformat()
-        if rate is None:
-            state.update({"last_error": error, "updated_at": now.isoformat()})
+            state.update({"status": "disabled", "updated_at": now.isoformat()})
             root[key] = state
-            results.append({"pair": pair, "symbol": symbol, "status": "error", "error": error, "sent": False})
+            result = {**base, "status": "disabled", "sent": False, "reason": "alert_disabled"}
+            results.append(result)
+            _event("alert_skipped", **result)
             continue
 
-        lower = float(alert.get("lower") or 0)
-        upper = float(alert.get("upper") or 0)
+        if not force and last_checked and now - last_checked < timedelta(minutes=interval):
+            next_check = last_checked + timedelta(minutes=interval)
+            result = {
+                **base,
+                "status": state.get("status", "skipped"),
+                "sent": False,
+                "skipped": True,
+                "reason": "check_interval_active",
+                "last_checked_at": last_checked.isoformat(),
+                "next_check_at": next_check.isoformat(),
+            }
+            results.append(result)
+            _event("alert_skipped", **result)
+            continue
+
+        _event("rate_fetch_started", **base)
+        rate, fetch_error = fetcher(symbol)
+        state["last_checked_at"] = now.isoformat()
+        state["last_run_id"] = run_id
+        if rate is None:
+            state.update({"last_error": fetch_error, "updated_at": now.isoformat(), "status": "error"})
+            root[key] = state
+            result = {**base, "status": "error", "error": fetch_error, "sent": False, "reason": "rate_fetch_failed"}
+            results.append(result)
+            _event("rate_fetch_failed", **result)
+            continue
+
+        rate = float(rate)
+        lower = base["lower"]
+        upper = base["upper"]
         status = _status(rate, lower, upper)
         previous = str(state.get("status") or "normal")
         last_sent = _parse(state.get("last_sent_at"))
         repeat_due = bool(last_sent is None or now - last_sent >= timedelta(minutes=cooldown))
-        should_send = status.startswith("breach") and (previous != status or repeat_due)
+        new_breach = status.startswith("breach") and previous != status
+        should_send = status.startswith("breach") and (new_breach or repeat_due or diagnostic_test)
+        pushover_requested = bool(alert.get("pushover", True))
         sent = False
         send_error = ""
-        if should_send and bool(alert.get("pushover", True)):
+        reason = "normal"
+
+        _event(
+            "rate_evaluated",
+            **base,
+            rate=rate,
+            status=status,
+            previous_status=previous,
+            new_breach=new_breach,
+            repeat_due=repeat_due,
+            should_send=should_send,
+            pushover_requested=pushover_requested,
+        )
+
+        if should_send and pushover_requested:
             relation = f"{rate:.4f} <= {lower:.4f}" if status == "breach_lower" else f"{rate:.4f} >= {upper:.4f}"
-            message = f"{pair} har brutt grensen\nKurs: {rate:.4f}\nGrense: {relation}\nStatus: {status}"
-            response = send_pushover_alert(message, title=f"Valutavarsel {pair}")
-            if isinstance(response, tuple):
-                sent = bool(response[0])
-                send_error = str(response[1] if len(response) > 1 else "")
-            else:
-                sent = bool(response)
+            prefix = "DIAGNOSETEST - " if diagnostic_test else ""
+            message = f"{prefix}{pair} har brutt grensen\nKurs: {rate:.4f}\nGrense: {relation}\nStatus: {status}"
+            _event("pushover_send_started", **base, rate=rate, status=status, diagnostic_test=bool(diagnostic_test))
+            try:
+                response = sender(message, title=f"Valutavarsel {pair}")
+                sent, send_error = _normalize_send_response(response)
+            except Exception as exc:
+                sent, send_error = False, str(exc)[:240]
             if sent:
                 state["last_sent_at"] = now.isoformat()
                 state["last_sent_status"] = status
+                state["last_send_ok"] = True
+                reason = "pushover_sent"
+                _event("pushover_sent", **base, rate=rate, status=status)
+            else:
+                state["last_send_ok"] = False
+                reason = "pushover_failed"
+                _event("pushover_failed", **base, rate=rate, status=status, error=send_error)
+        elif should_send and not pushover_requested:
+            reason = "pushover_disabled_for_alert"
+            _event("pushover_skipped", **base, rate=rate, status=status, reason=reason)
+        elif status.startswith("breach"):
+            reason = "cooldown_active"
+            _event("pushover_skipped", **base, rate=rate, status=status, reason=reason)
+
         if status == "normal" and previous != "normal":
             state["last_normal_at"] = now.isoformat()
+            reason = "lifecycle_reset"
+            _event("alert_normalized", **base, rate=rate, previous_status=previous)
 
+        next_check = now + timedelta(minutes=interval)
         state.update({
             "pair": pair,
             "symbol": symbol,
@@ -132,14 +262,67 @@ def run_currency_alert_checks(force: bool = False) -> list[dict]:
             "status": status,
             "previous_status": previous,
             "updated_at": now.isoformat(),
-            "last_error": send_error,
+            "next_check_at": next_check.isoformat(),
+            "last_error": send_error or fetch_error,
+            "last_reason": reason,
         })
         root[key] = state
         settings.setdefault("currency_alert_latest_rates_v1864s", {})[symbol] = {
             "pair": pair, "symbol": symbol, "rate": rate, "updated_at": now.isoformat()
         }
-        results.append({"pair": pair, "symbol": symbol, "rate": rate, "status": status, "sent": sent, "send_error": send_error})
+        results.append({
+            **base,
+            "rate": rate,
+            "status": status,
+            "previous_status": previous,
+            "trigger": status.startswith("breach"),
+            "should_send": should_send,
+            "sent": sent,
+            "send_error": send_error,
+            "reason": reason,
+            "last_checked_at": now.isoformat(),
+            "next_check_at": next_check.isoformat(),
+        })
 
     settings[STATE_KEY] = root
     save_settings(settings)
+    _event("scanner_completed", run_id=run_id, checked=len(results), sent=sum(1 for r in results if r.get("sent")))
     return results
+
+
+def run_currency_alert_diagnostic_test(symbol: str | None = None) -> list[dict]:
+    """Exercise fetch -> trigger -> alert engine -> Pushover without changing thresholds permanently."""
+    settings = load_settings() or {}
+    alerts = settings.get("currency_alerts_v1863af")
+    if not isinstance(alerts, list) or not alerts:
+        alerts = [dict(DEFAULT_ALERT)]
+    selected = None
+    wanted = str(symbol or "").upper().strip()
+    for row in alerts:
+        if not wanted or str((row or {}).get("symbol") or "").upper() == wanted:
+            selected = {**DEFAULT_ALERT, **(row or {})}
+            break
+    selected = selected or {**DEFAULT_ALERT, **(alerts[0] or {})}
+
+    def forced_breach_fetcher(_symbol: str) -> tuple[float | None, str]:
+        real_rate, error = _fetch(_symbol)
+        if real_rate is None:
+            return None, error
+        lower = float(selected.get("lower") or 0)
+        upper = float(selected.get("upper") or 0)
+        if upper:
+            return max(float(real_rate), upper + max(abs(upper) * 0.001, 0.0001)), ""
+        return min(float(real_rate), lower - max(abs(lower) * 0.001, 0.0001)), ""
+
+    original = settings.get("currency_alerts_v1863af")
+    try:
+        settings["currency_alerts_v1863af"] = [selected]
+        save_settings(settings)
+        return run_currency_alert_checks(force=True, fetcher=forced_breach_fetcher, diagnostic_test=True)
+    finally:
+        restored = load_settings() or {}
+        if original is None:
+            restored.pop("currency_alerts_v1863af", None)
+        else:
+            restored["currency_alerts_v1863af"] = original
+        save_settings(restored)
