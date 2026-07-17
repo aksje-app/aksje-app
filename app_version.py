@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.78a"
-APP_VERSION_NAME = "Currency Alert Diagnostic & Repair"
+APP_VERSION = "v18.6.79"
+APP_VERSION_NAME = "AI Discovery Analytics"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.79: AI Discovery Analytics: profesjonelt Trade Analytics Dashboard, FIFO-støtte for delvise salg, Signal Scorecard, kombinasjonsanalyse, Exit- og sektoranalyse, confidence-kalibrering, handel-replay, passive AI Insights og JSON/CSV/Excel-eksport. Learning Loop og automatiske regelendringer er fortsatt AV.",
     "v18.6.78a: Currency Alert Diagnostic & Repair: valutakontrollen kjører før aksjescannerens markedstids- og cooldown-gate, full varselkjedetest er lagt til, og runtime-status/hendelseslogg gjør alle stoppårsaker synlige.",
     "v18.6.78: Paper Trading Professional: delvise salg, målpris, planlagt risikobeløp og R-multiple, kapitalbinding, exit-prioritet, posisjonskort og passiv exit-simulering. Ingen ekte handel eller autonom strategiendring er aktivert.",
     "v18.6.76: Performance & Explainability: global panelprofilering med render-tider, rerun-teller, cache/API-metrikk og eget Performance Dashboard. Paper Trading lagrer strukturert Explain AI-grunnlag for kjøp og salg i audit/replay uten å endre handelsregler.",
