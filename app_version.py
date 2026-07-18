@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.83"
-APP_VERSION_NAME = "UX & Navigation Refresh"
+APP_VERSION = "v18.6.84"
+APP_VERSION_NAME = "AI Research Assistant"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.84: AI Research Assistant: sporbar selskapsprofil, fundamentale nøkkeltall, tematiserte nyheter, transparente konkurrentforslag, investeringsnotat, rapportbasert Q&A, kildesporing og smart runtime-cache. Read-only; ingen handler eller regelendringer.",
     "v18.6.83: UX & Navigation Refresh: konsekvent kategori + modulnavn i AI Discovery og Kontrollsenter, standardiserte ikoner, harmoniserte paneloverskrifter og tydeligere norske funksjonsbeskrivelser. Ingen motorlogikk, tradingregler eller lagringsformat er endret.",
     "v18.6.82: Portfolio Optimizer: lesebasert position sizing, eksponeringsgrenser, sektor- og posisjonskontroll, korrelasjonsmatrise, diversifiseringsscore, HHI, volatilitet, historisk VaR/CVaR, scenarioanalyse, rebalanseringsforslag og Explain Portfolio. Ingen automatiske handler eller regelendringer.",
     "v18.6.81: Backtesting Engine: neste-dags utførelse uten look-ahead, OHLC-datavalidering, kurtasje og slippage, benchmark mot kjøp-og-hold, CAGR, volatilitet, Sharpe, Sortino, Max Drawdown, Calmar, Profit Factor, Expectancy og R-multiple, månedlig avkastning, audit og JSON/CSV-eksport. Fullt isolert fra Paper Trading og produksjonsregler.",

@@ -38,6 +38,7 @@ AI_DISCOVERY_TAB_OPTIONS_V18674C = {
     "🧪 Testing – Strategy Lab": "strategy_lab",
     "✅ Validering – Backtesting Engine": "backtesting_engine",
     "🛡️ Risikostyring – Portfolio Optimizer": "portfolio_optimizer",
+    "🤖 Research – AI Research Assistant": "research_assistant",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -519,7 +520,7 @@ def render_ai_discovery_foundation_panel() -> None:
     st.subheader("🧠 Analyse – AI Discovery")
     st.caption(
         "Samlet arbeidsområde for signaler, analyse, testing, validering og risikostyring. "
-        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, og Portfolio Optimizer gir passive risiko- og allokeringsforslag uten å endre motorlogikk."
+        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, Portfolio Optimizer gir passive risiko- og allokeringsforslag, og AI Research Assistant samler sporbar selskapsresearch uten å endre motorlogikk."
     )
 
     signals = list_signals()
@@ -555,6 +556,14 @@ def render_ai_discovery_foundation_panel() -> None:
             render_portfolio_optimizer()
         except Exception as exc:
             st.error(f"Portfolio Optimizer kunne ikke lastes: {exc}")
+        return
+
+    if active_ai_disc_tab == "research_assistant":
+        try:
+            from research_assistant import render_research_assistant
+            render_research_assistant()
+        except Exception as exc:
+            st.error(f"AI Research Assistant kunne ikke lastes: {exc}")
         return
 
     if active_ai_disc_tab == "signal_library":
