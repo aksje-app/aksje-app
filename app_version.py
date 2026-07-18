@@ -1,9 +1,9 @@
 APP_VERSION = "v18.6.80"
-APP_VERSION_NAME = "Controlled Learning Loop"
+APP_VERSION_NAME = "Strategy Lab"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
-    "v18.6.80: Controlled Learning Loop: analyser kan generere konservative regelendringsforslag med minimum datagrunnlag og harde guardrails. Modus er AV som standard; hvert forslag må godkjennes og aktiveres separat, med før/etter-snapshot, auditlogg og rollback. Ingen auto-apply.",
+    "v18.6.80: Strategy Lab: isolert strategibibliotek med Momentum, Swing, AI Growth, Value Trend og Defensive; egendefinerte entry/exit-regler; parallelle tester på samme historiske datasett; CAGR, Sharpe, Sortino, Profit Factor, Expectancy og Max Drawdown; equity-sammenligning, handler og CSV-eksport. Ingen Paper Trading- eller produksjonsregler endres.",
     "v18.6.79: AI Discovery Analytics: profesjonelt Trade Analytics Dashboard, FIFO-støtte for delvise salg, Signal Scorecard, kombinasjonsanalyse, Exit- og sektoranalyse, confidence-kalibrering, handel-replay, passive AI Insights og JSON/CSV/Excel-eksport. Learning Loop og automatiske regelendringer er fortsatt AV.",
     "v18.6.78a: Currency Alert Diagnostic & Repair: valutakontrollen kjører før aksjescannerens markedstids- og cooldown-gate, full varselkjedetest er lagt til, og runtime-status/hendelseslogg gjør alle stoppårsaker synlige.",
     "v18.6.78: Paper Trading Professional: delvise salg, målpris, planlagt risikobeløp og R-multiple, kapitalbinding, exit-prioritet, posisjonskort og passiv exit-simulering. Ingen ekte handel eller autonom strategiendring er aktivert.",

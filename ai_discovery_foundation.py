@@ -35,7 +35,7 @@ AI_DISCOVERY_TAB_OPTIONS_V18674C = {
     "Rapportering": "rapportering",
     "Signal Discovery": "signal_discovery",
     "AI Discovery Analytics": "learning_foundation",
-    "Learning Loop": "learning_loop",
+    "Strategy Lab": "strategy_lab",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -517,7 +517,7 @@ def render_ai_discovery_foundation_panel() -> None:
     st.subheader("🧠 AI Discovery Foundation")
     st.caption(
         "FASE 5A: passivt signalbibliotek, tracking, resultatdatabase, historikk og rapportering. "
-        "AI Discovery Analytics analyserer avsluttede paper-handler. Learning Loop er valgfri, menneskegodkjent og AV som standard; ingen endring aktiveres automatisk."
+        "Learning Loop er AV. AI Discovery Analytics analyserer avsluttede paper-handler, og Strategy Lab tester isolerte strategier uten å endre motorlogikk."
     )
 
     signals = list_signals()
@@ -527,9 +527,17 @@ def render_ai_discovery_foundation_panel() -> None:
     k1.metric("Signal Library", len(signals))
     k2.metric("Observasjoner", len(observations))
     k3.metric("Resultater", len(results))
-    k4.metric("Learning Loop", "MANUELL")
+    k4.metric("Learning Loop", "OFF")
 
     active_ai_disc_tab = _active_ai_discovery_tab_v18674c(st)
+
+    if active_ai_disc_tab == "strategy_lab":
+        try:
+            from strategy_lab import render_strategy_lab
+            render_strategy_lab()
+        except Exception as exc:
+            st.error(f"Strategy Lab kunne ikke lastes: {exc}")
+        return
 
     if active_ai_disc_tab == "signal_library":
         st.markdown("#### Signal Library")
@@ -661,13 +669,6 @@ def render_ai_discovery_foundation_panel() -> None:
             render_learning_foundation_tab()
         except Exception as exc:
             st.error(f"AI Discovery Analytics kunne ikke lastes: {exc}")
-
-    if active_ai_disc_tab == "learning_loop":
-        try:
-            from ai_learning_loop import render_learning_loop_tab
-            render_learning_loop_tab()
-        except Exception as exc:
-            st.error(f"Learning Loop kunne ikke lastes: {exc}")
 
     if active_ai_disc_tab == "signal_discovery":
         signal_discovery_renderer, signal_discovery_error = _load_signal_discovery_renderer_v18674a()
