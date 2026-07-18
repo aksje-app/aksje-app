@@ -1,8 +1,10 @@
-APP_VERSION = "v18.6.88a"
+APP_VERSION = "v18.6.89"
 APP_VERSION_NAME = "Autonomous Portfolio Integration Patch"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.89: Controlled Parameter Learning: Fast Learning / Safe Promotion med adaptive terskler, tidlig risikovarsling, automatisk risikoreduksjon, hypoteser, Champion–Challenger, prøvemodus, parameterhistorikk, varsling, manuell promotering og rollback. Kun teoretisk Autonomous Portfolio; ingen meglerkobling.",
+
     "v18.6.88a: Integrasjonspatch: Autonomous Learning Portfolio er koblet inn i AI Kontrollsenter under Testing og portefølje og har fått egen hurtigknapp i side-/hurtigmenyen. Runtime opprettes av modulen ved første bruk.",
     "v18.6.88: Autonomous Learning Portfolio Foundation: helt separat teoretisk porteføljekonto med faste brukerdefinerte kjøps- og salgsparametere, simulerte BUY/HOLD/SKIP/SELL-beslutninger, stop loss, trailing stop, take profit, score-exit, risikogrenser, automatisk pause ved drawdown, lokal/Pushover-varslingskø, full handels-, beslutnings- og auditlogg samt nedlastbar evalueringspakke. Ingen meglerkobling eller automatisk parameterlæring.",
     "v18.6.87: Scheduled Market Intelligence & PDF Reports: kombinerbare jobbprofiler for flere markeder, tidspunkter, ukedager og pipeline-moduler; planlagte og manuelle kjøringer, endringsanalyse, kandidathistorikk, Pushover-regler, driftsovervåking og profesjonelle PDF/JSON-rapporter. Fortsatt analyse-only uten automatiske handler.",

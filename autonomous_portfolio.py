@@ -18,7 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.88"
+VERSION = "v18.6.89"
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
@@ -430,7 +430,7 @@ def render_autonomous_portfolio() -> None:
     import streamlit as st
 
     st.markdown("#### 🧠 Autonomous Learning Portfolio")
-    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og ingen automatisk parameterlæring i v18.6.88.")
+    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring er tilgjengelig i egen fane i v18.6.89.")
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
@@ -496,7 +496,7 @@ def render_autonomous_portfolio() -> None:
 
     trades = _read(TRADES_PATH, [])
     decisions = _read(DECISIONS_PATH, [])
-    t1, t2, t3 = st.tabs(["Handler", "Beslutninger", "Audit og deling"])
+    t1, t2, t3, t4 = st.tabs(["Handler", "Beslutninger", "Kontrollert læring", "Audit og deling"])
     with t1:
         if trades:
             st.dataframe(pd.DataFrame(trades[:500]), use_container_width=True, hide_index=True)
@@ -509,6 +509,9 @@ def render_autonomous_portfolio() -> None:
         else:
             st.caption("Ingen beslutninger registrert.")
     with t3:
+        from controlled_parameter_learning import render_controlled_learning
+        render_controlled_learning()
+    with t4:
         st.info("For evaluering: last ned evalueringspakken og last den opp i ChatGPT. Den inneholder parametere, portefølje, handler, beslutninger, ytelse, varslingslogg, audit og siste pipeline-kjøring.")
         st.warning("Kontroller pakken før deling. Ikke legg API-nøkler, Pushover-token eller andre hemmeligheter i runtime-filene.")
         confirm = st.text_input("Skriv RESET for å nullstille kontoen", key="alp_reset_text_v18688")
