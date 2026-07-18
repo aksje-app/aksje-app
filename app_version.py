@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.81"
-APP_VERSION_NAME = "Backtesting Engine"
+APP_VERSION = "v18.6.82"
+APP_VERSION_NAME = "Portfolio Optimizer"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.82: Portfolio Optimizer: lesebasert position sizing, eksponeringsgrenser, sektor- og posisjonskontroll, korrelasjonsmatrise, diversifiseringsscore, HHI, volatilitet, historisk VaR/CVaR, scenarioanalyse, rebalanseringsforslag og Explain Portfolio. Ingen automatiske handler eller regelendringer.",
     "v18.6.81: Backtesting Engine: neste-dags utførelse uten look-ahead, OHLC-datavalidering, kurtasje og slippage, benchmark mot kjøp-og-hold, CAGR, volatilitet, Sharpe, Sortino, Max Drawdown, Calmar, Profit Factor, Expectancy og R-multiple, månedlig avkastning, audit og JSON/CSV-eksport. Fullt isolert fra Paper Trading og produksjonsregler.",
     "v18.6.80: Strategy Lab: isolert strategibibliotek med Momentum, Swing, AI Growth, Value Trend og Defensive; egendefinerte entry/exit-regler; parallelle tester på samme historiske datasett; CAGR, Sharpe, Sortino, Profit Factor, Expectancy og Max Drawdown; equity-sammenligning, handler og CSV-eksport. Ingen Paper Trading- eller produksjonsregler endres.",
     "v18.6.79: AI Discovery Analytics: profesjonelt Trade Analytics Dashboard, FIFO-støtte for delvise salg, Signal Scorecard, kombinasjonsanalyse, Exit- og sektoranalyse, confidence-kalibrering, handel-replay, passive AI Insights og JSON/CSV/Excel-eksport. Learning Loop og automatiske regelendringer er fortsatt AV.",
