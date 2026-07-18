@@ -23,7 +23,7 @@ from autonomous_portfolio import (
     calculate_performance, TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
 
-VERSION = "v18.6.91"
+VERSION = "v18.6.91a"
 ROOT = runtime_data_path("controlled_learning")
 STATE_PATH = ROOT / "state.json"
 HYPOTHESES_PATH = ROOT / "hypotheses.json"
@@ -32,7 +32,6 @@ VERSIONS_PATH = ROOT / "parameter_versions.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 REPORTS_PATH = ROOT / "management_reports.json"
 APPROVALS_PATH = ROOT / "promotion_approvals.json"
-_RENDER_COUNTER = itertools.count(1)
 
 
 def _now() -> str:
@@ -498,9 +497,10 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
     import pandas as pd
     import streamlit as st
 
-    _instance = next(_RENDER_COUNTER)
     def _k(name: str) -> str:
-        return f"{namespace}_{_instance}_{name}"
+        # Stable keys are required so Streamlit keeps the selected value across reruns.
+        # The caller supplies a unique namespace when the panel can be rendered elsewhere.
+        return f"{namespace}_{name}"
     st.markdown("#### 🧪 Controlled Parameter Learning")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
@@ -521,8 +521,38 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         st.caption("Styr driftsmodus, automatiske tillatelser, sikkerhetsgrenser, varsling, evaluering og nødstopp.")
         mode_labels = {"OBSERVER": "🟢 Observatør", "ASSISTED": "🟡 Assistert autonomi", "FULL": "🔴 Full autonomi"}
         a,b,c = st.columns(3)
-        enabled = a.toggle("Aktiver kontrollert læring", value=bool(state["enabled"]), key=_k("cpl_enabled_v18689b"))
-        selected_mode = b.selectbox("Driftsmodus", list(mode_labels), index=list(mode_labels).index(str(state.get("mode") or "ASSISTED")), format_func=lambda x: mode_labels[x], key=_k("cpl_mode_v18689b"))
+        enabled_key = _k("cpl_enabled_v18689b")
+        mode_key = _k("cpl_mode_v18689b")
+
+        def _persist_enabled() -> None:
+            latest = load_state()
+            latest["enabled"] = bool(st.session_state.get(enabled_key, False))
+            save_state(latest)
+            _audit("AUTONOMY_SETTING_CHANGED", {"field": "enabled", "value": latest["enabled"], "source": "UI_ON_CHANGE"})
+
+        def _persist_mode() -> None:
+            latest = load_state()
+            value = str(st.session_state.get(mode_key) or "ASSISTED")
+            if value not in mode_labels:
+                value = "ASSISTED"
+            latest["mode"] = value
+            save_state(latest)
+            _audit("AUTONOMY_SETTING_CHANGED", {"field": "mode", "value": value, "source": "UI_ON_CHANGE"})
+
+        enabled = a.toggle(
+            "Aktiver kontrollert læring",
+            value=bool(state["enabled"]),
+            key=enabled_key,
+            on_change=_persist_enabled,
+        )
+        selected_mode = b.selectbox(
+            "Driftsmodus",
+            list(mode_labels),
+            index=list(mode_labels).index(str(state.get("mode") or "ASSISTED")),
+            format_func=lambda x: mode_labels[x],
+            key=mode_key,
+            on_change=_persist_mode,
+        )
         emergency = c.toggle("🛑 Nødstopp", value=bool(state.get("emergency_stop", False)), key=_k("cpl_emergency_v18689b"), help="Stopper automatiske læringshandlinger umiddelbart. Teoretisk portefølje kan pauses separat.")
         if emergency and not state.get("emergency_stop", False):
             try:

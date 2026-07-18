@@ -1,4 +1,4 @@
-"""Central versioned configuration framework for AI Aksje Analyzer v18.6.91.
+"""Central versioned configuration framework for AI Aksje Analyzer v18.6.91a.
 
 The framework keeps one canonical configuration document in StorageService.
 It preserves user values across Streamlit reruns, browser refreshes, restarts,
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 FRAMEWORK_VERSION = 1
-APP_COMPAT_VERSION = "v18.6.91"
+APP_COMPAT_VERSION = "v18.6.91a"
 CANONICAL_KEY = "configuration/framework.json"
 BACKUP_PREFIX = "configuration/backups"
 

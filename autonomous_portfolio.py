@@ -20,7 +20,7 @@ from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
 from configuration_framework import export_bundle, import_bundle, status as configuration_status
 
-VERSION = "v18.6.91"
+VERSION = "v18.6.91a"
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
