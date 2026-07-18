@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.90"
-APP_VERSION_NAME = "Autonomous Orchestrator and Scan Windows"
+APP_VERSION = "v18.6.90a"
+APP_VERSION_NAME = "Full UI Integration Patch"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.90a: Full UI Integration Patch: egen synlig side for Autonom Orchestrator & Scheduler, direkte fullkjøring, stegdiagnostikk, jobbprofiler og skanningsvinduer integrert i AI Kontrollsenter. app.py er inkludert i oppdateringspakken.",
     "v18.6.89b: Autonomy Settings som egen side med driftsmodus, tillatte automatiske handlinger, risikogrenser, læringsterskler, varsling, evalueringsplan og nødstopp. Full autonomi får Promotion Guard: store parameterendringer eller vesentlige risikoendringer settes i godkjenningskø før Champion-promotering.",
     "v18.6.89a: Autonomy Modes & AI-sjef: Observatør, Assistert autonomi og Full autonomi; automatisk evaluering etter autonome beslutningssykluser og på intervall; automatisk Challenger/prøvemodus, valgfri Champion-promotering, rask rollback, daglige/ukentlige læringsrapporter, varsling og utvidet evalueringspakke.",
 
