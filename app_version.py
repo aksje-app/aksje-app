@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.82"
-APP_VERSION_NAME = "Portfolio Optimizer"
+APP_VERSION = "v18.6.83"
+APP_VERSION_NAME = "UX & Navigation Refresh"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.83: UX & Navigation Refresh: konsekvent kategori + modulnavn i AI Discovery og Kontrollsenter, standardiserte ikoner, harmoniserte paneloverskrifter og tydeligere norske funksjonsbeskrivelser. Ingen motorlogikk, tradingregler eller lagringsformat er endret.",
     "v18.6.82: Portfolio Optimizer: lesebasert position sizing, eksponeringsgrenser, sektor- og posisjonskontroll, korrelasjonsmatrise, diversifiseringsscore, HHI, volatilitet, historisk VaR/CVaR, scenarioanalyse, rebalanseringsforslag og Explain Portfolio. Ingen automatiske handler eller regelendringer.",
     "v18.6.81: Backtesting Engine: neste-dags utførelse uten look-ahead, OHLC-datavalidering, kurtasje og slippage, benchmark mot kjøp-og-hold, CAGR, volatilitet, Sharpe, Sortino, Max Drawdown, Calmar, Profit Factor, Expectancy og R-multiple, månedlig avkastning, audit og JSON/CSV-eksport. Fullt isolert fra Paper Trading og produksjonsregler.",
     "v18.6.80: Strategy Lab: isolert strategibibliotek med Momentum, Swing, AI Growth, Value Trend og Defensive; egendefinerte entry/exit-regler; parallelle tester på samme historiske datasett; CAGR, Sharpe, Sortino, Profit Factor, Expectancy og Max Drawdown; equity-sammenligning, handler og CSV-eksport. Ingen Paper Trading- eller produksjonsregler endres.",

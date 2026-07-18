@@ -373,7 +373,7 @@ def save_report(report: Mapping[str, Any]) -> None:
 def render_backtesting_engine() -> None:
     import streamlit as st
 
-    st.markdown("#### 📐 Backtesting Engine")
+    st.markdown("#### ✅ Validering – Backtesting Engine")
     st.caption(
         "Reproduserbar historisk simulering med neste-dags utførelse, kurtasje, slippage, benchmark og profesjonelle risiko-/avkastningsmål. "
         "Motoren er isolert fra Paper Trading og produksjonsregler."

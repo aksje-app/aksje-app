@@ -10477,7 +10477,7 @@ def _paper_trading_active_tab_v18674c() -> str:
     return slug
 
 def render_paper_trading_dashboard():
-    st.subheader("Paper Trading og kontroll")
+    st.subheader("💼 Handel – Paper Trading")
     st.caption("v18.6.76: Paper Trading profileres med render-tider. Kjøp/salg lagrer forklaringsgrunnlag for audit og replay.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
@@ -19267,25 +19267,25 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 
 def control_center_extra_panels_v18535():
     return [
-        ("AI Kandidattest", render_ai_candidate_test_control_center_v1864l),
-        ("AI Discovery", render_ai_discovery_foundation_panel),
+        ("🤖 AI – Kandidattest", render_ai_candidate_test_control_center_v1864l),
+        ("📈 Analyse – AI Discovery", render_ai_discovery_foundation_panel),
         ("Markedsklima", render_market_climate_panel),
-        ("Marked", render_market_room_control_center_v1863cb),
-        ("Top Picks", render_top_picks_control_center_v1863s),
-        ("Long Engine", render_long_engine_control_center_v18653),
-        ("Alpha Radar", render_alpha_radar_control_center_v1863ap),
-        ("Aktørregister", render_actor_registry_panel),
+        ("🔍 Marked – Market Scanner", render_market_room_control_center_v1863cb),
+        ("⭐ Analyse – Top Picks", render_top_picks_control_center_v1863s),
+        ("📈 Analyse – Long Engine", render_long_engine_control_center_v18653),
+        ("📡 Marked – Alpha Radar", render_alpha_radar_control_center_v1863ap),
+        ("👥 Analyse – Aktørregister", render_actor_registry_panel),
         ("IPO", render_ipo),
-        ("Paper Trading og kontroll", render_paper_trading_dashboard),
-        ("Auto Test Lab", render_auto_test_lab_control_center_v18536),
-        ("Fond / ETF", render_fund_etf_control_center_v18538),
-        ("Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
+        ("💼 Handel – Paper Trading", render_paper_trading_dashboard),
+        ("🧪 Testing – Auto Test Lab", render_auto_test_lab_control_center_v18536),
+        ("📊 Analyse – Fond / ETF", render_fund_etf_control_center_v18538),
+        ("🛡️ Risikostyring – Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
         ("Nyheter", render_news_control_center_v18535),
-        ("Interaktiv analyse", render_interactive_technical_control_center_v18535),
+        ("📈 Analyse – Interaktiv analyse", render_interactive_technical_control_center_v18535),
         ("Marked/rangering", render_market_ranking_control_center_v18535),
         ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
-        ("System/admin", lambda: render_system_admin_workspace(expanded=True)),
-        ("Performance Dashboard", render_performance_dashboard),
+        ("⚙️ Innstillinger – System/admin", lambda: render_system_admin_workspace(expanded=True)),
+        ("⚡ Ytelse – Performance Dashboard", render_performance_dashboard),
     ]
 
 _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
@@ -19293,7 +19293,7 @@ _control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
 
 def render_alerts_watchlist_control_center_v1869() -> None:
     """Unified alert/watchlist workspace without separate dominant menu entries."""
-    st.subheader("Varsler og watchlist")
+    st.subheader("🔔 Varsling – Alert Center")
     st.caption(
         "Samler felles varselsenter, watchlist/signaler og valutavarsler. "
         "Varselsenteret viser lagrede varsler; fanene under kan kjøre ny watchlist- eller valutakontroll."
@@ -19323,11 +19323,11 @@ def control_center_extra_panels_v18535():
         if any(token in text for token in legacy_hidden_tokens):
             continue
         panels.append((label, renderer))
-        if str(label or "") == "Marked":
-            panels.append(("Varsler og watchlist", render_alerts_watchlist_control_center_v1869))
+        if "Market Scanner" in str(label or "") or str(label or "") == "Marked":
+            panels.append(("🔔 Varsling – Alert Center", render_alerts_watchlist_control_center_v1869))
             inserted_alerts = True
     if not inserted_alerts:
-        panels.insert(2, ("Varsler og watchlist", render_alerts_watchlist_control_center_v1869))
+        panels.insert(2, ("🔔 Varsling – Alert Center", render_alerts_watchlist_control_center_v1869))
 
     measured_panels = []
     for _label, _renderer in panels:
@@ -20662,7 +20662,16 @@ try:
     render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
     try:
-        _panel_to_nav_v18658 = {"Long Engine": "long_engine", "Top Picks": "top_picks", "AI Kandidattest": "analysis", "System/admin": "system"}
+        _panel_to_nav_v18658 = {
+            "Long Engine": "long_engine",
+            "📈 Analyse – Long Engine": "long_engine",
+            "Top Picks": "top_picks",
+            "⭐ Analyse – Top Picks": "top_picks",
+            "AI Kandidattest": "analysis",
+            "🤖 AI – Kandidattest": "analysis",
+            "System/admin": "system",
+            "⚙️ Innstillinger – System/admin": "system",
+        }
         _nav_to_store_v18658 = _panel_to_nav_v18658.get(str(_active_control_center_panel_v18598 or ""))
         if _nav_to_store_v18658:
             _set_query_panel_v18658(_nav_to_store_v18658)

@@ -378,7 +378,7 @@ def render_portfolio_optimizer() -> None:
     import streamlit as st
     from paper_store import load_portfolio
 
-    st.markdown("#### 🧭 Portfolio Optimizer")
+    st.markdown("#### 🛡️ Risikostyring – Portfolio Optimizer")
     st.caption("Lesebasert kapitalallokering, risikoanalyse og rebalanseringsforslag. Ingen handler utføres, og Paper Trading endres ikke.")
     limits = load_settings()
     with st.expander("Porteføljegrenser", expanded=False):

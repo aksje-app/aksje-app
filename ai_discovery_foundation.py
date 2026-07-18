@@ -28,16 +28,16 @@ SNAPSHOT_DIR = DATA_DIR / "snapshots"
 REPORT_DIR = DATA_DIR / "reports"
 
 AI_DISCOVERY_TAB_OPTIONS_V18674C = {
-    "Signal Library": "signal_library",
-    "Signal Tracking": "signal_tracking",
-    "Resultatdatabase": "resultatdatabase",
-    "Historikk": "historikk",
-    "Rapportering": "rapportering",
-    "Signal Discovery": "signal_discovery",
-    "AI Discovery Analytics": "learning_foundation",
-    "Strategy Lab": "strategy_lab",
-    "Backtesting Engine": "backtesting_engine",
-    "Portfolio Optimizer": "portfolio_optimizer",
+    "📚 Signaler – Signal Library": "signal_library",
+    "📡 Oppfølging – Signal Tracking": "signal_tracking",
+    "🗃️ Resultater – Resultatdatabase": "resultatdatabase",
+    "🕘 Historikk – Observasjoner": "historikk",
+    "📄 Rapportering – Eksport og innsikt": "rapportering",
+    "🔎 Oppdagelse – Signal Discovery": "signal_discovery",
+    "📈 Analyse – AI Discovery Analytics": "learning_foundation",
+    "🧪 Testing – Strategy Lab": "strategy_lab",
+    "✅ Validering – Backtesting Engine": "backtesting_engine",
+    "🛡️ Risikostyring – Portfolio Optimizer": "portfolio_optimizer",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -60,7 +60,7 @@ def _active_ai_discovery_tab_v18674c(st) -> str:
             url_tab = ""
     if "ai_discovery_active_tab_label_v18674c" not in st.session_state:
         initial_slug = str(st.session_state.get("ai_discovery_active_tab_slug_v18674c") or url_tab or "signal_library").strip().lower()
-        st.session_state["ai_discovery_active_tab_label_v18674c"] = AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C.get(initial_slug, "Signal Library")
+        st.session_state["ai_discovery_active_tab_label_v18674c"] = AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C.get(initial_slug, "📚 Signaler – Signal Library")
     selected_label = st.radio(
         "AI Discovery-fane",
         list(AI_DISCOVERY_TAB_OPTIONS_V18674C.keys()),
@@ -516,9 +516,9 @@ def render_ai_discovery_foundation_panel() -> None:
     import streamlit as st  # imported lazily so non-UI tests can import module
 
     init_ai_discovery_db()
-    st.subheader("🧠 AI Discovery Foundation")
+    st.subheader("🧠 Analyse – AI Discovery")
     st.caption(
-        "FASE 5A: passivt signalbibliotek, tracking, resultatdatabase, historikk og rapportering. "
+        "Samlet arbeidsområde for signaler, analyse, testing, validering og risikostyring. "
         "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, og Portfolio Optimizer gir passive risiko- og allokeringsforslag uten å endre motorlogikk."
     )
 

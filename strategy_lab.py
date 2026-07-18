@@ -325,7 +325,7 @@ def save_latest_runs(payload: Mapping[str, Any]) -> None:
 def render_strategy_lab() -> None:
     import streamlit as st
 
-    st.markdown("#### 🧪 Strategy Lab")
+    st.markdown("#### 🧪 Testing – Strategy Lab")
     st.caption(
         "Isolert forskningsmiljø for å opprette og sammenligne strategier på samme historiske datasett. "
         "Resultater påvirker ikke Paper Trading, live-regler eller signalvekter."

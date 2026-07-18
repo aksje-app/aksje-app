@@ -199,7 +199,7 @@ def render_learning_foundation_tab() -> None:
     except Exception:
         pd = None
 
-    st.markdown("#### AI Discovery Analytics")
+    st.markdown("#### 📈 Analyse – AI Discovery Analytics")
     st.caption("Passiv resultat- og mønsteranalyse av Paper Trading. Learning Loop er AV; ingen handelsregler eller signalvekter endres automatisk.")
     report = learning_report()
     m = report["metrics"]
