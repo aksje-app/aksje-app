@@ -21,13 +21,14 @@ from autonomous_portfolio import (
     calculate_performance, TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
 
-VERSION = "v18.6.89"
+VERSION = "v18.6.89a"
 ROOT = runtime_data_path("controlled_learning")
 STATE_PATH = ROOT / "state.json"
 HYPOTHESES_PATH = ROOT / "hypotheses.json"
 EXPERIMENTS_PATH = ROOT / "experiments.json"
 VERSIONS_PATH = ROOT / "parameter_versions.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
+REPORTS_PATH = ROOT / "management_reports.json"
 
 
 def _now() -> str:
@@ -68,10 +69,14 @@ def default_state() -> dict[str, Any]:
     return {
         "version": VERSION,
         "enabled": False,
-        "mode": "FAST_LEARNING_SAFE_PROMOTION",
+        "mode": "ASSISTED",
         "auto_risk_protection": True,
-        "auto_start_challengers": False,
+        "auto_start_challengers": True,
         "auto_promote": False,
+        "automatic_evaluation": True,
+        "evaluation_interval_minutes": 60,
+        "management_report_frequency": "DAILY",
+        "last_management_report_at": None,
         "auto_rollback": True,
         "warning_min_closed_trades": 10,
         "hypothesis_min_closed_trades": 15,
@@ -221,21 +226,154 @@ def promote_trial() -> dict[str, Any]:
     return trial
 
 
-def evaluate_learning() -> dict[str, Any]:
-    state = load_state(); perf = calculate_performance(); trades = _closed_trades(); stats = _stats(trades); actions = []
-    ensure_champion_version()
-    if state.get("enabled"):
-        created = generate_hypotheses(); actions += [f"Opprettet {len(created)} hypoteser"] if created else []
-        if state.get("auto_risk_protection") and (perf.get("drawdown_pct", 0) >= load_parameters().maximum_drawdown_pct * 0.75 or (len(trades) >= state["warning_min_closed_trades"] and stats["expectancy"] < 0)):
-            p = load_parameters(); reduced = max(0.5, p.maximum_position_pct * float(state["risk_reduction_factor"]))
-            if reduced < p.maximum_position_pct:
-                data = asdict(p); old = p.maximum_position_pct; data["maximum_position_pct"] = reduced; save_parameters(AutonomousParameters(**data))
-                action = {"type": "RISK_REDUCTION", "parameter": "maximum_position_pct", "before": old, "after": reduced, "reason": "Drawdown/negativ expectancy trigger"}
-                actions.append(action); _audit("AUTOMATIC_RISK_PROTECTION", action); _notify("Learning: risiko redusert", f"Maks posisjon {old:.2f}% → {reduced:.2f}%", action)
-    state["last_evaluation_at"] = _now(); state["last_action"] = actions[-1] if actions else "Ingen endring"; _write(STATE_PATH, state)
-    result = {"timestamp": _now(), "closed_trades": len(trades), "statistics": stats, "performance": perf, "actions": actions}; _audit("LEARNING_EVALUATED", result)
-    return result
 
+def _parse_time(value: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value)) if value else None
+    except Exception:
+        return None
+
+
+def _mode_policy(state: Mapping[str, Any]) -> dict[str, bool]:
+    mode = str(state.get("mode") or "ASSISTED").upper()
+    return {
+        "observe_only": mode == "OBSERVER",
+        "auto_challenger": mode in {"ASSISTED", "FULL"},
+        "auto_trial": mode in {"ASSISTED", "FULL"},
+        "auto_promote": mode == "FULL",
+        "auto_rollback": mode in {"ASSISTED", "FULL"} and bool(state.get("auto_rollback", True)),
+    }
+
+
+def _experiment_progress(experiment: Mapping[str, Any], closed_count: int) -> int:
+    baseline = int(_f((experiment.get("baseline") or {}).get("trades"), 0))
+    return max(0, closed_count - baseline)
+
+
+def _refresh_experiments(state: Mapping[str, Any], perf: Mapping[str, Any], stats: Mapping[str, Any]) -> list[dict[str, Any]]:
+    experiments = _read(EXPERIMENTS_PATH, [])
+    if not isinstance(experiments, list):
+        return []
+    changed = False
+    for exp in experiments:
+        if exp.get("status") not in {"TESTING", "TRIAL"}:
+            continue
+        exp["observed_trades"] = _experiment_progress(exp, int(stats.get("trades", 0)))
+        exp["latest_statistics"] = dict(stats)
+        exp["latest_performance"] = dict(perf)
+        exp["updated_at"] = _now()
+        changed = True
+    if changed:
+        _write(EXPERIMENTS_PATH, experiments)
+    return experiments
+
+
+def generate_management_report(force: bool = False) -> dict[str, Any] | None:
+    state = load_state()
+    frequency = str(state.get("management_report_frequency") or "DAILY").upper()
+    if frequency == "OFF" and not force:
+        return None
+    last = _parse_time(state.get("last_management_report_at"))
+    now = datetime.now(timezone.utc).astimezone()
+    due_hours = 24 if frequency == "DAILY" else 24 * 7
+    if not force and last and (now - last).total_seconds() < due_hours * 3600:
+        return None
+    trades = _closed_trades()
+    stats = _stats(trades)
+    perf = calculate_performance()
+    hypotheses = _read(HYPOTHESES_PATH, [])
+    experiments = _read(EXPERIMENTS_PATH, [])
+    versions = _read(VERSIONS_PATH, [])
+    active_tests = [e for e in experiments if e.get("status") in {"TESTING", "TRIAL"}] if isinstance(experiments, list) else []
+    open_h = [h for h in hypotheses if h.get("status") in {"NEW", "TESTING", "TRIAL"}] if isinstance(hypotheses, list) else []
+    champion = next((v for v in versions if v.get("status") == "CHAMPION"), None) if isinstance(versions, list) else None
+    observations = []
+    if stats["expectancy"] < 0: observations.append("Negativ expectancy krever forsiktig kapitalbruk.")
+    if stats["profit_factor"] < 1 and stats["trades"] >= int(state.get("warning_min_closed_trades", 10)): observations.append("Profit Factor er under 1,0.")
+    if _f(perf.get("drawdown_pct")) >= load_parameters().maximum_drawdown_pct * 0.75: observations.append("Drawdown nærmer seg maksimalgrensen.")
+    if not observations: observations.append("Ingen kritiske lærings- eller risikohendelser i perioden.")
+    report = {
+        "report_id": "MR-" + uuid.uuid4().hex[:10], "created_at": _now(), "frequency": frequency,
+        "mode": state.get("mode"), "closed_trades": len(trades), "statistics": stats, "performance": perf,
+        "open_hypotheses": len(open_h), "active_experiments": len(active_tests),
+        "champion_version_id": champion.get("version_id") if champion else None,
+        "observations": observations,
+        "recommendation": "Fortsett kontrollert testing" if active_tests else "Samle flere observasjoner og vurder nye hypoteser",
+    }
+    reports = _read(REPORTS_PATH, [])
+    reports = reports if isinstance(reports, list) else []
+    reports.insert(0, report); _write(REPORTS_PATH, reports[:365])
+    state["last_management_report_at"] = report["created_at"]; _write(STATE_PATH, state)
+    _audit("MANAGEMENT_REPORT_CREATED", report)
+    _notify("Autonomi: læringsrapport", f"{len(open_h)} åpne hypoteser, {len(active_tests)} aktive tester, drawdown {_f(perf.get('drawdown_pct')):.2f}%.", report)
+    return report
+
+
+def run_automatic_learning_if_due(trigger: str = "APP", force: bool = False) -> dict[str, Any]:
+    state = load_state()
+    if not state.get("enabled") or not state.get("automatic_evaluation", True):
+        return {"ran": False, "reason": "Læring eller automatisk evaluering er av"}
+    last = _parse_time(state.get("last_evaluation_at"))
+    interval = max(1, int(state.get("evaluation_interval_minutes", 60)))
+    now = datetime.now(timezone.utc).astimezone()
+    if not force and last and (now - last).total_seconds() < interval * 60:
+        generate_management_report(False)
+        return {"ran": False, "reason": "Ikke forfalt"}
+    result = evaluate_learning(trigger=trigger)
+    report = generate_management_report(False)
+    return {"ran": True, "evaluation": result, "management_report": report}
+
+
+def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
+    state = load_state(); perf = calculate_performance(); trades = _closed_trades(); stats = _stats(trades); actions: list[Any] = []
+    policy = _mode_policy(state)
+    ensure_champion_version()
+    experiments = _refresh_experiments(state, perf, stats)
+    if state.get("enabled"):
+        created = generate_hypotheses()
+        if created: actions.append({"type": "HYPOTHESES_CREATED", "count": len(created)})
+        # Safety actions are allowed in assisted/full modes, but observer only reports.
+        risk_trigger = perf.get("drawdown_pct", 0) >= load_parameters().maximum_drawdown_pct * 0.75 or (len(trades) >= state["warning_min_closed_trades"] and stats["expectancy"] < 0)
+        if state.get("auto_risk_protection") and risk_trigger:
+            if policy["observe_only"]:
+                actions.append({"type": "RISK_WARNING", "reason": "Drawdown/negativ expectancy trigger", "applied": False})
+            else:
+                p = load_parameters(); reduced = max(0.5, p.maximum_position_pct * float(state["risk_reduction_factor"]))
+                if reduced < p.maximum_position_pct:
+                    data = asdict(p); old = p.maximum_position_pct; data["maximum_position_pct"] = reduced; save_parameters(AutonomousParameters(**data))
+                    action = {"type": "RISK_REDUCTION", "parameter": "maximum_position_pct", "before": old, "after": reduced, "reason": "Drawdown/negativ expectancy trigger"}
+                    actions.append(action); _audit("AUTOMATIC_RISK_PROTECTION", action); _notify("Learning: risiko redusert", f"Maks posisjon {old:.2f}% → {reduced:.2f}%", action)
+        hypotheses = _read(HYPOTHESES_PATH, []); hypotheses = hypotheses if isinstance(hypotheses, list) else []
+        if policy["auto_challenger"] and len(trades) >= int(state["challenger_min_closed_trades"]):
+            candidate = next((h for h in hypotheses if h.get("status") == "NEW"), None)
+            if candidate:
+                exp = start_challenger(candidate["hypothesis_id"]); actions.append({"type": "CHALLENGER_STARTED", "experiment_id": exp["experiment_id"]})
+        hypotheses = _read(HYPOTHESES_PATH, []); hypotheses = hypotheses if isinstance(hypotheses, list) else []
+        if policy["auto_trial"] and len(trades) >= int(state["trial_promotion_min_closed_trades"]):
+            candidate = next((h for h in hypotheses if h.get("status") == "TESTING"), None)
+            if candidate:
+                trial = apply_trial(candidate["hypothesis_id"]); actions.append({"type": "TRIAL_APPLIED", "version_id": trial["version_id"]})
+        if policy["auto_promote"] and len(trades) >= int(state["full_promotion_min_closed_trades"]):
+            versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
+            trial = next((v for v in versions if v.get("status") == "TRIAL"), None)
+            if trial:
+                baseline = trial.get("baseline_performance") or {}
+                enough = len(trades) >= int(state["full_promotion_min_closed_trades"])
+                improved = _f(stats.get("profit_factor")) >= max(1.0, _f(baseline.get("profit_factor"), 0)) and _f(perf.get("drawdown_pct")) <= _f(baseline.get("drawdown_pct"), 0) + 1.0
+                if enough and improved:
+                    champion = promote_trial(); actions.append({"type": "CHAMPION_PROMOTED", "version_id": champion["version_id"]})
+        # Roll back a trial quickly when drawdown materially worsens.
+        if policy["auto_rollback"]:
+            versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
+            trial = next((v for v in versions if v.get("status") == "TRIAL"), None)
+            if trial:
+                baseline_dd = _f((trial.get("baseline_performance") or {}).get("drawdown_pct"))
+                if _f(perf.get("drawdown_pct")) >= baseline_dd + _f(state.get("rollback_drawdown_delta_pct"), 3.0):
+                    rb = rollback(); actions.append({"type": "AUTOMATIC_ROLLBACK", "version_id": rb["version_id"]})
+    state["last_evaluation_at"] = _now(); state["last_action"] = actions[-1] if actions else "Ingen endring"; _write(STATE_PATH, state)
+    result = {"timestamp": _now(), "trigger": trigger, "mode": state.get("mode"), "closed_trades": len(trades), "statistics": stats, "performance": perf, "actions": actions}
+    _audit("LEARNING_EVALUATED", result)
+    return result
 
 def render_controlled_learning() -> None:
     import pandas as pd
@@ -243,16 +381,25 @@ def render_controlled_learning() -> None:
     st.markdown("#### 🧪 Controlled Parameter Learning")
     st.caption("Fast Learning / Safe Promotion. Rask risikobeskyttelse, trinnvis testing og varslede endringer. Kun teoretisk autonom portefølje.")
     state = load_state(); trades = _closed_trades(); stats = _stats(trades)
+    auto_result = run_automatic_learning_if_due(trigger="UI_RENDER", force=False)
     c1,c2,c3,c4,c5 = st.columns(5)
     c1.metric("Læring", "AKTIV" if state["enabled"] else "AV")
     c2.metric("Lukkede handler", len(trades)); c3.metric("Expectancy", f"{stats['expectancy']:,.0f}")
     c4.metric("Profit Factor", f"{stats['profit_factor']:.2f}"); c5.metric("Siste evaluering", str(state.get("last_evaluation_at") or "–")[:16])
-    a,b,c = st.columns(3)
-    enabled = a.toggle("Aktiver kontrollert læring", value=bool(state["enabled"]), key="cpl_enabled_v18689")
-    risk = b.toggle("Automatisk risikobeskyttelse", value=bool(state["auto_risk_protection"]), key="cpl_risk_v18689")
-    rollback_on = c.toggle("Automatisk rollback", value=bool(state["auto_rollback"]), key="cpl_rollback_v18689")
-    if (enabled, risk, rollback_on) != (state["enabled"], state["auto_risk_protection"], state["auto_rollback"]):
-        state.update({"enabled": enabled, "auto_risk_protection": risk, "auto_rollback": rollback_on}); save_state(state)
+    mode_labels = {"OBSERVER": "🟢 Observatør", "ASSISTED": "🟡 Assistert autonomi", "FULL": "🔴 Full autonomi"}
+    a,b,c,d = st.columns(4)
+    enabled = a.toggle("Aktiver kontrollert læring", value=bool(state["enabled"]), key="cpl_enabled_v18689a")
+    selected_mode = b.selectbox("Driftsmodus", list(mode_labels), index=list(mode_labels).index(str(state.get("mode") or "ASSISTED")), format_func=lambda x: mode_labels[x], key="cpl_mode_v18689a")
+    risk = c.toggle("Automatisk risikobeskyttelse", value=bool(state["auto_risk_protection"]), key="cpl_risk_v18689a")
+    rollback_on = d.toggle("Automatisk rollback", value=bool(state["auto_rollback"]), key="cpl_rollback_v18689a")
+    e,f,g = st.columns(3)
+    automatic = e.toggle("Automatisk evaluering", value=bool(state.get("automatic_evaluation", True)), key="cpl_auto_eval_v18689a")
+    interval = int(f.number_input("Evaluer hvert minutt", 1, 10080, int(state.get("evaluation_interval_minutes", 60)), 5, key="cpl_interval_v18689a"))
+    report_freq = g.selectbox("AI-sjef rapport", ["OFF", "DAILY", "WEEKLY"], index=["OFF", "DAILY", "WEEKLY"].index(str(state.get("management_report_frequency") or "DAILY")), format_func=lambda x: {"OFF":"Av", "DAILY":"Daglig", "WEEKLY":"Ukentlig"}[x], key="cpl_report_freq_v18689a")
+    changed = (enabled != state["enabled"] or selected_mode != state.get("mode") or risk != state["auto_risk_protection"] or rollback_on != state["auto_rollback"] or automatic != state.get("automatic_evaluation") or interval != state.get("evaluation_interval_minutes") or report_freq != state.get("management_report_frequency"))
+    if changed:
+        state.update({"enabled": enabled, "mode": selected_mode, "auto_risk_protection": risk, "auto_rollback": rollback_on, "automatic_evaluation": automatic, "evaluation_interval_minutes": interval, "management_report_frequency": report_freq}); save_state(state)
+    st.caption({"OBSERVER":"Observerer, varsler og foreslår – endrer ingen parametere.", "ASSISTED":"Starter Challengers og prøvemodus automatisk; Champion krever godkjenning.", "FULL":"Kan starte tester, aktivere prøvemodus, promotere Champion og rulle tilbake automatisk."}[selected_mode])
     with st.expander("Adaptive terskler", expanded=False):
         cols = st.columns(5)
         keys = [("warning_min_closed_trades","Tidlig varsel"),("hypothesis_min_closed_trades","Hypotese"),("challenger_min_closed_trades","Challenger"),("trial_promotion_min_closed_trades","Prøvemodus"),("full_promotion_min_closed_trades","Full Champion")]
@@ -269,7 +416,7 @@ def render_controlled_learning() -> None:
         try: rollback(); st.success("Rollback utført."); st.rerun()
         except ValueError as exc: st.warning(str(exc))
     hypotheses = _read(HYPOTHESES_PATH, []); experiments = _read(EXPERIMENTS_PATH, []); versions = _read(VERSIONS_PATH, [])
-    t1,t2,t3 = st.tabs(["Hypoteser", "Eksperimenter", "Parameterhistorikk"])
+    t1,t2,t3,t4 = st.tabs(["Hypoteser", "Eksperimenter", "Parameterhistorikk", "AI-sjef rapporter"])
     with t1:
         if hypotheses:
             st.dataframe(pd.DataFrame(hypotheses), use_container_width=True, hide_index=True)
@@ -291,3 +438,19 @@ def render_controlled_learning() -> None:
         if st.button("Promoter aktiv prøveversjon til Champion", key="cpl_promote_v18689"):
             try: promote_trial(); st.success("Ny Champion er aktivert og varslet."); st.rerun()
             except ValueError as exc: st.warning(str(exc))
+    with t4:
+        reports = _read(REPORTS_PATH, [])
+        r1, r2 = st.columns(2)
+        if r1.button("Generer rapport nå", use_container_width=True, key="cpl_report_now_v18689a"):
+            generate_management_report(force=True); st.success("Læringsrapport opprettet og varslet."); st.rerun()
+        if r2.button("Kjør full automatisk evaluering nå", use_container_width=True, key="cpl_auto_now_v18689a"):
+            run_automatic_learning_if_due(trigger="MANUAL_FORCE", force=True); st.success("Automatisk evalueringsløp fullført."); st.rerun()
+        if reports:
+            latest = reports[0]
+            st.markdown(f"**Siste rapport:** {latest.get('created_at','–')} · {latest.get('mode','–')}")
+            for observation in latest.get("observations", []): st.write(f"- {observation}")
+            st.json(latest, expanded=False)
+            st.dataframe(pd.DataFrame(reports[:100]), use_container_width=True, hide_index=True)
+            st.download_button("Last ned rapporthistorikk JSON", json.dumps(reports, ensure_ascii=False, indent=2), "autonomous_management_reports.json", "application/json", key="cpl_reports_json_v18689a")
+        else:
+            st.info("Ingen AI-sjef-rapporter ennå.")

@@ -358,7 +358,13 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     perf = calculate_performance(portfolio)
     _write(PERFORMANCE_PATH, perf)
     _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "trades": len(trades), "equity": equity, "status": portfolio.get("status")})
-    return {"run_id": run_id, "portfolio": portfolio, "decisions": decisions, "trades": trades, "performance": perf}
+    learning_result = None
+    try:
+        from controlled_parameter_learning import run_automatic_learning_if_due
+        learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
+    except Exception as exc:
+        _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
+    return {"run_id": run_id, "portfolio": portfolio, "decisions": decisions, "trades": trades, "performance": perf, "learning": learning_result}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -409,7 +415,7 @@ def build_evaluation_bundle() -> bytes:
     """Create a compact ZIP that can be uploaded to ChatGPT for evaluation."""
     manifest = {
         "version": VERSION, "created_at": _now(), "purpose": "Module evaluation",
-        "contains": ["portfolio", "parameters", "trades", "decisions", "performance", "notifications", "audit", "latest_pipeline"],
+        "contains": ["portfolio", "parameters", "trades", "decisions", "performance", "notifications", "audit", "latest_pipeline", "controlled_learning"],
         "privacy_note": "Review before sharing. The bundle is intended to contain trading simulation data, not credentials.",
     }
     buffer = io.BytesIO()
@@ -422,6 +428,12 @@ def build_evaluation_bundle() -> bytes:
         ):
             if path.exists():
                 zf.writestr(name, path.read_bytes())
+        try:
+            from controlled_parameter_learning import STATE_PATH, HYPOTHESES_PATH, EXPERIMENTS_PATH, VERSIONS_PATH, AUDIT_PATH as LEARNING_AUDIT_PATH, REPORTS_PATH
+            for name, path in (("controlled_learning/state.json", STATE_PATH), ("controlled_learning/hypotheses.json", HYPOTHESES_PATH), ("controlled_learning/experiments.json", EXPERIMENTS_PATH), ("controlled_learning/parameter_versions.json", VERSIONS_PATH), ("controlled_learning/audit.jsonl", LEARNING_AUDIT_PATH), ("controlled_learning/management_reports.json", REPORTS_PATH)):
+                if path.exists(): zf.writestr(name, path.read_bytes())
+        except Exception:
+            pass
     return buffer.getvalue()
 
 
@@ -430,7 +442,7 @@ def render_autonomous_portfolio() -> None:
     import streamlit as st
 
     st.markdown("#### 🧠 Autonomous Learning Portfolio")
-    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring er tilgjengelig i egen fane i v18.6.89.")
+    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring kan kjøre som Observatør, Assistert autonomi eller Full autonomi i v18.6.89a.")
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
