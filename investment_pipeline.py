@@ -351,13 +351,19 @@ def render_investment_pipeline() -> None:
     import pandas as pd
     import streamlit as st
 
-    pipeline_tab, intelligence_tab = st.tabs(["🚀 Investment Pipeline", "⏰ Scheduled Intelligence & PDF"] )
+    pipeline_tab, intelligence_tab, autonomous_tab = st.tabs(["🚀 Investment Pipeline", "⏰ Scheduled Intelligence & PDF", "🧠 Autonomous Portfolio"] )
     with intelligence_tab:
         try:
             from market_intelligence import render_market_intelligence
             render_market_intelligence()
         except Exception as exc:
             st.error(f"Scheduled Market Intelligence kunne ikke lastes: {exc}")
+    with autonomous_tab:
+        try:
+            from autonomous_portfolio import render_autonomous_portfolio
+            render_autonomous_portfolio()
+        except Exception as exc:
+            st.error(f"Autonomous Learning Portfolio kunne ikke lastes: {exc}")
     with pipeline_tab:
         st.markdown("#### 🚀 Orkestrering – Investment Pipeline")
         st.caption(
