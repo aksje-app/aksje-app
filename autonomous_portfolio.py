@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
+from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
+from configuration_framework import export_bundle, import_bundle, status as configuration_status
 
-VERSION = "v18.6.90"
+VERSION = "v18.6.91"
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
@@ -34,10 +36,24 @@ def _now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+_PERSISTENT_PATH_KEYS = {
+    PARAMETERS_PATH: "autonomous_portfolio/parameters.json",
+    PORTFOLIO_PATH: "autonomous_portfolio/portfolio.json",
+}
+
+
 def _read(path: Path, default: Any) -> Any:
+    persistent_key = _PERSISTENT_PATH_KEYS.get(path)
+    if persistent_key:
+        stored = read_persistent_json(persistent_key, default=None)
+        if stored is not None:
+            return stored
     try:
         if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if persistent_key:
+                write_persistent_json(persistent_key, value)
+            return value
     except Exception:
         pass
     return default
@@ -48,6 +64,9 @@ def _write(path: Path, value: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
+    persistent_key = _PERSISTENT_PATH_KEYS.get(path)
+    if persistent_key:
+        write_persistent_json(persistent_key, value)
 
 
 def _append_audit(event: str, payload: Mapping[str, Any]) -> None:
@@ -449,6 +468,11 @@ def render_autonomous_portfolio() -> None:
 
     st.markdown("#### 🧠 Autonomous Learning Portfolio")
     st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring kan kjøre som Observatør, Assistert autonomi eller Full autonomi. v18.6.90 kan kjøre hele kjeden automatisk etter planlagte skanninger.")
+    storage_info = persistence_status()
+    if storage_info.get("persistent"):
+        st.success("🔒 Parameterlås aktiv: lagrede innstillinger hentes fra persistent database og beholdes ved refresh, omstart og ny versjon.")
+    else:
+        st.warning("⚠ Parameterne lagres bare lokalt. Sett DATABASE_URL på Render for å beholde dem ved ny deploy.")
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
@@ -538,7 +562,35 @@ def render_autonomous_portfolio() -> None:
         notify = s2.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
         if st.button("Lagre parametere", key="alp_save_params_v18688"):
             save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, notify_trades=notify, notify_risk_events=True))
-            st.success("Parameterne er lagret. De endres ikke automatisk av systemet.")
+            st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
+
+    with st.expander("🔐 Configuration Framework", expanded=False):
+        cfg = configuration_status()
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Lagringskilde", "PostgreSQL" if cfg.get("persistent") else "Lokal fallback")
+        k2.metric("Konfigurasjonsrevisjon", cfg.get("revision", 0))
+        k3.metric("Checksum", cfg.get("checksum", "–"))
+        k4.metric("Sist lagret", str(cfg.get("updated_at") or "–")[:19])
+        st.caption("Én sentral, versjonert konfigurasjonskilde. Programoppdateringer overskriver ikke lagrede brukerinnstillinger.")
+        left, right = st.columns(2)
+        left.download_button(
+            "Eksporter all konfigurasjon som JSON",
+            export_bundle(),
+            file_name=f"ai_aksje_analyzer_config_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+            mime="application/json",
+            use_container_width=True,
+            key="cfg_export_v18691",
+        )
+        uploaded = right.file_uploader("Importer konfigurasjon", type=["json"], key="cfg_import_file_v18691")
+        if uploaded is not None:
+            st.warning("Import erstatter gjeldende konfigurasjon. Automatisk sikkerhetskopi opprettes først.")
+            if st.button("Bekreft import", type="primary", key="cfg_import_confirm_v18691"):
+                try:
+                    imported = import_bundle(uploaded.getvalue(), create_backup=True)
+                    st.success(f"Konfigurasjonen er importert. Revisjon {imported.get('revision', 0)}.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Import mislyktes: {exc}")
 
     positions = list((portfolio.get("positions") or {}).values())
     st.markdown("##### Åpne posisjoner")
@@ -567,7 +619,7 @@ def render_autonomous_portfolio() -> None:
             st.caption("Ingen beslutninger registrert.")
     with t3:
         from controlled_parameter_learning import render_controlled_learning
-        render_controlled_learning()
+        render_controlled_learning(namespace="autonomous_portfolio")
     with t4:
         st.info("For evaluering: last ned evalueringspakken og last den opp i ChatGPT. Den inneholder parametere, portefølje, handler, beslutninger, ytelse, varslingslogg, audit og siste pipeline-kjøring.")
         st.warning("Kontroller pakken før deling. Ikke legg API-nøkler, Pushover-token eller andre hemmeligheter i runtime-filene.")
