@@ -57,6 +57,7 @@ from app_version import get_app_build_label
 from performance_monitor import measure as perf_measure, mark_rerun, render_performance_dashboard
 mark_rerun()  # v18.6.76 performance counter
 from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
+from autonomous_portfolio import render_autonomous_portfolio
 from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
 from governance_registry import get_changelog, get_protected_zones
 from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
@@ -19277,6 +19278,7 @@ def control_center_extra_panels_v18535():
         ("👥 Analyse – Aktørregister", render_actor_registry_panel),
         ("IPO", render_ipo),
         ("💼 Handel – Paper Trading", render_paper_trading_dashboard),
+        ("🧠 Autonomi – Learning Portfolio", render_autonomous_portfolio),
         ("🧪 Testing – Auto Test Lab", render_auto_test_lab_control_center_v18536),
         ("📊 Analyse – Fond / ETF", render_fund_etf_control_center_v18538),
         ("🛡️ Risikostyring – Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
@@ -20671,6 +20673,7 @@ try:
             "🤖 AI – Kandidattest": "analysis",
             "System/admin": "system",
             "⚙️ Innstillinger – System/admin": "system",
+            "🧠 Autonomi – Learning Portfolio": "autonomous",
         }
         _nav_to_store_v18658 = _panel_to_nav_v18658.get(str(_active_control_center_panel_v18598 or ""))
         if _nav_to_store_v18658:
