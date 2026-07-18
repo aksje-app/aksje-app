@@ -14,3 +14,4 @@ lxml
 html5lib
 beautifulsoup4
 pandas-market-calendars
+reportlab
