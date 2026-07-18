@@ -351,106 +351,114 @@ def render_investment_pipeline() -> None:
     import pandas as pd
     import streamlit as st
 
-    st.markdown("#### 🚀 Orkestrering – Investment Pipeline")
-    st.caption(
-        "Skanner valgt marked, rangerer toppkandidater og kjører en kontrollert analyseflyt frem til investeringsforslag. "
-        "Alternativet **Alle** inkluderer USA, Norge, Sverige, Finland, Danmark og Brasil. Ingen handler utføres automatisk."
-    )
+    pipeline_tab, intelligence_tab = st.tabs(["🚀 Investment Pipeline", "⏰ Scheduled Intelligence & PDF"] )
+    with intelligence_tab:
+        try:
+            from market_intelligence import render_market_intelligence
+            render_market_intelligence()
+        except Exception as exc:
+            st.error(f"Scheduled Market Intelligence kunne ikke lastes: {exc}")
+    with pipeline_tab:
+        st.markdown("#### 🚀 Orkestrering – Investment Pipeline")
+        st.caption(
+            "Skanner valgt marked, rangerer toppkandidater og kjører en kontrollert analyseflyt frem til investeringsforslag. "
+            "Alternativet **Alle** inkluderer USA, Norge, Sverige, Finland, Danmark og Brasil. Ingen handler utføres automatisk."
+        )
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        market = st.selectbox("Markedsvalg", market_scope_options(include_aggregate=True), index=market_scope_options(True).index("Alle"), key="ip_market_v18686")
-    with c2:
-        scan_limit = st.number_input("Maks kandidater å skanne", 10, 500, 100, 10, key="ip_scan_limit_v18686")
-    with c3:
-        deep_count = st.number_input("Grundig analyse av topp", 1, 100, 20, 1, key="ip_deep_v18686")
-    with c4:
-        proposal_count = st.number_input("Presenter forslag", 1, 20, 5, 1, key="ip_proposals_v18686")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            market = st.selectbox("Markedsvalg", market_scope_options(include_aggregate=True), index=market_scope_options(True).index("Alle"), key="ip_market_v18686")
+        with c2:
+            scan_limit = st.number_input("Maks kandidater å skanne", 10, 500, 100, 10, key="ip_scan_limit_v18686")
+        with c3:
+            deep_count = st.number_input("Grundig analyse av topp", 1, 100, 20, 1, key="ip_deep_v18686")
+        with c4:
+            proposal_count = st.number_input("Presenter forslag", 1, 20, 5, 1, key="ip_proposals_v18686")
 
-    x1, x2, x3, x4 = st.columns(4)
-    use_research = x1.checkbox("AI Research", True, key="ip_research_v18686")
-    use_backtest = x2.checkbox("Historisk validering", True, key="ip_backtest_v18686")
-    use_portfolio = x3.checkbox("Portfolio Optimizer", True, key="ip_portfolio_v18686")
-    use_learning = x4.checkbox("Learning Advisor-kontekst", True, key="ip_learning_v18686")
+        x1, x2, x3, x4 = st.columns(4)
+        use_research = x1.checkbox("AI Research", True, key="ip_research_v18686")
+        use_backtest = x2.checkbox("Historisk validering", True, key="ip_backtest_v18686")
+        use_portfolio = x3.checkbox("Portfolio Optimizer", True, key="ip_portfolio_v18686")
+        use_learning = x4.checkbox("Learning Advisor-kontekst", True, key="ip_learning_v18686")
 
-    cfg = PipelineConfig(
-        market_scope=market, scan_limit=int(scan_limit), deep_analysis_count=int(deep_count),
-        proposal_count=int(proposal_count), use_research=use_research, use_backtest=use_backtest,
-        use_portfolio_fit=use_portfolio, use_learning_advisor=use_learning,
-    ).normalized()
+        cfg = PipelineConfig(
+            market_scope=market, scan_limit=int(scan_limit), deep_analysis_count=int(deep_count),
+            proposal_count=int(proposal_count), use_research=use_research, use_backtest=use_backtest,
+            use_portfolio_fit=use_portfolio, use_learning_advisor=use_learning,
+        ).normalized()
 
-    if market == "Alle":
-        st.info("Alle markeder: " + ", ".join(expand_market_scope("Alle")))
+        if market == "Alle":
+            st.info("Alle markeder: " + ", ".join(expand_market_scope("Alle")))
 
-    if st.button("Kjør automatisk investeringspipeline", type="primary", use_container_width=True, key="ip_run_v18686"):
-        with st.spinner("Skanner og rangerer kandidater..."):
-            rows, source = _load_candidate_rows_from_app(cfg)
-            if not rows:
-                st.error("Ingen kandidater ble funnet. Kjør Smart Universe/Market Scanner først, eller kontroller datakildene.")
+        if st.button("Kjør automatisk investeringspipeline", type="primary", use_container_width=True, key="ip_run_v18686"):
+            with st.spinner("Skanner og rangerer kandidater..."):
+                rows, source = _load_candidate_rows_from_app(cfg)
+                if not rows:
+                    st.error("Ingen kandidater ble funnet. Kjør Smart Universe/Market Scanner først, eller kontroller datakildene.")
+                else:
+                    payload = run_pipeline(rows, cfg)
+                    payload["candidate_source"] = source
+                    _write_json(LATEST_RUN_PATH, payload)
+                    st.session_state["ip_latest_run_v18686"] = payload
+                    st.success(f"Pipeline fullført fra {source}: {len(payload['proposals'])} forslag klare for manuell vurdering.")
+
+        payload = st.session_state.get("ip_latest_run_v18686") or _read_json(LATEST_RUN_PATH, {})
+        if not payload:
+            st.info("Ingen pipeline-kjøring er lagret ennå.")
+            return
+
+        summary = payload.get("summary") or {}
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Skannet", summary.get("scanned", 0))
+        m2.metric("Grundig analysert", summary.get("deep_analyzed", 0))
+        m3.metric("Anbefalt", summary.get("recommended", 0))
+        m4.metric("Forslag", summary.get("proposals", 0))
+
+        rows = payload.get("candidates") or []
+        if rows:
+            table = [{
+                "Rang": r.get("rank"), "Ticker": r.get("ticker"), "Marked": r.get("market"),
+                "Sektor": r.get("sector"), "Scanner": r.get("scanner_score"),
+                "Investment Score": r.get("investment_score"), "Risiko": r.get("risk_score"),
+                "Datakvalitet": r.get("data_quality"), "Status": r.get("status"),
+                "Strategi": r.get("strategy_match"), "Foreslått vekt %": r.get("proposed_position_pct"),
+            } for r in rows]
+            st.markdown("##### Rangert kandidatliste")
+            st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
+
+        st.markdown("##### Investeringsforslag")
+        proposals = payload.get("proposals") or []
+        if not proposals:
+            st.warning("Ingen kandidater passerte kvalitetsportene i denne kjøringen.")
+        for p in proposals:
+            title = f"#{p.get('rank')} {p.get('ticker')} – {p.get('status')} – {p.get('investment_score')}/100"
+            with st.expander(title, expanded=(p.get("rank") == 1)):
+                a, b, c, d = st.columns(4)
+                a.metric("AI Discovery", p.get("discovery_score"))
+                b.metric("Fundamentaler", p.get("fundamental_score"))
+                c.metric("Validering", p.get("validation_score"))
+                d.metric("Porteføljetilpasning", p.get("portfolio_fit_score"))
+                st.write(f"**Strategi:** {p.get('strategy_match')}  |  **Foreslått posisjon:** {p.get('proposed_position_pct')} %")
+                st.write("**Positive drivere:** " + " ".join(p.get("positives") or []))
+                st.write("**Risikoer:** " + " ".join(p.get("risks") or []))
+                st.json(p.get("quality_gates") or {}, expanded=False)
+                note = st.text_input("Notat", key=f"ip_note_{p.get('candidate_id')}")
+                if st.button("Legg til i manuell vurderingskø", key=f"ip_queue_{p.get('candidate_id')}"):
+                    add_to_review_queue(p, note)
+                    st.success("Kandidaten er lagt i manuell vurderingskø. Ingen handel er utført.")
+
+        with st.expander("Manuell vurderingskø", expanded=False):
+            queue = load_review_queue()
+            if queue:
+                st.dataframe(pd.DataFrame(queue), use_container_width=True, hide_index=True)
             else:
-                payload = run_pipeline(rows, cfg)
-                payload["candidate_source"] = source
-                _write_json(LATEST_RUN_PATH, payload)
-                st.session_state["ip_latest_run_v18686"] = payload
-                st.success(f"Pipeline fullført fra {source}: {len(payload['proposals'])} forslag klare for manuell vurdering.")
+                st.caption("Køen er tom.")
 
-    payload = st.session_state.get("ip_latest_run_v18686") or _read_json(LATEST_RUN_PATH, {})
-    if not payload:
-        st.info("Ingen pipeline-kjøring er lagret ennå.")
-        return
-
-    summary = payload.get("summary") or {}
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Skannet", summary.get("scanned", 0))
-    m2.metric("Grundig analysert", summary.get("deep_analyzed", 0))
-    m3.metric("Anbefalt", summary.get("recommended", 0))
-    m4.metric("Forslag", summary.get("proposals", 0))
-
-    rows = payload.get("candidates") or []
-    if rows:
-        table = [{
-            "Rang": r.get("rank"), "Ticker": r.get("ticker"), "Marked": r.get("market"),
-            "Sektor": r.get("sector"), "Scanner": r.get("scanner_score"),
-            "Investment Score": r.get("investment_score"), "Risiko": r.get("risk_score"),
-            "Datakvalitet": r.get("data_quality"), "Status": r.get("status"),
-            "Strategi": r.get("strategy_match"), "Foreslått vekt %": r.get("proposed_position_pct"),
-        } for r in rows]
-        st.markdown("##### Rangert kandidatliste")
-        st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
-
-    st.markdown("##### Investeringsforslag")
-    proposals = payload.get("proposals") or []
-    if not proposals:
-        st.warning("Ingen kandidater passerte kvalitetsportene i denne kjøringen.")
-    for p in proposals:
-        title = f"#{p.get('rank')} {p.get('ticker')} – {p.get('status')} – {p.get('investment_score')}/100"
-        with st.expander(title, expanded=(p.get("rank") == 1)):
-            a, b, c, d = st.columns(4)
-            a.metric("AI Discovery", p.get("discovery_score"))
-            b.metric("Fundamentaler", p.get("fundamental_score"))
-            c.metric("Validering", p.get("validation_score"))
-            d.metric("Porteføljetilpasning", p.get("portfolio_fit_score"))
-            st.write(f"**Strategi:** {p.get('strategy_match')}  |  **Foreslått posisjon:** {p.get('proposed_position_pct')} %")
-            st.write("**Positive drivere:** " + " ".join(p.get("positives") or []))
-            st.write("**Risikoer:** " + " ".join(p.get("risks") or []))
-            st.json(p.get("quality_gates") or {}, expanded=False)
-            note = st.text_input("Notat", key=f"ip_note_{p.get('candidate_id')}")
-            if st.button("Legg til i manuell vurderingskø", key=f"ip_queue_{p.get('candidate_id')}"):
-                add_to_review_queue(p, note)
-                st.success("Kandidaten er lagt i manuell vurderingskø. Ingen handel er utført.")
-
-    with st.expander("Manuell vurderingskø", expanded=False):
-        queue = load_review_queue()
-        if queue:
-            st.dataframe(pd.DataFrame(queue), use_container_width=True, hide_index=True)
-        else:
-            st.caption("Køen er tom.")
-
-    st.download_button(
-        "Last ned komplett pipeline-rapport (JSON)",
-        data=json.dumps(payload, ensure_ascii=False, indent=2, default=str),
-        file_name=f"investment_pipeline_{payload.get('run_id', 'latest')}.json",
-        mime="application/json",
-        use_container_width=True,
-        key="ip_export_v18686",
-    )
+        st.download_button(
+            "Last ned komplett pipeline-rapport (JSON)",
+            data=json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            file_name=f"investment_pipeline_{payload.get('run_id', 'latest')}.json",
+            mime="application/json",
+            use_container_width=True,
+            key="ip_export_v18686",
+        )

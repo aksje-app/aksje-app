@@ -522,7 +522,7 @@ def render_ai_discovery_foundation_panel() -> None:
     st.subheader("🧠 Analyse – AI Discovery")
     st.caption(
         "Samlet arbeidsområde for signaler, analyse, testing, validering og risikostyring. "
-        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, Portfolio Optimizer gir passive risiko- og allokeringsforslag, AI Research Assistant samler sporbar selskapsresearch, Learning Advisor foreslår manuelt godkjente eksperimenter, og Investment Pipeline orkestrerer markedsskanning til manuelle investeringsforslag uten automatisk handel."
+        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, Portfolio Optimizer gir passive risiko- og allokeringsforslag, AI Research Assistant samler sporbar selskapsresearch, Learning Advisor foreslår manuelt godkjente eksperimenter, Investment Pipeline orkestrerer markedsskanning, og Scheduled Market Intelligence kjører kombinerbare jobbprofiler med endringsanalyse, varsler og PDF-rapporter uten automatisk handel."
     )
 
     signals = list_signals()
