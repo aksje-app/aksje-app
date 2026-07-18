@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.89a"
-APP_VERSION_NAME = "Autonomy Modes and Management Reports"
+APP_VERSION = "v18.6.89b"
+APP_VERSION_NAME = "Autonomy Settings and Promotion Guard"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.89b: Autonomy Settings som egen side med driftsmodus, tillatte automatiske handlinger, risikogrenser, læringsterskler, varsling, evalueringsplan og nødstopp. Full autonomi får Promotion Guard: store parameterendringer eller vesentlige risikoendringer settes i godkjenningskø før Champion-promotering.",
     "v18.6.89a: Autonomy Modes & AI-sjef: Observatør, Assistert autonomi og Full autonomi; automatisk evaluering etter autonome beslutningssykluser og på intervall; automatisk Challenger/prøvemodus, valgfri Champion-promotering, rask rollback, daglige/ukentlige læringsrapporter, varsling og utvidet evalueringspakke.",
 
     "v18.6.89: Controlled Parameter Learning: Fast Learning / Safe Promotion med adaptive terskler, tidlig risikovarsling, automatisk risikoreduksjon, hypoteser, Champion–Challenger, prøvemodus, parameterhistorikk, varsling, manuell promotering og rollback. Kun teoretisk Autonomous Portfolio; ingen meglerkobling.",

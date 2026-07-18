@@ -21,7 +21,7 @@ from autonomous_portfolio import (
     calculate_performance, TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
 
-VERSION = "v18.6.89a"
+VERSION = "v18.6.89b"
 ROOT = runtime_data_path("controlled_learning")
 STATE_PATH = ROOT / "state.json"
 HYPOTHESES_PATH = ROOT / "hypotheses.json"
@@ -29,6 +29,7 @@ EXPERIMENTS_PATH = ROOT / "experiments.json"
 VERSIONS_PATH = ROOT / "parameter_versions.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 REPORTS_PATH = ROOT / "management_reports.json"
+APPROVALS_PATH = ROOT / "promotion_approvals.json"
 
 
 def _now() -> str:
@@ -78,6 +79,15 @@ def default_state() -> dict[str, Any]:
         "management_report_frequency": "DAILY",
         "last_management_report_at": None,
         "auto_rollback": True,
+        "allow_hypothesis_creation": True,
+        "allow_auto_challenger": True,
+        "allow_auto_trial": True,
+        "allow_auto_promotion": True,
+        "require_confirmation_major_change": True,
+        "major_change_parameter_share_pct": 20.0,
+        "material_risk_change_pct": 10.0,
+        "notification_level": "ALL",
+        "emergency_stop": False,
         "warning_min_closed_trades": 10,
         "hypothesis_min_closed_trades": 15,
         "challenger_min_closed_trades": 25,
@@ -236,13 +246,93 @@ def _parse_time(value: Any) -> datetime | None:
 
 def _mode_policy(state: Mapping[str, Any]) -> dict[str, bool]:
     mode = str(state.get("mode") or "ASSISTED").upper()
+    stopped = bool(state.get("emergency_stop", False))
     return {
-        "observe_only": mode == "OBSERVER",
-        "auto_challenger": mode in {"ASSISTED", "FULL"},
-        "auto_trial": mode in {"ASSISTED", "FULL"},
-        "auto_promote": mode == "FULL",
-        "auto_rollback": mode in {"ASSISTED", "FULL"} and bool(state.get("auto_rollback", True)),
+        "observe_only": mode == "OBSERVER" or stopped,
+        "auto_hypothesis": not stopped and bool(state.get("allow_hypothesis_creation", True)),
+        "auto_challenger": not stopped and mode in {"ASSISTED", "FULL"} and bool(state.get("allow_auto_challenger", True)),
+        "auto_trial": not stopped and mode in {"ASSISTED", "FULL"} and bool(state.get("allow_auto_trial", True)),
+        "auto_promote": not stopped and mode == "FULL" and bool(state.get("allow_auto_promotion", True)),
+        "auto_rollback": not stopped and mode in {"ASSISTED", "FULL"} and bool(state.get("auto_rollback", True)),
     }
+
+
+def _promotion_guard(trial: Mapping[str, Any], state: Mapping[str, Any]) -> dict[str, Any]:
+    champion = ensure_champion_version()
+    before = dict(champion.get("parameters") or {})
+    after = dict(trial.get("parameters") or {})
+    comparable = [k for k in before if k in after]
+    changed = [k for k in comparable if before.get(k) != after.get(k)]
+    share = (len(changed) / max(1, len(comparable))) * 100.0
+    risk_keys = {
+        "maximum_position_pct", "maximum_sector_exposure_pct", "maximum_drawdown_pct",
+        "stop_loss_pct", "trailing_stop_pct", "take_profit_pct", "minimum_cash_reserve_pct",
+        "maximum_open_positions", "maximum_risk_score",
+    }
+    risk_changes = []
+    material_limit = float(state.get("material_risk_change_pct", 10.0))
+    for key in changed:
+        if key not in risk_keys:
+            continue
+        old = _f(before.get(key))
+        new = _f(after.get(key))
+        rel = abs(new - old) / max(abs(old), 1e-9) * 100.0
+        if rel >= material_limit:
+            risk_changes.append({"parameter": key, "before": old, "after": new, "relative_change_pct": rel})
+    major = share > float(state.get("major_change_parameter_share_pct", 20.0))
+    material_risk = bool(risk_changes)
+    return {
+        "requires_confirmation": bool(state.get("require_confirmation_major_change", True)) and (major or material_risk),
+        "major_change": major,
+        "material_risk_change": material_risk,
+        "changed_parameters": changed,
+        "changed_parameter_share_pct": share,
+        "risk_changes": risk_changes,
+    }
+
+
+def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]) -> dict[str, Any]:
+    approvals = _read(APPROVALS_PATH, [])
+    approvals = approvals if isinstance(approvals, list) else []
+    existing = next((a for a in approvals if a.get("version_id") == trial.get("version_id") and a.get("status") == "PENDING"), None)
+    if existing:
+        return existing
+    item = {
+        "approval_id": "PA-" + uuid.uuid4().hex[:10],
+        "created_at": _now(),
+        "status": "PENDING",
+        "version_id": trial.get("version_id"),
+        "hypothesis_id": trial.get("hypothesis_id"),
+        "guard": dict(guard),
+    }
+    approvals.insert(0, item)
+    _write(APPROVALS_PATH, approvals)
+    _audit("CHAMPION_PROMOTION_APPROVAL_REQUIRED", item)
+    _notify("Autonomi: godkjenning kreves", f"Champion-promotering {trial.get('version_id')} krever brukerbekreftelse.", item)
+    return item
+
+
+def resolve_promotion_approval(approval_id: str, approve: bool) -> dict[str, Any]:
+    approvals = _read(APPROVALS_PATH, [])
+    approvals = approvals if isinstance(approvals, list) else []
+    item = next((a for a in approvals if a.get("approval_id") == approval_id), None)
+    if not item:
+        raise ValueError("Godkjenningsforespørselen finnes ikke.")
+    if item.get("status") != "PENDING":
+        raise ValueError("Godkjenningsforespørselen er allerede behandlet.")
+    if approve:
+        promoted = promote_trial()
+        item["status"] = "APPROVED"
+        item["resolved_at"] = _now()
+        item["promoted_version_id"] = promoted.get("version_id")
+        _audit("CHAMPION_PROMOTION_APPROVED", item)
+    else:
+        item["status"] = "REJECTED"
+        item["resolved_at"] = _now()
+        _audit("CHAMPION_PROMOTION_REJECTED", item)
+        _notify("Autonomi: promotering avvist", f"Champion-promotering {item.get('version_id')} ble avvist.", item)
+    _write(APPROVALS_PATH, approvals)
+    return item
 
 
 def _experiment_progress(experiment: Mapping[str, Any], closed_count: int) -> int:
@@ -329,8 +419,8 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
     policy = _mode_policy(state)
     ensure_champion_version()
     experiments = _refresh_experiments(state, perf, stats)
-    if state.get("enabled"):
-        created = generate_hypotheses()
+    if state.get("enabled") and not state.get("emergency_stop", False):
+        created = generate_hypotheses() if policy.get("auto_hypothesis") else []
         if created: actions.append({"type": "HYPOTHESES_CREATED", "count": len(created)})
         # Safety actions are allowed in assisted/full modes, but observer only reports.
         risk_trigger = perf.get("drawdown_pct", 0) >= load_parameters().maximum_drawdown_pct * 0.75 or (len(trades) >= state["warning_min_closed_trades"] and stats["expectancy"] < 0)
@@ -361,7 +451,12 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
                 enough = len(trades) >= int(state["full_promotion_min_closed_trades"])
                 improved = _f(stats.get("profit_factor")) >= max(1.0, _f(baseline.get("profit_factor"), 0)) and _f(perf.get("drawdown_pct")) <= _f(baseline.get("drawdown_pct"), 0) + 1.0
                 if enough and improved:
-                    champion = promote_trial(); actions.append({"type": "CHAMPION_PROMOTED", "version_id": champion["version_id"]})
+                    guard = _promotion_guard(trial, state)
+                    if guard["requires_confirmation"]:
+                        approval = _queue_promotion_approval(trial, guard)
+                        actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
+                    else:
+                        champion = promote_trial(); actions.append({"type": "CHAMPION_PROMOTED", "version_id": champion["version_id"]})
         # Roll back a trial quickly when drawdown materially worsens.
         if policy["auto_rollback"]:
             versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
@@ -381,76 +476,179 @@ def render_controlled_learning() -> None:
     st.markdown("#### 🧪 Controlled Parameter Learning")
     st.caption("Fast Learning / Safe Promotion. Rask risikobeskyttelse, trinnvis testing og varslede endringer. Kun teoretisk autonom portefølje.")
     state = load_state(); trades = _closed_trades(); stats = _stats(trades)
-    auto_result = run_automatic_learning_if_due(trigger="UI_RENDER", force=False)
+    run_automatic_learning_if_due(trigger="UI_RENDER", force=False)
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Læring", "AKTIV" if state["enabled"] else "AV")
+    c1.metric("Læring", "NØDSTOPP" if state.get("emergency_stop") else ("AKTIV" if state["enabled"] else "AV"))
     c2.metric("Lukkede handler", len(trades)); c3.metric("Expectancy", f"{stats['expectancy']:,.0f}")
     c4.metric("Profit Factor", f"{stats['profit_factor']:.2f}"); c5.metric("Siste evaluering", str(state.get("last_evaluation_at") or "–")[:16])
-    mode_labels = {"OBSERVER": "🟢 Observatør", "ASSISTED": "🟡 Assistert autonomi", "FULL": "🔴 Full autonomi"}
-    a,b,c,d = st.columns(4)
-    enabled = a.toggle("Aktiver kontrollert læring", value=bool(state["enabled"]), key="cpl_enabled_v18689a")
-    selected_mode = b.selectbox("Driftsmodus", list(mode_labels), index=list(mode_labels).index(str(state.get("mode") or "ASSISTED")), format_func=lambda x: mode_labels[x], key="cpl_mode_v18689a")
-    risk = c.toggle("Automatisk risikobeskyttelse", value=bool(state["auto_risk_protection"]), key="cpl_risk_v18689a")
-    rollback_on = d.toggle("Automatisk rollback", value=bool(state["auto_rollback"]), key="cpl_rollback_v18689a")
-    e,f,g = st.columns(3)
-    automatic = e.toggle("Automatisk evaluering", value=bool(state.get("automatic_evaluation", True)), key="cpl_auto_eval_v18689a")
-    interval = int(f.number_input("Evaluer hvert minutt", 1, 10080, int(state.get("evaluation_interval_minutes", 60)), 5, key="cpl_interval_v18689a"))
-    report_freq = g.selectbox("AI-sjef rapport", ["OFF", "DAILY", "WEEKLY"], index=["OFF", "DAILY", "WEEKLY"].index(str(state.get("management_report_frequency") or "DAILY")), format_func=lambda x: {"OFF":"Av", "DAILY":"Daglig", "WEEKLY":"Ukentlig"}[x], key="cpl_report_freq_v18689a")
-    changed = (enabled != state["enabled"] or selected_mode != state.get("mode") or risk != state["auto_risk_protection"] or rollback_on != state["auto_rollback"] or automatic != state.get("automatic_evaluation") or interval != state.get("evaluation_interval_minutes") or report_freq != state.get("management_report_frequency"))
-    if changed:
-        state.update({"enabled": enabled, "mode": selected_mode, "auto_risk_protection": risk, "auto_rollback": rollback_on, "automatic_evaluation": automatic, "evaluation_interval_minutes": interval, "management_report_frequency": report_freq}); save_state(state)
-    st.caption({"OBSERVER":"Observerer, varsler og foreslår – endrer ingen parametere.", "ASSISTED":"Starter Challengers og prøvemodus automatisk; Champion krever godkjenning.", "FULL":"Kan starte tester, aktivere prøvemodus, promotere Champion og rulle tilbake automatisk."}[selected_mode])
-    with st.expander("Adaptive terskler", expanded=False):
-        cols = st.columns(5)
-        keys = [("warning_min_closed_trades","Tidlig varsel"),("hypothesis_min_closed_trades","Hypotese"),("challenger_min_closed_trades","Challenger"),("trial_promotion_min_closed_trades","Prøvemodus"),("full_promotion_min_closed_trades","Full Champion")]
-        values = {}
-        for col,(key,label) in zip(cols,keys): values[key] = int(col.number_input(label, 1, 1000, int(state[key]), 1, key=f"cpl_{key}_v18689"))
-        if st.button("Lagre læringsterskler", key="cpl_save_thresholds_v18689"):
-            state.update(values); save_state(state); st.success("Tersklene er lagret.")
-    x,y,z = st.columns(3)
-    if x.button("Evaluer nå", type="primary", use_container_width=True, key="cpl_eval_v18689"):
-        result = evaluate_learning(); st.success(f"Evaluert {result['closed_trades']} lukkede handler. {len(result['actions'])} handlinger."); st.rerun()
-    if y.button("Generer hypoteser", use_container_width=True, key="cpl_hyp_v18689"):
-        created = generate_hypotheses(); st.success(f"{len(created)} nye hypoteser opprettet."); st.rerun()
-    if z.button("Rollback til Champion", use_container_width=True, key="cpl_rb_v18689"):
-        try: rollback(); st.success("Rollback utført."); st.rerun()
-        except ValueError as exc: st.warning(str(exc))
-    hypotheses = _read(HYPOTHESES_PATH, []); experiments = _read(EXPERIMENTS_PATH, []); versions = _read(VERSIONS_PATH, [])
-    t1,t2,t3,t4 = st.tabs(["Hypoteser", "Eksperimenter", "Parameterhistorikk", "AI-sjef rapporter"])
-    with t1:
-        if hypotheses:
-            st.dataframe(pd.DataFrame(hypotheses), use_container_width=True, hide_index=True)
-            choices = {f"{h['hypothesis_id']} · {h['parameter']} {h['before']} → {h['after']} ({h['status']})": h for h in hypotheses if h.get("status") in {"NEW","TESTING"}}
-            if choices:
-                label = st.selectbox("Velg hypotese", list(choices), key="cpl_select_h_v18689"); h = choices[label]
-                p,q = st.columns(2)
-                if p.button("Start Challenger", key="cpl_start_ch_v18689"):
-                    start_challenger(h["hypothesis_id"]); st.success("Challenger startet."); st.rerun()
-                if q.button("Aktiver i prøvemodus", key="cpl_trial_v18689"):
-                    apply_trial(h["hypothesis_id"]); st.success("Midlertidig parameterendring aktivert og varslet."); st.rerun()
-        else: st.info("Ingen hypoteser ennå. Modulen venter på nok lukkede handler eller manuell evaluering.")
-    with t2:
-        if experiments: st.dataframe(pd.DataFrame(experiments), use_container_width=True, hide_index=True)
-        else: st.caption("Ingen eksperimenter.")
-    with t3:
-        if versions: st.dataframe(pd.DataFrame(versions), use_container_width=True, hide_index=True)
-        else: st.caption("Champion opprettes ved første evaluering.")
-        if st.button("Promoter aktiv prøveversjon til Champion", key="cpl_promote_v18689"):
-            try: promote_trial(); st.success("Ny Champion er aktivert og varslet."); st.rerun()
+
+    overview_tab, settings_tab, approvals_tab = st.tabs(["Læring og eksperimenter", "⚙️ Autonomy Settings", "🛡️ Godkjenninger"])
+    with settings_tab:
+        st.markdown("##### Autonomy Settings")
+        st.caption("Styr driftsmodus, automatiske tillatelser, sikkerhetsgrenser, varsling, evaluering og nødstopp.")
+        mode_labels = {"OBSERVER": "🟢 Observatør", "ASSISTED": "🟡 Assistert autonomi", "FULL": "🔴 Full autonomi"}
+        a,b,c = st.columns(3)
+        enabled = a.toggle("Aktiver kontrollert læring", value=bool(state["enabled"]), key="cpl_enabled_v18689b")
+        selected_mode = b.selectbox("Driftsmodus", list(mode_labels), index=list(mode_labels).index(str(state.get("mode") or "ASSISTED")), format_func=lambda x: mode_labels[x], key="cpl_mode_v18689b")
+        emergency = c.toggle("🛑 Nødstopp", value=bool(state.get("emergency_stop", False)), key="cpl_emergency_v18689b", help="Stopper automatiske læringshandlinger umiddelbart. Teoretisk portefølje kan pauses separat.")
+        if emergency and not state.get("emergency_stop", False):
+            try:
+                from autonomous_portfolio import set_status
+                set_status(False, "Nødstopp aktivert i Autonomy Settings")
+            except Exception:
+                pass
+        st.caption({"OBSERVER":"Observerer, varsler og foreslår – endrer ingen parametere.", "ASSISTED":"Starter Challengers og prøvemodus automatisk; Champion krever godkjenning.", "FULL":"Kan starte tester, aktivere prøvemodus og promotere Champion, men store eller vesentlige risikoendringer krever bekreftelse."}[selected_mode])
+
+        st.markdown("###### Tillatte automatiske handlinger")
+        p1,p2,p3,p4,p5 = st.columns(5)
+        allow_h = p1.toggle("Hypoteser", value=bool(state.get("allow_hypothesis_creation", True)), key="cpl_allow_h_v18689b")
+        allow_c = p2.toggle("Challengers", value=bool(state.get("allow_auto_challenger", True)), key="cpl_allow_c_v18689b")
+        allow_t = p3.toggle("Prøvemodus", value=bool(state.get("allow_auto_trial", True)), key="cpl_allow_t_v18689b")
+        allow_p = p4.toggle("Champion-promotering", value=bool(state.get("allow_auto_promotion", True)), key="cpl_allow_p_v18689b")
+        rollback_on = p5.toggle("Rollback", value=bool(state.get("auto_rollback", True)), key="cpl_rollback_v18689b")
+
+        st.markdown("###### Sikkerhetsgrenser for Champion-promotering")
+        s1,s2,s3 = st.columns(3)
+        confirmation = s1.toggle("Krev bekreftelse ved stor endring", value=bool(state.get("require_confirmation_major_change", True)), key="cpl_confirm_v18689b")
+        major_share = float(s2.number_input("Stor endring over (%)", 1.0, 100.0, float(state.get("major_change_parameter_share_pct", 20.0)), 1.0, key="cpl_major_share_v18689b"))
+        material_risk = float(s3.number_input("Vesentlig risikoendring over (%)", 1.0, 100.0, float(state.get("material_risk_change_pct", 10.0)), 1.0, key="cpl_material_risk_v18689b"))
+        st.info("I Full autonomi blir en promotering satt på vent når mer enn valgt andel av parameterne endres, eller en risikoparameter endres vesentlig. Du må da godkjenne den i fanen Godkjenninger.")
+
+        st.markdown("###### Evaluering og varsling")
+        e1,e2,e3,e4 = st.columns(4)
+        automatic = e1.toggle("Automatisk evaluering", value=bool(state.get("automatic_evaluation", True)), key="cpl_auto_eval_v18689b")
+        interval = int(e2.number_input("Evaluer hvert minutt", 1, 10080, int(state.get("evaluation_interval_minutes", 60)), 5, key="cpl_interval_v18689b"))
+        report_freq = e3.selectbox("AI-sjef rapport", ["OFF", "DAILY", "WEEKLY"], index=["OFF", "DAILY", "WEEKLY"].index(str(state.get("management_report_frequency") or "DAILY")), format_func=lambda x: {"OFF":"Av", "DAILY":"Daglig", "WEEKLY":"Ukentlig"}[x], key="cpl_report_freq_v18689b")
+        notification_level = e4.selectbox("Varslingsnivå", ["ALL", "IMPORTANT", "CRITICAL"], index=["ALL", "IMPORTANT", "CRITICAL"].index(str(state.get("notification_level") or "ALL")), format_func=lambda x: {"ALL":"Alle hendelser", "IMPORTANT":"Viktige", "CRITICAL":"Kun kritiske"}[x], key="cpl_notification_v18689b")
+        risk = st.toggle("Automatisk risikobeskyttelse", value=bool(state["auto_risk_protection"]), key="cpl_risk_v18689b")
+
+        with st.expander("Adaptive læringsterskler", expanded=False):
+            cols = st.columns(5)
+            keys = [("warning_min_closed_trades","Tidlig varsel"),("hypothesis_min_closed_trades","Hypotese"),("challenger_min_closed_trades","Challenger"),("trial_promotion_min_closed_trades","Prøvemodus"),("full_promotion_min_closed_trades","Full Champion")]
+            values = {}
+            for col,(key,label) in zip(cols,keys): values[key] = int(col.number_input(label, 1, 1000, int(state[key]), 1, key=f"cpl_{key}_v18689b"))
+
+        es1, es2 = st.columns(2)
+        if es1.button("🛑 Aktiver nødstopp nå", use_container_width=True, key="cpl_emergency_on_v18689b"):
+            state["emergency_stop"] = True
+            state["enabled"] = False
+            save_state(state)
+            try:
+                from autonomous_portfolio import set_status
+                set_status(False, "Nødstopp aktivert i Autonomy Settings")
+            except Exception:
+                pass
+            _audit("AUTONOMY_EMERGENCY_STOP_ACTIVATED", {"source": "UI"})
+            _notify("Autonomi: NØDSTOPP", "Automatisk læring og den teoretiske porteføljen er pauset.", {"source": "UI"})
+            st.error("Nødstopp er aktivert."); st.rerun()
+        if es2.button("Opphev nødstopp", use_container_width=True, key="cpl_emergency_off_v18689b"):
+            state["emergency_stop"] = False
+            save_state(state)
+            _audit("AUTONOMY_EMERGENCY_STOP_RELEASED", {"source": "UI"})
+            st.success("Nødstopp er opphevet. Porteføljen må aktiveres separat."); st.rerun()
+
+        es1, es2 = st.columns(2)
+        if es1.button("🛑 Aktiver nødstopp nå", use_container_width=True, key="cpl_emergency_on_v18689b"):
+            state["emergency_stop"] = True
+            state["enabled"] = False
+            save_state(state)
+            try:
+                from autonomous_portfolio import set_status
+                set_status(False, "Nødstopp aktivert i Autonomy Settings")
+            except Exception:
+                pass
+            _audit("AUTONOMY_EMERGENCY_STOP_ACTIVATED", {"source": "UI"})
+            _notify("Autonomi: NØDSTOPP", "Automatisk læring og den teoretiske porteføljen er pauset.", {"source": "UI"})
+            st.error("Nødstopp er aktivert."); st.rerun()
+        if es2.button("Opphev nødstopp", use_container_width=True, key="cpl_emergency_off_v18689b"):
+            state["emergency_stop"] = False
+            save_state(state)
+            _audit("AUTONOMY_EMERGENCY_STOP_RELEASED", {"source": "UI"})
+            st.success("Nødstopp er opphevet. Porteføljen må aktiveres separat."); st.rerun()
+
+        if st.button("Lagre Autonomy Settings", type="primary", use_container_width=True, key="cpl_save_settings_v18689b"):
+            state.update({
+                "enabled": enabled, "mode": selected_mode, "emergency_stop": emergency,
+                "allow_hypothesis_creation": allow_h, "allow_auto_challenger": allow_c,
+                "allow_auto_trial": allow_t, "allow_auto_promotion": allow_p,
+                "auto_rollback": rollback_on, "require_confirmation_major_change": confirmation,
+                "major_change_parameter_share_pct": major_share, "material_risk_change_pct": material_risk,
+                "automatic_evaluation": automatic, "evaluation_interval_minutes": interval,
+                "management_report_frequency": report_freq, "notification_level": notification_level,
+                "auto_risk_protection": risk, **values,
+            })
+            save_state(state); st.success("Autonomy Settings er lagret."); st.rerun()
+
+    with approvals_tab:
+        approvals = _read(APPROVALS_PATH, [])
+        approvals = approvals if isinstance(approvals, list) else []
+        pending = [a for a in approvals if a.get("status") == "PENDING"]
+        st.markdown("##### Ventende Champion-godkjenninger")
+        if not pending:
+            st.info("Ingen ventende godkjenninger.")
+        for item in pending:
+            guard = item.get("guard") or {}
+            with st.container(border=True):
+                st.markdown(f"**{item.get('version_id')}** · {item.get('created_at','–')}")
+                st.write(f"Endrede parametere: {', '.join(guard.get('changed_parameters') or []) or '–'}")
+                st.write(f"Andel endret: {float(guard.get('changed_parameter_share_pct',0)):.1f}%")
+                if guard.get("material_risk_change"):
+                    st.warning("Vesentlig risikoendring er registrert.")
+                    st.json(guard.get("risk_changes") or [], expanded=False)
+                x,y = st.columns(2)
+                if x.button("Godkjenn og promoter", type="primary", use_container_width=True, key=f"approve_{item['approval_id']}"):
+                    resolve_promotion_approval(item["approval_id"], True); st.success("Ny Champion er godkjent."); st.rerun()
+                if y.button("Avvis", use_container_width=True, key=f"reject_{item['approval_id']}"):
+                    resolve_promotion_approval(item["approval_id"], False); st.warning("Promoteringen er avvist."); st.rerun()
+        if approvals:
+            st.dataframe(pd.DataFrame(approvals), use_container_width=True, hide_index=True)
+
+    with overview_tab:
+        x,y,z = st.columns(3)
+        if x.button("Evaluer nå", type="primary", use_container_width=True, key="cpl_eval_v18689b"):
+            result = evaluate_learning(); st.success(f"Evaluert {result['closed_trades']} lukkede handler. {len(result['actions'])} handlinger."); st.rerun()
+        if y.button("Generer hypoteser", use_container_width=True, key="cpl_hyp_v18689b"):
+            created = generate_hypotheses(); st.success(f"{len(created)} nye hypoteser opprettet."); st.rerun()
+        if z.button("Rollback til Champion", use_container_width=True, key="cpl_rb_v18689b"):
+            try: rollback(); st.success("Rollback utført."); st.rerun()
             except ValueError as exc: st.warning(str(exc))
-    with t4:
-        reports = _read(REPORTS_PATH, [])
-        r1, r2 = st.columns(2)
-        if r1.button("Generer rapport nå", use_container_width=True, key="cpl_report_now_v18689a"):
-            generate_management_report(force=True); st.success("Læringsrapport opprettet og varslet."); st.rerun()
-        if r2.button("Kjør full automatisk evaluering nå", use_container_width=True, key="cpl_auto_now_v18689a"):
-            run_automatic_learning_if_due(trigger="MANUAL_FORCE", force=True); st.success("Automatisk evalueringsløp fullført."); st.rerun()
-        if reports:
-            latest = reports[0]
-            st.markdown(f"**Siste rapport:** {latest.get('created_at','–')} · {latest.get('mode','–')}")
-            for observation in latest.get("observations", []): st.write(f"- {observation}")
-            st.json(latest, expanded=False)
-            st.dataframe(pd.DataFrame(reports[:100]), use_container_width=True, hide_index=True)
-            st.download_button("Last ned rapporthistorikk JSON", json.dumps(reports, ensure_ascii=False, indent=2), "autonomous_management_reports.json", "application/json", key="cpl_reports_json_v18689a")
-        else:
-            st.info("Ingen AI-sjef-rapporter ennå.")
+        hypotheses = _read(HYPOTHESES_PATH, []); experiments = _read(EXPERIMENTS_PATH, []); versions = _read(VERSIONS_PATH, [])
+        t1,t2,t3,t4 = st.tabs(["Hypoteser", "Eksperimenter", "Parameterhistorikk", "AI-sjef rapporter"])
+        with t1:
+            if hypotheses:
+                st.dataframe(pd.DataFrame(hypotheses), use_container_width=True, hide_index=True)
+                choices = {f"{h['hypothesis_id']} · {h['parameter']} {h['before']} → {h['after']} ({h['status']})": h for h in hypotheses if h.get("status") in {"NEW","TESTING"}}
+                if choices:
+                    label = st.selectbox("Velg hypotese", list(choices), key="cpl_select_h_v18689b"); h = choices[label]
+                    p,q = st.columns(2)
+                    if p.button("Start Challenger", key="cpl_start_ch_v18689b"):
+                        start_challenger(h["hypothesis_id"]); st.success("Challenger startet."); st.rerun()
+                    if q.button("Aktiver i prøvemodus", key="cpl_trial_v18689b"):
+                        apply_trial(h["hypothesis_id"]); st.success("Midlertidig parameterendring aktivert og varslet."); st.rerun()
+            else: st.info("Ingen hypoteser ennå. Modulen venter på nok lukkede handler eller manuell evaluering.")
+        with t2:
+            if experiments: st.dataframe(pd.DataFrame(experiments), use_container_width=True, hide_index=True)
+            else: st.caption("Ingen eksperimenter.")
+        with t3:
+            if versions: st.dataframe(pd.DataFrame(versions), use_container_width=True, hide_index=True)
+            else: st.caption("Champion opprettes ved første evaluering.")
+            if st.button("Promoter aktiv prøveversjon til Champion", key="cpl_promote_v18689b"):
+                try: promote_trial(); st.success("Ny Champion er aktivert og varslet."); st.rerun()
+                except ValueError as exc: st.warning(str(exc))
+        with t4:
+            reports = _read(REPORTS_PATH, [])
+            r1, r2 = st.columns(2)
+            if r1.button("Generer rapport nå", use_container_width=True, key="cpl_report_now_v18689b"):
+                generate_management_report(force=True); st.success("Læringsrapport opprettet og varslet."); st.rerun()
+            if r2.button("Kjør full automatisk evaluering nå", use_container_width=True, key="cpl_auto_now_v18689b"):
+                run_automatic_learning_if_due(trigger="MANUAL_FORCE", force=True); st.success("Automatisk evalueringsløp fullført."); st.rerun()
+            if reports:
+                latest = reports[0]
+                st.markdown(f"**Siste rapport:** {latest.get('created_at','–')} · {latest.get('mode','–')}")
+                for observation in latest.get("observations", []): st.write(f"- {observation}")
+                st.json(latest, expanded=False)
+                st.dataframe(pd.DataFrame(reports[:100]), use_container_width=True, hide_index=True)
+                st.download_button("Last ned rapporthistorikk JSON", json.dumps(reports, ensure_ascii=False, indent=2), "autonomous_management_reports.json", "application/json", key="cpl_reports_json_v18689b")
+            else:
+                st.info("Ingen AI-sjef-rapporter ennå.")
+
