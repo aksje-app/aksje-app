@@ -40,6 +40,7 @@ AI_DISCOVERY_TAB_OPTIONS_V18674C = {
     "🛡️ Risikostyring – Portfolio Optimizer": "portfolio_optimizer",
     "🤖 Research – AI Research Assistant": "research_assistant",
     "🧭 Rådgivning – Learning Advisor": "learning_advisor",
+    "🚀 Orkestrering – Investment Pipeline": "investment_pipeline",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -521,7 +522,7 @@ def render_ai_discovery_foundation_panel() -> None:
     st.subheader("🧠 Analyse – AI Discovery")
     st.caption(
         "Samlet arbeidsområde for signaler, analyse, testing, validering og risikostyring. "
-        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, Portfolio Optimizer gir passive risiko- og allokeringsforslag, AI Research Assistant samler sporbar selskapsresearch, og Learning Advisor foreslår manuelt godkjente eksperimenter uten å endre motorlogikk."
+        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, Backtesting Engine validerer dem historisk, Portfolio Optimizer gir passive risiko- og allokeringsforslag, AI Research Assistant samler sporbar selskapsresearch, Learning Advisor foreslår manuelt godkjente eksperimenter, og Investment Pipeline orkestrerer markedsskanning til manuelle investeringsforslag uten automatisk handel."
     )
 
     signals = list_signals()
@@ -565,6 +566,14 @@ def render_ai_discovery_foundation_panel() -> None:
             render_learning_advisor()
         except Exception as exc:
             st.error(f"Learning Advisor kunne ikke lastes: {exc}")
+        return
+
+    if active_ai_disc_tab == "investment_pipeline":
+        try:
+            from investment_pipeline import render_investment_pipeline
+            render_investment_pipeline()
+        except Exception as exc:
+            st.error(f"Investment Pipeline kunne ikke lastes: {exc}")
         return
 
     if active_ai_disc_tab == "research_assistant":

@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.85"
-APP_VERSION_NAME = "Learning Advisor"
+APP_VERSION = "v18.6.86"
+APP_VERSION_NAME = "Investment Pipeline Foundation"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.86: Investment Pipeline Foundation: markedsvalg med alternativet Alle, automatisk skanning og Top-N-rangering, modulbaserte kvalitetsporter, forklarbar Investment Score, forslag til posisjonsstørrelse, manuell vurderingskø, audit og JSON-eksport. Ingen automatiske handler eller regelendringer.",
     "v18.6.85: Learning Advisor: evidensbaserte og sporbare forbedringsforslag fra Paper Trading Analytics, Strategy Lab, Backtesting og Portfolio Optimizer; manuell statusflyt, guardrails og eksperimentkø. Ingen automatiske regel-, strategi- eller handelsendringer.",
     "v18.6.84: AI Research Assistant: sporbar selskapsprofil, fundamentale nøkkeltall, tematiserte nyheter, transparente konkurrentforslag, investeringsnotat, rapportbasert Q&A, kildesporing og smart runtime-cache. Read-only; ingen handler eller regelendringer.",
     "v18.6.83: UX & Navigation Refresh: konsekvent kategori + modulnavn i AI Discovery og Kontrollsenter, standardiserte ikoner, harmoniserte paneloverskrifter og tydeligere norske funksjonsbeskrivelser. Ingen motorlogikk, tradingregler eller lagringsformat er endret.",
