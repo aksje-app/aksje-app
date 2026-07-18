@@ -36,6 +36,7 @@ AI_DISCOVERY_TAB_OPTIONS_V18674C = {
     "Signal Discovery": "signal_discovery",
     "AI Discovery Analytics": "learning_foundation",
     "Strategy Lab": "strategy_lab",
+    "Backtesting Engine": "backtesting_engine",
 }
 AI_DISCOVERY_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in AI_DISCOVERY_TAB_OPTIONS_V18674C.items()}
 
@@ -517,7 +518,7 @@ def render_ai_discovery_foundation_panel() -> None:
     st.subheader("🧠 AI Discovery Foundation")
     st.caption(
         "FASE 5A: passivt signalbibliotek, tracking, resultatdatabase, historikk og rapportering. "
-        "Learning Loop er AV. AI Discovery Analytics analyserer avsluttede paper-handler, og Strategy Lab tester isolerte strategier uten å endre motorlogikk."
+        "Learning Loop er AV. Analytics analyserer avsluttede paper-handler, Strategy Lab utvikler strategier, og Backtesting Engine validerer dem historisk uten å endre motorlogikk."
     )
 
     signals = list_signals()
@@ -537,6 +538,14 @@ def render_ai_discovery_foundation_panel() -> None:
             render_strategy_lab()
         except Exception as exc:
             st.error(f"Strategy Lab kunne ikke lastes: {exc}")
+        return
+
+    if active_ai_disc_tab == "backtesting_engine":
+        try:
+            from backtesting_engine import render_backtesting_engine
+            render_backtesting_engine()
+        except Exception as exc:
+            st.error(f"Backtesting Engine kunne ikke lastes: {exc}")
         return
 
     if active_ai_disc_tab == "signal_library":
