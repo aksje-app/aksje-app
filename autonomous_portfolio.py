@@ -18,7 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.89"
+VERSION = "v18.6.90"
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
@@ -429,6 +429,12 @@ def build_evaluation_bundle() -> bytes:
             if path.exists():
                 zf.writestr(name, path.read_bytes())
         try:
+            from autonomous_orchestrator import LATEST_PATH as ORCHESTRATOR_LATEST_PATH, AUDIT_PATH as ORCHESTRATOR_AUDIT_PATH
+            for name, path in (("autonomous_orchestrator/latest_run.json", ORCHESTRATOR_LATEST_PATH), ("autonomous_orchestrator/audit.jsonl", ORCHESTRATOR_AUDIT_PATH)):
+                if path.exists(): zf.writestr(name, path.read_bytes())
+        except Exception:
+            pass
+        try:
             from controlled_parameter_learning import STATE_PATH, HYPOTHESES_PATH, EXPERIMENTS_PATH, VERSIONS_PATH, AUDIT_PATH as LEARNING_AUDIT_PATH, REPORTS_PATH
             for name, path in (("controlled_learning/state.json", STATE_PATH), ("controlled_learning/hypotheses.json", HYPOTHESES_PATH), ("controlled_learning/experiments.json", EXPERIMENTS_PATH), ("controlled_learning/parameter_versions.json", VERSIONS_PATH), ("controlled_learning/audit.jsonl", LEARNING_AUDIT_PATH), ("controlled_learning/management_reports.json", REPORTS_PATH)):
                 if path.exists(): zf.writestr(name, path.read_bytes())
@@ -442,7 +448,7 @@ def render_autonomous_portfolio() -> None:
     import streamlit as st
 
     st.markdown("#### 🧠 Autonomous Learning Portfolio")
-    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring kan kjøre som Observatør, Assistert autonomi eller Full autonomi i v18.6.89a.")
+    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring kan kjøre som Observatør, Assistert autonomi eller Full autonomi. v18.6.90 kan kjøre hele kjeden automatisk etter planlagte skanninger.")
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
@@ -461,15 +467,54 @@ def render_autonomous_portfolio() -> None:
     else:
         if a.button("Aktiver autonom simulering", type="primary", use_container_width=True, key="alp_activate_v18688"):
             set_status(True, "Aktivert av bruker"); st.rerun()
-    if b.button("Kjør én teoretisk beslutningssyklus", use_container_width=True, key="alp_cycle_v18688"):
+    if b.button("Kjør én teoretisk beslutningssyklus", use_container_width=True, key="alp_cycle_v18690", help="Bruker siste lagrede kandidatliste. Starter ikke en ny markedsskanning."):
         pipeline = _read(LATEST_PIPELINE_PATH, {})
         candidates = pipeline.get("candidates") or pipeline.get("proposals") or []
-        if not candidates:
-            st.error("Ingen kandidater funnet. Kjør Investment Pipeline først.")
+        if portfolio.get("status") != "ACTIVE":
+            st.warning("Den autonome porteføljen er pauset. Aktiver simuleringen før syklusen kjøres.")
+        elif not candidates:
+            st.error("Ingen kandidater funnet. Bruk 'Kjør hele autonome kjeden' for å skanne markedet først.")
         else:
-            result = run_autonomous_cycle(candidates, str(pipeline.get("run_id") or "MANUAL"))
-            st.success(f"Syklus fullført: {len(result['trades'])} teoretiske handler, {len(result['decisions'])} beslutninger.")
+            with st.spinner("Evaluerer kandidater og simulerer beslutninger..."):
+                result = run_autonomous_cycle(candidates, str(pipeline.get("run_id") or "MANUAL"))
+            st.success(f"Syklus fullført: {len(result['trades'])} teoretiske handler og {len(result['decisions'])} beslutninger.")
             st.rerun()
+
+    st.markdown("##### 🚦 Autonom orkestrering")
+    st.caption("Kjør hele kjeden: markedsskanning → Investment Pipeline → teoretiske handler → kontrollert læring.")
+    try:
+        from market_intelligence import load_jobs, run_job
+        jobs = load_jobs()
+        active_jobs = [j for j in jobs if j.enabled]
+        if active_jobs:
+            labels = {f"{j.name} ({', '.join(j.markets)})": j for j in active_jobs}
+            chosen = st.selectbox("Jobbprofil for full kjøring", list(labels), key="alp_orchestrator_job_v18690")
+            if st.button("▶ Kjør hele autonome kjeden nå", type="primary", use_container_width=True, key="alp_run_full_chain_v18690"):
+                with st.spinner("Skanner markeder og kjører den autonome kjeden..."):
+                    full = run_job(labels[chosen], trigger="MANUAL_FULL_CHAIN")
+                chain = full.get("autonomous_chain") or {}
+                if chain.get("status") == "OK":
+                    st.success(f"Hele kjeden er fullført. Kjede-ID: {chain.get('chain_id')}")
+                else:
+                    st.warning(f"Kjeden ble fullført med status {chain.get('status')}. Se diagnostikk nedenfor.")
+                st.session_state["alp_last_full_chain_v18690"] = full
+        else:
+            st.info("Opprett og aktiver en jobbprofil under Scheduled Market Intelligence for å kjøre hele kjeden.")
+    except Exception as exc:
+        st.error(f"Autonom orkestrering kunne ikke lastes: {exc}")
+
+    try:
+        from autonomous_orchestrator import load_latest_chain
+        chain = st.session_state.get("alp_last_full_chain_v18690", {}).get("autonomous_chain") or load_latest_chain()
+        if chain:
+            with st.expander("Siste kjøring – diagnostikk", expanded=False):
+                st.write({"Kjede-ID": chain.get("chain_id"), "Status": chain.get("status"), "Start": chain.get("created_at"), "Kilde": chain.get("source_run_id")})
+                st.dataframe(pd.DataFrame(chain.get("stages") or []), use_container_width=True, hide_index=True)
+                if chain.get("errors"):
+                    st.error(" | ".join(chain.get("errors") or []))
+    except Exception:
+        pass
+
     c.download_button("Last ned evalueringspakke", build_evaluation_bundle(), file_name=f"autonomous_learning_evaluation_{datetime.now().strftime('%Y%m%d_%H%M')}.zip", mime="application/zip", use_container_width=True, key="alp_eval_bundle_v18688")
 
     with st.expander("Faste parametere", expanded=False):

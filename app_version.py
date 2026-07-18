@@ -1,5 +1,5 @@
-APP_VERSION = "v18.6.89b"
-APP_VERSION_NAME = "Autonomy Settings and Promotion Guard"
+APP_VERSION = "v18.6.90"
+APP_VERSION_NAME = "Autonomous Orchestrator and Scan Windows"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [

@@ -11,7 +11,7 @@ import io
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -19,7 +19,7 @@ from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, r
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.87"
+VERSION = "v18.6.90"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -34,6 +34,7 @@ MODULE_OPTIONS = [
     "Backtesting Validation", "Portfolio Optimizer", "Learning Advisor",
 ]
 SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
+DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 
 
@@ -89,6 +90,10 @@ class JobProfile:
     notify_only_changes: bool = True
     save_pdf: bool = True
     enabled: bool = True
+    scan_windows: list[dict[str, Any]] = field(default_factory=list)
+    run_autonomous_portfolio: bool = True
+    run_controlled_learning: bool = True
+    require_active_portfolio: bool = True
     job_id: str = field(default_factory=lambda: f"MIJ-{uuid.uuid4().hex[:10].upper()}")
     created_at: str = field(default_factory=_now_iso)
     last_run_at: str = ""
@@ -281,6 +286,18 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY"}
     run["changes"] = compare_runs(run, previous)
     _update_history(run)
+    try:
+        from autonomous_orchestrator import run_post_scan_chain
+        run["autonomous_chain"] = run_post_scan_chain(
+            run,
+            run_autonomous=job.run_autonomous_portfolio,
+            run_learning=job.run_controlled_learning,
+            require_active_portfolio=job.require_active_portfolio,
+            trigger=trigger,
+        )
+    except Exception as exc:
+        run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
+        errors.append(f"Autonom orkestrering: {exc}")
     notify_ok, notify_detail = _notification(job, run)
     run["notification"] = {"sent": notify_ok, "detail": notify_detail}
     if job.save_pdf:
@@ -297,6 +314,35 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
     return run
 
 
+def _parse_hhmm(value: str) -> tuple[int, int] | None:
+    try:
+        hh, mm = map(int, str(value).split(":"))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return hh, mm
+    except Exception:
+        pass
+    return None
+
+
+def _window_slot_due(job: JobProfile, now: datetime, last: datetime | None) -> bool:
+    for window in job.scan_windows or []:
+        start_v, end_v = _parse_hhmm(window.get("start", "")), _parse_hhmm(window.get("end", ""))
+        if not start_v or not end_v:
+            continue
+        start_dt = datetime.combine(now.date(), time(*start_v), tzinfo=now.tzinfo)
+        end_dt = datetime.combine(now.date(), time(*end_v), tzinfo=now.tzinfo)
+        if end_dt < start_dt:
+            end_dt = end_dt.replace(day=end_dt.day) + timedelta(days=1)
+        if not (start_dt <= now <= end_dt):
+            continue
+        interval = max(5, min(1440, int(window.get("interval_minutes", 30))))
+        elapsed = max(0, int((now - start_dt).total_seconds() // 60))
+        slot_dt = start_dt + timedelta(minutes=(elapsed // interval) * interval)
+        if not last or last < slot_dt:
+            return True
+    return False
+
+
 def _slot_due(job: JobProfile, now: datetime) -> bool:
     if not job.enabled or now.weekday() not in job.weekdays:
         return False
@@ -305,18 +351,19 @@ def _slot_due(job: JobProfile, now: datetime) -> bool:
         last = datetime.fromisoformat(job.last_run_at) if job.last_run_at else None
     except Exception:
         pass
+    if _window_slot_due(job, now, last):
+        return True
     for slot in job.schedules:
         if slot == "Ved appstart":
             if not last or last.date() < now.date():
                 return True
             continue
-        try:
-            hh, mm = map(int, slot.split(":"))
-            scheduled = datetime.combine(now.date(), time(hh, mm), tzinfo=now.tzinfo)
-            if now >= scheduled and (not last or last < scheduled):
-                return True
-        except Exception:
+        parsed = _parse_hhmm(slot)
+        if not parsed:
             continue
+        scheduled = datetime.combine(now.date(), time(*parsed), tzinfo=now.tzinfo)
+        if now >= scheduled and (not last or last < scheduled):
+            return True
     return False
 
 
@@ -334,7 +381,7 @@ def render_market_intelligence() -> None:
     import streamlit as st
 
     st.markdown("#### ⏰ Scheduled Market Intelligence & PDF Reports")
-    st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, moduler og varsler. Kjøringene er analyse-only.")
+    st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, moduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
     try:
         due = run_due_jobs()
         if due:
@@ -353,7 +400,18 @@ def render_market_intelligence() -> None:
         with c1:
             market_choices = ["Alle"] + list(BASE_MARKET_SCOPES)
             markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=current.markets if current else ["Alle"], key="mi_markets_v18687")
-            schedules = st.multiselect("Tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:30", "22:30"], key="mi_schedules_v18687")
+            schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:30", "22:30"], key="mi_schedules_v18690")
+            st.caption("Skanningsvinduer kjører gjentatte ganger innenfor valgte tidsrom.")
+            windows = current.scan_windows if current and current.scan_windows else DEFAULT_SCAN_WINDOWS
+            window_count = st.number_input("Antall skanningsvinduer", 0, 4, len(windows), 1, key="mi_window_count_v18690")
+            scan_windows = []
+            for wi in range(int(window_count)):
+                default = windows[wi] if wi < len(windows) else {"start":"08:00","end":"10:00","interval_minutes":30}
+                w1,w2,w3 = st.columns(3)
+                start_t = w1.time_input(f"Fra {wi+1}", value=time.fromisoformat(default.get("start","08:00")), key=f"mi_wstart_{wi}_v18690")
+                end_t = w2.time_input(f"Til {wi+1}", value=time.fromisoformat(default.get("end","10:00")), key=f"mi_wend_{wi}_v18690")
+                interval = w3.selectbox(f"Intervall {wi+1}", [15,30,60,120,240], index=[15,30,60,120,240].index(int(default.get("interval_minutes",30))) if int(default.get("interval_minutes",30)) in [15,30,60,120,240] else 1, format_func=lambda x:f"{x} min", key=f"mi_wint_{wi}_v18690")
+                scan_windows.append({"start":start_t.strftime("%H:%M"),"end":end_t.strftime("%H:%M"),"interval_minutes":int(interval)})
             weekday_names = st.multiselect("Ukedager", WEEKDAY_NAMES, default=[WEEKDAY_NAMES[i] for i in (current.weekdays if current else [0,1,2,3,4])], key="mi_days_v18687")
         with c2:
             modules = st.multiselect("Pipeline-moduler", MODULE_OPTIONS, default=current.modules if current else MODULE_OPTIONS, key="mi_modules_v18687")
@@ -366,12 +424,18 @@ def render_market_intelligence() -> None:
         save_pdf = n3.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
         enabled = n4.checkbox("Aktiv jobb", value=current.enabled if current else True, key="mi_enabled_v18687")
         min_score = st.slider("Minste score for varsel", 0, 100, int(current.min_alert_score if current else 80), key="mi_min_score_v18687")
+        st.markdown("##### Etter skanningen")
+        o1,o2,o3 = st.columns(3)
+        run_auto = o1.checkbox("Kjør teoretisk portefølje", value=current.run_autonomous_portfolio if current else True, key="mi_auto_port_v18690")
+        run_learning = o2.checkbox("Kjør kontrollert læring", value=current.run_controlled_learning if current else True, key="mi_auto_learning_v18690")
+        require_active = o3.checkbox("Krev aktiv portefølje", value=current.require_active_portfolio if current else True, key="mi_require_active_v18690", help="Når valgt hoppes simulerte handler over dersom porteføljen er pauset.")
         b1, b2, b3 = st.columns(3)
         if b1.button("Lagre jobb", type="primary", use_container_width=True, key="mi_save_v18687"):
             job = JobProfile(name=name.strip() or "Uten navn", markets=markets or ["Norge"], schedules=schedules or ["Ved appstart"],
                              weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
                              scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
                              notify_pushover=notify, notify_only_changes=only_changes, save_pdf=save_pdf, enabled=enabled,
+                             scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,
                              job_id=current.job_id if current else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
                              created_at=current.created_at if current else _now_iso(), last_run_at=current.last_run_at if current else "",
                              last_status=current.last_status if current else "ALDRI KJØRT")
@@ -383,7 +447,7 @@ def render_market_intelligence() -> None:
         if current and b3.button("Slett jobb", use_container_width=True, key="mi_delete_v18687"):
             delete_job(current.job_id); st.success("Jobben er slettet."); st.rerun()
         if jobs:
-            st.dataframe(pd.DataFrame([{"Jobb": x.name, "Markeder": ", ".join(x.markets), "Tid": ", ".join(x.schedules), "Aktiv": x.enabled,
+            st.dataframe(pd.DataFrame([{"Jobb": x.name, "Markeder": ", ".join(x.markets), "Tid": ", ".join(x.schedules), "Tidsrom": "; ".join(f"{w.get('start')}-{w.get('end')} / {w.get('interval_minutes')}m" for w in x.scan_windows), "Autonom kjede": x.run_autonomous_portfolio, "Aktiv": x.enabled,
                                        "Sist kjørt": x.last_run_at or "-", "Status": x.last_status} for x in jobs]), use_container_width=True, hide_index=True)
 
     latest = st.session_state.get("mi_latest_v18687") or _read(LATEST_PATH, {})
