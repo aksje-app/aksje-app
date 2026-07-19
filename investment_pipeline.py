@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92d"
+VERSION = "v18.6.92e"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -203,13 +203,13 @@ def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
     return not actual or any(token in actual for token in accepted)
 
 
-def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig, progress_callback: Any | None = None) -> list[dict[str, Any]]:
+def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig, progress_callback: Any | None = None, force_refresh: bool = False) -> list[dict[str, Any]]:
     filtered = [dict(r) for r in rows if _market_matches(r, config.market_scope)]
     if not filtered and rows:
         # Some sources omit market metadata. Preserve them, but never duplicate a ticker.
         filtered = [dict(r) for r in rows]
     from candidate_market_data import enrich_candidate_rows
-    return enrich_candidate_rows(filtered[: config.scan_limit], progress_callback=progress_callback)
+    return enrich_candidate_rows(filtered[: config.scan_limit], progress_callback=progress_callback, force_refresh=force_refresh)
 
 
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:
@@ -321,14 +321,14 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     )
 
 
-def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None, progress_callback: Any | None = None) -> dict[str, Any]:
+def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None, progress_callback: Any | None = None, force_refresh: bool = False) -> dict[str, Any]:
     cfg = (config or PipelineConfig()).normalized()
     if progress_callback:
         progress_callback({"phase": "PREPARE", "completed": 0, "total": max(1, min(len(rows), cfg.scan_limit)), "message": "Forbereder kandidater"})
     def _enrich_progress(done: int, total: int, ticker: str) -> None:
         if progress_callback:
             progress_callback({"phase": "MARKET_DATA", "completed": done, "total": total, "ticker": ticker, "message": f"Henter markedsdata {done}/{total}: {ticker}"})
-    prepared_rows = _prepare_candidate_rows(rows, cfg, progress_callback=_enrich_progress)
+    prepared_rows = _prepare_candidate_rows(rows, cfg, progress_callback=_enrich_progress, force_refresh=force_refresh)
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:
@@ -347,6 +347,34 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         item.rank = idx
     eligible = [x for x in deep if x.status in {STATUS_RECOMMENDED, STATUS_MANUAL, STATUS_WATCH}]
     proposals = eligible[: cfg.proposal_count]
+    previous_run = _read_json(LATEST_RUN_PATH, {})
+    previous_by_ticker = {str(x.get("ticker") or "").upper(): x for x in (previous_run.get("candidates") or [])}
+    for item in deep:
+        previous = previous_by_ticker.get(item.ticker.upper())
+        if not previous:
+            item.raw["score_change_explanation"] = {"status": "NEW", "previous_score": None, "current_score": item.investment_score, "delta": 0.0, "drivers": []}
+            continue
+        previous_formula = ((previous.get("raw") or {}).get("score_formula") or {})
+        previous_parts = previous_formula.get("parts") or {}
+        current_parts = (item.raw.get("score_formula") or {}).get("parts") or {}
+        previous_weights = previous_formula.get("weights") or {}
+        current_weights = (item.raw.get("score_formula") or {}).get("weights") or {}
+        drivers = []
+        for key, current_value in current_parts.items():
+            previous_value = _f(previous_parts.get(key), current_value)
+            weight = _f(current_weights.get(key), _f(previous_weights.get(key), 0.0))
+            contribution_delta = (float(current_value) - previous_value) * weight
+            if abs(contribution_delta) >= 0.01:
+                drivers.append({"component": key, "previous": round(previous_value, 2), "current": round(float(current_value), 2), "raw_delta": round(float(current_value) - previous_value, 2), "weighted_delta": round(contribution_delta, 2)})
+        drivers.sort(key=lambda x: abs(float(x.get("weighted_delta", 0))), reverse=True)
+        previous_score = _f(previous.get("investment_score"), item.investment_score)
+        item.raw["score_change_explanation"] = {
+            "status": "CHANGED" if abs(item.investment_score - previous_score) >= 0.01 else "UNCHANGED",
+            "previous_score": round(previous_score, 2),
+            "current_score": item.investment_score,
+            "delta": round(item.investment_score - previous_score, 2),
+            "drivers": drivers[:8],
+        }
     run_id = datetime.now().strftime("IP-%Y%m%d-%H%M%S")
     payload = {
         "version": VERSION,
@@ -365,6 +393,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "candidates": [asdict(x) for x in deep],
         "proposals": [asdict(x) for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
+        "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600},
     }
     if progress_callback:
         progress_callback({"phase": "PORTFOLIO_PROPOSAL", "completed": 1, "total": 1, "message": "Bygger teoretisk porteføljeforslag"})
@@ -473,6 +502,7 @@ def render_investment_pipeline() -> None:
             use_portfolio_fit=use_portfolio, use_learning_advisor=use_learning,
         ).normalized()
 
+        force_refresh = st.checkbox("Tving full ny analyse (ignorer cache)", value=False, key="ip_force_refresh_v18692e", help="Henter nye data for alle kandidater. Brukes ved kontroll og feilsøking; kjøringen kan ta lengre tid.")
         if market == "Alle":
             st.info("Alle markeder: " + ", ".join(expand_market_scope("Alle")))
 
@@ -482,7 +512,7 @@ def render_investment_pipeline() -> None:
                 if not rows:
                     st.error("Ingen kandidater ble funnet. Kjør Smart Universe/Market Scanner først, eller kontroller datakildene.")
                 else:
-                    payload = run_pipeline(rows, cfg)
+                    payload = run_pipeline(rows, cfg, force_refresh=force_refresh)
                     payload["candidate_source"] = source
                     _write_json(LATEST_RUN_PATH, payload)
                     st.session_state["ip_latest_run_v18686"] = payload
@@ -522,6 +552,24 @@ def render_investment_pipeline() -> None:
             raw = selected.get("raw") or {}
             if raw.get("data_fetch_error"):
                 st.warning(str(raw.get("data_fetch_error")))
+            cache_cols = st.columns(4)
+            cache_cols[0].metric("Datakilde", raw.get("data_source") or raw.get("data_fetch_status") or "Ukjent")
+            cache_cols[1].metric("Cache", "TREFF" if raw.get("cache_hit") else "LIVE")
+            cache_cols[2].metric("Cache-alder", f"{float(raw.get('cache_age_minutes') or 0):.1f} min")
+            cache_cols[3].metric("Beriket", raw.get("enriched_at") or "-")
+            change = raw.get("score_change_explanation") or {}
+            if change:
+                st.markdown("###### Endring siden forrige analyse")
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Forrige score", "-" if change.get("previous_score") is None else f"{float(change.get('previous_score')):.2f}")
+                d2.metric("Ny score", f"{float(change.get('current_score') or selected.get('investment_score') or 0):.2f}")
+                d3.metric("Endring", f"{float(change.get('delta') or 0):+.2f}")
+                if change.get("drivers"):
+                    st.dataframe(pd.DataFrame(change.get("drivers")), use_container_width=True, hide_index=True)
+                elif change.get("status") == "UNCHANGED":
+                    st.caption("Ingen målbar scoreendring. Kontroller cache-alder og datakilde over.")
+                else:
+                    st.caption("Ingen tidligere sammenlignbar analyse finnes for denne kandidaten.")
             trace = raw.get("analysis_trace") or []
             if trace:
                 st.markdown("###### Datainnhenting")

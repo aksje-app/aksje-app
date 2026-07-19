@@ -20,7 +20,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92d"
+VERSION = "v18.6.92e"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -313,7 +313,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     return buf.getvalue()
 
 
-def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None) -> dict[str, Any]:
+def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
     previous = _read(LATEST_PATH, {})
     def emit(phase: str, completed: int, total: int, message: str, **extra: Any) -> None:
         if progress_callback:
@@ -342,7 +342,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                 e["market_total"] = len(markets)
                 if progress_callback:
                     progress_callback(e)
-            result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress)
+            result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress, force_refresh=force_refresh)
             result["candidate_source"] = source
             market_runs.append(result)
             all_candidates.extend(result.get("candidates") or [])
@@ -372,7 +372,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
-           "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY"}
+           "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
+           "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600}}
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)

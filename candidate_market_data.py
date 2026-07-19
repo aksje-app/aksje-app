@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92b"
+VERSION = "v18.6.92e"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -48,8 +48,17 @@ def _read_cache(ticker: str) -> dict[str, Any] | None:
     path = _cache_path(ticker)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if time.time() - float(payload.get("cached_epoch", 0)) <= CACHE_TTL_SECONDS:
-            return dict(payload.get("row") or {})
+        cached_epoch = float(payload.get("cached_epoch", 0))
+        age_seconds = max(0.0, time.time() - cached_epoch)
+        if age_seconds <= CACHE_TTL_SECONDS:
+            row = dict(payload.get("row") or {})
+            row["cache_hit"] = True
+            row["cache_age_seconds"] = round(age_seconds, 1)
+            row["cache_age_minutes"] = round(age_seconds / 60.0, 1)
+            row["cache_ttl_seconds"] = CACHE_TTL_SECONDS
+            row["cache_path"] = str(path)
+            row["data_source"] = "yfinance-cache"
+            return row
     except Exception:
         return None
     return None
@@ -198,18 +207,19 @@ def _fundamental_fields(info: Mapping[str, Any]) -> tuple[dict[str, Any], list[d
     return fields, trace
 
 
-def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True) -> dict[str, Any]:
+def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_refresh: bool = False) -> dict[str, Any]:
     base = dict(row)
     ticker = str(base.get("ticker") or base.get("symbol") or "").strip().upper()
     base["ticker"] = ticker
     if not ticker:
         base.update({"data_fetch_status": "ERROR", "data_fetch_error": "Mangler ticker", "analysis_trace": []})
         return base
-    if use_cache:
+    if use_cache and not force_refresh:
         cached = _read_cache(ticker)
         if cached:
             cached.update({k: v for k, v in base.items() if v not in (None, "")})
             cached["data_fetch_status"] = "CACHE"
+            cached["force_refresh"] = False
             return cached
     trace: list[dict[str, Any]] = []
     try:
@@ -241,6 +251,13 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True) -> dict
         enriched["data_fetch_status"] = "OK" if observed else "NO_DATA"
         enriched["data_fetch_error"] = "" if observed else "Ingen individuelle markeds- eller selskapsdata funnet"
         enriched["enriched_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        enriched["cache_hit"] = False
+        enriched["cache_age_seconds"] = 0.0
+        enriched["cache_age_minutes"] = 0.0
+        enriched["cache_ttl_seconds"] = CACHE_TTL_SECONDS
+        enriched["cache_path"] = str(_cache_path(ticker))
+        enriched["data_source"] = "yfinance-live"
+        enriched["force_refresh"] = bool(force_refresh)
         _write_cache(ticker, enriched)
         return enriched
     except Exception as exc:
@@ -248,7 +265,7 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True) -> dict
         return base
 
 
-def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 6, progress_callback: Callable[[int, int, str], None] | None = None) -> list[dict[str, Any]]:
+def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 6, progress_callback: Callable[[int, int, str], None] | None = None, force_refresh: bool = False) -> list[dict[str, Any]]:
     unique: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
@@ -262,7 +279,7 @@ def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 
         return []
     output: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=max(1, min(max_workers, total))) as pool:
-        futures = {pool.submit(enrich_candidate_row, row): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
+        futures = {pool.submit(enrich_candidate_row, row, True, force_refresh): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
         completed = 0
         for future in as_completed(futures):
             ticker = futures[future]

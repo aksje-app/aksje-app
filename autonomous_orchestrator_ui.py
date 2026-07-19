@@ -54,6 +54,7 @@ def render_autonomous_orchestrator_control_center() -> None:
         st.info("Dette er det automatisk lagrede utkastet. Du kan teste hele kjeden før du lagrer eller aktiverer en tidsplan.")
     elif not active_jobs:
         st.caption("Ingen aktive tidsplaner finnes, men utkastet kan fortsatt testkjøres.")
+    force_refresh = st.checkbox("Tving full ny analyse (ignorer cache)", value=False, key="orchestrator_force_refresh_v18692e", help="Henter ferske data for alle kandidater og viser om resultatene faktisk endrer seg. Kan ta lengre tid og øker belastningen på datakildene.")
     run_label = "🧪 Test hele kjeden fra utkast" if is_draft else "▶ Kjør valgt lagret jobb nå"
     if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692d"):
         trigger = "MANUAL_DRAFT_TEST" if is_draft else "MANUAL_FULL_CHAIN"
@@ -100,7 +101,7 @@ def render_autonomous_orchestrator_control_center() -> None:
             _render_checklist(phase if phase in steps else "MARKET_DATA", msg)
         _render_checklist("MARKET_DATA", "Starter markedsskanning")
         try:
-            result = run_job(selected_job, trigger=trigger, progress_callback=_progress_event)
+            result = run_job(selected_job, trigger=trigger, progress_callback=_progress_event, force_refresh=force_refresh)
             chain = result.get("autonomous_chain") or {}
             progress.progress(100, text="100 % · Hele kjeden er ferdig")
             completed_steps.update(steps)
