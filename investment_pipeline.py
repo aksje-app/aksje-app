@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92"
+VERSION = "v18.6.92b"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -186,6 +186,32 @@ def _extract_rows(value: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
+    if scope == "Alle":
+        return True
+    wanted = str(scope or "").strip().lower()
+    actual = str(row.get("market") or row.get("country") or row.get("exchange") or "").strip().lower()
+    aliases = {
+        "norge": ("norge", "norway", "oslo", "osl"),
+        "sverige": ("sverige", "sweden", "stockholm", "sto"),
+        "finland": ("finland", "helsinki", "hel"),
+        "danmark": ("danmark", "denmark", "copenhagen", "cph"),
+        "brasil": ("brasil", "brazil", "sao paulo", "sao"),
+        "usa": ("usa", "united states", "nasdaq", "nyse", "amex"),
+    }
+    accepted = aliases.get(wanted, (wanted,))
+    return not actual or any(token in actual for token in accepted)
+
+
+def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig) -> list[dict[str, Any]]:
+    filtered = [dict(r) for r in rows if _market_matches(r, config.market_scope)]
+    if not filtered and rows:
+        # Some sources omit market metadata. Preserve them, but never duplicate a ticker.
+        filtered = [dict(r) for r in rows]
+    from candidate_market_data import enrich_candidate_rows
+    return enrich_candidate_rows(filtered[: config.scan_limit])
+
+
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:
     from advanced_investment_intelligence import adaptive_weights, derive_scores, load_candidate_trend
 
@@ -232,7 +258,9 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     }
     failed = [k for k, v in gates.items() if v == "IKKE BESTÅTT"]
     warnings = [k for k, v in gates.items() if v == "ADVARSEL"]
-    if not ticker:
+    real_fields = list(derived.get("data_fields_used") or [])
+    fetch_status = str(row.get("data_fetch_status") or "").upper()
+    if not ticker or (not real_fields and fetch_status in {"ERROR", "NO_DATA"}):
         status = STATUS_INSUFFICIENT
     elif failed:
         status = STATUS_REJECTED
@@ -357,7 +385,8 @@ def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str
         })
         rows = _extract_rows(result)
         if rows:
-            return rows, "Smart Universe Engine"
+            prepared = _prepare_candidate_rows(rows, config)
+            return prepared, "Smart Universe Engine + yfinance enrichment"
     except Exception:
         pass
     try:
@@ -366,7 +395,8 @@ def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str
         for name in ("smart_universe_result.json", "latest_rankings_v148.json", "top_picks_result.json"):
             rows = _extract_rows(storage.read_json(name, default={}) or {})
             if rows:
-                return rows[: config.scan_limit], f"Lagret {name}"
+                prepared = _prepare_candidate_rows(rows, config)
+                return prepared, f"Lagret {name} + yfinance enrichment"
     except Exception:
         pass
     return [], "Ingen kandidatkilde"
@@ -456,6 +486,22 @@ def render_investment_pipeline() -> None:
             } for r in rows]
             st.markdown("##### Rangert kandidatliste")
             st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
+            st.markdown("##### 🔎 Analysebevis per kandidat")
+            selected_ticker = st.selectbox("Velg kandidat for sporbar analyse", [str(r.get("ticker")) for r in rows], key="ip_trace_ticker_v18692b")
+            selected = next((r for r in rows if str(r.get("ticker")) == selected_ticker), {})
+            t1, t2, t3, t4 = st.columns(4)
+            t1.metric("Datainnhenting", selected.get("raw", {}).get("data_fetch_status", selected.get("data_fetch_status", "-")))
+            t2.metric("Felt brukt", len(selected.get("data_fields_used") or []))
+            t3.metric("Konfidens", selected.get("confidence_score", 0))
+            t4.metric("Investment Score", selected.get("investment_score", 0))
+            raw = selected.get("raw") or {}
+            if raw.get("data_fetch_error"):
+                st.warning(str(raw.get("data_fetch_error")))
+            trace = raw.get("analysis_trace") or []
+            if trace:
+                st.dataframe(pd.DataFrame(trace), use_container_width=True, hide_index=True)
+            else:
+                st.info("Ingen analysetrace er lagret for denne kandidaten.")
 
         st.markdown("##### Investeringsforslag")
         proposals = payload.get("proposals") or []

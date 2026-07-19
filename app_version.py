@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.92a"
-APP_VERSION_NAME = "Draft-First Scheduler UX"
+APP_VERSION = "v18.6.92b"
+APP_VERSION_NAME = "Traceable Analysis Engine"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.92b: Traceable Analysis Engine: reell markedsdata-berikelse per unik ticker, tekniske/fundamentale/risko/likviditetsfelt, seks timers cache, eksplisitt datamangelsstatus, kandidat-deduplisering og sporbar analysevisning per kandidat.",
     "v18.6.92: Dynamic Investment Intelligence: individuelle og forklarbare delscorer fra faktiske kandidatdata, datakompletthet og konfidens, kandidattrend og scoreendring, risikobevisst teoretisk porteføljeforslag, konservativ selvlærende vekting fra lukkede teoretiske handler og utvidet PDF/UI. Manglende data holdes nøytrale og reduserer konfidens; ingen data fabrikeres.",
     "v18.6.91a: Configuration Binding Fix: Autonomy Settings lagres umiddelbart ved endring, stabile widgetnøkler hindrer tilbakesprett ved Streamlit-rerun.\n    v18.6.91: Configuration Framework: én sentral og versjonert konfigurasjonskilde i PostgreSQL/StorageService, automatisk migrering av v18.6.90b-innstillinger, bevaring av ukjente felt ved oppgraderinger, checksum/revisjon, JSON eksport/import med automatisk backup og unike Streamlit-widgetnøkler per render-instans.",
     "v18.6.90b: Persistent Parameter Lock: autonome porteføljeparametere, porteføljestatus, Controlled Learning-innstillinger og Scheduler-jobbprofiler lagres Postgres-first via StorageService. Verdier beholdes ved Streamlit-rerun, nettleser-refresh, tjenesteomstart og ny deploy. Duplikat nødstopp-widget er fjernet.",

@@ -20,7 +20,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92a"
+VERSION = "v18.6.92b"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -328,9 +328,21 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
                 totals[key] += int((result.get("summary") or {}).get(key, 0))
         except Exception as exc:
             errors.append(f"{market}: {exc}")
+    # Remove repeated candidates returned by multiple market passes. Keep the strongest
+    # assessment for each ticker/market pair.
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
+    for candidate in all_candidates:
+        key = (str(candidate.get("ticker") or "").upper(), str(candidate.get("market") or "").lower())
+        current = deduped.get(key)
+        if current is None or float(candidate.get("investment_score", 0)) > float(current.get("investment_score", 0)):
+            deduped[key] = candidate
+    all_candidates = list(deduped.values())
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
+    totals["deep_analyzed"] = len(all_candidates)
+    totals["recommended"] = sum(1 for x in all_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
+    totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
     all_proposals.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     all_proposals = all_proposals[:job.proposal_count]
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
