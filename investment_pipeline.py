@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92b"
+VERSION = "v18.6.92c"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -298,6 +298,13 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     raw = dict(row)
     raw["effective_weights"] = effective_weights
     raw["adaptive_learning"] = learning_meta
+    raw["component_trace"] = derived.get("component_trace") or {}
+    raw["score_formula"] = {
+        "parts": {k: round(v, 2) for k, v in parts.items()},
+        "weights": {k: round(effective_weights.get(k, 0.0), 4) for k in parts},
+        "weighted_contributions": {k: round(parts[k] * effective_weights.get(k, 0.0), 2) for k in parts},
+        "investment_score": round(investment, 2),
+    }
     return CandidateAssessment(
         candidate_id=_candidate_id(ticker, market), ticker=ticker, name=name, market=market,
         sector=sector, source=source, scanner_score=round(scanner_score, 2),
@@ -316,7 +323,14 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
 
 def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None) -> dict[str, Any]:
     cfg = (config or PipelineConfig()).normalized()
-    assessments = [score_candidate(row, cfg) for row in rows[: cfg.scan_limit]]
+    prepared_rows = [dict(row) for row in rows[: cfg.scan_limit]]
+    if cfg.use_portfolio_fit and prepared_rows:
+        from advanced_investment_intelligence import calculate_portfolio_fit
+        for row in prepared_rows:
+            fit, trace = calculate_portfolio_fit(row, prepared_rows)
+            row["portfolio_fit_score"] = fit
+            row["portfolio_fit_trace"] = trace
+    assessments = [score_candidate(row, cfg) for row in prepared_rows]
     assessments.sort(key=lambda x: (x.scanner_score, x.investment_score), reverse=True)
     deep = assessments[: cfg.deep_analysis_count]
     deep.sort(key=lambda x: (x.investment_score, x.scanner_score), reverse=True)
@@ -499,8 +513,37 @@ def render_investment_pipeline() -> None:
                 st.warning(str(raw.get("data_fetch_error")))
             trace = raw.get("analysis_trace") or []
             if trace:
+                st.markdown("###### Datainnhenting")
                 st.dataframe(pd.DataFrame(trace), use_container_width=True, hide_index=True)
-            else:
+            component_trace = raw.get("component_trace") or {}
+            if component_trace:
+                st.markdown("###### Beregning av delscorer")
+                component_rows = []
+                for key, item in component_trace.items():
+                    if not isinstance(item, Mapping):
+                        continue
+                    component_rows.append({
+                        "Komponent": item.get("component", key),
+                        "Score": item.get("score"),
+                        "Status": item.get("status", ""),
+                        "Dekning": item.get("coverage", item.get("group_coverage", "")),
+                        "Detaljer": item.get("note", ""),
+                    })
+                st.dataframe(pd.DataFrame(component_rows), use_container_width=True, hide_index=True)
+                for key, item in component_trace.items():
+                    inputs = item.get("inputs") if isinstance(item, Mapping) else None
+                    if inputs:
+                        with st.expander(f"Sporing: {item.get('component', key)}", expanded=False):
+                            st.dataframe(pd.DataFrame(inputs), use_container_width=True, hide_index=True)
+            portfolio_trace = raw.get("portfolio_fit_trace") or {}
+            if portfolio_trace:
+                with st.expander("Sporing: Porteføljetilpasning", expanded=False):
+                    st.json(portfolio_trace)
+            formula = raw.get("score_formula") or {}
+            if formula:
+                with st.expander("Sporing: Total Investment Score", expanded=True):
+                    st.json(formula)
+            if not trace and not component_trace:
                 st.info("Ingen analysetrace er lagret for denne kandidaten.")
 
         st.markdown("##### Investeringsforslag")

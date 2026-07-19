@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92"
+VERSION = "v18.6.92c"
 HISTORY_PATH = runtime_data_path("market_intelligence") / "candidate_history.json"
 TRADES_PATH = runtime_data_path("autonomous_portfolio") / "trades.json"
 WEIGHTS_PATH = runtime_data_path("investment_pipeline") / "adaptive_weights.json"
@@ -62,119 +62,127 @@ def bounded_linear(value: float | None, bad: float, good: float, fallback: float
     return clamp(score)
 
 
+def _component(name: str, entries: list[dict[str, Any]], neutral: float = 50.0) -> tuple[float, dict[str, Any]]:
+    valid = [e for e in entries if e.get("value") is not None]
+    if not valid:
+        return neutral, {"component": name, "score": neutral, "inputs": [], "coverage": 0.0, "status": "MISSING"}
+    total_weight = sum(float(e.get("weight", 1.0)) for e in valid) or 1.0
+    score = sum(float(e["score"]) * float(e.get("weight", 1.0)) for e in valid) / total_weight
+    return clamp(score), {
+        "component": name,
+        "score": round(clamp(score), 2),
+        "inputs": valid,
+        "coverage": round(min(1.0, len(valid) / max(1, len(entries))), 3),
+        "status": "OK",
+    }
+
+
 def derive_scores(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Derive component scores from real fields and report provenance/completeness."""
+    """Derive transparent component scores and calibrated confidence from actual data."""
     present: list[str] = []
     reasons: list[str] = []
+    traces: dict[str, Any] = {}
 
+    def add(entries: list[dict[str, Any]], field: str, raw: float | None, score: float | None, weight: float = 1.0, note: str = "") -> None:
+        entries.append({"field": field, "value": raw, "score": None if score is None else round(clamp(score), 2), "weight": weight, "note": note})
+        if raw is not None:
+            present.append(field)
+
+    discovery_entries: list[dict[str, Any]] = []
     direct_discovery = first(row, ("ai_score", "smart_score", "score", "signal_score"))
     momentum_raw = first(row, ("momentum_score", "strength", "relative_strength", "rsi_score"))
     change_1m = first(row, ("return_1m", "change_1m", "monthly_return", "performance_1m"))
     change_3m = first(row, ("return_3m", "change_3m", "quarter_return", "performance_3m"))
     trend = first(row, ("trend_score", "technical_score"))
-    momentum_parts = []
-    if direct_discovery is not None:
-        present.append("ai_score")
-        momentum_parts.append(normalized(direct_discovery))
-    if momentum_raw is not None:
-        present.append("momentum")
-        momentum_parts.append(normalized(momentum_raw))
-    if change_1m is not None:
-        present.append("return_1m")
-        momentum_parts.append(bounded_linear(change_1m, -15, 15))
-    if change_3m is not None:
-        present.append("return_3m")
-        momentum_parts.append(bounded_linear(change_3m, -25, 30))
-    if trend is not None:
-        present.append("trend")
-        momentum_parts.append(normalized(trend))
-    discovery = sum(momentum_parts) / len(momentum_parts) if momentum_parts else 50.0
+    add(discovery_entries, "ai_score", direct_discovery, normalized(direct_discovery) if direct_discovery is not None else None, 0.8)
+    add(discovery_entries, "momentum", momentum_raw, normalized(momentum_raw) if momentum_raw is not None else None, 1.0)
+    add(discovery_entries, "return_1m", change_1m, bounded_linear(change_1m, -15, 15) if change_1m is not None else None, 1.0)
+    add(discovery_entries, "return_3m", change_3m, bounded_linear(change_3m, -25, 30) if change_3m is not None else None, 1.1)
+    add(discovery_entries, "trend", trend, normalized(trend) if trend is not None else None, 1.1)
+    discovery, traces["discovery"] = _component("AI Discovery", discovery_entries)
 
-    fundamental_parts = []
+    fundamental_entries: list[dict[str, Any]] = []
     direct_fund = first(row, ("fundamental_score", "quality_score"))
-    if direct_fund is not None:
-        present.append("fundamental_score")
-        fundamental_parts.append(normalized(direct_fund))
     roe = first(row, ("roe", "return_on_equity"))
-    if roe is not None:
-        present.append("roe")
-        fundamental_parts.append(bounded_linear(roe, 0, 25))
     growth = first(row, ("earnings_growth", "eps_growth", "revenue_growth", "growth_score"))
-    if growth is not None:
-        present.append("growth")
-        fundamental_parts.append(normalized(growth) if abs(growth) <= 10 else bounded_linear(growth, -15, 30))
     debt = first(row, ("debt_to_equity", "debt_equity", "net_debt_ebitda"))
-    if debt is not None:
-        present.append("debt")
-        fundamental_parts.append(bounded_linear(debt, 0, 250, inverse=True))
     pe = first(row, ("pe", "trailing_pe", "forward_pe"))
-    if pe is not None and pe > 0:
-        present.append("pe")
-        fundamental_parts.append(100 - min(100, abs(pe - 18) * 3.5))
-    fundamental = sum(fundamental_parts) / len(fundamental_parts) if fundamental_parts else 50.0
+    add(fundamental_entries, "fundamental_score", direct_fund, normalized(direct_fund) if direct_fund is not None else None, 0.7)
+    add(fundamental_entries, "roe", roe, bounded_linear(roe, 0, 25) if roe is not None else None, 1.2)
+    growth_score = None if growth is None else (normalized(growth) if abs(growth) <= 1 else bounded_linear(growth, -15, 30))
+    add(fundamental_entries, "growth", growth, growth_score, 1.1)
+    add(fundamental_entries, "debt", debt, bounded_linear(debt, 0, 250, inverse=True) if debt is not None else None, 1.0)
+    pe_score = None if pe is None or pe <= 0 else 100 - min(100, abs(pe - 18) * 3.5)
+    add(fundamental_entries, "pe", pe, pe_score, 0.9)
+    fundamental, traces["fundamental"] = _component("Fundamentaler", fundamental_entries)
 
-    research_parts = []
+    research_entries: list[dict[str, Any]] = []
     direct_research = first(row, ("research_score", "sentiment_score", "news_score", "sentiment"))
-    if direct_research is not None:
-        present.append("research")
-        research_parts.append(normalized(direct_research))
-    analyst = first(row, ("analyst_score", "recommendation_score", "target_upside"))
-    if analyst is not None:
-        present.append("analyst")
-        research_parts.append(normalized(analyst) if abs(analyst) <= 10 else bounded_linear(analyst, -20, 35))
-    research = sum(research_parts) / len(research_parts) if research_parts else 50.0
+    recommendation = first(row, ("recommendation_score", "analyst_score"))
+    target_upside = first(row, ("target_upside",))
+    add(research_entries, "research_score", direct_research, normalized(direct_research) if direct_research is not None else None, 1.0)
+    add(research_entries, "recommendation_score", recommendation, normalized(recommendation) if recommendation is not None else None, 1.0)
+    add(research_entries, "target_upside", target_upside, bounded_linear(target_upside, -25, 45) if target_upside is not None else None, 0.8)
+    research, traces["research"] = _component("Research", research_entries)
+    research_count = len([e for e in research_entries if e.get("value") is not None])
+    if research_count == 1:
+        research = 50.0 + (research - 50.0) * 0.65
+        traces["research"]["score"] = round(research, 2)
+        traces["research"]["note"] = "Én research-kilde; utslaget er dempet."
 
-    validation_parts = []
+    validation_entries: list[dict[str, Any]] = []
     direct_validation = first(row, ("backtest_score", "validation_score", "strategy_score"))
-    if direct_validation is not None:
-        present.append("validation")
-        validation_parts.append(normalized(direct_validation))
     sharpe = first(row, ("sharpe", "sharpe_ratio"))
-    if sharpe is not None:
-        present.append("sharpe")
-        validation_parts.append(bounded_linear(sharpe, -0.5, 2.0))
     win_rate = first(row, ("win_rate", "win_rate_pct"))
-    if win_rate is not None:
-        present.append("win_rate")
-        validation_parts.append(normalized(win_rate))
-    validation = sum(validation_parts) / len(validation_parts) if validation_parts else 50.0
+    add(validation_entries, "validation_score", direct_validation, normalized(direct_validation) if direct_validation is not None else None, 0.8)
+    add(validation_entries, "sharpe", sharpe, bounded_linear(sharpe, -0.5, 2.0) if sharpe is not None else None, 1.2)
+    add(validation_entries, "win_rate", win_rate, normalized(win_rate) if win_rate is not None else None, 1.0)
+    validation, traces["validation"] = _component("Historisk validering", validation_entries)
 
-    risk_parts = []
+    risk_entries: list[dict[str, Any]] = []
     direct_risk = first(row, ("risk_score",))
-    if direct_risk is not None:
-        present.append("risk_score")
-        risk_parts.append(normalized(direct_risk))
     volatility = first(row, ("volatility", "volatility_pct", "annual_volatility"))
-    if volatility is not None:
-        present.append("volatility")
-        risk_parts.append(bounded_linear(volatility, 8, 55))
     beta = first(row, ("beta",))
-    if beta is not None:
-        present.append("beta")
-        risk_parts.append(bounded_linear(abs(beta - 0.7), 0, 1.5))
     drawdown = first(row, ("max_drawdown", "max_drawdown_pct", "drawdown"))
-    if drawdown is not None:
-        present.append("drawdown")
-        risk_parts.append(bounded_linear(abs(drawdown), 5, 45))
-    risk = sum(risk_parts) / len(risk_parts) if risk_parts else 50.0
+    add(risk_entries, "risk_score", direct_risk, normalized(direct_risk) if direct_risk is not None else None, 0.7)
+    add(risk_entries, "volatility", volatility, bounded_linear(volatility, 8, 55) if volatility is not None else None, 1.2)
+    add(risk_entries, "beta", beta, bounded_linear(abs(beta - 0.7), 0, 1.5) if beta is not None else None, 0.9)
+    add(risk_entries, "drawdown", drawdown, bounded_linear(abs(drawdown), 5, 45) if drawdown is not None else None, 1.2)
+    risk, traces["risk"] = _component("Risiko", risk_entries)
 
-    liquidity_parts = []
+    liquidity_entries: list[dict[str, Any]] = []
     direct_liq = first(row, ("liquidity_score", "volume_score"))
-    if direct_liq is not None:
-        present.append("liquidity_score")
-        liquidity_parts.append(normalized(direct_liq))
     avg_volume = first(row, ("average_volume", "avg_volume", "volume"))
-    if avg_volume is not None and avg_volume > 0:
-        present.append("volume")
-        liquidity_parts.append(bounded_linear(math.log10(max(avg_volume, 1)), 3, 7))
-    liquidity = sum(liquidity_parts) / len(liquidity_parts) if liquidity_parts else 50.0
+    add(liquidity_entries, "liquidity_score", direct_liq, normalized(direct_liq) if direct_liq is not None else None, 0.8)
+    liq_score = bounded_linear(math.log10(max(avg_volume, 1)), 3, 7) if avg_volume is not None and avg_volume > 0 else None
+    add(liquidity_entries, "average_volume", avg_volume, liq_score, 1.2)
+    liquidity, traces["liquidity"] = _component("Likviditet", liquidity_entries)
 
+    groups = [traces[k] for k in ("discovery", "fundamental", "research", "validation", "risk", "liquidity")]
+    group_coverage = sum(1 for g in groups if g["status"] == "OK") / len(groups)
+    expected_fields = 18.0
+    field_depth = min(1.0, len(set(present)) / expected_fields)
+    source_status = str(row.get("data_fetch_status") or "").upper()
+    source_factor = 1.0 if source_status == "OK" else 0.92 if source_status == "CACHE" else 0.65 if source_status in {"NO_DATA", "ERROR"} else 0.85
     direct_quality = first(row, ("data_quality", "quality", "data_quality_score"))
-    expected_groups = 6
-    covered_groups = sum(bool(x) for x in (momentum_parts, fundamental_parts, research_parts, validation_parts, risk_parts, liquidity_parts))
-    completeness = covered_groups / expected_groups
-    data_quality = normalized(direct_quality, 35 + completeness * 65) if direct_quality is not None else 35 + completeness * 65
-    confidence = clamp(25 + completeness * 65 + min(len(set(present)), 10) * 1.0)
+    calculated_quality = (35.0 + 35.0 * group_coverage + 30.0 * field_depth) * source_factor
+    data_quality = normalized(direct_quality, calculated_quality) if direct_quality is not None else calculated_quality
+    confidence = clamp((15.0 + 45.0 * group_coverage + 35.0 * field_depth) * source_factor, 5.0, 96.0)
+    if research_count == 0:
+        confidence = max(5.0, confidence - 6.0)
+    if source_status in {"ERROR", "NO_DATA"}:
+        confidence = min(confidence, 40.0)
+
+    traces["confidence"] = {
+        "component": "Konfidens",
+        "score": round(confidence, 2),
+        "group_coverage": round(group_coverage, 3),
+        "field_depth": round(field_depth, 3),
+        "source_status": source_status or "UNKNOWN",
+        "source_factor": source_factor,
+        "fields_present": len(set(present)),
+        "expected_fields": int(expected_fields),
+    }
 
     if discovery >= 65:
         reasons.append("Teknisk/momentum-basert signal er positivt.")
@@ -184,16 +192,41 @@ def derive_scores(row: Mapping[str, Any]) -> dict[str, Any]:
         reasons.append("Research/sentiment trekker opp.")
     if risk >= 65:
         reasons.append("Volatilitet eller annen målt risiko er høy.")
-    if confidence < 55:
-        reasons.append("Konfidensen er begrenset fordi få individuelle datapunkter var tilgjengelige.")
+    if confidence < 60:
+        reasons.append("Konfidensen er redusert av manglende datadekning eller svak kildekvalitet.")
 
     return {
         "discovery": clamp(discovery), "fundamental": clamp(fundamental), "research": clamp(research),
         "validation": clamp(validation), "risk": clamp(risk), "liquidity": clamp(liquidity),
         "data_quality": clamp(data_quality), "confidence": clamp(confidence),
         "data_fields_used": sorted(set(present)), "explanation_reasons": reasons,
+        "component_trace": traces,
     }
 
+
+def calculate_portfolio_fit(row: Mapping[str, Any], universe: Sequence[Mapping[str, Any]]) -> tuple[float, dict[str, Any]]:
+    """Estimate diversification fit from sector/market concentration and candidate risk/liquidity."""
+    total = max(1, len(universe))
+    sector = str(row.get("sector") or row.get("industry") or "Unknown")
+    market = str(row.get("market") or row.get("country") or row.get("exchange") or "Unknown")
+    sector_count = sum(1 for x in universe if str(x.get("sector") or x.get("industry") or "Unknown") == sector)
+    market_count = sum(1 for x in universe if str(x.get("market") or x.get("country") or x.get("exchange") or "Unknown") == market)
+    sector_share = sector_count / total
+    market_share = market_count / total
+    derived = derive_scores(row)
+    diversification = clamp(100.0 - sector_share * 65.0 - market_share * 25.0)
+    fit = clamp(0.55 * diversification + 0.25 * derived["liquidity"] + 0.20 * (100.0 - derived["risk"]))
+    return fit, {
+        "component": "Porteføljetilpasning",
+        "score": round(fit, 2),
+        "sector": sector,
+        "market": market,
+        "sector_share": round(sector_share, 3),
+        "market_share": round(market_share, 3),
+        "diversification_score": round(diversification, 2),
+        "liquidity_score": round(derived["liquidity"], 2),
+        "risk_adjusted_score": round(100.0 - derived["risk"], 2),
+    }
 
 def load_candidate_trend(ticker: str, current_score: float) -> dict[str, Any]:
     try:
