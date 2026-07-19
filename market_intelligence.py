@@ -21,7 +21,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.93b"
+VERSION = "v18.6.93c"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -117,6 +117,28 @@ def normalize_markets(markets: Sequence[str]) -> list[str]:
         return list(BASE_MARKET_SCOPES)
     valid = set(BASE_MARKET_SCOPES)
     return [x for x in chosen if x in valid] or ["Norge"]
+
+
+def report_identity(trigger: str) -> dict[str, str]:
+    trigger_key = str(trigger or "").upper()
+    if "DRAFT" in trigger_key or "TEST" in trigger_key:
+        return {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
+    if trigger_key == "SCHEDULED":
+        return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
+    return {"type": "MANUELL_RAPPORT", "label": "Manuell rapport", "slug": "Manuell_rapport"}
+
+
+def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
+    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""))
+    job_name = str(run.get("job_name") or "Analyse").strip().replace("–", "-")
+    clean = "_".join(part for part in "".join(ch if ch.isalnum() or ch in " _-" else " " for ch in job_name).split())
+    stamp = str(run.get("created_at") or "").replace(":", "").replace("-", "")[:15] or str(run.get("run_id") or "latest")
+    return f"{identity.get('slug','Rapport')}_{clean}_{stamp}.{extension}"
+
+
+def job_fingerprint(job: "JobProfile") -> str:
+    markets = normalize_markets(job.markets)
+    return f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}"
 
 
 @dataclass
@@ -290,7 +312,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Report") -> bytes:
+def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
@@ -298,6 +320,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     from reportlab.lib.units import mm
     from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""))
+    report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=16*mm, leftMargin=16*mm, topMargin=16*mm, bottomMargin=16*mm,
                             title=report_type, author="AI Aksje Analyzer Pro")
@@ -305,7 +329,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     styles.add(ParagraphStyle(name="Cover", parent=styles["Title"], alignment=TA_CENTER, fontSize=24, leading=30, spaceAfter=18))
     styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=8, leading=10))
     story = [Spacer(1, 30*mm), Paragraph("AI Aksje Analyzer Pro", styles["Cover"]),
-             Paragraph(report_type, styles["Heading1"]), Spacer(1, 8*mm),
+             Paragraph(report_type, styles["Heading1"]), Spacer(1, 3*mm),
+             Paragraph(f"<b>Rapporttype: {identity.get('type', '-')}</b>", styles["Heading2"]), Spacer(1, 5*mm),
+             Paragraph(f"Jobb: {run.get('job_name', '-')}", styles["BodyText"]),
              Paragraph(f"Rapport-ID: {run.get('run_id', '-')}", styles["BodyText"]),
              Paragraph(f"Generert: {run.get('created_at', '-')}", styles["BodyText"]),
              Paragraph(f"Markeder: {', '.join(run.get('markets') or run.get('market_expansion') or [])}", styles["BodyText"]), PageBreak()]
@@ -313,6 +339,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     story += [Paragraph("Executive Summary", styles["Heading1"]),
               Table([["Skannet", summary.get("scanned", 0)], ["Grundig analysert", summary.get("deep_analyzed", 0)],
                      ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+    diagnostics = run.get("market_diagnostics") or []
+    if diagnostics:
+        diag_data = [["Marked", "Skannet", "Analysert", "Live", "Feil", "Status"]]
+        for item in diagnostics:
+            diag_data.append([item.get("market"), item.get("scanned", 0), item.get("analyzed", 0), item.get("live", 0), item.get("errors", 0), item.get("status", "-")])
+        diag_table = Table(diag_data, repeatRows=1, colWidths=[30*mm, 24*mm, 27*mm, 20*mm, 20*mm, 40*mm])
+        diag_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
+        story += [Paragraph("Analysefordeling per marked", styles["Heading2"]), diag_table, Spacer(1, 5*mm)]
     market_status = run.get("market_status") or []
     if market_status:
         ms_data = [["Marked", "Status", "Lokal tid", "Forklaring", "Siste handelsdato"]]
@@ -476,6 +510,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             progress_callback({"phase": phase, "completed": completed, "total": max(1, total), "message": message, **extra})
     emit("START", 0, 1, "Starter markedsskanning")
     market_runs, all_candidates, all_proposals = [], [], []
+    market_diagnostics: list[dict[str, Any]] = []
     totals = {"scanned": 0, "deep_analyzed": 0, "proposals": 0, "recommended": 0, "rejected": 0}
     errors = []
     markets = normalize_markets(job.markets)
@@ -500,6 +535,15 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                     progress_callback(e)
             result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress, force_refresh=force_refresh)
             result["candidate_source"] = source
+            market_refresh = _build_refresh_summary(result.get("candidates") or [], force_refresh)
+            market_diagnostics.append({
+                "market": market,
+                "scanned": int((result.get("summary") or {}).get("scanned", len(rows))),
+                "analyzed": len(result.get("candidates") or []),
+                "live": int(market_refresh.get("live_count", 0)),
+                "errors": int(market_refresh.get("error_count", 0)),
+                "status": "OK" if int(market_refresh.get("live_count", 0)) > 0 else "INGEN LIVE-DATA",
+            })
             market_runs.append(result)
             all_candidates.extend(result.get("candidates") or [])
             all_proposals.extend(result.get("proposals") or [])
@@ -507,6 +551,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                 totals[key] += int((result.get("summary") or {}).get(key, 0))
         except Exception as exc:
             errors.append(f"{market}: {exc}")
+            market_diagnostics.append({"market": market, "scanned": 0, "analyzed": 0, "live": 0, "errors": 1, "status": f"FEIL: {str(exc)[:80]}"})
     emit("DEDUP", 1, 1, "Fjerner duplikater og rangerer kandidater")
     # Global identity integrity: one ticker, one canonical market, one assessment.
     deduped: dict[str, dict[str, Any]] = {}
@@ -538,7 +583,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_proposals = sorted(proposal_map.values(), key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
     refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
-    attempted = int(refresh_summary.get("attempt_count", 0))
+    attempted = int(refresh_summary.get("live_attempt_count", 0))
     successful = int(refresh_summary.get("live_count", 0)) + int(refresh_summary.get("cache_count", 0))
     analysis_aborted = bool(attempted > 0 and successful == 0)
     if analysis_aborted:
@@ -553,11 +598,15 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "analysis_aborted": analysis_aborted,
+           "report_identity": report_identity(trigger),
+           "market_diagnostics": market_diagnostics,
            "validation": {
                "unique_tickers": len(all_candidates),
                "identity_rejections": identity_rejections,
                "duplicate_count_removed": max(0, sum(len(r.get("candidates") or []) for r in market_runs) - len(all_candidates)),
-               "draft_handoff_fingerprint": f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}",
+               "draft_handoff_fingerprint": job_fingerprint(job),
+               "report_identity_present": True,
+               "valid_for_ranking": not analysis_aborted and bool(all_candidates),
            },
            "scan_configuration": {
                "per_market": job.scan_limit,
@@ -572,8 +621,11 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = ({"positions": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
                                  if analysis_aborted else build_portfolio_proposal(all_candidates))
-    run["changes"] = compare_runs(run, previous)
-    _update_history(run)
+    if analysis_aborted:
+        run["changes"] = {"new": [], "improved": [], "weakened": [], "unchanged": [], "dropped": []}
+    else:
+        run["changes"] = compare_runs(run, previous)
+        _update_history(run)
     try:
         if analysis_aborted:
             run["autonomous_chain"] = {"status": "SKIPPED", "reason": "Utilstrekkelige markedsdata"}
@@ -594,7 +646,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     notify_ok, notify_detail = _notification(job, run)
     run["notification"] = {"sent": notify_ok, "detail": notify_detail}
     if job.save_pdf:
-        pdf_path = SUMMARIES_DIR / f"{run_id}.pdf"
+        pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_bytes(build_pdf(run))
         run["pdf_path"] = str(pdf_path)
@@ -756,11 +808,13 @@ def render_market_intelligence() -> None:
             st.success("Testkjøringen er fullført. Oppsettet er fortsatt bare et utkast.")
             st.rerun()
         if b2.button("Lagre og aktiver tidsplan", use_container_width=True, key="mi_save_activate_v18692a"):
+            same_name = next((x for x in jobs if x.name.strip().casefold() == draft_job.name.strip().casefold()), None)
+            target = current or same_name
             job = JobProfile(**{**asdict(draft_job),
-                              "job_id": current.job_id if current else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
-                              "created_at": current.created_at if current else _now_iso(),
-                              "last_run_at": current.last_run_at if current else "",
-                              "last_status": current.last_status if current else "ALDRI KJØRT",
+                              "job_id": target.job_id if target else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
+                              "created_at": target.created_at if target else _now_iso(),
+                              "last_run_at": target.last_run_at if target else "",
+                              "last_status": target.last_status if target else "ALDRI KJØRT",
                               "enabled": bool(enabled)})
             upsert_job(job)
             st.success("Jobben er lagret. Tidsplanen er aktivert dersom «Aktiv jobb» er valgt.")
@@ -776,6 +830,9 @@ def render_market_intelligence() -> None:
         if not latest:
             st.info("Ingen Scheduled Market Intelligence-rapport er generert ennå.")
         else:
+            identity = latest.get("report_identity") or report_identity(str(latest.get("trigger") or ""))
+            st.markdown(f"### {identity.get('label', 'Rapport')} · {latest.get('job_name', '-')}")
+            st.caption(f"Rapporttype: {identity.get('type', '-')} · Kjøring: {latest.get('run_id', '-')}")
             if latest.get("analysis_aborted"):
                 st.error("Analyse avbrutt – utilstrekkelige data. Medaljer, anbefalinger og porteføljeforslag er deaktivert for denne kjøringen.")
             s = latest.get("summary") or {}; ch = latest.get("changes") or {}
@@ -803,7 +860,7 @@ def render_market_intelligence() -> None:
             quality = latest.get("data_quality") or {}
             if quality:
                 st.progress(float(quality.get("score", 0))/100.0, text=f"Datakvalitet: {quality.get('score',0)} % · {quality.get('label','-')}")
-            candidates = list(latest.get("candidates") or [])
+            candidates = [] if latest.get("analysis_aborted") else list(latest.get("candidates") or [])
             if candidates:
                 st.markdown("#### 🏅 Topp 3")
                 medals = ["🥇", "🥈", "🥉"]
@@ -836,13 +893,13 @@ def render_market_intelligence() -> None:
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
             pdf = build_pdf(latest)
             e1,e2 = st.columns(2)
-            e1.download_button("Last ned PDF-rapport", pdf, file_name=f"market_intelligence_{latest.get('run_id','latest')}.pdf", mime="application/pdf", use_container_width=True, key="mi_download_pdf_v18687")
-            e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=f"market_intelligence_{latest.get('run_id','latest')}.json", mime="application/json", use_container_width=True, key="mi_download_json_v18687")
+            e1.download_button("Last ned PDF-rapport", pdf, file_name=safe_report_filename(latest, "pdf"), mime="application/pdf", use_container_width=True, key="mi_download_pdf_v18687")
+            e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", use_container_width=True, key="mi_download_json_v18687")
     with tab_history:
         files = sorted(RUNS_DIR.glob("MI-*.json"), reverse=True)[:100] if RUNS_DIR.exists() else []
         rows = []
         for path in files:
-            r = _read(path, {}); rows.append({"Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
+            r = _read(path, {}); identity = r.get("report_identity") or report_identity(str(r.get("trigger") or "")); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
         if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else: st.caption("Ingen historiske kjøringer.")
     with tab_ops:

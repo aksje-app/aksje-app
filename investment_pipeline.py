@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93b"
+VERSION = "v18.6.93c"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
