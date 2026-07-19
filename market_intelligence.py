@@ -18,8 +18,9 @@ from typing import Any, Mapping, Sequence
 from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, run_pipeline
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
+from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.90"
+VERSION = "v18.6.92"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -106,12 +107,18 @@ class JobProfile:
 
 
 def load_jobs() -> list[JobProfile]:
-    data = _read(JOBS_PATH, [])
+    data = read_persistent_json("market_intelligence/jobs.json", default=None)
+    if data is None:
+        data = _read(JOBS_PATH, [])
+        if data:
+            write_persistent_json("market_intelligence/jobs.json", data)
     return [JobProfile.from_dict(x) for x in data if isinstance(x, Mapping)]
 
 
 def save_jobs(jobs: Sequence[JobProfile]) -> None:
-    _write(JOBS_PATH, [asdict(x) for x in jobs])
+    payload = [asdict(x) for x in jobs]
+    _write(JOBS_PATH, payload)
+    write_persistent_json("market_intelligence/jobs.json", payload)
 
 
 def upsert_job(job: JobProfile) -> None:
@@ -225,16 +232,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
                      ["Svekket", len(changes.get("weakened", []))], ["Utgått", len(changes.get("dropped", []))]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
     candidates = run.get("candidates") or []
     if candidates:
-        data = [["#", "Ticker", "Marked", "Score", "Risiko", "Status"]]
+        data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko", "Status"]]
         for r in candidates[:30]:
-            data.append([r.get("rank"), r.get("ticker"), r.get("market"), r.get("investment_score"), r.get("risk_score"), str(r.get("status", ""))[:28]])
-        table = Table(data, repeatRows=1, colWidths=[10*mm, 23*mm, 26*mm, 20*mm, 19*mm, 70*mm])
+            data.append([r.get("rank"), r.get("ticker"), r.get("market"), r.get("investment_score"), r.get("confidence_score"), r.get("trend"), r.get("risk_score"), str(r.get("status", ""))[:22]])
+        table = Table(data, repeatRows=1, colWidths=[8*mm, 20*mm, 22*mm, 16*mm, 16*mm, 20*mm, 16*mm, 52*mm])
         table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
                                    ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7), ("VALIGN", (0,0), (-1,-1), "TOP")]))
         story += [Paragraph("Rangert kandidatliste", styles["Heading1"]), table]
     for p in run.get("proposals") or []:
         story += [PageBreak(), Paragraph(f"{p.get('ticker')} - investeringsforslag", styles["Heading1"]),
-                  Paragraph(f"Status: {p.get('status')} | Investment Score: {p.get('investment_score')}/100", styles["BodyText"]),
+                  Paragraph(f"Status: {p.get('status')} | Investment Score: {p.get('investment_score')}/100 | Konfidens: {p.get('confidence_score', 0)}/100 | Trend: {p.get('trend', 'NY')}", styles["BodyText"]),
                   Spacer(1, 3*mm), Paragraph("Scorekort", styles["Heading2"]),
                   Table([["AI Discovery", p.get("discovery_score")], ["Fundamentalt", p.get("fundamental_score")],
                          ["Research", p.get("research_score")], ["Backtesting", p.get("validation_score")],
@@ -243,6 +250,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
         story += [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("positives") or []]
         story += [Paragraph("Risiko", styles["Heading2"])] + [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("risks") or []]
         story += [Paragraph("Handelsramme", styles["Heading2"]), Paragraph(f"Strategi: {p.get('strategy_match')} | Foreslått porteføljevekt: {p.get('proposed_position_pct')} %", styles["BodyText"])]
+    portfolio_proposal = run.get("portfolio_proposal") or {}
+    allocations = portfolio_proposal.get("allocations") or []
+    if allocations:
+        story += [PageBreak(), Paragraph("Teoretisk porteføljeforslag", styles["Heading1"]),
+                  Paragraph(f"Investert: {portfolio_proposal.get('invested_pct', 0)} % | Kontanter: {portfolio_proposal.get('cash_pct', 100)} %", styles["BodyText"])]
+        pdata = [["Ticker", "Marked", "Sektor", "Vekt %", "Score", "Konfidens", "Risiko"]]
+        for a in allocations:
+            pdata.append([a.get("ticker"), a.get("market"), a.get("sector"), a.get("weight_pct"), a.get("score"), a.get("confidence"), a.get("risk")])
+        ptable = Table(pdata, repeatRows=1, colWidths=[24*mm, 24*mm, 38*mm, 18*mm, 18*mm, 20*mm, 18*mm])
+        ptable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
+        story += [ptable]
     story += [PageBreak(), Paragraph("Metode og ansvarsfraskrivelse", styles["Heading1"]),
               Paragraph("Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. Alle forslag krever manuell kontroll.", styles["BodyText"])]
     doc.build(story)
@@ -284,6 +302,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY"}
+    from advanced_investment_intelligence import build_portfolio_proposal
+    run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)
     run["changes"] = compare_runs(run, previous)
     _update_history(run)
     try:
@@ -458,7 +478,7 @@ def render_market_intelligence() -> None:
             s = latest.get("summary") or {}; ch = latest.get("changes") or {}
             a,b,c,d = st.columns(4); a.metric("Skannet", s.get("scanned",0)); b.metric("Forslag", s.get("proposals",0)); c.metric("Nye", len(ch.get("new",[]))); d.metric("Forbedret", len(ch.get("improved",[])))
             if latest.get("errors"): st.warning(" | ".join(latest["errors"]))
-            table = [{"Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"), "Score": x.get("investment_score"), "Risiko": x.get("risk_score"), "Status": x.get("status")} for x in latest.get("candidates") or []]
+            table = [{"Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"), "Score": x.get("investment_score"), "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"), "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"), "Status": x.get("status")} for x in latest.get("candidates") or []]
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
             pdf = build_pdf(latest)
             e1,e2 = st.columns(2)

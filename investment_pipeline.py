@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.86"
+VERSION = "v18.6.92"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -160,6 +160,11 @@ class CandidateAssessment:
     risks: list[str]
     proposed_position_pct: float
     strategy_match: str
+    confidence_score: float = 0.0
+    trend: str = "NY"
+    score_delta: float = 0.0
+    data_fields_used: list[str] = field(default_factory=list)
+    explanation_reasons: list[str] = field(default_factory=list)
     rank: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -182,23 +187,26 @@ def _extract_rows(value: Any) -> list[dict[str, Any]]:
 
 
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:
+    from advanced_investment_intelligence import adaptive_weights, derive_scores, load_candidate_trend
+
     ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
     name = str(row.get("name") or row.get("shortName") or ticker)
     market = str(row.get("market") or row.get("country") or row.get("exchange") or config.market_scope)
     sector = str(row.get("sector") or row.get("industry") or "Unknown")
     source = str(row.get("source") or "Investment Pipeline")
 
-    discovery = _normalized_score(row.get("ai_score", row.get("smart_score", row.get("score", 50))))
-    momentum = _normalized_score(row.get("strength", row.get("momentum_score", discovery)))
-    fundamental = _normalized_score(row.get("fundamental_score", row.get("quality_score", 55)))
-    research = _normalized_score(row.get("research_score", row.get("sentiment", 55))) if config.use_research else 50.0
-    validation = _normalized_score(row.get("backtest_score", row.get("validation_score", 55))) if config.use_backtest else 50.0
-    portfolio_fit = _normalized_score(row.get("portfolio_fit_score", 65)) if config.use_portfolio_fit else 50.0
-    risk = _normalized_score(row.get("risk_score", _risk_penalty(row.get("risk"))))
-    data_quality = _normalized_score(row.get("data_quality", row.get("quality", 70)))
-    liquidity = _normalized_score(row.get("liquidity_score", row.get("volume_score", 60)))
+    derived = derive_scores(row)
+    discovery = derived["discovery"]
+    momentum = _normalized_score(row.get("momentum_score", row.get("strength", discovery)), discovery)
+    fundamental = derived["fundamental"]
+    research = derived["research"] if config.use_research else 50.0
+    validation = derived["validation"] if config.use_backtest else 50.0
+    portfolio_fit = _normalized_score(row.get("portfolio_fit_score", row.get("diversification_score", 50)), 50.0) if config.use_portfolio_fit else 50.0
+    risk = derived["risk"]
+    data_quality = derived["data_quality"]
+    liquidity = derived["liquidity"]
 
-    scanner_score = _clamp(0.55 * discovery + 0.30 * momentum + 0.15 * data_quality - 0.18 * risk)
+    scanner_score = _clamp(0.50 * discovery + 0.25 * momentum + 0.15 * data_quality + 0.10 * liquidity - 0.18 * risk)
     risk_adjustment = _clamp(100.0 - risk)
     parts = {
         "discovery": discovery,
@@ -208,7 +216,9 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "portfolio_fit": portfolio_fit,
         "risk_adjustment": risk_adjustment,
     }
-    investment = _clamp(sum(parts[k] * config.weights.get(k, 0.0) for k in parts))
+    effective_weights, learning_meta = adaptive_weights(config.weights)
+    investment = _clamp(sum(parts[k] * effective_weights.get(k, 0.0) for k in parts))
+    trend_meta = load_candidate_trend(ticker, investment)
 
     gates = {
         "Datakvalitet": "BESTÅTT" if data_quality >= config.min_data_quality else "IKKE BESTÅTT",
@@ -218,6 +228,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "Historisk validering": "BESTÅTT" if validation >= 50 else "ADVARSEL",
         "Porteføljetilpasning": "BESTÅTT" if portfolio_fit >= 50 else "ADVARSEL",
         "Risiko": "BESTÅTT" if risk <= config.max_risk_score else "IKKE BESTÅTT",
+        "Konfidens": "BESTÅTT" if derived["confidence"] >= 55 else "ADVARSEL",
     }
     failed = [k for k, v in gates.items() if v == "IKKE BESTÅTT"]
     warnings = [k for k, v in gates.items() if v == "ADVARSEL"]
@@ -225,31 +236,40 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         status = STATUS_INSUFFICIENT
     elif failed:
         status = STATUS_REJECTED
-    elif investment >= 72 and len(warnings) <= 1:
+    elif investment >= 72 and derived["confidence"] >= 60 and len(warnings) <= 1:
         status = STATUS_RECOMMENDED
     elif investment >= 60:
         status = STATUS_MANUAL if warnings else STATUS_WATCH
     else:
         status = STATUS_WATCH
 
-    positives = []
-    risks = []
+    positives, risks = [], []
     for label, score in (("AI Discovery", discovery), ("Fundamentaler", fundamental), ("Research", research), ("Backtest", validation), ("Porteføljetilpasning", portfolio_fit)):
-        if score >= 70:
-            positives.append(f"{label} er sterk ({score:.0f}/100).")
+        if score >= 65:
+            positives.append(f"{label} trekker opp ({score:.0f}/100).")
         elif score < 45:
-            risks.append(f"{label} er svak ({score:.0f}/100).")
+            risks.append(f"{label} trekker ned ({score:.0f}/100).")
+    if trend_meta["trend"] == "STIGENDE":
+        positives.append(f"Kandidatscoren stiger ({trend_meta['score_delta']:+.1f} siden forrige observasjon).")
+    elif trend_meta["trend"] == "FALLENDE":
+        risks.append(f"Kandidatscoren faller ({trend_meta['score_delta']:+.1f} siden forrige observasjon).")
     if risk > 65:
         risks.append(f"Risikoscore er høy ({risk:.0f}/100).")
     if data_quality < 60:
         risks.append(f"Datakvalitet er begrenset ({data_quality:.0f}/100).")
+    if derived["confidence"] < 55:
+        risks.append(f"Lav analysekontfidens ({derived['confidence']:.0f}/100) på grunn av manglende individuelle datapunkter.")
+    positives.extend(x for x in derived["explanation_reasons"] if "positiv" in x or "trekker opp" in x)
     if not positives:
-        positives.append("Kandidaten har en balansert, men ikke entydig sterk profil.")
+        positives.append("Ingen enkeltfaktor er sterk nok til å dominere totalbildet.")
     if not risks:
-        risks.append("Ingen alvorlige risikoflagg i tilgjengelig datasett; manuell kontroll kreves fortsatt.")
+        risks.append("Ingen alvorlige risikoflagg i tilgjengelig datasett; risikokontroll kreves fortsatt.")
 
     strategy = str(row.get("strategy_match") or ("Momentum" if momentum >= 68 else "Swing" if discovery >= 60 else "Defensive"))
-    proposed_position = max(0.5, min(6.0, (investment - risk * 0.25) / 18.0))
+    proposed_position = max(0.5, min(6.0, (investment * derived["confidence"] / 100.0 - risk * 0.20) / 15.0))
+    raw = dict(row)
+    raw["effective_weights"] = effective_weights
+    raw["adaptive_learning"] = learning_meta
     return CandidateAssessment(
         candidate_id=_candidate_id(ticker, market), ticker=ticker, name=name, market=market,
         sector=sector, source=source, scanner_score=round(scanner_score, 2),
@@ -259,7 +279,10 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         data_quality=round(data_quality, 2), liquidity_score=round(liquidity, 2),
         investment_score=round(investment, 2), status=status, quality_gates=gates,
         positives=positives, risks=risks, proposed_position_pct=round(proposed_position, 2),
-        strategy_match=strategy, raw=dict(row),
+        strategy_match=strategy, confidence_score=round(derived["confidence"], 2),
+        trend=trend_meta["trend"], score_delta=trend_meta["score_delta"],
+        data_fields_used=derived["data_fields_used"], explanation_reasons=derived["explanation_reasons"],
+        raw=raw,
     )
 
 
@@ -292,6 +315,8 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "proposals": [asdict(x) for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
     }
+    from advanced_investment_intelligence import build_portfolio_proposal
+    payload["portfolio_proposal"] = build_portfolio_proposal(payload["candidates"])
     _write_json(LATEST_RUN_PATH, payload)
     _write_json(RUNS_DIR / f"{run_id}.json", payload)
     _write_json(PROPOSALS_DIR / f"{run_id}_proposals.json", payload["proposals"])

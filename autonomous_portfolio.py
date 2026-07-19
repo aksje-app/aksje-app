@@ -20,7 +20,7 @@ from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
 from configuration_framework import export_bundle, import_bundle, status as configuration_status
 
-VERSION = "v18.6.91a"
+VERSION = "v18.6.92"
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
@@ -354,12 +354,30 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 "opened_at": _now(), "strategy": candidate.get("strategy_match", "Unknown"),
                 "entry_score": score, "entry_risk_score": risk, "entry_data_quality": quality,
                 "source_run_id": run_id,
+                "entry_confidence": _f(candidate.get("confidence_score")),
+                "entry_components": {
+                    "discovery": _f(candidate.get("discovery_score")),
+                    "fundamental": _f(candidate.get("fundamental_score")),
+                    "research": _f(candidate.get("research_score")),
+                    "validation": _f(candidate.get("validation_score")),
+                    "portfolio_fit": _f(candidate.get("portfolio_fit_score")),
+                    "risk_adjustment": 100.0 - risk,
+                },
             }
             trade = {
                 "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                 "value": round(value, 2), "pnl": 0.0, "reason": f"Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
                 "strategy": candidate.get("strategy_match"), "mode": "THEORETICAL_ONLY",
+                "entry_confidence": _f(candidate.get("confidence_score")),
+                "entry_components": {
+                    "discovery": _f(candidate.get("discovery_score")),
+                    "fundamental": _f(candidate.get("fundamental_score")),
+                    "research": _f(candidate.get("research_score")),
+                    "validation": _f(candidate.get("validation_score")),
+                    "portfolio_fit": _f(candidate.get("portfolio_fit_score")),
+                    "risk_adjustment": 100.0 - risk,
+                },
             }
             _record_trade(trade)
             trades.append(trade)
