@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93a"
+VERSION = "v18.6.93b"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -31,6 +31,35 @@ STATUS_WATCH = "OBSERVASJONSLISTE"
 STATUS_MANUAL = "KREVER MANUELL VURDERING"
 STATUS_REJECTED = "AVVIST AV RISIKOPORT"
 STATUS_INSUFFICIENT = "UTILSTREKKELIGE DATA"
+
+
+MARKET_SUFFIX_MAP = {
+    ".OL": "Norge",
+    ".ST": "Sverige",
+    ".HE": "Finland",
+    ".CO": "Danmark",
+    ".SA": "Brasil",
+}
+
+def infer_market_from_ticker(ticker: str, fallback: str = "") -> str:
+    symbol = str(ticker or "").strip().upper()
+    for suffix, market in MARKET_SUFFIX_MAP.items():
+        if symbol.endswith(suffix):
+            return market
+    if symbol and "." not in symbol:
+        return "USA"
+    return str(fallback or "Ukjent")
+
+def normalize_candidate_identity(row: Mapping[str, Any], expected_market: str = "") -> dict[str, Any]:
+    clean = dict(row)
+    ticker = str(clean.get("ticker") or clean.get("symbol") or "").strip().upper()
+    clean["ticker"] = ticker
+    clean["symbol"] = ticker
+    inferred = infer_market_from_ticker(ticker, str(clean.get("market") or expected_market))
+    clean["market"] = inferred
+    clean["source_market"] = str(clean.get("source_market") or expected_market or inferred)
+    clean["market_identity_valid"] = bool(ticker and (expected_market in ("", "Alle") or inferred == expected_market))
+    return clean
 
 
 def _now_iso() -> str:
@@ -204,12 +233,17 @@ def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
 
 
 def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig, progress_callback: Any | None = None, force_refresh: bool = False) -> list[dict[str, Any]]:
-    filtered = [dict(r) for r in rows if _market_matches(r, config.market_scope)]
-    if not filtered and rows:
-        # Some sources omit market metadata. Preserve them, but never duplicate a ticker.
-        filtered = [dict(r) for r in rows]
+    normalized = [normalize_candidate_identity(r, config.market_scope) for r in rows]
+    filtered = [r for r in normalized if r.get("ticker") and (config.market_scope == "Alle" or r.get("market") == config.market_scope)]
+    unique, seen = [], set()
+    for row in filtered:
+        ticker = row["ticker"]
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        unique.append(row)
     from candidate_market_data import enrich_candidate_rows
-    return enrich_candidate_rows(filtered[: config.scan_limit], progress_callback=progress_callback, force_refresh=force_refresh)
+    return enrich_candidate_rows(unique[: config.scan_limit], max_workers=4, progress_callback=progress_callback, force_refresh=force_refresh)
 
 
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:
@@ -441,18 +475,17 @@ def _market_rows_from_tickers(tickers: Sequence[str], market: str, source: str) 
 
 
 def _merge_candidate_rows(primary: Sequence[Mapping[str, Any]], fallback: Sequence[Mapping[str, Any]], market: str, limit: int) -> list[dict[str, Any]]:
-    """Merge sources without duplicates and guarantee market metadata."""
+    """Merge sources by unique ticker while preserving canonical market identity."""
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw in [*primary, *fallback]:
-        row = dict(raw)
-        ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+        row = normalize_candidate_identity(raw, market)
+        ticker = row.get("ticker", "")
         if not ticker or ticker in seen:
             continue
-        row["ticker"] = ticker
-        row.setdefault("symbol", ticker)
+        if market != "Alle" and row.get("market") != market:
+            continue
         row.setdefault("name", ticker)
-        row["market"] = market
         row.setdefault("source", "Market universe")
         merged.append(row)
         seen.add(ticker)

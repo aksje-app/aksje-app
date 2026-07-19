@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.93a"
+APP_VERSION = "v18.6.93b"
 APP_VERSION_NAME = "Expanded Market Scan & Executive Overview"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.93b: Job Handoff, Universe Integrity & UI Readability Fix: global ticker-deduplisering, kanonisk markedskobling, robust live-retry, rapport-sperre ved total datafeil og større faner/felt.",
     "v18.6.93a: Expanded Market Scan & Executive Overview: 25 aksjer per marked som standard, raske/normale/grundige skanneprofiler, markedsstatus, datakvalitet, Topp 3-medaljer, Top 10 og forbedret fremdrift i UI og PDF.",
     "v18.6.92g: Verified Execution Telemetry: retter telemetri som lå under CandidateAssessment.raw, viser live-forsøk, vellykkede/feilede hentinger, cache-bypass, siste handelsdato og kjøringsbevis per ticker i JSON, UI og PDF.",
     "v18.6.92f: Verified Fresh Data Execution: force-refresh føres og bevises gjennom hele kjeden, cache-bypass verifiseres per kandidat, live/cache-telling, hentetidspunkt, nyeste handelsdato og uendrede markedsdata vises i UI, JSON og PDF.",

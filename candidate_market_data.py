@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92f"
+VERSION = "v18.6.93b"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -322,6 +322,19 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
         return base
 
 
+
+def _enrich_with_retry(row: Mapping[str, Any], force_refresh: bool, attempts: int = 2) -> dict[str, Any]:
+    last: dict[str, Any] = {}
+    for attempt in range(1, max(1, attempts) + 1):
+        last = enrich_candidate_row(row, use_cache=True, force_refresh=force_refresh)
+        if str(last.get("data_fetch_status") or "").upper() not in {"ERROR", "NO_DATA"}:
+            last["fetch_attempts"] = attempt
+            return last
+        if attempt < attempts:
+            time.sleep(0.75 * attempt)
+    last["fetch_attempts"] = max(1, attempts)
+    return last
+
 def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 6, progress_callback: Callable[[int, int, str], None] | None = None, force_refresh: bool = False) -> list[dict[str, Any]]:
     unique: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -336,7 +349,7 @@ def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 
         return []
     output: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=max(1, min(max_workers, total))) as pool:
-        futures = {pool.submit(enrich_candidate_row, row, True, force_refresh): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
+        futures = {pool.submit(_enrich_with_retry, row, force_refresh, 2): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
         completed = 0
         for future in as_completed(futures):
             ticker = futures[future]

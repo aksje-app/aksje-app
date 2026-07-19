@@ -16,12 +16,12 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Callable
 
-from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, run_pipeline
+from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, infer_market_from_ticker, normalize_candidate_identity, run_pipeline
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.93a"
+VERSION = "v18.6.93b"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -354,7 +354,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
               Table([["Nye", len(changes.get("new", []))], ["Forbedret", len(changes.get("improved", []))],
                      ["Svekket", len(changes.get("weakened", []))], ["Utgått", len(changes.get("dropped", []))]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
     candidates = run.get("candidates") or []
-    if candidates:
+    if run.get("analysis_aborted"):
+        story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Heading1"]),
+                  Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyText"])]
+    elif candidates:
         medal_labels = ["1. BESTE KANDIDAT", "2. NUMMER TO", "3. NUMMER TRE"]
         medal_data = []
         for idx, r in enumerate(candidates[:3]):
@@ -505,14 +508,20 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         except Exception as exc:
             errors.append(f"{market}: {exc}")
     emit("DEDUP", 1, 1, "Fjerner duplikater og rangerer kandidater")
-    # Remove repeated candidates returned by multiple market passes. Keep the strongest
-    # assessment for each ticker/market pair.
-    deduped: dict[tuple[str, str], dict[str, Any]] = {}
-    for candidate in all_candidates:
-        key = (str(candidate.get("ticker") or "").upper(), str(candidate.get("market") or "").lower())
-        current = deduped.get(key)
+    # Global identity integrity: one ticker, one canonical market, one assessment.
+    deduped: dict[str, dict[str, Any]] = {}
+    identity_rejections: list[dict[str, Any]] = []
+    for raw_candidate in all_candidates:
+        candidate = normalize_candidate_identity(raw_candidate)
+        ticker = str(candidate.get("ticker") or "").upper()
+        if not ticker:
+            identity_rejections.append({"reason": "Mangler ticker", "candidate": dict(raw_candidate)})
+            continue
+        canonical_market = infer_market_from_ticker(ticker, str(candidate.get("market") or ""))
+        candidate["market"] = canonical_market
+        current = deduped.get(ticker)
         if current is None or float(candidate.get("investment_score", 0)) > float(current.get("investment_score", 0)):
-            deduped[key] = candidate
+            deduped[ticker] = candidate
     all_candidates = list(deduped.values())
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     for idx, row in enumerate(all_candidates, 1):
@@ -520,16 +529,36 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     totals["deep_analyzed"] = len(all_candidates)
     totals["recommended"] = sum(1 for x in all_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
     totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
-    all_proposals.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
-    all_proposals = all_proposals[:job.proposal_count]
+    proposal_map: dict[str, dict[str, Any]] = {}
+    for proposal in all_proposals:
+        clean = normalize_candidate_identity(proposal)
+        ticker = str(clean.get("ticker") or "").upper()
+        if ticker and (ticker not in proposal_map or float(clean.get("investment_score", 0)) > float(proposal_map[ticker].get("investment_score", 0))):
+            proposal_map[ticker] = clean
+    all_proposals = sorted(proposal_map.values(), key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
     refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
+    attempted = int(refresh_summary.get("attempt_count", 0))
+    successful = int(refresh_summary.get("live_count", 0)) + int(refresh_summary.get("cache_count", 0))
+    analysis_aborted = bool(attempted > 0 and successful == 0)
+    if analysis_aborted:
+        all_proposals = []
+        totals["proposals"] = 0
+        totals["recommended"] = 0
+        errors.append(f"Analyse avbrutt: live-innhenting feilet for {attempted} av {attempted} kandidater")
     market_status = build_market_status(markets, refresh_summary)
     data_quality = build_data_quality(refresh_summary, len(all_candidates))
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
+           "analysis_aborted": analysis_aborted,
+           "validation": {
+               "unique_tickers": len(all_candidates),
+               "identity_rejections": identity_rejections,
+               "duplicate_count_removed": max(0, sum(len(r.get("candidates") or []) for r in market_runs) - len(all_candidates)),
+               "draft_handoff_fingerprint": f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}",
+           },
            "scan_configuration": {
                "per_market": job.scan_limit,
                "market_count": len(markets),
@@ -541,19 +570,23 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            }}
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
-    run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)
+    run["portfolio_proposal"] = ({"positions": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
+                                 if analysis_aborted else build_portfolio_proposal(all_candidates))
     run["changes"] = compare_runs(run, previous)
     _update_history(run)
     try:
-        from autonomous_orchestrator import run_post_scan_chain
-        emit("AUTONOMOUS", 0, 1, "Kjører teoretiske kjøps- og salgsbeslutninger")
-        run["autonomous_chain"] = run_post_scan_chain(
+        if analysis_aborted:
+            run["autonomous_chain"] = {"status": "SKIPPED", "reason": "Utilstrekkelige markedsdata"}
+        else:
+            from autonomous_orchestrator import run_post_scan_chain
+            emit("AUTONOMOUS", 0, 1, "Kjører teoretiske kjøps- og salgsbeslutninger")
+            run["autonomous_chain"] = run_post_scan_chain(
             run,
             run_autonomous=job.run_autonomous_portfolio,
             run_learning=job.run_controlled_learning,
             require_active_portfolio=job.require_active_portfolio,
-            trigger=trigger,
-        )
+                trigger=trigger,
+            )
     except Exception as exc:
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
@@ -641,6 +674,13 @@ def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
 
+    st.markdown("""<style>
+    div[data-baseweb="tab-list"] button {font-size: 16px !important; font-weight: 600 !important; padding: 10px 18px !important;}
+    div[data-baseweb="tab-list"] {gap: 8px !important;}
+    label, div[data-testid="stWidgetLabel"] p {font-size: 14px !important; font-weight: 600 !important;}
+    div[data-baseweb="select"] *, div[data-baseweb="input"] input, .stTextInput input {font-size: 15px !important;}
+    button[kind] p {font-size: 15px !important;}
+    </style>""", unsafe_allow_html=True)
     st.markdown("#### ⏰ Scheduled Market Intelligence & PDF Reports")
     st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, moduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
     try:
@@ -736,6 +776,8 @@ def render_market_intelligence() -> None:
         if not latest:
             st.info("Ingen Scheduled Market Intelligence-rapport er generert ennå.")
         else:
+            if latest.get("analysis_aborted"):
+                st.error("Analyse avbrutt – utilstrekkelige data. Medaljer, anbefalinger og porteføljeforslag er deaktivert for denne kjøringen.")
             s = latest.get("summary") or {}; ch = latest.get("changes") or {}
             scan_cfg = latest.get("scan_configuration") or {}
             a,b,c,d,e = st.columns(5)
