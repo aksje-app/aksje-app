@@ -1,5 +1,5 @@
-APP_VERSION = "v18.6.92"
-APP_VERSION_NAME = "Dynamic Investment Intelligence"
+APP_VERSION = "v18.6.92a"
+APP_VERSION_NAME = "Draft-First Scheduler UX"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [

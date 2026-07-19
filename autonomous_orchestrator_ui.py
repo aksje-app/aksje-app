@@ -8,7 +8,7 @@ from typing import Any
 import streamlit as st
 
 from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_latest_chain
-from market_intelligence import load_jobs, render_market_intelligence, run_job
+from market_intelligence import load_draft_job, load_jobs, render_market_intelligence, run_job
 
 
 def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -43,24 +43,31 @@ def render_autonomous_orchestrator_control_center() -> None:
     latest = load_latest_chain()
     c4.metric("Siste kjedestatus", latest.get("status") or "ALDRI KJØRT")
 
-    st.markdown("### ▶ Kjør hele kjeden nå")
-    if not active_jobs:
-        st.warning("Ingen aktiv jobbprofil finnes. Opprett og aktiver en profil i fanen «Tidsplan og jobbprofiler» nedenfor.")
-    else:
-        labels = {f"{job.name} · {', '.join(job.markets)}": job for job in active_jobs}
-        selected = st.selectbox("Velg jobbprofil", list(labels), key="orchestrator_ui_job_v18690a")
-        if st.button("▶ Kjør hele autonome kjeden nå", type="primary", use_container_width=True, key="orchestrator_ui_run_v18690a"):
-            with st.status("Kjører markedsskanning og autonome steg …", expanded=True) as status:
-                st.write("1. Starter MARKET_SCAN og Investment Pipeline")
-                result = run_job(labels[selected], trigger="MANUAL_FULL_CHAIN")
-                chain = result.get("autonomous_chain") or {}
-                st.write("2. Behandler AUTONOMOUS_PORTFOLIO")
-                st.write("3. Behandler CONTROLLED_LEARNING")
-                if chain.get("status") == "OK":
-                    status.update(label="Hele kjeden er fullført", state="complete", expanded=True)
-                else:
-                    status.update(label=f"Kjeden avsluttet med status {chain.get('status', 'UKJENT')}", state="error", expanded=True)
-                st.session_state["orchestrator_ui_latest_v18690a"] = chain
+    st.markdown("### ▶ Test eller kjør hele kjeden")
+    draft = load_draft_job()
+    labels = {f"🧪 Utkast: {draft.name} · {', '.join(draft.markets)}": draft}
+    labels.update({f"📅 {job.name} · {', '.join(job.markets)}": job for job in active_jobs})
+    selected = st.selectbox("Velg oppsett", list(labels), key="orchestrator_ui_job_v18692a")
+    selected_job = labels[selected]
+    is_draft = selected_job.job_id == "MI-DRAFT-AUTOSAVE"
+    if is_draft:
+        st.info("Dette er det automatisk lagrede utkastet. Du kan teste hele kjeden før du lagrer eller aktiverer en tidsplan.")
+    elif not active_jobs:
+        st.caption("Ingen aktive tidsplaner finnes, men utkastet kan fortsatt testkjøres.")
+    run_label = "🧪 Test hele kjeden fra utkast" if is_draft else "▶ Kjør valgt lagret jobb nå"
+    if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692a"):
+        trigger = "MANUAL_DRAFT_TEST" if is_draft else "MANUAL_FULL_CHAIN"
+        with st.status("Kjører markedsskanning og autonome steg …", expanded=True) as status:
+            st.write("1. Starter MARKET_SCAN og Investment Pipeline")
+            result = run_job(selected_job, trigger=trigger)
+            chain = result.get("autonomous_chain") or {}
+            st.write("2. Behandler AUTONOMOUS_PORTFOLIO")
+            st.write("3. Behandler CONTROLLED_LEARNING")
+            if chain.get("status") == "OK":
+                status.update(label="Hele kjeden er fullført", state="complete", expanded=True)
+            else:
+                status.update(label=f"Kjeden avsluttet med status {chain.get('status', 'UKJENT')}", state="error", expanded=True)
+            st.session_state["orchestrator_ui_latest_v18690a"] = chain
 
     chain = st.session_state.get("orchestrator_ui_latest_v18690a") or load_latest_chain()
     st.markdown("### Diagnostikk")

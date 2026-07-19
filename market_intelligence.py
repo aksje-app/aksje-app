@@ -20,7 +20,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92"
+VERSION = "v18.6.92a"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -29,6 +29,8 @@ HISTORY_PATH = ROOT / "candidate_history.json"
 NOTIFICATIONS_PATH = ROOT / "notifications.json"
 LATEST_PATH = ROOT / "latest_run.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
+DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
+DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 
 MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
@@ -119,6 +121,39 @@ def save_jobs(jobs: Sequence[JobProfile]) -> None:
     payload = [asdict(x) for x in jobs]
     _write(JOBS_PATH, payload)
     write_persistent_json("market_intelligence/jobs.json", payload)
+
+
+def load_draft_job() -> JobProfile:
+    """Return the latest auto-saved scheduler draft, or a safe default draft."""
+    raw = read_persistent_json(DRAFT_STORAGE_KEY, default=None)
+    if isinstance(raw, Mapping):
+        try:
+            draft = JobProfile.from_dict(raw)
+            draft.job_id = DRAFT_JOB_ID
+            draft.enabled = False
+            return draft
+        except Exception:
+            pass
+    return JobProfile(
+        name="Hurtigtest – Alle markeder",
+        markets=["Alle"],
+        schedules=[],
+        enabled=False,
+        job_id=DRAFT_JOB_ID,
+        last_status="UTKAST",
+    )
+
+
+def save_draft_job(job: JobProfile) -> None:
+    """Persist editor values as a non-scheduled draft without activating a job."""
+    payload = asdict(job)
+    payload["job_id"] = DRAFT_JOB_ID
+    payload["enabled"] = False
+    payload["last_status"] = "UTKAST"
+    previous = read_persistent_json(DRAFT_STORAGE_KEY, default={})
+    if previous != payload:
+        write_persistent_json(DRAFT_STORAGE_KEY, payload)
+        _audit("JOB_DRAFT_AUTOSAVED", {"name": payload.get("name"), "markets": payload.get("markets")})
 
 
 def upsert_job(job: JobProfile) -> None:
@@ -449,23 +484,36 @@ def render_market_intelligence() -> None:
         run_auto = o1.checkbox("Kjør teoretisk portefølje", value=current.run_autonomous_portfolio if current else True, key="mi_auto_port_v18690")
         run_learning = o2.checkbox("Kjør kontrollert læring", value=current.run_controlled_learning if current else True, key="mi_auto_learning_v18690")
         require_active = o3.checkbox("Krev aktiv portefølje", value=current.require_active_portfolio if current else True, key="mi_require_active_v18690", help="Når valgt hoppes simulerte handler over dersom porteføljen er pauset.")
+        draft_job = JobProfile(
+            name=name.strip() or "Uten navn", markets=markets or ["Norge"], schedules=schedules or [],
+            weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
+            scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
+            notify_pushover=notify, notify_only_changes=only_changes, save_pdf=save_pdf, enabled=False,
+            scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,
+            job_id=DRAFT_JOB_ID, created_at=current.created_at if current else _now_iso(),
+            last_run_at=current.last_run_at if current else "", last_status="UTKAST",
+        )
+        save_draft_job(draft_job)
+        st.caption("💾 Utkastet lagres automatisk. Testkjøring oppretter ikke eller aktiverer en tidsplan.")
+
         b1, b2, b3 = st.columns(3)
-        if b1.button("Lagre jobb", type="primary", use_container_width=True, key="mi_save_v18687"):
-            job = JobProfile(name=name.strip() or "Uten navn", markets=markets or ["Norge"], schedules=schedules or ["Ved appstart"],
-                             weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
-                             scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
-                             notify_pushover=notify, notify_only_changes=only_changes, save_pdf=save_pdf, enabled=enabled,
-                             scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,
-                             job_id=current.job_id if current else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
-                             created_at=current.created_at if current else _now_iso(), last_run_at=current.last_run_at if current else "",
-                             last_status=current.last_status if current else "ALDRI KJØRT")
-            upsert_job(job); st.success("Jobben er lagret."); st.rerun()
-        if current and b2.button("Kjør valgt jobb nå", use_container_width=True, key="mi_run_v18687"):
-            with st.spinner("Kjører markedsetterretning..."):
-                st.session_state["mi_latest_v18687"] = run_job(current, trigger="MANUAL")
-            st.success("Jobben er fullført."); st.rerun()
-        if current and b3.button("Slett jobb", use_container_width=True, key="mi_delete_v18687"):
-            delete_job(current.job_id); st.success("Jobben er slettet."); st.rerun()
+        if b1.button("▶ Test gjeldende oppsett", type="primary", use_container_width=True, key="mi_test_draft_v18692a"):
+            with st.spinner("Kjører test fra automatisk lagret utkast..."):
+                st.session_state["mi_latest_v18687"] = run_job(draft_job, trigger="MANUAL_DRAFT_TEST")
+            st.success("Testkjøringen er fullført. Oppsettet er fortsatt bare et utkast.")
+            st.rerun()
+        if b2.button("Lagre og aktiver tidsplan", use_container_width=True, key="mi_save_activate_v18692a"):
+            job = JobProfile(**{**asdict(draft_job),
+                              "job_id": current.job_id if current else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
+                              "created_at": current.created_at if current else _now_iso(),
+                              "last_run_at": current.last_run_at if current else "",
+                              "last_status": current.last_status if current else "ALDRI KJØRT",
+                              "enabled": bool(enabled)})
+            upsert_job(job)
+            st.success("Jobben er lagret. Tidsplanen er aktivert dersom «Aktiv jobb» er valgt.")
+            st.rerun()
+        if current and b3.button("Slett lagret jobb", use_container_width=True, key="mi_delete_v18692a"):
+            delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); st.rerun()
         if jobs:
             st.dataframe(pd.DataFrame([{"Jobb": x.name, "Markeder": ", ".join(x.markets), "Tid": ", ".join(x.schedules), "Tidsrom": "; ".join(f"{w.get('start')}-{w.get('end')} / {w.get('interval_minutes')}m" for w in x.scan_windows), "Autonom kjede": x.run_autonomous_portfolio, "Aktiv": x.enabled,
                                        "Sist kjørt": x.last_run_at or "-", "Status": x.last_status} for x in jobs]), use_container_width=True, hide_index=True)
