@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93d"
+VERSION = "v18.6.93e"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -287,7 +287,7 @@ def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineC
         seen.add(ticker)
         unique.append(row)
     from candidate_market_data import enrich_candidate_rows
-    return enrich_candidate_rows(unique[: config.scan_limit], max_workers=4, progress_callback=progress_callback, force_refresh=force_refresh)
+    return enrich_candidate_rows(unique[: config.scan_limit], max_workers=2, progress_callback=progress_callback, force_refresh=force_refresh)
 
 
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:

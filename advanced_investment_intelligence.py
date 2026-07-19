@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93d"
+VERSION = "v18.6.93e"
 HISTORY_PATH = runtime_data_path("market_intelligence") / "candidate_history.json"
 TRADES_PATH = runtime_data_path("autonomous_portfolio") / "trades.json"
 WEIGHTS_PATH = runtime_data_path("investment_pipeline") / "adaptive_weights.json"

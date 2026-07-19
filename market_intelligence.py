@@ -10,6 +10,7 @@ import argparse
 import io
 import json
 import uuid
+import time as time_module
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -21,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.93d"
+VERSION = "v18.6.93e"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -32,6 +33,7 @@ LATEST_PATH = ROOT / "latest_run.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
+RECENT_DRAFT_REUSE_MINUTES = 30
 
 MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
@@ -119,17 +121,18 @@ def normalize_markets(markets: Sequence[str]) -> list[str]:
     return [x for x in chosen if x in valid] or ["Norge"]
 
 
-def report_identity(trigger: str) -> dict[str, str]:
+def report_identity(trigger: str, job_name: str = "") -> dict[str, str]:
     trigger_key = str(trigger or "").upper()
+    job_key = str(job_name or "").casefold()
     if "DRAFT" in trigger_key or "TEST" in trigger_key:
         return {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
-    if trigger_key == "SCHEDULED":
+    if trigger_key == "SCHEDULED" or (trigger_key == "MANUAL_FULL_CHAIN" and "morgen" in job_key):
         return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
     return {"type": "MANUELL_RAPPORT", "label": "Manuell rapport", "slug": "Manuell_rapport"}
 
 
 def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
-    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""))
+    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
     job_name = str(run.get("job_name") or "Analyse").strip().replace("–", "-")
     clean = "_".join(part for part in "".join(ch if ch.isalnum() or ch in " _-" else " " for ch in job_name).split())
     stamp = str(run.get("created_at") or "").replace(":", "").replace("-", "")[:15] or str(run.get("run_id") or "latest")
@@ -320,7 +323,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib.units import mm
     from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""))
+    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
     report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=16*mm, leftMargin=16*mm, topMargin=16*mm, bottomMargin=16*mm,
@@ -437,6 +440,103 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
 
 
 
+
+
+def _same_job_name(left: str, right: str) -> bool:
+    return str(left or "").strip().casefold() == str(right or "").strip().casefold()
+
+
+def _effective_execution_job(job: JobProfile, trigger: str) -> tuple[JobProfile, dict[str, Any]]:
+    """Use one analysis configuration for draft and immediate final execution.
+
+    A saved job may still contain an older scan profile while the editor draft has
+    just been tested. For an explicit manual full-chain run, merge the current
+    same-name draft analysis settings into the saved job identity. Scheduling and
+    persistent job identity remain attached to the saved job.
+    """
+    trigger_key = str(trigger or "").upper()
+    detail = {"requested_fingerprint": job_fingerprint(job), "draft_merged": False}
+    if trigger_key != "MANUAL_FULL_CHAIN" or job.job_id == DRAFT_JOB_ID:
+        detail["effective_fingerprint"] = job_fingerprint(job)
+        return job, detail
+    draft = load_draft_job()
+    if not _same_job_name(job.name, draft.name):
+        detail["effective_fingerprint"] = job_fingerprint(job)
+        return job, detail
+    merged = JobProfile(**{
+        **asdict(draft),
+        "job_id": job.job_id,
+        "created_at": job.created_at,
+        "last_run_at": job.last_run_at,
+        "last_status": job.last_status,
+        "enabled": job.enabled,
+    })
+    detail.update({
+        "draft_merged": True,
+        "draft_fingerprint": job_fingerprint(draft),
+        "effective_fingerprint": job_fingerprint(merged),
+    })
+    return merged, detail
+
+
+def _recent_validated_draft(job: JobProfile, trigger: str) -> dict[str, Any] | None:
+    """Return a recent successful draft that exactly matches the final job config."""
+    if str(trigger or "").upper() != "MANUAL_FULL_CHAIN":
+        return None
+    latest = _read(LATEST_PATH, {})
+    identity = latest.get("report_identity") or report_identity(str(latest.get("trigger") or ""), str(latest.get("job_name") or ""))
+    if identity.get("type") != "UTKAST" or latest.get("analysis_aborted"):
+        return None
+    if not _same_job_name(str(latest.get("job_name") or ""), job.name):
+        return None
+    fingerprint = str((latest.get("validation") or {}).get("draft_handoff_fingerprint") or "")
+    if fingerprint != job_fingerprint(job):
+        return None
+    try:
+        created = datetime.fromisoformat(str(latest.get("created_at")))
+        age = _now() - created.astimezone(_now().tzinfo)
+        if age > timedelta(minutes=RECENT_DRAFT_REUSE_MINUTES):
+            return None
+    except Exception:
+        return None
+    refresh = latest.get("data_refresh") or {}
+    if int(refresh.get("live_count", 0)) + int(refresh.get("cache_count", 0)) <= 0:
+        return None
+    return latest
+
+
+def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: str, handoff: Mapping[str, Any]) -> dict[str, Any]:
+    """Promote a validated draft to final report without a second API burst."""
+    run = json.loads(json.dumps(dict(source), ensure_ascii=False, default=str))
+    run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
+    run.update({
+        "version": VERSION,
+        "run_id": run_id,
+        "created_at": _now_iso(),
+        "job_id": job.job_id,
+        "job_name": job.name,
+        "trigger": trigger,
+        "report_identity": report_identity(trigger, job.name),
+        "execution_mode": "PROMOTED_VALIDATED_DRAFT",
+        "source_draft_run_id": source.get("run_id"),
+        "configuration_handoff": dict(handoff),
+    })
+    validation = dict(run.get("validation") or {})
+    validation.update({"unified_execution_pipeline": True, "promoted_from_validated_draft": True})
+    run["validation"] = validation
+    run["notification"] = {"sent": False, "detail": "Rapport promotert fra validert utkast; ingen ny API-kjøring"}
+    pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(build_pdf(run))
+    run["pdf_path"] = str(pdf_path)
+    _write(RUNS_DIR / f"{run_id}.json", run)
+    _write(LATEST_PATH, run)
+    _write(SUMMARIES_DIR / f"{run_id}.json", {k: run.get(k) for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
+    job.last_run_at, job.last_status = run["created_at"], "OK"
+    upsert_job(job)
+    _audit("JOB_RUN_PROMOTED", {"job_id": job.job_id, "run_id": run_id, "source_draft_run_id": source.get("run_id")})
+    return run
+
 def _refresh_meta(candidate: Mapping[str, Any]) -> dict[str, Any]:
     """Return refresh telemetry regardless of whether it lives top-level or in raw.
 
@@ -504,7 +604,14 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
     }
 
 def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
+    requested_job = job
+    job, handoff = _effective_execution_job(job, trigger)
     previous = _read(LATEST_PATH, {})
+    reusable = None if force_refresh else _recent_validated_draft(job, trigger)
+    if reusable is not None:
+        if progress_callback:
+            progress_callback({"phase": "COMPLETE", "completed": 1, "total": 1, "message": "Validerte utkastdata gjenbrukes som endelig morgenrapport"})
+        return _persist_promoted_run(reusable, job, trigger, handoff)
     def emit(phase: str, completed: int, total: int, message: str, **extra: Any) -> None:
         if progress_callback:
             progress_callback({"phase": phase, "completed": completed, "total": max(1, total), "message": message, **extra})
@@ -536,6 +643,21 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress, force_refresh=force_refresh)
             result["candidate_source"] = source
             market_refresh = _build_refresh_summary(result.get("candidates") or [], force_refresh)
+            # A whole-market zero-live result is usually temporary throttling. Retry
+            # only that market once, after a controlled cooldown, instead of
+            # publishing a misleading partial ranking.
+            if int(market_refresh.get("live_attempt_count", 0)) > 0 and int(market_refresh.get("live_count", 0)) == 0:
+                emit("MARKET_DATA", 0, 1, f"{market}: ingen live-data, venter og prøver markedet én gang til", market=market)
+                time_module.sleep(3.0)
+                retry_result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress, force_refresh=True)
+                retry_refresh = _build_refresh_summary(retry_result.get("candidates") or [], True)
+                if int(retry_refresh.get("live_count", 0)) > int(market_refresh.get("live_count", 0)):
+                    result = retry_result
+                    result["candidate_source"] = source
+                    market_refresh = retry_refresh
+                    result["market_retry_used"] = True
+            if market_index < len(markets):
+                time_module.sleep(1.0)
             candidate_errors = list(result.get("candidate_errors") or [])
             skipped_count = int((result.get("loader_diagnostics") or {}).get("skipped_count", 0))
             market_diagnostics.append({
@@ -603,7 +725,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "analysis_aborted": analysis_aborted,
-           "report_identity": report_identity(trigger),
+           "report_identity": report_identity(trigger, job.name),
+           "execution_mode": "UNIFIED_PIPELINE",
+           "configuration_handoff": handoff,
            "market_diagnostics": market_diagnostics,
            "validation": {
                "unique_tickers": len(all_candidates),
@@ -611,6 +735,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                "duplicate_count_removed": max(0, sum(len(r.get("candidates") or []) for r in market_runs) - len(all_candidates)),
                "draft_handoff_fingerprint": job_fingerprint(job),
                "report_identity_present": True,
+               "unified_execution_pipeline": True,
+               "requested_job_fingerprint": job_fingerprint(requested_job),
+               "effective_job_fingerprint": job_fingerprint(job),
                "valid_for_ranking": not analysis_aborted and bool(all_candidates),
            },
            "scan_configuration": {

@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93d"
+VERSION = "v18.6.93e"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 

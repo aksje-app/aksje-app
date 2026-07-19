@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.93d"
-APP_VERSION_NAME = "Expanded Market Scan & Executive Overview"
+APP_VERSION = "v18.6.93e"
+APP_VERSION_NAME = "Unified Execution Pipeline"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.93e: Unified Execution Pipeline: manuell Morgenanalyse bruker samme validerte utkastkonfigurasjon, nylig validert utkast kan promoteres uten nytt API-burst, alle rapporttyper bruker samme run_job-pipeline, markedspause og ett kontrollert marked-retry reduserer throttling.",
     "v18.6.93d: NoneType & Market Loader Fix: sikker numerisk normalisering, kandidatvis feilisolering, detaljert felt/ticker-diagnostikk og videre kjøring når enkeltkandidater har manglende data.",
     "v18.6.93c: Morning Report Reliability & Report Identity: tydelig UTKAST/MORGENRAPPORT, sikre filnavn, markedsdiagnostikk, korrekt totalfeil-sperre og navnebasert jobboppdatering.",
     "v18.6.93b: Job Handoff, Universe Integrity & UI Readability Fix: global ticker-deduplisering, kanonisk markedskobling, robust live-retry, rapport-sperre ved total datafeil og større faner/felt.",
