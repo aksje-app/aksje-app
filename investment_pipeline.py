@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93c"
+VERSION = "v18.6.93d"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -60,6 +60,46 @@ def normalize_candidate_identity(row: Mapping[str, Any], expected_market: str = 
     clean["source_market"] = str(clean.get("source_market") or expected_market or inferred)
     clean["market_identity_valid"] = bool(ticker and (expected_market in ("", "Alle") or inferred == expected_market))
     return clean
+
+
+NUMERIC_FIELDS = {
+    "ai_score", "smart_score", "score", "signal_score", "momentum_score", "strength",
+    "relative_strength", "rsi_score", "return_1m", "change_1m", "monthly_return",
+    "performance_1m", "return_3m", "change_3m", "quarter_return", "performance_3m",
+    "trend_score", "technical_score", "fundamental_score", "quality_score", "roe",
+    "return_on_equity", "earnings_growth", "eps_growth", "revenue_growth", "growth_score",
+    "debt_to_equity", "debt_equity", "net_debt_ebitda", "pe", "trailing_pe",
+    "forward_pe", "research_score", "sentiment_score", "news_score", "sentiment",
+    "recommendation_score", "analyst_score", "target_upside", "backtest_score",
+    "validation_score", "strategy_score", "sharpe", "sharpe_ratio", "win_rate",
+    "win_rate_pct", "risk_score", "volatility", "volatility_pct", "annual_volatility",
+    "beta", "max_drawdown", "max_drawdown_pct", "drawdown", "liquidity_score",
+    "volume_score", "average_volume", "avg_volume", "volume", "data_quality",
+    "quality", "data_quality_score", "portfolio_fit_score", "diversification_score",
+}
+
+def _sanitize_numeric_fields(row: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    clean = dict(row)
+    missing: list[str] = []
+    for field in NUMERIC_FIELDS:
+        if field not in clean:
+            continue
+        value = clean.get(field)
+        if value in (None, ""):
+            clean[field] = None
+            missing.append(field)
+            continue
+        try:
+            number = float(value)
+            clean[field] = number if math.isfinite(number) else None
+            if clean[field] is None:
+                missing.append(field)
+        except (TypeError, ValueError):
+            clean[field] = None
+            missing.append(field)
+    if missing:
+        clean["numeric_fields_missing_or_invalid"] = sorted(set(missing))
+    return clean, sorted(set(missing))
 
 
 def _now_iso() -> str:
@@ -233,7 +273,11 @@ def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
 
 
 def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig, progress_callback: Any | None = None, force_refresh: bool = False) -> list[dict[str, Any]]:
-    normalized = [normalize_candidate_identity(r, config.market_scope) for r in rows]
+    normalized = []
+    for raw in rows:
+        identity = normalize_candidate_identity(raw, config.market_scope)
+        clean, _missing = _sanitize_numeric_fields(identity)
+        normalized.append(clean)
     filtered = [r for r in normalized if r.get("ticker") and (config.market_scope == "Alle" or r.get("market") == config.market_scope)]
     unique, seen = [], set()
     for row in filtered:
@@ -363,17 +407,40 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         if progress_callback:
             progress_callback({"phase": "MARKET_DATA", "completed": done, "total": total, "ticker": ticker, "message": f"Henter markedsdata {done}/{total}: {ticker}"})
     prepared_rows = _prepare_candidate_rows(rows, cfg, progress_callback=_enrich_progress, force_refresh=force_refresh)
+    candidate_errors: list[dict[str, Any]] = []
+    sanitized_rows: list[dict[str, Any]] = []
+    for row in prepared_rows:
+        clean, missing = _sanitize_numeric_fields(row)
+        if missing:
+            clean["loader_diagnostics"] = {"missing_or_invalid_numeric_fields": missing}
+        sanitized_rows.append(clean)
+    prepared_rows = sanitized_rows
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:
-            fit, trace = calculate_portfolio_fit(row, prepared_rows)
-            row["portfolio_fit_score"] = fit
-            row["portfolio_fit_trace"] = trace
+            ticker = str(row.get("ticker") or "")
+            try:
+                fit, trace = calculate_portfolio_fit(row, prepared_rows)
+                row["portfolio_fit_score"] = fit
+                row["portfolio_fit_trace"] = trace
+            except Exception as exc:
+                row["portfolio_fit_score"] = 50.0
+                row["portfolio_fit_trace"] = {"status": "FALLBACK", "error": str(exc)}
+                candidate_errors.append({"ticker": ticker, "stage": "PORTFOLIO_FIT", "error": str(exc)})
     assessments = []
     for idx, row in enumerate(prepared_rows, start=1):
-        assessments.append(score_candidate(row, cfg))
+        ticker = str(row.get("ticker") or "")
+        try:
+            assessments.append(score_candidate(row, cfg))
+        except Exception as exc:
+            candidate_errors.append({
+                "ticker": ticker,
+                "stage": "SCORING",
+                "error": str(exc),
+                "missing_or_invalid_numeric_fields": list(row.get("numeric_fields_missing_or_invalid") or []),
+            })
         if progress_callback:
-            progress_callback({"phase": "SCORING", "completed": idx, "total": max(1, len(prepared_rows)), "ticker": str(row.get("ticker") or ""), "message": f"Beregner score {idx}/{len(prepared_rows)}"})
+            progress_callback({"phase": "SCORING", "completed": idx, "total": max(1, len(prepared_rows)), "ticker": ticker, "message": f"Beregner score {idx}/{len(prepared_rows)}"})
     assessments.sort(key=lambda x: (x.scanner_score, x.investment_score), reverse=True)
     deep = assessments[: cfg.deep_analysis_count]
     deep.sort(key=lambda x: (x.investment_score, x.scanner_score), reverse=True)
@@ -428,6 +495,12 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "proposals": [asdict(x) for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
         "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600},
+        "candidate_errors": candidate_errors,
+        "loader_diagnostics": {
+            "prepared_count": len(prepared_rows),
+            "scored_count": len(assessments),
+            "skipped_count": len(candidate_errors),
+        },
     }
     if progress_callback:
         progress_callback({"phase": "PORTFOLIO_PROPOSAL", "completed": 1, "total": 1, "message": "Bygger teoretisk porteføljeforslag"})

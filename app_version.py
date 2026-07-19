@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.93c"
+APP_VERSION = "v18.6.93d"
 APP_VERSION_NAME = "Expanded Market Scan & Executive Overview"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.93d: NoneType & Market Loader Fix: sikker numerisk normalisering, kandidatvis feilisolering, detaljert felt/ticker-diagnostikk og videre kjøring når enkeltkandidater har manglende data.",
     "v18.6.93c: Morning Report Reliability & Report Identity: tydelig UTKAST/MORGENRAPPORT, sikre filnavn, markedsdiagnostikk, korrekt totalfeil-sperre og navnebasert jobboppdatering.",
     "v18.6.93b: Job Handoff, Universe Integrity & UI Readability Fix: global ticker-deduplisering, kanonisk markedskobling, robust live-retry, rapport-sperre ved total datafeil og større faner/felt.",
     "v18.6.93a: Expanded Market Scan & Executive Overview: 25 aksjer per marked som standard, raske/normale/grundige skanneprofiler, markedsstatus, datakvalitet, Topp 3-medaljer, Top 10 og forbedret fremdrift i UI og PDF.",

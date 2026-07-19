@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92c"
+VERSION = "v18.6.93d"
 HISTORY_PATH = runtime_data_path("market_intelligence") / "candidate_history.json"
 TRADES_PATH = runtime_data_path("autonomous_portfolio") / "trades.json"
 WEIGHTS_PATH = runtime_data_path("investment_pipeline") / "adaptive_weights.json"
@@ -250,7 +250,7 @@ def load_candidate_trend(ticker: str, current_score: float) -> dict[str, Any]:
 
 def adaptive_weights(base_weights: Mapping[str, float]) -> tuple[dict[str, float], dict[str, Any]]:
     """Conservative learning from closed theoretical trades with stored entry components."""
-    weights = {k: max(0.0, float(v)) for k, v in base_weights.items()}
+    weights = {k: max(0.0, f(v, 0.0) or 0.0) for k, v in base_weights.items()}
     try:
         trades = json.loads(TRADES_PATH.read_text(encoding="utf-8")) if TRADES_PATH.exists() else []
     except Exception:
@@ -261,10 +261,10 @@ def adaptive_weights(base_weights: Mapping[str, float]) -> tuple[dict[str, float
         return {k: v / total for k, v in weights.items()}, {"active": False, "closed_trades": len(sells), "reason": "Minst 12 lukkede handler kreves"}
     signals: dict[str, list[float]] = {k: [] for k in weights}
     for trade in sells[-100:]:
-        outcome = 1.0 if float(trade.get("pnl", 0)) > 0 else -1.0
+        outcome = 1.0 if (f(trade.get("pnl"), 0.0) or 0.0) > 0 else -1.0
         for key, value in trade.get("entry_components", {}).items():
             if key in signals:
-                signals[key].append(outcome * (float(value) - 50.0) / 50.0)
+                signals[key].append(outcome * ((f(value, 50.0) or 50.0) - 50.0) / 50.0)
     learned = dict(weights)
     for key, values in signals.items():
         if values:
@@ -276,8 +276,8 @@ def adaptive_weights(base_weights: Mapping[str, float]) -> tuple[dict[str, float
 
 
 def build_portfolio_proposal(candidates: Sequence[Mapping[str, Any]], cash_reserve_pct: float = 15.0, max_position_pct: float = 6.0, max_sector_pct: float = 25.0) -> dict[str, Any]:
-    eligible = [dict(x) for x in candidates if float(x.get("investment_score", 0)) >= 60 and float(x.get("confidence_score", 0)) >= 45 and float(x.get("risk_score", 100)) <= 75]
-    eligible.sort(key=lambda x: (float(x.get("investment_score", 0)) * float(x.get("confidence_score", 0)) / 100.0), reverse=True)
+    eligible = [dict(x) for x in candidates if (f(x.get("investment_score"), 0.0) or 0.0) >= 60 and (f(x.get("confidence_score"), 0.0) or 0.0) >= 45 and (f(x.get("risk_score"), 100.0) or 100.0) <= 75]
+    eligible.sort(key=lambda x: ((f(x.get("investment_score"), 0.0) or 0.0) * (f(x.get("confidence_score"), 0.0) or 0.0) / 100.0), reverse=True)
     budget = max(0.0, 100.0 - cash_reserve_pct)
     allocations: list[dict[str, Any]] = []
     sector_used: dict[str, float] = {}
@@ -285,8 +285,8 @@ def build_portfolio_proposal(candidates: Sequence[Mapping[str, Any]], cash_reser
         if budget <= 0.01:
             break
         sector = str(row.get("sector") or "Unknown")
-        quality = float(row.get("investment_score", 0)) * float(row.get("confidence_score", 0)) / 100.0
-        risk_multiplier = max(0.25, 1.0 - float(row.get("risk_score", 50)) / 120.0)
+        quality = (f(row.get("investment_score"), 0.0) or 0.0) * (f(row.get("confidence_score"), 0.0) or 0.0) / 100.0
+        risk_multiplier = max(0.25, 1.0 - (f(row.get("risk_score"), 50.0) or 50.0) / 120.0)
         requested = min(max_position_pct, max(0.5, quality / 18.0 * risk_multiplier))
         sector_room = max(0.0, max_sector_pct - sector_used.get(sector, 0.0))
         weight = min(requested, sector_room, budget)

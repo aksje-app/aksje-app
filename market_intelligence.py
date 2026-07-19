@@ -21,7 +21,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.93c"
+VERSION = "v18.6.93d"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -536,14 +536,19 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress, force_refresh=force_refresh)
             result["candidate_source"] = source
             market_refresh = _build_refresh_summary(result.get("candidates") or [], force_refresh)
+            candidate_errors = list(result.get("candidate_errors") or [])
+            skipped_count = int((result.get("loader_diagnostics") or {}).get("skipped_count", 0))
             market_diagnostics.append({
                 "market": market,
                 "scanned": int((result.get("summary") or {}).get("scanned", len(rows))),
                 "analyzed": len(result.get("candidates") or []),
                 "live": int(market_refresh.get("live_count", 0)),
-                "errors": int(market_refresh.get("error_count", 0)),
-                "status": "OK" if int(market_refresh.get("live_count", 0)) > 0 else "INGEN LIVE-DATA",
+                "errors": int(market_refresh.get("error_count", 0)) + skipped_count,
+                "status": ("OK" if int(market_refresh.get("live_count", 0)) > 0 else "INGEN LIVE-DATA") + (f" · {skipped_count} kandidat(er) hoppet over" if skipped_count else ""),
+                "candidate_errors": candidate_errors[:10],
             })
+            for item in candidate_errors:
+                errors.append(f"{market}/{item.get('ticker') or 'ukjent'} ({item.get('stage')}): {item.get('error')}")
             market_runs.append(result)
             all_candidates.extend(result.get("candidates") or [])
             all_proposals.extend(result.get("proposals") or [])
