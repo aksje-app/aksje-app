@@ -114,11 +114,11 @@ def render_autonomous_orchestrator_control_center() -> None:
             if refresh.get("force_refresh_requested"):
                 if refresh.get("cache_bypass_verified"):
                     dates = ", ".join(refresh.get("latest_trade_dates") or []) or "ukjent"
-                    st.success(f"Full ny analyse verifisert: cache ble ignorert for alle kandidater. Live hentinger: {refresh.get('live_count', 0)}. Nyeste handelsdato: {dates}.")
+                    st.success(f"Full ny analyse verifisert: cache ble ignorert for alle kandidater. Live-forsøk: {refresh.get('live_attempt_count', 0)}, vellykket: {refresh.get('live_count', 0)}. Nyeste handelsdato: {dates}.")
                     if refresh.get("unchanged_market_data_count", 0):
                         st.info(f"{refresh.get('unchanged_market_data_count')} kandidater hadde uendrede siste markedsdata. Dette er normalt når børsene er stengt.")
                 else:
-                    st.error("Full ny analyse var valgt, men cache-bypass kunne ikke verifiseres for alle kandidater. Se diagnostikk/JSON.")
+                    st.error(f"Full ny analyse var valgt, men verifikasjonen feilet: {refresh.get('verification_reason', 'ukjent årsak')}. Live-forsøk: {refresh.get('live_attempt_count', 0)}, feil: {refresh.get('error_count', 0)}.")
             if chain.get("status") == "OK":
                 st.success("Hele kjeden er fullført uten tekniske feil.")
             else:

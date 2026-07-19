@@ -20,7 +20,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92f"
+VERSION = "v18.6.92g"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -277,11 +277,26 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
               Table([
                   ["Full ny analyse valgt", "JA" if refresh.get("force_refresh_requested") else "NEI"],
                   ["Cache-bypass verifisert", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI")],
-                  ["Live hentinger", refresh.get("live_count", 0)],
+                  ["Live-forsøk", refresh.get("live_attempt_count", 0)],
+                  ["Vellykkede live-hentinger", refresh.get("live_count", 0)],
                   ["Cache-hentinger", refresh.get("cache_count", 0)],
+                  ["Feilede hentinger", refresh.get("error_count", 0)],
                   ["Nyeste handelsdato(er)", ", ".join(refresh.get("latest_trade_dates") or []) or "Ukjent"],
-                  ["Uendrede markedsdata", refresh.get("unchanged_market_data_count", 0)],
+                  ["Uendrede markedsdata", f"{refresh.get('unchanged_market_data_count', 0)} av {refresh.get('comparable_market_data_count', 0)} sammenlignbare"],
+                  ["Verifikasjon", refresh.get("verification_reason", "-")],
               ], colWidths=[70*mm, 85*mm]), Spacer(1, 6*mm)]
+    trace_rows = refresh.get("execution_trace") or []
+    if trace_rows:
+        trace_data = [["Ticker", "Kilde", "Status", "Cache-bypass", "Siste handelsdato", "Endret"]]
+        for item in trace_rows[:30]:
+            changed = item.get("market_data_changed")
+            trace_data.append([item.get("ticker"), item.get("data_source"), item.get("data_fetch_status"),
+                               "JA" if item.get("cache_bypass_applied") else "NEI", item.get("latest_trade_date") or "Ukjent",
+                               "JA" if changed is True else ("NEI" if changed is False else "IKKE SAMMENLIGNBAR")])
+        trace_table = Table(trace_data, repeatRows=1, colWidths=[22*mm, 30*mm, 24*mm, 25*mm, 34*mm, 30*mm])
+        trace_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
+                                         ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 6.5), ("VALIGN", (0,0), (-1,-1), "TOP")]))
+        story += [Paragraph("Kjøringsbevis per ticker", styles["Heading2"]), trace_table, Spacer(1, 6*mm)]
     changes = run.get("changes") or {}
     story += [Paragraph("Endringer siden forrige kjøring", styles["Heading2"]),
               Table([["Nye", len(changes.get("new", []))], ["Forbedret", len(changes.get("improved", []))],
@@ -322,6 +337,74 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     doc.build(story)
     return buf.getvalue()
 
+
+
+
+def _refresh_meta(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """Return refresh telemetry regardless of whether it lives top-level or in raw.
+
+    CandidateAssessment serializes the enriched source row under ``raw``. Older
+    telemetry code only inspected the assessment top-level and therefore reported
+    zero live/cache fetches and unknown trade dates even when live fetching ran.
+    """
+    raw = candidate.get("raw") if isinstance(candidate, Mapping) else None
+    raw = raw if isinstance(raw, Mapping) else {}
+    merged = dict(raw)
+    merged.update({k: v for k, v in dict(candidate).items() if v is not None})
+    return merged
+
+
+def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refresh: bool) -> dict[str, Any]:
+    rows = [_refresh_meta(c) for c in candidates]
+    live_success = [r for r in rows if str(r.get("data_source", "")).endswith("-live") and r.get("data_fetch_status") in {"OK", "NO_DATA"}]
+    live_attempts = [r for r in rows if r.get("refresh_proof") in {"LIVE_CACHE_BYPASSED", "LIVE_CACHE_MISS", "LIVE_ATTEMPT_FAILED"} or r.get("fetch_started_at")]
+    cache_rows = [r for r in rows if bool(r.get("cache_hit")) or r.get("refresh_proof") == "CACHE_USED"]
+    bypass_rows = [r for r in rows if bool(r.get("cache_bypass_applied")) and r.get("refresh_proof") == "LIVE_CACHE_BYPASSED"]
+    failed_rows = [r for r in rows if r.get("data_fetch_status") == "ERROR" or r.get("refresh_proof") == "LIVE_ATTEMPT_FAILED"]
+    comparable = [r for r in rows if r.get("market_data_changed") is not None]
+    verified = bool(force_refresh) and bool(rows) and len(bypass_rows) == len(rows)
+    if not force_refresh:
+        reason = "Normal cachepolicy"
+    elif not rows:
+        reason = "Ingen kandidater å verifisere"
+    elif verified:
+        reason = "Cache ble ignorert og live-innhenting ble fullført for alle kandidater"
+    elif failed_rows:
+        reason = f"Live-innhenting feilet for {len(failed_rows)} av {len(rows)} kandidater"
+    else:
+        reason = f"Telemetri mangler for {len(rows) - len(bypass_rows)} av {len(rows)} kandidater"
+    execution_trace = []
+    for r in rows:
+        execution_trace.append({
+            "ticker": r.get("ticker"),
+            "force_refresh_requested": bool(r.get("force_refresh_requested")),
+            "cache_bypass_applied": bool(r.get("cache_bypass_applied")),
+            "refresh_proof": r.get("refresh_proof") or "UKJENT",
+            "data_source": r.get("data_source") or "UKJENT",
+            "data_fetch_status": r.get("data_fetch_status") or "UKJENT",
+            "fetch_started_at": r.get("fetch_started_at"),
+            "fetch_completed_at": r.get("fetch_completed_at"),
+            "latest_trade_date": r.get("latest_trade_date"),
+            "market_data_changed": r.get("market_data_changed"),
+            "error": r.get("data_fetch_error") or "",
+        })
+    return {
+        "force_refresh_requested": bool(force_refresh),
+        "cache_bypass_verified": verified,
+        "verification_reason": reason,
+        "candidate_count": len(rows),
+        "live_attempt_count": len(live_attempts),
+        "live_count": len(live_success),
+        "cache_count": len(cache_rows),
+        "bypass_count": len(bypass_rows),
+        "error_count": len(failed_rows),
+        "unchanged_market_data_count": sum(1 for r in comparable if r.get("market_data_changed") is False),
+        "comparable_market_data_count": len(comparable),
+        "latest_trade_dates": sorted({str(r.get("latest_trade_date")) for r in rows if r.get("latest_trade_date")}),
+        "proof": "LIVE_CACHE_BYPASSED" if verified else ("FORCE_REFRESH_UNVERIFIED" if force_refresh else "NORMAL_CACHE_POLICY"),
+        "cache_ttl_seconds": 21600,
+        "execution_trace": execution_trace,
+    }
 
 def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
     previous = _read(LATEST_PATH, {})
@@ -380,18 +463,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_proposals.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     all_proposals = all_proposals[:job.proposal_count]
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
-    refresh_rows = all_candidates
-    refresh_summary = {
-        "force_refresh_requested": bool(force_refresh),
-        "cache_bypass_verified": bool(force_refresh) and bool(refresh_rows) and all(bool(x.get("cache_bypass_applied")) for x in refresh_rows),
-        "live_count": sum(1 for x in refresh_rows if str(x.get("data_source", "")).endswith("-live")),
-        "cache_count": sum(1 for x in refresh_rows if x.get("cache_hit")),
-        "error_count": sum(1 for x in refresh_rows if x.get("data_fetch_status") == "ERROR"),
-        "unchanged_market_data_count": sum(1 for x in refresh_rows if x.get("market_data_changed") is False),
-        "latest_trade_dates": sorted({str(x.get("latest_trade_date")) for x in refresh_rows if x.get("latest_trade_date")}),
-        "proof": "LIVE_CACHE_BYPASSED" if force_refresh else "NORMAL_CACHE_POLICY",
-        "cache_ttl_seconds": 21600,
-    }
+    refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",

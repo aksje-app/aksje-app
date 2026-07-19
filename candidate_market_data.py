@@ -305,7 +305,7 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
         enriched["prior_cache_snapshot"] = prior_snapshot
         old_price = _finite(prior_snapshot.get("last_price"))
         new_price = _finite(enriched.get("last_price"))
-        enriched["market_data_changed"] = bool(old_price is not None and new_price is not None and abs(old_price-new_price) > 1e-10)
+        enriched["market_data_changed"] = (abs(old_price-new_price) > 1e-10) if old_price is not None and new_price is not None else None
         enriched["refresh_proof"] = "LIVE_CACHE_BYPASSED" if force_refresh else "LIVE_CACHE_MISS"
         trace.append({"step": "refresh_proof", "status": "OK", "detail": enriched["refresh_proof"], "latest_trade_date": latest_trade_date, "market_data_changed": enriched["market_data_changed"]})
         _write_cache(ticker, enriched)
