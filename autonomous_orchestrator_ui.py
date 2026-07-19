@@ -55,21 +55,70 @@ def render_autonomous_orchestrator_control_center() -> None:
     elif not active_jobs:
         st.caption("Ingen aktive tidsplaner finnes, men utkastet kan fortsatt testkjøres.")
     run_label = "🧪 Test hele kjeden fra utkast" if is_draft else "▶ Kjør valgt lagret jobb nå"
-    if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692a"):
+    if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692d"):
         trigger = "MANUAL_DRAFT_TEST" if is_draft else "MANUAL_FULL_CHAIN"
-        with st.status("Kjører markedsskanning og autonome steg …", expanded=True) as status:
-            st.write("1. Starter MARKET_SCAN og Investment Pipeline")
-            result = run_job(selected_job, trigger=trigger)
+        progress = st.progress(0, text="0 % · Klargjør kjøring")
+        live = st.empty()
+        checklist = st.empty()
+        steps = ["MARKET_DATA", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
+        completed_steps: set[str] = set()
+        def _render_checklist(active: str, message: str) -> None:
+            labels = {
+                "MARKET_DATA": "Henter pris-, fundamental- og analysedata",
+                "SCORING": "Beregner individuelle delscorer og totalscore",
+                "PORTFOLIO_PROPOSAL": "Bygger risikobevisst porteføljeforslag",
+                "AUTONOMOUS": "Simulerer BUY / HOLD / SELL / SKIP",
+                "REPORT": "Lagrer historikk og genererer rapport",
+                "COMPLETE": "Fullfører kjeden",
+            }
+            lines=[]
+            for step in steps:
+                if step in completed_steps:
+                    icon="✅"
+                elif step == active:
+                    icon="⏳"
+                else:
+                    icon="⬜"
+                lines.append(f"{icon} {labels[step]}")
+            checklist.markdown("  \n".join(lines))
+            live.info(message)
+        def _progress_event(event: Mapping[str, Any]) -> None:
+            phase=str(event.get("phase") or "START")
+            done=int(event.get("completed") or 0); total=max(1,int(event.get("total") or 1))
+            phase_base={"START":2,"MARKET":5,"PREPARE":8,"MARKET_DATA":10,"SCORING":48,"DEDUP":68,"PORTFOLIO_PROPOSAL":74,"AUTONOMOUS":82,"REPORT":92,"COMPLETE":100}
+            if phase == "MARKET_DATA": pct=10+int(35*done/total)
+            elif phase == "SCORING": pct=48+int(18*done/total)
+            else: pct=phase_base.get(phase,5)
+            for step in steps:
+                if steps.index(step) < steps.index(phase) if phase in steps else False:
+                    completed_steps.add(step)
+            if phase == "COMPLETE": completed_steps.update(steps)
+            msg=str(event.get("message") or phase)
+            ticker=event.get("ticker")
+            if ticker and ticker not in msg: msg=f"{msg} · {ticker}"
+            progress.progress(min(100,max(0,pct)), text=f"{pct} % · {msg}")
+            _render_checklist(phase if phase in steps else "MARKET_DATA", msg)
+        _render_checklist("MARKET_DATA", "Starter markedsskanning")
+        try:
+            result = run_job(selected_job, trigger=trigger, progress_callback=_progress_event)
             chain = result.get("autonomous_chain") or {}
-            st.write("2. Behandler AUTONOMOUS_PORTFOLIO")
-            st.write("3. Behandler CONTROLLED_LEARNING")
+            progress.progress(100, text="100 % · Hele kjeden er ferdig")
+            completed_steps.update(steps)
+            _render_checklist("COMPLETE", "Kjøringen er fullført")
+            stage_map={x.get("name"):x for x in chain.get("stages") or []}
+            ap=(stage_map.get("AUTONOMOUS_PORTFOLIO") or {}).get("detail") or {}
+            if ap:
+                st.success(f"Teoretiske beslutninger: {ap.get('buys',0)} kjøp, {ap.get('sells',0)} salg, {ap.get('skips',0)} hoppet over · {ap.get('open_positions',0)} åpne posisjoner.")
             if chain.get("status") == "OK":
-                status.update(label="Hele kjeden er fullført", state="complete", expanded=True)
+                st.success("Hele kjeden er fullført uten tekniske feil.")
             else:
-                status.update(label=f"Kjeden avsluttet med status {chain.get('status', 'UKJENT')}", state="error", expanded=True)
-            st.session_state["orchestrator_ui_latest_v18690a"] = chain
+                st.warning(f"Kjeden ble avsluttet med status {chain.get('status','UKJENT')}.")
+            st.session_state["orchestrator_ui_latest_v18692d"] = chain
+        except Exception as exc:
+            live.error(f"Kjøringen stoppet: {exc}")
+            progress.progress(100, text="Kjøringen stoppet med feil")
 
-    chain = st.session_state.get("orchestrator_ui_latest_v18690a") or load_latest_chain()
+    chain = st.session_state.get("orchestrator_ui_latest_v18692d") or load_latest_chain()
     st.markdown("### Diagnostikk")
     if not chain:
         st.info("Ingen kjøring er registrert ennå.")
@@ -82,6 +131,13 @@ def render_autonomous_orchestrator_control_center() -> None:
         rows = _stage_rows(chain)
         if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        latest_run = st.session_state.get("mi_latest_v18687") or {}
+        top = list(latest_run.get("candidates") or [])[:3]
+        if top:
+            medals = ["🥇", "🥈", "🥉"]
+            cols = st.columns(len(top))
+            for idx, candidate in enumerate(top):
+                cols[idx].metric(f"{medals[idx]} {candidate.get('ticker','-')}", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}%")
         if chain.get("errors"):
             st.error(" | ".join(chain.get("errors") or []))
         with st.expander("Rå kjøringsdata", expanded=False):

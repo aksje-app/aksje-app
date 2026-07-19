@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.92c"
-APP_VERSION_NAME = "Calibrated Explainability"
+APP_VERSION = "v18.6.92d"
+APP_VERSION_NAME = "Autonomous Execution & Live Progress"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.92d: Autonomous Execution & Live Progress: detaljert prosentvis fremdrift med tickerstatus og sjekkliste, tydelig BUY/SELL/SKIP-oppsummering, topp-3 visning og sporbare endringsdrivere mellom kjøringer. Anbefalte kandidater sendes videre til den teoretiske porteføljen når jobbprofilen tillater autonom portefølje og porteføljen er ACTIVE.",
     "v18.6.92c: Calibrated Explainability: variabel konfidens basert på datadekning og kildekvalitet, research-score uten metning fra én kilde, dynamisk porteføljetilpasning og komplett sporbar formel for alle delscorer og totalscore.",
     "v18.6.92b: Traceable Analysis Engine: reell markedsdata-berikelse per unik ticker, tekniske/fundamentale/risko/likviditetsfelt, seks timers cache, eksplisitt datamangelsstatus, kandidat-deduplisering og sporbar analysevisning per kandidat.",
     "v18.6.92: Dynamic Investment Intelligence: individuelle og forklarbare delscorer fra faktiske kandidatdata, datakompletthet og konfidens, kandidattrend og scoreendring, risikobevisst teoretisk porteføljeforslag, konservativ selvlærende vekting fra lukkede teoretiske handler og utvidet PDF/UI. Manglende data holdes nøytrale og reduserer konfidens; ingen data fabrikeres.",

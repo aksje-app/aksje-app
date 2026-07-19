@@ -13,14 +13,14 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, Callable
 
 from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, run_pipeline
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92b"
+VERSION = "v18.6.92d"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -179,7 +179,18 @@ def compare_runs(current: Mapping[str, Any], previous: Mapping[str, Any] | None)
     improved, weakened, unchanged = [], [], []
     for ticker in cur.keys() & prev.keys():
         delta = round(float(cur[ticker].get("investment_score", 0)) - float(prev[ticker].get("investment_score", 0)), 2)
-        row = {**cur[ticker], "score_delta": delta, "previous_rank": prev[ticker].get("rank")}
+        component_labels = {
+            "discovery_score": "AI Discovery", "fundamental_score": "Fundamentaler",
+            "research_score": "Research", "validation_score": "Backtesting",
+            "portfolio_fit_score": "Porteføljetilpasning", "risk_score": "Risiko",
+        }
+        drivers = []
+        for key_name, label in component_labels.items():
+            change = round(float(cur[ticker].get(key_name, 0) or 0) - float(prev[ticker].get(key_name, 0) or 0), 2)
+            if abs(change) >= 0.5:
+                drivers.append({"component": label, "delta": change})
+        drivers.sort(key=lambda x: abs(float(x["delta"])), reverse=True)
+        row = {**cur[ticker], "score_delta": delta, "previous_rank": prev[ticker].get("rank"), "change_drivers": drivers[:4]}
         if delta >= 2:
             improved.append(row)
         elif delta <= -2:
@@ -302,24 +313,36 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     return buf.getvalue()
 
 
-def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
+def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None) -> dict[str, Any]:
     previous = _read(LATEST_PATH, {})
+    def emit(phase: str, completed: int, total: int, message: str, **extra: Any) -> None:
+        if progress_callback:
+            progress_callback({"phase": phase, "completed": completed, "total": max(1, total), "message": message, **extra})
+    emit("START", 0, 1, "Starter markedsskanning")
     market_runs, all_candidates, all_proposals = [], [], []
     totals = {"scanned": 0, "deep_analyzed": 0, "proposals": 0, "recommended": 0, "rejected": 0}
     errors = []
     markets = normalize_markets(job.markets)
-    for market in markets:
+    for market_index, market in enumerate(markets, start=1):
         cfg = PipelineConfig(market_scope=market, scan_limit=job.scan_limit, deep_analysis_count=job.deep_count,
                              proposal_count=job.proposal_count, use_research="AI Research Assistant" in job.modules,
                              use_backtest="Backtesting Validation" in job.modules,
                              use_portfolio_fit="Portfolio Optimizer" in job.modules,
                              use_learning_advisor="Learning Advisor" in job.modules).normalized()
         try:
+            emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
             rows, source = _load_candidate_rows_from_app(cfg)
             if not rows:
                 errors.append(f"{market}: ingen kandidater")
                 continue
-            result = run_pipeline(rows, cfg)
+            def _pipeline_progress(event: Mapping[str, Any]) -> None:
+                e = dict(event)
+                e["market"] = market
+                e["market_index"] = market_index
+                e["market_total"] = len(markets)
+                if progress_callback:
+                    progress_callback(e)
+            result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress)
             result["candidate_source"] = source
             market_runs.append(result)
             all_candidates.extend(result.get("candidates") or [])
@@ -328,6 +351,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
                 totals[key] += int((result.get("summary") or {}).get(key, 0))
         except Exception as exc:
             errors.append(f"{market}: {exc}")
+    emit("DEDUP", 1, 1, "Fjerner duplikater og rangerer kandidater")
     # Remove repeated candidates returned by multiple market passes. Keep the strongest
     # assessment for each ticker/market pair.
     deduped: dict[tuple[str, str], dict[str, Any]] = {}
@@ -350,11 +374,13 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY"}
     from advanced_investment_intelligence import build_portfolio_proposal
+    emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)
     run["changes"] = compare_runs(run, previous)
     _update_history(run)
     try:
         from autonomous_orchestrator import run_post_scan_chain
+        emit("AUTONOMOUS", 0, 1, "Kjører teoretiske kjøps- og salgsbeslutninger")
         run["autonomous_chain"] = run_post_scan_chain(
             run,
             run_autonomous=job.run_autonomous_portfolio,
@@ -365,6 +391,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
     except Exception as exc:
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
+    emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
     notify_ok, notify_detail = _notification(job, run)
     run["notification"] = {"sent": notify_ok, "detail": notify_detail}
     if job.save_pdf:
@@ -378,6 +405,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL") -> dict[str, Any]:
     job.last_run_at, job.last_status = run["created_at"], ("OK" if not errors else "FULLFØRT MED FEIL")
     upsert_job(job)
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
+    emit("COMPLETE", 1, 1, "Hele kjeden er fullført", run_id=run_id)
     return run
 
 

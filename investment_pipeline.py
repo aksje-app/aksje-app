@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92c"
+VERSION = "v18.6.92d"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -203,13 +203,13 @@ def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
     return not actual or any(token in actual for token in accepted)
 
 
-def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig) -> list[dict[str, Any]]:
+def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig, progress_callback: Any | None = None) -> list[dict[str, Any]]:
     filtered = [dict(r) for r in rows if _market_matches(r, config.market_scope)]
     if not filtered and rows:
         # Some sources omit market metadata. Preserve them, but never duplicate a ticker.
         filtered = [dict(r) for r in rows]
     from candidate_market_data import enrich_candidate_rows
-    return enrich_candidate_rows(filtered[: config.scan_limit])
+    return enrich_candidate_rows(filtered[: config.scan_limit], progress_callback=progress_callback)
 
 
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:
@@ -321,16 +321,25 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     )
 
 
-def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None) -> dict[str, Any]:
+def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None, progress_callback: Any | None = None) -> dict[str, Any]:
     cfg = (config or PipelineConfig()).normalized()
-    prepared_rows = [dict(row) for row in rows[: cfg.scan_limit]]
+    if progress_callback:
+        progress_callback({"phase": "PREPARE", "completed": 0, "total": max(1, min(len(rows), cfg.scan_limit)), "message": "Forbereder kandidater"})
+    def _enrich_progress(done: int, total: int, ticker: str) -> None:
+        if progress_callback:
+            progress_callback({"phase": "MARKET_DATA", "completed": done, "total": total, "ticker": ticker, "message": f"Henter markedsdata {done}/{total}: {ticker}"})
+    prepared_rows = _prepare_candidate_rows(rows, cfg, progress_callback=_enrich_progress)
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:
             fit, trace = calculate_portfolio_fit(row, prepared_rows)
             row["portfolio_fit_score"] = fit
             row["portfolio_fit_trace"] = trace
-    assessments = [score_candidate(row, cfg) for row in prepared_rows]
+    assessments = []
+    for idx, row in enumerate(prepared_rows, start=1):
+        assessments.append(score_candidate(row, cfg))
+        if progress_callback:
+            progress_callback({"phase": "SCORING", "completed": idx, "total": max(1, len(prepared_rows)), "ticker": str(row.get("ticker") or ""), "message": f"Beregner score {idx}/{len(prepared_rows)}"})
     assessments.sort(key=lambda x: (x.scanner_score, x.investment_score), reverse=True)
     deep = assessments[: cfg.deep_analysis_count]
     deep.sort(key=lambda x: (x.investment_score, x.scanner_score), reverse=True)
@@ -357,6 +366,8 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "proposals": [asdict(x) for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
     }
+    if progress_callback:
+        progress_callback({"phase": "PORTFOLIO_PROPOSAL", "completed": 1, "total": 1, "message": "Bygger teoretisk porteføljeforslag"})
     from advanced_investment_intelligence import build_portfolio_proposal
     payload["portfolio_proposal"] = build_portfolio_proposal(payload["candidates"])
     _write_json(LATEST_RUN_PATH, payload)

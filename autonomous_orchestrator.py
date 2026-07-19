@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.90"
+VERSION = "v18.6.92d"
 ROOT = runtime_data_path("autonomous_orchestrator")
 RUNS_DIR = ROOT / "runs"
 LATEST_PATH = ROOT / "latest_run.json"
@@ -76,10 +76,18 @@ def run_post_scan_chain(
                 stage("AUTONOMOUS_PORTFOLIO", "SKIPPED", {"reason": "Ingen kandidater fra skanningen"})
             else:
                 cycle = run_autonomous_cycle(candidates, str(market_run.get("run_id") or chain_id))
+                cycle_trades = cycle.get("trades") or []
+                cycle_decisions = cycle.get("decisions") or []
+                buys = [x for x in cycle_trades if x.get("action") == "BUY"]
+                sells = [x for x in cycle_trades if x.get("action") == "SELL"]
+                skips = [x for x in cycle_decisions if x.get("action") == "SKIP"]
                 stage("AUTONOMOUS_PORTFOLIO", "OK", {
-                    "trades": len(cycle.get("trades") or []),
-                    "decisions": len(cycle.get("decisions") or []),
+                    "trades": len(cycle_trades), "buys": len(buys), "sells": len(sells),
+                    "skips": len(skips), "decisions": len(cycle_decisions),
+                    "open_positions": len((cycle.get("portfolio") or {}).get("positions") or {}),
                     "status": cycle.get("portfolio", {}).get("status"),
+                    "buy_tickers": [x.get("ticker") for x in buys],
+                    "sell_tickers": [x.get("ticker") for x in sells],
                 })
         except Exception as exc:
             result["errors"].append(f"Autonomous Portfolio: {exc}")
