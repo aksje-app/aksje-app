@@ -21,7 +21,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.93"
+VERSION = "v18.6.93a"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -530,7 +530,15 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
-           "scan_configuration": {"per_market": job.scan_limit, "market_count": len(markets), "planned_maximum": job.scan_limit * len(markets)}}
+           "scan_configuration": {
+               "per_market": job.scan_limit,
+               "market_count": len(markets),
+               "planned_maximum": job.scan_limit * len(markets),
+               "actual_by_market": {
+                   str(item.get("config", {}).get("market_scope") or "Ukjent"): int((item.get("summary") or {}).get("scanned", 0))
+                   for item in market_runs
+               },
+           }}
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)
@@ -729,7 +737,16 @@ def render_market_intelligence() -> None:
             st.info("Ingen Scheduled Market Intelligence-rapport er generert ennå.")
         else:
             s = latest.get("summary") or {}; ch = latest.get("changes") or {}
-            a,b,c,d = st.columns(4); a.metric("Skannet", s.get("scanned",0)); b.metric("Forslag", s.get("proposals",0)); c.metric("Nye", len(ch.get("new",[]))); d.metric("Forbedret", len(ch.get("improved",[])))
+            scan_cfg = latest.get("scan_configuration") or {}
+            a,b,c,d,e = st.columns(5)
+            a.metric("Skannet", s.get("scanned",0), f"Planlagt maks {scan_cfg.get('planned_maximum', 0)}")
+            b.metric("Grundig analysert", s.get("deep_analyzed",0))
+            c.metric("Forslag", s.get("proposals",0))
+            d.metric("Nye", len(ch.get("new",[])))
+            e.metric("Forbedret", len(ch.get("improved",[])))
+            actual_by_market = scan_cfg.get("actual_by_market") or {}
+            if actual_by_market:
+                st.caption("Faktisk skannet per marked: " + " · ".join(f"{market}: {count}" for market, count in actual_by_market.items()))
             statuses = latest.get("market_status") or []
             if statuses:
                 st.markdown("#### 🌍 Markedsstatus")
@@ -755,7 +772,25 @@ def render_market_intelligence() -> None:
                     cols[idx].metric(f"{medals[idx]} {candidate.get('ticker','-')} · {candidate.get('market','-')}", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
             if latest.get("errors"): st.warning(" | ".join(latest["errors"]))
             st.markdown("#### Top 10")
-            table = [{"Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"), "Score": x.get("investment_score"), "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"), "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"), "Status": x.get("status")} for x in candidates[:10]]
+            table = []
+            for x in candidates[:10]:
+                strengths = {
+                    "AI Discovery": x.get("discovery_score", 0),
+                    "Fundamentaler": x.get("fundamental_score", 0),
+                    "Research": x.get("research_score", 0),
+                    "Validering": x.get("validation_score", 0),
+                    "Porteføljetilpasning": x.get("portfolio_fit_score", 0),
+                }
+                strongest = max(strengths, key=lambda key: float(strengths[key] or 0))
+                action = "BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "WATCH" if x.get("status") == "OBSERVASJONSLISTE" else "REVIEW" if x.get("status") == "KREVER MANUELL VURDERING" else "SKIP"
+                table.append({
+                    "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
+                    "Sektor": x.get("sector"), "Score": x.get("investment_score"),
+                    "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"),
+                    "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"),
+                    "Sterkeste faktor": f"{strongest} {float(strengths[strongest] or 0):.1f}",
+                    "Handling": action, "Status": x.get("status"),
+                })
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
             pdf = build_pdf(latest)
             e1,e2 = st.columns(2)

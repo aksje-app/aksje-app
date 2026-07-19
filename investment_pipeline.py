@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.93"
+VERSION = "v18.6.93a"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -423,36 +423,100 @@ def load_review_queue() -> list[dict[str, Any]]:
     return value if isinstance(value, list) else []
 
 
+def _market_rows_from_tickers(tickers: Sequence[str], market: str, source: str) -> list[dict[str, Any]]:
+    """Build lightweight candidate rows; live enrichment happens once in run_pipeline."""
+    rows: list[dict[str, Any]] = []
+    for ticker in tickers:
+        symbol = str(ticker or "").strip().upper()
+        if not symbol:
+            continue
+        rows.append({
+            "ticker": symbol,
+            "symbol": symbol,
+            "name": symbol,
+            "market": market,
+            "source": source,
+        })
+    return rows
+
+
+def _merge_candidate_rows(primary: Sequence[Mapping[str, Any]], fallback: Sequence[Mapping[str, Any]], market: str, limit: int) -> list[dict[str, Any]]:
+    """Merge sources without duplicates and guarantee market metadata."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in [*primary, *fallback]:
+        row = dict(raw)
+        ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        row["ticker"] = ticker
+        row.setdefault("symbol", ticker)
+        row.setdefault("name", ticker)
+        row["market"] = market
+        row.setdefault("source", "Market universe")
+        merged.append(row)
+        seen.add(ticker)
+        if len(merged) >= int(limit):
+            break
+    return merged
+
+
 def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str, Any]], str]:
-    """Try the real Smart Universe engine, then fall back to persisted rankings."""
+    """Load up to scan_limit unique candidates for one market.
+
+    Smart Universe remains the preferred source, but it is augmented by the
+    built-in liquid market universe whenever it returns fewer rows than the
+    configured per-market scan size. This prevents a stale persisted Top-10
+    result from silently limiting a 25/50-stock scheduled scan.
+    """
+    cfg = config.normalized()
+    primary: list[dict[str, Any]] = []
+    source_parts: list[str] = []
+
     try:
         from services.universe_service import get_universe_service
         service = get_universe_service()
         result = service.run_smart_universe({
             "mode": "Smart AI-utvalg",
-            "scopes": [config.market_scope],
-            "max_count": config.scan_limit,
+            "scopes": [cfg.market_scope],
+            "max_count": cfg.scan_limit,
             "max_risk": "Høy",
             "sectors": ["Alle sektorer"],
-            "use_news": config.use_research,
+            "use_news": cfg.use_research,
             "use_signal_intelligence": True,
         })
-        rows = _extract_rows(result)
-        if rows:
-            prepared = _prepare_candidate_rows(rows, config)
-            return prepared, "Smart Universe Engine + yfinance enrichment"
+        primary = _extract_rows(result)
+        if primary:
+            source_parts.append("Smart Universe Engine")
     except Exception:
-        pass
+        primary = []
+
+    if not primary:
+        try:
+            from services.storage_service import get_storage_service
+            storage = get_storage_service()
+            for name in ("smart_universe_result.json", "latest_rankings_v148.json", "top_picks_result.json"):
+                stored = _extract_rows(storage.read_json(name, default={}) or {})
+                if stored:
+                    primary = stored
+                    source_parts.append(f"Lagret {name}")
+                    break
+        except Exception:
+            pass
+
+    fallback_rows: list[dict[str, Any]] = []
     try:
-        from services.storage_service import get_storage_service
-        storage = get_storage_service()
-        for name in ("smart_universe_result.json", "latest_rankings_v148.json", "top_picks_result.json"):
-            rows = _extract_rows(storage.read_json(name, default={}) or {})
-            if rows:
-                prepared = _prepare_candidate_rows(rows, config)
-                return prepared, f"Lagret {name} + yfinance enrichment"
+        from universe_engine import resolve_universe_tickers
+        tickers = resolve_universe_tickers([cfg.market_scope], max_count=cfg.scan_limit)
+        fallback_rows = _market_rows_from_tickers(tickers, cfg.market_scope, "Built-in liquid market universe")
+        if fallback_rows:
+            source_parts.append("Built-in market universe")
     except Exception:
         pass
+
+    rows = _merge_candidate_rows(primary, fallback_rows, cfg.market_scope, cfg.scan_limit)
+    if rows:
+        return rows, " + ".join(source_parts or ["Market universe"]) + " + yfinance enrichment"
     return [], "Ingen kandidatkilde"
 
 
