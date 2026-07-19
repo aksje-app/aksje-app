@@ -12,6 +12,7 @@ import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Callable
 
@@ -20,7 +21,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92g"
+VERSION = "v18.6.93"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -39,6 +40,46 @@ MODULE_OPTIONS = [
 SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
+
+SCAN_PROFILES = {"Rask (10)": 10, "Normal (25)": 25, "Grundig (50)": 50, "Egendefinert": None}
+MARKET_CLOCKS = {
+    "USA": ("America/New_York", time(9, 30), time(16, 0)),
+    "Norge": ("Europe/Oslo", time(9, 0), time(16, 20)),
+    "Sverige": ("Europe/Stockholm", time(9, 0), time(17, 30)),
+    "Finland": ("Europe/Helsinki", time(10, 0), time(18, 30)),
+    "Danmark": ("Europe/Copenhagen", time(9, 0), time(17, 0)),
+    "Brasil": ("America/Sao_Paulo", time(10, 0), time(17, 55)),
+}
+
+
+def build_market_status(markets: Sequence[str], refresh: Mapping[str, Any] | None = None, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Return transparent exchange-clock status without pretending to know every holiday."""
+    refresh = refresh or {}
+    now = now or datetime.now(timezone.utc)
+    dates = list(refresh.get("latest_trade_dates") or [])
+    latest_date = max(dates) if dates else None
+    rows = []
+    for market in markets:
+        tz_name, open_at, close_at = MARKET_CLOCKS.get(market, ("UTC", time(0, 0), time(0, 0)))
+        local = now.astimezone(ZoneInfo(tz_name))
+        weekday_open = local.weekday() < 5
+        within_hours = open_at <= local.time().replace(tzinfo=None) <= close_at
+        status = "ÅPEN" if weekday_open and within_hours else "STENGT"
+        reason = "Innenfor ordinær åpningstid" if status == "ÅPEN" else ("Helg" if not weekday_open else "Utenfor ordinær åpningstid")
+        rows.append({"market": market, "status": status, "reason": reason, "local_time": local.strftime("%H:%M"), "timezone": tz_name, "latest_trade_date": latest_date})
+    return rows
+
+
+def build_data_quality(refresh: Mapping[str, Any], candidate_count: int) -> dict[str, Any]:
+    total = max(1, int(candidate_count or 0))
+    success = int(refresh.get("live_count", 0))
+    errors = int(refresh.get("error_count", 0))
+    cache = int(refresh.get("cache_count", 0))
+    coverage = max(0.0, min(100.0, 100.0 * (success + cache) / total))
+    penalty = min(35.0, errors * 7.0 + (0 if refresh.get("latest_trade_dates") else 10.0))
+    score = round(max(0.0, coverage - penalty), 1)
+    label = "UTMERKET" if score >= 90 else "GODT" if score >= 75 else "BEGRENSET" if score >= 50 else "SVAKT"
+    return {"score": score, "label": label, "candidate_count": candidate_count, "live": success, "cache": cache, "errors": errors, "latest_trade_dates": list(refresh.get("latest_trade_dates") or [])}
 
 
 def _now() -> datetime:
@@ -85,7 +126,7 @@ class JobProfile:
     schedules: list[str] = field(default_factory=lambda: ["08:30", "22:30"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     modules: list[str] = field(default_factory=lambda: list(MODULE_OPTIONS))
-    scan_limit: int = 100
+    scan_limit: int = 25
     deep_count: int = 20
     proposal_count: int = 5
     min_alert_score: float = 80.0
@@ -135,7 +176,7 @@ def load_draft_job() -> JobProfile:
         except Exception:
             pass
     return JobProfile(
-        name="Hurtigtest – Alle markeder",
+        name="Normalanalyse – Alle markeder",
         markets=["Alle"],
         schedules=[],
         enabled=False,
@@ -272,6 +313,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     story += [Paragraph("Executive Summary", styles["Heading1"]),
               Table([["Skannet", summary.get("scanned", 0)], ["Grundig analysert", summary.get("deep_analyzed", 0)],
                      ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+    market_status = run.get("market_status") or []
+    if market_status:
+        ms_data = [["Marked", "Status", "Lokal tid", "Forklaring", "Siste handelsdato"]]
+        for item in market_status:
+            ms_data.append([item.get("market"), item.get("status"), item.get("local_time"), item.get("reason"), item.get("latest_trade_date") or "Ukjent"])
+        ms_table = Table(ms_data, repeatRows=1, colWidths=[24*mm, 20*mm, 20*mm, 55*mm, 38*mm])
+        ms_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
+        story += [Paragraph("Markedsstatus", styles["Heading2"]), ms_table, Spacer(1, 4*mm)]
+    quality = run.get("data_quality") or {}
+    if quality:
+        story += [Paragraph("Datakvalitet", styles["Heading2"]), Table([["Kvalitetsscore", f"{quality.get('score', 0)} %"], ["Vurdering", quality.get("label", "-")], ["Live", quality.get("live", 0)], ["Cache", quality.get("cache", 0)], ["Feil", quality.get("errors", 0)]], colWidths=[70*mm, 55*mm]), Spacer(1, 5*mm)]
     refresh = run.get("data_refresh") or {}
     story += [Paragraph("Datainnhenting og cachekontroll", styles["Heading2"]),
               Table([
@@ -303,13 +355,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
                      ["Svekket", len(changes.get("weakened", []))], ["Utgått", len(changes.get("dropped", []))]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
     candidates = run.get("candidates") or []
     if candidates:
+        medal_labels = ["1. BESTE KANDIDAT", "2. NUMMER TO", "3. NUMMER TRE"]
+        medal_data = []
+        for idx, r in enumerate(candidates[:3]):
+            strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0))), key=lambda x: float(x[1] or 0))
+            medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
+        medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
+        medal_table.setStyle(TableStyle([("BOX", (0,0), (-1,-1), .6, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F7F9FC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
+        story += [Paragraph("Topp 3", styles["Heading1"]), medal_table, Spacer(1, 6*mm)]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko", "Status"]]
-        for r in candidates[:30]:
+        for r in candidates[:10]:
             data.append([r.get("rank"), r.get("ticker"), r.get("market"), r.get("investment_score"), r.get("confidence_score"), r.get("trend"), r.get("risk_score"), str(r.get("status", ""))[:22]])
         table = Table(data, repeatRows=1, colWidths=[8*mm, 20*mm, 22*mm, 16*mm, 16*mm, 20*mm, 16*mm, 52*mm])
         table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
                                    ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("Rangert kandidatliste", styles["Heading1"]), table]
+        story += [Paragraph("Top 10", styles["Heading1"]), table]
     for p in run.get("proposals") or []:
         story += [PageBreak(), Paragraph(f"{p.get('ticker')} - investeringsforslag", styles["Heading1"]),
                   Paragraph(f"Status: {p.get('status')} | Investment Score: {p.get('investment_score')}/100 | Konfidens: {p.get('confidence_score', 0)}/100 | Trend: {p.get('trend', 'NY')}", styles["BodyText"]),
@@ -464,10 +524,13 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_proposals = all_proposals[:job.proposal_count]
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
     refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
+    market_status = build_market_status(markets, refresh_summary)
+    data_quality = build_data_quality(refresh_summary, len(all_candidates))
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
-           "data_refresh": refresh_summary}
+           "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
+           "scan_configuration": {"per_market": job.scan_limit, "market_count": len(markets), "planned_maximum": job.scan_limit * len(markets)}}
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)
@@ -605,7 +668,14 @@ def render_market_intelligence() -> None:
             weekday_names = st.multiselect("Ukedager", WEEKDAY_NAMES, default=[WEEKDAY_NAMES[i] for i in (current.weekdays if current else [0,1,2,3,4])], key="mi_days_v18687")
         with c2:
             modules = st.multiselect("Pipeline-moduler", MODULE_OPTIONS, default=current.modules if current else MODULE_OPTIONS, key="mi_modules_v18687")
-            scan_limit = st.number_input("Maks kandidater", 10, 500, current.scan_limit if current else 100, 10, key="mi_scan_v18687")
+            current_limit = int(current.scan_limit if current else 25)
+            reverse_profile = {10: "Rask (10)", 25: "Normal (25)", 50: "Grundig (50)"}
+            default_profile = reverse_profile.get(current_limit, "Egendefinert")
+            scan_profile = st.selectbox("Skanneprofil per marked", list(SCAN_PROFILES), index=list(SCAN_PROFILES).index(default_profile), key="mi_scan_profile_v18693")
+            scan_limit = SCAN_PROFILES[scan_profile]
+            if scan_limit is None:
+                scan_limit = st.number_input("Egendefinert antall per marked", 10, 250, current_limit, 5, key="mi_scan_custom_v18693")
+            st.caption(f"Planlagt maksimum: {int(scan_limit) * len(normalize_markets(markets or ['Norge']))} aksjer ({int(scan_limit)} per marked).")
             deep = st.number_input("Grundig analyse av topp", 1, 100, current.deep_count if current else 20, 1, key="mi_deep_v18687")
             proposals = st.number_input("Antall forslag", 1, 30, current.proposal_count if current else 5, 1, key="mi_prop_v18687")
         n1, n2, n3, n4 = st.columns(4)
@@ -660,8 +730,32 @@ def render_market_intelligence() -> None:
         else:
             s = latest.get("summary") or {}; ch = latest.get("changes") or {}
             a,b,c,d = st.columns(4); a.metric("Skannet", s.get("scanned",0)); b.metric("Forslag", s.get("proposals",0)); c.metric("Nye", len(ch.get("new",[]))); d.metric("Forbedret", len(ch.get("improved",[])))
+            statuses = latest.get("market_status") or []
+            if statuses:
+                st.markdown("#### 🌍 Markedsstatus")
+                status_cols = st.columns(min(3, len(statuses)))
+                for idx, item in enumerate(statuses):
+                    icon = "🟢" if item.get("status") == "ÅPEN" else "🔴"
+                    status_cols[idx % len(status_cols)].metric(f"{icon} {item.get('market')}", item.get("status"), f"{item.get('local_time')} · {item.get('reason')}")
+                refresh = latest.get("data_refresh") or {}
+                dates = ", ".join(refresh.get("latest_trade_dates") or []) or "ukjent"
+                if refresh.get("live_count", 0):
+                    st.info(f"Live data ble hentet. Siste tilgjengelige handelsdato: {dates}.")
+            quality = latest.get("data_quality") or {}
+            if quality:
+                st.progress(float(quality.get("score", 0))/100.0, text=f"Datakvalitet: {quality.get('score',0)} % · {quality.get('label','-')}")
+            candidates = list(latest.get("candidates") or [])
+            if candidates:
+                st.markdown("#### 🏅 Topp 3")
+                medals = ["🥇", "🥈", "🥉"]
+                cols = st.columns(min(3, len(candidates)))
+                for idx, candidate in enumerate(candidates[:3]):
+                    strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0)}
+                    strongest = max(strengths, key=lambda k: float(strengths[k] or 0))
+                    cols[idx].metric(f"{medals[idx]} {candidate.get('ticker','-')} · {candidate.get('market','-')}", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
             if latest.get("errors"): st.warning(" | ".join(latest["errors"]))
-            table = [{"Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"), "Score": x.get("investment_score"), "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"), "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"), "Status": x.get("status")} for x in latest.get("candidates") or []]
+            st.markdown("#### Top 10")
+            table = [{"Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"), "Score": x.get("investment_score"), "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"), "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"), "Status": x.get("status")} for x in candidates[:10]]
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
             pdf = build_pdf(latest)
             e1,e2 = st.columns(2)

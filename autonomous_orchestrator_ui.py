@@ -102,6 +102,7 @@ def render_autonomous_orchestrator_control_center() -> None:
         _render_checklist("MARKET_DATA", "Starter markedsskanning")
         try:
             result = run_job(selected_job, trigger=trigger, progress_callback=_progress_event, force_refresh=force_refresh)
+            st.session_state["mi_latest_v18687"] = result
             chain = result.get("autonomous_chain") or {}
             progress.progress(100, text="100 % · Hele kjeden er ferdig")
             completed_steps.update(steps)

@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92e"
+VERSION = "v18.6.93"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
 RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
@@ -92,7 +92,7 @@ def _candidate_id(ticker: str, market: str) -> str:
 @dataclass
 class PipelineConfig:
     market_scope: str = "Alle"
-    scan_limit: int = 100
+    scan_limit: int = 25
     deep_analysis_count: int = 20
     proposal_count: int = 5
     min_data_quality: float = 45.0
@@ -484,7 +484,7 @@ def render_investment_pipeline() -> None:
         with c1:
             market = st.selectbox("Markedsvalg", market_scope_options(include_aggregate=True), index=market_scope_options(True).index("Alle"), key="ip_market_v18686")
         with c2:
-            scan_limit = st.number_input("Maks kandidater å skanne", 10, 500, 100, 10, key="ip_scan_limit_v18686")
+            scan_limit = st.number_input("Maks kandidater å skanne", 10, 500, 25, 5, key="ip_scan_limit_v18693")
         with c3:
             deep_count = st.number_input("Grundig analyse av topp", 1, 100, 20, 1, key="ip_deep_v18686")
         with c4:

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 FRAMEWORK_VERSION = 1
-APP_COMPAT_VERSION = "v18.6.91a"
+APP_COMPAT_VERSION = "v18.6.93"
 CANONICAL_KEY = "configuration/framework.json"
 BACKUP_PREFIX = "configuration/backups"
 

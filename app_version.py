@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.92g"
-APP_VERSION_NAME = "Verified Execution Telemetry"
+APP_VERSION = "v18.6.93"
+APP_VERSION_NAME = "Expanded Market Scan & Executive Overview"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.93: Expanded Market Scan & Executive Overview: 25 aksjer per marked som standard, raske/normale/grundige skanneprofiler, markedsstatus, datakvalitet, Topp 3-medaljer, Top 10 og forbedret fremdrift i UI og PDF.",
     "v18.6.92g: Verified Execution Telemetry: retter telemetri som lå under CandidateAssessment.raw, viser live-forsøk, vellykkede/feilede hentinger, cache-bypass, siste handelsdato og kjøringsbevis per ticker i JSON, UI og PDF.",
     "v18.6.92f: Verified Fresh Data Execution: force-refresh føres og bevises gjennom hele kjeden, cache-bypass verifiseres per kandidat, live/cache-telling, hentetidspunkt, nyeste handelsdato og uendrede markedsdata vises i UI, JSON og PDF.",
     "v18.6.92e: Analysis Trace & Fresh Data Control: valgfri full ny analyse uten cache, synlig datakilde/cache-alder/berikelsestidspunkt per kandidat, sammenligning mot forrige kjøring og komponentbasert forklaring på scoreendringer.",
