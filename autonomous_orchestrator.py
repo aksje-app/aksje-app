@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92e"
+VERSION = "v18.6.92f"
 ROOT = runtime_data_path("autonomous_orchestrator")
 RUNS_DIR = ROOT / "runs"
 LATEST_PATH = ROOT / "latest_run.json"

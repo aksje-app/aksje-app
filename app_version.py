@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.92e"
-APP_VERSION_NAME = "Analysis Trace & Fresh Data Control"
+APP_VERSION = "v18.6.92f"
+APP_VERSION_NAME = "Verified Fresh Data Execution"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.6.92f: Verified Fresh Data Execution: force-refresh føres og bevises gjennom hele kjeden, cache-bypass verifiseres per kandidat, live/cache-telling, hentetidspunkt, nyeste handelsdato og uendrede markedsdata vises i UI, JSON og PDF.",
     "v18.6.92e: Analysis Trace & Fresh Data Control: valgfri full ny analyse uten cache, synlig datakilde/cache-alder/berikelsestidspunkt per kandidat, sammenligning mot forrige kjøring og komponentbasert forklaring på scoreendringer.",
     "v18.6.92d: Autonomous Execution & Live Progress: detaljert prosentvis fremdrift med tickerstatus og sjekkliste, tydelig BUY/SELL/SKIP-oppsummering, topp-3 visning og sporbare endringsdrivere mellom kjøringer. Anbefalte kandidater sendes videre til den teoretiske porteføljen når jobbprofilen tillater autonom portefølje og porteføljen er ACTIVE.",
     "v18.6.92c: Calibrated Explainability: variabel konfidens basert på datadekning og kildekvalitet, research-score uten metning fra én kilde, dynamisk porteføljetilpasning og komplett sporbar formel for alle delscorer og totalscore.",

@@ -20,7 +20,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.92e"
+VERSION = "v18.6.92f"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -272,6 +272,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str = "Market Intelligence Re
     story += [Paragraph("Executive Summary", styles["Heading1"]),
               Table([["Skannet", summary.get("scanned", 0)], ["Grundig analysert", summary.get("deep_analyzed", 0)],
                      ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+    refresh = run.get("data_refresh") or {}
+    story += [Paragraph("Datainnhenting og cachekontroll", styles["Heading2"]),
+              Table([
+                  ["Full ny analyse valgt", "JA" if refresh.get("force_refresh_requested") else "NEI"],
+                  ["Cache-bypass verifisert", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI")],
+                  ["Live hentinger", refresh.get("live_count", 0)],
+                  ["Cache-hentinger", refresh.get("cache_count", 0)],
+                  ["Nyeste handelsdato(er)", ", ".join(refresh.get("latest_trade_dates") or []) or "Ukjent"],
+                  ["Uendrede markedsdata", refresh.get("unchanged_market_data_count", 0)],
+              ], colWidths=[70*mm, 85*mm]), Spacer(1, 6*mm)]
     changes = run.get("changes") or {}
     story += [Paragraph("Endringer siden forrige kjøring", styles["Heading2"]),
               Table([["Nye", len(changes.get("new", []))], ["Forbedret", len(changes.get("improved", []))],
@@ -370,10 +380,22 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_proposals.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     all_proposals = all_proposals[:job.proposal_count]
     run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
+    refresh_rows = all_candidates
+    refresh_summary = {
+        "force_refresh_requested": bool(force_refresh),
+        "cache_bypass_verified": bool(force_refresh) and bool(refresh_rows) and all(bool(x.get("cache_bypass_applied")) for x in refresh_rows),
+        "live_count": sum(1 for x in refresh_rows if str(x.get("data_source", "")).endswith("-live")),
+        "cache_count": sum(1 for x in refresh_rows if x.get("cache_hit")),
+        "error_count": sum(1 for x in refresh_rows if x.get("data_fetch_status") == "ERROR"),
+        "unchanged_market_data_count": sum(1 for x in refresh_rows if x.get("market_data_changed") is False),
+        "latest_trade_dates": sorted({str(x.get("latest_trade_date")) for x in refresh_rows if x.get("latest_trade_date")}),
+        "proof": "LIVE_CACHE_BYPASSED" if force_refresh else "NORMAL_CACHE_POLICY",
+        "cache_ttl_seconds": 21600,
+    }
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
-           "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600}}
+           "data_refresh": refresh_summary}
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = build_portfolio_proposal(all_candidates)

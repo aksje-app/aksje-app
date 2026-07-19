@@ -110,6 +110,15 @@ def render_autonomous_orchestrator_control_center() -> None:
             ap=(stage_map.get("AUTONOMOUS_PORTFOLIO") or {}).get("detail") or {}
             if ap:
                 st.success(f"Teoretiske beslutninger: {ap.get('buys',0)} kjøp, {ap.get('sells',0)} salg, {ap.get('skips',0)} hoppet over · {ap.get('open_positions',0)} åpne posisjoner.")
+            refresh = result.get("data_refresh") or {}
+            if refresh.get("force_refresh_requested"):
+                if refresh.get("cache_bypass_verified"):
+                    dates = ", ".join(refresh.get("latest_trade_dates") or []) or "ukjent"
+                    st.success(f"Full ny analyse verifisert: cache ble ignorert for alle kandidater. Live hentinger: {refresh.get('live_count', 0)}. Nyeste handelsdato: {dates}.")
+                    if refresh.get("unchanged_market_data_count", 0):
+                        st.info(f"{refresh.get('unchanged_market_data_count')} kandidater hadde uendrede siste markedsdata. Dette er normalt når børsene er stengt.")
+                else:
+                    st.error("Full ny analyse var valgt, men cache-bypass kunne ikke verifiseres for alle kandidater. Se diagnostikk/JSON.")
             if chain.get("status") == "OK":
                 st.success("Hele kjeden er fullført uten tekniske feil.")
             else:

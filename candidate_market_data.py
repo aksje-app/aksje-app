@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 
-VERSION = "v18.6.92e"
+VERSION = "v18.6.92f"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -42,6 +42,23 @@ def _safe_pct(value: float | None) -> float | None:
 def _cache_path(ticker: str) -> Path:
     safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in ticker.upper())
     return CACHE_DIR / f"{safe}.json"
+
+
+def _read_cache_snapshot(ticker: str) -> dict[str, Any]:
+    """Read prior cache only for comparison/audit; never returns it as analysis input."""
+    path = _cache_path(ticker)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        row = dict(payload.get("row") or {})
+        return {
+            "exists": True,
+            "cached_epoch": payload.get("cached_epoch"),
+            "last_price": row.get("last_price"),
+            "latest_trade_date": row.get("latest_trade_date"),
+            "enriched_at": row.get("enriched_at"),
+        }
+    except Exception:
+        return {"exists": False}
 
 
 def _read_cache(ticker: str) -> dict[str, Any] | None:
@@ -214,18 +231,39 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
     if not ticker:
         base.update({"data_fetch_status": "ERROR", "data_fetch_error": "Mangler ticker", "analysis_trace": []})
         return base
+    request_started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    prior_snapshot = _read_cache_snapshot(ticker)
     if use_cache and not force_refresh:
         cached = _read_cache(ticker)
         if cached:
             cached.update({k: v for k, v in base.items() if v not in (None, "")})
             cached["data_fetch_status"] = "CACHE"
             cached["force_refresh"] = False
+            cached["force_refresh_requested"] = False
+            cached["cache_bypass_applied"] = False
+            cached["fetch_started_at"] = request_started
+            cached["fetch_completed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            cached["refresh_proof"] = "CACHE_USED"
             return cached
-    trace: list[dict[str, Any]] = []
+    trace: list[dict[str, Any]] = [{
+        "step": "cache_policy",
+        "status": "BYPASSED" if force_refresh else "MISS",
+        "detail": "Cache ble eksplisitt ignorert" if force_refresh else "Ingen gyldig cache; live innhenting startet",
+        "force_refresh_requested": bool(force_refresh),
+    }]
     try:
         import yfinance as yf
         yf_ticker = yf.Ticker(ticker)
         hist = yf_ticker.history(period="1y", interval="1d", auto_adjust=True, actions=False)
+        latest_trade_date = None
+        latest_trade_timestamp = None
+        try:
+            if hist is not None and not hist.empty:
+                idx = hist.index[-1]
+                latest_trade_timestamp = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+                latest_trade_date = str(getattr(idx, "date", lambda: idx)())
+        except Exception:
+            pass
         technical, technical_trace = _technical_fields(hist)
         trace.extend(technical_trace)
         info: dict[str, Any] = {}
@@ -258,10 +296,29 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
         enriched["cache_path"] = str(_cache_path(ticker))
         enriched["data_source"] = "yfinance-live"
         enriched["force_refresh"] = bool(force_refresh)
+        enriched["force_refresh_requested"] = bool(force_refresh)
+        enriched["cache_bypass_applied"] = bool(force_refresh)
+        enriched["fetch_started_at"] = request_started
+        enriched["fetch_completed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        enriched["latest_trade_date"] = latest_trade_date
+        enriched["latest_trade_timestamp"] = latest_trade_timestamp
+        enriched["prior_cache_snapshot"] = prior_snapshot
+        old_price = _finite(prior_snapshot.get("last_price"))
+        new_price = _finite(enriched.get("last_price"))
+        enriched["market_data_changed"] = bool(old_price is not None and new_price is not None and abs(old_price-new_price) > 1e-10)
+        enriched["refresh_proof"] = "LIVE_CACHE_BYPASSED" if force_refresh else "LIVE_CACHE_MISS"
+        trace.append({"step": "refresh_proof", "status": "OK", "detail": enriched["refresh_proof"], "latest_trade_date": latest_trade_date, "market_data_changed": enriched["market_data_changed"]})
         _write_cache(ticker, enriched)
         return enriched
     except Exception as exc:
-        base.update({"data_fetch_status": "ERROR", "data_fetch_error": str(exc), "analysis_trace": trace + [{"step": "enrichment", "status": "ERROR", "detail": str(exc)}]})
+        base.update({
+            "data_fetch_status": "ERROR", "data_fetch_error": str(exc),
+            "analysis_trace": trace + [{"step": "enrichment", "status": "ERROR", "detail": str(exc)}],
+            "force_refresh": bool(force_refresh), "force_refresh_requested": bool(force_refresh),
+            "cache_bypass_applied": bool(force_refresh), "fetch_started_at": request_started,
+            "fetch_completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "refresh_proof": "LIVE_ATTEMPT_FAILED" if force_refresh else "FETCH_FAILED",
+        })
         return base
 
 
