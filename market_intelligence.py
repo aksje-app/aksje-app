@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.7.5"
+VERSION = "v18.7.6"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -195,18 +195,34 @@ def normalize_markets(markets: Sequence[str]) -> list[str]:
     return [x for x in chosen if x in valid] or ["Norge"]
 
 
-def report_identity(trigger: str, job_name: str = "") -> dict[str, str]:
+def report_identity(trigger: str, job_name: str = "", job_id: str = "") -> dict[str, str]:
     trigger_key = str(trigger or "").upper()
     job_key = str(job_name or "").casefold()
-    if "DRAFT" in trigger_key or "TEST" in trigger_key:
+    if str(job_id or "").upper() == DRAFT_JOB_ID or "DRAFT" in trigger_key or "TEST" in trigger_key:
         return {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
     if trigger_key == "SCHEDULED" or (trigger_key == "MANUAL_FULL_CHAIN" and "morgen" in job_key):
         return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
     return {"type": "MANUELL_RAPPORT", "label": "Manuell rapport", "slug": "Manuell_rapport"}
 
 
+def resolve_report_identity(run: Mapping[str, Any]) -> dict[str, str]:
+    """Resolve identity with the immutable draft job id as highest authority.
+
+    Stored identity remains backwards compatible for ordinary reports, while a
+    draft can never inherit a morning-report label from a stale or incorrect
+    trigger during a Streamlit rerun.
+    """
+    trigger = str(run.get("trigger") or "")
+    job_name = str(run.get("job_name") or "")
+    job_id = str(run.get("job_id") or "")
+    if job_id.upper() == DRAFT_JOB_ID:
+        return report_identity(trigger, job_name, job_id)
+    stored = run.get("report_identity")
+    return dict(stored) if isinstance(stored, Mapping) else report_identity(trigger, job_name, job_id)
+
+
 def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
-    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
+    identity = resolve_report_identity(run)
     job_name = str(run.get("job_name") or "Analyse").strip().replace("–", "-")
     clean = "_".join(part for part in "".join(ch if ch.isalnum() or ch in " _-" else " " for ch in job_name).split())
     stamp = str(run.get("created_at") or "").replace(":", "").replace("-", "")[:15] or str(run.get("run_id") or "latest")
@@ -390,7 +406,7 @@ def _save_report_archive(rows: Sequence[Mapping[str, Any]]) -> None:
 def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     candidates = list(run.get("candidates") or [])
     top = candidates[0] if candidates else {}
-    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
+    identity = resolve_report_identity(run)
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"), "job_name": run.get("job_name"),
         "report_type": identity.get("type"), "report_label": identity.get("label"),
@@ -490,7 +506,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib.units import mm
     from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
+    identity = resolve_report_identity(run)
     report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
@@ -766,7 +782,7 @@ def _recent_validated_draft(job: JobProfile, trigger: str) -> dict[str, Any] | N
     if str(trigger or "").upper() != "MANUAL_FULL_CHAIN":
         return None
     latest = _read(LATEST_PATH, {})
-    identity = latest.get("report_identity") or report_identity(str(latest.get("trigger") or ""), str(latest.get("job_name") or ""))
+    identity = resolve_report_identity(latest)
     if identity.get("type") != "UTKAST" or latest.get("analysis_aborted"):
         return None
     if not _same_job_name(str(latest.get("job_name") or ""), job.name):
@@ -798,7 +814,7 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
         "job_id": job.job_id,
         "job_name": job.name,
         "trigger": trigger,
-        "report_identity": report_identity(trigger, job.name),
+        "report_identity": report_identity(trigger, job.name, job.job_id),
         "execution_mode": "PROMOTED_VALIDATED_DRAFT",
         "source_draft_run_id": source.get("run_id"),
         "configuration_handoff": dict(handoff),
@@ -1011,7 +1027,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "analysis_aborted": analysis_aborted,
            "executive_intelligence": executive_intelligence(all_candidates),
            "diverse_top3": select_diverse_candidates(all_candidates, 3),
-           "report_identity": report_identity(trigger, job.name),
+           "report_identity": report_identity(trigger, job.name, job.job_id),
            "execution_mode": "UNIFIED_PIPELINE",
            "configuration_handoff": handoff,
            "market_diagnostics": market_diagnostics,
@@ -1284,7 +1300,7 @@ def render_market_intelligence() -> None:
         if not latest:
             st.info("Ingen Scheduled Market Intelligence-rapport er generert ennå.")
         else:
-            identity = latest.get("report_identity") or report_identity(str(latest.get("trigger") or ""))
+            identity = resolve_report_identity(latest)
             st.markdown(f"### {identity.get('label', 'Rapport')} · {latest.get('job_name', '-')}")
             st.caption(f"Rapporttype: {identity.get('type', '-')} · Kjøring: {latest.get('run_id', '-')}")
             if latest.get("analysis_aborted"):
@@ -1407,7 +1423,7 @@ def render_market_intelligence() -> None:
         files = sorted(RUNS_DIR.glob("MI-*.json"), reverse=True)[:100] if RUNS_DIR.exists() else []
         rows = []
         for path in files:
-            r = _read(path, {}); identity = r.get("report_identity") or report_identity(str(r.get("trigger") or "")); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
+            r = _read(path, {}); identity = resolve_report_identity(r); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
         if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else: st.caption("Ingen historiske kjøringer.")
     with tab_ops:
