@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.7.3"
+VERSION = "v18.7.5"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -475,68 +475,141 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
 
 
 def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
+    """Build the compact professional market-intelligence report.
+
+    The v18.7.5 layout deliberately avoids decorative cover/disclaimer pages and
+    per-proposal page breaks.  No report data is removed; dense sections are
+    arranged horizontally and allowed to flow naturally across A4 pages.
+    """
+    from html import escape
+
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
     report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=16*mm, leftMargin=16*mm, topMargin=16*mm, bottomMargin=16*mm,
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
                             title=report_type, author="AI Aksje Analyzer Pro")
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Cover", parent=styles["Title"], alignment=TA_CENTER, fontSize=24, leading=30, spaceAfter=18))
-    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=8, leading=10))
-    story = [Spacer(1, 30*mm), Paragraph("AI Aksje Analyzer Pro", styles["Cover"]),
-             Paragraph(report_type, styles["Heading1"]), Spacer(1, 3*mm),
-             Paragraph(f"<b>Rapporttype: {identity.get('type', '-')}</b>", styles["Heading2"]), Spacer(1, 5*mm),
-             Paragraph(f"Jobb: {run.get('job_name', '-')}", styles["BodyText"]),
-             Paragraph(f"Rapport-ID: {run.get('run_id', '-')}", styles["BodyText"]),
-             Paragraph(f"Generert: {run.get('created_at', '-')}", styles["BodyText"]),
-             Paragraph(f"Markeder: {', '.join(run.get('markets') or run.get('market_expansion') or [])}", styles["BodyText"]), PageBreak()]
+    styles.add(ParagraphStyle(name="ReportTitle", parent=styles["Title"], alignment=TA_LEFT, fontName="Helvetica-Bold", fontSize=17, leading=20, textColor=colors.HexColor("#102A43"), spaceAfter=2*mm))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=12, leading=14, textColor=colors.HexColor("#102A43"), spaceBefore=3*mm, spaceAfter=1.5*mm, keepWithNext=True))
+    styles.add(ParagraphStyle(name="Subsection", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.5, leading=11, textColor=colors.HexColor("#243B53"), spaceBefore=2.2*mm, spaceAfter=1*mm, keepWithNext=True))
+    styles.add(ParagraphStyle(name="BodyCompact", parent=styles["BodyText"], fontName="Helvetica", fontSize=8, leading=10, spaceAfter=.8*mm))
+    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontName="Helvetica", fontSize=7.2, leading=8.7, spaceAfter=.6*mm))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["BodyText"], fontName="Helvetica", fontSize=6.4, leading=7.5))
+    styles.add(ParagraphStyle(name="Footer", parent=styles["BodyText"], fontName="Helvetica", fontSize=6.5, leading=8, textColor=colors.HexColor("#627D98")))
+
+    header_bg = colors.HexColor("#D9EAF7")
+    grid = colors.HexColor("#9FB3C8")
+    stripe = colors.HexColor("#F5F8FA")
+
+    def _table_style(font_size: float = 7, *, header: bool = True, padding: float = 2.5) -> TableStyle:
+        commands = [
+            ("GRID", (0, 0), (-1, -1), .3, grid),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), font_size),
+            ("LEADING", (0, 0), (-1, -1), font_size + 1.3),
+            ("LEFTPADDING", (0, 0), (-1, -1), padding),
+            ("RIGHTPADDING", (0, 0), (-1, -1), padding),
+            ("TOPPADDING", (0, 0), (-1, -1), padding),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
+            ("ROWBACKGROUNDS", (0, 1 if header else 0), (-1, -1), [colors.white, stripe]),
+        ]
+        if header:
+            commands += [("BACKGROUND", (0, 0), (-1, 0), header_bg), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold")]
+        return TableStyle(commands)
+
+    def _p(value: Any, style: str = "Tiny") -> Paragraph:
+        return Paragraph(escape(str(value if value is not None else "-")), styles[style])
+
+    def _fmt(value: Any, decimals: int = 2) -> Any:
+        if isinstance(value, bool) or value is None:
+            return value
+        try:
+            return f"{float(value):.{decimals}f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            return value
+
+    def _page(canvas: Any, document: Any) -> None:
+        canvas.saveState()
+        width, height = A4
+        canvas.setStrokeColor(colors.HexColor("#BCCCDC"))
+        canvas.setLineWidth(.35)
+        canvas.line(13*mm, height-10*mm, width-13*mm, height-10*mm)
+        canvas.setFont("Helvetica", 6.5)
+        canvas.setFillColor(colors.HexColor("#627D98"))
+        canvas.drawString(13*mm, height-8*mm, "AI Aksje Analyzer Pro")
+        canvas.drawRightString(width-13*mm, height-8*mm, str(identity.get("label") or "Rapport"))
+        canvas.line(13*mm, 9*mm, width-13*mm, 9*mm)
+        canvas.drawString(13*mm, 6*mm, str(run.get("run_id") or "-"))
+        canvas.drawRightString(width-13*mm, 6*mm, f"Side {document.page}")
+        canvas.restoreState()
+
+    markets_text = ", ".join(run.get("markets") or run.get("market_expansion") or [])
+    meta = Table([
+        [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(run.get("job_name", "-"), "Small")],
+        [_p("Rapport-ID", "Small"), _p(run.get("run_id", "-"), "Small"), _p("Generert", "Small"), _p(run.get("created_at", "-"), "Small")],
+        [_p("Markeder", "Small"), _p(markets_text, "Small"), "", ""],
+    ], colWidths=[22*mm, 68*mm, 18*mm, 76*mm])
+    meta.setStyle(_table_style(7, header=False, padding=2.5))
+    meta.setStyle(TableStyle([("SPAN", (1, 2), (3, 2)), ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F5F8FA"))]))
+    story = [Paragraph("AI Aksje Analyzer Pro", styles["ReportTitle"]), Paragraph(escape(report_type), styles["Section"]), meta, Spacer(1, 2*mm)]
     summary = run.get("summary") or {}
     intelligence = run.get("executive_intelligence") or executive_intelligence(run.get("candidates") or [])
-    story += [Paragraph("Executive Summary", styles["Heading1"]),
-              Table([["Skannet", summary.get("scanned", 0)], ["Grundig analysert", summary.get("deep_analyzed", 0)],
-                     ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)],
-                     ["Unike selskaper", intelligence.get("unique_companies", 0)], ["Gjennomsnittsscore", intelligence.get("average_score", 0)],
-                     ["Høyeste score", intelligence.get("highest_score", 0)], ["Markeder i Top 10", intelligence.get("markets_in_top10", 0)],
-                     ["Sterke insider-signaler", sum(1 for x in (run.get("candidates") or []) if float((x.get("raw") or {}).get("insider_score", 50) or 50) >= 78)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+    summary_items = [("Skannet", summary.get("scanned", 0)), ("Grundig analysert", summary.get("deep_analyzed", 0)),
+                     ("Forslag", summary.get("proposals", 0)), ("Anbefalt", summary.get("recommended", 0)),
+                     ("Unike selskaper", intelligence.get("unique_companies", 0)), ("Snittscore", intelligence.get("average_score", 0)),
+                     ("Høyeste score", intelligence.get("highest_score", 0)), ("Markeder i Top 10", intelligence.get("markets_in_top10", 0)),
+                     ("Sterke insidersignaler", sum(1 for x in (run.get("candidates") or []) if float((x.get("raw") or {}).get("insider_score", 50) or 50) >= 78))]
+    summary_grid = []
+    for index in range(0, len(summary_items), 3):
+        cells = []
+        for label, value in summary_items[index:index+3]:
+            cells.append(Paragraph(f"<b>{escape(label)}</b><br/><font size='11'>{escape(str(value))}</font>", styles["Small"]))
+        while len(cells) < 3: cells.append("")
+        summary_grid.append(cells)
+    summary_table = Table(summary_grid, colWidths=[61.3*mm]*3)
+    summary_table.setStyle(_table_style(7, header=False, padding=4))
+    story += [Paragraph("Executive Summary", styles["Section"]), summary_table]
     diagnostics = run.get("market_diagnostics") or []
     if diagnostics:
         diag_data = [["Marked", "Skannet", "Analysert", "Live", "Feil", "Status"]]
         for item in diagnostics:
             diag_data.append([item.get("market"), item.get("scanned", 0), item.get("analyzed", 0), item.get("live", 0), item.get("errors", 0), item.get("status", "-")])
         diag_table = Table(diag_data, repeatRows=1, colWidths=[30*mm, 24*mm, 27*mm, 20*mm, 20*mm, 40*mm])
-        diag_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
-        story += [Paragraph("Analysefordeling per marked", styles["Heading2"]), diag_table, Spacer(1, 5*mm)]
+        diag_table.setStyle(_table_style())
+        story += [Paragraph("Analysefordeling per marked", styles["Subsection"]), diag_table]
     market_status = run.get("market_status") or []
     if market_status:
         ms_data = [["Marked", "Status", "Lokal tid", "Forklaring", "Siste handelsdato"]]
         for item in market_status:
             ms_data.append([item.get("market"), item.get("status"), item.get("local_time"), item.get("reason"), item.get("latest_trade_date") or "Ukjent"])
         ms_table = Table(ms_data, repeatRows=1, colWidths=[24*mm, 20*mm, 20*mm, 55*mm, 38*mm])
-        ms_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
-        story += [Paragraph("Markedsstatus", styles["Heading2"]), ms_table, Spacer(1, 4*mm)]
+        ms_table.setStyle(_table_style())
+        story += [Paragraph("Markedsstatus", styles["Subsection"]), ms_table]
     quality = run.get("data_quality") or {}
     if quality:
-        story += [Paragraph("Datakvalitet", styles["Heading2"]), Table([["Kvalitetsscore", f"{quality.get('score', 0)} %"], ["Vurdering", quality.get("label", "-")], ["Live", quality.get("live", 0)], ["Cache", quality.get("cache", 0)], ["Feil", quality.get("errors", 0)]], colWidths=[70*mm, 55*mm]), Spacer(1, 5*mm)]
+        quality_table = Table([["Kvalitet", f"{quality.get('score', 0)} %", "Vurdering", quality.get("label", "-"), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
+        quality_table.setStyle(_table_style(6.8, header=False, padding=2))
+        quality_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold"), ("FONTNAME", (8,0), (8,0), "Helvetica-Bold")]))
+        story += [Paragraph("Datakvalitet", styles["Subsection"]), quality_table]
     refresh = run.get("data_refresh") or {}
-    story += [Paragraph("Datainnhenting og cachekontroll", styles["Heading2"]),
-              Table([
-                  ["Full ny analyse valgt", "JA" if refresh.get("force_refresh_requested") else "NEI"],
-                  ["Cache-bypass verifisert", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI")],
-                  ["Live-forsøk", refresh.get("live_attempt_count", 0)],
-                  ["Vellykkede live-hentinger", refresh.get("live_count", 0)],
-                  ["Cache-hentinger", refresh.get("cache_count", 0)],
-                  ["Feilede hentinger", refresh.get("error_count", 0)],
-                  ["Nyeste handelsdato(er)", ", ".join(refresh.get("latest_trade_dates") or []) or "Ukjent"],
-                  ["Uendrede markedsdata", f"{refresh.get('unchanged_market_data_count', 0)} av {refresh.get('comparable_market_data_count', 0)} sammenlignbare"],
-                  ["Verifikasjon", refresh.get("verification_reason", "-")],
-              ], colWidths=[70*mm, 85*mm]), Spacer(1, 6*mm)]
+    refresh_table = Table([
+                  ["Full ny analyse", "JA" if refresh.get("force_refresh_requested") else "NEI", "Cache-bypass", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI"), "Live-forsøk", refresh.get("live_attempt_count", 0)],
+                  ["Live OK", refresh.get("live_count", 0), "Cache", refresh.get("cache_count", 0), "Feil", refresh.get("error_count", 0)],
+                  ["Handelsdato(er)", ", ".join(refresh.get("latest_trade_dates") or []) or "Ukjent", "Uendret", f"{refresh.get('unchanged_market_data_count', 0)} av {refresh.get('comparable_market_data_count', 0)}", "", ""],
+                  ["Verifikasjon", refresh.get("verification_reason", "-"), "", "", "", ""],
+              ], colWidths=[26*mm,35*mm,24*mm,38*mm,23*mm,23*mm])
+    refresh_table.setStyle(_table_style(6.8, header=False, padding=2.3))
+    refresh_table.setStyle(TableStyle([("SPAN", (3,2), (5,2)), ("SPAN", (1,3), (5,3)), ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,2), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,1), "Helvetica-Bold")]))
+    story += [Paragraph("Datainnhenting og cachekontroll", styles["Subsection"]), refresh_table,
+              Spacer(1, 1*mm)]
     trace_rows = refresh.get("execution_trace") or []
     if trace_rows:
         trace_data = [["Ticker", "Marked / land", "Kilde", "Status", "Cache-bypass", "Siste handelsdato", "Endret"]]
@@ -546,13 +619,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                                "JA" if item.get("cache_bypass_applied") else "NEI", item.get("latest_trade_date") or "Ukjent",
                                "JA" if changed is True else ("NEI" if changed is False else "IKKE SAMMENLIGNBAR")])
         trace_table = Table(trace_data, repeatRows=1, colWidths=[19*mm, 23*mm, 26*mm, 18*mm, 22*mm, 31*mm, 27*mm])
-        trace_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
-                                         ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 6.5), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("Kjøringsbevis per ticker", styles["Heading2"]), trace_table, Spacer(1, 6*mm)]
+        trace_table.setStyle(_table_style(6.2, padding=1.8))
+        story += [Paragraph("Kjøringsbevis per ticker", styles["Subsection"]), trace_table]
     changes = run.get("changes") or {}
-    story += [Paragraph("Endringer siden forrige kjøring", styles["Heading2"]),
-              Table([["Nye", len(changes.get("new", []))], ["Forbedret", len(changes.get("improved", []))],
-                     ["Svekket", len(changes.get("weakened", []))], ["Utgått", len(changes.get("dropped", []))]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+    changes_table = Table([["Nye", len(changes.get("new", [])), "Forbedret", len(changes.get("improved", [])), "Svekket", len(changes.get("weakened", [])), "Utgått", len(changes.get("dropped", []))]], colWidths=[23*mm,15*mm]*4)
+    changes_table.setStyle(_table_style(7, header=False, padding=2.5))
+    changes_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold")]))
+    story += [Paragraph("Endringer siden forrige kjøring", styles["Subsection"]), changes_table]
     candidates = run.get("candidates") or []
     insider_rows = []
     for candidate in candidates:
@@ -565,10 +638,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         idata = [["Ticker", "Marked", "Signal", "Score", "Kjøp", "Salg", "Nettoverdi"]]
         for item in insider_rows[:10]:
             raw = item.get("raw") or {}; ins = raw.get("insider_intelligence") or {}
-            idata.append([item.get("ticker"), item.get("market"), raw.get("insider_signal"), raw.get("insider_score"), ins.get("buy_count", 0), ins.get("sell_count", 0), ins.get("net_value", 0)])
+            idata.append([item.get("ticker"), item.get("market"), raw.get("insider_signal"), _fmt(raw.get("insider_score")), ins.get("buy_count", 0), ins.get("sell_count", 0), _fmt(ins.get("net_value", 0), 0)])
         itable = Table(idata, repeatRows=1, colWidths=[24*mm, 24*mm, 31*mm, 17*mm, 17*mm, 17*mm, 32*mm])
-        itable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
-        story += [Paragraph("Insider Intelligence", styles["Heading1"]), Paragraph("Offentlig registrerte insidertransaksjoner. Manglende dekning gir nøytral score og skal ikke tolkes som fravær av handler.", styles["Small"]), itable, Spacer(1, 6*mm)]
+        itable.setStyle(_table_style())
+        story += [Paragraph("Insider Intelligence", styles["Section"]), Paragraph("Offentlig registrerte insidertransaksjoner. Manglende dekning gir nøytral score og skal ikke tolkes som fravær av handler.", styles["Small"]), itable]
     news_rows = []
     for candidate in candidates:
         raw = candidate.get("raw") or {}
@@ -580,13 +653,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ndata = [["Ticker", "Marked", "Sentiment", "Score", "Saker", "Høy påvirkning", "Kort oppsummering"]]
         for item in news_rows[:10]:
             raw = item.get("raw") or {}; news = raw.get("news_intelligence") or {}
-            ndata.append([item.get("ticker"), item.get("market"), raw.get("news_sentiment"), raw.get("news_score"), news.get("article_count", 0), news.get("high_impact_count", 0), str(news.get("summary") or "")[:95]])
+            ndata.append([item.get("ticker"), item.get("market"), raw.get("news_sentiment"), _fmt(raw.get("news_score")), news.get("article_count", 0), news.get("high_impact_count", 0), _p(str(news.get("summary") or "")[:95])])
         ntable = Table(ndata, repeatRows=1, colWidths=[20*mm, 21*mm, 25*mm, 14*mm, 14*mm, 22*mm, 54*mm])
-        ntable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 6.6), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("News & Sentiment Intelligence", styles["Heading1"]), Paragraph("Unike, ferske nyhetssaker vektes etter sentiment, kildekvalitet, aktualitet og hendelsespåvirkning. Manglende dekning gir nøytral score.", styles["Small"]), ntable, Spacer(1, 6*mm)]
+        ntable.setStyle(_table_style(6.4, padding=2))
+        story += [Paragraph("News & Sentiment Intelligence", styles["Section"]), Paragraph("Unike, ferske nyhetssaker vektes etter sentiment, kildekvalitet, aktualitet og hendelsespåvirkning. Manglende dekning gir nøytral score.", styles["Small"]), ntable]
     if run.get("analysis_aborted"):
-        story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Heading1"]),
-                  Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyText"])]
+        story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Section"]),
+                  Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyCompact"])]
     elif candidates:
         medal_labels = ["GULL · BESTE KANDIDAT", "SØLV · NUMMER TO", "BRONSE · NUMMER TRE"]
         medal_data = []
@@ -601,43 +674,49 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         for medal_index in range(len(medal_data)):
             medal_styles.append(("BACKGROUND", (medal_index,0), (medal_index,-1), colors.HexColor(medal_colors[medal_index])))
         medal_table.setStyle(TableStyle(medal_styles))
-        story += [Paragraph("Topp 3", styles["Heading1"]), medal_table, Spacer(1, 6*mm)]
+        story += [Paragraph("Topp 3", styles["Section"]), medal_table]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko", "Status"]]
         for r in candidates[:10]:
-            data.append([r.get("rank"), r.get("ticker"), r.get("market"), r.get("investment_score"), r.get("confidence_score"), r.get("trend"), r.get("risk_score"), str(r.get("status", ""))[:22]])
+            data.append([r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")), _fmt(r.get("confidence_score")), r.get("trend"), _fmt(r.get("risk_score")), _p(str(r.get("status", ""))[:35])])
         table = Table(data, repeatRows=1, colWidths=[8*mm, 20*mm, 22*mm, 16*mm, 16*mm, 20*mm, 16*mm, 52*mm])
         table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
                                    ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("Top 10", styles["Heading1"]), table]
+        story += [Paragraph("Top 10", styles["Section"]), table]
     for p in run.get("proposals") or []:
-        story += [PageBreak(), Paragraph(f"{p.get('ticker')} - investeringsforslag", styles["Heading1"]),
-                  Paragraph(f"Status: {p.get('status')} | Investment Score: {p.get('investment_score')}/100 | Konfidens: {p.get('confidence_score', 0)}/100 | Trend: {p.get('trend', 'NY')}", styles["BodyText"]),
-                  Spacer(1, 3*mm), Paragraph("Scorekort", styles["Heading2"]),
-                  Table([["AI Discovery", p.get("discovery_score")], ["Fundamentalt", p.get("fundamental_score")],
-                         ["Research", p.get("research_score")], ["Backtesting", p.get("validation_score")],
-                         ["Porteføljetilpasning", p.get("portfolio_fit_score")], ["Insider Intelligence", (p.get("raw") or {}).get("insider_score", 50)], ["News & Sentiment", (p.get("raw") or {}).get("news_score", 50)], ["Risiko", p.get("risk_score")]], colWidths=[70*mm, 35*mm]),
-                  Paragraph("Insider Intelligence", styles["Heading2"]),
-                  Paragraph(f"Signal: {(p.get('raw') or {}).get('insider_signal', 'INGEN DATA')} | Score: {(p.get('raw') or {}).get('insider_score', 50)}/100 | Nettoverdi: {((p.get('raw') or {}).get('insider_intelligence') or {}).get('net_value', 0)}", styles["BodyText"]),
-                  Paragraph("News & Sentiment Intelligence", styles["Heading2"]),
-                  Paragraph(f"Sentiment: {(p.get('raw') or {}).get('news_sentiment', 'INGEN DATA')} | Score: {(p.get('raw') or {}).get('news_score', 50)}/100 | {((p.get('raw') or {}).get('news_intelligence') or {}).get('summary', '')}", styles["BodyText"]),
-                  Paragraph("Positive drivere", styles["Heading2"])]
-        story += [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("positives") or []]
-        story += [Paragraph("Risiko", styles["Heading2"])] + [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("risks") or []]
-        story += [Paragraph("Handelsramme", styles["Heading2"]), Paragraph(f"Strategi: {p.get('strategy_match')} | Foreslått porteføljevekt: {p.get('proposed_position_pct')} %", styles["BodyText"])]
+        raw = p.get("raw") or {}; insider = raw.get("insider_intelligence") or {}; news = raw.get("news_intelligence") or {}
+        score_data = [
+            ["AI Discovery", "Fundamentalt", "Research", "Backtesting", "Portefølje", "Insider", "Nyheter", "Risiko"],
+            [_fmt(p.get("discovery_score")), _fmt(p.get("fundamental_score")), _fmt(p.get("research_score")), _fmt(p.get("validation_score")), _fmt(p.get("portfolio_fit_score")), _fmt(raw.get("insider_score", 50)), _fmt(raw.get("news_score", 50)), _fmt(p.get("risk_score"))],
+        ]
+        score_table = Table(score_data, colWidths=[23*mm]*8)
+        score_table.setStyle(_table_style(6.5, padding=2))
+        positives = " • ".join(str(x) for x in (p.get("positives") or [])) or "Ingen registrerte positive drivere."
+        risks = " • ".join(str(x) for x in (p.get("risks") or [])) or "Ingen registrerte risikopunkter."
+        proposal = [
+            Paragraph(f"{escape(str(p.get('ticker') or '-'))} – investeringsforslag", styles["Section"]),
+            Paragraph(f"<b>Status:</b> {escape(str(p.get('status') or '-'))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Konfidens:</b> {escape(str(_fmt(p.get('confidence_score', 0))))} / 100 &nbsp; | &nbsp; <b>Trend:</b> {escape(str(p.get('trend', 'NY')))}", styles["BodyCompact"]),
+            score_table,
+            Paragraph(f"<b>Insider:</b> {escape(str(raw.get('insider_signal', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('insider_score', 50))))} / 100 · nettoverdi {escape(str(_fmt(insider.get('net_value', 0), 0)))}", styles["Small"]),
+            Paragraph(f"<b>Nyheter:</b> {escape(str(raw.get('news_sentiment', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('news_score', 50))))} / 100 · {escape(str(news.get('summary') or 'Ingen oppsummering.'))}", styles["Small"]),
+            Paragraph(f"<b>Positive drivere:</b> {escape(positives)}", styles["Small"]),
+            Paragraph(f"<b>Risiko:</b> {escape(risks)}", styles["Small"]),
+            Paragraph(f"<b>Handelsramme:</b> Strategi {escape(str(p.get('strategy_match') or '-'))} · foreslått porteføljevekt {escape(str(p.get('proposed_position_pct', 0)))} %", styles["Small"]),
+        ]
+        story += [KeepTogether(proposal), Spacer(1, 1.2*mm)]
     portfolio_proposal = run.get("portfolio_proposal") or {}
     allocations = portfolio_proposal.get("allocations") or []
     if allocations:
-        story += [PageBreak(), Paragraph("Teoretisk porteføljeforslag", styles["Heading1"]),
-                  Paragraph(f"Investert: {portfolio_proposal.get('invested_pct', 0)} % | Kontanter: {portfolio_proposal.get('cash_pct', 100)} %", styles["BodyText"])]
         pdata = [["Ticker", "Marked", "Sektor", "Vekt %", "Score", "Konfidens", "Risiko"]]
         for a in allocations:
-            pdata.append([a.get("ticker"), a.get("market"), a.get("sector"), a.get("weight_pct"), a.get("score"), a.get("confidence"), a.get("risk")])
+            pdata.append([a.get("ticker"), a.get("market"), a.get("sector"), _fmt(a.get("weight_pct")), _fmt(a.get("score")), _fmt(a.get("confidence")), _fmt(a.get("risk"))])
         ptable = Table(pdata, repeatRows=1, colWidths=[24*mm, 24*mm, 38*mm, 18*mm, 18*mm, 20*mm, 18*mm])
-        ptable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
-        story += [ptable]
-    story += [PageBreak(), Paragraph("Metode og ansvarsfraskrivelse", styles["Heading1"]),
-              Paragraph("Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. Alle forslag krever manuell kontroll.", styles["BodyText"])]
-    doc.build(story)
+        ptable.setStyle(_table_style())
+        story += [KeepTogether([Paragraph("Teoretisk porteføljeforslag", styles["Section"]),
+                               Paragraph(f"Investert: {portfolio_proposal.get('invested_pct', 0)} % | Kontanter: {portfolio_proposal.get('cash_pct', 100)} %", styles["BodyCompact"]),
+                               ptable])]
+    story += [KeepTogether([Paragraph("Metode og ansvarsfraskrivelse", styles["Section"]),
+                            Paragraph("Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. Alle forslag krever manuell kontroll.", styles["BodyCompact"])])]
+    doc.build(story, onFirstPage=_page, onLaterPages=_page)
     return buf.getvalue()
 
 

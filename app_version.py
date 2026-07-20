@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.4"
-APP_VERSION_NAME = "Adaptive AI Ranking"
+APP_VERSION = "v18.7.5"
+APP_VERSION_NAME = "Compact Professional PDF Reports"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.5: Compact Professional PDF Reports: rapportinnholdet er omstrukturert til kompakte A4-seksjoner uten separate dekorative sider eller tvungne sideskift per kandidat; nøkkeltall, scorekort og statusdata bruker lesbare rutenett, tabelltekst brytes trygt, tall avrundes, og alle sider får rapporthode, rapport-ID og sidetall. Analyse-, ranking-, scheduler- og arkivlogikk er uendret.",
     "v18.7.4: Adaptive AI Ranking: historiske resultater brukes til transparente modellforslag med guardrails, standard mot adaptiv simulering, manuell Godta/Test først/Avvis, modellversjoner, audit og rollback. Kun eksplisitt godkjente vekter påvirker produksjonsrangeringen; automatisk godkjenning er av.",
     "v18.7.3: Historical Learning & Accuracy Analytics: immutable anbefalings-snapshots, 1/5/30/90 handelsdagers resultatmåling, treffprosent, gjennomsnitt/median, markedssammenligning og transparent signalanalyse. Historikken er beskrivende og endrer aldri modellvekter automatisk.",
     "v18.7.2: News & Sentiment Intelligence: dedupliserte nyheter, kildekvalitet, hendelsesvekting, News Score, rapportbevis og balansert scoreintegrasjon med nøytral behandling av manglende dekning.",
