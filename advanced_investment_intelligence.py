@@ -249,31 +249,14 @@ def load_candidate_trend(ticker: str, current_score: float) -> dict[str, Any]:
 
 
 def adaptive_weights(base_weights: Mapping[str, float]) -> tuple[dict[str, float], dict[str, Any]]:
-    """Conservative learning from closed theoretical trades with stored entry components."""
-    weights = {k: max(0.0, f(v, 0.0) or 0.0) for k, v in base_weights.items()}
+    """Return only manually approved adaptive weights (v18.7.4)."""
     try:
-        trades = json.loads(TRADES_PATH.read_text(encoding="utf-8")) if TRADES_PATH.exists() else []
-    except Exception:
-        trades = []
-    sells = [x for x in trades if x.get("action") == "SELL" and isinstance(x.get("entry_components"), Mapping)]
-    if len(sells) < 12:
+        from adaptive_ranking import get_active_weights
+        return get_active_weights(base_weights)
+    except Exception as exc:
+        weights = {k: max(0.0, f(v, 0.0) or 0.0) for k, v in base_weights.items()}
         total = sum(weights.values()) or 1.0
-        return {k: v / total for k, v in weights.items()}, {"active": False, "closed_trades": len(sells), "reason": "Minst 12 lukkede handler kreves"}
-    signals: dict[str, list[float]] = {k: [] for k in weights}
-    for trade in sells[-100:]:
-        outcome = 1.0 if (f(trade.get("pnl"), 0.0) or 0.0) > 0 else -1.0
-        for key, value in trade.get("entry_components", {}).items():
-            if key in signals:
-                signals[key].append(outcome * ((f(value, 50.0) or 50.0) - 50.0) / 50.0)
-    learned = dict(weights)
-    for key, values in signals.items():
-        if values:
-            adjustment = max(-0.10, min(0.10, sum(values) / len(values) * 0.08))
-            learned[key] *= 1.0 + adjustment
-    total = sum(learned.values()) or 1.0
-    learned = {k: v / total for k, v in learned.items()}
-    return learned, {"active": True, "closed_trades": len(sells), "max_relative_adjustment": 0.10}
-
+        return {k: v / total for k, v in weights.items()}, {"active": False, "mode": "STANDARD", "reason": f"Adaptive engine unavailable: {exc}"}
 
 def build_portfolio_proposal(candidates: Sequence[Mapping[str, Any]], cash_reserve_pct: float = 15.0, max_position_pct: float = 6.0, max_sector_pct: float = 25.0) -> dict[str, Any]:
     eligible = [dict(x) for x in candidates if (f(x.get("investment_score"), 0.0) or 0.0) >= 60 and (f(x.get("confidence_score"), 0.0) or 0.0) >= 45 and (f(x.get("risk_score"), 100.0) or 100.0) <= 75]

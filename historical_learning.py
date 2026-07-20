@@ -15,7 +15,7 @@ from typing import Any, Callable, Mapping, Sequence
 from storage_architecture import runtime_data_path
 from persistent_config_store import write_persistent_json
 
-VERSION = "v18.7.3"
+VERSION = "v18.7.4"
 ROOT = runtime_data_path("historical_learning")
 SNAPSHOTS_PATH = ROOT / "recommendation_snapshots.json"
 HORIZONS = (1, 5, 30, 90)
@@ -87,6 +87,13 @@ def register_run(run: Mapping[str, Any]) -> int:
             "news_score": _num(raw.get("news_score"), 50.0),
             "technical_score": _num(candidate.get("technical_score"), 50.0),
             "fundamental_score": _num(candidate.get("fundamental_score"), 50.0),
+            "discovery_score": _num(candidate.get("discovery_score") or candidate.get("ai_score"), 50.0),
+            "research_score": _num(candidate.get("research_score"), 50.0),
+            "validation_score": _num(candidate.get("validation_score"), 50.0),
+            "portfolio_fit_score": _num(candidate.get("portfolio_fit_score"), 50.0),
+            "risk_adjustment_score": 100.0 - (_num(candidate.get("risk_score"), 50.0) or 50.0),
+            "model_version": ((raw.get("adaptive_learning") or {}).get("model_version") if isinstance(raw.get("adaptive_learning"), Mapping) else "standard"),
+            "effective_weights": raw.get("effective_weights") if isinstance(raw.get("effective_weights"), Mapping) else {},
             "confidence_score": _num(candidate.get("confidence_score"), 0.0),
             "evaluations": {}, "last_evaluated_at": None,
         })
@@ -239,3 +246,10 @@ def render_accuracy_analytics() -> None:
     if data["markets"]:
         st.markdown("#### Resultat per marked")
         st.dataframe(pd.DataFrame(data["markets"]), use_container_width=True, hide_index=True)
+    st.divider()
+    try:
+        from adaptive_ranking import render_adaptive_ranking
+        from investment_pipeline import PipelineConfig
+        render_adaptive_ranking(PipelineConfig().normalized().weights, _read())
+    except Exception as exc:
+        st.warning(f"Adaptiv rangering kunne ikke lastes: {exc}")

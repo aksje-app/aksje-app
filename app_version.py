@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.3"
-APP_VERSION_NAME = "Historical Learning & Accuracy Analytics"
+APP_VERSION = "v18.7.4"
+APP_VERSION_NAME = "Adaptive AI Ranking"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.4: Adaptive AI Ranking: historiske resultater brukes til transparente modellforslag med guardrails, standard mot adaptiv simulering, manuell Godta/Test først/Avvis, modellversjoner, audit og rollback. Kun eksplisitt godkjente vekter påvirker produksjonsrangeringen; automatisk godkjenning er av.",
     "v18.7.3: Historical Learning & Accuracy Analytics: immutable anbefalings-snapshots, 1/5/30/90 handelsdagers resultatmåling, treffprosent, gjennomsnitt/median, markedssammenligning og transparent signalanalyse. Historikken er beskrivende og endrer aldri modellvekter automatisk.",
     "v18.7.2: News & Sentiment Intelligence: dedupliserte nyheter, kildekvalitet, hendelsesvekting, News Score, rapportbevis og balansert scoreintegrasjon med nøytral behandling av manglende dekning.",
     "v18.7.1: Insider Intelligence Engine: offentlig insiderdata med kildebevis, 90-dagers score, rolle-/størrelses-/ferskhetsvekting, kandidatforklaring, rapportoversikt og balansert 8 % scorevekt. Manglende dekning er nøytral og aldri fabrikkert.",
