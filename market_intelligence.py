@@ -22,8 +22,9 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
+from execution_control import ExecutionCancelled
 
-VERSION = "v18.7.9"
+VERSION = "v18.7.10"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -46,7 +47,11 @@ SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 
-SCAN_PROFILES = {"Rask (10)": 10, "Normal (25)": 25, "Grundig (50)": 50, "Egendefinert": None}
+SCAN_PROFILES = {
+    "Rask (10)": 10, "Standard (20)": 20, "Normal (25)": 25,
+    "Grundig (50)": 50, "Stor (100)": 100, "Maks (250)": 250,
+    "Egendefinert (10–250)": None,
+}
 
 
 COMPANY_TICKER_ALIASES = {
@@ -1099,6 +1104,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             for key in totals:
                 totals[key] += int((result.get("summary") or {}).get(key, 0))
         except Exception as exc:
+            if isinstance(exc, ExecutionCancelled):
+                raise
             errors.append(f"{market}: {exc}")
             market_diagnostics.append({"market": market, "scanned": 0, "analyzed": 0, "live": 0, "errors": 1, "status": f"FEIL: {str(exc)[:80]}"})
     emit("DEDUP", 1, 1, "Fjerner duplikater og rangerer kandidater")
@@ -1196,6 +1203,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                 trigger=trigger,
             )
     except Exception as exc:
+        if isinstance(exc, ExecutionCancelled):
+            raise
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
     emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
@@ -1204,8 +1213,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_bytes(build_pdf(run))
         run["pdf_path"] = str(pdf_path)
-    notify_ok, notify_detail = _notification(job, run)
-    run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run)}
+    emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
@@ -1216,6 +1224,11 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         _write(RUNS_DIR / f"{run_id}.json", run)
     except Exception as exc:
         run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
+    emit("REPORT", 2, 3, "Rapport, arkiv og historikk er lagret; kontrollerer varsling")
+    notify_ok, notify_detail = _notification(job, run)
+    run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run)}
+    _write(RUNS_DIR / f"{run_id}.json", run)
+    _write(LATEST_PATH, run)
     job.last_run_at = run["created_at"]
     job.last_status = "FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK")
     upsert_job(job)
@@ -1320,7 +1333,10 @@ def render_market_intelligence() -> None:
         jobs = load_jobs()
         labels = ["Ny jobb"] + [f"{x.name} ({x.job_id})" for x in jobs]
         selected = st.selectbox("Rediger jobb", labels, key="mi_job_select_v18687")
-        current = None if selected == "Ny jobb" else jobs[labels.index(selected)-1]
+        editing_job = None if selected == "Ny jobb" else jobs[labels.index(selected)-1]
+        # A new-job form is also the persistent auto-saved draft.  Loading that
+        # draft prevents Streamlit reruns from replacing a custom limit with 25.
+        current = editing_job or load_draft_job()
         name = st.text_input("Jobbnavn", value=current.name if current else "Morgenanalyse", key="mi_name_v18687")
         c1, c2 = st.columns(2)
         with c1:
@@ -1347,20 +1363,28 @@ def render_market_intelligence() -> None:
         with c2:
             modules = st.multiselect("Pipeline-moduler", MODULE_OPTIONS, default=current.modules if current else MODULE_OPTIONS, key="mi_modules_v18687")
             current_limit = int(current.scan_limit if current else 25)
-            reverse_profile = {10: "Rask (10)", 25: "Normal (25)", 50: "Grundig (50)"}
-            default_profile = reverse_profile.get(current_limit, "Egendefinert")
+            reverse_profile = {value: label for label, value in SCAN_PROFILES.items() if value is not None}
+            default_profile = reverse_profile.get(current_limit, "Egendefinert (10–250)")
+            scan_state_token = f"{current.job_id if current else 'NEW'}:{current_limit}"
+            if st.session_state.get("mi_scan_loaded_v18710") != scan_state_token:
+                st.session_state["mi_scan_profile_v18693"] = default_profile
+                st.session_state["mi_scan_custom_v18693"] = current_limit
+                st.session_state["mi_scan_loaded_v18710"] = scan_state_token
             scan_profile = st.selectbox("Skanneprofil per marked", list(SCAN_PROFILES), index=list(SCAN_PROFILES).index(default_profile), key="mi_scan_profile_v18693")
             scan_limit = SCAN_PROFILES[scan_profile]
             if scan_limit is None:
                 scan_limit = st.number_input("Egendefinert antall per marked", 10, 250, current_limit, 5, key="mi_scan_custom_v18693")
+                st.caption("Tillatt område: 10–250 aksjer per marked. 250 er systemets maksimum.")
             st.caption(f"Planlagt maksimum: {int(scan_limit) * len(normalize_markets(markets or ['Norge']))} aksjer ({int(scan_limit)} per marked).")
+            if int(scan_limit) == 250:
+                st.warning(f"Maksprofil: opptil {250 * len(normalize_markets(markets or ['Norge']))} aksjer. Dette kan gi lang kjøretid og høy API-bruk.")
             deep = st.number_input("Grundig analyse av topp", 1, 100, current.deep_count if current else 20, 1, key="mi_deep_v18687")
             proposals = st.number_input("Antall forslag", 1, 30, current.proposal_count if current else 5, 1, key="mi_prop_v18687")
         n1, n2, n3, n4 = st.columns(4)
         notify = n1.checkbox("Pushover", value=current.notify_pushover if current else True, key="mi_push_v18687")
         only_changes = n2.checkbox("Bare ved endringer", value=current.notify_only_changes if current else True, key="mi_changes_v18687")
         save_pdf = n3.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
-        enabled = n4.checkbox("Aktiv jobb", value=current.enabled if current else True, key="mi_enabled_v18687")
+        enabled = n4.checkbox("Aktiv jobb", value=editing_job.enabled if editing_job else True, key="mi_enabled_v18687")
         p1, p2 = st.columns(2)
         include_report_link = p1.checkbox("Lenke til siste rapport", value=current.include_report_link if current else True, key="mi_report_link_v1870", help="Krever REPORT_BASE_URL i miljøvariabler.")
         include_top3 = p2.checkbox("Top 3 i varsel", value=current.include_top3_in_notification if current else True, key="mi_top3_push_v1870")
@@ -1405,7 +1429,7 @@ def render_market_intelligence() -> None:
             st.rerun()
         if b2.button("Lagre og aktiver tidsplan", use_container_width=True, key="mi_save_activate_v18692a"):
             same_name = next((x for x in jobs if x.name.strip().casefold() == draft_job.name.strip().casefold()), None)
-            target = current or same_name
+            target = editing_job or same_name
             job = JobProfile(**{**asdict(draft_job),
                               "job_id": target.job_id if target else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
                               "created_at": target.created_at if target else _now_iso(),

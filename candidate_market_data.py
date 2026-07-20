@@ -348,7 +348,9 @@ def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 
     if not total:
         return []
     output: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, total))) as pool:
+    pool = ThreadPoolExecutor(max_workers=max(1, min(max_workers, total)))
+    futures = {}
+    try:
         futures = {pool.submit(_enrich_with_retry, row, force_refresh, 2): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
         completed = 0
         for future in as_completed(futures):
@@ -360,4 +362,11 @@ def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 
             completed += 1
             if progress_callback:
                 progress_callback(completed, total, ticker)
+    except Exception:
+        for future in futures:
+            future.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
     return [output.get(str(row.get("ticker") or row.get("symbol") or "").strip().upper(), dict(row)) for row in unique]

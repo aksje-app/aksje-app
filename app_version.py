@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.9"
-APP_VERSION_NAME = "Responsive Background UX & Global Insider Coverage"
+APP_VERSION = "v18.7.10"
+APP_VERSION_NAME = "Controlled Cancellation & Persistent Scan Profiles"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.10: Controlled Cancellation & Persistent Scan Profiles: pågående manuelle kjøringer kan stoppes kontrollert via Postgres-lagret STOP_REQUESTED/CANCELLED. Fremdriftsmoduler vises igjen med grønne ferdigbokser, aktivt steg og monotone prosenter. Automatisk utkast beholder skannegrensen ved rerun; menyen får 10/20/25/50/100/Maks 250 og egendefinert 10–250, med faktisk per-marked-grense synlig i jobbstatus.",
     "v18.7.9: Responsive Background UX & Global Insider Coverage: automatisk jobbstatus oppdateres i isolert Streamlit-fragment slik at navigasjon forblir klikkbar. PDF viser insider-nettoverdi med tusenskille og markedsvaluta, risiko som 0–100 med LAV/MODERAT/HØY, og insiderdekning per marked. Offisielle kilder for Norge, Sverige, Finland, Danmark, Brasil og USA katalogiseres; NEWSAPI_KEY brukes til sekundær kildeoppdagelse uten at uverifiserte treff påvirker score.",
     "v18.7.8: Durable Manual Background Execution: manuelle utkast- og fullkjedekjøringer flyttes ut av Streamlit-renderingen til en separat servertråd. Aksept, fremdrift, kjede-ID, sluttstatus og feil lagres Postgres-first, UI gjenopptar overvåking etter navigasjon/refresh, og duplikatvern hindrer parallelle dobbeltstarter.",
     "v18.7.7: Durable Runtime & Non-Blocking Scheduler: rapportarkiv, rapport-JSON, siste kjøring, kandidat- og læringshistorikk, Investment Pipeline, autonome handler/beslutninger/varsler/ytelse, Orchestrator, Pushover, systemaudit og driftsmetrikker lagres Postgres-first og rehydreres etter deploy. Manglende PDF regenereres fra varig JSON. Scheduler-kontroll kjører uten å blokkere jobbskjemaet, dupliserte jobbprofiler repareres, og kandidatvise datavarsler skilles fra tekniske systemfeil.",

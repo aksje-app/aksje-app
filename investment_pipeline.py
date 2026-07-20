@@ -447,12 +447,18 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         from insider_intelligence import enrich_rows as enrich_insider_rows
         if progress_callback:
             progress_callback({"phase": "INSIDER", "completed": 0, "total": len(prepared_rows), "message": "Henter offentlige insidertransaksjoner"})
-        prepared_rows = enrich_insider_rows(prepared_rows, force_refresh=force_refresh)
+        prepared_rows = enrich_insider_rows(
+            prepared_rows, force_refresh=force_refresh,
+            progress_callback=(lambda done, total, ticker: progress_callback({"phase": "INSIDER", "completed": done, "total": total, "ticker": ticker, "message": f"Henter insiderdata {done}/{total}: {ticker}"})) if progress_callback else None,
+        )
     if cfg.use_news_intelligence and prepared_rows:
         from news_intelligence import enrich_rows as enrich_news_rows
         if progress_callback:
             progress_callback({"phase": "NEWS", "completed": 0, "total": len(prepared_rows), "message": "Analyserer nyheter og sentiment"})
-        prepared_rows = enrich_news_rows(prepared_rows, force_refresh=force_refresh)
+        prepared_rows = enrich_news_rows(
+            prepared_rows, force_refresh=force_refresh,
+            progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
+        )
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:

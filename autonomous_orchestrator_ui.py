@@ -9,7 +9,7 @@ import streamlit as st
 
 from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain
 from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence
-from manual_job_background import get_active_status, is_running, start_manual_job
+from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
 
 
@@ -35,12 +35,44 @@ def _background_status_panel() -> None:
     pct = int(status.get("percent") or 0)
     message = str(status.get("message") or state)
     st.progress(min(100, max(0, pct)), text=f"{pct} % · {message}")
-    b1, b2, b3 = st.columns(3)
+    scan = status.get("scan_configuration") or {}
+    b1, b2, b3, b4 = st.columns(4)
     b1.metric("Bakgrunnsjobb", status.get("execution_id") or "-")
     b2.metric("Jobbstatus", state)
     b3.metric("Sist oppdatert", status.get("updated_at") or "-")
+    b4.metric("Skannegrense", f"{scan.get('per_market', '-')} per marked")
+
+    labels = {
+        "MARKET_DATA": "Markedsdata", "INSIDER": "Insider Intelligence",
+        "NEWS": "News & Sentiment", "SCORING": "Scoring og rangering",
+        "PORTFOLIO_PROPOSAL": "Porteføljeforslag", "AUTONOMOUS": "Autonomi",
+        "REPORT": "Rapport og historikk", "COMPLETE": "Fullført",
+    }
+    completed = set(status.get("completed_steps") or [])
+    active = str(status.get("active_stage") or "MARKET_DATA")
+    stage_cols = st.columns(4)
+    for index, (stage, label) in enumerate(labels.items()):
+        with stage_cols[index % 4]:
+            if stage in completed:
+                st.success(f"✅ {label}")
+            elif stage == active and state in {"FAILED", "CANCELLED"}:
+                st.error(f"⛔ {label}")
+            elif stage == active:
+                st.warning(f"⏳ {label}")
+            else:
+                st.markdown(
+                    f"<div style='padding:.65rem;border:1px solid #5f6b7a;border-radius:.45rem;background:#1b2430;color:#cbd5e1;margin-bottom:.5rem'>⬜ {label}</div>",
+                    unsafe_allow_html=True,
+                )
     if is_running(status):
-        st.info("Kjøringen fortsetter på serveren. Meny og andre paneler kan brukes samtidig.")
+        if state == "STOP_REQUESTED":
+            st.warning("Stopp er registrert. Pågående datakall avsluttes før jobben stanser ved neste sikre kontrollpunkt.")
+        else:
+            st.info("Kjøringen fortsetter på serveren. Meny og andre paneler kan brukes samtidig.")
+            confirm = st.checkbox("Jeg bekrefter at den pågående kjøringen skal avbrytes", key=f"cancel_confirm_{status.get('execution_id')}")
+            if st.button("⛔ Stopp pågående kjøring", disabled=not confirm, key=f"cancel_job_{status.get('execution_id')}"):
+                request_cancel(str(status.get("execution_id") or ""), requested_by="UI")
+                st.warning("Stoppforespørsel er sendt.")
     elif state == "FAILED":
         st.error(f"Bakgrunnskjøringen feilet: {status.get('error') or 'ukjent feil'}")
     elif state == "COMPLETED":
@@ -49,6 +81,8 @@ def _background_status_panel() -> None:
             st.success("Hele kjeden er fullført uten tekniske feil.")
         else:
             st.warning(f"Kjeden ble avsluttet med status {chain.get('status', 'UKJENT')}.")
+    elif state == "CANCELLED":
+        st.warning("Kjøringen ble kontrollert avbrutt. Ingen ufullstendig sluttrapport eller Pushover-melding ble publisert.")
     if st.button("↻ Oppdater hele statusvisningen", key="orchestrator_background_manual_refresh_v1879"):
         st.rerun()
 

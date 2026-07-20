@@ -211,9 +211,10 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     return result
 
 
-def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False) -> list[dict[str, Any]]:
+def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, progress_callback: Any | None = None) -> list[dict[str, Any]]:
     enriched = []
-    for row in rows:
+    total = len(rows)
+    for index, row in enumerate(rows, start=1):
         clean = dict(row)
         insider = fetch_insider_intelligence(
             str(clean.get("ticker") or ""), force_refresh=force_refresh,
@@ -224,4 +225,6 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False) 
         clean["insider_score"] = insider.get("score", 50.0)
         clean["insider_signal"] = insider.get("signal", "INGEN DATA")
         enriched.append(clean)
+        if progress_callback:
+            progress_callback(index, total, str(clean.get("ticker") or ""))
     return enriched

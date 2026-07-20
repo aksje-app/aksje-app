@@ -265,9 +265,10 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     return result
 
 
-def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False) -> list[dict[str, Any]]:
+def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, progress_callback: Any | None = None) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
-    for raw in rows:
+    total = len(rows)
+    for index, raw in enumerate(rows, start=1):
         row = dict(raw)
         result = fetch_news_intelligence(
             str(row.get("ticker") or row.get("symbol") or ""),
@@ -279,4 +280,6 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False) 
         row["news_sentiment"] = result.get("sentiment", "INGEN DATA")
         row["news_summary"] = result.get("summary", "")
         enriched.append(row)
+        if progress_callback:
+            progress_callback(index, total, str(row.get("ticker") or ""))
     return enriched
