@@ -10,17 +10,11 @@ from services.top_picks_service import get_top_picks_service
 from services.paper_trading_service import get_paper_trading_service
 from services.portfolio_service import get_portfolio_service
 from services.forecast_service import get_forecast_service
-from services.app_state_service import get_app_state_service
-from services.currency_service import get_currency_service
-from services.notification_service import get_notification_service
-from services.review_queue_service import get_review_queue_service
-from services.trading_rule_service import get_trading_rule_service
 
 
 class ServiceRegistry:
     def __init__(self, session_state: Optional[Any] = None, score_provider=None):
         self.state = get_state_service(session_state)
-        self.app_state = get_app_state_service(session_state)
         self.storage = get_storage_service()
         self.universe = get_universe_service(
             state_service=self.state,
@@ -36,10 +30,6 @@ class ServiceRegistry:
         self.paper_trading = get_paper_trading_service(state_service=self.state)
         self.portfolio = get_portfolio_service(state_service=self.state)
         self.forecast = get_forecast_service(universe_service=self.universe)
-        self.currency = get_currency_service()
-        self.notifications = get_notification_service()
-        self.review_queue = get_review_queue_service()
-        self.trading_rules = get_trading_rule_service()
 
 
 _default_registry: Optional[ServiceRegistry] = None
