@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.7.2"
+VERSION = "v18.7.3"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -993,6 +993,12 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
     archive_report(run)
+    try:
+        from historical_learning import register_run
+        run["historical_learning"] = {"snapshots_created": register_run(run), "mode": "DESCRIPTIVE_ONLY"}
+        _write(RUNS_DIR / f"{run_id}.json", run)
+    except Exception as exc:
+        run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
     job.last_run_at, job.last_status = run["created_at"], ("OK" if not errors else "FULLFØRT MED FEIL")
     upsert_job(job)
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
@@ -1088,7 +1094,7 @@ def render_market_intelligence() -> None:
     except Exception as exc:
         st.warning(f"Planlagt jobbkontroll kunne ikke fullføres: {exc}")
 
-    tab_jobs, tab_latest, tab_reports, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter", "Historikk", "Drift"])
+    tab_jobs, tab_latest, tab_reports, tab_accuracy, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter", "Accuracy Analytics", "Historikk", "Drift"])
     with tab_jobs:
         jobs = load_jobs()
         labels = ["Ny jobb"] + [f"{x.name} ({x.job_id})" for x in jobs]
@@ -1313,6 +1319,10 @@ def render_market_intelligence() -> None:
                 confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
                 if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, use_container_width=True):
                     delete_archived_report(str(row.get("run_id"))); st.rerun()
+
+    with tab_accuracy:
+        from historical_learning import render_accuracy_analytics
+        render_accuracy_analytics()
 
     with tab_history:
         files = sorted(RUNS_DIR.glob("MI-*.json"), reverse=True)[:100] if RUNS_DIR.exists() else []

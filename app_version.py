@@ -1,8 +1,10 @@
-APP_VERSION = "v18.7.2"
-APP_VERSION_NAME = "News & Sentiment Intelligence"
+APP_VERSION = "v18.7.3"
+APP_VERSION_NAME = "Historical Learning & Accuracy Analytics"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.3: Historical Learning & Accuracy Analytics: immutable anbefalings-snapshots, 1/5/30/90 handelsdagers resultatmåling, treffprosent, gjennomsnitt/median, markedssammenligning og transparent signalanalyse. Historikken er beskrivende og endrer aldri modellvekter automatisk.",
+    "v18.7.2: News & Sentiment Intelligence: dedupliserte nyheter, kildekvalitet, hendelsesvekting, News Score, rapportbevis og balansert scoreintegrasjon med nøytral behandling av manglende dekning.",
     "v18.7.1: Insider Intelligence Engine: offentlig insiderdata med kildebevis, 90-dagers score, rolle-/størrelses-/ferskhetsvekting, kandidatforklaring, rapportoversikt og balansert 8 % scorevekt. Manglende dekning er nøytral og aldri fabrikkert.",
     "v18.7.0: Report Center & Professional UX: innebygd rapportarkiv med søk, filter, favoritter, PDF/JSON-nedlasting og sikker sletting; Pushover kan vise Top 3 og lenke til rapport; scheduler får mandag–fredag-standard, valgfri helg, fungerende hurtigvalg, reset-knapper, tryggere varselscorefelt og større mobiltekst; kjøringsbevis viser marked/land.",
     "v18.6.94: Executive Intelligence & Portfolio Diversity: selskapsbasert Top 3, visuelle medaljekort, utvidet Executive Summary, konsekvent helgestatus og porteføljededuplisering av aksjeklasser som GOOG/GOOGL.",
