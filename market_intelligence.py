@@ -23,7 +23,7 @@ from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
-VERSION = "v18.7.7"
+VERSION = "v18.7.8"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"

@@ -8,8 +8,14 @@ from typing import Any
 import streamlit as st
 
 from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain
-from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence, run_job
+from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence
+from manual_job_background import get_active_status, is_running, start_manual_job
 from services.storage_service import get_storage_service
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+except Exception:  # pragma: no cover - optional UI convenience
+    st_autorefresh = None
 
 
 def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -57,80 +63,39 @@ def render_autonomous_orchestrator_control_center() -> None:
         st.caption("Ingen aktive tidsplaner finnes, men utkastet kan fortsatt testkjøres.")
     force_refresh = st.checkbox("Tving full ny analyse (ignorer cache)", value=False, key="orchestrator_force_refresh_v18692e", help="Henter ferske data for alle kandidater og viser om resultatene faktisk endrer seg. Kan ta lengre tid og øker belastningen på datakildene.")
     run_label = "🧪 Test hele kjeden fra utkast" if is_draft else "▶ Kjør valgt lagret jobb nå"
-    if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692d"):
+    background_status = get_active_status()
+    background_running = is_running(background_status)
+    if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692d", disabled=background_running):
         trigger = "MANUAL_DRAFT_TEST" if is_draft else "MANUAL_FULL_CHAIN"
-        progress = st.progress(0, text="0 % · Klargjør kjøring")
-        live = st.empty()
-        checklist = st.empty()
-        steps = ["MARKET_DATA", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
-        completed_steps: set[str] = set()
-        def _render_checklist(active: str, message: str) -> None:
-            labels = {
-                "MARKET_DATA": "Henter pris-, fundamental- og analysedata",
-                "SCORING": "Beregner individuelle delscorer og totalscore",
-                "PORTFOLIO_PROPOSAL": "Bygger risikobevisst porteføljeforslag",
-                "AUTONOMOUS": "Simulerer BUY / HOLD / SELL / SKIP",
-                "REPORT": "Lagrer historikk og genererer rapport",
-                "COMPLETE": "Fullfører kjeden",
-            }
-            lines=[]
-            for step in steps:
-                if step in completed_steps:
-                    icon="✅"
-                elif step == active:
-                    icon="⏳"
-                else:
-                    icon="⬜"
-                lines.append(f"{icon} {labels[step]}")
-            checklist.markdown("  \n".join(lines))
-            live.info(message)
-        def _progress_event(event: Mapping[str, Any]) -> None:
-            phase=str(event.get("phase") or "START")
-            done=int(event.get("completed") or 0); total=max(1,int(event.get("total") or 1))
-            phase_base={"START":2,"MARKET":5,"PREPARE":8,"MARKET_DATA":10,"SCORING":48,"DEDUP":68,"PORTFOLIO_PROPOSAL":74,"AUTONOMOUS":82,"REPORT":92,"COMPLETE":100}
-            if phase == "MARKET_DATA": pct=10+int(35*done/total)
-            elif phase == "SCORING": pct=48+int(18*done/total)
-            else: pct=phase_base.get(phase,5)
-            for step in steps:
-                if steps.index(step) < steps.index(phase) if phase in steps else False:
-                    completed_steps.add(step)
-            if phase == "COMPLETE": completed_steps.update(steps)
-            msg=str(event.get("message") or phase)
-            ticker=event.get("ticker")
-            if ticker and ticker not in msg: msg=f"{msg} · {ticker}"
-            progress.progress(min(100,max(0,pct)), text=f"{pct} % · {msg}")
-            _render_checklist(phase if phase in steps else "MARKET_DATA", msg)
-        _render_checklist("MARKET_DATA", "Starter markedsskanning")
-        try:
-            result = run_job(selected_job, trigger=trigger, progress_callback=_progress_event, force_refresh=force_refresh)
-            st.session_state["mi_latest_v18687"] = result
-            chain = result.get("autonomous_chain") or {}
-            progress.progress(100, text="100 % · Hele kjeden er ferdig")
-            completed_steps.update(steps)
-            _render_checklist("COMPLETE", "Kjøringen er fullført")
-            stage_map={x.get("name"):x for x in chain.get("stages") or []}
-            ap=(stage_map.get("AUTONOMOUS_PORTFOLIO") or {}).get("detail") or {}
-            if ap:
-                st.success(f"Teoretiske beslutninger: {ap.get('buys',0)} kjøp, {ap.get('sells',0)} salg, {ap.get('skips',0)} hoppet over · {ap.get('open_positions',0)} åpne posisjoner.")
-            refresh = result.get("data_refresh") or {}
-            if refresh.get("force_refresh_requested"):
-                if refresh.get("cache_bypass_verified"):
-                    dates = ", ".join(refresh.get("latest_trade_dates") or []) or "ukjent"
-                    st.success(f"Full ny analyse verifisert: cache ble ignorert for alle kandidater. Live-forsøk: {refresh.get('live_attempt_count', 0)}, vellykket: {refresh.get('live_count', 0)}. Nyeste handelsdato: {dates}.")
-                    if refresh.get("unchanged_market_data_count", 0):
-                        st.info(f"{refresh.get('unchanged_market_data_count')} kandidater hadde uendrede siste markedsdata. Dette er normalt når børsene er stengt.")
-                else:
-                    st.error(f"Full ny analyse var valgt, men verifikasjonen feilet: {refresh.get('verification_reason', 'ukjent årsak')}. Live-forsøk: {refresh.get('live_attempt_count', 0)}, feil: {refresh.get('error_count', 0)}.")
-            if chain.get("status") == "OK":
+        background_status = start_manual_job(selected_job, trigger=trigger, force_refresh=force_refresh)
+        st.session_state["orchestrator_background_execution_v1878"] = background_status.get("execution_id")
+        st.rerun()
+
+    background_status = get_active_status()
+    if background_status:
+        state = str(background_status.get("state") or "UKJENT")
+        pct = int(background_status.get("percent") or 0)
+        message = str(background_status.get("message") or state)
+        st.progress(min(100, max(0, pct)), text=f"{pct} % · {message}")
+        b1, b2, b3 = st.columns(3)
+        b1.metric("Bakgrunnsjobb", background_status.get("execution_id") or "-")
+        b2.metric("Jobbstatus", state)
+        b3.metric("Sist oppdatert", background_status.get("updated_at") or "-")
+        if is_running(background_status):
+            st.info("Kjøringen fortsetter på serveren. Du kan bytte panel, oppdatere eller lukke nettleseren.")
+            if st_autorefresh is not None:
+                st_autorefresh(interval=3000, limit=None, key=f"orchestrator_background_refresh_{background_status.get('execution_id')}")
+        elif state == "FAILED":
+            st.error(f"Bakgrunnskjøringen feilet: {background_status.get('error') or 'ukjent feil'}")
+        elif state == "COMPLETED":
+            chain_result = background_status.get("chain") or {}
+            if chain_result.get("status") == "OK":
                 st.success("Hele kjeden er fullført uten tekniske feil.")
             else:
-                st.warning(f"Kjeden ble avsluttet med status {chain.get('status','UKJENT')}.")
-            st.session_state["orchestrator_ui_latest_v18692d"] = chain
-        except Exception as exc:
-            live.error(f"Kjøringen stoppet: {exc}")
-            progress.progress(100, text="Kjøringen stoppet med feil")
+                st.warning(f"Kjeden ble avsluttet med status {chain_result.get('status', 'UKJENT')}.")
+            st.session_state["orchestrator_ui_latest_v18692d"] = chain_result
 
-    chain = st.session_state.get("orchestrator_ui_latest_v18692d") or load_latest_chain()
+    chain = (background_status.get("chain") if background_status else None) or st.session_state.get("orchestrator_ui_latest_v18692d") or load_latest_chain()
     st.markdown("### Diagnostikk")
     if not chain:
         st.info("Ingen kjøring er registrert ennå.")
@@ -144,7 +109,7 @@ def render_autonomous_orchestrator_control_center() -> None:
         if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         latest_run = st.session_state.get("mi_latest_v18687") or {}
-        top = list(latest_run.get("candidates") or [])[:3]
+        top = list((background_status.get("top_candidates") if background_status else None) or latest_run.get("candidates") or [])[:3]
         if top:
             medals = ["🥇", "🥈", "🥉"]
             cols = st.columns(len(top))
