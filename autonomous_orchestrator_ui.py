@@ -7,8 +7,9 @@ from typing import Any
 
 import streamlit as st
 
-from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_latest_chain
-from market_intelligence import load_draft_job, load_jobs, render_market_intelligence, run_job
+from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain
+from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence, run_job
+from services.storage_service import get_storage_service
 
 
 def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -39,7 +40,7 @@ def render_autonomous_orchestrator_control_center() -> None:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Jobbprofiler", len(jobs))
     c2.metric("Aktive jobber", len(active_jobs))
-    c3.metric("Lagrede kjøringer", len(list(RUNS_DIR.glob("*.json"))) if RUNS_DIR.exists() else 0)
+    c3.metric("Lagrede kjøringer", len(_load_report_archive()))
     latest = load_latest_chain()
     c4.metric("Siste kjedestatus", latest.get("status") or "ALDRI KJØRT")
 
@@ -163,6 +164,16 @@ def render_autonomous_orchestrator_control_center() -> None:
     render_market_intelligence()
 
     with st.expander("Runtime og loggfiler", expanded=False):
+        audit_rows = load_audit(1000)
+        health = get_storage_service().health()
+        r1,r2,r3 = st.columns(3)
+        r1.metric("Lagring", "PostgreSQL" if health.persistent and health.ok else "Lokal fallback")
+        r2.metric("Orchestratorhendelser", len(audit_rows))
+        r3.metric("Rapporter", len(_load_report_archive()))
+        if audit_rows:
+            st.dataframe(pd.DataFrame(audit_rows[-200:][::-1]), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Ingen orchestratorhendelser er registrert ennå.")
         st.code(
             f"{ROOT}/\n├── latest_run.json\n├── audit.jsonl\n└── runs/",
             language="text",

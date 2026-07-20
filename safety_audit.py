@@ -10,6 +10,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from durable_runtime import append_event, read_events
 
 ROOT = Path(__file__).resolve().parent
 AUDIT_LOG_FILE = ROOT / "runtime_audit_log.jsonl"
@@ -63,21 +64,15 @@ def add_audit_event(event: str, detail: Optional[Dict[str, Any]] = None, *, leve
         "detail": detail or {},
     }
     try:
-        with AUDIT_LOG_FILE.open("a", encoding="utf-8") as fh:
-            import json
-            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        append_event("system/runtime_audit.jsonl", AUDIT_LOG_FILE, record)
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
     return record
 
 
 def read_recent_audit_events(limit: int = 25) -> List[Dict[str, Any]]:
-    if not AUDIT_LOG_FILE.exists():
-        return []
     try:
-        import json
-        lines = AUDIT_LOG_FILE.read_text(encoding="utf-8").splitlines()[-max(1, int(limit)):]
-        return [json.loads(line) for line in lines if line.strip()]
+        return read_events("system/runtime_audit.jsonl", AUDIT_LOG_FILE, limit=max(1, int(limit)))
     except Exception:
         return []
 

@@ -22,6 +22,7 @@ from autonomous_portfolio import (
     AutonomousParameters, load_parameters, save_parameters, load_portfolio,
     calculate_performance, TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
+from durable_runtime import append_event, read_events
 
 VERSION = "v18.6.91a"
 ROOT = runtime_data_path("controlled_learning")
@@ -76,9 +77,11 @@ def _write(path: Path, value: Any) -> None:
 
 
 def _audit(event: str, payload: Mapping[str, Any]) -> None:
-    ROOT.mkdir(parents=True, exist_ok=True)
-    with AUDIT_PATH.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"timestamp": _now(), "version": VERSION, "event": event, "payload": dict(payload)}, ensure_ascii=False, default=str) + "\n")
+    append_event("controlled_learning/audit.jsonl", AUDIT_PATH, {"timestamp": _now(), "version": VERSION, "event": event, "payload": dict(payload)})
+
+
+def load_audit(limit: int = 1000) -> list[dict[str, Any]]:
+    return read_events("controlled_learning/audit.jsonl", AUDIT_PATH, limit=limit)
 
 
 def _f(value: Any, default: float = 0.0) -> float:
@@ -695,4 +698,3 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                 st.download_button("Last ned rapporthistorikk JSON", json.dumps(reports, ensure_ascii=False, indent=2), "autonomous_management_reports.json", "application/json", key=_k("cpl_reports_json_v18689b"))
             else:
                 st.info("Ingen AI-sjef-rapporter ennå.")
-

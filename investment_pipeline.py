@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
+from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 
 VERSION = "v18.6.93e"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
@@ -118,6 +119,9 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 100.0) -> float:
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    key = _durable_key(path)
+    if key:
+        return durable_read_json(key, path, default)
     try:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
@@ -127,10 +131,22 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    key = _durable_key(path)
+    if key:
+        durable_write_json(key, path, payload)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
+
+
+def _durable_key(path: Path) -> str | None:
+    if path == LATEST_RUN_PATH: return "investment_pipeline/latest_run.json"
+    if path == REVIEW_QUEUE_PATH: return "investment_pipeline/review_queue.json"
+    if path.parent == RUNS_DIR: return f"investment_pipeline/runs/{path.name}"
+    if path.parent == PROPOSALS_DIR: return f"investment_pipeline/proposals/{path.name}"
+    return None
 
 
 def _risk_penalty(value: Any) -> float:

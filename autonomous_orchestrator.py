@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
+from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
 VERSION = "v18.6.92f"
 ROOT = runtime_data_path("autonomous_orchestrator")
@@ -26,16 +27,12 @@ def _now() -> str:
 
 
 def _write(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    tmp.replace(path)
+    key = "autonomous_orchestrator/latest_run.json" if path == LATEST_PATH else f"autonomous_orchestrator/runs/{path.name}"
+    durable_write_json(key, path, value)
 
 
 def _audit(event: str, payload: Mapping[str, Any]) -> None:
-    AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with AUDIT_PATH.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"at": _now(), "version": VERSION, "event": event, **dict(payload)}, ensure_ascii=False, default=str) + "\n")
+    append_event("autonomous_orchestrator/audit.jsonl", AUDIT_PATH, {"at": _now(), "version": VERSION, "event": event, **dict(payload)})
 
 
 def run_post_scan_chain(
@@ -115,7 +112,9 @@ def run_post_scan_chain(
 
 
 def load_latest_chain() -> dict[str, Any]:
-    try:
-        return json.loads(LATEST_PATH.read_text(encoding="utf-8")) if LATEST_PATH.exists() else {}
-    except Exception:
-        return {}
+    value = durable_read_json("autonomous_orchestrator/latest_run.json", LATEST_PATH, {})
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def load_audit(limit: int = 1000) -> list[dict[str, Any]]:
+    return read_events("autonomous_orchestrator/audit.jsonl", AUDIT_PATH, limit=limit)

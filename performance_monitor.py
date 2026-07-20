@@ -8,26 +8,21 @@ from pathlib import Path
 
 from storage_architecture import runtime_data_path
 from typing import Any, Dict, List
+from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 
 _METRICS_PATH = runtime_data_path('metrics', 'performance_metrics.json')
 _SESSION: Dict[str, Any] = {'render_times': [], 'api_calls': {}, 'cache': {'hit': 0, 'miss': 0}, 'reruns': 0}
 
 
 def _load_persisted() -> Dict[str, Any]:
-    try:
-        if _METRICS_PATH.exists():
-            data = json.loads(_METRICS_PATH.read_text(encoding='utf-8'))
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
-    return {}
+    data = durable_read_json('metrics/performance_metrics.json', _METRICS_PATH, {})
+    return data if isinstance(data, dict) else {}
 
 
 def _persist() -> None:
     try:
-        _METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {'updated_at': datetime.now().isoformat(timespec='seconds'), **_SESSION}
-        _METRICS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        durable_write_json('metrics/performance_metrics.json', _METRICS_PATH, payload)
     except Exception:
         pass
 

@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
 from configuration_framework import export_bundle, import_bundle, status as configuration_status
+from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
 VERSION = "v18.6.92"
 ROOT = runtime_data_path("autonomous_portfolio")
@@ -39,15 +40,18 @@ def _now() -> str:
 _PERSISTENT_PATH_KEYS = {
     PARAMETERS_PATH: "autonomous_portfolio/parameters.json",
     PORTFOLIO_PATH: "autonomous_portfolio/portfolio.json",
+    TRADES_PATH: "autonomous_portfolio/trades.json",
+    DECISIONS_PATH: "autonomous_portfolio/decisions.json",
+    NOTIFICATIONS_PATH: "autonomous_portfolio/notifications.json",
+    PERFORMANCE_PATH: "autonomous_portfolio/performance.json",
+    LATEST_PIPELINE_PATH: "investment_pipeline/latest_run.json",
 }
 
 
 def _read(path: Path, default: Any) -> Any:
     persistent_key = _PERSISTENT_PATH_KEYS.get(path)
     if persistent_key:
-        stored = read_persistent_json(persistent_key, default=None)
-        if stored is not None:
-            return stored
+        return durable_read_json(persistent_key, path, default)
     try:
         if path.exists():
             value = json.loads(path.read_text(encoding="utf-8"))
@@ -66,14 +70,16 @@ def _write(path: Path, value: Any) -> None:
     tmp.replace(path)
     persistent_key = _PERSISTENT_PATH_KEYS.get(path)
     if persistent_key:
-        write_persistent_json(persistent_key, value)
+        durable_write_json(persistent_key, path, value)
 
 
 def _append_audit(event: str, payload: Mapping[str, Any]) -> None:
-    ROOT.mkdir(parents=True, exist_ok=True)
     row = {"timestamp": _now(), "version": VERSION, "event": event, "payload": dict(payload)}
-    with AUDIT_PATH.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    append_event("autonomous_portfolio/audit.jsonl", AUDIT_PATH, row)
+
+
+def load_audit(limit: int = 1000) -> list[dict[str, Any]]:
+    return read_events("autonomous_portfolio/audit.jsonl", AUDIT_PATH, limit=limit)
 
 
 def _f(value: Any, default: float = 0.0) -> float:
@@ -229,6 +235,43 @@ def _record_decisions(rows: Sequence[Mapping[str, Any]]) -> None:
     if not isinstance(current, list):
         current = []
     _write(DECISIONS_PATH, list(rows) + current[:5000])
+
+
+def recover_missing_position_history(portfolio: Mapping[str, Any] | None = None) -> int:
+    """Reconstruct transparent placeholder entries after legacy runtime loss.
+
+    Exact historical events cannot be recreated. These rows are explicitly
+    marked RECOVERED so analytics and users never confuse them with original
+    execution logs.
+    """
+    portfolio = dict(portfolio or load_portfolio())
+    positions = portfolio.get("positions") or {}
+    trades = _read(TRADES_PATH, [])
+    if trades or not isinstance(positions, Mapping) or not positions:
+        return 0
+    recovered_trades = []
+    recovered_decisions = []
+    for ticker, raw in positions.items():
+        position = dict(raw) if isinstance(raw, Mapping) else {}
+        price = _f(position.get("average_price"))
+        quantity = _f(position.get("quantity"))
+        timestamp = str(position.get("opened_at") or _now())
+        row = {
+            "trade_id": f"RECOVERED-{str(ticker).upper()}", "timestamp": timestamp,
+            "run_id": position.get("source_run_id") or "LEGACY-RUNTIME-RECOVERY",
+            "action": "BUY", "ticker": str(ticker).upper(), "price": price,
+            "quantity": quantity, "value": round(price * quantity, 2), "pnl": 0.0,
+            "reason": "Rekonstruert fra persistent åpen posisjon etter tap av lokal runtime",
+            "strategy": position.get("strategy"), "mode": "THEORETICAL_ONLY",
+            "recovered": True, "recovery_source": "PERSISTED_OPEN_POSITION",
+        }
+        recovered_trades.append(row)
+        recovered_decisions.append({"timestamp": timestamp, "run_id": row["run_id"], "ticker": row["ticker"], "action": "RECOVERED", "reason": row["reason"], "recovered": True})
+    _write(TRADES_PATH, recovered_trades)
+    existing_decisions = _read(DECISIONS_PATH, [])
+    _write(DECISIONS_PATH, recovered_decisions + (existing_decisions if isinstance(existing_decisions, list) else []))
+    _append_audit("LEGACY_POSITION_HISTORY_RECOVERED", {"positions": len(recovered_trades), "accuracy": "APPROXIMATE_FROM_CURRENT_STATE"})
+    return len(recovered_trades)
 
 
 def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str, params: AutonomousParameters) -> dict[str, Any] | None:
@@ -450,6 +493,16 @@ def reset_portfolio(confirmation: str) -> dict[str, Any]:
 
 def build_evaluation_bundle() -> bytes:
     """Create a compact ZIP that can be uploaded to ChatGPT for evaluation."""
+    # Rehydrate durable event streams before building the backwards-compatible
+    # file bundle after a deploy/restart.
+    load_audit(5000)
+    try:
+        from autonomous_orchestrator import load_audit as load_orchestrator_audit, load_latest_chain
+        load_orchestrator_audit(5000); load_latest_chain()
+        from controlled_parameter_learning import load_audit as load_learning_audit
+        load_learning_audit(5000)
+    except Exception:
+        pass
     manifest = {
         "version": VERSION, "created_at": _now(), "purpose": "Module evaluation",
         "contains": ["portfolio", "parameters", "trades", "decisions", "performance", "notifications", "audit", "latest_pipeline", "controlled_learning"],
@@ -621,8 +674,12 @@ def render_autonomous_portfolio() -> None:
     else:
         st.info("Ingen åpne teoretiske posisjoner.")
 
+    recovered_count = recover_missing_position_history(portfolio)
+    if recovered_count:
+        st.warning(f"{recovered_count} eldre handler er merket som rekonstruert fra åpne posisjoner. Originale lokale logger kunne ikke gjenopprettes eksakt.")
     trades = _read(TRADES_PATH, [])
     decisions = _read(DECISIONS_PATH, [])
+    notifications = _read(NOTIFICATIONS_PATH, [])
     t1, t2, t3, t4 = st.tabs(["Handler", "Beslutninger", "Kontrollert læring", "Audit og deling"])
     with t1:
         if trades:
@@ -639,6 +696,29 @@ def render_autonomous_portfolio() -> None:
         from controlled_parameter_learning import render_controlled_learning
         render_controlled_learning(namespace="autonomous_portfolio")
     with t4:
+        audit_rows = load_audit(1000)
+        try:
+            from autonomous_orchestrator import load_audit as load_orchestrator_audit
+            orchestrator_audit = load_orchestrator_audit(1000)
+        except Exception:
+            orchestrator_audit = []
+        try:
+            from controlled_parameter_learning import load_audit as load_learning_audit
+            learning_audit = load_learning_audit(1000)
+        except Exception:
+            learning_audit = []
+        try:
+            from notifier import pushover_audit
+            push_audit = pushover_audit(1000)
+        except Exception:
+            push_audit = []
+        st.markdown("##### Permanente hendelseslogger")
+        l1,l2,l3,l4,l5 = st.columns(5)
+        l1.metric("Porteføljeaudit", len(audit_rows)); l2.metric("Orchestratoraudit", len(orchestrator_audit)); l3.metric("Læringsaudit", len(learning_audit)); l4.metric("Varsler", len(notifications) if isinstance(notifications, list) else 0); l5.metric("Pushover", len(push_audit))
+        log_name = st.selectbox("Vis logg", ["Porteføljeaudit", "Orchestratoraudit", "Læringsaudit", "Varsler", "Pushover"], key="alp_audit_source_v1877")
+        selected_log = {"Porteføljeaudit": audit_rows, "Orchestratoraudit": orchestrator_audit, "Læringsaudit": learning_audit, "Varsler": notifications if isinstance(notifications, list) else [], "Pushover": push_audit}[log_name]
+        if selected_log: st.dataframe(pd.DataFrame(selected_log[-500:][::-1]), use_container_width=True, hide_index=True)
+        else: st.caption("Ingen hendelser er registrert i valgt logg ennå.")
         st.info("For evaluering: last ned evalueringspakken og last den opp i ChatGPT. Den inneholder parametere, portefølje, handler, beslutninger, ytelse, varslingslogg, audit og siste pipeline-kjøring.")
         st.warning("Kontroller pakken før deling. Ikke legg API-nøkler, Pushover-token eller andre hemmeligheter i runtime-filene.")
         confirm = st.text_input("Skriv RESET for å nullstille kontoen", key="alp_reset_text_v18688")

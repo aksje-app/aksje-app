@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
-from persistent_config_store import write_persistent_json
+from persistent_config_store import read_persistent_json, write_persistent_json
 
 VERSION = "v18.7.4"
 ROOT = runtime_data_path("adaptive_ranking")
@@ -43,8 +43,15 @@ def _now() -> str:
 
 
 def _read(path: Path, default: Any) -> Any:
+    stored = read_persistent_json(f"adaptive_ranking/{path.name}", default=None)
+    if stored is not None:
+        ROOT.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(stored, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        return stored
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        write_persistent_json(f"adaptive_ranking/{path.name}", value)
+        return value
     except Exception:
         return default
 

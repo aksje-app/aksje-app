@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.6"
-APP_VERSION_NAME = "Draft Report Identity Guard"
+APP_VERSION = "v18.7.7"
+APP_VERSION_NAME = "Durable Runtime & Non-Blocking Scheduler"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.7: Durable Runtime & Non-Blocking Scheduler: rapportarkiv, rapport-JSON, siste kjøring, kandidat- og læringshistorikk, Investment Pipeline, autonome handler/beslutninger/varsler/ytelse, Orchestrator, Pushover, systemaudit og driftsmetrikker lagres Postgres-first og rehydreres etter deploy. Manglende PDF regenereres fra varig JSON. Scheduler-kontroll kjører uten å blokkere jobbskjemaet, dupliserte jobbprofiler repareres, og kandidatvise datavarsler skilles fra tekniske systemfeil.",
     "v18.7.6: Draft Report Identity Guard: utkastets faste jobb-ID er autoritativ for rapportidentiteten. PDF-filnavn, PDF-overskrift, metadata, siste rapport, historikk og rapportarkiv merkes alltid UTKAST/Utkast når utkastet kjøres, også dersom en foreldet trigger eller lagret identitet peker på Morgenrapport.",
     "v18.7.5: Compact Professional PDF Reports: rapportinnholdet er omstrukturert til kompakte A4-seksjoner uten separate dekorative sider eller tvungne sideskift per kandidat; nøkkeltall, scorekort og statusdata bruker lesbare rutenett, tabelltekst brytes trygt, tall avrundes, og alle sider får rapporthode, rapport-ID og sidetall. Analyse-, ranking-, scheduler- og arkivlogikk er uendret.",
     "v18.7.4: Adaptive AI Ranking: historiske resultater brukes til transparente modellforslag med guardrails, standard mot adaptiv simulering, manuell Godta/Test først/Avvis, modellversjoner, audit og rollback. Kun eksplisitt godkjente vekter påvirker produksjonsrangeringen; automatisk godkjenning er av.",

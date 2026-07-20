@@ -3,6 +3,9 @@ from settings_store import load_settings
 
 import os
 import requests
+from datetime import datetime, timezone
+from storage_architecture import runtime_log_path
+from durable_runtime import append_event, read_events
 
 try:
     from runtime_env import load_app_env
@@ -13,6 +16,19 @@ except Exception:
 
 PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+PUSHOVER_AUDIT_PATH = runtime_log_path("pushover_audit.jsonl")
+
+
+def _log_delivery(title, success, detail, *, has_url=False):
+    append_event("notifications/pushover_audit.jsonl", PUSHOVER_AUDIT_PATH, {
+        "at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "channel": "PUSHOVER", "title": str(title), "success": bool(success),
+        "detail": str(detail or "OK")[:500], "has_url": bool(has_url),
+    })
+
+
+def pushover_audit(limit=500):
+    return read_events("notifications/pushover_audit.jsonl", PUSHOVER_AUDIT_PATH, limit=int(limit))
 
 
 def pushover_enabled():
@@ -23,6 +39,7 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
     try:
         if not bool(load_settings().get("pushover_enabled", True)):
             print("Pushover disabled by settings")
+            _log_delivery(title, False, "disabled by settings", has_url=bool(url))
             return False, "disabled by settings"
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
@@ -34,6 +51,7 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
     """
     if not pushover_enabled():
         print("Pushover ikke aktivert: mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY")
+        _log_delivery(title, False, "missing env", has_url=bool(url))
         return False, "missing env"
 
     try:
@@ -48,13 +66,16 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
 
         if response.status_code == 200:
             print("Pushover sendt")
+            _log_delivery(title, True, "HTTP 200", has_url=bool(url))
             return True, None
 
         print(f"Pushover feil: {response.status_code} {response.text}")
+        _log_delivery(title, False, f"HTTP {response.status_code}: {response.text}", has_url=bool(url))
         return False, response.text
 
     except Exception as e:
         print(f"Pushover exception: {e}")
+        _log_delivery(title, False, str(e), has_url=bool(url))
         return False, str(e)
 
 

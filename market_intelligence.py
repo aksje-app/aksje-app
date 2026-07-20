@@ -21,8 +21,9 @@ from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, i
 from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
+from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
-VERSION = "v18.7.6"
+VERSION = "v18.7.7"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -167,6 +168,9 @@ def _now_iso() -> str:
 
 
 def _read(path: Path, default: Any) -> Any:
+    key = _durable_key(path)
+    if key:
+        return durable_read_json(key, path, default)
     try:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
     except Exception:
@@ -174,6 +178,10 @@ def _read(path: Path, default: Any) -> Any:
 
 
 def _write(path: Path, payload: Any) -> None:
+    key = _durable_key(path)
+    if key:
+        durable_write_json(key, path, payload)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
@@ -181,10 +189,26 @@ def _write(path: Path, payload: Any) -> None:
 
 
 def _audit(event: str, payload: Mapping[str, Any]) -> None:
-    AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = {"at": _now_iso(), "event": event, **dict(payload)}
-    with AUDIT_PATH.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    append_event("market_intelligence/audit.jsonl", AUDIT_PATH, row)
+
+
+def _durable_key(path: Path) -> str | None:
+    if path == LATEST_PATH: return "market_intelligence/latest_run.json"
+    if path == HISTORY_PATH: return "market_intelligence/candidate_history.json"
+    if path == REPORT_ARCHIVE_PATH: return "market_intelligence/report_archive.json"
+    if path.parent == RUNS_DIR: return f"market_intelligence/runs/{path.name}"
+    if path.parent == SUMMARIES_DIR and path.suffix.lower() == ".json": return f"market_intelligence/summaries/{path.name}"
+    return None
+
+
+def load_audit(limit: int = 1000) -> list[dict[str, Any]]:
+    return read_events("market_intelligence/audit.jsonl", AUDIT_PATH, limit=limit)
+
+
+def load_run(run_id: str) -> dict[str, Any]:
+    value = _read(RUNS_DIR / f"{run_id}.json", {})
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def normalize_markets(markets: Sequence[str]) -> list[str]:
@@ -280,7 +304,21 @@ def load_jobs() -> list[JobProfile]:
         data = _read(JOBS_PATH, [])
         if data:
             write_persistent_json("market_intelligence/jobs.json", data)
-    return [JobProfile.from_dict(x) for x in data if isinstance(x, Mapping)]
+    jobs = [JobProfile.from_dict(x) for x in data if isinstance(x, Mapping)]
+    deduped: dict[str, JobProfile] = {}
+    order: list[str] = []
+    for job in jobs:
+        key = job.name.strip().casefold()
+        if key not in deduped:
+            deduped[key] = job; order.append(key); continue
+        current = deduped[key]
+        if (job.enabled, str(job.last_run_at or "")) > (current.enabled, str(current.last_run_at or "")):
+            deduped[key] = job
+    cleaned = [deduped[key] for key in order]
+    if len(cleaned) != len(jobs):
+        save_jobs(cleaned)
+        _audit("DUPLICATE_JOB_PROFILES_REPAIRED", {"before": len(jobs), "after": len(cleaned)})
+    return cleaned
 
 
 def save_jobs(jobs: Sequence[JobProfile]) -> None:
@@ -394,6 +432,12 @@ def _update_history(run: Mapping[str, Any]) -> None:
 
 def _load_report_archive() -> list[dict[str, Any]]:
     rows = _read(REPORT_ARCHIVE_PATH, [])
+    if not rows:
+        legacy = read_persistent_json("market_intelligence/report_archive.json", default=[])
+        if isinstance(legacy, list) and legacy:
+            rows = legacy
+            _write(REPORT_ARCHIVE_PATH, rows)
+            _audit("REPORT_ARCHIVE_MIGRATED_TO_DURABLE_STORAGE", {"reports": len(rows)})
     return [dict(x) for x in rows if isinstance(x, Mapping)]
 
 
@@ -918,6 +962,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     market_diagnostics: list[dict[str, Any]] = []
     totals = {"scanned": 0, "deep_analyzed": 0, "proposals": 0, "recommended": 0, "rejected": 0}
     errors = []
+    warnings = []
     markets = normalize_markets(job.markets)
     for market_index, market in enumerate(markets, start=1):
         cfg = PipelineConfig(market_scope=market, scan_limit=job.scan_limit, deep_analysis_count=job.deep_count,
@@ -970,7 +1015,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                 "candidate_errors": candidate_errors[:10],
             })
             for item in candidate_errors:
-                errors.append(f"{market}/{item.get('ticker') or 'ukjent'} ({item.get('stage')}): {item.get('error')}")
+                warnings.append(f"{market}/{item.get('ticker') or 'ukjent'} ({item.get('stage')}): {item.get('error')}")
             market_runs.append(result)
             all_candidates.extend(result.get("candidates") or [])
             all_proposals.extend(result.get("proposals") or [])
@@ -1022,7 +1067,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     data_quality = build_data_quality(refresh_summary, len(all_candidates))
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
-           "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
+           "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "analysis_aborted": analysis_aborted,
            "executive_intelligence": executive_intelligence(all_candidates),
@@ -1094,7 +1139,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         _write(RUNS_DIR / f"{run_id}.json", run)
     except Exception as exc:
         run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
-    job.last_run_at, job.last_status = run["created_at"], ("OK" if not errors else "FULLFØRT MED FEIL")
+    job.last_run_at = run["created_at"]
+    job.last_status = "FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK")
     upsert_job(job)
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
     emit("COMPLETE", 1, 1, "Hele kjeden er fullført", run_id=run_id)
@@ -1183,11 +1229,14 @@ def render_market_intelligence() -> None:
     st.markdown("#### ⏰ Scheduled Market Intelligence & PDF Reports")
     st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, moduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
     try:
-        due = run_due_jobs()
-        if due:
-            st.success(f"{len(due)} planlagt(e) jobb(er) ble kjørt.")
+        from scheduler_background import kick_scheduler_background, scheduler_status
+        kick_scheduler_background()
+        background = scheduler_status()
+        if background.get("state") == "RUNNING": st.caption("⏳ Scheduler kontrolleres i bakgrunnen. Jobbprofilene kan brukes mens kontrollen pågår.")
+        elif background.get("state") == "ERROR": st.warning(f"Bakgrunnsscheduler feilet: {background.get('error')}")
+        elif int(background.get("runs", 0)) > 0: st.success(f"{background.get('runs')} planlagt(e) jobb(er) ble kjørt i bakgrunnen.")
     except Exception as exc:
-        st.warning(f"Planlagt jobbkontroll kunne ikke fullføres: {exc}")
+        st.warning(f"Bakgrunnsscheduler kunne ikke startes: {exc}")
 
     tab_jobs, tab_latest, tab_reports, tab_accuracy, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter", "Accuracy Analytics", "Historikk", "Drift"])
     with tab_jobs:
@@ -1401,13 +1450,16 @@ def render_market_intelligence() -> None:
             with st.expander(label, expanded=False):
                 m1,m2,m3,m4 = st.columns(4)
                 m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
+                saved_run = load_run(str(row.get("run_id") or ""))
                 pdf_path = Path(str(row.get("pdf_path") or ""))
                 json_path = Path(str(row.get("json_path") or ""))
                 a,b,c = st.columns(3)
-                if pdf_path.exists():
-                    a.download_button("📄 Last ned PDF", data=pdf_path.read_bytes(), file_name=pdf_path.name, mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", use_container_width=True)
-                if json_path.exists():
-                    b.download_button("{ } Last ned JSON", data=json_path.read_bytes(), file_name=json_path.name, mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", use_container_width=True)
+                pdf_data = pdf_path.read_bytes() if pdf_path.exists() else (build_pdf(saved_run) if saved_run else None)
+                json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
+                if pdf_data:
+                    a.download_button("📄 Last ned PDF", data=pdf_data, file_name=safe_report_filename(saved_run or row, "pdf"), mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", use_container_width=True)
+                if json_data:
+                    b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", use_container_width=True)
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
                 if c.button(fav_label, key=f"mi_fav_{row.get('run_id')}", use_container_width=True):
                     set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); st.rerun()
@@ -1420,15 +1472,14 @@ def render_market_intelligence() -> None:
         render_accuracy_analytics()
 
     with tab_history:
-        files = sorted(RUNS_DIR.glob("MI-*.json"), reverse=True)[:100] if RUNS_DIR.exists() else []
         rows = []
-        for path in files:
-            r = _read(path, {}); identity = resolve_report_identity(r); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
+        for archived in _load_report_archive()[:100]:
+            r = load_run(str(archived.get("run_id") or "")) or archived; identity = resolve_report_identity(r); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
         if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else: st.caption("Ingen historiske kjøringer.")
     with tab_ops:
         jobs = load_jobs(); active = [x for x in jobs if x.enabled]
-        o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", len(list(RUNS_DIR.glob('*.json'))) if RUNS_DIR.exists() else 0); o4.metric("PDF-rapporter", len(list(SUMMARIES_DIR.glob('*.pdf'))) if SUMMARIES_DIR.exists() else 0)
+        archive_count = len(_load_report_archive()); o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", archive_count); o4.metric("Regenererbare PDF-er", archive_count)
         st.code("Ekstern scheduler/cron: python market_intelligence.py --run-due", language="bash")
         st.caption(f"Runtime-katalog: {ROOT}")
 

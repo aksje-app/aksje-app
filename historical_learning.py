@@ -13,7 +13,7 @@ from statistics import median
 from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
-from persistent_config_store import write_persistent_json
+from persistent_config_store import read_persistent_json, write_persistent_json
 
 VERSION = "v18.7.4"
 ROOT = runtime_data_path("historical_learning")
@@ -26,8 +26,14 @@ def _now_iso() -> str:
 
 
 def _read() -> list[dict[str, Any]]:
+    stored = read_persistent_json("historical_learning/recommendation_snapshots.json", default=None)
+    if isinstance(stored, list):
+        ROOT.mkdir(parents=True, exist_ok=True)
+        SNAPSHOTS_PATH.write_text(json.dumps(stored, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        return [dict(x) for x in stored if isinstance(x, Mapping)]
     try:
         data = json.loads(SNAPSHOTS_PATH.read_text(encoding="utf-8"))
+        write_persistent_json("historical_learning/recommendation_snapshots.json", data)
         return [dict(x) for x in data if isinstance(x, Mapping)]
     except Exception:
         return []

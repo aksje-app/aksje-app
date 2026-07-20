@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
+from durable_runtime import read_json as durable_read_json
 
 VERSION = "v18.6.93e"
 HISTORY_PATH = runtime_data_path("market_intelligence") / "candidate_history.json"
@@ -229,10 +230,8 @@ def calculate_portfolio_fit(row: Mapping[str, Any], universe: Sequence[Mapping[s
     }
 
 def load_candidate_trend(ticker: str, current_score: float) -> dict[str, Any]:
-    try:
-        data = json.loads(HISTORY_PATH.read_text(encoding="utf-8")) if HISTORY_PATH.exists() else {}
-    except Exception:
-        data = {}
+    data = durable_read_json("market_intelligence/candidate_history.json", HISTORY_PATH, {})
+    data = data if isinstance(data, Mapping) else {}
     observations = list((data.get(ticker) or {}).get("observations") or [])[-20:]
     prior = [f(x.get("score")) for x in observations if f(x.get("score")) is not None]
     if not prior:
