@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.94"
+VERSION = "v18.7.0"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -31,6 +31,8 @@ HISTORY_PATH = ROOT / "candidate_history.json"
 NOTIFICATIONS_PATH = ROOT / "notifications.json"
 LATEST_PATH = ROOT / "latest_run.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
+REPORT_ARCHIVE_PATH = ROOT / "report_archive.json"
+REPORT_ARCHIVE_SETTINGS_PATH = ROOT / "report_archive_settings.json"
 DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 RECENT_DRAFT_REUSE_MINUTES = 30
@@ -229,6 +231,9 @@ class JobProfile:
     min_alert_score: float = 80.0
     notify_pushover: bool = True
     notify_only_changes: bool = True
+    include_report_link: bool = True
+    include_top3_in_notification: bool = True
+    allow_weekends: bool = False
     save_pdf: bool = True
     enabled: bool = True
     scan_windows: list[dict[str, Any]] = field(default_factory=list)
@@ -364,6 +369,74 @@ def _update_history(run: Mapping[str, Any]) -> None:
     _write(HISTORY_PATH, history)
 
 
+def _load_report_archive() -> list[dict[str, Any]]:
+    rows = _read(REPORT_ARCHIVE_PATH, [])
+    return [dict(x) for x in rows if isinstance(x, Mapping)]
+
+
+def _save_report_archive(rows: Sequence[Mapping[str, Any]]) -> None:
+    payload = [dict(x) for x in rows]
+    _write(REPORT_ARCHIVE_PATH, payload)
+    write_persistent_json("market_intelligence/report_archive.json", payload)
+
+
+def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
+    candidates = list(run.get("candidates") or [])
+    top = candidates[0] if candidates else {}
+    identity = run.get("report_identity") or report_identity(str(run.get("trigger") or ""), str(run.get("job_name") or ""))
+    return {
+        "run_id": run.get("run_id"), "created_at": run.get("created_at"), "job_name": run.get("job_name"),
+        "report_type": identity.get("type"), "report_label": identity.get("label"),
+        "pdf_path": run.get("pdf_path"), "json_path": str(RUNS_DIR / f"{run.get('run_id')}.json"),
+        "markets": list(run.get("markets") or []), "recommended": int((run.get("summary") or {}).get("recommended", 0)),
+        "top_ticker": top.get("ticker"), "top_score": top.get("investment_score"),
+        "tickers": [str(x.get("ticker")) for x in candidates if x.get("ticker")],
+        "favorite": False, "analysis_aborted": bool(run.get("analysis_aborted")),
+    }
+
+
+def archive_report(run: Mapping[str, Any]) -> None:
+    entry = _archive_entry(run)
+    rows = [x for x in _load_report_archive() if x.get("run_id") != entry.get("run_id")]
+    rows.insert(0, entry)
+    _save_report_archive(rows[:1000])
+
+
+def set_report_favorite(run_id: str, favorite: bool) -> None:
+    rows = _load_report_archive()
+    for row in rows:
+        if row.get("run_id") == run_id:
+            row["favorite"] = bool(favorite)
+    _save_report_archive(rows)
+
+
+def delete_archived_report(run_id: str) -> bool:
+    rows = _load_report_archive()
+    target = next((x for x in rows if x.get("run_id") == run_id), None)
+    if not target:
+        return False
+    for key in ("pdf_path", "json_path"):
+        raw = target.get(key)
+        if raw:
+            try:
+                path = Path(str(raw))
+                if path.exists() and ROOT in path.parents:
+                    path.unlink()
+            except Exception:
+                pass
+    _save_report_archive([x for x in rows if x.get("run_id") != run_id])
+    _audit("REPORT_DELETED", {"run_id": run_id})
+    return True
+
+
+def report_public_url(run: Mapping[str, Any]) -> str:
+    import os
+    base = str(os.getenv("REPORT_BASE_URL") or "").rstrip("/")
+    if not base or not run.get("pdf_path"):
+        return ""
+    return f"{base}/{Path(str(run.get('pdf_path'))).name}"
+
+
 def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     changes = run.get("changes") or {}
     interesting = [x for x in changes.get("new", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
@@ -374,14 +447,21 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         return False, "Pushover er deaktivert for jobben"
     try:
         from notifier import send_pushover_alert
-        top = (run.get("proposals") or [{}])[0]
-        message = (
-            f"Jobb: {job.name}\nMarkeder: {', '.join(run.get('markets', []))}\n"
-            f"Analysert: {run.get('summary', {}).get('scanned', 0)}\n"
-            f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}\n"
-            f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})"
-        )
-        ok, err = send_pushover_alert(message, title="Scheduled Market Intelligence")
+        top = (run.get("proposals") or run.get("candidates") or [{}])[0]
+        lines = [
+            f"Jobb: {job.name}", f"Markeder: {', '.join(run.get('markets', []))}",
+            f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
+            f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
+            f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
+        ]
+        if job.include_top3_in_notification:
+            medals = run.get("diverse_top3") or select_diverse_candidates(run.get("candidates") or [], 3)
+            for idx, item in enumerate(medals):
+                lines.append(f"{('🥇','🥈','🥉')[idx]} {item.get('ticker','-')} {float(item.get('investment_score',0)):.2f}")
+        else:
+            lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
+        url = report_public_url(run) if job.include_report_link else ""
+        ok, err = send_pushover_alert("\n".join(lines), title="Scheduled Market Intelligence", url=url or None, url_title="Åpne rapport" if url else None)
         return bool(ok), str(err or "Sendt")
     except Exception as exc:
         return False, str(exc)
@@ -451,13 +531,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
               ], colWidths=[70*mm, 85*mm]), Spacer(1, 6*mm)]
     trace_rows = refresh.get("execution_trace") or []
     if trace_rows:
-        trace_data = [["Ticker", "Kilde", "Status", "Cache-bypass", "Siste handelsdato", "Endret"]]
+        trace_data = [["Ticker", "Marked / land", "Kilde", "Status", "Cache-bypass", "Siste handelsdato", "Endret"]]
         for item in trace_rows[:30]:
             changed = item.get("market_data_changed")
-            trace_data.append([item.get("ticker"), item.get("data_source"), item.get("data_fetch_status"),
+            trace_data.append([item.get("ticker"), infer_market_from_ticker(str(item.get("ticker") or ""), str(item.get("market") or "")), item.get("data_source"), item.get("data_fetch_status"),
                                "JA" if item.get("cache_bypass_applied") else "NEI", item.get("latest_trade_date") or "Ukjent",
                                "JA" if changed is True else ("NEI" if changed is False else "IKKE SAMMENLIGNBAR")])
-        trace_table = Table(trace_data, repeatRows=1, colWidths=[22*mm, 30*mm, 24*mm, 25*mm, 34*mm, 30*mm])
+        trace_table = Table(trace_data, repeatRows=1, colWidths=[19*mm, 23*mm, 26*mm, 18*mm, 22*mm, 31*mm, 27*mm])
         trace_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
                                          ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 6.5), ("VALIGN", (0,0), (-1,-1), "TOP")]))
         story += [Paragraph("Kjøringsbevis per ticker", styles["Heading2"]), trace_table, Spacer(1, 6*mm)]
@@ -854,16 +934,17 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
     emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
-    notify_ok, notify_detail = _notification(job, run)
-    run["notification"] = {"sent": notify_ok, "detail": notify_detail}
     if job.save_pdf:
         pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_bytes(build_pdf(run))
         run["pdf_path"] = str(pdf_path)
+    notify_ok, notify_detail = _notification(job, run)
+    run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run)}
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
+    archive_report(run)
     job.last_run_at, job.last_status = run["created_at"], ("OK" if not errors else "FULLFØRT MED FEIL")
     upsert_job(job)
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
@@ -943,6 +1024,12 @@ def render_market_intelligence() -> None:
     label, div[data-testid="stWidgetLabel"] p {font-size: 14px !important; font-weight: 600 !important;}
     div[data-baseweb="select"] *, div[data-baseweb="input"] input, .stTextInput input {font-size: 15px !important;}
     button[kind] p {font-size: 15px !important;}
+    @media (max-width: 768px) {
+      div[data-baseweb="tab-list"] button {font-size: 16px !important; padding: 12px 14px !important; min-height: 46px !important;}
+      label, div[data-testid="stWidgetLabel"] p {font-size: 16px !important;}
+      .stNumberInput, .stSelectbox, .stMultiSelect {margin-bottom: 10px !important;}
+      div[data-testid="stHorizontalBlock"] {gap: 0.75rem !important;}
+    }
     </style>""", unsafe_allow_html=True)
     st.markdown("#### ⏰ Scheduled Market Intelligence & PDF Reports")
     st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, moduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
@@ -953,7 +1040,7 @@ def render_market_intelligence() -> None:
     except Exception as exc:
         st.warning(f"Planlagt jobbkontroll kunne ikke fullføres: {exc}")
 
-    tab_jobs, tab_latest, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Historikk", "Drift"])
+    tab_jobs, tab_latest, tab_reports, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter", "Historikk", "Drift"])
     with tab_jobs:
         jobs = load_jobs()
         labels = ["Ny jobb"] + [f"{x.name} ({x.job_id})" for x in jobs]
@@ -976,7 +1063,12 @@ def render_market_intelligence() -> None:
                 end_t = w2.time_input(f"Til {wi+1}", value=time.fromisoformat(default.get("end","10:00")), key=f"mi_wend_{wi}_v18690")
                 interval = w3.selectbox(f"Intervall {wi+1}", [15,30,60,120,240], index=[15,30,60,120,240].index(int(default.get("interval_minutes",30))) if int(default.get("interval_minutes",30)) in [15,30,60,120,240] else 1, format_func=lambda x:f"{x} min", key=f"mi_wint_{wi}_v18690")
                 scan_windows.append({"start":start_t.strftime("%H:%M"),"end":end_t.strftime("%H:%M"),"interval_minutes":int(interval)})
-            weekday_names = st.multiselect("Ukedager", WEEKDAY_NAMES, default=[WEEKDAY_NAMES[i] for i in (current.weekdays if current else [0,1,2,3,4])], key="mi_days_v18687")
+            allow_weekends = st.checkbox("Tillat helgekjøring", value=bool(current.allow_weekends) if current else False, key="mi_allow_weekends_v1870")
+            day_options = WEEKDAY_NAMES if allow_weekends else WEEKDAY_NAMES[:5]
+            default_days = [WEEKDAY_NAMES[i] for i in (current.weekdays if current else [0,1,2,3,4]) if WEEKDAY_NAMES[i] in day_options]
+            if st.button("Velg mandag–fredag", key="mi_select_weekdays_v1870", use_container_width=True):
+                st.session_state["mi_days_v1870"] = WEEKDAY_NAMES[:5]
+            weekday_names = st.multiselect("Ukedager", day_options, default=default_days, key="mi_days_v1870")
         with c2:
             modules = st.multiselect("Pipeline-moduler", MODULE_OPTIONS, default=current.modules if current else MODULE_OPTIONS, key="mi_modules_v18687")
             current_limit = int(current.scan_limit if current else 25)
@@ -994,7 +1086,24 @@ def render_market_intelligence() -> None:
         only_changes = n2.checkbox("Bare ved endringer", value=current.notify_only_changes if current else True, key="mi_changes_v18687")
         save_pdf = n3.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
         enabled = n4.checkbox("Aktiv jobb", value=current.enabled if current else True, key="mi_enabled_v18687")
-        min_score = st.slider("Minste score for varsel", 0, 100, int(current.min_alert_score if current else 80), key="mi_min_score_v18687")
+        p1, p2 = st.columns(2)
+        include_report_link = p1.checkbox("Lenke til siste rapport", value=current.include_report_link if current else True, key="mi_report_link_v1870", help="Krever REPORT_BASE_URL i miljøvariabler.")
+        include_top3 = p2.checkbox("Top 3 i varsel", value=current.include_top3_in_notification if current else True, key="mi_top3_push_v1870")
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        min_score = st.number_input("Minste score for varsel", 0, 100, int(current.min_alert_score if current else 80), 1, key="mi_min_score_v1870", help="Tallfelt brukes på mobil for å unngå utilsiktet endring av slider.")
+        r1, r2 = st.columns(2)
+        reset_alerts = r1.button("↺ Tilbakestill varselstandard", key="mi_reset_alerts_v1870", use_container_width=True)
+        reset_all = r2.button("↺ Tilbakestill hele jobbprofilen", key="mi_reset_all_v1870", use_container_width=True)
+        if reset_alerts:
+            for key, value in {"mi_push_v18687": True, "mi_changes_v18687": True, "mi_pdf_v18687": True, "mi_min_score_v1870": 80, "mi_report_link_v1870": True, "mi_top3_push_v1870": True}.items(): st.session_state[key] = value
+            st.rerun()
+        if reset_all:
+            defaults = load_draft_job()
+            defaults.name = "Morgenanalyse"; defaults.markets=["Alle"]; defaults.schedules=["08:30"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=20; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
+            write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
+            for key in list(st.session_state):
+                if str(key).startswith("mi_"): del st.session_state[key]
+            st.rerun()
         st.markdown("##### Etter skanningen")
         o1,o2,o3 = st.columns(3)
         run_auto = o1.checkbox("Kjør teoretisk portefølje", value=current.run_autonomous_portfolio if current else True, key="mi_auto_port_v18690")
@@ -1004,7 +1113,8 @@ def render_market_intelligence() -> None:
             name=name.strip() or "Uten navn", markets=markets or ["Norge"], schedules=schedules or [],
             weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
             scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
-            notify_pushover=notify, notify_only_changes=only_changes, save_pdf=save_pdf, enabled=False,
+            notify_pushover=notify, notify_only_changes=only_changes, include_report_link=include_report_link,
+            include_top3_in_notification=include_top3, allow_weekends=allow_weekends, save_pdf=save_pdf, enabled=False,
             scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,
             job_id=DRAFT_JOB_ID, created_at=current.created_at if current else _now_iso(),
             last_run_at=current.last_run_at if current else "", last_status="UTKAST",
@@ -1119,6 +1229,42 @@ def render_market_intelligence() -> None:
             e1,e2 = st.columns(2)
             e1.download_button("Last ned PDF-rapport", pdf, file_name=safe_report_filename(latest, "pdf"), mime="application/pdf", use_container_width=True, key="mi_download_pdf_v18687")
             e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", use_container_width=True, key="mi_download_json_v18687")
+    with tab_reports:
+        st.markdown("### 📚 Rapportarkiv")
+        st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
+        archive = _load_report_archive()
+        q1, q2, q3 = st.columns([2,1,1])
+        search = q1.text_input("Søk", placeholder="Ticker, jobbnavn eller rapport-ID", key="mi_archive_search_v1870").strip().casefold()
+        type_filter = q2.selectbox("Rapporttype", ["Alle", "MORGENRAPPORT", "UTKAST", "MANUELL_RAPPORT"], key="mi_archive_type_v1870")
+        favorites_only = q3.checkbox("Bare favoritter", key="mi_archive_fav_only_v1870")
+        filtered = []
+        for row in archive:
+            hay = " ".join([str(row.get("run_id") or ""), str(row.get("job_name") or ""), " ".join(row.get("tickers") or [])]).casefold()
+            if search and search not in hay: continue
+            if type_filter != "Alle" and row.get("report_type") != type_filter: continue
+            if favorites_only and not row.get("favorite"): continue
+            filtered.append(row)
+        if not filtered:
+            st.info("Ingen rapporter matcher filteret.")
+        for row in filtered[:200]:
+            label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {row.get('created_at','-')}"
+            with st.expander(label, expanded=False):
+                m1,m2,m3,m4 = st.columns(4)
+                m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
+                pdf_path = Path(str(row.get("pdf_path") or ""))
+                json_path = Path(str(row.get("json_path") or ""))
+                a,b,c = st.columns(3)
+                if pdf_path.exists():
+                    a.download_button("📄 Last ned PDF", data=pdf_path.read_bytes(), file_name=pdf_path.name, mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", use_container_width=True)
+                if json_path.exists():
+                    b.download_button("{ } Last ned JSON", data=json_path.read_bytes(), file_name=json_path.name, mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", use_container_width=True)
+                fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
+                if c.button(fav_label, key=f"mi_fav_{row.get('run_id')}", use_container_width=True):
+                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); st.rerun()
+                confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
+                if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, use_container_width=True):
+                    delete_archived_report(str(row.get("run_id"))); st.rerun()
+
     with tab_history:
         files = sorted(RUNS_DIR.glob("MI-*.json"), reverse=True)[:100] if RUNS_DIR.exists() else []
         rows = []

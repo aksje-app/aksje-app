@@ -19,7 +19,7 @@ def pushover_enabled():
     return bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
 
 
-def send_pushover_alert(message, title="AI Aksje Analyzer"):
+def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None):
     try:
         if not bool(load_settings().get("pushover_enabled", True)):
             print("Pushover disabled by settings")
@@ -37,16 +37,14 @@ def send_pushover_alert(message, title="AI Aksje Analyzer"):
         return False, "missing env"
 
     try:
-        response = requests.post(
-            "https://api.pushover.net/1/messages.json",
-            data={
-                "token": PUSHOVER_APP_TOKEN,
-                "user": PUSHOVER_USER_KEY,
-                "title": title,
-                "message": message,
-            },
-            timeout=10,
-        )
+        payload = {
+            "token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY,
+            "title": title, "message": message,
+        }
+        if url:
+            payload["url"] = str(url)
+            payload["url_title"] = str(url_title or "Åpne rapport")
+        response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
 
         if response.status_code == 200:
             print("Pushover sendt")

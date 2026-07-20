@@ -1,8 +1,9 @@
-APP_VERSION = "v18.6.94"
-APP_VERSION_NAME = "Executive Intelligence & Portfolio Diversity"
+APP_VERSION = "v18.7.0"
+APP_VERSION_NAME = "Report Center & Professional UX"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.0: Report Center & Professional UX: innebygd rapportarkiv med søk, filter, favoritter, PDF/JSON-nedlasting og sikker sletting; Pushover kan vise Top 3 og lenke til rapport; scheduler får mandag–fredag-standard, valgfri helg, fungerende hurtigvalg, reset-knapper, tryggere varselscorefelt og større mobiltekst; kjøringsbevis viser marked/land.",
     "v18.6.94: Executive Intelligence & Portfolio Diversity: selskapsbasert Top 3, visuelle medaljekort, utvidet Executive Summary, konsekvent helgestatus og porteføljededuplisering av aksjeklasser som GOOG/GOOGL.",
     "v18.6.93e: Unified Execution Pipeline: manuell Morgenanalyse bruker samme validerte utkastkonfigurasjon, nylig validert utkast kan promoteres uten nytt API-burst, alle rapporttyper bruker samme run_job-pipeline, markedspause og ett kontrollert marked-retry reduserer throttling.",
     "v18.6.93d: NoneType & Market Loader Fix: sikker numerisk normalisering, kandidatvis feilisolering, detaljert felt/ticker-diagnostikk og videre kjøring når enkeltkandidater har manglende data.",
