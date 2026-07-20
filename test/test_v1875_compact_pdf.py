@@ -78,3 +78,31 @@ def test_compact_pdf_keeps_minimal_report_on_one_page():
            "summary": {}, "candidates": [], "changes": {}, "data_refresh": {}}
     reader = PdfReader(BytesIO(mi.build_pdf(run)))
     assert len(reader.pages) == 1
+
+
+def test_draft_job_id_overrides_stale_morning_report_identity():
+    run = {
+        "run_id": "MI-DRAFT-GUARD", "created_at": "2026-07-20T09:42:59+00:00",
+        "job_id": mi.DRAFT_JOB_ID, "job_name": "Morgenanalyse",
+        "trigger": "MANUAL_FULL_CHAIN",
+        "report_identity": {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"},
+        "markets": ["Norge"], "summary": {}, "candidates": [], "changes": {},
+        "data_refresh": {},
+    }
+    identity = mi.resolve_report_identity(run)
+    filename = mi.safe_report_filename(run)
+    reader = PdfReader(BytesIO(mi.build_pdf(run)))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    archive = mi._archive_entry(run)
+
+    assert identity == {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
+    assert filename.startswith("UTKAST_Morgenanalyse_")
+    assert "Utkast – Market Intelligence" in text
+    assert "UTKAST" in text
+    assert archive["report_type"] == "UTKAST"
+    assert archive["report_label"] == "Utkast"
+
+
+def test_normal_morning_report_identity_is_unchanged():
+    run = {"job_id": "MIJ-PRODUCTION", "job_name": "Morgenanalyse", "trigger": "MANUAL_FULL_CHAIN"}
+    assert mi.resolve_report_identity(run)["type"] == "MORGENRAPPORT"
