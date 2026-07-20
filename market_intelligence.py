@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.7.0"
+VERSION = "v18.7.1"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -39,7 +39,7 @@ RECENT_DRAFT_REUSE_MINUTES = 30
 
 MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
-    "Backtesting Validation", "Portfolio Optimizer", "Learning Advisor",
+    "Backtesting Validation", "Portfolio Optimizer", "Learning Advisor", "Insider Intelligence",
 ]
 SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
@@ -248,7 +248,12 @@ class JobProfile:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "JobProfile":
         allowed = {x.name for x in cls.__dataclass_fields__.values()}
-        return cls(**{k: v for k, v in dict(value).items() if k in allowed})
+        data = {k: v for k, v in dict(value).items() if k in allowed}
+        modules = list(data.get("modules") or MODULE_OPTIONS)
+        if "Insider Intelligence" not in modules:
+            modules.append("Insider Intelligence")
+        data["modules"] = modules
+        return cls(**data)
 
 
 def load_jobs() -> list[JobProfile]:
@@ -496,7 +501,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
               Table([["Skannet", summary.get("scanned", 0)], ["Grundig analysert", summary.get("deep_analyzed", 0)],
                      ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)],
                      ["Unike selskaper", intelligence.get("unique_companies", 0)], ["Gjennomsnittsscore", intelligence.get("average_score", 0)],
-                     ["Høyeste score", intelligence.get("highest_score", 0)], ["Markeder i Top 10", intelligence.get("markets_in_top10", 0)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+                     ["Høyeste score", intelligence.get("highest_score", 0)], ["Markeder i Top 10", intelligence.get("markets_in_top10", 0)],
+                     ["Sterke insider-signaler", sum(1 for x in (run.get("candidates") or []) if float((x.get("raw") or {}).get("insider_score", 50) or 50) >= 78)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
     diagnostics = run.get("market_diagnostics") or []
     if diagnostics:
         diag_data = [["Marked", "Skannet", "Analysert", "Live", "Feil", "Status"]]
@@ -546,6 +552,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
               Table([["Nye", len(changes.get("new", []))], ["Forbedret", len(changes.get("improved", []))],
                      ["Svekket", len(changes.get("weakened", []))], ["Utgått", len(changes.get("dropped", []))]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
     candidates = run.get("candidates") or []
+    insider_rows = []
+    for candidate in candidates:
+        raw = candidate.get("raw") or {}
+        insider = raw.get("insider_intelligence") or {}
+        if str(insider.get("coverage") or "") == "AVAILABLE":
+            insider_rows.append(candidate)
+    if insider_rows:
+        insider_rows.sort(key=lambda x: float((x.get("raw") or {}).get("insider_score", 50) or 50), reverse=True)
+        idata = [["Ticker", "Marked", "Signal", "Score", "Kjøp", "Salg", "Nettoverdi"]]
+        for item in insider_rows[:10]:
+            raw = item.get("raw") or {}; ins = raw.get("insider_intelligence") or {}
+            idata.append([item.get("ticker"), item.get("market"), raw.get("insider_signal"), raw.get("insider_score"), ins.get("buy_count", 0), ins.get("sell_count", 0), ins.get("net_value", 0)])
+        itable = Table(idata, repeatRows=1, colWidths=[24*mm, 24*mm, 31*mm, 17*mm, 17*mm, 17*mm, 32*mm])
+        itable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
+        story += [Paragraph("Insider Intelligence", styles["Heading1"]), Paragraph("Offentlig registrerte insidertransaksjoner. Manglende dekning gir nøytral score og skal ikke tolkes som fravær av handler.", styles["Small"]), itable, Spacer(1, 6*mm)]
     if run.get("analysis_aborted"):
         story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Heading1"]),
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyText"])]
@@ -554,11 +575,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         medal_data = []
         medal_candidates = run.get("diverse_top3") or select_diverse_candidates(candidates, 3)
         for idx, r in enumerate(medal_candidates):
-            strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0))), key=lambda x: float(x[1] or 0))
+            strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0)), ("Insider", (r.get("raw") or {}).get("insider_score", 50))), key=lambda x: float(x[1] or 0))
             display_name = str(r.get("name") or r.get("ticker") or "-")
             medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Risiko {r.get('risk_score',0)} · Vekt {r.get('proposed_position_pct',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
-        medal_table.setStyle(TableStyle([("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#FFF4C2")), ("BACKGROUND", (1,0), (1,-1), colors.HexColor("#EEF1F5")), ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F6E1D3")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
+        medal_styles = [("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]
+        medal_colors = ["#FFF4C2", "#EEF1F5", "#F6E1D3"]
+        for medal_index in range(len(medal_data)):
+            medal_styles.append(("BACKGROUND", (medal_index,0), (medal_index,-1), colors.HexColor(medal_colors[medal_index])))
+        medal_table.setStyle(TableStyle(medal_styles))
         story += [Paragraph("Topp 3", styles["Heading1"]), medal_table, Spacer(1, 6*mm)]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko", "Status"]]
         for r in candidates[:10]:
@@ -573,7 +598,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                   Spacer(1, 3*mm), Paragraph("Scorekort", styles["Heading2"]),
                   Table([["AI Discovery", p.get("discovery_score")], ["Fundamentalt", p.get("fundamental_score")],
                          ["Research", p.get("research_score")], ["Backtesting", p.get("validation_score")],
-                         ["Porteføljetilpasning", p.get("portfolio_fit_score")], ["Risiko", p.get("risk_score")]], colWidths=[70*mm, 35*mm]),
+                         ["Porteføljetilpasning", p.get("portfolio_fit_score")], ["Insider Intelligence", (p.get("raw") or {}).get("insider_score", 50)], ["Risiko", p.get("risk_score")]], colWidths=[70*mm, 35*mm]),
+                  Paragraph("Insider Intelligence", styles["Heading2"]),
+                  Paragraph(f"Signal: {(p.get('raw') or {}).get('insider_signal', 'INGEN DATA')} | Score: {(p.get('raw') or {}).get('insider_score', 50)}/100 | Nettoverdi: {((p.get('raw') or {}).get('insider_intelligence') or {}).get('net_value', 0)}", styles["BodyText"]),
                   Paragraph("Positive drivere", styles["Heading2"])]
         story += [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("positives") or []]
         story += [Paragraph("Risiko", styles["Heading2"])] + [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("risks") or []]
@@ -783,7 +810,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                              proposal_count=job.proposal_count, use_research="AI Research Assistant" in job.modules,
                              use_backtest="Backtesting Validation" in job.modules,
                              use_portfolio_fit="Portfolio Optimizer" in job.modules,
-                             use_learning_advisor="Learning Advisor" in job.modules).normalized()
+                             use_learning_advisor="Learning Advisor" in job.modules,
+                             use_insider_intelligence="Insider Intelligence" in job.modules).normalized()
         try:
             emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
             rows, source = _load_candidate_rows_from_app(cfg)
@@ -1194,7 +1222,7 @@ def render_market_intelligence() -> None:
                 medal_candidates = latest.get("diverse_top3") or select_diverse_candidates(candidates, 3)
                 cols = st.columns(min(3, len(medal_candidates)))
                 for idx, candidate in enumerate(medal_candidates):
-                    strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0)}
+                    strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0), "Insider": (candidate.get("raw") or {}).get("insider_score",50)}
                     strongest = max(strengths, key=lambda k: float(strengths[k] or 0))
                     display_name = str(candidate.get("name") or candidate.get("ticker") or "-")
                     with cols[idx]:
@@ -1213,6 +1241,7 @@ def render_market_intelligence() -> None:
                     "Research": x.get("research_score", 0),
                     "Validering": x.get("validation_score", 0),
                     "Porteføljetilpasning": x.get("portfolio_fit_score", 0),
+                    "Insider": (x.get("raw") or {}).get("insider_score", 50),
                 }
                 strongest = max(strengths, key=lambda key: float(strengths[key] or 0))
                 action = "BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "WATCH" if x.get("status") == "OBSERVASJONSLISTE" else "REVIEW" if x.get("status") == "KREVER MANUELL VURDERING" else "SKIP"

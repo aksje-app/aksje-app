@@ -171,13 +171,15 @@ class PipelineConfig:
     use_backtest: bool = True
     use_portfolio_fit: bool = True
     use_learning_advisor: bool = True
+    use_insider_intelligence: bool = True
     weights: dict[str, float] = field(default_factory=lambda: {
         "discovery": 0.28,
         "fundamental": 0.18,
         "research": 0.14,
         "validation": 0.17,
         "portfolio_fit": 0.13,
-        "risk_adjustment": 0.10,
+        "risk_adjustment": 0.08,
+        "insider": 0.08,
     })
 
     def normalized(self) -> "PipelineConfig":
@@ -201,6 +203,7 @@ class PipelineConfig:
             use_backtest=bool(self.use_backtest),
             use_portfolio_fit=bool(self.use_portfolio_fit),
             use_learning_advisor=bool(self.use_learning_advisor),
+            use_insider_intelligence=bool(self.use_insider_intelligence),
             weights=weights,
         )
 
@@ -312,6 +315,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
 
     scanner_score = _clamp(0.50 * discovery + 0.25 * momentum + 0.15 * data_quality + 0.10 * liquidity - 0.18 * risk)
     risk_adjustment = _clamp(100.0 - risk)
+    insider = _normalized_score(row.get("insider_score", 50.0), 50.0) if config.use_insider_intelligence else 50.0
     parts = {
         "discovery": discovery,
         "fundamental": fundamental,
@@ -319,6 +323,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "validation": validation,
         "portfolio_fit": portfolio_fit,
         "risk_adjustment": risk_adjustment,
+        "insider": insider,
     }
     effective_weights, learning_meta = adaptive_weights(config.weights)
     investment = _clamp(sum(parts[k] * effective_weights.get(k, 0.0) for k in parts))
@@ -333,6 +338,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "Porteføljetilpasning": "BESTÅTT" if portfolio_fit >= 50 else "ADVARSEL",
         "Risiko": "BESTÅTT" if risk <= config.max_risk_score else "IKKE BESTÅTT",
         "Konfidens": "BESTÅTT" if derived["confidence"] >= 55 else "ADVARSEL",
+        "Insider Intelligence": "BESTÅTT" if insider >= 55 else ("ADVARSEL" if insider >= 35 else "IKKE BESTÅTT"),
     }
     failed = [k for k, v in gates.items() if v == "IKKE BESTÅTT"]
     warnings = [k for k, v in gates.items() if v == "ADVARSEL"]
@@ -350,7 +356,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         status = STATUS_WATCH
 
     positives, risks = [], []
-    for label, score in (("AI Discovery", discovery), ("Fundamentaler", fundamental), ("Research", research), ("Backtest", validation), ("Porteføljetilpasning", portfolio_fit)):
+    for label, score in (("AI Discovery", discovery), ("Fundamentaler", fundamental), ("Research", research), ("Backtest", validation), ("Porteføljetilpasning", portfolio_fit), ("Insider Intelligence", insider)):
         if score >= 65:
             positives.append(f"{label} trekker opp ({score:.0f}/100).")
         elif score < 45:
@@ -415,6 +421,11 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             clean["loader_diagnostics"] = {"missing_or_invalid_numeric_fields": missing}
         sanitized_rows.append(clean)
     prepared_rows = sanitized_rows
+    if cfg.use_insider_intelligence and prepared_rows:
+        from insider_intelligence import enrich_rows as enrich_insider_rows
+        if progress_callback:
+            progress_callback({"phase": "INSIDER", "completed": 0, "total": len(prepared_rows), "message": "Henter offentlige insidertransaksjoner"})
+        prepared_rows = enrich_insider_rows(prepared_rows, force_refresh=force_refresh)
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:
@@ -706,7 +717,7 @@ def render_investment_pipeline() -> None:
                 "Rang": r.get("rank"), "Ticker": r.get("ticker"), "Marked": r.get("market"),
                 "Sektor": r.get("sector"), "Scanner": r.get("scanner_score"),
                 "Investment Score": r.get("investment_score"), "Risiko": r.get("risk_score"),
-                "Datakvalitet": r.get("data_quality"), "Status": r.get("status"),
+                "Datakvalitet": r.get("data_quality"), "Insider": (r.get("raw") or {}).get("insider_score", 50), "Insidersignal": (r.get("raw") or {}).get("insider_signal", "INGEN DATA"), "Status": r.get("status"),
                 "Strategi": r.get("strategy_match"), "Foreslått vekt %": r.get("proposed_position_pct"),
             } for r in rows]
             st.markdown("##### Rangert kandidatliste")
@@ -720,6 +731,17 @@ def render_investment_pipeline() -> None:
             t3.metric("Konfidens", selected.get("confidence_score", 0))
             t4.metric("Investment Score", selected.get("investment_score", 0))
             raw = selected.get("raw") or {}
+            insider = raw.get("insider_intelligence") or {}
+            st.markdown("###### 🕵️ Insider Intelligence")
+            ins1, ins2, ins3, ins4 = st.columns(4)
+            ins1.metric("Insider-score", raw.get("insider_score", 50))
+            ins2.metric("Signal", raw.get("insider_signal", "INGEN DATA"))
+            ins3.metric("Kjøp / salg", f"{insider.get('buy_count',0)} / {insider.get('sell_count',0)}")
+            ins4.metric("Nettoverdi", insider.get("net_value", 0))
+            if insider.get("evidence"):
+                st.dataframe(pd.DataFrame(insider.get("evidence")), use_container_width=True, hide_index=True)
+            else:
+                st.caption(insider.get("reason") or "Ingen dokumenterte insidertransaksjoner i tilgjengelig datakilde.")
             if raw.get("data_fetch_error"):
                 st.warning(str(raw.get("data_fetch_error")))
             cache_cols = st.columns(4)
