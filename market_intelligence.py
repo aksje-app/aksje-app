@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.6.93e"
+VERSION = "v18.6.94"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -44,6 +44,77 @@ DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 3
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 
 SCAN_PROFILES = {"Rask (10)": 10, "Normal (25)": 25, "Grundig (50)": 50, "Egendefinert": None}
+
+
+COMPANY_TICKER_ALIASES = {
+    "GOOG": "ALPHABET", "GOOGL": "ALPHABET",
+    "BRK-A": "BERKSHIRE_HATHAWAY", "BRK-B": "BERKSHIRE_HATHAWAY",
+    "BRK.A": "BERKSHIRE_HATHAWAY", "BRK.B": "BERKSHIRE_HATHAWAY",
+    "FOX": "FOX_CORP", "FOXA": "FOX_CORP",
+    "NWS": "NEWS_CORP", "NWSA": "NEWS_CORP",
+    "DISCA": "WARNER_BROS_DISCOVERY", "DISCB": "WARNER_BROS_DISCOVERY", "DISCK": "WARNER_BROS_DISCOVERY",
+    "HEI": "HEICO", "HEI-A": "HEICO",
+}
+
+def company_identity(candidate: Mapping[str, Any]) -> str:
+    """Return a stable company key so share classes do not occupy multiple medal/portfolio slots."""
+    ticker = str(candidate.get("ticker") or "").upper().strip()
+    if ticker in COMPANY_TICKER_ALIASES:
+        return COMPANY_TICKER_ALIASES[ticker]
+    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    name = str(candidate.get("name") or raw.get("longName") or raw.get("shortName") or ticker).upper()
+    for suffix in (" CLASS A", " CLASS B", " CLASS C", " A-SHARE", " B-SHARE", " ADR", " PLC", " INC.", " INC", " CORP.", " CORP", " LTD.", " LTD"):
+        name = name.replace(suffix, "")
+    compact = "".join(ch for ch in name if ch.isalnum())
+    return compact or ticker
+
+def select_diverse_candidates(candidates: Sequence[Mapping[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+    selected, seen = [], set()
+    for item in candidates:
+        key = company_identity(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(dict(item))
+        if len(selected) >= limit:
+            break
+    return selected
+
+def executive_intelligence(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    rows = list(candidates or [])
+    scores = [float(x.get("investment_score", 0) or 0) for x in rows]
+    markets = {str(x.get("market") or "Ukjent") for x in rows[:10]}
+    companies = {company_identity(x) for x in rows}
+    return {
+        "average_score": round(sum(scores) / len(scores), 2) if scores else 0.0,
+        "highest_score": round(max(scores), 2) if scores else 0.0,
+        "lowest_score": round(min(scores), 2) if scores else 0.0,
+        "unique_companies": len(companies),
+        "markets_in_top10": len(markets),
+    }
+
+def diversify_portfolio(proposal: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(proposal or {})
+    key = "allocations" if isinstance(result.get("allocations"), list) else "positions"
+    allocations = list(result.get(key) or [])
+    kept, removed, seen = [], [], set()
+    for allocation in allocations:
+        company_key = company_identity(allocation)
+        if company_key in seen:
+            removed.append(dict(allocation))
+            continue
+        seen.add(company_key)
+        kept.append(dict(allocation))
+    result[key] = kept
+    if key == "positions" and "allocations" in result:
+        result["allocations"] = kept
+    removed_weight = sum(float(x.get("weight_pct", x.get("weight", 0)) or 0) for x in removed)
+    result["invested_pct"] = round(max(0.0, float(result.get("invested_pct", 0) or 0) - removed_weight), 2)
+    result["cash_pct"] = round(min(100.0, float(result.get("cash_pct", 100) or 100) + removed_weight), 2)
+    result["company_duplicates_removed"] = len(removed)
+    result["company_diversity_applied"] = True
+    return result
+
 MARKET_CLOCKS = {
     "USA": ("America/New_York", time(9, 30), time(16, 0)),
     "Norge": ("Europe/Oslo", time(9, 0), time(16, 20)),
@@ -64,10 +135,11 @@ def build_market_status(markets: Sequence[str], refresh: Mapping[str, Any] | Non
     for market in markets:
         tz_name, open_at, close_at = MARKET_CLOCKS.get(market, ("UTC", time(0, 0), time(0, 0)))
         local = now.astimezone(ZoneInfo(tz_name))
-        weekday_open = local.weekday() < 5
+        reference_weekend = now.astimezone(timezone.utc).weekday() >= 5
+        weekday_open = local.weekday() < 5 and not reference_weekend
         within_hours = open_at <= local.time().replace(tzinfo=None) <= close_at
         status = "ÅPEN" if weekday_open and within_hours else "STENGT"
-        reason = "Innenfor ordinær åpningstid" if status == "ÅPEN" else ("Helg" if not weekday_open else "Utenfor ordinær åpningstid")
+        reason = "Innenfor ordinær åpningstid" if status == "ÅPEN" else ("Helg" if reference_weekend or not weekday_open else "Utenfor ordinær åpningstid")
         rows.append({"market": market, "status": status, "reason": reason, "local_time": local.strftime("%H:%M"), "timezone": tz_name, "latest_trade_date": latest_date})
     return rows
 
@@ -339,9 +411,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
              Paragraph(f"Generert: {run.get('created_at', '-')}", styles["BodyText"]),
              Paragraph(f"Markeder: {', '.join(run.get('markets') or run.get('market_expansion') or [])}", styles["BodyText"]), PageBreak()]
     summary = run.get("summary") or {}
+    intelligence = run.get("executive_intelligence") or executive_intelligence(run.get("candidates") or [])
     story += [Paragraph("Executive Summary", styles["Heading1"]),
               Table([["Skannet", summary.get("scanned", 0)], ["Grundig analysert", summary.get("deep_analyzed", 0)],
-                     ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
+                     ["Investeringsforslag", summary.get("proposals", 0)], ["Anbefalt", summary.get("recommended", 0)],
+                     ["Unike selskaper", intelligence.get("unique_companies", 0)], ["Gjennomsnittsscore", intelligence.get("average_score", 0)],
+                     ["Høyeste score", intelligence.get("highest_score", 0)], ["Markeder i Top 10", intelligence.get("markets_in_top10", 0)]], colWidths=[70*mm, 35*mm]), Spacer(1, 6*mm)]
     diagnostics = run.get("market_diagnostics") or []
     if diagnostics:
         diag_data = [["Marked", "Skannet", "Analysert", "Live", "Feil", "Status"]]
@@ -395,13 +470,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Heading1"]),
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyText"])]
     elif candidates:
-        medal_labels = ["1. BESTE KANDIDAT", "2. NUMMER TO", "3. NUMMER TRE"]
+        medal_labels = ["GULL · BESTE KANDIDAT", "SØLV · NUMMER TO", "BRONSE · NUMMER TRE"]
         medal_data = []
-        for idx, r in enumerate(candidates[:3]):
+        medal_candidates = run.get("diverse_top3") or select_diverse_candidates(candidates, 3)
+        for idx, r in enumerate(medal_candidates):
             strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0))), key=lambda x: float(x[1] or 0))
-            medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
+            display_name = str(r.get("name") or r.get("ticker") or "-")
+            medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Risiko {r.get('risk_score',0)} · Vekt {r.get('proposed_position_pct',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
-        medal_table.setStyle(TableStyle([("BOX", (0,0), (-1,-1), .6, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F7F9FC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
+        medal_table.setStyle(TableStyle([("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#FFF4C2")), ("BACKGROUND", (1,0), (1,-1), colors.HexColor("#EEF1F5")), ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F6E1D3")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
         story += [Paragraph("Topp 3", styles["Heading1"]), medal_table, Spacer(1, 6*mm)]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko", "Status"]]
         for r in candidates[:10]:
@@ -725,6 +802,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "analysis_aborted": analysis_aborted,
+           "executive_intelligence": executive_intelligence(all_candidates),
+           "diverse_top3": select_diverse_candidates(all_candidates, 3),
            "report_identity": report_identity(trigger, job.name),
            "execution_mode": "UNIFIED_PIPELINE",
            "configuration_handoff": handoff,
@@ -751,8 +830,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            }}
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
-    run["portfolio_proposal"] = ({"positions": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
-                                 if analysis_aborted else build_portfolio_proposal(all_candidates))
+    run["portfolio_proposal"] = ({"positions": [], "allocations": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
+                                 if analysis_aborted else diversify_portfolio(build_portfolio_proposal(all_candidates)))
     if analysis_aborted:
         run["changes"] = {"new": [], "improved": [], "weakened": [], "unchanged": [], "dropped": []}
     else:
@@ -975,6 +1054,12 @@ def render_market_intelligence() -> None:
             c.metric("Forslag", s.get("proposals",0))
             d.metric("Nye", len(ch.get("new",[])))
             e.metric("Forbedret", len(ch.get("improved",[])))
+            intelligence = latest.get("executive_intelligence") or executive_intelligence(latest.get("candidates") or [])
+            i1, i2, i3, i4 = st.columns(4)
+            i1.metric("Gjennomsnittsscore", intelligence.get("average_score", 0))
+            i2.metric("Høyeste score", intelligence.get("highest_score", 0))
+            i3.metric("Unike selskaper", intelligence.get("unique_companies", 0))
+            i4.metric("Markeder i Top 10", intelligence.get("markets_in_top10", 0))
             actual_by_market = scan_cfg.get("actual_by_market") or {}
             if actual_by_market:
                 st.caption("Faktisk skannet per marked: " + " · ".join(f"{market}: {count}" for market, count in actual_by_market.items()))
@@ -995,12 +1080,19 @@ def render_market_intelligence() -> None:
             candidates = [] if latest.get("analysis_aborted") else list(latest.get("candidates") or [])
             if candidates:
                 st.markdown("#### 🏅 Topp 3")
-                medals = ["🥇", "🥈", "🥉"]
-                cols = st.columns(min(3, len(candidates)))
-                for idx, candidate in enumerate(candidates[:3]):
+                medals = ["🥇 GULL", "🥈 SØLV", "🥉 BRONSE"]
+                medal_candidates = latest.get("diverse_top3") or select_diverse_candidates(candidates, 3)
+                cols = st.columns(min(3, len(medal_candidates)))
+                for idx, candidate in enumerate(medal_candidates):
                     strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0)}
                     strongest = max(strengths, key=lambda k: float(strengths[k] or 0))
-                    cols[idx].metric(f"{medals[idx]} {candidate.get('ticker','-')} · {candidate.get('market','-')}", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
+                    display_name = str(candidate.get("name") or candidate.get("ticker") or "-")
+                    with cols[idx]:
+                        st.markdown(f"**{medals[idx]}**")
+                        st.markdown(f"### {display_name}")
+                        st.caption(f"{candidate.get('ticker','-')} · {candidate.get('market','-')}")
+                        st.metric("Score", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}%")
+                        st.caption(f"Risiko {float(candidate.get('risk_score',0)):.1f} · Vekt {float(candidate.get('proposed_position_pct',0)):.2f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
             if latest.get("errors"): st.warning(" | ".join(latest["errors"]))
             st.markdown("#### Top 10")
             table = []
