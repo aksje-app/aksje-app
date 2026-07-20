@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.8"
-APP_VERSION_NAME = "Durable Manual Background Execution"
+APP_VERSION = "v18.7.9"
+APP_VERSION_NAME = "Responsive Background UX & Global Insider Coverage"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.9: Responsive Background UX & Global Insider Coverage: automatisk jobbstatus oppdateres i isolert Streamlit-fragment slik at navigasjon forblir klikkbar. PDF viser insider-nettoverdi med tusenskille og markedsvaluta, risiko som 0–100 med LAV/MODERAT/HØY, og insiderdekning per marked. Offisielle kilder for Norge, Sverige, Finland, Danmark, Brasil og USA katalogiseres; NEWSAPI_KEY brukes til sekundær kildeoppdagelse uten at uverifiserte treff påvirker score.",
     "v18.7.8: Durable Manual Background Execution: manuelle utkast- og fullkjedekjøringer flyttes ut av Streamlit-renderingen til en separat servertråd. Aksept, fremdrift, kjede-ID, sluttstatus og feil lagres Postgres-first, UI gjenopptar overvåking etter navigasjon/refresh, og duplikatvern hindrer parallelle dobbeltstarter.",
     "v18.7.7: Durable Runtime & Non-Blocking Scheduler: rapportarkiv, rapport-JSON, siste kjøring, kandidat- og læringshistorikk, Investment Pipeline, autonome handler/beslutninger/varsler/ytelse, Orchestrator, Pushover, systemaudit og driftsmetrikker lagres Postgres-first og rehydreres etter deploy. Manglende PDF regenereres fra varig JSON. Scheduler-kontroll kjører uten å blokkere jobbskjemaet, dupliserte jobbprofiler repareres, og kandidatvise datavarsler skilles fra tekniske systemfeil.",
     "v18.7.6: Draft Report Identity Guard: utkastets faste jobb-ID er autoritativ for rapportidentiteten. PDF-filnavn, PDF-overskrift, metadata, siste rapport, historikk og rapportarkiv merkes alltid UTKAST/Utkast når utkastet kjøres, også dersom en foreldet trigger eller lagret identitet peker på Morgenrapport.",

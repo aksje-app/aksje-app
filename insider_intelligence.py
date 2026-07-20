@@ -11,8 +11,10 @@ from typing import Any, Mapping, Sequence
 import json, math, time
 
 from storage_architecture import runtime_data_path
+from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
+from international_insider_sources import discover_with_newsapi, source_for_market
 
-VERSION = "v18.7.1"
+VERSION = "v18.7.9"
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
 
@@ -32,15 +34,12 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 
 def _load_cache() -> dict[str, Any]:
-    try:
-        return json.loads(CACHE_PATH.read_text(encoding="utf-8")) if CACHE_PATH.exists() else {}
-    except Exception:
-        return {}
+    value = durable_read_json("insider_intelligence/cache.json", CACHE_PATH, {})
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _save_cache(data: Mapping[str, Any]) -> None:
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(dict(data), ensure_ascii=False, indent=2), encoding="utf-8")
+    durable_write_json("insider_intelligence/cache.json", CACHE_PATH, dict(data))
 
 
 def _role_weight(role: str) -> float:
@@ -147,11 +146,25 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
     }
 
 
-def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookback_days: int = 90) -> dict[str, Any]:
+def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookback_days: int = 90,
+                               market: str = "", company: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
     cache = _load_cache(); cached = cache.get(ticker)
     if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS:
-        return dict(cached.get("result") or {})
+        result = dict(cached.get("result") or {})
+        source = source_for_market(market)
+        result.setdefault("currency", source.get("currency", ""))
+        result.setdefault("official_source", source.get("name", ""))
+        result.setdefault("official_search_url", source.get("search_url", ""))
+        if result.get("coverage") != "AVAILABLE" and market and "source_discovery" not in result:
+            discovery = discover_with_newsapi(ticker, company, market)
+            result["source_discovery"] = discovery
+            if discovery.get("articles"):
+                result.update({"score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
+                               "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; avventer strukturert verifikasjon."})
+            cache[ticker] = {"cached_at": time.time(), "result": result}
+            _save_cache(cache)
+        return result
     try:
         import yfinance as yf
         obj = yf.Ticker(ticker)
@@ -166,8 +179,34 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         result = score_transactions(ticker, _records(value), lookback_days=lookback_days)
         result["source"] = "yfinance/public filings"
         result["fetched_at"] = datetime.now(timezone.utc).isoformat()
+        source = source_for_market(market)
+        result["currency"] = source.get("currency", "")
+        result["official_source"] = source.get("name", "")
+        result["official_search_url"] = source.get("search_url", "")
+        if result.get("coverage") != "AVAILABLE" and market:
+            discovery = discover_with_newsapi(ticker, company, market)
+            result["source_discovery"] = discovery
+            if discovery.get("articles"):
+                result.update({
+                    "score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
+                    "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; transaksjonen må struktureres og verifiseres før scoring.",
+                })
     except Exception as exc:
-        result = {"ticker": ticker, "score": 50.0, "signal": "KILDEFEIL", "coverage": "ERROR", "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [], "reason": str(exc), "source": "unavailable"}
+        source = source_for_market(market)
+        discovery = discover_with_newsapi(ticker, company, market) if market else {}
+        found = list(discovery.get("articles") or [])
+        result = {
+            "ticker": ticker, "score": 50.0,
+            "signal": "KILDER FUNNET" if found else "KILDEFEIL",
+            "coverage": "DISCOVERY_ONLY" if found else "ERROR",
+            "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [],
+            "reason": (f"{len(found)} mulig(e) kildemelding(er) funnet; avventer strukturert verifikasjon."
+                       if found else str(exc)),
+            "source": "NewsAPI discovery" if found else "unavailable",
+            "source_discovery": discovery, "currency": source.get("currency", ""),
+            "official_source": source.get("name", ""),
+            "official_search_url": source.get("search_url", ""),
+        }
     cache[ticker] = {"cached_at": time.time(), "result": result}; _save_cache(cache)
     return result
 
@@ -175,7 +214,12 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
 def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False) -> list[dict[str, Any]]:
     enriched = []
     for row in rows:
-        clean = dict(row); insider = fetch_insider_intelligence(str(clean.get("ticker") or ""), force_refresh=force_refresh)
+        clean = dict(row)
+        insider = fetch_insider_intelligence(
+            str(clean.get("ticker") or ""), force_refresh=force_refresh,
+            market=str(clean.get("market") or ""),
+            company=str(clean.get("name") or clean.get("longName") or clean.get("shortName") or ""),
+        )
         clean["insider_intelligence"] = insider
         clean["insider_score"] = insider.get("score", 50.0)
         clean["insider_signal"] = insider.get("signal", "INGEN DATA")

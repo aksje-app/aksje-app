@@ -23,7 +23,7 @@ from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
-VERSION = "v18.7.8"
+VERSION = "v18.7.9"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -534,6 +534,67 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         return False, str(exc)
 
 
+MARKET_CURRENCIES = {
+    "USA": "USD", "Norge": "NOK", "Sverige": "SEK",
+    "Finland": "EUR", "Danmark": "DKK", "Brasil": "BRL",
+}
+
+
+def market_currency(market: Any = "", ticker: Any = "", explicit: Any = "") -> str:
+    """Resolve the transaction currency without converting the source value."""
+    if str(explicit or "").strip():
+        return str(explicit).strip().upper()
+    normalized_market = infer_market_from_ticker(str(ticker or ""), str(market or ""))
+    return MARKET_CURRENCIES.get(normalized_market, "")
+
+
+def format_whole_currency(value: Any, currency: str = "") -> str:
+    """Round to whole units and use Norwegian-style grouped thousands."""
+    try:
+        number = int(round(float(value or 0)))
+        grouped = f"{abs(number):,}".replace(",", " ")
+        text = f"-{grouped}" if number < 0 else grouped
+    except (TypeError, ValueError):
+        text = str(value if value is not None else "-")
+    return f"{text} {currency}".strip()
+
+
+def risk_level(value: Any) -> str:
+    try:
+        score = max(0.0, min(100.0, float(value)))
+    except (TypeError, ValueError):
+        return "UKJENT"
+    return "LAV" if score < 30.0 else "MODERAT" if score < 65.0 else "HØY"
+
+
+def format_risk(value: Any) -> str:
+    try:
+        score = f"{float(value):.2f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return str(value if value is not None else "-")
+    return f"{score} - {risk_level(value)}"
+
+
+def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for candidate in candidates or []:
+        market = str(candidate.get("market") or "Ukjent")
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
+        row = grouped.setdefault(market, {"market": market, "checked": 0, "verified": 0, "discovery": 0, "missing": 0, "source": ""})
+        row["checked"] += 1
+        coverage = str(insider.get("coverage") or "MISSING")
+        if coverage == "AVAILABLE":
+            row["verified"] += 1
+        elif coverage == "DISCOVERY_ONLY":
+            row["discovery"] += 1
+        else:
+            row["missing"] += 1
+        if insider.get("official_source"):
+            row["source"] = str(insider.get("official_source"))
+    return [grouped[key] for key in sorted(grouped)]
+
+
 def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     """Build the compact professional market-intelligence report.
 
@@ -687,6 +748,19 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     changes_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold")]))
     story += [Paragraph("Endringer siden forrige kjøring", styles["Subsection"]), changes_table]
     candidates = run.get("candidates") or []
+    insider_coverage = insider_coverage_by_market(candidates)
+    if insider_coverage:
+        coverage_data = [["Marked", "Kontrollert", "Verifisert", "Kilder funnet", "Uten strukturerte data", "Primærkilde"]]
+        for item in insider_coverage:
+            coverage_data.append([
+                item.get("market"), item.get("checked", 0), item.get("verified", 0),
+                item.get("discovery", 0), item.get("missing", 0), _p(item.get("source") or "Ikke tilgjengelig"),
+            ])
+        coverage_table = Table(coverage_data, repeatRows=1, colWidths=[21*mm, 20*mm, 19*mm, 23*mm, 31*mm, 55*mm])
+        coverage_table.setStyle(_table_style(6.3, padding=1.8))
+        story += [Paragraph("Insiderdekning per marked", styles["Section"]),
+                  Paragraph("Verifiserte transaksjoner kan påvirke score. Kilder funnet via NewsAPI holdes nøytrale til transaksjonsdata er strukturert og kontrollert mot primærkilden.", styles["Small"]),
+                  coverage_table]
     insider_rows = []
     for candidate in candidates:
         raw = candidate.get("raw") or {}
@@ -698,7 +772,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         idata = [["Ticker", "Marked", "Signal", "Score", "Kjøp", "Salg", "Nettoverdi"]]
         for item in insider_rows[:10]:
             raw = item.get("raw") or {}; ins = raw.get("insider_intelligence") or {}
-            idata.append([item.get("ticker"), item.get("market"), raw.get("insider_signal"), _fmt(raw.get("insider_score")), ins.get("buy_count", 0), ins.get("sell_count", 0), _fmt(ins.get("net_value", 0), 0)])
+            currency = market_currency(item.get("market"), item.get("ticker"), ins.get("currency"))
+            idata.append([item.get("ticker"), item.get("market"), raw.get("insider_signal"), _fmt(raw.get("insider_score")), ins.get("buy_count", 0), ins.get("sell_count", 0), format_whole_currency(ins.get("net_value", 0), currency)])
         itable = Table(idata, repeatRows=1, colWidths=[24*mm, 24*mm, 31*mm, 17*mm, 17*mm, 17*mm, 32*mm])
         itable.setStyle(_table_style())
         story += [Paragraph("Insider Intelligence", styles["Section"]), Paragraph("Offentlig registrerte insidertransaksjoner. Manglende dekning gir nøytral score og skal ikke tolkes som fravær av handler.", styles["Small"]), itable]
@@ -727,7 +802,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         for idx, r in enumerate(medal_candidates):
             strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0)), ("Insider", (r.get("raw") or {}).get("insider_score", 50)), ("Nyheter", (r.get("raw") or {}).get("news_score", 50))), key=lambda x: float(x[1] or 0))
             display_name = str(r.get("name") or r.get("ticker") or "-")
-            medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Risiko {r.get('risk_score',0)} · Vekt {r.get('proposed_position_pct',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
+            medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Risiko {format_risk(r.get('risk_score',0))} · Vekt {r.get('proposed_position_pct',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
         medal_styles = [("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]
         medal_colors = ["#FFF4C2", "#EEF1F5", "#F6E1D3"]
@@ -735,18 +810,20 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             medal_styles.append(("BACKGROUND", (medal_index,0), (medal_index,-1), colors.HexColor(medal_colors[medal_index])))
         medal_table.setStyle(TableStyle(medal_styles))
         story += [Paragraph("Topp 3", styles["Section"]), medal_table]
-        data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko", "Status"]]
+        data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko (0-100)", "Status"]]
         for r in candidates[:10]:
-            data.append([r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")), _fmt(r.get("confidence_score")), r.get("trend"), _fmt(r.get("risk_score")), _p(str(r.get("status", ""))[:35])])
-        table = Table(data, repeatRows=1, colWidths=[8*mm, 20*mm, 22*mm, 16*mm, 16*mm, 20*mm, 16*mm, 52*mm])
+            data.append([r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")), _fmt(r.get("confidence_score")), r.get("trend"), format_risk(r.get("risk_score")), _p(str(r.get("status", ""))[:35])])
+        table = Table(data, repeatRows=1, colWidths=[8*mm, 19*mm, 20*mm, 15*mm, 15*mm, 16*mm, 28*mm, 49*mm])
         table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
                                    ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("Top 10", styles["Section"]), table]
+        story += [Paragraph("Top 10", styles["Section"]),
+                  Paragraph("Risiko vises på en referanseskala fra 0 til 100; lavere verdi er bedre.", styles["Small"]),
+                  table]
     for p in run.get("proposals") or []:
         raw = p.get("raw") or {}; insider = raw.get("insider_intelligence") or {}; news = raw.get("news_intelligence") or {}
         score_data = [
-            ["AI Discovery", "Fundamentalt", "Research", "Backtesting", "Portefølje", "Insider", "Nyheter", "Risiko"],
-            [_fmt(p.get("discovery_score")), _fmt(p.get("fundamental_score")), _fmt(p.get("research_score")), _fmt(p.get("validation_score")), _fmt(p.get("portfolio_fit_score")), _fmt(raw.get("insider_score", 50)), _fmt(raw.get("news_score", 50)), _fmt(p.get("risk_score"))],
+            ["AI Discovery", "Fundamentalt", "Research", "Backtesting", "Portefølje", "Insider", "Nyheter", "Risiko (0-100)"],
+            [_fmt(p.get("discovery_score")), _fmt(p.get("fundamental_score")), _fmt(p.get("research_score")), _fmt(p.get("validation_score")), _fmt(p.get("portfolio_fit_score")), _fmt(raw.get("insider_score", 50)), _fmt(raw.get("news_score", 50)), format_risk(p.get("risk_score"))],
         ]
         score_table = Table(score_data, colWidths=[23*mm]*8)
         score_table.setStyle(_table_style(6.5, padding=2))
@@ -756,7 +833,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             Paragraph(f"{escape(str(p.get('ticker') or '-'))} – investeringsforslag", styles["Section"]),
             Paragraph(f"<b>Status:</b> {escape(str(p.get('status') or '-'))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Konfidens:</b> {escape(str(_fmt(p.get('confidence_score', 0))))} / 100 &nbsp; | &nbsp; <b>Trend:</b> {escape(str(p.get('trend', 'NY')))}", styles["BodyCompact"]),
             score_table,
-            Paragraph(f"<b>Insider:</b> {escape(str(raw.get('insider_signal', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('insider_score', 50))))} / 100 · nettoverdi {escape(str(_fmt(insider.get('net_value', 0), 0)))}", styles["Small"]),
+            Paragraph(f"<b>Insider:</b> {escape(str(raw.get('insider_signal', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('insider_score', 50))))} / 100 · nettoverdi {escape(format_whole_currency(insider.get('net_value', 0), market_currency(p.get('market'), p.get('ticker'), insider.get('currency'))))}", styles["Small"]),
             Paragraph(f"<b>Nyheter:</b> {escape(str(raw.get('news_sentiment', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('news_score', 50))))} / 100 · {escape(str(news.get('summary') or 'Ingen oppsummering.'))}", styles["Small"]),
             Paragraph(f"<b>Positive drivere:</b> {escape(positives)}", styles["Small"]),
             Paragraph(f"<b>Risiko:</b> {escape(risks)}", styles["Small"]),
@@ -766,9 +843,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     portfolio_proposal = run.get("portfolio_proposal") or {}
     allocations = portfolio_proposal.get("allocations") or []
     if allocations:
-        pdata = [["Ticker", "Marked", "Sektor", "Vekt %", "Score", "Konfidens", "Risiko"]]
+        pdata = [["Ticker", "Marked", "Sektor", "Vekt %", "Score", "Konfidens", "Risiko (0-100)"]]
         for a in allocations:
-            pdata.append([a.get("ticker"), a.get("market"), a.get("sector"), _fmt(a.get("weight_pct")), _fmt(a.get("score")), _fmt(a.get("confidence")), _fmt(a.get("risk"))])
+            pdata.append([a.get("ticker"), a.get("market"), a.get("sector"), _fmt(a.get("weight_pct")), _fmt(a.get("score")), _fmt(a.get("confidence")), format_risk(a.get("risk"))])
         ptable = Table(pdata, repeatRows=1, colWidths=[24*mm, 24*mm, 38*mm, 18*mm, 18*mm, 20*mm, 18*mm])
         ptable.setStyle(_table_style())
         story += [KeepTogether([Paragraph("Teoretisk porteføljeforslag", styles["Section"]),
