@@ -172,6 +172,7 @@ class PipelineConfig:
     use_portfolio_fit: bool = True
     use_learning_advisor: bool = True
     use_insider_intelligence: bool = True
+    use_news_intelligence: bool = True
     weights: dict[str, float] = field(default_factory=lambda: {
         "discovery": 0.28,
         "fundamental": 0.18,
@@ -180,6 +181,7 @@ class PipelineConfig:
         "portfolio_fit": 0.13,
         "risk_adjustment": 0.08,
         "insider": 0.08,
+        "news": 0.10,
     })
 
     def normalized(self) -> "PipelineConfig":
@@ -204,6 +206,7 @@ class PipelineConfig:
             use_portfolio_fit=bool(self.use_portfolio_fit),
             use_learning_advisor=bool(self.use_learning_advisor),
             use_insider_intelligence=bool(self.use_insider_intelligence),
+            use_news_intelligence=bool(self.use_news_intelligence),
             weights=weights,
         )
 
@@ -316,6 +319,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     scanner_score = _clamp(0.50 * discovery + 0.25 * momentum + 0.15 * data_quality + 0.10 * liquidity - 0.18 * risk)
     risk_adjustment = _clamp(100.0 - risk)
     insider = _normalized_score(row.get("insider_score", 50.0), 50.0) if config.use_insider_intelligence else 50.0
+    news = _normalized_score(row.get("news_score", 50.0), 50.0) if config.use_news_intelligence else 50.0
     parts = {
         "discovery": discovery,
         "fundamental": fundamental,
@@ -324,6 +328,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "portfolio_fit": portfolio_fit,
         "risk_adjustment": risk_adjustment,
         "insider": insider,
+        "news": news,
     }
     effective_weights, learning_meta = adaptive_weights(config.weights)
     investment = _clamp(sum(parts[k] * effective_weights.get(k, 0.0) for k in parts))
@@ -339,6 +344,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "Risiko": "BESTÅTT" if risk <= config.max_risk_score else "IKKE BESTÅTT",
         "Konfidens": "BESTÅTT" if derived["confidence"] >= 55 else "ADVARSEL",
         "Insider Intelligence": "BESTÅTT" if insider >= 55 else ("ADVARSEL" if insider >= 35 else "IKKE BESTÅTT"),
+        "News & Sentiment": "BESTÅTT" if news >= 55 else ("ADVARSEL" if news >= 35 else "IKKE BESTÅTT"),
     }
     failed = [k for k, v in gates.items() if v == "IKKE BESTÅTT"]
     warnings = [k for k, v in gates.items() if v == "ADVARSEL"]
@@ -356,7 +362,7 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         status = STATUS_WATCH
 
     positives, risks = [], []
-    for label, score in (("AI Discovery", discovery), ("Fundamentaler", fundamental), ("Research", research), ("Backtest", validation), ("Porteføljetilpasning", portfolio_fit), ("Insider Intelligence", insider)):
+    for label, score in (("AI Discovery", discovery), ("Fundamentaler", fundamental), ("Research", research), ("Backtest", validation), ("Porteføljetilpasning", portfolio_fit), ("Insider Intelligence", insider), ("News & Sentiment", news)):
         if score >= 65:
             positives.append(f"{label} trekker opp ({score:.0f}/100).")
         elif score < 45:
@@ -426,6 +432,11 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         if progress_callback:
             progress_callback({"phase": "INSIDER", "completed": 0, "total": len(prepared_rows), "message": "Henter offentlige insidertransaksjoner"})
         prepared_rows = enrich_insider_rows(prepared_rows, force_refresh=force_refresh)
+    if cfg.use_news_intelligence and prepared_rows:
+        from news_intelligence import enrich_rows as enrich_news_rows
+        if progress_callback:
+            progress_callback({"phase": "NEWS", "completed": 0, "total": len(prepared_rows), "message": "Analyserer nyheter og sentiment"})
+        prepared_rows = enrich_news_rows(prepared_rows, force_refresh=force_refresh)
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:

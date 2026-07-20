@@ -1,5 +1,5 @@
-APP_VERSION = "v18.7.1"
-APP_VERSION_NAME = "Insider Intelligence Engine"
+APP_VERSION = "v18.7.2"
+APP_VERSION_NAME = "News & Sentiment Intelligence"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [

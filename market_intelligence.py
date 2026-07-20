@@ -22,7 +22,7 @@ from market_universe import BASE_MARKET_SCOPES, expand_market_scope
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 
-VERSION = "v18.7.1"
+VERSION = "v18.7.2"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -39,7 +39,7 @@ RECENT_DRAFT_REUSE_MINUTES = 30
 
 MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
-    "Backtesting Validation", "Portfolio Optimizer", "Learning Advisor", "Insider Intelligence",
+    "Backtesting Validation", "Portfolio Optimizer", "Learning Advisor", "Insider Intelligence", "News & Sentiment Intelligence",
 ]
 SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
@@ -252,6 +252,8 @@ class JobProfile:
         modules = list(data.get("modules") or MODULE_OPTIONS)
         if "Insider Intelligence" not in modules:
             modules.append("Insider Intelligence")
+        if "News & Sentiment Intelligence" not in modules:
+            modules.append("News & Sentiment Intelligence")
         data["modules"] = modules
         return cls(**data)
 
@@ -567,6 +569,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         itable = Table(idata, repeatRows=1, colWidths=[24*mm, 24*mm, 31*mm, 17*mm, 17*mm, 17*mm, 32*mm])
         itable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7)]))
         story += [Paragraph("Insider Intelligence", styles["Heading1"]), Paragraph("Offentlig registrerte insidertransaksjoner. Manglende dekning gir nøytral score og skal ikke tolkes som fravær av handler.", styles["Small"]), itable, Spacer(1, 6*mm)]
+    news_rows = []
+    for candidate in candidates:
+        raw = candidate.get("raw") or {}
+        news = raw.get("news_intelligence") or {}
+        if str(news.get("coverage") or "") == "AVAILABLE":
+            news_rows.append(candidate)
+    if news_rows:
+        news_rows.sort(key=lambda x: float((x.get("raw") or {}).get("news_score", 50) or 50), reverse=True)
+        ndata = [["Ticker", "Marked", "Sentiment", "Score", "Saker", "Høy påvirkning", "Kort oppsummering"]]
+        for item in news_rows[:10]:
+            raw = item.get("raw") or {}; news = raw.get("news_intelligence") or {}
+            ndata.append([item.get("ticker"), item.get("market"), raw.get("news_sentiment"), raw.get("news_score"), news.get("article_count", 0), news.get("high_impact_count", 0), str(news.get("summary") or "")[:95]])
+        ntable = Table(ndata, repeatRows=1, colWidths=[20*mm, 21*mm, 25*mm, 14*mm, 14*mm, 22*mm, 54*mm])
+        ntable.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey), ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 6.6), ("VALIGN", (0,0), (-1,-1), "TOP")]))
+        story += [Paragraph("News & Sentiment Intelligence", styles["Heading1"]), Paragraph("Unike, ferske nyhetssaker vektes etter sentiment, kildekvalitet, aktualitet og hendelsespåvirkning. Manglende dekning gir nøytral score.", styles["Small"]), ntable, Spacer(1, 6*mm)]
     if run.get("analysis_aborted"):
         story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Heading1"]),
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyText"])]
@@ -575,7 +592,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         medal_data = []
         medal_candidates = run.get("diverse_top3") or select_diverse_candidates(candidates, 3)
         for idx, r in enumerate(medal_candidates):
-            strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0)), ("Insider", (r.get("raw") or {}).get("insider_score", 50))), key=lambda x: float(x[1] or 0))
+            strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0)), ("Insider", (r.get("raw") or {}).get("insider_score", 50)), ("Nyheter", (r.get("raw") or {}).get("news_score", 50))), key=lambda x: float(x[1] or 0))
             display_name = str(r.get("name") or r.get("ticker") or "-")
             medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Risiko {r.get('risk_score',0)} · Vekt {r.get('proposed_position_pct',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
@@ -598,9 +615,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                   Spacer(1, 3*mm), Paragraph("Scorekort", styles["Heading2"]),
                   Table([["AI Discovery", p.get("discovery_score")], ["Fundamentalt", p.get("fundamental_score")],
                          ["Research", p.get("research_score")], ["Backtesting", p.get("validation_score")],
-                         ["Porteføljetilpasning", p.get("portfolio_fit_score")], ["Insider Intelligence", (p.get("raw") or {}).get("insider_score", 50)], ["Risiko", p.get("risk_score")]], colWidths=[70*mm, 35*mm]),
+                         ["Porteføljetilpasning", p.get("portfolio_fit_score")], ["Insider Intelligence", (p.get("raw") or {}).get("insider_score", 50)], ["News & Sentiment", (p.get("raw") or {}).get("news_score", 50)], ["Risiko", p.get("risk_score")]], colWidths=[70*mm, 35*mm]),
                   Paragraph("Insider Intelligence", styles["Heading2"]),
                   Paragraph(f"Signal: {(p.get('raw') or {}).get('insider_signal', 'INGEN DATA')} | Score: {(p.get('raw') or {}).get('insider_score', 50)}/100 | Nettoverdi: {((p.get('raw') or {}).get('insider_intelligence') or {}).get('net_value', 0)}", styles["BodyText"]),
+                  Paragraph("News & Sentiment Intelligence", styles["Heading2"]),
+                  Paragraph(f"Sentiment: {(p.get('raw') or {}).get('news_sentiment', 'INGEN DATA')} | Score: {(p.get('raw') or {}).get('news_score', 50)}/100 | {((p.get('raw') or {}).get('news_intelligence') or {}).get('summary', '')}", styles["BodyText"]),
                   Paragraph("Positive drivere", styles["Heading2"])]
         story += [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("positives") or []]
         story += [Paragraph("Risiko", styles["Heading2"])] + [Paragraph("- " + str(x), styles["BodyText"]) for x in p.get("risks") or []]
@@ -811,7 +830,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                              use_backtest="Backtesting Validation" in job.modules,
                              use_portfolio_fit="Portfolio Optimizer" in job.modules,
                              use_learning_advisor="Learning Advisor" in job.modules,
-                             use_insider_intelligence="Insider Intelligence" in job.modules).normalized()
+                             use_insider_intelligence="Insider Intelligence" in job.modules,
+                             use_news_intelligence="News & Sentiment Intelligence" in job.modules).normalized()
         try:
             emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
             rows, source = _load_candidate_rows_from_app(cfg)
