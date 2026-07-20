@@ -68,6 +68,9 @@ def test_compact_pdf_is_readable_and_bounded():
     assert len(reader.pages) <= 6
     assert "Executive Summary" in text
     assert "TEST1.OL" in text
+    assert "125 000 NOK" in text
+    assert "14 - LAV" in text
+    assert "Risiko (0-100)" in text
     assert "Metode og ansvarsfraskrivelse" in text
     assert "Side 1" in text
 
