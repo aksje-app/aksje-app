@@ -1,39 +1,26 @@
-"""Legacy compatibility facade for shared UI components.
-
-New code should import from :mod:`ui_library`. Existing imports remain valid.
-"""
-
 import streamlit as st
-
-from ui_library import empty_state, kpi_row, page_header, render_table, section_header
-
 
 def market_pulse(data):
     if not data:
-        empty_state(st, "Ingen markedsdata", "Market Pulse vises når kursendringer er tilgjengelige.")
         return
-    avg = sum(float(x.get("change_pct", 0) or 0) for x in data) / len(data)
+    avg = sum([x.get("change_pct",0) for x in data]) / len(data)
     if avg > 1:
-        txt, tone = "Bullish", "success"
+        txt, col = "🚀 Bullish", "#00ff88"
     elif avg < -1:
-        txt, tone = "Bearish", "danger"
+        txt, col = "🔻 Bearish", "#ff4d4d"
     else:
-        txt, tone = "Neutral", "warning"
-    from ui_library import info_banner
-    info_banner(st, f"Market Pulse: {txt}", f"Gjennomsnittlig markedsendring: {avg:.2f} %", tone)
-
+        txt, col = "⚖️ Neutral", "#ffaa00"
+    st.markdown(f"<b>Market Pulse:</b> <span style='color:{col}'>{txt} ({avg:.2f}%)</span>", unsafe_allow_html=True)
 
 def top_movers(data):
-    rows = list(data or [])
-    if not rows:
-        empty_state(st, "Ingen bevegelser", "Topplisten fylles når markedsdata er tilgjengelige.")
-        return
-    gain = sorted(rows, key=lambda x: float(x.get("change_pct", 0) or 0), reverse=True)[:5]
-    loss = sorted(rows, key=lambda x: float(x.get("change_pct", 0) or 0))[:5]
+    gain = sorted(data, key=lambda x: x.get("change_pct",0), reverse=True)[:5]
+    loss = sorted(data, key=lambda x: x.get("change_pct",0))[:5]
     c1, c2 = st.columns(2)
     with c1:
-        section_header(st, "Største oppganger")
-        render_table(st, [{"Ticker": x.get("ticker", "-"), "Endring %": round(float(x.get("change_pct", 0) or 0), 2)} for x in gain])
+        st.write("📈 Gainers")
+        for x in gain:
+            st.write(f"{x['ticker']} +{x.get('change_pct',0):.2f}%")
     with c2:
-        section_header(st, "Største nedganger")
-        render_table(st, [{"Ticker": x.get("ticker", "-"), "Endring %": round(float(x.get("change_pct", 0) or 0), 2)} for x in loss])
+        st.write("📉 Losers")
+        for x in loss:
+            st.write(f"{x['ticker']} {x.get('change_pct',0):.2f}%")
