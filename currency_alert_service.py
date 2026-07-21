@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import os
+import threading
 from typing import Any, Callable
 
 try:
@@ -25,6 +28,44 @@ STATE_KEY = "currency_alert_runtime_v18678a"
 LEGACY_STATE_KEY = "currency_alert_runtime_v18675"
 EVENT_LOG_KEY = "alerts/currency_alert_events_v18678a.jsonl"
 MAX_EVENT_ROWS = 250
+_PROCESS_LOCK = threading.Lock()
+_PG_ADVISORY_LOCK_ID = 1871301
+
+
+@contextmanager
+def _global_check_lock():
+    """Serialize FX checks in one process and across Render web instances."""
+    if not _PROCESS_LOCK.acquire(blocking=False):
+        yield False
+        return
+    connection = None
+    acquired = True
+    try:
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        if database_url:
+            try:
+                import psycopg2
+                connection = psycopg2.connect(database_url, connect_timeout=5)
+                cursor = connection.cursor()
+                cursor.execute("SELECT pg_try_advisory_lock(%s)", (_PG_ADVISORY_LOCK_ID,))
+                acquired = bool(cursor.fetchone()[0])
+            except Exception as exc:
+                # One process is still serialized locally. Record degraded
+                # coordination, but do not disable alerts because DB had a
+                # transient connection problem.
+                _event("coordination_degraded", error=str(exc)[:240])
+                acquired = True
+        yield acquired
+    finally:
+        if connection is not None:
+            try:
+                if acquired:
+                    cursor = connection.cursor()
+                    cursor.execute("SELECT pg_advisory_unlock(%s)", (_PG_ADVISORY_LOCK_ID,))
+                connection.close()
+            except Exception:
+                pass
+        _PROCESS_LOCK.release()
 
 
 def _now() -> datetime:
@@ -123,6 +164,22 @@ def run_currency_alert_checks(
     breach is sent immediately; a continuing breach is repeated after cooldown.
     Returning to normal resets the lifecycle.
     """
+    with _global_check_lock() as acquired:
+        if not acquired:
+            _event("scanner_skipped", reason="another_worker_holds_lock")
+            return []
+        return _run_currency_alert_checks_locked(
+            force=force, fetcher=fetcher, sender=sender, diagnostic_test=diagnostic_test
+        )
+
+
+def _run_currency_alert_checks_locked(
+    force: bool = False,
+    *,
+    fetcher: Callable[[str], tuple[float | None, str]] | None = None,
+    sender: Callable[..., Any] | None = None,
+    diagnostic_test: bool = False,
+) -> list[dict]:
     fetcher = fetcher or _fetch
     sender = sender or send_pushover_alert
     settings = load_settings() or {}
@@ -158,6 +215,19 @@ def run_currency_alert_checks(
             "check_interval_minutes": interval,
             "cooldown_minutes": cooldown,
         }
+
+        # A threshold/configuration change starts a new lifecycle and must be
+        # evaluated immediately instead of inheriting an obsolete breach.
+        config_signature = f"{symbol}|{base['lower']:.8f}|{base['upper']:.8f}|{int(bool(alert.get('active', True)))}"
+        config_changed = state.get("config_signature") != config_signature
+        if config_changed:
+            state.pop("last_sent_at", None)
+            state.pop("last_sent_status", None)
+            state["status"] = "normal"
+            state["previous_status"] = "normal"
+            state["config_signature"] = config_signature
+            last_checked = None
+            _event("alert_configuration_changed", **base)
 
         if not bool(alert.get("active", True)):
             state.update({"status": "disabled", "updated_at": now.isoformat()})
@@ -265,6 +335,7 @@ def run_currency_alert_checks(
             "next_check_at": next_check.isoformat(),
             "last_error": send_error or fetch_error,
             "last_reason": reason,
+            "config_signature": config_signature,
         })
         root[key] = state
         settings.setdefault("currency_alert_latest_rates_v1864s", {})[symbol] = {

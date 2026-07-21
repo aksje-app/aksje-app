@@ -71,6 +71,14 @@ try:
 except Exception:
     pass
 
+# Starts once per Render Python process. The worker is independent of the
+# selected Streamlit panel and checks FX alerts even when markets are closed.
+try:
+    from runtime_background import ensure_runtime_background_services
+    ensure_runtime_background_services()
+except Exception as _runtime_background_exc:
+    logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
+
 try:
     import yfinance as yf
 except Exception:
@@ -9494,8 +9502,10 @@ def _paper_trailing_stop_alert_rows_v18674d(portfolio: dict | None = None, lates
     return alerts
 
 
-def _render_paper_trailing_stop_alerts_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None) -> None:
-    alerts = _paper_trailing_stop_alert_rows_v18674d(portfolio or load_portfolio(), latest_prices or {})
+def _render_paper_trailing_stop_alerts_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None, position_rows: list[dict] | None = None, rules: dict | None = None) -> None:
+    alerts = _paper_trailing_stop_alert_rows_v18674d(
+        portfolio or load_portfolio(), latest_prices or {}, position_rows=position_rows, rules=rules
+    )
     st.markdown("#### 🛑 Trailing stop-varsler")
     if not alerts:
         st.success("Ingen posisjoner er nær eller under trailing stop akkurat nå.")
@@ -13319,6 +13329,16 @@ def render_currency_alerts_control_center_v1863af():
     st.markdown("#### Bakgrunnsstatus og diagnose")
     try:
         from currency_alert_service import get_currency_alert_runtime, get_currency_alert_events
+        from runtime_background import runtime_background_status
+        worker_status = runtime_background_status()
+        worker_state = str(worker_status.get("state") or "UKJENT")
+        if worker_state == "RUNNING":
+            st.success(f"Automatisk valutakontroll kjører · siste arbeidssyklus {worker_status.get('last_cycle_at') or '-'}")
+        else:
+            st.error(
+                f"Automatisk valutakontroll er ikke frisk: {worker_state}. "
+                f"{worker_status.get('last_error') or 'Ingen arbeidssyklus registrert.'}"
+            )
         runtime_rows = []
         for runtime_key, runtime_value in (get_currency_alert_runtime() or {}).items():
             if not isinstance(runtime_value, dict):
@@ -21387,4 +21407,3 @@ def add_rsi_current_box(fig, rsi):
 
 
 # v18.6.41: Sidebar CSS/rendering moved to ui_sidebar_stable.py.
-
