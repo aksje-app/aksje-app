@@ -6,17 +6,20 @@ as neutral/unknown and never fabricated. Results are cached to reduce provider l
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-import json, math, time
+import json, math, time, threading
 
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 from international_insider_sources import discover_with_newsapi, source_for_market
 
-VERSION = "v18.7.11"
+VERSION = "v18.7.12"
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
+MAX_WORKERS = 4
+_CACHE_LOCK = threading.RLock()
 
 ROLE_WEIGHTS = {
     "chief executive": 1.00, "ceo": 1.00, "president": 0.85,
@@ -40,6 +43,13 @@ def _load_cache() -> dict[str, Any]:
 
 def _save_cache(data: Mapping[str, Any]) -> None:
     durable_write_json("insider_intelligence/cache.json", CACHE_PATH, dict(data))
+
+
+def _store_cached_result(ticker: str, result: Mapping[str, Any]) -> None:
+    with _CACHE_LOCK:
+        cache = _load_cache()
+        cache[ticker] = {"cached_at": time.time(), "result": dict(result)}
+        _save_cache(cache)
 
 
 def _role_weight(role: str) -> float:
@@ -168,8 +178,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             elif discovery.get("status") == "DISCOVERY_ERROR":
                 result.update({"signal": "KILDEFEIL", "coverage": "ERROR",
                                "reason": str(discovery.get("error") or "Kildeoppslag feilet")})
-            cache[ticker] = {"cached_at": time.time(), "result": result}
-            _save_cache(cache)
+            _store_cached_result(ticker, result)
         return result
     try:
         import yfinance as yf
@@ -219,14 +228,15 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             "official_source": source.get("name", ""),
             "official_search_url": source.get("search_url", ""),
         }
-    cache[ticker] = {"cached_at": time.time(), "result": result}; _save_cache(cache)
+    _store_cached_result(ticker, result)
     return result
 
 
 def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, progress_callback: Any | None = None) -> list[dict[str, Any]]:
-    enriched = []
-    total = len(rows)
-    for index, row in enumerate(rows, start=1):
+    source_rows = [dict(row) for row in rows]
+    total = len(source_rows)
+
+    def enrich_one(index: int, row: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         clean = dict(row)
         insider = fetch_insider_intelligence(
             str(clean.get("ticker") or ""), force_refresh=force_refresh,
@@ -236,7 +246,16 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
         clean["insider_intelligence"] = insider
         clean["insider_score"] = insider.get("score", 50.0)
         clean["insider_signal"] = insider.get("signal", "INGEN DATA")
-        enriched.append(clean)
-        if progress_callback:
-            progress_callback(index, total, str(clean.get("ticker") or ""))
-    return enriched
+        return index, clean
+
+    completed = 0
+    ordered: list[dict[str, Any] | None] = [None] * total
+    with ThreadPoolExecutor(max_workers=max(1, min(MAX_WORKERS, total or 1))) as pool:
+        futures = {pool.submit(enrich_one, index, row): index for index, row in enumerate(source_rows)}
+        for future in as_completed(futures):
+            index, clean = future.result()
+            ordered[index] = clean
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, total, str(clean.get("ticker") or ""))
+    return [row for row in ordered if row is not None]

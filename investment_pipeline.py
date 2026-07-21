@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -429,6 +430,12 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
 
 def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None, progress_callback: Any | None = None, force_refresh: bool = False) -> dict[str, Any]:
     cfg = (config or PipelineConfig()).normalized()
+    # Full analysis means fresh prices/fundamentals. Expensive public
+    # intelligence caches remain valid unless an operator explicitly requests
+    # strict source refresh, preventing 150 candidates from re-querying every
+    # slow provider during diagnostics.
+    strict_source_refresh = os.getenv("STRICT_INTELLIGENCE_SOURCE_REFRESH", "0").strip().lower() in {"1", "true", "yes", "on"}
+    intelligence_force_refresh = bool(force_refresh and strict_source_refresh)
     if progress_callback:
         progress_callback({"phase": "PREPARE", "completed": 0, "total": max(1, min(len(rows), cfg.scan_limit)), "message": "Forbereder kandidater"})
     def _enrich_progress(done: int, total: int, ticker: str) -> None:
@@ -448,7 +455,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         if progress_callback:
             progress_callback({"phase": "INSIDER", "completed": 0, "total": len(prepared_rows), "message": "Henter offentlige insidertransaksjoner"})
         prepared_rows = enrich_insider_rows(
-            prepared_rows, force_refresh=force_refresh,
+            prepared_rows, force_refresh=intelligence_force_refresh,
             progress_callback=(lambda done, total, ticker: progress_callback({"phase": "INSIDER", "completed": done, "total": total, "ticker": ticker, "message": f"Henter insiderdata {done}/{total}: {ticker}"})) if progress_callback else None,
         )
     if cfg.use_news_intelligence and prepared_rows:
@@ -456,7 +463,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         if progress_callback:
             progress_callback({"phase": "NEWS", "completed": 0, "total": len(prepared_rows), "message": "Analyserer nyheter og sentiment"})
         prepared_rows = enrich_news_rows(
-            prepared_rows, force_refresh=force_refresh,
+            prepared_rows, force_refresh=intelligence_force_refresh,
             progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
         )
     if cfg.use_portfolio_fit and prepared_rows:
@@ -538,7 +545,9 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "candidates": [asdict(x) for x in deep],
         "proposals": [asdict(x) for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
-        "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600},
+        "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600,
+                         "intelligence_source_cache_respected": not intelligence_force_refresh,
+                         "strict_intelligence_source_refresh": intelligence_force_refresh},
         "candidate_errors": candidate_errors,
         "loader_diagnostics": {
             "prepared_count": len(prepared_rows),

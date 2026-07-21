@@ -21,7 +21,7 @@ def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append({
             "Steg": item.get("name", ""),
             "Status": item.get("status", ""),
-            "Tid": item.get("at", ""),
+            "Tid": local_display(item.get("at"), str(chain.get("timezone_name") or "Europe/Oslo")),
             "Detaljer": json.dumps(detail, ensure_ascii=False, default=str),
         })
     return rows
@@ -33,12 +33,22 @@ def _background_status_panel() -> None:
     if not status:
         return
     state = str(status.get("state") or "UKJENT")
+    execution_id = str(status.get("execution_id") or "")
+    if state in {"COMPLETED", "FAILED", "CANCELLED"} and execution_id:
+        refresh_key = "orchestrator_terminal_app_refresh_v18712"
+        if st.session_state.get(refresh_key) != execution_id:
+            st.session_state[refresh_key] = execution_id
+            try:
+                st.rerun(scope="app")
+            except TypeError:
+                st.rerun()
+            return
     pct = int(status.get("percent") or 0)
     message = str(status.get("message") or state)
     st.progress(min(100, max(0, pct)), text=f"{pct} % · {message}")
     scan = status.get("scan_configuration") or {}
     b1, b2, b3, b4 = st.columns(4)
-    b1.metric("Bakgrunnsjobb", status.get("execution_id") or "-")
+    b1.metric("Bakgrunnsjobb", execution_id or "-")
     b2.metric("Jobbstatus", state)
     b3.metric("Sist oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
     b4.metric("Skannegrense", f"{scan.get('per_market', '-')} per marked")
@@ -155,7 +165,7 @@ def render_autonomous_orchestrator_control_center() -> None:
         d1, d2, d3, d4 = st.columns(4)
         d1.metric("Kjede-ID", chain.get("chain_id") or "-")
         d2.metric("Status", chain.get("status") or "-")
-        d3.metric("Start", chain.get("created_at") or "-")
+        d3.metric("Start", local_display(chain.get("created_at"), str(chain.get("timezone_name") or "Europe/Oslo")))
         d4.metric("Kilde", chain.get("trigger") or "-")
         rows = _stage_rows(chain)
         if rows:

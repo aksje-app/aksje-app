@@ -45,6 +45,14 @@ def local_display(value: datetime | str | None, timezone_name: str = DEFAULT_TIM
     return f"{local:%d.%m.%Y %H:%M:%S} ({valid_timezone(timezone_name)})"
 
 
+def local_compact_stamp(value: datetime | str | None = None, timezone_name: str = DEFAULT_TIMEZONE) -> str:
+    return as_local(value, timezone_name).strftime("%Y%m%dT%H%M%S")
+
+
+def local_run_id(prefix: str, value: datetime | str | None = None, timezone_name: str = DEFAULT_TIMEZONE) -> str:
+    return f"{str(prefix or 'RUN').upper()}-{as_local(value, timezone_name):%Y%m%d-%H%M%S}"
+
+
 def browser_timezone(streamlit_module: object) -> str:
     """Return the browser IANA timezone captured by the tiny bootstrap below."""
     try:

@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
+from local_time import as_local, local_display
 
 VERSION = "v18.6.92f"
 ROOT = runtime_data_path("autonomous_orchestrator")
@@ -23,7 +24,7 @@ AUDIT_PATH = ROOT / "audit.jsonl"
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _write(path: Path, value: Any) -> None:
@@ -44,11 +45,14 @@ def run_post_scan_chain(
     trigger: str = "SCHEDULED",
 ) -> dict[str, Any]:
     """Execute the autonomous stages after a completed market scan."""
-    chain_id = f"AO-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}"
+    timezone_name = str(market_run.get("timezone_name") or "Europe/Oslo")
+    chain_id = f"AO-{as_local(datetime.now(timezone.utc), timezone_name):%Y%m%d-%H%M%S-%f}"
     result: dict[str, Any] = {
         "version": VERSION,
         "chain_id": chain_id,
         "created_at": _now(),
+        "created_at_local": local_display(_now(), timezone_name),
+        "timezone_name": timezone_name,
         "trigger": trigger,
         "source_run_id": market_run.get("run_id"),
         "status": "RUNNING",

@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from durable_runtime import read_json, write_json
 from execution_control import ExecutionCancelled
-from local_time import local_display
+from local_time import as_local, local_display
 from storage_architecture import runtime_data_path
 
 
@@ -29,7 +29,7 @@ _STAGE_ORDER = ["MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _status_path(execution_id: str):
@@ -50,6 +50,16 @@ def _write_status(status: Mapping[str, Any]) -> dict[str, Any]:
         "updated_at": payload.get("updated_at"),
     })
     return payload
+
+
+def _write_progress_status(status: Mapping[str, Any]) -> dict[str, Any]:
+    """Best-effort telemetry: a display failure may never abort analysis."""
+    try:
+        return _write_status(status)
+    except Exception as exc:
+        payload = dict(status)
+        payload["telemetry_warning"] = str(exc)
+        return payload
 
 
 def get_status(execution_id: str) -> dict[str, Any]:
@@ -153,7 +163,7 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
                 "percent": max(int(current.get("percent") or 0), progress_percent(event)), "message": message,
                 "progress_event": dict(event),
             })
-            _write_status(current)
+            _write_progress_status(current)
 
     try:
         result = run_job(JobProfile.from_dict(job_payload), trigger=trigger,
@@ -209,7 +219,8 @@ def start_manual_job(job: Any, *, trigger: str, force_refresh: bool = False) -> 
         active = get_active_status()
         if active and active.get("state") not in _TERMINAL:
             return active
-        execution_id = f"MBJ-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+        timezone_name = str(getattr(job, "timezone_name", "Europe/Oslo") or "Europe/Oslo")
+        execution_id = f"MBJ-{as_local(datetime.now(timezone.utc), timezone_name):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6].upper()}"
         selected_markets = list(getattr(job, "markets", []) or [])
         market_count = 6 if "Alle" in selected_markets else max(1, len(selected_markets))
         per_market = int(getattr(job, "scan_limit", 25))
@@ -223,6 +234,7 @@ def start_manual_job(job: Any, *, trigger: str, force_refresh: bool = False) -> 
                 "markets": selected_markets,
             },
             "force_refresh": bool(force_refresh), "accepted_at": _now(),
+            "timezone_name": timezone_name,
             "started_at": None, "completed_at": None, "updated_at": _now(), "error": "",
             "cancel_requested": False, "completed_steps": [], "active_stage": "MARKET_DATA",
         })

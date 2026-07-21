@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import threading
 import uuid
 import time as time_module
 from dataclasses import asdict, dataclass, field
@@ -24,9 +25,10 @@ from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 from execution_control import ExecutionCancelled
 from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser_timezone,
-                        install_browser_timezone_bootstrap, local_display, valid_timezone)
+                        install_browser_timezone_bootstrap, local_compact_stamp, local_display,
+                        local_run_id, valid_timezone)
 
-VERSION = "v18.7.11"
+VERSION = "v18.7.12"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -40,6 +42,7 @@ REPORT_ARCHIVE_SETTINGS_PATH = ROOT / "report_archive_settings.json"
 DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 RECENT_DRAFT_REUSE_MINUTES = 30
+_ARCHIVE_LOCK = threading.RLock()
 
 MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
@@ -179,7 +182,7 @@ def build_data_quality(refresh: Mapping[str, Any], candidate_count: int,
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).astimezone()
+    return datetime.now(timezone.utc)
 
 
 def _now_iso() -> str:
@@ -268,7 +271,7 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
     identity = resolve_report_identity(run)
     job_name = str(run.get("job_name") or "Analyse").strip().replace("–", "-")
     clean = "_".join(part for part in "".join(ch if ch.isalnum() or ch in " _-" else " " for ch in job_name).split())
-    stamp = str(run.get("created_at") or "").replace(":", "").replace("-", "")[:15] or str(run.get("run_id") or "latest")
+    stamp = local_compact_stamp(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
     return f"{identity.get('slug','Rapport')}_{clean}_{stamp}.{extension}"
 
 
@@ -473,7 +476,9 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     top = candidates[0] if candidates else {}
     identity = resolve_report_identity(run)
     return {
-        "run_id": run.get("run_id"), "created_at": run.get("created_at"), "job_name": run.get("job_name"),
+        "run_id": run.get("run_id"), "created_at": run.get("created_at"),
+        "created_at_local": local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)),
+        "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
         "report_type": identity.get("type"), "report_label": identity.get("label"),
         "pdf_path": run.get("pdf_path"), "json_path": str(RUNS_DIR / f"{run.get('run_id')}.json"),
         "markets": list(run.get("markets") or []), "recommended": int((run.get("summary") or {}).get("recommended", 0)),
@@ -484,10 +489,11 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def archive_report(run: Mapping[str, Any]) -> None:
-    entry = _archive_entry(run)
-    rows = [x for x in _load_report_archive() if x.get("run_id") != entry.get("run_id")]
-    rows.insert(0, entry)
-    _save_report_archive(rows[:1000])
+    with _ARCHIVE_LOCK:
+        entry = _archive_entry(run)
+        rows = [x for x in _load_report_archive() if x.get("run_id") != entry.get("run_id")]
+        rows.insert(0, entry)
+        _save_report_archive(rows[:1000])
 
 
 def verify_report_persistence(run_id: str) -> dict[str, Any]:
@@ -901,7 +907,29 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     story += [KeepTogether([Paragraph("Metode og ansvarsfraskrivelse", styles["Section"]),
                             Paragraph("Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. Alle forslag krever manuell kontroll.", styles["BodyCompact"])])]
     doc.build(story, onFirstPage=_page, onLaterPages=_page)
-    return buf.getvalue()
+    pdf_bytes = buf.getvalue()
+    # ReportLab inherits the Render host timezone for PDF metadata. Rewrite the
+    # metadata timestamp to the job's IANA timezone so file properties agree
+    # with the visible report and archive.
+    try:
+        from pypdf import PdfReader, PdfWriter
+        local_created = as_local(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
+        offset = local_created.strftime("%z")
+        pdf_date = f"D:{local_created:%Y%m%d%H%M%S}{offset[:3]}'{offset[3:]}'"
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        metadata = {str(k): str(v) for k, v in dict(reader.metadata or {}).items() if v is not None}
+        metadata.update({"/CreationDate": pdf_date, "/ModDate": pdf_date,
+                         "/Title": report_type, "/Author": "AI Aksje Analyzer Pro"})
+        writer.add_metadata(metadata)
+        out = io.BytesIO()
+        writer.write(out)
+        pdf_bytes = out.getvalue()
+    except Exception:
+        pass
+    return pdf_bytes
 
 
 
@@ -974,11 +1002,13 @@ def _recent_validated_draft(job: JobProfile, trigger: str) -> dict[str, Any] | N
 def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: str, handoff: Mapping[str, Any]) -> dict[str, Any]:
     """Promote a validated draft to final report without a second API burst."""
     run = json.loads(json.dumps(dict(source), ensure_ascii=False, default=str))
-    run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
+    run_id = local_run_id("MI", timezone_name=job.timezone_name)
     run.update({
         "version": VERSION,
         "run_id": run_id,
         "created_at": _now_iso(),
+        "created_at_local": local_display(_now_iso(), job.timezone_name),
+        "timezone_name": valid_timezone(job.timezone_name),
         "job_id": job.job_id,
         "job_name": job.name,
         "trigger": trigger,
@@ -1183,7 +1213,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         if ticker and (ticker not in proposal_map or float(clean.get("investment_score", 0)) > float(proposal_map[ticker].get("investment_score", 0))):
             proposal_map[ticker] = clean
     all_proposals = sorted(proposal_map.values(), key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
-    run_id = f"MI-{_now().strftime('%Y%m%d-%H%M%S')}"
+    run_id = local_run_id("MI", timezone_name=job.timezone_name)
     refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
     attempted = int(refresh_summary.get("live_attempt_count", 0))
     successful = int(refresh_summary.get("live_count", 0)) + int(refresh_summary.get("cache_count", 0))
@@ -1197,7 +1227,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     data_quality = build_data_quality(refresh_summary, len(all_candidates), market_diagnostics, markets)
     failed_markets = list(data_quality.get("failed_markets") or [])
     partial_market_failure = bool(failed_markets and all_candidates)
-    run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
+    run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(),
+           "created_at_local": local_display(_now_iso(), job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
@@ -1615,7 +1646,8 @@ def render_market_intelligence() -> None:
         if not filtered:
             st.info("Ingen rapporter matcher filteret.")
         for row in filtered[:200]:
-            label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {row.get('created_at','-')}"
+            shown_time = row.get("created_at_local") or local_display(row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE))
+            label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {shown_time}"
             with st.expander(label, expanded=False):
                 m1,m2,m3,m4 = st.columns(4)
                 m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
@@ -1643,7 +1675,7 @@ def render_market_intelligence() -> None:
     with tab_history:
         rows = []
         for archived in _load_report_archive()[:100]:
-            r = load_run(str(archived.get("run_id") or "")) or archived; identity = resolve_report_identity(r); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": r.get("created_at"), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
+            r = load_run(str(archived.get("run_id") or "")) or archived; identity = resolve_report_identity(r); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": local_display(r.get("created_at"), str(r.get("timezone_name") or DEFAULT_TIMEZONE)), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Forslag": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
         if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else: st.caption("Ingen historiske kjøringer.")
     with tab_ops:
