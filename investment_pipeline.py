@@ -592,10 +592,20 @@ def _market_rows_from_tickers(tickers: Sequence[str], market: str, source: str) 
 
 
 def _merge_candidate_rows(primary: Sequence[Mapping[str, Any]], fallback: Sequence[Mapping[str, Any]], market: str, limit: int) -> list[dict[str, Any]]:
-    """Merge sources by unique ticker while preserving canonical market identity."""
+    """Merge sources with deploy-safe built-ins first.
+
+    Persisted Smart-Universe rows can contain legacy absolute Render paths.  A
+    scheduled market scan must never depend on those paths, so canonical ticker
+    rows from the packaged universe are authoritative and persisted enrichment
+    is used only to fill remaining capacity.
+    """
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for raw in [*primary, *fallback]:
+    # USA previously failed because persisted rows referenced an obsolete
+    # /opt/render path.  Prefer the packaged reserve there; preserve established
+    # source ordering for every other market for full backwards compatibility.
+    ordered = [*fallback, *primary] if market == "USA" else [*primary, *fallback]
+    for raw in ordered:
         row = normalize_candidate_identity(raw, market)
         ticker = row.get("ticker", "")
         if not ticker or ticker in seen:
@@ -663,6 +673,13 @@ def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str
             source_parts.append("Built-in market universe")
     except Exception:
         pass
+
+    # Independent USA safety net.  It is deliberately imported directly from
+    # the packaged module and therefore works without network, cwd or /opt paths.
+    if cfg.market_scope == "USA" and not fallback_rows:
+        from stocks import US_FALLBACK
+        fallback_rows = _market_rows_from_tickers(US_FALLBACK[:cfg.scan_limit], "USA", "Packaged USA reserve")
+        source_parts.append("Packaged USA reserve")
 
     rows = _merge_candidate_rows(primary, fallback_rows, cfg.market_scope, cfg.scan_limit)
     if rows:

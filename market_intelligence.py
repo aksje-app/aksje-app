@@ -23,8 +23,10 @@ from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 from execution_control import ExecutionCancelled
+from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser_timezone,
+                        install_browser_timezone_bootstrap, local_display, valid_timezone)
 
-VERSION = "v18.7.10"
+VERSION = "v18.7.11"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -152,16 +154,28 @@ def build_market_status(markets: Sequence[str], refresh: Mapping[str, Any] | Non
     return rows
 
 
-def build_data_quality(refresh: Mapping[str, Any], candidate_count: int) -> dict[str, Any]:
+def build_data_quality(refresh: Mapping[str, Any], candidate_count: int,
+                       market_diagnostics: Sequence[Mapping[str, Any]] | None = None,
+                       planned_markets: Sequence[str] | None = None) -> dict[str, Any]:
     total = max(1, int(candidate_count or 0))
     success = int(refresh.get("live_count", 0))
     errors = int(refresh.get("error_count", 0))
     cache = int(refresh.get("cache_count", 0))
     coverage = max(0.0, min(100.0, 100.0 * (success + cache) / total))
     penalty = min(35.0, errors * 7.0 + (0 if refresh.get("latest_trade_dates") else 10.0))
-    score = round(max(0.0, coverage - penalty), 1)
+    diagnostics = list(market_diagnostics or [])
+    planned = list(planned_markets or [])
+    failed_markets = [str(x.get("market") or "Ukjent") for x in diagnostics
+                      if int(x.get("scanned") or 0) == 0 or str(x.get("status") or "").startswith("FEIL")]
+    reported = {str(x.get("market") or "") for x in diagnostics}
+    failed_markets.extend(x for x in planned if x not in reported)
+    failed_markets = list(dict.fromkeys(failed_markets))
+    market_penalty = (100.0 * len(failed_markets) / max(1, len(planned))) if planned else 0.0
+    score = round(max(0.0, coverage - penalty - market_penalty), 1)
     label = "UTMERKET" if score >= 90 else "GODT" if score >= 75 else "BEGRENSET" if score >= 50 else "SVAKT"
-    return {"score": score, "label": label, "candidate_count": candidate_count, "live": success, "cache": cache, "errors": errors, "latest_trade_dates": list(refresh.get("latest_trade_dates") or [])}
+    return {"score": score, "label": label, "candidate_count": candidate_count, "live": success, "cache": cache,
+            "errors": errors, "failed_markets": failed_markets, "market_coverage": len(planned) - len(failed_markets),
+            "planned_markets": len(planned), "latest_trade_dates": list(refresh.get("latest_trade_dates") or [])}
 
 
 def _now() -> datetime:
@@ -285,6 +299,7 @@ class JobProfile:
     run_autonomous_portfolio: bool = True
     run_controlled_learning: bool = True
     require_active_portfolio: bool = True
+    timezone_name: str = DEFAULT_TIMEZONE
     job_id: str = field(default_factory=lambda: f"MIJ-{uuid.uuid4().hex[:10].upper()}")
     created_at: str = field(default_factory=_now_iso)
     last_run_at: str = ""
@@ -300,6 +315,7 @@ class JobProfile:
         if "News & Sentiment Intelligence" not in modules:
             modules.append("News & Sentiment Intelligence")
         data["modules"] = modules
+        data["timezone_name"] = valid_timezone(data.get("timezone_name"))
         return cls(**data)
 
 
@@ -474,6 +490,19 @@ def archive_report(run: Mapping[str, Any]) -> None:
     _save_report_archive(rows[:1000])
 
 
+def verify_report_persistence(run_id: str) -> dict[str, Any]:
+    """Read-after-write proof used before a background job may claim success."""
+    run_id = str(run_id or "")
+    stored = load_run(run_id) if run_id else {}
+    archived = next((dict(x) for x in _load_report_archive() if str(x.get("run_id") or "") == run_id), None)
+    ok = bool(run_id and stored.get("run_id") == run_id and archived)
+    return {
+        "ok": ok, "run_id": run_id, "run_json_saved": bool(stored),
+        "archive_saved": bool(archived), "archive_entry": archived or {},
+        "error": "" if ok else "Rapporten kunne ikke bekreftes i både kjøringslager og rapportarkiv",
+    }
+
+
 def set_report_favorite(run_id: str, favorite: bool) -> None:
     rows = _load_report_archive()
     for row in rows:
@@ -586,13 +615,18 @@ def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[
         market = str(candidate.get("market") or "Ukjent")
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
         insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
-        row = grouped.setdefault(market, {"market": market, "checked": 0, "verified": 0, "discovery": 0, "missing": 0, "source": ""})
+        row = grouped.setdefault(market, {"market": market, "checked": 0, "verified": 0, "discovery": 0,
+                                         "missing": 0, "not_configured": 0, "source_errors": 0, "source": ""})
         row["checked"] += 1
         coverage = str(insider.get("coverage") or "MISSING")
         if coverage == "AVAILABLE":
             row["verified"] += 1
         elif coverage == "DISCOVERY_ONLY":
             row["discovery"] += 1
+        elif coverage == "NOT_CONFIGURED":
+            row["not_configured"] += 1
+        elif coverage == "ERROR":
+            row["source_errors"] += 1
         else:
             row["missing"] += 1
         if insider.get("official_source"):
@@ -680,7 +714,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     markets_text = ", ".join(run.get("markets") or run.get("market_expansion") or [])
     meta = Table([
         [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(run.get("job_name", "-"), "Small")],
-        [_p("Rapport-ID", "Small"), _p(run.get("run_id", "-"), "Small"), _p("Generert", "Small"), _p(run.get("created_at", "-"), "Small")],
+        [_p("Rapport-ID", "Small"), _p(run.get("run_id", "-"), "Small"), _p("Generert", "Small"),
+         _p(local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)), "Small")],
         [_p("Markeder", "Small"), _p(markets_text, "Small"), "", ""],
     ], colWidths=[22*mm, 68*mm, 18*mm, 76*mm])
     meta.setStyle(_table_style(7, header=False, padding=2.5))
@@ -707,7 +742,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     if diagnostics:
         diag_data = [["Marked", "Skannet", "Analysert", "Live", "Feil", "Status"]]
         for item in diagnostics:
-            diag_data.append([item.get("market"), item.get("scanned", 0), item.get("analyzed", 0), item.get("live", 0), item.get("errors", 0), item.get("status", "-")])
+            status_text = item.get("status", "-")
+            if item.get("error_detail"):
+                status_text = f"{status_text}: {item.get('error_detail')}"
+            diag_data.append([item.get("market"), item.get("scanned", 0), item.get("analyzed", 0), item.get("live", 0), item.get("errors", 0), _p(status_text)])
         diag_table = Table(diag_data, repeatRows=1, colWidths=[30*mm, 24*mm, 27*mm, 20*mm, 20*mm, 40*mm])
         diag_table.setStyle(_table_style())
         story += [Paragraph("Analysefordeling per marked", styles["Subsection"]), diag_table]
@@ -725,6 +763,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         quality_table.setStyle(_table_style(6.8, header=False, padding=2))
         quality_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold"), ("FONTNAME", (8,0), (8,0), "Helvetica-Bold")]))
         story += [Paragraph("Datakvalitet", styles["Subsection"]), quality_table]
+        if quality.get("failed_markets"):
+            story += [Paragraph("Datakvaliteten er redusert fordi valgte markeder feilet eller ga null kandidater: " +
+                                escape(", ".join(quality.get("failed_markets") or [])) + ".", styles["Small"])]
     refresh = run.get("data_refresh") or {}
     refresh_table = Table([
                   ["Full ny analyse", "JA" if refresh.get("force_refresh_requested") else "NEI", "Cache-bypass", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI"), "Live-forsøk", refresh.get("live_attempt_count", 0)],
@@ -755,16 +796,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     candidates = run.get("candidates") or []
     insider_coverage = insider_coverage_by_market(candidates)
     if insider_coverage:
-        coverage_data = [["Marked", "Kontrollert", "Verifisert", "Kilder funnet", "Uten strukturerte data", "Primærkilde"]]
+        coverage_data = [["Marked", "Kontrollert", "Verifisert", "Kilder funnet", "Ingen treff", "Ikke konfig.", "Kildefeil", "Primærkilde"]]
         for item in insider_coverage:
             coverage_data.append([
                 item.get("market"), item.get("checked", 0), item.get("verified", 0),
-                item.get("discovery", 0), item.get("missing", 0), _p(item.get("source") or "Ikke tilgjengelig"),
+                item.get("discovery", 0), item.get("missing", 0), item.get("not_configured", 0),
+                item.get("source_errors", 0), _p(item.get("source") or "Ikke tilgjengelig"),
             ])
-        coverage_table = Table(coverage_data, repeatRows=1, colWidths=[21*mm, 20*mm, 19*mm, 23*mm, 31*mm, 55*mm])
+        coverage_table = Table(coverage_data, repeatRows=1, colWidths=[18*mm, 18*mm, 17*mm, 19*mm, 18*mm, 19*mm, 16*mm, 48*mm])
         coverage_table.setStyle(_table_style(6.3, padding=1.8))
         story += [Paragraph("Insiderdekning per marked", styles["Section"]),
-                  Paragraph("Verifiserte transaksjoner kan påvirke score. Kilder funnet via NewsAPI holdes nøytrale til transaksjonsdata er strukturert og kontrollert mot primærkilden.", styles["Small"]),
+                  Paragraph("Status skiller mellom verifiserte transaksjoner, ustrukturerte kildetreff, ingen treff, manglende NewsAPI-konfigurasjon og kildefeil. Bare verifiserte transaksjoner påvirker score.", styles["Small"]),
                   coverage_table]
     insider_rows = []
     for candidate in candidates:
@@ -1058,7 +1100,10 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
             rows, source = _load_candidate_rows_from_app(cfg)
             if not rows:
-                errors.append(f"{market}: ingen kandidater")
+                error = f"{market}: ingen kandidater i valgt markedsunivers"
+                errors.append(error)
+                market_diagnostics.append({"market": market, "scanned": 0, "analyzed": 0, "live": 0,
+                                           "errors": 1, "status": "FEIL: INGEN KANDIDATER", "error_detail": error})
                 continue
             def _pipeline_progress(event: Mapping[str, Any]) -> None:
                 e = dict(event)
@@ -1107,7 +1152,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             if isinstance(exc, ExecutionCancelled):
                 raise
             errors.append(f"{market}: {exc}")
-            market_diagnostics.append({"market": market, "scanned": 0, "analyzed": 0, "live": 0, "errors": 1, "status": f"FEIL: {str(exc)[:80]}"})
+            market_diagnostics.append({"market": market, "scanned": 0, "analyzed": 0, "live": 0, "errors": 1,
+                                       "status": "FEIL: MARKEDSKJØRING", "error_detail": str(exc)})
     emit("DEDUP", 1, 1, "Fjerner duplikater og rangerer kandidater")
     # Global identity integrity: one ticker, one canonical market, one assessment.
     deduped: dict[str, dict[str, Any]] = {}
@@ -1148,12 +1194,17 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         totals["recommended"] = 0
         errors.append(f"Analyse avbrutt: live-innhenting feilet for {attempted} av {attempted} kandidater")
     market_status = build_market_status(markets, refresh_summary)
-    data_quality = build_data_quality(refresh_summary, len(all_candidates))
+    data_quality = build_data_quality(refresh_summary, len(all_candidates), market_diagnostics, markets)
+    failed_markets = list(data_quality.get("failed_markets") or [])
+    partial_market_failure = bool(failed_markets and all_candidates)
     run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(), "job_id": job.job_id, "job_name": job.name,
+           "timezone_name": valid_timezone(job.timezone_name),
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "analysis_aborted": analysis_aborted,
+           "partial_market_failure": partial_market_failure,
+           "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),
            "executive_intelligence": executive_intelligence(all_candidates),
            "diverse_top3": select_diverse_candidates(all_candidates, 3),
            "report_identity": report_identity(trigger, job.name, job.job_id),
@@ -1218,6 +1269,10 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
     archive_report(run)
+    persistence = verify_report_persistence(run_id)
+    if not persistence.get("ok"):
+        raise RuntimeError(str(persistence.get("error") or "Rapportarkivet kunne ikke bekreftes"))
+    run["persistence"] = persistence
     try:
         from historical_learning import register_run
         run["historical_learning"] = {"snapshots_created": register_run(run), "mode": "DESCRIPTIVE_ONLY"}
@@ -1230,7 +1285,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     job.last_run_at = run["created_at"]
-    job.last_status = "FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK")
+    job.last_status = "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK"))
     upsert_job(job)
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
     emit("COMPLETE", 1, 1, "Hele kjeden er fullført", run_id=run_id)
@@ -1267,25 +1322,26 @@ def _window_slot_due(job: JobProfile, now: datetime, last: datetime | None) -> b
 
 
 def _slot_due(job: JobProfile, now: datetime) -> bool:
-    if not job.enabled or now.weekday() not in job.weekdays:
+    local_now = as_local(now, job.timezone_name)
+    if not job.enabled or local_now.weekday() not in job.weekdays:
         return False
     last = None
     try:
-        last = datetime.fromisoformat(job.last_run_at) if job.last_run_at else None
+        last = as_local(job.last_run_at, job.timezone_name) if job.last_run_at else None
     except Exception:
         pass
-    if _window_slot_due(job, now, last):
+    if _window_slot_due(job, local_now, last):
         return True
     for slot in job.schedules:
         if slot == "Ved appstart":
-            if not last or last.date() < now.date():
+            if not last or last.date() < local_now.date():
                 return True
             continue
         parsed = _parse_hhmm(slot)
         if not parsed:
             continue
-        scheduled = datetime.combine(now.date(), time(*parsed), tzinfo=now.tzinfo)
-        if now >= scheduled and (not last or last < scheduled):
+        scheduled = datetime.combine(local_now.date(), time(*parsed), tzinfo=local_now.tzinfo)
+        if local_now >= scheduled and (not last or last < scheduled):
             return True
     return False
 
@@ -1302,6 +1358,7 @@ def run_due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
 def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
+    install_browser_timezone_bootstrap()
 
     st.markdown("""<style>
     div[data-baseweb="tab-list"] button {font-size: 16px !important; font-weight: 600 !important; padding: 10px 18px !important;}
@@ -1340,6 +1397,16 @@ def render_market_intelligence() -> None:
         name = st.text_input("Jobbnavn", value=current.name if current else "Morgenanalyse", key="mi_name_v18687")
         c1, c2 = st.columns(2)
         with c1:
+            detected_timezone = browser_timezone(st)
+            timezone_options = list(dict.fromkeys([detected_timezone, *SUPPORTED_TIMEZONES]))
+            timezone_name = st.selectbox(
+                "Tidssone for tidsplan",
+                timezone_options,
+                index=timezone_options.index(valid_timezone(current.timezone_name)) if valid_timezone(current.timezone_name) in timezone_options else 0,
+                key="mi_timezone_v18711",
+                help="Klokkeslett tolkes i denne tidssonen. UTC lagres i databasen; sommer-/vintertid håndteres automatisk.",
+            )
+            st.caption(f"PC/nettleser oppdaget: {detected_timezone} · lokal tid nå: {local_display(_now_iso(), timezone_name)} · lagres som UTC")
             market_choices = ["Alle"] + list(BASE_MARKET_SCOPES)
             markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=current.markets if current else ["Alle"], key="mi_markets_v18687")
             schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:30", "22:30"], key="mi_schedules_v18690")
@@ -1415,6 +1482,7 @@ def render_market_intelligence() -> None:
             notify_pushover=notify, notify_only_changes=only_changes, include_report_link=include_report_link,
             include_top3_in_notification=include_top3, allow_weekends=allow_weekends, save_pdf=save_pdf, enabled=False,
             scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,
+            timezone_name=timezone_name,
             job_id=DRAFT_JOB_ID, created_at=current.created_at if current else _now_iso(),
             last_run_at=current.last_run_at if current else "", last_status="UTKAST",
         )

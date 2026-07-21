@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 from durable_runtime import read_json, write_json
 from execution_control import ExecutionCancelled
+from local_time import local_display
 from storage_architecture import runtime_data_path
 
 
@@ -110,7 +111,7 @@ def request_cancel(execution_id: str, requested_by: str = "UI") -> dict[str, Any
 
 
 def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, force_refresh: bool) -> None:
-    from market_intelligence import JobProfile, run_job
+    from market_intelligence import JobProfile, run_job, verify_report_persistence
 
     cancelled_before_start = False
     with _LOCK:
@@ -157,6 +158,11 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
     try:
         result = run_job(JobProfile.from_dict(job_payload), trigger=trigger,
                          progress_callback=progress, force_refresh=force_refresh)
+        # run_job performs the authoritative read-after-write check.  Keep
+        # compatibility with injected/legacy runners that predate this field.
+        persistence = result.get("persistence")
+        if isinstance(persistence, Mapping) and not persistence.get("ok"):
+            raise RuntimeError(str(persistence.get("error") or "Rapportlagring kunne ikke bekreftes"))
         chain = dict(result.get("autonomous_chain") or {})
         final = get_status(execution_id) or status
         final.update({
@@ -166,6 +172,15 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
             "chain_id": chain.get("chain_id"), "chain_status": chain.get("status"),
             "chain": chain, "top_candidates": list(result.get("candidates") or [])[:3],
             "data_refresh": dict(result.get("data_refresh") or {}), "error": "",
+            "archive_saved": bool(persistence.get("archive_saved")) if isinstance(persistence, Mapping) else True,
+            "run_json_saved": bool(persistence.get("run_json_saved")) if isinstance(persistence, Mapping) else True,
+            "report_type": (result.get("report_identity") or {}).get("type"),
+            "report_label": (result.get("report_identity") or {}).get("label"),
+            "completion_status": result.get("completion_status") or "FULLFØRT",
+            "partial_market_failure": bool(result.get("partial_market_failure")),
+            "failed_markets": list((result.get("data_quality") or {}).get("failed_markets") or []),
+            "timezone_name": result.get("timezone_name"),
+            "completed_local": local_display(result.get("created_at"), str(result.get("timezone_name") or "Europe/Oslo")),
         })
         _write_status(final)
     except ExecutionCancelled as exc:

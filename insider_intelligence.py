@@ -14,7 +14,7 @@ from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 from international_insider_sources import discover_with_newsapi, source_for_market
 
-VERSION = "v18.7.9"
+VERSION = "v18.7.11"
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
 
@@ -130,7 +130,7 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
         })
     evidence.sort(key=lambda x: (x["date"], x["value"]), reverse=True)
     if not evidence:
-        return {"ticker": ticker, "score": 50.0, "signal": "INGEN DATA", "coverage": "MISSING", "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [], "reason": "Ingen dokumenterte insidertransaksjoner i tilgjengelig datakilde."}
+        return {"ticker": ticker, "score": 50.0, "signal": "INGEN VERIFISERTE TRANSAKSJONER", "coverage": "MISSING", "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [], "reason": "Kilden ble kontrollert, men ingen verifiserte insidertransaksjoner var tilgjengelige."}
     cluster_bonus = min(12.0, max(0, len(buyers) - 1) * 4.0)
     direction = (weighted_buy - weighted_sell) / max(0.8, weighted_buy + weighted_sell)
     score = max(0.0, min(100.0, 50.0 + direction * 34.0 + cluster_bonus))
@@ -162,6 +162,12 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             if discovery.get("articles"):
                 result.update({"score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
                                "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; avventer strukturert verifikasjon."})
+            elif discovery.get("status") == "NEWSAPI_NOT_CONFIGURED":
+                result.update({"signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
+                               "reason": "NEWSAPI_KEY mangler; primærkilden ga ingen strukturerte transaksjoner."})
+            elif discovery.get("status") == "DISCOVERY_ERROR":
+                result.update({"signal": "KILDEFEIL", "coverage": "ERROR",
+                               "reason": str(discovery.get("error") or "Kildeoppslag feilet")})
             cache[ticker] = {"cached_at": time.time(), "result": result}
             _save_cache(cache)
         return result
@@ -191,6 +197,12 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                     "score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
                     "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; transaksjonen må struktureres og verifiseres før scoring.",
                 })
+            elif discovery.get("status") == "NEWSAPI_NOT_CONFIGURED":
+                result.update({"signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
+                               "reason": "NEWSAPI_KEY mangler; ingen sekundær kildeoppdagelse ble utført."})
+            elif discovery.get("status") == "DISCOVERY_ERROR":
+                result.update({"signal": "KILDEFEIL", "coverage": "ERROR",
+                               "reason": str(discovery.get("error") or "Kildeoppslag feilet")})
     except Exception as exc:
         source = source_for_market(market)
         discovery = discover_with_newsapi(ticker, company, market) if market else {}
