@@ -11,6 +11,7 @@ from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, loa
 from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
+from local_time import local_display
 
 
 def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -39,7 +40,7 @@ def _background_status_panel() -> None:
     b1, b2, b3, b4 = st.columns(4)
     b1.metric("Bakgrunnsjobb", status.get("execution_id") or "-")
     b2.metric("Jobbstatus", state)
-    b3.metric("Sist oppdatert", status.get("updated_at") or "-")
+    b3.metric("Sist oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
     b4.metric("Skannegrense", f"{scan.get('per_market', '-')} per marked")
 
     labels = {
@@ -77,10 +78,16 @@ def _background_status_panel() -> None:
         st.error(f"Bakgrunnskjøringen feilet: {status.get('error') or 'ukjent feil'}")
     elif state == "COMPLETED":
         chain = status.get("chain") or {}
-        if chain.get("status") == "OK":
+        if status.get("partial_market_failure"):
+            st.warning("FULLFØRT MED MARKEDSFEIL · " + ", ".join(status.get("failed_markets") or []))
+        elif chain.get("status") == "OK":
             st.success("Hele kjeden er fullført uten tekniske feil.")
         else:
             st.warning(f"Kjeden ble avsluttet med status {chain.get('status', 'UKJENT')}.")
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Rapport-ID", status.get("run_id") or "-")
+        p2.metric("Kjede-ID", status.get("chain_id") or "-")
+        p3.metric("Rapportarkiv", "BEKREFTET" if status.get("archive_saved") else "IKKE BEKREFTET")
     elif state == "CANCELLED":
         st.warning("Kjøringen ble kontrollert avbrutt. Ingen ufullstendig sluttrapport eller Pushover-melding ble publisert.")
     if st.button("↻ Oppdater hele statusvisningen", key="orchestrator_background_manual_refresh_v1879"):

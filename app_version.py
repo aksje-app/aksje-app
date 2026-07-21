@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.10"
-APP_VERSION_NAME = "Controlled Cancellation & Persistent Scan Profiles"
+APP_VERSION = "v18.7.11"
+APP_VERSION_NAME = "Market Reliability, Archive Consistency & Local Time"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.11: Market Reliability, Archive Consistency & Local Time: markedsuniverset valideres per valgt marked og innebygd USA-reserve brukes uavhengig av Render-filbaner. Delvise markedsfeil reduserer datakvaliteten og merkes FULLFØRT MED MARKEDSFEIL. Bakgrunnsjobben blir først COMPLETED etter kontroll av rapport-JSON og rapportarkiv. Run-ID, kjede-ID og arkivstatus vises. Jobbprofiler lagrer IANA-tidssone, scheduler konverterer sikkert fra UTC og UI/PDF viser lokal tid med automatisk sommer-/vintertid. Insiderdiagnostikk skiller manglende konfigurasjon, ingen treff, kildefeil, ustrukturerte treff og verifiserte transaksjoner.",
     "v18.7.10: Controlled Cancellation & Persistent Scan Profiles: pågående manuelle kjøringer kan stoppes kontrollert via Postgres-lagret STOP_REQUESTED/CANCELLED. Fremdriftsmoduler vises igjen med grønne ferdigbokser, aktivt steg og monotone prosenter. Automatisk utkast beholder skannegrensen ved rerun; menyen får 10/20/25/50/100/Maks 250 og egendefinert 10–250, med faktisk per-marked-grense synlig i jobbstatus.",
     "v18.7.9: Responsive Background UX & Global Insider Coverage: automatisk jobbstatus oppdateres i isolert Streamlit-fragment slik at navigasjon forblir klikkbar. PDF viser insider-nettoverdi med tusenskille og markedsvaluta, risiko som 0–100 med LAV/MODERAT/HØY, og insiderdekning per marked. Offisielle kilder for Norge, Sverige, Finland, Danmark, Brasil og USA katalogiseres; NEWSAPI_KEY brukes til sekundær kildeoppdagelse uten at uverifiserte treff påvirker score.",
     "v18.7.8: Durable Manual Background Execution: manuelle utkast- og fullkjedekjøringer flyttes ut av Streamlit-renderingen til en separat servertråd. Aksept, fremdrift, kjede-ID, sluttstatus og feil lagres Postgres-first, UI gjenopptar overvåking etter navigasjon/refresh, og duplikatvern hindrer parallelle dobbeltstarter.",
