@@ -19339,9 +19339,10 @@ def render_autonomy_core_control_center_v1880() -> None:
     a4.metric("Domener", len(manifest.get("domains") or []))
 
     workspace_labels = {
+        "overview": "Oversikt",
         "orchestrator": "Orchestrator og tidsplan",
         "learning_portfolio": "Learning Portfolio",
-        "overview": "Arkitektur og policy",
+        "architecture": "Arkitektur og policy",
     }
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
     if requested_workspace in workspace_labels:
@@ -19359,7 +19360,10 @@ def render_autonomy_core_control_center_v1880() -> None:
     _persist_ui_state_v18658(
         nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab=workspace_slug,
     )
-    if workspace == "Orchestrator og tidsplan":
+    if workspace == "Oversikt":
+        from autonomy_overview import render_autonomy_overview
+        render_autonomy_overview()
+    elif workspace == "Orchestrator og tidsplan":
         render_autonomous_orchestrator_control_center()
     elif workspace == "Learning Portfolio":
         render_autonomous_portfolio()
