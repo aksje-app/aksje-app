@@ -78,6 +78,7 @@ def _sidebar_nav_links_v18659(st) -> None:
         ("🚀", "Long Engine", "long_engine"),
         ("🤖", "AI", "ai"),
         ("🧠", "Autonomi", "autonomy"),
+        ("💱", "Valutavarsler", "fx_alerts"),
         ("⚙️", "System", "system"),
     ]
     current = ""
@@ -182,6 +183,14 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_group_radio_v1863aj"] = "Autonomi (1)"
         st.session_state["ai_control_center_panel_radio_v1863aj_Autonomi"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"fx_alerts", "currency_alerts", "valutavarsler"}:
+        nav = "fx_alerts"
+        st.session_state["ai_control_center_group_v1863m"] = "Andre paneler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Andre paneler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_group_v1863aj"] = "System"
@@ -196,6 +205,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "long_engine": ("Long Engine", "Long Engine"),
         "ai": ("Analyse og prognose", ""),
         "autonomy": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "fx_alerts": ("Andre paneler", "💱 Valutavarsler"),
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
@@ -230,6 +240,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
     _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
     _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomy", "sidebar_nav_autonomy_v1882")
+    _sidebar_nav_button_v18650(st, "💱 Valutavarsler", "fx_alerts", "sidebar_nav_fx_alerts_v1891")
     _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)

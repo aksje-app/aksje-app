@@ -2114,7 +2114,7 @@ def _dashboard2026_score_value(item: dict) -> float:
     if not isinstance(item, dict):
         return 0.0
     for key in (
-        "score", "Score", "total_score", "totalScore", "Total score", "Total Score",
+        "investment_score", "score", "Score", "total_score", "totalScore", "Total score", "Total Score",
         "ai_score", "AI_score", "rank_score", "ranking_score",
         "confidence_score", "confidence", "Confidence", "Konfidens",
     ):
@@ -2127,6 +2127,7 @@ def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
     rows: list[dict] = []
     # Prioritert: siste data som faktisk ble rendret/kjørt av Top Picks/ranking.
     for key in (
+        "canonical_top_picks_v1891",
         "dashboard2026_force_rows_v18635",
         "dashboard2026_last_rendered_rankings_v18635",
     ):
@@ -2141,6 +2142,17 @@ def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
                 for item in items:
                     if isinstance(item, dict):
                         rows.append(item)
+
+    # v18.9.1 authoritative source: latest successful Autonomy publication.
+    try:
+        from autonomi_core.learning_reporting import load_canonical_top_picks
+        canonical = load_canonical_top_picks()
+        canonical_rows = [dict(x) for x in canonical.get("top_picks") or [] if isinstance(x, dict)]
+        if canonical_rows:
+            rows = canonical_rows + rows
+            st.session_state["canonical_top_picks_v1891"] = canonical_rows
+    except Exception:
+        pass
 
     # Ta også med rank_cache_* fordi noen paneler lagrer der før latest_rankings oppdateres.
     for key, value in list(st.session_state.items()):
@@ -2256,6 +2268,7 @@ def _dashboard2026_decision_text(item: dict) -> str:
         item.get("recommendation"),
         item.get("Recommendation"),
         item.get("action"),
+        item.get("portfolio_action"),
         item.get("action_now"),
         item.get("Beste handling"),
         item.get("beste_handling"),
@@ -11154,6 +11167,14 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_radio_v1863aj"] = "Autonomi (1)"
         st.session_state["ai_control_center_panel_radio_v1863aj_Autonomi"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"fx_alerts", "currency_alerts", "valutavarsler"}:
+        nav = "fx_alerts"
+        st.session_state["ai_control_center_group_v1863m"] = "Andre paneler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Andre paneler"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
@@ -11206,7 +11227,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "system"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -11279,6 +11300,7 @@ _mobile_nav_links_v18646 = {
     "long_engine": _mobile_nav_href_v18646("long_engine"),
     "ai": _mobile_nav_href_v18646("ai"),
     "autonomy": _mobile_nav_href_v18646("autonomy"),
+    "fx_alerts": _mobile_nav_href_v18646("fx_alerts"),
 }
 st.markdown(f"""
 <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
@@ -11288,6 +11310,7 @@ st.markdown(f"""
   <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
   <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
+  <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
 </div>
 """, unsafe_allow_html=True)
 
@@ -11714,8 +11737,15 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     st.subheader("Marked Marked / rangering")
     st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
     import_source_label = "AI kildegrunnlag"
+    canonical_ranking_label = "Autonomi – full ranking"
+    try:
+        from autonomi_core.learning_reporting import load_canonical_top_picks
+        canonical_ranking_package = load_canonical_top_picks()
+    except Exception:
+        canonical_ranking_package = {}
     if selected_market is None:
-        market = st.selectbox("Velg univers", [NO_UNIVERSE_SELECTION_LABEL, import_source_label] + market_scope_options(include_aggregate=True), key="cc_ranking_market_v18535")
+        ranking_options = ([canonical_ranking_label] if canonical_ranking_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, import_source_label] + market_scope_options(include_aggregate=True)
+        market = st.selectbox("Velg univers", ranking_options, key="cc_ranking_market_v18535")
     else:
         market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
     import_tickers = _ai_candidate_import_tickers_v1864l("Kombiner kilder") if market == import_source_label else []
@@ -11735,6 +11765,10 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         source_tickers = resolve_universe_tickers([market], max_count=int(limit))
     storage_key = f"Kontrollsenter_{market}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
+    if market == canonical_ranking_label:
+        storage_key = "Canonical_Full_Ranking"
+        latest[storage_key] = list(canonical_ranking_package.get("full_ranking") or [])[:int(limit)]
+        st.info(f"Kanonisk full ranking · {canonical_ranking_package.get('result_id')} · oppdrag {canonical_ranking_package.get('mission_id') or '-'}")
     if market == import_source_label:
         if import_tickers:
             st.success(f"AI kildegrunnlag er klart: {len(import_tickers)} tickere fra lagrede kilder.")
@@ -11743,9 +11777,9 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         st.caption("AI kildegrunnlag bruker lagrede Finansavisen-, Oljefond/NBIM- og Folketrygdfondet-overlays.")
     if source_tickers:
         st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
-    else:
+    elif market != canonical_ranking_label:
         st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
-    if st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
+    if market != canonical_ranking_label and st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
         progress_box = st.empty()
         progress = st.progress(0, text="Starter rangering")
         progress_box.markdown(
@@ -11939,11 +11973,18 @@ def render_top_picks_control_center_v1863s():
     st.subheader("Top Picks Top Picks")
     st.caption("Bygger Top Picks fra samme universmotor som rangering, analyse, varsler og testpaneler.")
 
+    try:
+        from autonomi_core.learning_reporting import load_canonical_top_picks
+        canonical_package = load_canonical_top_picks()
+    except Exception:
+        canonical_package = {}
+    canonical_label = "Autonomi – siste gyldige"
+    scope_options = ([canonical_label] if canonical_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"]
     c1, c2 = st.columns([1.25, 1])
     with c1:
         scope = st.selectbox(
             "Univers / marked",
-            [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"],
+            scope_options,
             key="cc_top_picks_scope_v1863s",
         )
     with c2:
@@ -11967,10 +12008,22 @@ def render_top_picks_control_center_v1863s():
             height=90,
         )
 
-    source_tickers = _resolve_control_center_scope_tickers_v1863s(scope, int(limit), manual_text=manual_text)
+    source_tickers = ([str(x.get("ticker") or "") for x in canonical_package.get("top_picks") or []]
+                      if scope == canonical_label else _resolve_control_center_scope_tickers_v1863s(scope, int(limit), manual_text=manual_text))
     storage_scope = re.sub(r"[^A-Za-z0-9]+", "_", scope).strip("_") or "Aktivt"
     storage_key = f"TopPicks_{storage_scope}"
     latest = st.session_state.setdefault("latest_rankings_v148", {})
+    if scope == canonical_label:
+        storage_key = "TopPicks_Canonical"
+        latest[storage_key] = list(canonical_package.get("top_picks") or [])[:int(limit)]
+        st.info(
+            f"Kanonisk Autonomi-resultat {canonical_package.get('result_id')} · oppdrag {canonical_package.get('mission_id') or '-'} · "
+            f"{canonical_package.get('created_at_local') or canonical_package.get('created_at') or '-'}"
+        )
+        n1, n2, n3 = st.columns(3)
+        n1.metric("Nye", len(canonical_package.get("new_candidates") or []))
+        n2.metric("Gjentatte", len(canonical_package.get("repeated_candidates") or []))
+        n3.metric("Falt ut", len(canonical_package.get("dropped_candidates") or []))
     if source_tickers:
         st.caption(f"Univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
         guard = market_guard_summary(source_tickers)
@@ -11980,7 +12033,7 @@ def render_top_picks_control_center_v1863s():
         st.info("Velg univers/marked og trykk Kjør Top Picks. Panelet starter tomt og bruker ingen gammel AAPL/STB.OL-cache.")
         return
 
-    run_clicked = st.button(
+    run_clicked = False if scope == canonical_label else st.button(
         f"Kjør Top Picks for {scope}",
         key="cc_top_picks_run_v1863s",
         type="primary",
@@ -12027,7 +12080,8 @@ def render_top_picks_control_center_v1863s():
         # v18.6.36: KPI-kortene ligger over Kontrollsenteret og må kunne lese data
         # som panelet akkurat nå viser. Dette lagrer kun eksisterende rows; ingen ny henting.
         st.session_state["dashboard2026_force_rows_v18635"] = list(top_picks or [])
-    buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
+    buy_now_picks = (_ranked_for_display(list(canonical_package.get("buy_now") or [])[:int(limit)])
+                     if scope == canonical_label else _ranked_for_display([x for x in top_picks if is_buy_now_item(x)]))
     # v18.6.38: dashboard header uses these exact rows after this panel renders.
     st.session_state["dashboard2026_visible_rows_v18638"] = list(top_picks or [])
     st.session_state["dashboard2026_buy_now_rows_v18638"] = list(buy_now_picks or [])
@@ -12038,6 +12092,14 @@ def render_top_picks_control_center_v1863s():
             f"<div class='v18-dark-row'>Top Picks funnet: <b>{len(top_picks)}</b> | Kjøp nå-signaler: <b>{len(buy_now_picks)}</b>. Kjøp nå er et strengere teknisk timingfilter.</div>",
             unsafe_allow_html=True,
         )
+        if scope == canonical_label:
+            metadata_rows = [{
+                "Ticker": x.get("ticker"), "Oppdrag": x.get("mission_id"),
+                "Strategi": x.get("strategy"), "Datakvalitet": x.get("canonical_data_quality"),
+                "Hvorfor valgt": x.get("selection_reason"),
+                "Endring": x.get("score_delta_since_previous"), "Status": x.get("candidate_state"),
+            } for x in top_picks]
+            st.dataframe(pd.DataFrame(metadata_rows), use_container_width=True, hide_index=True)
 
     if view == "Top Picks":
         render_ranking(top_picks, f"Top Picks Top Picks {scope}")
@@ -19441,6 +19503,9 @@ def control_center_extra_panels_v18535():
             inserted_alerts = True
     if not inserted_alerts:
         panels.insert(2, ("🔔 Varsling – Alert Center", render_alerts_watchlist_control_center_v1869))
+    # v18.9.1 direct route; the unified Alert Center remains as fallback.
+    if not any(str(label) == "💱 Valutavarsler" for label, _ in panels):
+        panels.insert(3, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
 
     measured_panels = []
     for _label, _renderer in panels:
@@ -20674,7 +20739,7 @@ st.markdown("""
     bottom: 0 !important;
     height: 66px !important;
     display: grid !important;
-    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
     gap: 4px !important;
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) 8px !important;
     z-index: 2147483000 !important;

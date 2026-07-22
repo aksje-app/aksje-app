@@ -1502,7 +1502,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     # v18.9.0: persist the domain result exactly once. Every downstream
     # consumer receives a view of this immutable record, not a separately
     # assembled copy of the analysis.
-    from autonomi_core.learning_reporting import canonical_payload, save_canonical_result
+    from autonomi_core.learning_reporting import canonical_payload, publish_canonical_top_picks, save_canonical_result
     canonical_record = save_canonical_result(run)
     canonical_run = canonical_payload(canonical_record)
     run["canonical_result"] = dict(canonical_run["canonical_result"])
@@ -1526,6 +1526,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     if not persistence.get("ok"):
         raise RuntimeError(str(persistence.get("error") or "Rapportarkivet kunne ikke bekreftes"))
     run["persistence"] = persistence
+    # Publication is the final commit gate: a failed PDF/archive/persistence
+    # stage can never replace the last valid Dashboard/Top Picks package.
+    run["canonical_top_picks"] = publish_canonical_top_picks(canonical_record, limit=max(10, int(job.proposal_count or 10)))
     try:
         from historical_learning import register_run
         run["historical_learning"] = {"snapshots_created": register_run(canonical_run), "mode": "DESCRIPTIVE_ONLY", "result_id": canonical_record["result_id"]}
