@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from autonomi_core.configuration.policy import AutonomyPolicy, load_policy
 from autonomi_core.missions.market_mission import build_market_mission
 
-CORE_VERSION = "v18.8.0"
+CORE_VERSION = "v18.8.1"
 
 
 def execute_market_mission(
@@ -27,11 +27,20 @@ def execute_market_mission(
     effective: AutonomyPolicy = replace(policy, **overrides) if overrides else policy
     mission = build_market_mission(market_run, trigger=trigger, policy=effective)
 
+    governed_run = dict(mission.market_run)
+    observed = list(governed_run.get("candidates") or [])
+    governed_run["observed_candidates"] = observed
+    governed_run["candidates"] = [item for item in observed if item.get("valid_for_decision", True)]
+    governed_run["proposals"] = [
+        item for item in list(governed_run.get("proposals") or [])
+        if item.get("valid_for_decision", True)
+    ]
+
     # Compatibility bridge. The existing, regression-tested engine remains the
     # executor until its stages are migrated individually behind these contracts.
     from autonomous_orchestrator import run_post_scan_chain
     result = run_post_scan_chain(
-        mission.market_run,
+        governed_run,
         run_autonomous=effective.run_portfolio_decisions,
         run_learning=effective.run_controlled_learning,
         require_active_portfolio=effective.require_active_portfolio,
