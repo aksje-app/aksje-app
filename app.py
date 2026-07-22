@@ -19338,11 +19338,17 @@ def render_autonomy_core_control_center_v1880() -> None:
     a3.metric("Kjøremodus", "Kun teoretisk")
     a4.metric("Domener", len(manifest.get("domains") or []))
 
+    from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode
+    interface_mode = render_mode_selector()
+    if interface_mode != EXPERT:
+        render_simple_mode()
+        return
+
     workspace_labels = {
         "overview": "Oversikt",
         "orchestrator": "Orchestrator og tidsplan",
         "learning_portfolio": "Learning Portfolio",
-        "architecture": "Arkitektur og policy",
+        "architecture": "Ekspertkontroll",
     }
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
     if requested_workspace in workspace_labels:
@@ -19368,13 +19374,7 @@ def render_autonomy_core_control_center_v1880() -> None:
     elif workspace == "Learning Portfolio":
         render_autonomous_portfolio()
     else:
-        st.markdown("### Autonomy Core")
-        st.success("FOUNDATION_ACTIVE · eksisterende motorer kjører gjennom kompatibilitetslaget")
-        st.json(manifest)
-        st.info(
-            "v18.8.0 flytter ikke produksjonskritisk logikk. Nye oppdrag går gjennom "
-            "Autonomy Core, mens motorene migreres trinnvis og verifiseres mot dagens resultat."
-        )
+        render_expert_console()
 
 
 def control_center_extra_panels_v18535():

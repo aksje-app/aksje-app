@@ -128,7 +128,7 @@ def _goto(workspace: str) -> None:
     st.rerun()
 
 
-def _render_progress(snapshot: Mapping[str, Any]) -> None:
+def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = True) -> None:
     status = dict(snapshot.get("status") or {})
     state = str(status.get("state") or "INGEN KJØRING")
     pct = max(0, min(100, int(status.get("percent") or 0)))
@@ -159,13 +159,13 @@ def _render_progress(snapshot: Mapping[str, Any]) -> None:
             request_cancel(str(status.get("execution_id") or ""), requested_by="AUTONOMY_OVERVIEW")
             st.warning("Stoppforespørselen er lagret. Kjøringen stopper ved neste sikre kontrollpunkt.")
             st.rerun()
-    else:
+    elif allow_quick_start:
         if st.button("▶ Start utkastkjøring", type="primary", key="autonomy_overview_start_v1883"):
             start_manual_job(load_draft_job(), trigger="MANUAL_DRAFT_TEST", force_refresh=False)
             st.rerun()
 
 
-def render_autonomy_overview() -> None:
+def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     snapshot = collect_autonomy_overview()
     status = snapshot["status"]
     latest = snapshot["latest_run"]
@@ -181,7 +181,7 @@ def render_autonomy_overview() -> None:
 
     with st.container(border=True):
         st.markdown("#### Pågående kjøring, fremdrift og avbryt")
-        _render_progress(snapshot)
+        _render_progress(snapshot, allow_quick_start=allow_quick_start)
 
     left, right = st.columns(2)
     with left:

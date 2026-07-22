@@ -1,8 +1,9 @@
-APP_VERSION = "v18.8.3"
-APP_VERSION_NAME = "Autonomi Oversikt"
+APP_VERSION = "v18.8.4"
+APP_VERSION_NAME = "Enkel modus og ekspertmodus"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.8.4: Enkel modus og ekspertmodus: vanlig bruk viser kun mål, tidshorisont, risiko, markeder, valgfrie bransjer og Start Autonomi før den operative oversikten. Markeder sendes til eksisterende kjede, mens risiko- og bransjegrenser håndheves transparent før beslutningsdelen. Ekspertmodus samler motorer, terskler, datakilder, strategier, faktorvekter, Scheduler, Shadow Mode, logger og diagnose. Valgt modus og oppdrag lagres varig.",
     "v18.8.3: Autonomi Oversikt: ny samlet operativ førsteside viser aktivt oppdrag og produksjonskjede, pågående og neste kjøring, fremdrift og kontrollert avbrudd, kandidater, beslutninger, teoretisk portefølje og risiko, datakontrakt, Pushover/drift, godkjenningskø og siste rapport. Oversikten gjenbruker eksisterende varige tjenester og endrer ingen motorlogikk.",
     "v18.8.2: Autonomi i hovedmenyen: Autonomi får én kanonisk hovedrute og fast knapp i både desktop- og mobilnavigasjonen. Learning Portfolio og Orchestrator/Scheduler åpnes lazy i det samlede Autonomi-kontrollsenteret. Gamle autonomous/autonomi-ruter og tidligere panelnavn normaliseres som fallback til riktig arbeidsflate. URL-state, lagret state og refresh bruker samme kanoniske gruppe/panel uten endring i motorlogikk.",
     "v18.8.1: Freshness & Data Contract: alle kandidater normaliseres ved Autonomy Core-grensen med datakilde, hentetidspunkt, maksimal alder, live/cache-status, kvalitetsnivå, manglende data og beslutningsgyldighet. Autonomi velger fortsett, merket fallback, redusert konfidens eller stopp beslutning. Kritisk manglende eller foreldet markedsdata kan ikke gi anbefaling eller sendes til porteføljebeslutning. Kontraktsstatus og blokkerte kandidater vises i UI, PDF og lagret kjøringsdata.",

@@ -278,7 +278,7 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
 
 def job_fingerprint(job: "JobProfile") -> str:
     markets = normalize_markets(job.markets)
-    return f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}"
+    return f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}"
 
 
 @dataclass
@@ -304,6 +304,7 @@ class JobProfile:
     run_autonomous_portfolio: bool = True
     run_controlled_learning: bool = True
     require_active_portfolio: bool = True
+    user_mission_id: str = ""
     timezone_name: str = DEFAULT_TIMEZONE
     job_id: str = field(default_factory=lambda: f"MIJ-{uuid.uuid4().hex[:10].upper()}")
     created_at: str = field(default_factory=_now_iso)
@@ -782,6 +783,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     summary_table = Table(summary_grid, colWidths=[61.3*mm]*3)
     summary_table.setStyle(_table_style(7, header=False, padding=4))
     story += [Paragraph("Executive Summary", styles["Section"]), summary_table]
+    user_mission = run.get("user_mission") or {}
+    mission_summary = run.get("mission_summary") or {}
+    if user_mission:
+        mission_table = Table([
+            ["Mål", user_mission.get("goal", "-"), "Tidshorisont", user_mission.get("horizon", "-")],
+            ["Risiko", user_mission.get("risk", "-"), "Risikogrense", mission_summary.get("risk_ceiling", "-")],
+            ["Bransjer", ", ".join(user_mission.get("sectors") or []) or "Alle", "Innenfor oppdrag", mission_summary.get("eligible", 0)],
+            ["Utenfor oppdrag", mission_summary.get("excluded", 0), "Oppdrags-ID", user_mission.get("mission_id", "-")],
+        ], colWidths=[28*mm, 64*mm, 30*mm, 62*mm])
+        mission_table.setStyle(_table_style(7, header=False, padding=2.5))
+        story += [Paragraph("Autonomi-oppdrag", styles["Subsection"]), mission_table,
+                  Paragraph("Kandidater utenfor valgt risiko eller bransje kan vises for sporbarhet, men går ikke videre til beslutningsdelen.", styles["Small"])]
     diagnostics = run.get("market_diagnostics") or []
     if diagnostics:
         diag_data = [["Marked", "Skannet", "Analysert", "Live", "Feil", "Status"]]
@@ -1259,7 +1272,14 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     from autonomi_core.discovery_data.freshness import apply_data_contracts
     data_contract_summary = apply_data_contracts(all_candidates)
     totals["deep_analyzed"] = len(all_candidates)
-    decision_candidates = [x for x in all_candidates if bool(x.get("valid_for_decision"))]
+    from autonomi_core.missions.user_mission import apply_user_mission, load_user_mission
+    stored_mission = load_user_mission()
+    user_mission = stored_mission if str(stored_mission.get("mission_id") or "") == str(job.user_mission_id or "") else {}
+    mission_summary = apply_user_mission(all_candidates, user_mission)
+    decision_candidates = [
+        x for x in all_candidates
+        if bool(x.get("valid_for_decision")) and bool(x.get("mission_eligible", True))
+    ]
     totals["recommended"] = sum(1 for x in decision_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
     totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
     proposal_map: dict[str, dict[str, Any]] = {}
@@ -1276,7 +1296,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             "data_contract", "valid_for_decision", "confidence_score", "status",
             "status_before_data_contract", "confidence_before_data_contract",
         ) if key in governed})
-        if proposal.get("valid_for_decision"):
+        proposal["mission_eligible"] = governed.get("mission_eligible", True)
+        proposal["mission_fit"] = governed.get("mission_fit")
+        if proposal.get("valid_for_decision") and proposal.get("mission_eligible", True):
             valid_proposals.append(proposal)
     all_proposals = sorted(valid_proposals, key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     totals["proposals"] = len(all_proposals)
@@ -1301,6 +1323,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
+           "user_mission": user_mission,
+           "mission_summary": mission_summary,
            "analysis_aborted": analysis_aborted,
            "partial_market_failure": partial_market_failure,
            "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),
