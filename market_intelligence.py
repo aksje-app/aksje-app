@@ -842,6 +842,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         contract_table.setStyle(_table_style(6.6, header=False, padding=2.2))
         story += [Paragraph("Freshness & Data Contract", styles["Subsection"]), contract_table,
                   Paragraph(escape(str(contract_summary.get("approval_rule") or "Ingen anbefaling på kritiske, foreldede data")), styles["Small"])]
+    discovery = run.get("discovery_data") or {}
+    if discovery:
+        discovery_rows = [["Marked", "Valgt", "Dokumentert", "Nye", "Eksperimentelle", "Karantene", "Rotert"]]
+        for item in discovery.get("markets") or []:
+            actual = item.get("composition_actual") or {}
+            discovery_rows.append([
+                item.get("market"), item.get("selected", 0), actual.get("DOCUMENTED", 0),
+                actual.get("NEW", 0), actual.get("EXPERIMENTAL", 0), item.get("quarantined", 0),
+                "JA" if item.get("rotated_from_previous") else "BEGRENSET",
+            ])
+        if len(discovery_rows) > 1:
+            discovery_table = Table(discovery_rows, repeatRows=1, colWidths=[25*mm, 18*mm, 25*mm, 18*mm, 27*mm, 22*mm, 24*mm])
+            discovery_table.setStyle(_table_style(6.5, padding=2))
+            story += [Paragraph("Discovery & Data Layer", styles["Subsection"]),
+                      Paragraph("Målfordeling: 70 % dokumenterte, 20 % nye og 10 % eksperimentelle kandidater. Uendrede kildebevis merkes med analysekarantene.", styles["Small"]),
+                      discovery_table]
     refresh = run.get("data_refresh") or {}
     refresh_table = Table([
                   ["Full ny analyse", "JA" if refresh.get("force_refresh_requested") else "NEI", "Cache-bypass", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI"), "Live-forsøk", refresh.get("live_attempt_count", 0)],
@@ -1229,7 +1245,19 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                              configuration_version=str(investment_mission.get("configuration_version") or "")).normalized()
         try:
             emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
-            rows, source = _load_candidate_rows_from_app(cfg)
+            try:
+                loaded = _load_candidate_rows_from_app(cfg, return_discovery=True)
+            except TypeError as exc:
+                if "return_discovery" not in str(exc):
+                    raise
+                loaded = _load_candidate_rows_from_app(cfg)
+            # Compatibility with integrations/tests that still provide the
+            # established two-value loader contract.
+            if len(loaded) == 3:
+                rows, source, discovery = loaded
+            else:
+                rows, source = loaded
+                discovery = {"version": "LEGACY", "market": market, "selected": len(rows), "rotated_from_previous": False}
             if not rows:
                 error = f"{market}: ingen kandidater i valgt markedsunivers"
                 errors.append(error)
@@ -1245,6 +1273,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                     progress_callback(e)
             result = run_pipeline(rows, cfg, progress_callback=_pipeline_progress, force_refresh=force_refresh)
             result["candidate_source"] = source
+            result["discovery_data"] = discovery
             market_refresh = _build_refresh_summary(result.get("candidates") or [], force_refresh)
             # A whole-market zero-live result is usually temporary throttling. Retry
             # only that market once, after a controlled cooldown, instead of
@@ -1257,6 +1286,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                 if int(retry_refresh.get("live_count", 0)) > int(market_refresh.get("live_count", 0)):
                     result = retry_result
                     result["candidate_source"] = source
+                    result["discovery_data"] = discovery
                     market_refresh = retry_refresh
                     result["market_retry_used"] = True
             if market_index < len(markets):
@@ -1362,6 +1392,12 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
+           "discovery_data": {
+               "version": "v18.8.7", "markets": [dict(item.get("discovery_data") or {}) for item in market_runs],
+               "selected": sum(int((item.get("discovery_data") or {}).get("selected", 0)) for item in market_runs),
+               "quarantined": sum(int((item.get("discovery_data") or {}).get("quarantined", 0)) for item in market_runs),
+               "rotated": all(bool((item.get("discovery_data") or {}).get("rotated_from_previous", False)) for item in market_runs) if market_runs else False,
+           },
            "user_mission": user_mission,
            "mission_summary": mission_summary,
            "investment_mission": investment_mission,

@@ -457,22 +457,25 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             clean["loader_diagnostics"] = {"missing_or_invalid_numeric_fields": missing}
         sanitized_rows.append(clean)
     prepared_rows = sanitized_rows
-    if cfg.use_insider_intelligence and prepared_rows:
+    active_source_rows = [row for row in prepared_rows if not bool(row.get("analysis_quarantine"))]
+    quarantined_rows = [row for row in prepared_rows if bool(row.get("analysis_quarantine"))]
+    if cfg.use_insider_intelligence and active_source_rows:
         from insider_intelligence import enrich_rows as enrich_insider_rows
         if progress_callback:
-            progress_callback({"phase": "INSIDER", "completed": 0, "total": len(prepared_rows), "message": "Henter offentlige insidertransaksjoner"})
-        prepared_rows = enrich_insider_rows(
-            prepared_rows, force_refresh=intelligence_force_refresh,
+            progress_callback({"phase": "INSIDER", "completed": 0, "total": len(active_source_rows), "message": "Henter offentlige insidertransaksjoner"})
+        active_source_rows = enrich_insider_rows(
+            active_source_rows, force_refresh=intelligence_force_refresh,
             progress_callback=(lambda done, total, ticker: progress_callback({"phase": "INSIDER", "completed": done, "total": total, "ticker": ticker, "message": f"Henter insiderdata {done}/{total}: {ticker}"})) if progress_callback else None,
         )
-    if cfg.use_news_intelligence and prepared_rows:
+    if cfg.use_news_intelligence and active_source_rows:
         from news_intelligence import enrich_rows as enrich_news_rows
         if progress_callback:
-            progress_callback({"phase": "NEWS", "completed": 0, "total": len(prepared_rows), "message": "Analyserer nyheter og sentiment"})
-        prepared_rows = enrich_news_rows(
-            prepared_rows, force_refresh=intelligence_force_refresh,
+            progress_callback({"phase": "NEWS", "completed": 0, "total": len(active_source_rows), "message": "Analyserer nyheter og sentiment"})
+        active_source_rows = enrich_news_rows(
+            active_source_rows, force_refresh=intelligence_force_refresh,
             progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
         )
+    prepared_rows = active_source_rows + quarantined_rows
     if cfg.use_portfolio_fit and prepared_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
         for row in prepared_rows:
@@ -560,6 +563,8 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             "prepared_count": len(prepared_rows),
             "scored_count": len(assessments),
             "skipped_count": len(candidate_errors),
+            "analysis_quarantine_count": len(quarantined_rows),
+            "analysis_quarantine_effect": "Expensive insider/news refresh skipped; candidate remains visible and scoreable",
         },
     }
     if progress_callback:
@@ -637,7 +642,7 @@ def _merge_candidate_rows(primary: Sequence[Mapping[str, Any]], fallback: Sequen
     return merged
 
 
-def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str, Any]], str]:
+def _load_candidate_rows_from_app(config: PipelineConfig, *, return_discovery: bool = False):
     """Load up to scan_limit unique candidates for one market.
 
     Smart Universe remains the preferred source, but it is augmented by the
@@ -655,7 +660,7 @@ def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str
         result = service.run_smart_universe({
             "mode": "Smart AI-utvalg",
             "scopes": [cfg.market_scope],
-            "max_count": cfg.scan_limit,
+            "max_count": min(500, max(cfg.scan_limit, cfg.scan_limit * 3)),
             "max_risk": "Høy",
             "sectors": ["Alle sektorer"],
             "use_news": cfg.use_research,
@@ -683,7 +688,7 @@ def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str
     fallback_rows: list[dict[str, Any]] = []
     try:
         from universe_engine import resolve_universe_tickers
-        tickers = resolve_universe_tickers([cfg.market_scope], max_count=cfg.scan_limit)
+        tickers = resolve_universe_tickers([cfg.market_scope], max_count=min(500, max(cfg.scan_limit, cfg.scan_limit * 4)))
         fallback_rows = _market_rows_from_tickers(tickers, cfg.market_scope, "Built-in liquid market universe")
         if fallback_rows:
             source_parts.append("Built-in market universe")
@@ -697,10 +702,16 @@ def _load_candidate_rows_from_app(config: PipelineConfig) -> tuple[list[dict[str
         fallback_rows = _market_rows_from_tickers(US_FALLBACK[:cfg.scan_limit], "USA", "Packaged USA reserve")
         source_parts.append("Packaged USA reserve")
 
-    rows = _merge_candidate_rows(primary, fallback_rows, cfg.market_scope, cfg.scan_limit)
+    from autonomi_core.discovery_data.layer import select_discovery_candidates
+    rows, discovery = select_discovery_candidates(
+        primary, fallback_rows, market=cfg.market_scope, limit=cfg.scan_limit,
+        mission_id=cfg.mission_id, configuration_version=cfg.configuration_version,
+    )
     if rows:
-        return rows, " + ".join(source_parts or ["Market universe"]) + " + yfinance enrichment"
-    return [], "Ingen kandidatkilde"
+        result = (rows, " + ".join(source_parts or ["Market universe"]) + " + Discovery Data Layer + yfinance enrichment")
+        return (*result, discovery) if return_discovery else result
+    result = ([], "Ingen kandidatkilde")
+    return (*result, discovery) if return_discovery else result
 
 
 def render_investment_pipeline() -> None:

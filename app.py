@@ -21450,6 +21450,59 @@ def _inject_professional_ui_refactor_v18666():
 
 _inject_professional_ui_refactor_v18666()
 
+# v18.8.7: accessibility/readability layer. Deliberately global so explanatory
+# text and checkbox controls remain legible on high-resolution desktop screens
+# as well as mobile, without changing any widget keys or behavior.
+st.markdown("""
+<style>
+html body .stApp [data-testid="stCaptionContainer"],
+html body .stApp .stCaption,
+html body .stApp .compact-mobile-note,
+html body .stApp .v15-inline-help,
+html body .stApp .info-mini-sub,
+html body .stApp .info-mini-small,
+html body .stApp .v18574-global-status .sub {
+    color: #cbd5e1 !important;
+    opacity: 1 !important;
+    font-size: clamp(.90rem, .78rem + .18vw, 1.06rem) !important;
+    line-height: 1.48 !important;
+    font-weight: 650 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+html body .stApp div[data-testid="stCheckbox"] label {
+    min-height: 34px !important;
+    gap: .58rem !important;
+    align-items: center !important;
+}
+html body .stApp div[data-testid="stCheckbox"] label p {
+    color: #f1f5f9 !important;
+    font-size: clamp(.94rem, .84rem + .16vw, 1.08rem) !important;
+    line-height: 1.35 !important;
+    font-weight: 750 !important;
+}
+html body .stApp div[data-testid="stCheckbox"] label > div:first-child,
+html body .stApp div[data-testid="stCheckbox"] [data-baseweb="checkbox"] > div:first-child {
+    width: 21px !important;
+    height: 21px !important;
+    min-width: 21px !important;
+}
+html body .stApp [data-testid="stVerticalBlockBorderWrapper"] {
+    min-width: 0 !important;
+}
+html body .stApp [data-testid="stVerticalBlockBorderWrapper"] p,
+html body .stApp [data-testid="stVerticalBlockBorderWrapper"] div {
+    overflow-wrap: anywhere;
+}
+@media (min-width: 1400px) {
+    html body .stApp [data-testid="stCaptionContainer"], html body .stApp .stCaption {
+        font-size: 1rem !important;
+    }
+    html body .stApp div[data-testid="stCheckbox"] label p { font-size: 1.02rem !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 def add_rsi_current_box(fig, rsi):
     try:
         current_rsi = float(rsi.dropna().iloc[-1])

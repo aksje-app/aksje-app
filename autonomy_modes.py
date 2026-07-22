@@ -222,11 +222,15 @@ def render_expert_console() -> None:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else:
             st.info("Ingen siste kjøring med datakildekontrakter.")
+        source_proposals = read_persistent_json("autonomi_core/discovery_data/source_proposals.json", default=[])
+        if source_proposals:
+            st.markdown("##### Foreslåtte nye kilder – krever godkjenning")
+            st.dataframe(pd.DataFrame(list(source_proposals)[:100]), use_container_width=True, hide_index=True)
     with strategies:
         portfolio = load_portfolio()
         active = sorted({str(row.get("strategy")) for row in (portfolio.get("positions") or {}).values() if row.get("strategy")})
-        st.write("Aktive porteføljestrategier:", ", ".join(active) or "Ingen")
-        st.write("Pipeline-moduler:", ", ".join(latest.get("modules") or []) or "Ingen siste kjøring")
+        st.markdown(f"**Aktive porteføljestrategier**  \n{', '.join(active) or 'Ingen'}")
+        st.markdown(f"**Pipeline-moduler**  \n{', '.join(latest.get('modules') or []) or 'Ingen siste kjøring'}")
 
     factors, scheduler, shadow, logs = st.tabs(["Faktorvekter", "Scheduler", "Shadow Mode", "Logger og diagnose"])
     with factors:
@@ -247,9 +251,9 @@ def render_expert_console() -> None:
         } for job in jobs]), use_container_width=True, hide_index=True)
     with shadow:
         proposals = read_persistent_json("adaptive_ranking/model_proposals.json", default=[])
-        st.write("Produksjonsgodkjenning:", "Alltid eksplisitt")
-        st.write("Automatisk modellgodkjenning:", "Av")
-        st.write("Kontrollert læringsmodus:", learning.get("mode") or "OBSERVER")
+        st.markdown("**Produksjonsgodkjenning:** Alltid eksplisitt  \n"
+                    "**Automatisk modellgodkjenning:** Av  \n"
+                    f"**Kontrollert læringsmodus:** {learning.get('mode') or 'OBSERVER'}")
         if proposals:
             st.dataframe(pd.DataFrame(list(proposals)[:100]), use_container_width=True, hide_index=True)
         else:

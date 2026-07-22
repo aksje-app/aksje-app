@@ -246,9 +246,9 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
         with st.container(border=True):
             st.markdown("#### Pushover og drift")
             storage = snapshot["storage"]
-            st.write(f"Pushover: **{'Klar' if snapshot['pushover_ready'] else 'Ikke konfigurert'}**")
-            st.write(f"Lagring: **{'PostgreSQL' if storage.ok and storage.persistent else 'Lokal fallback'}**")
-            st.write(f"Scheduler: **{snapshot['scheduler'].get('state') or 'IDLE'}**")
+            st.markdown(f"**Pushover:** {'Klar' if snapshot['pushover_ready'] else 'Ikke konfigurert'}  \n"
+                        f"**Lagring:** {'PostgreSQL' if storage.ok and storage.persistent else 'Lokal fallback'}  \n"
+                        f"**Scheduler:** {snapshot['scheduler'].get('state') or 'IDLE'}")
             push = snapshot["pushover_latest"]
             if push:
                 st.caption(f"Siste levering: {'OK' if push.get('success') else 'Feil'} · {push.get('at', '-')}")
@@ -286,7 +286,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             st.markdown("#### Siste rapport")
             report = snapshot["latest_archive"]
             if report:
-                st.write(f"**{report.get('report_label') or 'Rapport'} · {report.get('job_name') or '-'}**")
+                st.markdown(f"**{report.get('report_label') or 'Rapport'}**  \n{report.get('job_name') or '-'}")
                 st.caption(f"{report.get('created_at_local') or report.get('created_at')} · {report.get('run_id')}")
                 if snapshot["report_url"]:
                     st.link_button("Åpne siste rapport", snapshot["report_url"], use_container_width=True)
