@@ -1569,6 +1569,12 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     except Exception as exc:
         parallel["shadow_learning_error"] = str(exc)
     run["parallel_validation"] = save_parallel_validation(parallel)
+    try:
+        from autonomi_core.runtime.parallel_validation import load_parallel_validation_history
+        from autonomi_core.discovery_data.controlled_learning import run_controlled_discovery_learning
+        run["controlled_discovery_learning"] = run_controlled_discovery_learning(load_parallel_validation_history(100))
+    except Exception as exc:
+        run["controlled_discovery_learning"] = {"version": "v18.9.4", "error": str(exc), "production_changed": False}
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     job.last_run_at = run["created_at"]

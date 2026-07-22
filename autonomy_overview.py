@@ -192,7 +192,10 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card){min-height:13rem!important;padding:1.05rem 1.15rem!important;}
     html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) h4{font-size:1.35rem!important;line-height:1.35!important;margin-bottom:.65rem!important;}
     html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) .stButton button,
-    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]{min-height:3rem!important;font-size:1rem!important;font-weight:800!important;}
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]{min-height:3rem!important;font-size:1rem!important;font-weight:800!important;background:#172033!important;color:#fff!important;border:1px solid #4d6484!important;opacity:1!important;}
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]:hover,
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]:focus{background:#087fb3!important;color:#fff!important;border-color:#38bdf8!important;}
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"] p{color:#fff!important;opacity:1!important;}
     @media (max-width:700px){html body .stApp .autonomy-readable-card .ar-row{grid-template-columns:1fr;gap:.05rem}.autonomy-readable-card{font-size:.98rem!important}}
     </style>
     """, unsafe_allow_html=True)
@@ -230,6 +233,13 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             st.info(f"Shadow Mode {parallel.get('version')}: gammel kjede er autoritativ · kandidatoverlapping {candidate_cmp.get('jaccard_pct', 0)} % · beslutningssamsvar {decision_cmp.get('agreement_pct', 0)} %")
             with st.expander("Vis Parallel Validation", expanded=False):
                 st.json({"autoritet": parallel.get("authoritative_chain"), "modus": parallel.get("mode"), "sammenligning": comparison})
+        discovery_learning = dict(latest.get("controlled_discovery_learning") or {})
+        if discovery_learning:
+            created = list(discovery_learning.get("created_challengers") or [])
+            if discovery_learning.get("error"):
+                st.warning(f"Controlled Discovery Learning: {discovery_learning.get('error')}")
+            else:
+                st.caption(f"Controlled Discovery Learning: {len(created)} nye Challenger-forslag · produksjon uendret · godkjenning kreves.")
 
     left, right = st.columns(2)
     with left:
