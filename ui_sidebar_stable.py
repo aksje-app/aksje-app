@@ -77,7 +77,7 @@ def _sidebar_nav_links_v18659(st) -> None:
         ("🎯", "Top Picks", "top_picks"),
         ("🚀", "Long Engine", "long_engine"),
         ("🤖", "AI", "ai"),
-        ("🧠", "Autonomi", "autonomous"),
+        ("🧠", "Autonomi", "autonomy"),
         ("⚙️", "System", "system"),
     ]
     current = ""
@@ -172,7 +172,8 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
         st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
-    elif nav == "autonomous":
+    elif nav in {"autonomy", "autonomous", "autonomi"}:
+        nav = "autonomy"
         st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
         st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
@@ -194,7 +195,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "top_picks": ("Marked og signaler", "Top Picks"),
         "long_engine": ("Long Engine", "Long Engine"),
         "ai": ("Analyse og prognose", ""),
-        "autonomous": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "autonomy": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
@@ -228,7 +229,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18660")
     _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
     _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
-    _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomous", "sidebar_nav_autonomous_v18688a")
+    _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomy", "sidebar_nav_autonomy_v1882")
     _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)

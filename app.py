@@ -146,7 +146,7 @@ from paper_trading_valuation import (
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
-from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
+from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, normalize_navigation_values
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
@@ -11019,6 +11019,8 @@ def _query_params_plain_v18646() -> dict:
 
 def _mobile_nav_href_v18646(nav: str) -> str:
     params = _query_params_plain_v18646()
+    for key in ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab", "panel", "tab", "subtab"):
+        params.pop(key, None)
     params["mobile_nav"] = str(nav)
     return "?" + urlencode(params)
 
@@ -11104,6 +11106,8 @@ def _clear_control_center_nav_state_v18663() -> None:
 def _apply_nav_target_v18658(nav: str) -> bool:
     """Apply one canonical navigation target to all known control-center keys."""
     nav = str(nav or "").strip().lower()
+    if nav in {"autonomous", "autonomi"}:
+        nav = "autonomy"
     if not nav:
         return False
     _clear_control_center_nav_state_v18663()
@@ -11141,6 +11145,15 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
         st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
+    elif nav == "autonomy":
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Autonomi (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Autonomi"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
@@ -11170,6 +11183,21 @@ def _apply_mobile_nav_query_v18646() -> None:
     """
     params = _query_params_plain_v18646()
 
+    # A fresh mobile tap must win over stale refresh state. Only navigation
+    # keys are replaced; remember_token and unrelated query parameters remain.
+    mobile_nav = (params.get("mobile_nav") or "").strip().lower()
+    if mobile_nav:
+        st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+        _apply_nav_target_v18658(mobile_nav)
+        try:
+            if "mobile_nav" in st.query_params:
+                del st.query_params["mobile_nav"]
+            if "panel" in st.query_params:
+                del st.query_params["panel"]
+        except Exception:
+            pass
+        return
+
     # v18.6.74c: Deep-link/browser-refresh state has priority over the
     # fallback file. This prevents F5 from sending the user back to the start
     # page when the URL already carries aa_group/aa_panel/aa_tab.
@@ -11178,7 +11206,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "long_engine", "ai", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "system"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -11195,27 +11223,18 @@ def _apply_mobile_nav_query_v18646() -> None:
         if tab_from_url:
             st.session_state["paper_trading_active_tab_slug_v18674c"] = tab_from_url
             st.session_state["ai_discovery_active_tab_slug_v18674c"] = tab_from_url
+            st.session_state["autonomy_core_workspace_slug_v1882"] = tab_from_url
         if subtab_from_url:
             st.session_state["paper_trading_active_subtab_slug_v18674c"] = subtab_from_url
-        return
-
-    mobile_nav = (params.get("mobile_nav") or "").strip().lower()
-    if mobile_nav:
-        st.session_state["persistent_nav_bootstrap_done_v18661"] = True
-        _apply_nav_target_v18658(mobile_nav)
-        try:
-            if "mobile_nav" in st.query_params:
-                del st.query_params["mobile_nav"]
-            if "panel" in st.query_params:
-                del st.query_params["panel"]
-        except Exception:
-            pass
         return
 
     if st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         return
     st.session_state["persistent_nav_bootstrap_done_v18661"] = True
     saved = _load_ui_state_v18658()
+    saved = normalize_navigation_values(
+        saved.get("nav"), saved.get("group"), saved.get("panel"), saved.get("tab"), saved.get("subtab")
+    )
     nav = str(saved.get("nav") or "").strip().lower()
     if nav:
         _apply_nav_target_v18658(nav)
@@ -11235,6 +11254,7 @@ def _apply_mobile_nav_query_v18646() -> None:
                 if saved_tab:
                     st.session_state["paper_trading_active_tab_slug_v18674c"] = saved_tab
                     st.session_state["ai_discovery_active_tab_slug_v18674c"] = saved_tab
+                    st.session_state["autonomy_core_workspace_slug_v1882"] = saved_tab
                 if saved_subtab:
                     st.session_state["paper_trading_active_subtab_slug_v18674c"] = saved_subtab
                 set_global_navigation_state(st, nav=nav, group=saved_group, panel=saved_panel, tab=saved_tab, subtab=saved_subtab)
@@ -11258,7 +11278,7 @@ _mobile_nav_links_v18646 = {
     "top_picks": _mobile_nav_href_v18646("top_picks"),
     "long_engine": _mobile_nav_href_v18646("long_engine"),
     "ai": _mobile_nav_href_v18646("ai"),
-    "system": _mobile_nav_href_v18646("system"),
+    "autonomy": _mobile_nav_href_v18646("autonomy"),
 }
 st.markdown(f"""
 <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
@@ -11267,7 +11287,7 @@ st.markdown(f"""
   <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
   <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
-  <a href="{_mobile_nav_links_v18646['system']}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
+  <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
 </div>
 """, unsafe_allow_html=True)
 
@@ -19318,10 +19338,26 @@ def render_autonomy_core_control_center_v1880() -> None:
     a3.metric("Kjøremodus", "Kun teoretisk")
     a4.metric("Domener", len(manifest.get("domains") or []))
 
+    workspace_labels = {
+        "orchestrator": "Orchestrator og tidsplan",
+        "learning_portfolio": "Learning Portfolio",
+        "overview": "Arkitektur og policy",
+    }
+    requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
+    if requested_workspace in workspace_labels:
+        st.session_state["autonomy_core_workspace_v1880"] = workspace_labels[requested_workspace]
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
     workspace = st.radio(
         "Velg arbeidsflate",
-        ["Orchestrator og tidsplan", "Learning Portfolio", "Arkitektur og policy"],
+        list(workspace_labels.values()),
         horizontal=True, key="autonomy_core_workspace_v1880",
+    )
+    workspace_slug = next(slug for slug, label in workspace_labels.items() if label == workspace)
+    set_global_navigation_state(
+        st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab=workspace_slug,
+    )
+    _persist_ui_state_v18658(
+        nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab=workspace_slug,
     )
     if workspace == "Orchestrator og tidsplan":
         render_autonomous_orchestrator_control_center()
@@ -20634,7 +20670,7 @@ st.markdown("""
     bottom: 0 !important;
     height: 66px !important;
     display: grid !important;
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
     gap: 4px !important;
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) 8px !important;
     z-index: 2147483000 !important;
@@ -20744,7 +20780,7 @@ try:
             "🤖 AI – Kandidattest": "analysis",
             "System/admin": "system",
             "⚙️ Innstillinger – System/admin": "system",
-            "🧠 Autonomi – Kontrollsenter": "autonomous",
+            "🧠 Autonomi – Kontrollsenter": "autonomy",
         }
         _nav_to_store_v18658 = _panel_to_nav_v18658.get(str(_active_control_center_panel_v18598 or ""))
         if _nav_to_store_v18658:

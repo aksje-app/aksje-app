@@ -11,6 +11,17 @@ from typing import Any
 
 QUERY_KEYS_V18674C = ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab")
 SESSION_KEYS_V18674E = ("active_nav_target_v18674c", "ai_control_center_group_v1863aj", "ai_control_center_active_panel_v1863aj", "paper_trading_active_tab_slug_v18674c", "ai_discovery_active_tab_slug_v18674c")
+AUTONOMY_NAV = "autonomy"
+AUTONOMY_GROUP = "Autonomi"
+AUTONOMY_PANEL = "🧠 Autonomi – Kontrollsenter"
+AUTONOMY_NAV_ALIASES = {"autonomy", "autonomous", "autonomi"}
+AUTONOMY_PANEL_ALIASES = {
+    AUTONOMY_PANEL: "overview",
+    "🧠 Autonomi – Learning Portfolio": "learning_portfolio",
+    "🚦 Autonomi – Orchestrator & Scheduler": "orchestrator",
+    "Autonomi – Learning Portfolio": "learning_portfolio",
+    "Autonomi – Orchestrator & Scheduler": "orchestrator",
+}
 
 
 def _plain_query_params(st) -> dict[str, str]:
@@ -30,6 +41,20 @@ def _plain_query_params(st) -> dict[str, str]:
     return out
 
 
+def normalize_navigation_values(
+    nav: Any = "", group: Any = "", panel: Any = "", tab: Any = "", subtab: Any = "",
+) -> dict[str, str]:
+    """Map legacy Autonomy routes to the canonical v18.8.2 route."""
+    nav_s, group_s, panel_s = str(nav or "").strip(), str(group or "").strip(), str(panel or "").strip()
+    tab_s, subtab_s = str(tab or "").strip(), str(subtab or "").strip()
+    if nav_s.casefold() in AUTONOMY_NAV_ALIASES or panel_s in AUTONOMY_PANEL_ALIASES:
+        legacy_workspace = AUTONOMY_PANEL_ALIASES.get(panel_s, "")
+        nav_s, group_s, panel_s = AUTONOMY_NAV, AUTONOMY_GROUP, AUTONOMY_PANEL
+        if legacy_workspace and legacy_workspace != "overview" and not tab_s:
+            tab_s = legacy_workspace
+    return {"nav": nav_s, "group": group_s, "panel": panel_s, "tab": tab_s, "subtab": subtab_s}
+
+
 def get_global_navigation_state(st) -> dict[str, str]:
     params = _plain_query_params(st)
     # v18.6.74d: allow old query names as read-only fallback, but only write aa_* keys.
@@ -38,7 +63,7 @@ def get_global_navigation_state(st) -> dict[str, str]:
     panel = str(params.get("aa_panel") or params.get("panel") or "").strip()
     tab = str(params.get("aa_tab") or params.get("tab") or "").strip()
     subtab = str(params.get("aa_subtab") or params.get("subtab") or "").strip()
-    return {"nav": nav, "group": group, "panel": panel, "tab": tab, "subtab": subtab}
+    return normalize_navigation_values(nav, group, panel, tab, subtab)
 
 
 def set_global_navigation_state(
