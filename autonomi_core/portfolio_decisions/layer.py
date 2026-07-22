@@ -183,6 +183,23 @@ def _portfolio_needs(context: Mapping[str, Any]) -> list[dict[str, Any]]:
     return needs
 
 
+def read_portfolio_needs() -> dict[str, Any]:
+    """Read the theoretical portfolio before an investment mission is created."""
+    from autonomous_portfolio import load_portfolio
+    context = build_portfolio_context(load_portfolio())
+    needs = _portfolio_needs(context)
+    return {
+        "read_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source": context.get("source"),
+        "position_count": context.get("position_count", 0),
+        "portfolio_value": context.get("portfolio_value", 0),
+        "needs": needs,
+        "summary": "; ".join(str(item.get("target") or item.get("type")) for item in needs)
+                   or "Vedlikehold diversifisering og risikorammer",
+        "context": context,
+    }
+
+
 def create_discovery_request(context: Mapping[str, Any], *, mission_id: str, configuration_version: str) -> dict[str, Any] | None:
     needs = _portfolio_needs(context)
     if not needs: return None
