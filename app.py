@@ -11145,6 +11145,17 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"portfolio", "reports"}:
+        workspace = "Learning Portfolio" if nav == "portfolio" else "Rapporter"
+        slug = "learning_portfolio" if nav == "portfolio" else "reports"
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["autonomy_core_workspace_v1880"] = workspace
+        st.session_state["autonomy_core_workspace_slug_v1882"] = slug
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
@@ -11227,7 +11238,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "system"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -11301,9 +11312,23 @@ _mobile_nav_links_v18646 = {
     "ai": _mobile_nav_href_v18646("ai"),
     "autonomy": _mobile_nav_href_v18646("autonomy"),
     "fx_alerts": _mobile_nav_href_v18646("fx_alerts"),
+    "portfolio": _mobile_nav_href_v18646("portfolio"),
+    "reports": _mobile_nav_href_v18646("reports"),
 }
-st.markdown(f"""
-<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
+try:
+    from autonomi_core.configuration.application_centered import application_centered_enabled as _centered_nav_v1900
+    _centered_nav_active_v1900 = _centered_nav_v1900()
+except Exception:
+    _centered_nav_active_v1900 = False
+_mobile_nav_html_v1900 = (f"""
+  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
+  <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
+  <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
+  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
+  <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
+  <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
+  <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
+""" if _centered_nav_active_v1900 else f"""
   <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
   <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
   <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
@@ -11311,6 +11336,10 @@ st.markdown(f"""
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
   <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
   <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
+""")
+st.markdown(f"""
+<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
+  {_mobile_nav_html_v1900}
 </div>
 """, unsafe_allow_html=True)
 
@@ -11980,6 +12009,12 @@ def render_top_picks_control_center_v1863s():
         canonical_package = {}
     canonical_label = "Autonomi – siste gyldige"
     scope_options = ([canonical_label] if canonical_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"]
+    try:
+        from autonomi_core.configuration.application_centered import application_centered_enabled
+        if application_centered_enabled() and canonical_package.get("published"):
+            st.session_state["cc_top_picks_scope_v1863s"] = canonical_label
+    except Exception:
+        pass
     c1, c2 = st.columns([1.25, 1])
     with c1:
         scope = st.selectbox(
@@ -19400,6 +19435,14 @@ def render_autonomy_core_control_center_v1880() -> None:
     a3.metric("Kjøremodus", "Kun teoretisk")
     a4.metric("Domener", len(manifest.get("domains") or []))
 
+    requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
+    if requested_workspace == "learning_portfolio":
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        render_autonomous_portfolio(); return
+    if requested_workspace == "reports":
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        from market_intelligence import render_market_intelligence
+        render_market_intelligence(); return
     from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode
     interface_mode = render_mode_selector()
     if interface_mode != EXPERT:
@@ -19411,6 +19454,9 @@ def render_autonomy_core_control_center_v1880() -> None:
         "orchestrator": "Orchestrator og tidsplan",
         "learning_portfolio": "Learning Portfolio",
         "architecture": "Ekspertkontroll",
+        "reports": "Rapporter",
+        "operations": "Varsler og drift",
+        "engine_details": "Motorresultater",
     }
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
     if requested_workspace in workspace_labels:
@@ -19435,6 +19481,22 @@ def render_autonomy_core_control_center_v1880() -> None:
         render_autonomous_orchestrator_control_center()
     elif workspace == "Learning Portfolio":
         render_autonomous_portfolio()
+    elif workspace == "Rapporter":
+        from market_intelligence import render_market_intelligence
+        render_market_intelligence()
+    elif workspace == "Varsler og drift":
+        render_alerts_watchlist_control_center_v1869()
+        st.divider(); render_performance_dashboard()
+    elif workspace == "Motorresultater":
+        from autonomy_overview import collect_autonomy_overview
+        latest = collect_autonomy_overview().get("latest_run") or {}
+        st.markdown("### News, Insider og Research")
+        st.caption("Detaljvisning av motorbevis fra siste Autonomi-resultat; motorene kjøres av Autonomi.")
+        rows = []
+        for candidate in list(latest.get("candidates") or [])[:100]:
+            raw = candidate.get("raw") if isinstance(candidate.get("raw"), dict) else {}
+            rows.append({"Ticker": candidate.get("ticker"), "News": raw.get("news_score"), "Insider": raw.get("insider_score"), "Research": candidate.get("research_score"), "Datakvalitet": candidate.get("data_quality_score")})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True) if rows else st.info("Ingen siste motorresultater.")
     else:
         render_expert_console()
 

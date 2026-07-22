@@ -1,11 +1,12 @@
-APP_VERSION = "v18.9.4"
-APP_VERSION_NAME = "Controlled Discovery Learning"
+APP_VERSION = "v19.0.0"
+APP_VERSION_NAME = "Autonomy-Centered Application"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v18.9.3"
+PREVIOUS_APP_VERSION = "v18.9.4"
 
 CHANGELOG = [
+    "v19.0.0: Autonomy-Centered Application: etter minst tre rene Parallel Validation-kjøringer og eksplisitt godkjenning aktiveres en samlet hovedmeny med Dashboard, Autonomi, Analyse, Top Picks, Portefølje, Rapporter og System. Dupliserte parameterflater skjules til fordel for Central Autonomy Configuration, Andre paneler avvikles fra normalmodus, Top Picks åpner siste kanoniske Autonomi-resultat, News/Insider/Research blir motor-detaljer og Scheduler/varsler/drift samles under Autonomi. Alle gamle arbeidsflyter og data beholdes som ekspert-/diagnosefallback med konfigurasjonsrollback.",
     "v18.9.4: Controlled Discovery Learning måler kildeverdi, strategiytelse, nye mot gjentatte selskaper, marked/bransje, falske positive og utforskningsverdi fra modnede Shadow-resultater. Systemet oppretter bare avgrensede Challenger-forslag for utforskningsandel, kildeprioritet, strategivekter og søkehypoteser. Produksjon endres aldri automatisk; ferdigtestede forslag sendes til sentral, eksplisitt godkjenning med konfigurasjonshistorikk og rollback. Knappen Åpne siste rapport har fått permanent mørk bakgrunn, hvit tekst og tydelig hover/fokus på PC og mobil.",
     "v18.9.3: Parallel Validation: gammel autoritativ kjede og ny Autonomy Core-evaluering kjøres parallelt på samme uforanderlige datasett. Kandidater, kilder/søkestrategi, rangering, teoretiske beslutninger, datakvalitet, porteføljerisiko, kjøretid og observert API-forbruk sammenlignes. Shadow utløser ingen ekstra API-kall og er teknisk blokkert fra Top Picks, Dashboard, portefølje, beslutninger og varsler. Separate Shadow-snapshots gjør 5/30/90-handelsdagers resultatmåling mulig uten å påvirke produksjon eller modellvekter.",
     "v18.9.2: Full Autonomy Execution: én selvstendig Autonomi-kjøring verifiserer 13 sammenhengende trinn fra porteføljebehov, oppdrag og Discovery til analyse, flerstrategirangering, kanoniske Top Picks, porteføljerisiko, teoretiske beslutninger, Dashboard, rapport, varsling, historikk og læringsgrunnlag. Hvert trinn får status og bevis; kjøringen markeres ufullstendig dersom en obligatorisk motor er deaktivert eller feiler. Ingen annen modul skal kjøres manuelt før eller etter. Autonomi-oversiktens drifts-, godkjennings- og rapportkort har større skrift, høyde, linjeavstand, etikettavstand og knapper uten overlapping på PC eller mobil.",

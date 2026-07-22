@@ -258,6 +258,17 @@ def render_expert_console() -> None:
             st.dataframe(pd.DataFrame(list(proposals)[:100]), use_container_width=True, hide_index=True)
         else:
             st.info("Ingen Shadow Mode-forslag er lagret.")
+        from autonomi_core.configuration.application_centered import application_centered_enabled, request_activation, shadow_readiness
+        readiness = shadow_readiness()
+        st.markdown("##### v19 Autonomy-Centered Application")
+        st.write(f"Shadow-valideringer: {readiness['validations']}/{readiness['minimum']}")
+        if application_centered_enabled():
+            st.success("Ny hovedstruktur er godkjent og aktiv. Gamle arbeidsflyter finnes fortsatt i ekspert-/diagnosemodus.")
+        elif readiness["ready"]:
+            if st.button("Be om eksplisitt godkjenning av v19-strukturen", key="request_v1900_activation"):
+                approval = request_activation(); st.success(f"Godkjenning {approval.get('approval_id')} er lagt i kø."); st.rerun()
+        else:
+            st.info("Aktivering er sperret til Shadow Mode har nok gyldige valideringer.")
     with logs:
         health = get_storage_service().health()
         l1, l2, l3 = st.columns(3)

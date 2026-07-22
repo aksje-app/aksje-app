@@ -29,6 +29,14 @@ from app_version import get_app_build_label
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
 
 
+def _autonomy_centered_v1900() -> bool:
+    try:
+        from autonomi_core.configuration.application_centered import application_centered_enabled
+        return application_centered_enabled()
+    except Exception:
+        return False
+
+
 def inject_workspace_css() -> None:
     """CSS for compact professional workspace."""
     st.markdown(
@@ -1555,7 +1563,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
 
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
-        if extra_labels:
+        if extra_labels and not _autonomy_centered_v1900():
             group_map["Andre paneler"] = extra_labels
 
         forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
@@ -1830,7 +1838,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
         ))
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
-        if extra_labels:
+        if extra_labels and not _autonomy_centered_v1900():
             group_map["Andre paneler"] = extra_labels
 
         forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
@@ -2039,7 +2047,7 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
         ))
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
-        if extra_labels:
+        if extra_labels and not _autonomy_centered_v1900():
             group_map["Andre paneler"] = extra_labels
 
         forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()
@@ -2335,7 +2343,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         }
         known_labels = {label for labels_in_group in group_map.values() for label in labels_in_group}
         extra_labels = [label for label, _renderer in panels if label not in known_labels]
-        if extra_labels:
+        if extra_labels and not _autonomy_centered_v1900():
             group_map["Andre paneler"] = extra_labels
 
         forced_nav_v18663 = str(st.session_state.pop("ai_control_center_force_nav_v18663", "") or "").strip().lower()

@@ -71,7 +71,7 @@ def _sidebar_nav_href_v18659(st, nav: str) -> str:
 
 
 def _sidebar_nav_links_v18659(st) -> None:
-    items = [
+    legacy_items = [
         ("🏠", "Dashboard", "dashboard"),
         ("📈", "Analyse", "analysis"),
         ("🎯", "Top Picks", "top_picks"),
@@ -81,6 +81,11 @@ def _sidebar_nav_links_v18659(st) -> None:
         ("💱", "Valutavarsler", "fx_alerts"),
         ("⚙️", "System", "system"),
     ]
+    try:
+        from autonomi_core.configuration.application_centered import application_centered_enabled, application_navigation
+        items = list(application_navigation()) if application_centered_enabled() else legacy_items
+    except Exception:
+        items = legacy_items
     current = ""
     try:
         current = str(st.query_params.get("panel", "") or "").lower()
@@ -160,6 +165,18 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"portfolio", "reports"}:
+        nav = nav
+        workspace = "Learning Portfolio" if nav == "portfolio" else "Rapporter"
+        slug = "learning_portfolio" if nav == "portfolio" else "reports"
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["autonomy_core_workspace_v1880"] = workspace
+        st.session_state["autonomy_core_workspace_slug_v1882"] = slug
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_group_v1863aj"] = "Long Engine"
@@ -206,6 +223,8 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "ai": ("Analyse og prognose", ""),
         "autonomy": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "fx_alerts": ("Andre paneler", "💱 Valutavarsler"),
+        "portfolio": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "reports": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
@@ -234,14 +253,23 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     # v18.6.59 URL links fixed dead clicks, but could force a fresh auth/login
     # and also made long labels overflow. Buttons keep the user inside the same
     # authenticated Streamlit session while still persisting panel state.
-    _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18660")
-    _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18660")
-    _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18660")
-    _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
-    _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
-    _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomy", "sidebar_nav_autonomy_v1882")
-    _sidebar_nav_button_v18650(st, "💱 Valutavarsler", "fx_alerts", "sidebar_nav_fx_alerts_v1891")
-    _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
+    try:
+        from autonomi_core.configuration.application_centered import application_centered_enabled, application_navigation
+        centered = application_centered_enabled()
+    except Exception:
+        centered = False
+    if centered:
+        for _icon, _label, _nav in application_navigation():
+            _sidebar_nav_button_v18650(st, f"{_icon} {_label}", _nav, f"sidebar_nav_v1900_{_nav}")
+    else:
+        _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18660")
+        _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18660")
+        _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18660")
+        _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
+        _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
+        _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomy", "sidebar_nav_autonomy_v1882")
+        _sidebar_nav_button_v18650(st, "💱 Valutavarsler", "fx_alerts", "sidebar_nav_fx_alerts_v1891")
+        _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
