@@ -263,6 +263,10 @@ class CandidateAssessment:
     explanation_reasons: list[str] = field(default_factory=list)
     rank: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
+    strategy_scores: dict[str, Any] = field(default_factory=dict)
+    strategy_matches: list[str] = field(default_factory=list)
+    scenario_analysis: dict[str, Any] = field(default_factory=dict)
+    analysis_ranking: dict[str, Any] = field(default_factory=dict)
 
 
 def _extract_rows(value: Any) -> list[dict[str, Any]]:
@@ -352,6 +356,8 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "news": news,
     }
     effective_weights, learning_meta = adaptive_weights(config.weights)
+    from autonomi_core.analysis_ranking.layer import analyze_candidate
+    parallel_analysis = analyze_candidate(row, derived, adaptive_meta=learning_meta)
     investment = _clamp(sum(parts[k] * effective_weights.get(k, 0.0) for k in parts))
     trend_meta = load_candidate_trend(ticker, investment)
 
@@ -404,7 +410,8 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     if not risks:
         risks.append("Ingen alvorlige risikoflagg i tilgjengelig datasett; risikokontroll kreves fortsatt.")
 
-    strategy = str(row.get("strategy_match") or ("Momentum" if momentum >= 68 else "Swing" if discovery >= 60 else "Defensive"))
+    parallel_matches = list(parallel_analysis.get("matches") or [])
+    strategy = str(row.get("strategy_match") or (parallel_matches[0] if parallel_matches else ("Momentum" if momentum >= 68 else "Defensive")))
     proposed_position = max(0.5, min(6.0, (investment * derived["confidence"] / 100.0 - risk * 0.20) / 15.0))
     raw = dict(row)
     raw["effective_weights"] = effective_weights
@@ -429,6 +436,10 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         trend=trend_meta["trend"], score_delta=trend_meta["score_delta"],
         data_fields_used=derived["data_fields_used"], explanation_reasons=derived["explanation_reasons"],
         raw=raw,
+        strategy_scores=dict(parallel_analysis.get("strategies") or {}),
+        strategy_matches=parallel_matches,
+        scenario_analysis=dict(parallel_analysis.get("scenario_analysis") or {}),
+        analysis_ranking=parallel_analysis,
     )
 
 
@@ -796,6 +807,7 @@ def render_investment_pipeline() -> None:
                 "Investment Score": r.get("investment_score"), "Risiko": r.get("risk_score"),
                 "Datakvalitet": r.get("data_quality"), "Insider": (r.get("raw") or {}).get("insider_score", 50), "Insidersignal": (r.get("raw") or {}).get("insider_signal", "INGEN DATA"), "Status": r.get("status"),
                 "Strategi": r.get("strategy_match"), "Foreslått vekt %": r.get("proposed_position_pct"),
+                "Parallelle treff": ", ".join(r.get("strategy_matches") or []),
             } for r in rows]
             st.markdown("##### Rangert kandidatliste")
             st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
@@ -886,7 +898,7 @@ def render_investment_pipeline() -> None:
                 b.metric("Fundamentaler", p.get("fundamental_score"))
                 c.metric("Validering", p.get("validation_score"))
                 d.metric("Porteføljetilpasning", p.get("portfolio_fit_score"))
-                st.write(f"**Strategi:** {p.get('strategy_match')}  |  **Foreslått posisjon:** {p.get('proposed_position_pct')} %")
+                st.write(f"**Strategier:** {', '.join(p.get('strategy_matches') or []) or p.get('strategy_match')}  |  **Foreslått posisjon:** {p.get('proposed_position_pct')} %")
                 st.write("**Positive drivere:** " + " ".join(p.get("positives") or []))
                 st.write("**Risikoer:** " + " ".join(p.get("risks") or []))
                 st.json(p.get("quality_gates") or {}, expanded=False)

@@ -1,8 +1,9 @@
-APP_VERSION = "v18.8.7"
-APP_VERSION_NAME = "Discovery & Data Layer"
+APP_VERSION = "v18.8.8"
+APP_VERSION_NAME = "Analysis & Ranking Layer"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.8.8: Analysis & Ranking Layer: fundamental analyse, teknisk analyse, verdsettelse, risiko, nyheter/sentiment, insiderbevis, Adaptive Ranking, Strategy Match og scenariofølsomhet samles i et forklarbart analysebevis. Quality, Growth, Value, Income, Insider, Momentum og Event Recovery vurderes parallelt; en kandidat kan passe flere strategier. Hver strategi viser bransjereferanse, råfelt, komponentpoeng, vekt, bidrag, datadekning, mangler og egen konfidens. Ingen ny kunstig universalscore opprettes, og eksisterende kompatibilitetsscore og produksjonsvakter beholdes.",
     "v18.8.7: Discovery & Data Layer: samlet, oppdragsstyrt kandidatunivers med varig historikk, daglig rotasjon, 70/20/10-fordeling mellom dokumenterte, nye og eksperimentelle kandidater, endringsfingeravtrykk, analysekarantene og kontrollert utforskning utenfor etablerte indeksunivers. Nye kilder opprettes bare som godkjenningspliktige forslag. Global lesbarhet er forbedret for hjelpetekst, statusfelt og avhukingsvalg på høyoppløselig PC og mobil.",
     "v18.8.6: Investment Mission Contract: alle Autonomi-kjøringer får ett uforanderlig oppdrag med søkemål, markeder, bransjer, strategiprofil, horisont, risiko, porteføljebehov, minimum datakvalitet, kandidatantall og eksklusjoner. Syv første strategiprofiler er registrert. Oppdrags-ID og sentral konfigurasjonsversjon følger PipelineConfig, kandidatrader, kjøringsdata, engine-handoff, Autonomy Core, bakgrunnsstatus og PDF. Kjøringen stoppes dersom konfigurasjonen er endret etter at oppdraget ble opprettet.",
     "v18.8.5: Central Autonomy Configuration: ett PostgreSQL-first, versjonert register samler operative parametere under autonomy.*, discovery.*, analysis.*, portfolio.*, learning.*, runtime.*, notifications.* og reporting.*. Registeret har validering, endringshistorikk, eksplisitt godkjenning, rollback, eksport/import og sikker migrering. persistent_config_store, settings_store og Portfolio Optimizer fungerer som kompatibilitetslag mot gamle innstillinger.",

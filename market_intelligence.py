@@ -958,6 +958,20 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [Paragraph("Top 10", styles["Section"]),
                   Paragraph("Risiko vises på en referanseskala fra 0 til 100; lavere verdi er bedre.", styles["Small"]),
                   table]
+        strategy_data = [["Ticker", "Bransje", "Parallelle strategitreff", "Forklaring"]]
+        for candidate in candidates[:10]:
+            analysis_layer = candidate.get("analysis_ranking") or {}
+            matches = candidate.get("strategy_matches") or analysis_layer.get("matches") or []
+            strategy_data.append([
+                candidate.get("ticker"), analysis_layer.get("sector") or candidate.get("sector"),
+                ", ".join(matches) or "Ingen over terskel",
+                "Separate scorer; ingen ny universalscore" if analysis_layer else "Eldre kandidatformat",
+            ])
+        strategy_table = Table(strategy_data, repeatRows=1, colWidths=[24*mm, 35*mm, 70*mm, 45*mm])
+        strategy_table.setStyle(_table_style(6.3, padding=2))
+        story += [Paragraph("Parallelle strategier", styles["Subsection"]),
+                  Paragraph("Kandidaten kan passe flere strategier samtidig. Hver score bruker bransjereferanser, råfelt, komponentbidrag og egen datadekning.", styles["Small"]),
+                  strategy_table]
     for p in run.get("proposals") or []:
         raw = p.get("raw") or {}; insider = raw.get("insider_intelligence") or {}; news = raw.get("news_intelligence") or {}
         score_data = [
@@ -976,7 +990,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             Paragraph(f"<b>Nyheter:</b> {escape(str(raw.get('news_sentiment', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('news_score', 50))))} / 100 · {escape(str(news.get('summary') or 'Ingen oppsummering.'))}", styles["Small"]),
             Paragraph(f"<b>Positive drivere:</b> {escape(positives)}", styles["Small"]),
             Paragraph(f"<b>Risiko:</b> {escape(risks)}", styles["Small"]),
-            Paragraph(f"<b>Handelsramme:</b> Strategi {escape(str(p.get('strategy_match') or '-'))} · foreslått porteføljevekt {escape(str(p.get('proposed_position_pct', 0)))} %", styles["Small"]),
+            Paragraph(f"<b>Strategitreff:</b> {escape(', '.join(p.get('strategy_matches') or []) or str(p.get('strategy_match') or '-'))} · <b>foreslått porteføljevekt:</b> {escape(str(p.get('proposed_position_pct', 0)))} %", styles["Small"]),
         ]
         story += [KeepTogether(proposal), Spacer(1, 1.2*mm)]
     portfolio_proposal = run.get("portfolio_proposal") or {}
