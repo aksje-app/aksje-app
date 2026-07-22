@@ -119,22 +119,49 @@ def get_currency_alert_runtime() -> dict:
     return dict(root or {})
 
 
-def _fetch(symbol: str) -> tuple[float | None, str]:
+def _fetch(symbol: str) -> tuple[float | None, str, str | None]:
+    """Fetch the freshest available FX quote.
+
+    v18.7.13 used a daily candle, which could remain below/above a threshold
+    even when the live intraday quote had crossed it. We now prefer 1-minute
+    and 5-minute candles and only fall back to daily data.
+    """
     if yf is None:
-        return None, "yfinance er ikke tilgjengelig"
+        return None, "yfinance er ikke tilgjengelig", None
     if not str(symbol or "").strip():
-        return None, "mangler valutasymbol"
-    try:
-        ticker = yf.Ticker(str(symbol).upper())
-        hist = ticker.history(period="5d", interval="1d", auto_adjust=False, prepost=False)
-        if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
-            return None, "fant ingen Close-data"
-        close = hist["Close"].dropna()
-        if close.empty:
-            return None, "Close-data er tom"
-        return float(close.iloc[-1]), ""
-    except Exception as exc:
-        return None, str(exc)[:240]
+        return None, "mangler valutasymbol", None
+    ticker = yf.Ticker(str(symbol).upper())
+    attempts = (("1d", "1m"), ("5d", "5m"), ("5d", "1d"))
+    errors: list[str] = []
+    for period, interval in attempts:
+        try:
+            hist = ticker.history(period=period, interval=interval, auto_adjust=False, prepost=True)
+            if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+                errors.append(f"{interval}: ingen Close-data")
+                continue
+            close = hist["Close"].dropna()
+            if close.empty:
+                errors.append(f"{interval}: Close-data er tom")
+                continue
+            quote_time = None
+            try:
+                idx = close.index[-1]
+                quote_time = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+            except Exception:
+                quote_time = None
+            return float(close.iloc[-1]), "", quote_time
+        except Exception as exc:
+            errors.append(f"{interval}: {str(exc)[:160]}")
+    return None, "; ".join(errors)[:500] or "fant ingen valutadata", None
+
+
+def _normalize_fetch_response(response: Any) -> tuple[float | None, str, str | None]:
+    if isinstance(response, tuple):
+        rate = response[0] if len(response) > 0 else None
+        error = response[1] if len(response) > 1 else ""
+        quote_time = response[2] if len(response) > 2 else None
+        return rate, str(error or ""), str(quote_time) if quote_time else None
+    return response, "", None
 
 
 def _status(rate: float, lower: float, upper: float) -> str:
@@ -247,13 +274,14 @@ def _run_currency_alert_checks_locked(
                 "reason": "check_interval_active",
                 "last_checked_at": last_checked.isoformat(),
                 "next_check_at": next_check.isoformat(),
+                "next_alert_allowed_at": state.get("next_alert_allowed_at"),
             }
             results.append(result)
             _event("alert_skipped", **result)
             continue
 
         _event("rate_fetch_started", **base)
-        rate, fetch_error = fetcher(symbol)
+        rate, fetch_error, quote_time = _normalize_fetch_response(fetcher(symbol))
         state["last_checked_at"] = now.isoformat()
         state["last_run_id"] = run_id
         if rate is None:
@@ -269,9 +297,17 @@ def _run_currency_alert_checks_locked(
         upper = base["upper"]
         status = _status(rate, lower, upper)
         previous = str(state.get("status") or "normal")
+        previous_rate_raw = state.get("last_rate", state.get("rate"))
+        try:
+            previous_rate = float(previous_rate_raw) if previous_rate_raw is not None else None
+        except Exception:
+            previous_rate = None
+        crossed_lower = bool(previous_rate is not None and lower and previous_rate > lower and rate <= lower)
+        crossed_upper = bool(previous_rate is not None and upper and previous_rate < upper and rate >= upper)
+        crossed_threshold = crossed_lower or crossed_upper
         last_sent = _parse(state.get("last_sent_at"))
         repeat_due = bool(last_sent is None or now - last_sent >= timedelta(minutes=cooldown))
-        new_breach = status.startswith("breach") and previous != status
+        new_breach = status.startswith("breach") and (previous != status or crossed_threshold)
         should_send = status.startswith("breach") and (new_breach or repeat_due or diagnostic_test)
         pushover_requested = bool(alert.get("pushover", True))
         sent = False
@@ -284,6 +320,8 @@ def _run_currency_alert_checks_locked(
             rate=rate,
             status=status,
             previous_status=previous,
+            previous_rate=previous_rate,
+            crossed_threshold=crossed_threshold,
             new_breach=new_breach,
             repeat_due=repeat_due,
             should_send=should_send,
@@ -314,7 +352,7 @@ def _run_currency_alert_checks_locked(
             reason = "pushover_disabled_for_alert"
             _event("pushover_skipped", **base, rate=rate, status=status, reason=reason)
         elif status.startswith("breach"):
-            reason = "cooldown_active"
+            reason = "cooldown_active" if last_sent is not None else "already_in_breach"
             _event("pushover_skipped", **base, rate=rate, status=status, reason=reason)
 
         if status == "normal" and previous != "normal":
@@ -323,29 +361,41 @@ def _run_currency_alert_checks_locked(
             _event("alert_normalized", **base, rate=rate, previous_status=previous)
 
         next_check = now + timedelta(minutes=interval)
+        next_alert_allowed = (last_sent + timedelta(minutes=cooldown)) if last_sent else None
+        if sent:
+            next_alert_allowed = now + timedelta(minutes=cooldown)
         state.update({
             "pair": pair,
             "symbol": symbol,
             "rate": rate,
+            "last_rate": rate,
+            "quote_time": quote_time,
             "lower": lower,
             "upper": upper,
             "status": status,
             "previous_status": previous,
             "updated_at": now.isoformat(),
             "next_check_at": next_check.isoformat(),
+            "next_alert_allowed_at": next_alert_allowed.isoformat() if next_alert_allowed else None,
             "last_error": send_error or fetch_error,
             "last_reason": reason,
             "config_signature": config_signature,
         })
         root[key] = state
         settings.setdefault("currency_alert_latest_rates_v1864s", {})[symbol] = {
-            "pair": pair, "symbol": symbol, "rate": rate, "updated_at": now.isoformat()
+            "pair": pair, "symbol": symbol, "rate": rate,
+            "updated_at": now.isoformat(), "quote_time": quote_time,
         }
         results.append({
             **base,
             "rate": rate,
+            "last_rate": rate,
+            "quote_time": quote_time,
             "status": status,
             "previous_status": previous,
+            "previous_rate": previous_rate,
+            "crossed_threshold": crossed_threshold,
+            "quote_time": quote_time,
             "trigger": status.startswith("breach"),
             "should_send": should_send,
             "sent": sent,
@@ -353,6 +403,7 @@ def _run_currency_alert_checks_locked(
             "reason": reason,
             "last_checked_at": now.isoformat(),
             "next_check_at": next_check.isoformat(),
+            "next_alert_allowed_at": next_alert_allowed.isoformat() if next_alert_allowed else None,
         })
 
     settings[STATE_KEY] = root
@@ -378,12 +429,12 @@ def run_currency_alert_diagnostic_test(symbol: str | None = None) -> list[dict]:
     def forced_breach_fetcher(_symbol: str) -> tuple[float | None, str]:
         real_rate, error = _fetch(_symbol)
         if real_rate is None:
-            return None, error
+            return None, error, None
         lower = float(selected.get("lower") or 0)
         upper = float(selected.get("upper") or 0)
         if upper:
-            return max(float(real_rate), upper + max(abs(upper) * 0.001, 0.0001)), ""
-        return min(float(real_rate), lower - max(abs(lower) * 0.001, 0.0001)), ""
+            return max(float(real_rate), upper + max(abs(upper) * 0.001, 0.0001)), "", _now().isoformat()
+        return min(float(real_rate), lower - max(abs(lower) * 0.001, 0.0001)), "", _now().isoformat()
 
     original = settings.get("currency_alerts_v1863af")
     try:

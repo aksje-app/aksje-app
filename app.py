@@ -13156,6 +13156,19 @@ def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_minutes:
 
 
 def render_currency_alerts_control_center_v1863af():
+    def _fx_local_time(value):
+        if not value:
+            return "-"
+        try:
+            from datetime import datetime, timezone
+            from zoneinfo import ZoneInfo
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(ZoneInfo("Europe/Oslo")).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(value)
+
     st.subheader("Valutavarsler")
     st.caption(
         "Overvåker valutapar med faste øvre/nedre grenser. Sjekk hvert lagres som planlagt intervall; "
@@ -13333,7 +13346,7 @@ def render_currency_alerts_control_center_v1863af():
         worker_status = runtime_background_status()
         worker_state = str(worker_status.get("state") or "UKJENT")
         if worker_state == "RUNNING":
-            st.success(f"Automatisk valutakontroll kjører · siste arbeidssyklus {worker_status.get('last_cycle_at') or '-'}")
+            st.success(f"Automatisk valutakontroll kjører · siste arbeidssyklus {_fx_local_time(worker_status.get('last_cycle_at'))} (norsk tid)")
         else:
             st.error(
                 f"Automatisk valutakontroll er ikke frisk: {worker_state}. "
@@ -13348,9 +13361,12 @@ def render_currency_alerts_control_center_v1863af():
                 "Symbol": runtime_value.get("symbol") or "-",
                 "Kurs": runtime_value.get("rate"),
                 "Status": runtime_value.get("status") or "-",
-                "Sist sjekket": runtime_value.get("last_checked_at") or "-",
-                "Neste sjekk": runtime_value.get("next_check_at") or "-",
-                "Sist sendt": runtime_value.get("last_sent_at") or "-",
+                "Kurssitat": _fx_local_time(runtime_value.get("quote_time")),
+                "Sist sjekket": _fx_local_time(runtime_value.get("last_checked_at")),
+                "Neste sjekk": _fx_local_time(runtime_value.get("next_check_at")),
+                "Sist sendt": _fx_local_time(runtime_value.get("last_sent_at")),
+                "Neste varsel tillatt": _fx_local_time(runtime_value.get("next_alert_allowed_at")),
+                "Forrige kurs": runtime_value.get("previous_rate"),
                 "Årsak": runtime_value.get("last_reason") or "-",
                 "Feil": runtime_value.get("last_error") or "",
             })

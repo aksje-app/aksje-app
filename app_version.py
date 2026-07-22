@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.13"
-APP_VERSION_NAME = "Persistent FX Alerts & Paper Warning Repair"
+APP_VERSION = "v18.7.14"
+APP_VERSION_NAME = "Intraday FX Alert Reliability"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.14: Intraday FX Alert Reliability: valutakurs hentes nå fra ferske 1-minutts/5-minutters data med daglig kurs kun som reserve. Faktisk grensekryssing oppdages fra forrige kurs, cooldown og hoppårsaker lagres eksplisitt, og diagnose viser kurstidspunkt, neste kontroll og neste tillatte varsel i norsk tid.",
     "v18.7.13: Persistent FX Alerts & Paper Warning Repair: en egen idempotent runtime-tjeneste starter ved webapp-oppstart og kontrollerer valutagrenser uavhengig av valgt panel, børsåpning og aksjescanner. PostgreSQL advisory lock og lokal prosesslås hindrer doble Pushover-varsler. Endrede symboler eller grenser nullstiller foreldet bruddstatus og kontrolleres umiddelbart. UI viser worker-helse og siste syklus. Paper Trading-varsler godtar gjenbrukte position_rows og regler uten render-feil.",
     "v18.7.12: Non-Blocking Runtime Status & Unified Local Time: PostgreSQL skrives før lokal speilfil, hver speilskriving bruker lås og unik atomisk tempfil, og status-/telemetrifeil kan aldri stoppe markedsanalysen. Ved terminal jobbstatus utføres én kontrollert full app-rerun slik at rapportarkiv og diagnostikk viser aktuell kjøring uten F5. Rapport-ID, filnavn, arkiv, historikk og brukerrettede tider følger jobbens IANA-tidssone (standard Europe/Oslo), mens databasen fortsatt lagrer UTC. Full analyse tvinger ferske markedsdata, men respekterer kortvarig kildecache for insider/nyheter; intelligence-oppslag parallelliseres kontrollert.",
     "v18.7.11: Market Reliability, Archive Consistency & Local Time: markedsuniverset valideres per valgt marked og innebygd USA-reserve brukes uavhengig av Render-filbaner. Delvise markedsfeil reduserer datakvaliteten og merkes FULLFØRT MED MARKEDSFEIL. Bakgrunnsjobben blir først COMPLETED etter kontroll av rapport-JSON og rapportarkiv. Run-ID, kjede-ID og arkivstatus vises. Jobbprofiler lagrer IANA-tidssone, scheduler konverterer sikkert fra UTC og UI/PDF viser lokal tid med automatisk sommer-/vintertid. Insiderdiagnostikk skiller manglende konfigurasjon, ingen treff, kildefeil, ustrukturerte treff og verifiserte transaksjoner.",
