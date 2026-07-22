@@ -149,13 +149,17 @@ def render_simple_mode() -> None:
     if submitted:
         try:
             exclusions = [item.strip().upper() for item in exclusions_text.split(",") if item.strip()]
+            # Persist the backwards-compatible user profile first.  That write
+            # is mirrored into the central registry and may legitimately bump
+            # its version.  The immutable Investment Mission must therefore be
+            # created afterwards so the worker receives the final version.
+            saved = save_user_mission(goal=goal, horizon=horizon, risk=risk, markets=markets, sectors=sectors)
             contract = create_investment_mission(
                 search_for=search_for, markets=markets, sectors=sectors, strategy=strategy,
                 horizon=horizon, risk=risk, risk_ceiling=RISK_CEILINGS[risk],
                 portfolio_need=portfolio_need, minimum_data_quality=minimum_data_quality,
                 candidate_count=candidate_count, exclusions=exclusions, objective=goal,
             )
-            saved = save_user_mission(goal=goal, horizon=horizon, risk=risk, markets=markets, sectors=sectors)
             draft = load_draft_job()
             job = replace(
                 draft, name=f"Autonomi · {goal}", markets=list(markets),

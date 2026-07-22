@@ -28,7 +28,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v19.0.2"
+VERSION = "v19.0.3"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -238,6 +238,8 @@ def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
     """Poll only durable job status; never rerender the full Autonomy page."""
     status = get_active_status() or {}
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
+    if is_running(status):
+        st.caption("Status og fremdrift oppdateres automatisk hvert 3. sekund.")
     execution_id = str(status.get("execution_id") or "")
     if str(status.get("state") or "") in TERMINAL_STATES and execution_id:
         refresh_key = "autonomy_overview_terminal_refresh_v1902"
@@ -310,7 +312,17 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     with st.container(border=True):
         st.markdown("#### Pågående kjøring, fremdrift og avbryt")
         _render_live_progress(allow_quick_start=allow_quick_start)
-        full_execution = dict(latest.get("full_autonomy_execution") or {})
+        # Never present an older successful run as part of a new running or
+        # failed job.  The worker exposes the result run_id only after the
+        # current execution has completed and persistence is verified.
+        current_result_id = str(status.get("run_id") or "")
+        latest_result_id = str(latest.get("run_id") or "")
+        show_current_execution = (
+            str(status.get("state") or "") == "COMPLETED"
+            and bool(current_result_id)
+            and current_result_id == latest_result_id
+        )
+        full_execution = dict(latest.get("full_autonomy_execution") or {}) if show_current_execution else {}
         if full_execution:
             done = int(full_execution.get("completed_steps") or 0)
             total = int(full_execution.get("total_steps") or 13)

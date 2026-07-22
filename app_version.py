@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.2"
-APP_VERSION_NAME = "Live Progress, Performance & Decision Evidence"
+APP_VERSION = "v19.0.3"
+APP_VERSION_NAME = "Preflight & Live Progress Consistency"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.1"
+PREVIOUS_APP_VERSION = "v19.0.2"
 
 CHANGELOG = [
+    "v19.0.3: Preflight & Live Progress Consistency: kompatibilitetsprofilen lagres før det versjonerte Investment Mission opprettes, slik at egen lagring ikke gjør det nye oppdraget foreldet før PREFLIGHT. Fremdriftspanelet opplyser om automatisk tresekundersoppdatering, og en eldre vellykket 13/13-kjøring vises aldri som resultatet av en ny pågående eller feilende kjøring.",
     "v19.0.2: Live Progress, Performance & Decision Evidence: Autonomi Oversikt oppdaterer bare den varige jobbstatusen hvert tredje sekund uten full side-rerender, viser ærlig oppnådd prosent, per-marked-fremdrift, preflight som eget steg og lagret feiltype, feilsteg og diagnostikk. 100 prosent reserveres for bekreftet fullføring. PDF skiller kursdatakilde fra øvrige kilder, gir Topp 3 konkrete drivere og forbehold, viser beslutningshandling og kildebevis, harmoniserer hovedkonklusjonen med Portfolio & Decision Layer og lar kandidatdetaljer flyte mer kompakt over sider.",
     "v19.0.1: Report Link Visibility & Reliability: Åpne siste rapport rendres med en egen stabil og tilgjengelig lenkekomponent som har permanent mørk bakgrunn, hvit tekst og tydelig hover/fokus/visited på PC og mobil, uavhengig av Streamlits interne knappeselektorer. Bare sikre HTTP(S)-lenker åpnes, manglende lenke forklares tydelig, og en ufullstendig ny publisering skjuler aldri siste gyldige offentlige rapportlenke.",
     "v19.0.0: Autonomy-Centered Application: etter minst tre rene Parallel Validation-kjøringer og eksplisitt godkjenning aktiveres en samlet hovedmeny med Dashboard, Autonomi, Analyse, Top Picks, Portefølje, Rapporter og System. Dupliserte parameterflater skjules til fordel for Central Autonomy Configuration, Andre paneler avvikles fra normalmodus, Top Picks åpner siste kanoniske Autonomi-resultat, News/Insider/Research blir motor-detaljer og Scheduler/varsler/drift samles under Autonomi. Alle gamle arbeidsflyter og data beholdes som ekspert-/diagnosefallback med konfigurasjonsrollback.",
