@@ -810,6 +810,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         if quality.get("failed_markets"):
             story += [Paragraph("Datakvaliteten er redusert fordi valgte markeder feilet eller ga null kandidater: " +
                                 escape(", ".join(quality.get("failed_markets") or [])) + ".", styles["Small"])]
+    contract_summary = run.get("data_contract") or {}
+    if contract_summary:
+        actions = contract_summary.get("actions") or {}
+        contract_table = Table([
+            ["Kontrollert", contract_summary.get("evaluated", 0), "Gyldig for beslutning", contract_summary.get("valid_for_decision", 0),
+             "Blokkert", len(contract_summary.get("blocked") or []), "Fallback", len(contract_summary.get("fallback") or [])],
+            ["Fortsett", actions.get("FORTSETT", 0), "Hent på nytt", actions.get("HENT_PÅ_NYTT", 0),
+             "Stopp beslutning", actions.get("STOPP_BESLUTNING", 0), "Fallback / redusert", actions.get("BRUK_FALLBACK", 0) + actions.get("REDUSER_KONFIDENS", 0)],
+        ], colWidths=[26*mm, 18*mm]*4)
+        contract_table.setStyle(_table_style(6.6, header=False, padding=2.2))
+        story += [Paragraph("Freshness & Data Contract", styles["Subsection"]), contract_table,
+                  Paragraph(escape(str(contract_summary.get("approval_rule") or "Ingen anbefaling på kritiske, foreldede data")), styles["Small"])]
     refresh = run.get("data_refresh") or {}
     refresh_table = Table([
                   ["Full ny analyse", "JA" if refresh.get("force_refresh_requested") else "NEI", "Cache-bypass", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI"), "Live-forsøk", refresh.get("live_attempt_count", 0)],
@@ -1244,8 +1256,11 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
+    from autonomi_core.discovery_data.freshness import apply_data_contracts
+    data_contract_summary = apply_data_contracts(all_candidates)
     totals["deep_analyzed"] = len(all_candidates)
-    totals["recommended"] = sum(1 for x in all_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
+    decision_candidates = [x for x in all_candidates if bool(x.get("valid_for_decision"))]
+    totals["recommended"] = sum(1 for x in decision_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
     totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
     proposal_map: dict[str, dict[str, Any]] = {}
     for proposal in all_proposals:
@@ -1253,7 +1268,18 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         ticker = str(clean.get("ticker") or "").upper()
         if ticker and (ticker not in proposal_map or float(clean.get("investment_score", 0)) > float(proposal_map[ticker].get("investment_score", 0))):
             proposal_map[ticker] = clean
-    all_proposals = sorted(proposal_map.values(), key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
+    candidate_by_ticker = {str(x.get("ticker") or "").upper(): x for x in all_candidates}
+    valid_proposals: list[dict[str, Any]] = []
+    for ticker, proposal in proposal_map.items():
+        governed = candidate_by_ticker.get(ticker, {})
+        proposal.update({key: governed.get(key) for key in (
+            "data_contract", "valid_for_decision", "confidence_score", "status",
+            "status_before_data_contract", "confidence_before_data_contract",
+        ) if key in governed})
+        if proposal.get("valid_for_decision"):
+            valid_proposals.append(proposal)
+    all_proposals = sorted(valid_proposals, key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
+    totals["proposals"] = len(all_proposals)
     run_id = local_run_id("MI", timezone_name=job.timezone_name)
     refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
     attempted = int(refresh_summary.get("live_attempt_count", 0))
@@ -1274,11 +1300,12 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
+           "data_contract": data_contract_summary,
            "analysis_aborted": analysis_aborted,
            "partial_market_failure": partial_market_failure,
            "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),
-           "executive_intelligence": executive_intelligence(all_candidates),
-           "diverse_top3": select_diverse_candidates(all_candidates, 3),
+           "executive_intelligence": executive_intelligence(decision_candidates),
+           "diverse_top3": select_diverse_candidates(decision_candidates, 3),
            "report_identity": report_identity(trigger, job.name, job.job_id),
            "execution_mode": "UNIFIED_PIPELINE",
            "configuration_handoff": handoff,
@@ -1306,7 +1333,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     from advanced_investment_intelligence import build_portfolio_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = ({"positions": [], "allocations": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
-                                 if analysis_aborted else diversify_portfolio(build_portfolio_proposal(all_candidates)))
+                                 if analysis_aborted else diversify_portfolio(build_portfolio_proposal(decision_candidates)))
     if analysis_aborted:
         run["changes"] = {"new": [], "improved": [], "weakened": [], "unchanged": [], "dropped": []}
     else:
@@ -1639,6 +1666,16 @@ def render_market_intelligence() -> None:
             quality = latest.get("data_quality") or {}
             if quality:
                 st.progress(float(quality.get("score", 0))/100.0, text=f"Datakvalitet: {quality.get('score',0)} % · {quality.get('label','-')}")
+            contract_summary = latest.get("data_contract") or {}
+            if contract_summary:
+                st.markdown("#### 🛡️ Freshness & Data Contract")
+                dc1, dc2, dc3, dc4 = st.columns(4)
+                dc1.metric("Kontrollert", contract_summary.get("evaluated", 0))
+                dc2.metric("Gyldig for beslutning", contract_summary.get("valid_for_decision", 0))
+                dc3.metric("Blokkert", len(contract_summary.get("blocked") or []))
+                dc4.metric("Fallback", len(contract_summary.get("fallback") or []))
+                if contract_summary.get("blocked"):
+                    st.warning("Beslutningsdelen er stoppet for: " + ", ".join(contract_summary.get("blocked") or []))
             candidates = [] if latest.get("analysis_aborted") else list(latest.get("candidates") or [])
             if candidates:
                 st.markdown("#### 🏅 Topp 3")
@@ -1673,6 +1710,8 @@ def render_market_intelligence() -> None:
                     "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
                     "Sektor": x.get("sector"), "Score": x.get("investment_score"),
                     "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"),
+                    "Datagyldighet": (x.get("data_contract") or {}).get("validity", "UKJENT"),
+                    "Datakilde": (x.get("data_contract") or {}).get("source", "UKJENT"),
                     "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"),
                     "Sterkeste faktor": f"{strongest} {float(strengths[strongest] or 0):.1f}",
                     "Handling": action, "Status": x.get("status"),
