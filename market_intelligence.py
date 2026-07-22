@@ -994,6 +994,19 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ]
         story += [KeepTogether(proposal), Spacer(1, 1.2*mm)]
     portfolio_proposal = run.get("portfolio_proposal") or {}
+    portfolio_layer = run.get("portfolio_decisions") or {}
+    if portfolio_layer:
+        context = portfolio_layer.get("portfolio_context") or {}; actions = portfolio_layer.get("actions") or {}
+        decision_table = Table([
+            ["BUY", actions.get("BUY", 0), "HOLD", actions.get("HOLD", 0), "SELL", actions.get("SELL", 0), "SKIP", actions.get("SKIP", 0), "REVIEW", actions.get("REVIEW", 0)],
+            ["Posisjoner", context.get("position_count", 0), "Kontant %", context.get("cash_pct", 0), "HHI", context.get("concentration_hhi", 0), "Effektive pos.", context.get("effective_positions", 0), "Porteføljevurdert", "JA"],
+        ], colWidths=[17*mm, 16*mm]*5)
+        decision_table.setStyle(_table_style(6.5, header=False, padding=2))
+        story += [Paragraph("Portfolio & Decision Layer", styles["Section"]), decision_table,
+                  Paragraph(escape(str(portfolio_layer.get("approval_rule") or "Ingen kjøpskandidat vurderes isolert fra eksisterende portefølje")), styles["Small"])]
+        request = portfolio_layer.get("discovery_request") or {}
+        if request:
+            story += [Paragraph("Porteføljebehov har opprettet Discovery-oppdrag " + escape(str(request.get("request_id"))) + ".", styles["Small"])]
     allocations = portfolio_proposal.get("allocations") or []
     if allocations:
         pdata = [["Ticker", "Marked", "Sektor", "Vekt %", "Score", "Konfidens", "Risiko (0-100)"]]
@@ -1359,6 +1372,11 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     stored_mission = load_user_mission()
     user_mission = investment_mission or (stored_mission if str(stored_mission.get("mission_id") or "") == str(job.user_mission_id or "") else {})
     mission_summary = apply_user_mission(all_candidates, user_mission)
+    from autonomi_core.portfolio_decisions.layer import apply_portfolio_decisions
+    portfolio_decisions = apply_portfolio_decisions(
+        all_candidates, mission_id=str(investment_mission.get("mission_id") or ""),
+        configuration_version=str(investment_mission.get("configuration_version") or ""),
+    )
     decision_candidates = [
         x for x in all_candidates
         if bool(x.get("valid_for_decision")) and bool(x.get("mission_eligible", True))
@@ -1378,10 +1396,12 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         proposal.update({key: governed.get(key) for key in (
             "data_contract", "valid_for_decision", "confidence_score", "status",
             "status_before_data_contract", "confidence_before_data_contract",
+            "strategy_matches", "strategy_scores", "analysis_ranking",
+            "portfolio_decision", "portfolio_action",
         ) if key in governed})
         proposal["mission_eligible"] = governed.get("mission_eligible", True)
         proposal["mission_fit"] = governed.get("mission_fit")
-        if proposal.get("valid_for_decision") and proposal.get("mission_eligible", True):
+        if proposal.get("valid_for_decision") and proposal.get("mission_eligible", True) and proposal.get("portfolio_action") in {"BUY", "REVIEW"}:
             valid_proposals.append(proposal)
     all_proposals = sorted(valid_proposals, key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     totals["proposals"] = len(all_proposals)
@@ -1406,6 +1426,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
+           "portfolio_decisions": portfolio_decisions,
            "discovery_data": {
                "version": "v18.8.7", "markets": [dict(item.get("discovery_data") or {}) for item in market_runs],
                "selected": sum(int((item.get("discovery_data") or {}).get("selected", 0)) for item in market_runs),
@@ -1447,10 +1468,10 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                    for item in market_runs
                },
            }}
-    from advanced_investment_intelligence import build_portfolio_proposal
+    from autonomi_core.portfolio_decisions.layer import build_portfolio_aware_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = ({"positions": [], "allocations": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
-                                 if analysis_aborted else diversify_portfolio(build_portfolio_proposal(decision_candidates)))
+                                 if analysis_aborted else build_portfolio_aware_proposal(decision_candidates, portfolio_decisions))
     if analysis_aborted:
         run["changes"] = {"new": [], "improved": [], "weakened": [], "unchanged": [], "dropped": []}
     else:
@@ -1822,10 +1843,11 @@ def render_market_intelligence() -> None:
                     "Insider": (x.get("raw") or {}).get("insider_score", 50),
                 }
                 strongest = max(strengths, key=lambda key: float(strengths[key] or 0))
-                action = "BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "WATCH" if x.get("status") == "OBSERVASJONSLISTE" else "REVIEW" if x.get("status") == "KREVER MANUELL VURDERING" else "SKIP"
+                action = x.get("portfolio_action") or ("BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "REVIEW" if x.get("status") == "KREVER MANUELL VURDERING" else "SKIP")
                 table.append({
                     "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
                     "Sektor": x.get("sector"), "Score": x.get("investment_score"),
+                    "Porteføljebeslutning": action,
                     "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"),
                     "Datagyldighet": (x.get("data_contract") or {}).get("validity", "UKJENT"),
                     "Datakilde": (x.get("data_contract") or {}).get("source", "UKJENT"),

@@ -105,8 +105,8 @@ def normalise_positions(portfolio: Mapping[str, Any]) -> Tuple[List[Dict[str, An
     invested = 0.0
     for ticker, raw in items:
         pos = dict(raw or {})
-        shares = _safe_float(pos.get("shares", pos.get("units")), 0.0)
-        price = _safe_float(pos.get("last_price", pos.get("avg_price", pos.get("entry_price"))), 0.0)
+        shares = _safe_float(pos.get("shares", pos.get("units", pos.get("quantity"))), 0.0)
+        price = _safe_float(pos.get("last_price", pos.get("avg_price", pos.get("average_price", pos.get("entry_price")))), 0.0)
         value = max(0.0, shares * price)
         if not ticker or value <= 0:
             continue

@@ -198,6 +198,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     "Ticker": row.get("ticker"), "Marked": row.get("market"),
                     "Score": row.get("investment_score"), "Konfidens": row.get("confidence_score"),
                     "Strategier": ", ".join(row.get("strategy_matches") or []) or row.get("strategy_match"),
+                    "Handling": row.get("portfolio_action") or "Ikke vurdert",
                     "Datagyldighet": (row.get("data_contract") or {}).get("validity", "UKJENT"),
                 } for row in candidates]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
