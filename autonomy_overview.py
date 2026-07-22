@@ -173,14 +173,18 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
 def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     st.markdown("""
     <style>
-    html body .stApp .autonomy-readable-card {font-size:1rem!important;line-height:1.55!important;color:#e5edf8!important;}
-    html body .stApp .autonomy-readable-card .ar-row {display:grid;grid-template-columns:minmax(8.5rem,auto) 1fr;gap:.65rem;margin:.22rem 0;align-items:start;}
+    html body .stApp .autonomy-readable-card {font-size:clamp(1.05rem,.96rem + .15vw,1.18rem)!important;line-height:1.65!important;color:#f1f5f9!important;}
+    html body .stApp .autonomy-readable-card .ar-row {display:grid;grid-template-columns:minmax(10rem,auto) 1fr;gap:1rem;margin:.38rem 0;align-items:start;min-height:1.7rem;}
     html body .stApp .autonomy-readable-card .ar-label {font-weight:800;color:#f8fafc;}
     html body .stApp .autonomy-readable-card .ar-value {overflow-wrap:anywhere;min-width:0;}
     html body .stApp div[data-testid="stCaptionContainer"] {font-size:.92rem!important;line-height:1.45!important;color:#b9c7da!important;}
     html body .stApp div[data-testid="stAlert"] p {font-size:.96rem!important;line-height:1.4!important;}
     html body .stApp div[data-testid="stCheckbox"] label p {font-size:1rem!important;line-height:1.35!important;}
     html body .stApp div[data-testid="stCheckbox"] input {width:1.15rem!important;height:1.15rem!important;}
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card){min-height:13rem!important;padding:1.05rem 1.15rem!important;}
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) h4{font-size:1.35rem!important;line-height:1.35!important;margin-bottom:.65rem!important;}
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) .stButton button,
+    html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]{min-height:3rem!important;font-size:1rem!important;font-weight:800!important;}
     @media (max-width:700px){html body .stApp .autonomy-readable-card .ar-row{grid-template-columns:1fr;gap:.05rem}.autonomy-readable-card{font-size:.98rem!important}}
     </style>
     """, unsafe_allow_html=True)
@@ -200,6 +204,16 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     with st.container(border=True):
         st.markdown("#### Pågående kjøring, fremdrift og avbryt")
         _render_progress(snapshot, allow_quick_start=allow_quick_start)
+        full_execution = dict(latest.get("full_autonomy_execution") or {})
+        if full_execution:
+            done = int(full_execution.get("completed_steps") or 0)
+            total = int(full_execution.get("total_steps") or 13)
+            if full_execution.get("self_contained"):
+                st.success(f"Full Autonomy Execution: {done}/{total} trinn fullført · ingen manuelle avhengigheter")
+            else:
+                st.error("Full Autonomy Execution er ufullstendig: " + ", ".join(full_execution.get("failed_stages") or []))
+            with st.expander("Vis alle 13 Autonomi-trinn", expanded=False):
+                st.dataframe(pd.DataFrame([{ "#": x.get("number"), "Trinn": x.get("label"), "Status": x.get("status") } for x in full_execution.get("stages") or []]), use_container_width=True, hide_index=True)
 
     left, right = st.columns(2)
     with left:
@@ -270,7 +284,11 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             )
             push = snapshot["pushover_latest"]
             if push:
-                st.caption(f"Siste levering: {'OK' if push.get('success') else 'Feil'} · {push.get('at', '-')}")
+                st.markdown(
+                    "<div class='autonomy-readable-card'>"
+                    f"<div class='ar-row'><span class='ar-label'>Siste levering</span><span class='ar-value'>{'OK' if push.get('success') else 'Feil'} · {push.get('at', '-')}</span></div>"
+                    "</div>", unsafe_allow_html=True,
+                )
     with ops2:
         with st.container(border=True):
             st.markdown("#### Ventende godkjenninger")

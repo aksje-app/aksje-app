@@ -1,11 +1,12 @@
-APP_VERSION = "v18.9.1"
-APP_VERSION_NAME = "Canonical Top Picks"
+APP_VERSION = "v18.9.2"
+APP_VERSION_NAME = "Full Autonomy Execution"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v18.9.0"
+PREVIOUS_APP_VERSION = "v18.9.1"
 
 CHANGELOG = [
+    "v18.9.2: Full Autonomy Execution: én selvstendig Autonomi-kjøring verifiserer 13 sammenhengende trinn fra porteføljebehov, oppdrag og Discovery til analyse, flerstrategirangering, kanoniske Top Picks, porteføljerisiko, teoretiske beslutninger, Dashboard, rapport, varsling, historikk og læringsgrunnlag. Hvert trinn får status og bevis; kjøringen markeres ufullstendig dersom en obligatorisk motor er deaktivert eller feiler. Ingen annen modul skal kjøres manuelt før eller etter. Autonomi-oversiktens drifts-, godkjennings- og rapportkort har større skrift, høyde, linjeavstand, etikettavstand og knapper uten overlapping på PC eller mobil.",
     "v18.9.1: Canonical Top Picks: siste vellykkede, vedvarende Autonomi-resultat publiseres atomisk til Dashboard, full ranking, Top Picks, Kjøp nå, nye/gjentatte/utgåtte kandidater og porteføljeforslag. Kandidater viser oppdrags-ID, tidspunkt, strategier, datakvalitet, valggrunnlag og scoreendring. Avbrutte, ugyldige eller feilende kjøringer bevarer alltid forrige gyldige pakke. Valutavarsler har fått en direkte, refresh-sikker knapp i desktop- og mobilmenyen; eksisterende Alert Center beholdes som fallback og varselmotoren er uendret.",
     "v18.9.0: Learning & Reporting Layer: hvert ferdig analyseresultat får én uforanderlig, idempotent resultatpost og én stabil resultat-ID. Historical Learning, Accuracy Analytics, snapshots, Controlled Learning, Executive Summary, PDF, rapportarkiv og Pushover bruker samme kanoniske innhold; PDF- og varslingsstatus lagres separat som leveringskvitteringer. Autonomi-oversiktens drifts-, rapport-, status- og forklaringstekster har fått større skrift, kontrast, linjehøyde og responsiv layout uten overlapping.",
     "v18.8.9: Portfolio & Decision Layer: Portfolio Optimizer og Autonomous Learning Portfolio samles i et porteføljebevis før autonom utførelse. Alle kandidater vurderes mot eksisterende posisjoner, kontanter, posisjonsstørrelse, sektor, land, valuta, korrelasjon/proxy, konsentrasjon, likviditet og risiko før BUY/HOLD/SELL/SKIP/REVIEW. Bare porteføljegodkjente BUY-kandidater kan nå gå til autonom kjøpsflyt. Porteføljebehov oppretter et sporbart Discovery-oppdrag for neste kjøring. Eksisterende portefølje- og optimizergrenser kombineres konservativt.",

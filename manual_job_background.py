@@ -173,6 +173,9 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
         persistence = result.get("persistence")
         if isinstance(persistence, Mapping) and not persistence.get("ok"):
             raise RuntimeError(str(persistence.get("error") or "Rapportlagring kunne ikke bekreftes"))
+        full_execution = result.get("full_autonomy_execution")
+        if isinstance(full_execution, Mapping) and not full_execution.get("self_contained"):
+            raise RuntimeError("Full Autonomy Execution ufullstendig: " + ", ".join(full_execution.get("failed_stages") or []))
         chain = dict(result.get("autonomous_chain") or {})
         final = get_status(execution_id) or status
         final.update({
@@ -189,6 +192,7 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
             "mission_id": result.get("mission_id") or (result.get("investment_mission") or {}).get("mission_id"),
             "configuration_version": result.get("configuration_version") or (result.get("investment_mission") or {}).get("configuration_version"),
             "completion_status": result.get("completion_status") or "FULLFØRT",
+            "full_autonomy_execution": dict(full_execution or {}),
             "partial_market_failure": bool(result.get("partial_market_failure")),
             "failed_markets": list((result.get("data_quality") or {}).get("failed_markets") or []),
             "timezone_name": result.get("timezone_name"),

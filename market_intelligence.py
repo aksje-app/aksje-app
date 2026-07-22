@@ -1219,6 +1219,9 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
 def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
     requested_job = job
     job, handoff = _effective_execution_job(job, trigger)
+    # Portfolio demand is an input to the mission, never an afterthought.
+    from autonomi_core.portfolio_decisions import read_portfolio_needs
+    portfolio_need_preflight = read_portfolio_needs()
     from autonomi_core.missions.investment_mission import create_investment_mission, engine_handoff, load_investment_mission
     investment_mission = load_investment_mission(job.investment_mission_id) if job.investment_mission_id else {}
     if not investment_mission:
@@ -1233,7 +1236,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             strategy="Kvalitet til rimelig pris", horizon=str(legacy_mission.get("horizon") or "3–12 måneder"),
             risk=str(legacy_mission.get("risk") or "Balansert"),
             risk_ceiling=float(legacy_mission.get("risk_ceiling", 65.0)),
-            portfolio_need="Beste enkeltkandidater", minimum_data_quality=float(policy.minimum_data_quality),
+            portfolio_need=str(portfolio_need_preflight.get("summary") or "Beste enkeltkandidater"), minimum_data_quality=float(policy.minimum_data_quality),
             candidate_count=int(job.deep_count), exclusions=[], objective=str(legacy_mission.get("goal") or job.name),
         )
         investment_mission = generated.to_dict()
@@ -1427,6 +1430,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
+           "portfolio_need_preflight": portfolio_need_preflight,
            "portfolio_decisions": portfolio_decisions,
            "discovery_data": {
                "version": "v18.8.7", "markets": [dict(item.get("discovery_data") or {}) for item in market_runs],
@@ -1526,9 +1530,6 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     if not persistence.get("ok"):
         raise RuntimeError(str(persistence.get("error") or "Rapportarkivet kunne ikke bekreftes"))
     run["persistence"] = persistence
-    # Publication is the final commit gate: a failed PDF/archive/persistence
-    # stage can never replace the last valid Dashboard/Top Picks package.
-    run["canonical_top_picks"] = publish_canonical_top_picks(canonical_record, limit=max(10, int(job.proposal_count or 10)))
     try:
         from historical_learning import register_run
         run["historical_learning"] = {"snapshots_created": register_run(canonical_run), "mode": "DESCRIPTIVE_ONLY", "result_id": canonical_record["result_id"]}
@@ -1539,7 +1540,18 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     notification_view = dict(canonical_run)
     notification_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
     notify_ok, notify_detail = _notification(job, notification_view)
-    run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run)}
+    run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run), "required": bool(job.notify_pushover)}
+    notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert"))
+    from autonomi_core.runtime.full_execution import build_full_execution_receipt, prepublication_gate
+    prerequisite_gate = prepublication_gate(run)
+    downstream_ok = prerequisite_gate.get("ok") and not bool(run.get("historical_learning", {}).get("error")) and (notify_ok or not job.notify_pushover or notification_is_policy_skip)
+    # Final publication commit: reporting, history/learning and required
+    # notification must have completed before Dashboard/Top Picks can change.
+    run["canonical_top_picks"] = (publish_canonical_top_picks(canonical_record, limit=max(10, int(job.proposal_count or 10)))
+                                  if downstream_ok else {"published": False, "reason": "Full Autonomy-forutsetning, etterbehandling eller varsling feilet; siste gyldige Top Picks beholdes", "failed_stages": prerequisite_gate.get("failed_stages")})
+    run["full_autonomy_execution"] = build_full_execution_receipt(run)
+    if not run["full_autonomy_execution"].get("self_contained"):
+        errors.append("Full Autonomy Execution er ufullstendig: " + ", ".join(run["full_autonomy_execution"].get("failed_stages") or []))
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     job.last_run_at = run["created_at"]
