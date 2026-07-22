@@ -19,6 +19,11 @@ class AutonomyPolicy:
     require_fresh_market_evidence: bool = True
     require_report_persistence: bool = True
     allow_automatic_model_approval: bool = False
+    market_data_max_age_seconds: int = 21600
+    fallback_max_age_seconds: int = 86400
+    minimum_data_quality: float = 45.0
+    confidence_penalty_fallback: float = 15.0
+    confidence_penalty_missing: float = 10.0
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None) -> "AutonomyPolicy":
