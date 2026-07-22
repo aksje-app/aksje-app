@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from autonomi_core.configuration.policy import AutonomyPolicy, load_policy
 from autonomi_core.missions.market_mission import build_market_mission
 
-CORE_VERSION = "v18.8.1"
+CORE_VERSION = "v18.8.6"
 
 
 def execute_market_mission(
@@ -49,6 +49,8 @@ def execute_market_mission(
     result["autonomy_core"] = {
         "version": CORE_VERSION, "mission": "MARKET_ANALYSIS",
         "source_run_id": mission.source_run_id,
+        "mission_id": governed_run.get("mission_id") or (governed_run.get("investment_mission") or {}).get("mission_id"),
+        "configuration_version": governed_run.get("configuration_version") or (governed_run.get("investment_mission") or {}).get("configuration_version"),
         "policy_schema": effective.schema_version,
         "theoretical_only": effective.theoretical_only,
     }
