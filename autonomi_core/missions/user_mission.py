@@ -69,10 +69,14 @@ def apply_user_mission(candidates: Sequence[MutableMapping[str, Any]],
         return {"active": False, "eligible": len(candidates), "excluded": 0, "reasons": {}}
     risk_ceiling = float(profile.get("risk_ceiling", 100.0))
     sectors = list(profile.get("sectors") or [])
+    exclusions = {str(item).strip().upper() for item in profile.get("exclusions", []) if str(item).strip()}
     counts: dict[str, int] = {}
     eligible = 0
     for candidate in candidates:
         reasons: list[str] = []
+        if str(candidate.get("ticker") or "").strip().upper() in exclusions:
+            reasons.append("Ekskludert i oppdraget")
+            counts["EXCLUSION"] = counts.get("EXCLUSION", 0) + 1
         try:
             candidate_risk = float(candidate.get("risk_score", candidate.get("risk", 0)) or 0)
         except (TypeError, ValueError):
