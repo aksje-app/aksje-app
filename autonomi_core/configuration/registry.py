@@ -96,6 +96,9 @@ def validate_values(values: Mapping[str, Any]) -> list[str]:
         "analysis.minimum_score": (0, 100),
         "portfolio.parameters.maximum_risk_score": (0, 100),
         "portfolio.parameters.maximum_position_pct": (0.1, 100),
+        "portfolio.decision.max_country_pct": (1, 100),
+        "portfolio.decision.max_currency_pct": (1, 100),
+        "portfolio.decision.minimum_liquidity_score": (0, 100),
         "runtime.scan_limit": (1, 500),
         "reporting.candidate_count": (1, 250),
     }
@@ -187,6 +190,7 @@ def _migrate(doc: dict[str, Any]) -> dict[str, Any]:
     values["autonomy"]["policy"].setdefault("theoretical_only", True)
     values["discovery"].setdefault("composition", {"documented_pct": 70, "new_pct": 20, "experimental_pct": 10})
     values["discovery"].setdefault("rotation", {"enabled": True, "quarantine_unchanged": True, "explore_outside_indexes": True})
+    values["portfolio"].setdefault("decision", {"max_country_pct": 45.0, "max_currency_pct": 55.0, "minimum_liquidity_score": 40.0})
     values["learning"].setdefault("allow_automatic_model_approval", False)
     doc["migration"] = {"complete": True, "at": _now(), "sources": sources}
     return _commit(doc, event="MIGRATION", reason="Migrering fra gamle innstillinger", actor="SYSTEM", previous=None)
