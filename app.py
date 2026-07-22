@@ -11327,6 +11327,7 @@ _mobile_nav_html_v1900 = (f"""
   <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
   <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
   <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
+  <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
   <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
 """ if _centered_nav_active_v1900 else f"""
   <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
@@ -11335,6 +11336,7 @@ _mobile_nav_html_v1900 = (f"""
   <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
   <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
+  <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
   <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
 """)
 st.markdown(f"""
@@ -20800,8 +20802,11 @@ st.markdown("""
     right: 0 !important;
     bottom: 0 !important;
     height: 66px !important;
-    display: grid !important;
-    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+    display: flex !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: thin !important;
+    -webkit-overflow-scrolling: touch !important;
     gap: 4px !important;
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) 8px !important;
     z-index: 2147483000 !important;
@@ -20810,7 +20815,8 @@ st.markdown("""
     box-shadow: 0 -12px 32px rgba(0,0,0,.46) !important;
   }
   html body .mobile-bottom-nav-v18644 a {
-    min-width: 0 !important;
+    min-width: 72px !important;
+    flex: 1 0 72px !important;
     height: 52px !important;
     display: flex !important;
     flex-direction: column !important;

@@ -114,6 +114,25 @@ def render_simple_mode() -> None:
         "Beskriv hva Autonomi skal lete etter. Markeder, bransjer og risikogrense "
         "håndheves før beslutningsdelen; mål og tidshorisont følger hele oppdraget som kontekst."
     )
+    archive = _load_report_archive()
+    latest_report = dict(archive[0]) if archive else {}
+    report_url = str(latest_report.get("report_url") or "").strip()
+    report_actions = st.columns(2)
+    if report_url.startswith(("https://", "http://")):
+        report_actions[0].link_button(
+            "📄 Åpne siste rapport", report_url, use_container_width=True,
+            help="Åpner siste tilgjengelige PDF-rapport i en ny fane.",
+        )
+    else:
+        report_actions[0].button(
+            "📄 Ingen offentlig rapportlenke", disabled=True, use_container_width=True,
+            key="autonomy_simple_no_report_v1904",
+        )
+    if report_actions[1].button(
+        "📚 Rapportarkiv", use_container_width=True, key="autonomy_simple_reports_v1904",
+    ):
+        st.session_state["autonomy_core_workspace_slug_v1882"] = "reports"
+        st.rerun()
     with st.form("autonomy_simple_mission_v1884"):
         c1, c2, c3 = st.columns(3)
         goal = c1.selectbox("Mål", GOALS, index=_index(GOALS, mission.get("goal"), 0))
@@ -166,7 +185,8 @@ def render_simple_mode() -> None:
                 scan_limit=max(int(draft.scan_limit), int(candidate_count)), deep_count=int(candidate_count),
                 proposal_count=int(candidate_count), user_mission_id=str(saved["mission_id"]),
                 investment_mission_id=contract.mission_id,
-                configuration_version=contract.configuration_version, enabled=False,
+                configuration_version=contract.configuration_version,
+                notification_mode="CHANGES_ONLY", notify_only_changes=True, enabled=False,
             )
             accepted = start_manual_job(job, trigger="MANUAL_SIMPLE_AUTONOMY", force_refresh=False)
             st.success(f"Oppdraget er startet: {accepted.get('execution_id')}")

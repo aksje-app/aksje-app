@@ -40,6 +40,7 @@ LATEST_PATH = ROOT / "latest_run.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 REPORT_ARCHIVE_PATH = ROOT / "report_archive.json"
 REPORT_ARCHIVE_SETTINGS_PATH = ROOT / "report_archive_settings.json"
+REPORT_NOTIFICATION_RECEIPTS_PATH = ROOT / "report_notification_receipts.json"
 DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 RECENT_DRAFT_REUSE_MINUTES = 30
@@ -220,6 +221,7 @@ def _durable_key(path: Path) -> str | None:
     if path == LATEST_PATH: return "market_intelligence/latest_run.json"
     if path == HISTORY_PATH: return "market_intelligence/candidate_history.json"
     if path == REPORT_ARCHIVE_PATH: return "market_intelligence/report_archive.json"
+    if path == REPORT_NOTIFICATION_RECEIPTS_PATH: return "market_intelligence/report_notification_receipts.json"
     if path.parent == RUNS_DIR: return f"market_intelligence/runs/{path.name}"
     if path.parent == SUMMARIES_DIR and path.suffix.lower() == ".json": return f"market_intelligence/summaries/{path.name}"
     return None
@@ -242,11 +244,22 @@ def normalize_markets(markets: Sequence[str]) -> list[str]:
     return [x for x in chosen if x in valid] or ["Norge"]
 
 
-def report_identity(trigger: str, job_name: str = "", job_id: str = "") -> dict[str, str]:
+def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
+                    created_at: datetime | str | None = None,
+                    timezone_name: str = DEFAULT_TIMEZONE) -> dict[str, str]:
     trigger_key = str(trigger or "").upper()
     job_key = str(job_name or "").casefold()
     if str(job_id or "").upper() == DRAFT_JOB_ID or "DRAFT" in trigger_key or "TEST" in trigger_key:
         return {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
+    if created_at is not None:
+        hour = as_local(created_at, timezone_name).hour
+        if 5 <= hour < 12:
+            return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
+        if 12 <= hour < 17:
+            return {"type": "DAGSRAPPORT", "label": "Dagsrapport", "slug": "Dagsrapport"}
+        if 17 <= hour < 24:
+            return {"type": "KVELDSRAPPORT", "label": "Kveldsrapport", "slug": "Kveldsrapport"}
+        return {"type": "NATTRAPPORT", "label": "Nattrapport", "slug": "Nattrapport"}
     if trigger_key == "SCHEDULED" or (trigger_key == "MANUAL_FULL_CHAIN" and "morgen" in job_key):
         return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
     return {"type": "MANUELL_RAPPORT", "label": "Manuell rapport", "slug": "Manuell_rapport"}
@@ -263,9 +276,13 @@ def resolve_report_identity(run: Mapping[str, Any]) -> dict[str, str]:
     job_name = str(run.get("job_name") or "")
     job_id = str(run.get("job_id") or "")
     if job_id.upper() == DRAFT_JOB_ID:
-        return report_identity(trigger, job_name, job_id)
+        return report_identity(trigger, job_name, job_id, created_at=run.get("created_at"),
+                               timezone_name=str(run.get("timezone_name") or DEFAULT_TIMEZONE))
     stored = run.get("report_identity")
-    return dict(stored) if isinstance(stored, Mapping) else report_identity(trigger, job_name, job_id)
+    return dict(stored) if isinstance(stored, Mapping) else report_identity(
+        trigger, job_name, job_id, created_at=run.get("created_at"),
+        timezone_name=str(run.get("timezone_name") or DEFAULT_TIMEZONE),
+    )
 
 
 def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
@@ -582,6 +599,12 @@ def _notification_mode(job: JobProfile) -> str:
 
 
 def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
+    run_id = str(run.get("run_id") or "").strip()
+    receipts = _read(REPORT_NOTIFICATION_RECEIPTS_PATH, {})
+    receipts = dict(receipts) if isinstance(receipts, Mapping) else {}
+    previous_receipt = dict(receipts.get(run_id) or {}) if run_id else {}
+    if previous_receipt.get("sent") is True:
+        return False, "Duplikat blokkert: denne rapportkjøringen er allerede varslet"
     changes = run.get("changes") or {}
     interesting = [x for x in changes.get("new", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
     interesting += [x for x in changes.get("improved", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
@@ -594,8 +617,11 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         return False, "Pushover er deaktivert for jobben"
     try:
         from notifier import send_pushover_alert
+        identity = resolve_report_identity(run)
+        origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else "Manuell"
         top = (run.get("proposals") or run.get("candidates") or [{}])[0]
         lines = [
+            f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
             f"Jobb: {job.name}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
             f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
@@ -608,7 +634,21 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         else:
             lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
         url = report_public_url(run) if job.include_report_link else ""
-        ok, err = send_pushover_alert("\n".join(lines), title="Scheduled Market Intelligence", url=url or None, url_title="Åpne rapport" if url else None)
+        ok, err = send_pushover_alert(
+            "\n".join(lines), title=f"{identity.get('label') or 'Rapport'} · AI Aksje Analyzer",
+            url=url or None, url_title="Åpne rapport" if url else None,
+        )
+        if run_id:
+            receipts[run_id] = {
+                "sent": bool(ok), "at": _now_iso(), "job_id": job.job_id,
+                "job_name": job.name, "report_type": identity.get("type"),
+                "report_label": identity.get("label"), "detail": str(err or "Sendt"),
+            }
+            _write(REPORT_NOTIFICATION_RECEIPTS_PATH, dict(list(receipts.items())[-1000:]))
+            _audit("REPORT_NOTIFICATION_SENT" if ok else "REPORT_NOTIFICATION_FAILED", {
+                "run_id": run_id, "job_id": job.job_id, "report_label": identity.get("label"),
+                "detail": str(err or "Sendt"),
+            })
         if ok and job.include_report_link and not url:
             return True, "Sendt uten rapportlenke: offentlig rapportadresse mangler"
         return bool(ok), str(err or "Sendt")
@@ -1196,16 +1236,20 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
     """Promote a validated draft to final report without a second API burst."""
     run = json.loads(json.dumps(dict(source), ensure_ascii=False, default=str))
     run_id = local_run_id("MI", timezone_name=job.timezone_name)
+    promoted_created_at = _now_iso()
     run.update({
         "version": VERSION,
         "run_id": run_id,
-        "created_at": _now_iso(),
-        "created_at_local": local_display(_now_iso(), job.timezone_name),
+        "created_at": promoted_created_at,
+        "created_at_local": local_display(promoted_created_at, job.timezone_name),
         "timezone_name": valid_timezone(job.timezone_name),
         "job_id": job.job_id,
         "job_name": job.name,
         "trigger": trigger,
-        "report_identity": report_identity(trigger, job.name, job.job_id),
+        "report_identity": report_identity(
+            trigger, job.name, job.job_id, created_at=promoted_created_at,
+            timezone_name=job.timezone_name,
+        ),
         "execution_mode": "PROMOTED_VALIDATED_DRAFT",
         "source_draft_run_id": source.get("run_id"),
         "configuration_handoff": dict(handoff),
@@ -1503,8 +1547,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     data_quality = build_data_quality(refresh_summary, len(all_candidates), market_diagnostics, markets)
     failed_markets = list(data_quality.get("failed_markets") or [])
     partial_market_failure = bool(failed_markets and all_candidates)
-    run = {"version": VERSION, "run_id": run_id, "created_at": _now_iso(),
-           "created_at_local": local_display(_now_iso(), job.timezone_name), "job_id": job.job_id, "job_name": job.name,
+    run_created_at = _now_iso()
+    run = {"version": VERSION, "run_id": run_id, "created_at": run_created_at,
+           "created_at_local": local_display(run_created_at, job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
            "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
@@ -1529,7 +1574,10 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),
            "executive_intelligence": executive_intelligence(decision_candidates),
            "diverse_top3": select_diverse_candidates(decision_candidates, 3),
-           "report_identity": report_identity(trigger, job.name, job.job_id),
+           "report_identity": report_identity(
+               trigger, job.name, job.job_id, created_at=run_created_at,
+               timezone_name=job.timezone_name,
+           ),
            "execution_mode": "UNIFIED_PIPELINE",
            "configuration_handoff": handoff,
            "market_diagnostics": market_diagnostics,
@@ -1621,7 +1669,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     notification_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
     notify_ok, notify_detail = _notification(job, notification_view)
     run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run), "required": bool(job.notify_pushover)}
-    notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert"))
+    notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert", "Duplikat blokkert"))
     from autonomi_core.runtime.full_execution import build_full_execution_receipt, prepublication_gate
     prerequisite_gate = prepublication_gate(run)
     downstream_ok = prerequisite_gate.get("ok") and not bool(run.get("historical_learning", {}).get("error")) and (notify_ok or not job.notify_pushover or notification_is_policy_skip)

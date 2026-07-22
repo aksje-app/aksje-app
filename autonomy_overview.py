@@ -28,7 +28,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v19.0.3"
+VERSION = "v19.0.4"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -239,7 +239,7 @@ def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
     status = get_active_status() or {}
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
     if is_running(status):
-        st.caption("Status og fremdrift oppdateres automatisk hvert 3. sekund.")
+        st.caption("Status og fremdrift oppdateres automatisk hvert 5. sekund mens kjøringen pågår.")
     execution_id = str(status.get("execution_id") or "")
     if str(status.get("state") or "") in TERMINAL_STATES and execution_id:
         refresh_key = "autonomy_overview_terminal_refresh_v1902"
@@ -252,9 +252,14 @@ def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
 
 
 def _render_live_progress(*, allow_quick_start: bool = True) -> None:
+    # A periodic Streamlit fragment remains scheduled until the fragment is
+    # removed from the page.  Only create it for an actually active job;
+    # completed/failed/cancelled pages are rendered once and stay idle.
+    status = get_active_status() or {}
+    running = is_running(status)
     fragment = getattr(st, "fragment", None)
-    if callable(fragment):
-        fragment(run_every="3s")(_live_progress_panel)(allow_quick_start=allow_quick_start)
+    if running and callable(fragment):
+        fragment(run_every="5s")(_live_progress_panel)(allow_quick_start=allow_quick_start)
     else:
         _live_progress_panel(allow_quick_start=allow_quick_start)
 
