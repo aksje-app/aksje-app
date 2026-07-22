@@ -6,7 +6,9 @@ services.  It contains no candidate, ranking, portfolio or scheduler logic.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from html import escape
 from typing import Any, Mapping
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -26,7 +28,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v18.9.3"
+VERSION = "v19.0.1"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -86,6 +88,12 @@ def collect_autonomy_overview() -> dict[str, Any]:
     active_jobs = [job for job in jobs if bool(getattr(job, "enabled", False))]
     archive = _load_report_archive()
     latest_archive = dict(archive[0]) if archive else {}
+    # A failed/incomplete publication must not hide the last usable report.
+    # Keep the archive order authoritative and select the first public URL.
+    latest_linked_archive = next(
+        (dict(row) for row in archive if isinstance(row, Mapping) and str(row.get("report_url") or "").strip()),
+        {},
+    )
     latest_run = load_run(str(latest_archive.get("run_id") or "")) if latest_archive else {}
     parallel_validation = dict(latest_run.get("parallel_validation") or {})
     if parallel_validation:
@@ -129,7 +137,13 @@ def collect_autonomy_overview() -> dict[str, Any]:
         "data_contract": contract, "data_quality": quality,
         "pushover_ready": pushover_enabled(), "pushover_latest": push_latest,
         "scheduler": scheduler_status(), "storage": storage,
-        "report_url": str(latest_archive.get("report_url") or latest_run.get("report_url") or ""),
+        "report_url": str(
+            latest_archive.get("report_url")
+            or latest_run.get("report_url")
+            or latest_linked_archive.get("report_url")
+            or ""
+        ),
+        "latest_linked_archive": latest_linked_archive,
         "report_pdf_path": latest_archive.get("pdf_path"),
         "parallel_validation": parallel_validation,
     }
@@ -139,6 +153,27 @@ def _goto(workspace: str) -> None:
     st.session_state["autonomy_core_workspace_v1880"] = workspace
     st.session_state["autonomy_core_workspace_slug_v1882"] = ""
     st.rerun()
+
+
+def _safe_public_report_url(value: Any) -> str:
+    """Accept only absolute HTTP(S) report links for the rendered anchor."""
+    url = str(value or "").strip()
+    parsed = urlparse(url)
+    return url if parsed.scheme in {"http", "https"} and bool(parsed.netloc) else ""
+
+
+def _render_report_link(url: Any) -> bool:
+    """Render a stable, high-contrast link independent of Streamlit DOM names."""
+    safe_url = _safe_public_report_url(url)
+    if not safe_url:
+        return False
+    st.markdown(
+        '<a class="autonomy-report-link-v1901" '
+        f'href="{escape(safe_url, quote=True)}" target="_blank" rel="noopener noreferrer" '
+        'aria-label="Åpne siste rapport i ny fane">Åpne siste rapport</a>',
+        unsafe_allow_html=True,
+    )
+    return True
 
 
 def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = True) -> None:
@@ -196,6 +231,22 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]:hover,
     html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"]:focus{background:#087fb3!important;color:#fff!important;border-color:#38bdf8!important;}
     html body .stApp [data-testid="stVerticalBlockBorderWrapper"]:has(.autonomy-readable-card) a[data-testid="stBaseLinkButton-secondary"] p{color:#fff!important;opacity:1!important;}
+    html body .stApp a.autonomy-report-link-v1901,
+    html body .stApp a.autonomy-report-link-v1901:link,
+    html body .stApp a.autonomy-report-link-v1901:visited{
+      display:flex!important;align-items:center!important;justify-content:center!important;
+      width:100%!important;min-height:3rem!important;padding:.58rem .9rem!important;
+      margin:.45rem 0 .1rem!important;border:1px solid #64748b!important;border-radius:.55rem!important;
+      background:#172033!important;color:#fff!important;-webkit-text-fill-color:#fff!important;
+      font-size:1rem!important;font-weight:850!important;line-height:1.25!important;
+      text-decoration:none!important;opacity:1!important;box-shadow:0 1px 4px rgba(0,0,0,.28)!important;
+    }
+    html body .stApp a.autonomy-report-link-v1901:hover,
+    html body .stApp a.autonomy-report-link-v1901:focus,
+    html body .stApp a.autonomy-report-link-v1901:focus-visible{
+      background:#087fb3!important;color:#fff!important;-webkit-text-fill-color:#fff!important;
+      border-color:#7dd3fc!important;outline:3px solid rgba(56,189,248,.38)!important;outline-offset:2px!important;
+    }
     @media (max-width:700px){html body .stApp .autonomy-readable-card .ar-row{grid-template-columns:1fr;gap:.05rem}.autonomy-readable-card{font-size:.98rem!important}}
     </style>
     """, unsafe_allow_html=True)
@@ -357,9 +408,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     f"<div class='ar-row'><span class='ar-label'>Rapport-ID</span><span class='ar-value'>{report.get('run_id') or '-'}</span></div>"
                     "</div>", unsafe_allow_html=True,
                 )
-                if snapshot["report_url"]:
-                    st.link_button("Åpne siste rapport", snapshot["report_url"], use_container_width=True)
-                else:
+                if not _render_report_link(snapshot["report_url"]):
                     st.info("Offentlig rapportlenke er ikke tilgjengelig. Åpne rapportarkivet.")
             else:
                 st.info("Ingen rapport er lagret.")
