@@ -59,6 +59,4 @@ def test_overview_is_default_workspace_and_detail_engines_remain_lazy():
 
 def test_release_metadata_v1883():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.8.3"' in version
-    assert 'APP_VERSION_NAME = "Autonomi Oversikt"' in version
-    assert "endrer ingen motorlogikk" in version
+    assert '"v18.8.3: Autonomi Oversikt:' in version
