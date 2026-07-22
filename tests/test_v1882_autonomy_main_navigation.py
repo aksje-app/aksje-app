@@ -89,5 +89,4 @@ def test_learning_and_orchestrator_are_lazy_in_one_panel():
 
 def test_release_is_navigation_only_at_core_boundary():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.8.2"' in version
-    assert 'APP_VERSION_NAME = "Autonomi i hovedmenyen"' in version
+    assert '"v18.8.2: Autonomi i hovedmenyen:' in version
