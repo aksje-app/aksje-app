@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from autonomi_core.configuration.policy import AutonomyPolicy, load_policy
 from autonomi_core.missions.market_mission import build_market_mission
 
-CORE_VERSION = "v18.8.6"
+CORE_VERSION = "v18.8.9"
 
 
 def execute_market_mission(
@@ -30,10 +30,15 @@ def execute_market_mission(
     governed_run = dict(mission.market_run)
     observed = list(governed_run.get("candidates") or [])
     governed_run["observed_candidates"] = observed
-    governed_run["candidates"] = [item for item in observed if item.get("valid_for_decision", True)]
+    governed_run["candidates"] = [
+        item for item in observed
+        if item.get("valid_for_decision", True)
+        and (not item.get("portfolio_action") or item.get("portfolio_action") in {"BUY", "HOLD", "SELL"})
+    ]
     governed_run["proposals"] = [
         item for item in list(governed_run.get("proposals") or [])
         if item.get("valid_for_decision", True)
+        and (not item.get("portfolio_action") or item.get("portfolio_action") == "BUY")
     ]
 
     # Compatibility bridge. The existing, regression-tested engine remains the
