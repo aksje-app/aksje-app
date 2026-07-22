@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.1"
-APP_VERSION_NAME = "Report Link Visibility & Reliability"
+APP_VERSION = "v19.0.2"
+APP_VERSION_NAME = "Live Progress, Performance & Decision Evidence"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.0"
+PREVIOUS_APP_VERSION = "v19.0.1"
 
 CHANGELOG = [
+    "v19.0.2: Live Progress, Performance & Decision Evidence: Autonomi Oversikt oppdaterer bare den varige jobbstatusen hvert tredje sekund uten full side-rerender, viser ærlig oppnådd prosent, per-marked-fremdrift, preflight som eget steg og lagret feiltype, feilsteg og diagnostikk. 100 prosent reserveres for bekreftet fullføring. PDF skiller kursdatakilde fra øvrige kilder, gir Topp 3 konkrete drivere og forbehold, viser beslutningshandling og kildebevis, harmoniserer hovedkonklusjonen med Portfolio & Decision Layer og lar kandidatdetaljer flyte mer kompakt over sider.",
     "v19.0.1: Report Link Visibility & Reliability: Åpne siste rapport rendres med en egen stabil og tilgjengelig lenkekomponent som har permanent mørk bakgrunn, hvit tekst og tydelig hover/fokus/visited på PC og mobil, uavhengig av Streamlits interne knappeselektorer. Bare sikre HTTP(S)-lenker åpnes, manglende lenke forklares tydelig, og en ufullstendig ny publisering skjuler aldri siste gyldige offentlige rapportlenke.",
     "v19.0.0: Autonomy-Centered Application: etter minst tre rene Parallel Validation-kjøringer og eksplisitt godkjenning aktiveres en samlet hovedmeny med Dashboard, Autonomi, Analyse, Top Picks, Portefølje, Rapporter og System. Dupliserte parameterflater skjules til fordel for Central Autonomy Configuration, Andre paneler avvikles fra normalmodus, Top Picks åpner siste kanoniske Autonomi-resultat, News/Insider/Research blir motor-detaljer og Scheduler/varsler/drift samles under Autonomi. Alle gamle arbeidsflyter og data beholdes som ekspert-/diagnosefallback med konfigurasjonsrollback.",
     "v18.9.4: Controlled Discovery Learning måler kildeverdi, strategiytelse, nye mot gjentatte selskaper, marked/bransje, falske positive og utforskningsverdi fra modnede Shadow-resultater. Systemet oppretter bare avgrensede Challenger-forslag for utforskningsandel, kildeprioritet, strategivekter og søkehypoteser. Produksjon endres aldri automatisk; ferdigtestede forslag sendes til sentral, eksplisitt godkjenning med konfigurasjonshistorikk og rollback. Knappen Åpne siste rapport har fått permanent mørk bakgrunn, hvit tekst og tydelig hover/fokus på PC og mobil.",

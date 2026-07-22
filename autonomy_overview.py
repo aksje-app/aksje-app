@@ -28,7 +28,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v19.0.1"
+VERSION = "v19.0.2"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -187,12 +187,22 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     p3.metric("Oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
     p4.metric("Kjørings-ID", status.get("execution_id") or "-")
     labels = {
-        "MARKET_DATA": "Markedsdata", "INSIDER": "Insider", "NEWS": "Nyheter",
+        "PREFLIGHT": "Oppstartskontroll", "MARKET_DATA": "Markedsdata", "INSIDER": "Insider", "NEWS": "Nyheter",
         "SCORING": "Rangering", "PORTFOLIO_PROPOSAL": "Portefølje",
         "AUTONOMOUS": "Autonomi", "REPORT": "Rapport", "COMPLETE": "Fullført",
     }
     completed = set(status.get("completed_steps") or [])
     active = str(status.get("active_stage") or "")
+    event = dict(status.get("progress_event") or {})
+    market_index = int(event.get("market_index") or 0)
+    market_total = int(event.get("market_total") or 0)
+    # MARKET_DATA/INSIDER/NEWS/SCORING repeat for every market. They are not
+    # globally complete until the pipeline reaches DEDUP or a later phase.
+    if str(status.get("phase") or "") not in {"DEDUP", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"}:
+        completed -= {"MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL"}
+    if market_total:
+        finished_markets = max(0, market_index - (0 if str(status.get("phase")) == "SCORING" and int(event.get("completed") or 0) >= int(event.get("total") or 1) else 1))
+        st.caption(f"Markedsgjennomføring: {min(finished_markets, market_total)}/{market_total} ferdig · arbeider med marked {min(max(1, market_index), market_total)}/{market_total}.")
     stage_columns = st.columns(4)
     for index, (stage, label) in enumerate(labels.items()):
         if stage in completed:
@@ -201,6 +211,17 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
             stage_columns[index % 4].warning(f"⏳ {label}")
         else:
             stage_columns[index % 4].caption(f"⬜ {label}")
+    if state == "FAILED":
+        st.error(
+            f"{status.get('error_type') or 'Feil'} i {status.get('error_stage') or active or 'ukjent steg'}: "
+            f"{status.get('error') or 'Ingen feildetalj ble lagret.'}"
+        )
+        with st.expander("Vis teknisk diagnostikk", expanded=False):
+            st.code(str(status.get("error_trace") or "Ingen traceback er lagret."))
+            st.json({
+                "kjørings_id": status.get("execution_id"), "steg": status.get("error_stage") or active,
+                "tidspunkt": status.get("updated_at"), "hendelse": event,
+            })
     if snapshot.get("running"):
         confirm = st.checkbox("Bekreft kontrollert avbrudd", key="autonomy_overview_cancel_confirm_v1883")
         if st.button("⛔ Avbryt pågående kjøring", disabled=not confirm, key="autonomy_overview_cancel_v1883"):
@@ -211,6 +232,29 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
         if st.button("▶ Start utkastkjøring", type="primary", key="autonomy_overview_start_v1883"):
             start_manual_job(load_draft_job(), trigger="MANUAL_DRAFT_TEST", force_refresh=False)
             st.rerun()
+
+
+def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
+    """Poll only durable job status; never rerender the full Autonomy page."""
+    status = get_active_status() or {}
+    _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
+    execution_id = str(status.get("execution_id") or "")
+    if str(status.get("state") or "") in TERMINAL_STATES and execution_id:
+        refresh_key = "autonomy_overview_terminal_refresh_v1902"
+        if st.session_state.get(refresh_key) != execution_id:
+            st.session_state[refresh_key] = execution_id
+            try:
+                st.rerun(scope="app")
+            except TypeError:
+                st.rerun()
+
+
+def _render_live_progress(*, allow_quick_start: bool = True) -> None:
+    fragment = getattr(st, "fragment", None)
+    if callable(fragment):
+        fragment(run_every="3s")(_live_progress_panel)(allow_quick_start=allow_quick_start)
+    else:
+        _live_progress_panel(allow_quick_start=allow_quick_start)
 
 
 def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
@@ -265,7 +309,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
 
     with st.container(border=True):
         st.markdown("#### Pågående kjøring, fremdrift og avbryt")
-        _render_progress(snapshot, allow_quick_start=allow_quick_start)
+        _render_live_progress(allow_quick_start=allow_quick_start)
         full_execution = dict(latest.get("full_autonomy_execution") or {})
         if full_execution:
             done = int(full_execution.get("completed_steps") or 0)

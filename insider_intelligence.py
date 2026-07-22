@@ -143,7 +143,12 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
         return {"ticker": ticker, "score": 50.0, "signal": "INGEN VERIFISERTE TRANSAKSJONER", "coverage": "MISSING", "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [], "reason": "Kilden ble kontrollert, men ingen verifiserte insidertransaksjoner var tilgjengelige."}
     cluster_bonus = min(12.0, max(0, len(buyers) - 1) * 4.0)
     direction = (weighted_buy - weighted_sell) / max(0.8, weighted_buy + weighted_sell)
-    score = max(0.0, min(100.0, 50.0 + direction * 34.0 + cluster_bonus))
+    value_direction = (total_buy - total_sell) / max(1.0, total_buy + total_sell)
+    combined_direction = .55 * direction + .45 * value_direction
+    score = max(0.0, min(100.0, 50.0 + combined_direction * 34.0 + (cluster_bonus if total_buy >= total_sell else 0.0)))
+    # Counts and cluster bonus may not turn a net-sale period into a positive signal.
+    if total_sell > total_buy:
+        score = min(score, 61.0)
     signal = "STERKT POSITIV" if score >= 78 else "POSITIV" if score >= 62 else "NØYTRAL" if score >= 42 else "NEGATIV" if score >= 25 else "STERKT NEGATIV"
     return {
         "ticker": ticker, "score": round(score, 2), "signal": signal, "coverage": "AVAILABLE",
@@ -152,7 +157,10 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
         "unique_buyers": len(buyers), "unique_sellers": len(sellers),
         "buy_value": round(total_buy, 2), "sell_value": round(total_sell, 2),
         "net_value": round(total_buy - total_sell, 2), "evidence": evidence[:10],
-        "reason": f"{len(buyers)} kjøper(e), {len(sellers)} selger(e) siste {lookback_days} dager.",
+        "reason": (
+            f"{len(buyers)} kjøper(e), {len(sellers)} selger(e) siste {lookback_days} dager; "
+            f"nettoverdi {round(total_buy - total_sell, 2)}."
+        ),
     }
 
 

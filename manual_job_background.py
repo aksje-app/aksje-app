@@ -8,6 +8,7 @@ local JSON file remains a backwards-compatible diagnostic mirror.
 from __future__ import annotations
 
 import threading
+import traceback
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -103,7 +104,7 @@ def progress_percent(event: Mapping[str, Any]) -> int:
 
 
 def display_stage(phase: str) -> str:
-    return {"START": "MARKET_DATA", "MARKET": "MARKET_DATA", "PREPARE": "MARKET_DATA",
+    return {"START": "PREFLIGHT", "MARKET": "MARKET_DATA", "PREPARE": "MARKET_DATA",
             "DEDUP": "SCORING"}.get(str(phase or "START"), str(phase or "MARKET_DATA"))
 
 
@@ -209,9 +210,14 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
         _write_status(cancelled)
     except Exception as exc:
         failed = get_status(execution_id) or status
+        last_percent = max(0, min(99, int(failed.get("percent") or 0)))
+        last_phase = str(failed.get("phase") or "START")
         failed.update({
-            "state": "FAILED", "percent": 100, "message": "Kjøringen stoppet med feil",
+            "state": "FAILED", "percent": last_percent,
+            "message": f"Kjøringen stoppet med feil ved {display_stage(last_phase)}",
             "updated_at": _now(), "completed_at": _now(), "error": str(exc),
+            "error_type": type(exc).__name__, "error_stage": display_stage(last_phase),
+            "error_trace": traceback.format_exc(limit=8)[-5000:],
         })
         _write_status(failed)
     finally:
@@ -244,7 +250,7 @@ def start_manual_job(job: Any, *, trigger: str, force_refresh: bool = False) -> 
             "force_refresh": bool(force_refresh), "accepted_at": _now(),
             "timezone_name": timezone_name,
             "started_at": None, "completed_at": None, "updated_at": _now(), "error": "",
-            "cancel_requested": False, "completed_steps": [], "active_stage": "MARKET_DATA",
+            "cancel_requested": False, "completed_steps": [], "active_stage": "PREFLIGHT",
         })
         thread = threading.Thread(
             target=_worker,

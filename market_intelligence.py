@@ -744,6 +744,60 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         except (TypeError, ValueError):
             return value
 
+    def _short(value: Any, limit: int = 165) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        clipped = text[: max(1, limit - 1)].rsplit(" ", 1)[0]
+        return (clipped or text[: max(1, limit - 1)]) + "…"
+
+    def _candidate_evidence(candidate: Mapping[str, Any], next_candidate: Mapping[str, Any] | None = None) -> dict[str, str]:
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
+        news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
+        components = [
+            ("AI Discovery", candidate.get("discovery_score")), ("fundamentaler", candidate.get("fundamental_score")),
+            ("research", candidate.get("research_score")), ("backtest", candidate.get("validation_score")),
+            ("porteføljetilpasning", candidate.get("portfolio_fit_score")),
+            ("insider", raw.get("insider_score")) if str(insider.get("coverage") or "") == "AVAILABLE" else ("", None),
+            ("nyheter", raw.get("news_score")) if str(news.get("coverage") or "") == "AVAILABLE" else ("", None),
+        ]
+        ranked = sorted(
+            [(label, float(value)) for label, value in components if label and isinstance(value, (int, float))],
+            key=lambda item: item[1], reverse=True,
+        )[:3]
+        drivers = ", ".join(f"{label} {score:.0f}" for label, score in ranked) or "Ingen sterke komponentbevis"
+        cautions: list[str] = []
+        coverage = str(insider.get("coverage") or "MISSING")
+        if coverage != "AVAILABLE":
+            cautions.append(f"insider {coverage.lower().replace('_', ' ')}")
+        elif float(insider.get("net_value") or 0) < 0:
+            cautions.append("negativ netto insiderverdi")
+        if str(news.get("coverage") or "") != "AVAILABLE":
+            cautions.append("nyhetsdekning mangler")
+        action = str(candidate.get("portfolio_action") or "REVIEW").upper()
+        if action != "BUY":
+            cautions.append(f"handling {action}")
+        validity = str((candidate.get("data_contract") or {}).get("validity") or "").upper()
+        if validity and validity not in {"VALID", "GYLDIG"}:
+            cautions.append(f"datagyldighet {validity}")
+        score_gap = ""
+        if next_candidate:
+            score_gap = f"{float(candidate.get('investment_score') or 0) - float(next_candidate.get('investment_score') or 0):.2f} poeng foran neste"
+        return {
+            "drivers": drivers,
+            "cautions": ", ".join(cautions[:3]) or "Ingen kritiske forbehold registrert",
+            "action": action,
+            "gap": score_gap,
+            "insider": (
+                f"{raw.get('insider_signal') or 'NØYTRAL'}; {int(insider.get('buy_count') or 0)} kjøp, "
+                f"{int(insider.get('sell_count') or 0)} salg, "
+                f"netto {format_whole_currency(insider.get('net_value', 0), market_currency(candidate.get('market'), candidate.get('ticker'), insider.get('currency')))}"
+                if coverage == "AVAILABLE" else f"Ingen verifisert insiderinformasjon ({coverage})"
+            ),
+            "news": _short(news.get("summary") or "Ingen relevant nyhetsinformasjon", 115),
+        }
+
     def _page(canvas: Any, document: Any) -> None:
         canvas.saveState()
         width, height = A4
@@ -771,8 +825,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     story = [Paragraph("AI Aksje Analyzer Pro", styles["ReportTitle"]), Paragraph(escape(report_type), styles["Section"]), meta, Spacer(1, 2*mm)]
     summary = run.get("summary") or {}
     intelligence = run.get("executive_intelligence") or executive_intelligence(run.get("candidates") or [])
+    portfolio_actions = dict((run.get("portfolio_decisions") or {}).get("actions") or {})
     summary_items = [("Skannet", summary.get("scanned", 0)), ("Grundig analysert", summary.get("deep_analyzed", 0)),
-                     ("Forslag", summary.get("proposals", 0)), ("Anbefalt", summary.get("recommended", 0)),
+                     ("Forslag", summary.get("proposals", 0)), ("Til vurdering", summary.get("recommended", 0)),
                      ("Unike selskaper", intelligence.get("unique_companies", 0)), ("Snittscore", intelligence.get("average_score", 0)),
                      ("Høyeste score", intelligence.get("highest_score", 0)), ("Markeder i Top 10", intelligence.get("markets_in_top10", 0)),
                      ("Sterke insidersignaler", sum(1 for x in (run.get("candidates") or []) if float((x.get("raw") or {}).get("insider_score", 50) or 50) >= 78))]
@@ -785,7 +840,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         summary_grid.append(cells)
     summary_table = Table(summary_grid, colWidths=[61.3*mm]*3)
     summary_table.setStyle(_table_style(7, header=False, padding=4))
-    story += [Paragraph("Executive Summary", styles["Section"]), summary_table]
+    decision_conclusion = (
+        f"Beslutningskonklusjon: {int(portfolio_actions.get('BUY', 0) or 0)} BUY, "
+        f"{int(portfolio_actions.get('REVIEW', 0) or 0)} REVIEW og {int(portfolio_actions.get('SKIP', 0) or 0)} SKIP. "
+        + ("Ingen kandidat er kjøpsgodkjent i denne kjøringen." if not int(portfolio_actions.get("BUY", 0) or 0) else "Kun BUY-kandidater er klare for teoretisk posisjonering.")
+    )
+    story += [Paragraph("Executive Summary", styles["Section"]), summary_table,
+              Paragraph(escape(decision_conclusion), styles["BodyCompact"])]
     user_mission = run.get("user_mission") or {}
     mission_summary = run.get("mission_summary") or {}
     if user_mission:
@@ -824,10 +885,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [Paragraph("Markedsstatus", styles["Subsection"]), ms_table]
     quality = run.get("data_quality") or {}
     if quality:
-        quality_table = Table([["Kvalitet", f"{quality.get('score', 0)} %", "Vurdering", quality.get("label", "-"), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
+        quality_table = Table([["Markedsdata", f"{quality.get('score', 0)} %", "Vurdering", quality.get("label", "-"), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
         quality_table.setStyle(_table_style(6.8, header=False, padding=2))
         quality_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold"), ("FONTNAME", (8,0), (8,0), "Helvetica-Bold")]))
-        story += [Paragraph("Datakvalitet", styles["Subsection"]), quality_table]
+        story += [Paragraph("Datakvalitet", styles["Subsection"]), quality_table,
+                  Paragraph("Poengsummen over gjelder kurs- og markedsdata. Insider-, nyhets-, research- og backtestdekning vurderes separat og kan redusere beslutningskonfidensen.", styles["Small"])]
         if quality.get("failed_markets"):
             story += [Paragraph("Datakvaliteten er redusert fordi valgte markeder feilet eller ga null kandidater: " +
                                 escape(", ".join(quality.get("failed_markets") or [])) + ".", styles["Small"])]
@@ -872,7 +934,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
               Spacer(1, 1*mm)]
     trace_rows = refresh.get("execution_trace") or []
     if trace_rows:
-        trace_data = [["Ticker", "Marked / land", "Kilde", "Status", "Cache-bypass", "Siste handelsdato", "Endret"]]
+        trace_data = [["Ticker", "Marked / land", "Kursdatakilde", "Status", "Cache-bypass", "Siste handelsdato", "Endret"]]
         for item in trace_rows[:30]:
             changed = item.get("market_data_changed")
             trace_data.append([item.get("ticker"), infer_market_from_ticker(str(item.get("ticker") or ""), str(item.get("market") or "")), item.get("data_source"), item.get("data_fetch_status"),
@@ -928,7 +990,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ndata = [["Ticker", "Marked", "Sentiment", "Score", "Saker", "Høy påvirkning", "Kort oppsummering"]]
         for item in news_rows[:10]:
             raw = item.get("raw") or {}; news = raw.get("news_intelligence") or {}
-            ndata.append([item.get("ticker"), item.get("market"), raw.get("news_sentiment"), _fmt(raw.get("news_score")), news.get("article_count", 0), news.get("high_impact_count", 0), _p(str(news.get("summary") or "")[:95])])
+            ndata.append([item.get("ticker"), item.get("market"), raw.get("news_sentiment"), _fmt(raw.get("news_score")), news.get("article_count", 0), news.get("high_impact_count", 0), _p(_short(news.get("summary"), 180))])
         ntable = Table(ndata, repeatRows=1, colWidths=[20*mm, 21*mm, 25*mm, 14*mm, 14*mm, 22*mm, 54*mm])
         ntable.setStyle(_table_style(6.4, padding=2))
         story += [Paragraph("News & Sentiment Intelligence", styles["Section"]), Paragraph("Unike, ferske nyhetssaker vektes etter sentiment, kildekvalitet, aktualitet og hendelsespåvirkning. Manglende dekning gir nøytral score.", styles["Small"]), ntable]
@@ -940,16 +1002,32 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         medal_data = []
         medal_candidates = run.get("diverse_top3") or select_diverse_candidates(candidates, 3)
         for idx, r in enumerate(medal_candidates):
-            strongest = max((("AI Discovery", r.get("discovery_score", 0)), ("Fundamentaler", r.get("fundamental_score", 0)), ("Research", r.get("research_score", 0)), ("Validering", r.get("validation_score", 0)), ("Porteføljetilpasning", r.get("portfolio_fit_score", 0)), ("Insider", (r.get("raw") or {}).get("insider_score", 50)), ("Nyheter", (r.get("raw") or {}).get("news_score", 50))), key=lambda x: float(x[1] or 0))
+            evidence = _candidate_evidence(r, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
             display_name = str(r.get("name") or r.get("ticker") or "-")
-            medal_data.append([Paragraph(f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>Risiko {format_risk(r.get('risk_score',0))} · Vekt {r.get('proposed_position_pct',0)} %<br/>Sterkest: {strongest[0]} {float(strongest[1] or 0):.1f}", styles["Small"])])
+            weight_text = f"Vekt {r.get('proposed_position_pct', 0)} %" if evidence["action"] == "BUY" else "Ingen kjøpsvekt"
+            medal_data.append([Paragraph(
+                f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>"
+                f"Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>"
+                f"Risiko {format_risk(r.get('risk_score',0))} · {weight_text}<br/>"
+                f"<b>Driver:</b> {escape(evidence['drivers'])}<br/><b>Forbehold:</b> {escape(evidence['cautions'])}<br/>"
+                f"<b>Handling:</b> {escape(evidence['action'])}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
         medal_styles = [("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]
         medal_colors = ["#FFF4C2", "#EEF1F5", "#F6E1D3"]
         for medal_index in range(len(medal_data)):
             medal_styles.append(("BACKGROUND", (medal_index,0), (medal_index,-1), colors.HexColor(medal_colors[medal_index])))
         medal_table.setStyle(TableStyle(medal_styles))
-        story += [Paragraph("Topp 3", styles["Section"]), medal_table]
+        evidence_rows = [["Ticker", "Insiderbevis", "Nyhetsbevis", "Plasseringsbevis"]]
+        for idx, candidate in enumerate(medal_candidates):
+            evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
+            evidence_rows.append([
+                candidate.get("ticker"), _p(evidence["insider"]), _p(evidence["news"]),
+                _p("; ".join(x for x in [evidence["drivers"], evidence["gap"], evidence["cautions"]] if x)),
+            ])
+        evidence_table = Table(evidence_rows, repeatRows=1, colWidths=[18*mm, 51*mm, 51*mm, 54*mm])
+        evidence_table.setStyle(_table_style(6.2, padding=2))
+        story += [Paragraph("Topp 3", styles["Section"]), medal_table,
+                  Paragraph("Konkret beslutningsbevis for plasseringene", styles["Subsection"]), evidence_table]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko (0-100)", "Status"]]
         for r in candidates[:10]:
             data.append([r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")), _fmt(r.get("confidence_score")), r.get("trend"), format_risk(r.get("risk_score")), _p(str(r.get("status", ""))[:35])])
@@ -983,17 +1061,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         score_table.setStyle(_table_style(6.5, padding=2))
         positives = " • ".join(str(x) for x in (p.get("positives") or [])) or "Ingen registrerte positive drivere."
         risks = " • ".join(str(x) for x in (p.get("risks") or [])) or "Ingen registrerte risikopunkter."
+        action = str(p.get("portfolio_action") or "REVIEW").upper()
         proposal = [
-            Paragraph(f"{escape(str(p.get('ticker') or '-'))} – investeringsforslag", styles["Section"]),
+            Paragraph(f"{escape(str(p.get('ticker') or '-'))} – analysebevis", styles["Section"]),
             Paragraph(f"<b>Status:</b> {escape(str(p.get('status') or '-'))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Konfidens:</b> {escape(str(_fmt(p.get('confidence_score', 0))))} / 100 &nbsp; | &nbsp; <b>Trend:</b> {escape(str(p.get('trend', 'NY')))}", styles["BodyCompact"]),
             score_table,
             Paragraph(f"<b>Insider:</b> {escape(str(raw.get('insider_signal', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('insider_score', 50))))} / 100 · nettoverdi {escape(format_whole_currency(insider.get('net_value', 0), market_currency(p.get('market'), p.get('ticker'), insider.get('currency'))))}", styles["Small"]),
             Paragraph(f"<b>Nyheter:</b> {escape(str(raw.get('news_sentiment', 'INGEN DATA')))} · score {escape(str(_fmt(raw.get('news_score', 50))))} / 100 · {escape(str(news.get('summary') or 'Ingen oppsummering.'))}", styles["Small"]),
             Paragraph(f"<b>Positive drivere:</b> {escape(positives)}", styles["Small"]),
             Paragraph(f"<b>Risiko:</b> {escape(risks)}", styles["Small"]),
-            Paragraph(f"<b>Strategitreff:</b> {escape(', '.join(p.get('strategy_matches') or []) or str(p.get('strategy_match') or '-'))} · <b>foreslått porteføljevekt:</b> {escape(str(p.get('proposed_position_pct', 0)))} %", styles["Small"]),
+            Paragraph(f"<b>Strategitreff:</b> {escape(', '.join(p.get('strategy_matches') or []) or str(p.get('strategy_match') or '-'))} · <b>Beslutning:</b> {escape(action)}" + (f" · <b>teoretisk vekt:</b> {escape(str(p.get('proposed_position_pct', 0)))} %" if action == "BUY" else " · Ingen kjøpsvekt før godkjenning"), styles["Small"]),
         ]
-        story += [KeepTogether(proposal), Spacer(1, 1.2*mm)]
+        story += proposal + [Spacer(1, 1.2*mm)]
     portfolio_proposal = run.get("portfolio_proposal") or {}
     portfolio_layer = run.get("portfolio_decisions") or {}
     if portfolio_layer:
