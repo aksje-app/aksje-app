@@ -482,6 +482,7 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     identity = resolve_report_identity(run)
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"),
+        "result_id": (run.get("canonical_result") or {}).get("result_id"),
         "created_at_local": local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)),
         "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
         "report_type": identity.get("type"), "report_label": identity.get("label"),
@@ -1477,6 +1478,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     else:
         run["changes"] = compare_runs(run, previous)
         _update_history(run)
+    # Stable identity is known before Controlled Learning runs. The immutable
+    # record itself is committed after the autonomous stages are complete.
+    run["canonical_result"] = {"result_id": f"RESULT-{run_id}", "run_id": run_id, "pending_storage": True}
     try:
         if analysis_aborted:
             run["autonomous_chain"] = {"status": "SKIPPED", "reason": "Utilstrekkelige markedsdata"}
@@ -1495,11 +1499,18 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             raise
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
+    # v18.9.0: persist the domain result exactly once. Every downstream
+    # consumer receives a view of this immutable record, not a separately
+    # assembled copy of the analysis.
+    from autonomi_core.learning_reporting import canonical_payload, save_canonical_result
+    canonical_record = save_canonical_result(run)
+    canonical_run = canonical_payload(canonical_record)
+    run["canonical_result"] = dict(canonical_run["canonical_result"])
     emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
     if job.save_pdf:
         pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_bytes = build_pdf(run)
+        pdf_bytes = build_pdf(canonical_run)
         pdf_path.write_bytes(pdf_bytes)
         run["pdf_path"] = str(pdf_path)
         publish_pdf(run, pdf_bytes)
@@ -1508,19 +1519,23 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
-    archive_report(run)
+    archive_view = dict(canonical_run)
+    archive_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
+    archive_report(archive_view)
     persistence = verify_report_persistence(run_id)
     if not persistence.get("ok"):
         raise RuntimeError(str(persistence.get("error") or "Rapportarkivet kunne ikke bekreftes"))
     run["persistence"] = persistence
     try:
         from historical_learning import register_run
-        run["historical_learning"] = {"snapshots_created": register_run(run), "mode": "DESCRIPTIVE_ONLY"}
+        run["historical_learning"] = {"snapshots_created": register_run(canonical_run), "mode": "DESCRIPTIVE_ONLY", "result_id": canonical_record["result_id"]}
         _write(RUNS_DIR / f"{run_id}.json", run)
     except Exception as exc:
         run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
     emit("REPORT", 2, 3, "Rapport, arkiv og historikk er lagret; kontrollerer varsling")
-    notify_ok, notify_detail = _notification(job, run)
+    notification_view = dict(canonical_run)
+    notification_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
+    notify_ok, notify_detail = _notification(job, notification_view)
     run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run)}
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)

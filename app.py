@@ -21461,13 +21461,28 @@ html body .stApp .compact-mobile-note,
 html body .stApp .v15-inline-help,
 html body .stApp .info-mini-sub,
 html body .stApp .info-mini-small,
-html body .stApp .v18574-global-status .sub {
+html body .stApp .v18574-global-status .sub,
+html body .stApp .v18574-global-status .main {
     color: #cbd5e1 !important;
     opacity: 1 !important;
     font-size: clamp(.90rem, .78rem + .18vw, 1.06rem) !important;
     line-height: 1.48 !important;
     font-weight: 650 !important;
     white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+html body .stApp .v18574-global-status {
+    min-height: 42px !important;
+    padding: .62rem .85rem !important;
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: .3rem .55rem !important;
+}
+html body .stApp div[data-testid="stAlert"] p,
+html body .stApp div[data-testid="stNotification"] p {
+    font-size: clamp(.92rem, .82rem + .14vw, 1.04rem) !important;
+    line-height: 1.45 !important;
     overflow-wrap: anywhere !important;
 }
 html body .stApp div[data-testid="stCheckbox"] label {

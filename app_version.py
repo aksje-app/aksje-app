@@ -1,8 +1,11 @@
-APP_VERSION = "v18.8.9"
-APP_VERSION_NAME = "Portfolio & Decision Layer"
+APP_VERSION = "v18.9.0"
+APP_VERSION_NAME = "Learning & Reporting Layer"
 APP_BUILD_LABEL = APP_VERSION
+# Retained for update/migration diagnostics and v18.8 compatibility checks.
+PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 
 CHANGELOG = [
+    "v18.9.0: Learning & Reporting Layer: hvert ferdig analyseresultat får én uforanderlig, idempotent resultatpost og én stabil resultat-ID. Historical Learning, Accuracy Analytics, snapshots, Controlled Learning, Executive Summary, PDF, rapportarkiv og Pushover bruker samme kanoniske innhold; PDF- og varslingsstatus lagres separat som leveringskvitteringer. Autonomi-oversiktens drifts-, rapport-, status- og forklaringstekster har fått større skrift, kontrast, linjehøyde og responsiv layout uten overlapping.",
     "v18.8.9: Portfolio & Decision Layer: Portfolio Optimizer og Autonomous Learning Portfolio samles i et porteføljebevis før autonom utførelse. Alle kandidater vurderes mot eksisterende posisjoner, kontanter, posisjonsstørrelse, sektor, land, valuta, korrelasjon/proxy, konsentrasjon, likviditet og risiko før BUY/HOLD/SELL/SKIP/REVIEW. Bare porteføljegodkjente BUY-kandidater kan nå gå til autonom kjøpsflyt. Porteføljebehov oppretter et sporbart Discovery-oppdrag for neste kjøring. Eksisterende portefølje- og optimizergrenser kombineres konservativt.",
     "v18.8.8: Analysis & Ranking Layer: fundamental analyse, teknisk analyse, verdsettelse, risiko, nyheter/sentiment, insiderbevis, Adaptive Ranking, Strategy Match og scenariofølsomhet samles i et forklarbart analysebevis. Quality, Growth, Value, Income, Insider, Momentum og Event Recovery vurderes parallelt; en kandidat kan passe flere strategier. Hver strategi viser bransjereferanse, råfelt, komponentpoeng, vekt, bidrag, datadekning, mangler og egen konfidens. Ingen ny kunstig universalscore opprettes, og eksisterende kompatibilitetsscore og produksjonsvakter beholdes.",
     "v18.8.7: Discovery & Data Layer: samlet, oppdragsstyrt kandidatunivers med varig historikk, daglig rotasjon, 70/20/10-fordeling mellom dokumenterte, nye og eksperimentelle kandidater, endringsfingeravtrykk, analysekarantene og kontrollert utforskning utenfor etablerte indeksunivers. Nye kilder opprettes bare som godkjenningspliktige forslag. Global lesbarhet er forbedret for hjelpetekst, statusfelt og avhukingsvalg på høyoppløselig PC og mobil.",

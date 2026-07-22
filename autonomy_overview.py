@@ -26,7 +26,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v18.8.3"
+VERSION = "v18.9.0"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -171,6 +171,19 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
 
 
 def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
+    st.markdown("""
+    <style>
+    html body .stApp .autonomy-readable-card {font-size:1rem!important;line-height:1.55!important;color:#e5edf8!important;}
+    html body .stApp .autonomy-readable-card .ar-row {display:grid;grid-template-columns:minmax(8.5rem,auto) 1fr;gap:.65rem;margin:.22rem 0;align-items:start;}
+    html body .stApp .autonomy-readable-card .ar-label {font-weight:800;color:#f8fafc;}
+    html body .stApp .autonomy-readable-card .ar-value {overflow-wrap:anywhere;min-width:0;}
+    html body .stApp div[data-testid="stCaptionContainer"] {font-size:.92rem!important;line-height:1.45!important;color:#b9c7da!important;}
+    html body .stApp div[data-testid="stAlert"] p {font-size:.96rem!important;line-height:1.4!important;}
+    html body .stApp div[data-testid="stCheckbox"] label p {font-size:1rem!important;line-height:1.35!important;}
+    html body .stApp div[data-testid="stCheckbox"] input {width:1.15rem!important;height:1.15rem!important;}
+    @media (max-width:700px){html body .stApp .autonomy-readable-card .ar-row{grid-template-columns:1fr;gap:.05rem}.autonomy-readable-card{font-size:.98rem!important}}
+    </style>
+    """, unsafe_allow_html=True)
     snapshot = collect_autonomy_overview()
     status = snapshot["status"]
     latest = snapshot["latest_run"]
@@ -248,9 +261,13 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
         with st.container(border=True):
             st.markdown("#### Pushover og drift")
             storage = snapshot["storage"]
-            st.markdown(f"**Pushover:** {'Klar' if snapshot['pushover_ready'] else 'Ikke konfigurert'}  \n"
-                        f"**Lagring:** {'PostgreSQL' if storage.ok and storage.persistent else 'Lokal fallback'}  \n"
-                        f"**Scheduler:** {snapshot['scheduler'].get('state') or 'IDLE'}")
+            st.markdown(
+                "<div class='autonomy-readable-card'>"
+                f"<div class='ar-row'><span class='ar-label'>Pushover</span><span class='ar-value'>{'Klar' if snapshot['pushover_ready'] else 'Ikke konfigurert'}</span></div>"
+                f"<div class='ar-row'><span class='ar-label'>Lagring</span><span class='ar-value'>{'PostgreSQL' if storage.ok and storage.persistent else 'Lokal fallback'}</span></div>"
+                f"<div class='ar-row'><span class='ar-label'>Scheduler</span><span class='ar-value'>{snapshot['scheduler'].get('state') or 'IDLE'}</span></div>"
+                "</div>", unsafe_allow_html=True,
+            )
             push = snapshot["pushover_latest"]
             if push:
                 st.caption(f"Siste levering: {'OK' if push.get('success') else 'Feil'} · {push.get('at', '-')}")
@@ -288,8 +305,14 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             st.markdown("#### Siste rapport")
             report = snapshot["latest_archive"]
             if report:
-                st.markdown(f"**{report.get('report_label') or 'Rapport'}**  \n{report.get('job_name') or '-'}")
-                st.caption(f"{report.get('created_at_local') or report.get('created_at')} · {report.get('run_id')}")
+                st.markdown(
+                    "<div class='autonomy-readable-card'>"
+                    f"<div class='ar-row'><span class='ar-label'>Rapporttype</span><span class='ar-value'>{report.get('report_label') or 'Rapport'}</span></div>"
+                    f"<div class='ar-row'><span class='ar-label'>Jobb</span><span class='ar-value'>{report.get('job_name') or '-'}</span></div>"
+                    f"<div class='ar-row'><span class='ar-label'>Tidspunkt</span><span class='ar-value'>{report.get('created_at_local') or report.get('created_at') or '-'}</span></div>"
+                    f"<div class='ar-row'><span class='ar-label'>Rapport-ID</span><span class='ar-value'>{report.get('run_id') or '-'}</span></div>"
+                    "</div>", unsafe_allow_html=True,
+                )
                 if snapshot["report_url"]:
                     st.link_button("Åpne siste rapport", snapshot["report_url"], use_container_width=True)
                 else:

@@ -100,6 +100,7 @@ def run_post_scan_chain(
         try:
             from controlled_parameter_learning import run_automatic_learning_if_due
             learning = run_automatic_learning_if_due(trigger=f"ORCHESTRATOR:{trigger}", force=True)
+            learning["source_result_id"] = (market_run.get("canonical_result") or {}).get("result_id")
             stage("CONTROLLED_LEARNING", "OK" if learning.get("ran") else "SKIPPED", learning)
         except Exception as exc:
             result["errors"].append(f"Controlled Learning: {exc}")
