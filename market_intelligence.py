@@ -12,7 +12,7 @@ import json
 import threading
 import uuid
 import time as time_module
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -278,7 +278,7 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
 
 def job_fingerprint(job: "JobProfile") -> str:
     markets = normalize_markets(job.markets)
-    return f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}"
+    return f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}|{job.investment_mission_id}|{job.configuration_version}"
 
 
 @dataclass
@@ -305,6 +305,8 @@ class JobProfile:
     run_controlled_learning: bool = True
     require_active_portfolio: bool = True
     user_mission_id: str = ""
+    investment_mission_id: str = ""
+    configuration_version: str = ""
     timezone_name: str = DEFAULT_TIMEZONE
     job_id: str = field(default_factory=lambda: f"MIJ-{uuid.uuid4().hex[:10].upper()}")
     created_at: str = field(default_factory=_now_iso)
@@ -787,12 +789,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     mission_summary = run.get("mission_summary") or {}
     if user_mission:
         mission_table = Table([
-            ["Mål", user_mission.get("goal", "-"), "Tidshorisont", user_mission.get("horizon", "-")],
+            ["Mål", user_mission.get("objective") or user_mission.get("goal", "-"), "Tidshorisont", user_mission.get("horizon", "-")],
+            ["Leter etter", user_mission.get("search_for", "-"), "Strategi", user_mission.get("strategy", "-")],
             ["Risiko", user_mission.get("risk", "-"), "Risikogrense", mission_summary.get("risk_ceiling", "-")],
+            ["Porteføljebehov", user_mission.get("portfolio_need", "-"), "Minimum datakvalitet", user_mission.get("minimum_data_quality", "-")],
             ["Bransjer", ", ".join(user_mission.get("sectors") or []) or "Alle", "Innenfor oppdrag", mission_summary.get("eligible", 0)],
+            ["Eksklusjoner", ", ".join(user_mission.get("exclusions") or []) or "Ingen", "Kandidatantall", user_mission.get("candidate_count", "-")],
             ["Utenfor oppdrag", mission_summary.get("excluded", 0), "Oppdrags-ID", user_mission.get("mission_id", "-")],
+            ["Konfigurasjon", user_mission.get("configuration_version", "-"), "", ""],
         ], colWidths=[28*mm, 64*mm, 30*mm, 62*mm])
         mission_table.setStyle(_table_style(7, header=False, padding=2.5))
+        mission_table.setStyle(TableStyle([("SPAN", (1, 7), (3, 7))]))
         story += [Paragraph("Autonomi-oppdrag", styles["Subsection"]), mission_table,
                   Paragraph("Kandidater utenfor valgt risiko eller bransje kan vises for sporbarhet, men går ikke videre til beslutningsdelen.", styles["Small"])]
     diagnostics = run.get("market_diagnostics") or []
@@ -1168,6 +1175,30 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
 def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
     requested_job = job
     job, handoff = _effective_execution_job(job, trigger)
+    from autonomi_core.missions.investment_mission import create_investment_mission, engine_handoff, load_investment_mission
+    investment_mission = load_investment_mission(job.investment_mission_id) if job.investment_mission_id else {}
+    if not investment_mission:
+        from autonomi_core.configuration.policy import load_policy as _load_mission_policy
+        from autonomi_core.missions.user_mission import load_user_mission as _load_legacy_user_mission
+        legacy_mission = _load_legacy_user_mission()
+        legacy_mission = legacy_mission if str(legacy_mission.get("mission_id") or "") == str(job.user_mission_id or "") else {}
+        policy = _load_mission_policy()
+        generated = create_investment_mission(
+            search_for=str(legacy_mission.get("goal") or job.name or "Beste relevante kandidater"),
+            markets=normalize_markets(job.markets), sectors=list(legacy_mission.get("sectors") or []),
+            strategy="Kvalitet til rimelig pris", horizon=str(legacy_mission.get("horizon") or "3–12 måneder"),
+            risk=str(legacy_mission.get("risk") or "Balansert"),
+            risk_ceiling=float(legacy_mission.get("risk_ceiling", 65.0)),
+            portfolio_need="Beste enkeltkandidater", minimum_data_quality=float(policy.minimum_data_quality),
+            candidate_count=int(job.deep_count), exclusions=[], objective=str(legacy_mission.get("goal") or job.name),
+        )
+        investment_mission = generated.to_dict()
+        job = replace(job, investment_mission_id=generated.mission_id, configuration_version=generated.configuration_version)
+    if investment_mission and str(investment_mission.get("configuration_version") or "") != str(job.configuration_version or ""):
+        raise ValueError("Oppdragets konfigurasjonsversjon samsvarer ikke med jobbens konfigurasjonsversjon")
+    from autonomi_core.configuration.registry import status as _central_configuration_status
+    if investment_mission and str(investment_mission.get("configuration_version") or "") != str(_central_configuration_status().get("config_version") or ""):
+        raise ValueError("Sentral konfigurasjon er endret etter at oppdraget ble opprettet. Opprett oppdraget på nytt.")
     previous = _read(LATEST_PATH, {})
     reusable = None if force_refresh else _recent_validated_draft(job, trigger)
     if reusable is not None:
@@ -1191,7 +1222,11 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                              use_portfolio_fit="Portfolio Optimizer" in job.modules,
                              use_learning_advisor="Learning Advisor" in job.modules,
                              use_insider_intelligence="Insider Intelligence" in job.modules,
-                             use_news_intelligence="News & Sentiment Intelligence" in job.modules).normalized()
+                             use_news_intelligence="News & Sentiment Intelligence" in job.modules,
+                             min_data_quality=float(investment_mission.get("minimum_data_quality", 45.0)),
+                             max_risk_score=float(investment_mission.get("risk_ceiling", 75.0)),
+                             mission_id=str(investment_mission.get("mission_id") or ""),
+                             configuration_version=str(investment_mission.get("configuration_version") or "")).normalized()
         try:
             emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
             rows, source = _load_candidate_rows_from_app(cfg)
@@ -1270,11 +1305,15 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
     from autonomi_core.discovery_data.freshness import apply_data_contracts
-    data_contract_summary = apply_data_contracts(all_candidates)
+    from autonomi_core.configuration.policy import load_policy
+    freshness_policy = load_policy()
+    if investment_mission:
+        freshness_policy = replace(freshness_policy, minimum_data_quality=float(investment_mission.get("minimum_data_quality", freshness_policy.minimum_data_quality)))
+    data_contract_summary = apply_data_contracts(all_candidates, policy=freshness_policy)
     totals["deep_analyzed"] = len(all_candidates)
     from autonomi_core.missions.user_mission import apply_user_mission, load_user_mission
     stored_mission = load_user_mission()
-    user_mission = stored_mission if str(stored_mission.get("mission_id") or "") == str(job.user_mission_id or "") else {}
+    user_mission = investment_mission or (stored_mission if str(stored_mission.get("mission_id") or "") == str(job.user_mission_id or "") else {})
     mission_summary = apply_user_mission(all_candidates, user_mission)
     decision_candidates = [
         x for x in all_candidates
@@ -1325,6 +1364,10 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "data_contract": data_contract_summary,
            "user_mission": user_mission,
            "mission_summary": mission_summary,
+           "investment_mission": investment_mission,
+           "mission_id": investment_mission.get("mission_id") or "",
+           "configuration_version": investment_mission.get("configuration_version") or "",
+           "engine_handoff": engine_handoff(investment_mission, list(job.modules) + ["Investment Pipeline", "Autonomous Portfolio", "Controlled Learning", "Reporting"]) if investment_mission else {},
            "analysis_aborted": analysis_aborted,
            "partial_market_failure": partial_market_failure,
            "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),

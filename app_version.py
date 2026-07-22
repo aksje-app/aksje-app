@@ -1,8 +1,10 @@
-APP_VERSION = "v18.8.4"
-APP_VERSION_NAME = "Enkel modus og ekspertmodus"
+APP_VERSION = "v18.8.6"
+APP_VERSION_NAME = "Investment Mission Contract"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.8.6: Investment Mission Contract: alle Autonomi-kjøringer får ett uforanderlig oppdrag med søkemål, markeder, bransjer, strategiprofil, horisont, risiko, porteføljebehov, minimum datakvalitet, kandidatantall og eksklusjoner. Syv første strategiprofiler er registrert. Oppdrags-ID og sentral konfigurasjonsversjon følger PipelineConfig, kandidatrader, kjøringsdata, engine-handoff, Autonomy Core, bakgrunnsstatus og PDF. Kjøringen stoppes dersom konfigurasjonen er endret etter at oppdraget ble opprettet.",
+    "v18.8.5: Central Autonomy Configuration: ett PostgreSQL-first, versjonert register samler operative parametere under autonomy.*, discovery.*, analysis.*, portfolio.*, learning.*, runtime.*, notifications.* og reporting.*. Registeret har validering, endringshistorikk, eksplisitt godkjenning, rollback, eksport/import og sikker migrering. persistent_config_store, settings_store og Portfolio Optimizer fungerer som kompatibilitetslag mot gamle innstillinger.",
     "v18.8.4: Enkel modus og ekspertmodus: vanlig bruk viser kun mål, tidshorisont, risiko, markeder, valgfrie bransjer og Start Autonomi før den operative oversikten. Markeder sendes til eksisterende kjede, mens risiko- og bransjegrenser håndheves transparent før beslutningsdelen. Ekspertmodus samler motorer, terskler, datakilder, strategier, faktorvekter, Scheduler, Shadow Mode, logger og diagnose. Valgt modus og oppdrag lagres varig.",
     "v18.8.3: Autonomi Oversikt: ny samlet operativ førsteside viser aktivt oppdrag og produksjonskjede, pågående og neste kjøring, fremdrift og kontrollert avbrudd, kandidater, beslutninger, teoretisk portefølje og risiko, datakontrakt, Pushover/drift, godkjenningskø og siste rapport. Oversikten gjenbruker eksisterende varige tjenester og endrer ingen motorlogikk.",
     "v18.8.2: Autonomi i hovedmenyen: Autonomi får én kanonisk hovedrute og fast knapp i både desktop- og mobilnavigasjonen. Learning Portfolio og Orchestrator/Scheduler åpnes lazy i det samlede Autonomi-kontrollsenteret. Gamle autonomous/autonomi-ruter og tidligere panelnavn normaliseres som fallback til riktig arbeidsflate. URL-state, lagret state og refresh bruker samme kanoniske gruppe/panel uten endring i motorlogikk.",

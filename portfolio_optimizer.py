@@ -71,6 +71,13 @@ def load_settings() -> PortfolioLimits:
                 data.update(raw)
     except Exception:
         pass
+    try:
+        from autonomi_core.configuration.registry import read
+        central = read("portfolio.optimizer", {})
+        if isinstance(central, Mapping):
+            data.update(central)
+    except Exception:
+        pass
     return PortfolioLimits(
         max_position_pct=max(1.0, _safe_float(data.get("max_position_pct"), 10.0)),
         max_sector_pct=max(1.0, _safe_float(data.get("max_sector_pct"), 25.0)),
@@ -83,6 +90,11 @@ def load_settings() -> PortfolioLimits:
 
 
 def save_settings(limits: PortfolioLimits) -> None:
+    try:
+        from autonomi_core.configuration.registry import update
+        update({"portfolio.optimizer": asdict(limits)}, reason="Kompatibilitet: Portfolio Optimizer", actor="LEGACY_ADAPTER", compatibility=True)
+    except Exception:
+        pass
     _atomic_write(SETTINGS_PATH, asdict(limits))
 
 

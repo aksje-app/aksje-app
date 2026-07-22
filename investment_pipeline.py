@@ -190,6 +190,8 @@ class PipelineConfig:
     use_learning_advisor: bool = True
     use_insider_intelligence: bool = True
     use_news_intelligence: bool = True
+    mission_id: str = ""
+    configuration_version: str = ""
     weights: dict[str, float] = field(default_factory=lambda: {
         "discovery": 0.28,
         "fundamental": 0.18,
@@ -224,6 +226,8 @@ class PipelineConfig:
             use_learning_advisor=bool(self.use_learning_advisor),
             use_insider_intelligence=bool(self.use_insider_intelligence),
             use_news_intelligence=bool(self.use_news_intelligence),
+            mission_id=str(self.mission_id or ""),
+            configuration_version=str(self.configuration_version or ""),
             weights=weights,
         )
 
@@ -442,6 +446,9 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         if progress_callback:
             progress_callback({"phase": "MARKET_DATA", "completed": done, "total": total, "ticker": ticker, "message": f"Henter markedsdata {done}/{total}: {ticker}"})
     prepared_rows = _prepare_candidate_rows(rows, cfg, progress_callback=_enrich_progress, force_refresh=force_refresh)
+    for row in prepared_rows:
+        row["mission_id"] = cfg.mission_id
+        row["configuration_version"] = cfg.configuration_version
     candidate_errors: list[dict[str, Any]] = []
     sanitized_rows: list[dict[str, Any]] = []
     for row in prepared_rows:

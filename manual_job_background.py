@@ -186,6 +186,8 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
             "run_json_saved": bool(persistence.get("run_json_saved")) if isinstance(persistence, Mapping) else True,
             "report_type": (result.get("report_identity") or {}).get("type"),
             "report_label": (result.get("report_identity") or {}).get("label"),
+            "mission_id": result.get("mission_id") or (result.get("investment_mission") or {}).get("mission_id"),
+            "configuration_version": result.get("configuration_version") or (result.get("investment_mission") or {}).get("configuration_version"),
             "completion_status": result.get("completion_status") or "FULLFØRT",
             "partial_market_failure": bool(result.get("partial_market_failure")),
             "failed_markets": list((result.get("data_quality") or {}).get("failed_markets") or []),
@@ -228,6 +230,8 @@ def start_manual_job(job: Any, *, trigger: str, force_refresh: bool = False) -> 
             "execution_id": execution_id, "state": "QUEUED", "phase": "START",
             "percent": 0, "message": "Klargjør bakgrunnskjøring", "trigger": trigger,
             "job_id": getattr(job, "job_id", ""), "job_name": getattr(job, "name", ""),
+            "mission_id": getattr(job, "investment_mission_id", ""),
+            "configuration_version": getattr(job, "configuration_version", ""),
             "scan_configuration": {
                 "per_market": per_market, "market_count": market_count,
                 "planned_maximum": per_market * market_count,

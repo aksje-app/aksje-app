@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from typing import Any, Mapping
 
 import pandas as pd
@@ -9,7 +10,8 @@ import streamlit as st
 
 from adaptive_ranking import COMPONENT_FIELDS
 from autonomi_core.configuration.policy import load_policy
-from autonomi_core.missions.user_mission import load_user_mission, save_user_mission
+from autonomi_core.missions.investment_mission import STRATEGY_PROFILES, create_investment_mission, load_investment_mission
+from autonomi_core.missions.user_mission import RISK_CEILINGS, load_user_mission, save_user_mission
 from autonomi_core.runtime.orchestrator import runtime_manifest
 from autonomous_orchestrator import load_audit as load_orchestrator_audit
 from autonomous_portfolio import load_parameters, load_portfolio
@@ -19,6 +21,46 @@ from market_intelligence import BASE_MARKET_SCOPES, _load_report_archive, load_d
 from persistent_config_store import read_persistent_json, write_persistent_json
 from scheduler_background import scheduler_audit, scheduler_status
 from services.storage_service import get_storage_service
+
+
+def render_central_configuration() -> None:
+    from autonomi_core.configuration.registry import (
+        export_bundle, import_bundle, load_registry, resolve_approval, rollback, status,
+    )
+    registry = load_registry(); health = status()
+    with st.expander("⚙️ Central Autonomy Configuration", expanded=False):
+        a, b, c, d = st.columns(4)
+        a.metric("Versjon", health["config_version"]); b.metric("Revisjon", health["revision"])
+        c.metric("Lagring", health["backend"]); d.metric("Godkjenninger", health["pending_approvals"])
+        st.caption("Autoritative navnerom: autonomy.*, discovery.*, analysis.*, portfolio.*, learning.*, runtime.*, notifications.*, reporting.*")
+        st.download_button("Eksporter konfigurasjon", export_bundle(), "autonomy_configuration.json", "application/json", use_container_width=True)
+        uploaded = st.file_uploader("Importer konfigurasjon", type=["json"], key="central_config_import_v1885")
+        if uploaded and st.button("Valider og legg import i godkjenningskø", key="central_config_import_btn_v1885"):
+            try:
+                approval = import_bundle(uploaded.getvalue())
+                st.success(f"Import validert. Godkjenning {approval['approval_id']} er opprettet.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+        st.markdown("##### Ventende endringer")
+        pending = [row for row in registry.get("approvals", []) if row.get("status") == "PENDING"]
+        for item in pending:
+            st.warning(f"{item.get('approval_id')} · {item.get('reason')} · base {item.get('base_config_version')}")
+            yes, no = st.columns(2)
+            if yes.button("Godkjenn", key=f"central_yes_{item['approval_id']}", use_container_width=True):
+                resolve_approval(item["approval_id"], True); st.rerun()
+            if no.button("Avvis", key=f"central_no_{item['approval_id']}", use_container_width=True):
+                resolve_approval(item["approval_id"], False); st.rerun()
+        versions = [row.get("config_version") for row in registry.get("versions", []) if row.get("config_version")]
+        if versions:
+            selected = st.selectbox("Rollback-versjon", versions, key="central_rollback_version_v1885")
+            confirm = st.checkbox("Bekreft rollback", key="central_rollback_confirm_v1885")
+            if st.button("Utfør rollback", disabled=not confirm, key="central_rollback_v1885"):
+                rollback(selected); st.success(f"Rollback fra {selected} er registrert som ny versjon."); st.rerun()
+        with st.expander("Register og endringshistorikk", expanded=False):
+            st.json(registry.get("values", {}), expanded=False)
+            if registry.get("history"):
+                st.dataframe(pd.DataFrame(registry["history"][:200]), use_container_width=True, hide_index=True)
 
 
 MODE_KEY = "autonomi_core/interface_mode.json"
@@ -65,7 +107,7 @@ def _index(options: list[str], value: Any, default: int = 0) -> int:
 
 
 def render_simple_mode() -> None:
-    mission = load_user_mission()
+    mission = load_investment_mission() or load_user_mission()
     status = get_active_status()
     st.markdown("### Start Autonomi")
     st.caption(
@@ -86,17 +128,41 @@ def render_simple_mode() -> None:
             default=[item for item in mission.get("sectors", []) if item in SECTORS],
             help="Tomt felt betyr alle bransjer. Bransjefilter brukes etter at kandidatene er analysert.",
         )
+        with st.expander("Tilpass oppdraget (valgfritt)", expanded=False):
+            search_for = st.text_input("Hva skal det letes etter?", value=str(mission.get("search_for") or goal))
+            strategy_names = list(STRATEGY_PROFILES)
+            strategy = st.selectbox("Strategi", strategy_names, index=_index(strategy_names, mission.get("strategy"), 0))
+            portfolio_need = st.selectbox(
+                "Porteføljebehov", ["Beste enkeltkandidater", "Redusere konsentrasjon", "Ny sektor", "Ny geografi", "Kontantstrøm/utbytte"],
+                index=0,
+            )
+            minimum_data_quality = st.slider("Minimum datakvalitet", 0, 100, int(mission.get("minimum_data_quality", 55)), 5)
+            candidate_count = st.selectbox("Antall kandidater", [5, 10, 15, 20, 25, 50], index=_index(["5", "10", "15", "20", "25", "50"], mission.get("candidate_count"), 1))
+            exclusions_text = st.text_input(
+                "Ekskluderinger (tickere, kommaseparert)",
+                value=", ".join(mission.get("exclusions") or []),
+            )
         submitted = st.form_submit_button(
             "▶ Start Autonomi", type="primary", use_container_width=True,
             disabled=is_running(status),
         )
     if submitted:
         try:
+            exclusions = [item.strip().upper() for item in exclusions_text.split(",") if item.strip()]
+            contract = create_investment_mission(
+                search_for=search_for, markets=markets, sectors=sectors, strategy=strategy,
+                horizon=horizon, risk=risk, risk_ceiling=RISK_CEILINGS[risk],
+                portfolio_need=portfolio_need, minimum_data_quality=minimum_data_quality,
+                candidate_count=candidate_count, exclusions=exclusions, objective=goal,
+            )
             saved = save_user_mission(goal=goal, horizon=horizon, risk=risk, markets=markets, sectors=sectors)
             draft = load_draft_job()
             job = replace(
                 draft, name=f"Autonomi · {goal}", markets=list(markets),
-                user_mission_id=str(saved["mission_id"]), enabled=False,
+                scan_limit=max(int(draft.scan_limit), int(candidate_count)), deep_count=int(candidate_count),
+                proposal_count=int(candidate_count), user_mission_id=str(saved["mission_id"]),
+                investment_mission_id=contract.mission_id,
+                configuration_version=contract.configuration_version, enabled=False,
             )
             accepted = start_manual_job(job, trigger="MANUAL_SIMPLE_AUTONOMY", force_refresh=False)
             st.success(f"Oppdraget er startet: {accepted.get('execution_id')}")
@@ -108,7 +174,7 @@ def render_simple_mode() -> None:
     elif mission:
         sector_text = ", ".join(mission.get("sectors") or []) or "Alle bransjer"
         st.success(
-            f"Sist lagrede oppdrag: {mission.get('goal')} · {mission.get('horizon')} · "
+            f"Sist lagrede oppdrag: {mission.get('objective') or mission.get('goal')} · {mission.get('horizon')} · "
             f"{mission.get('risk')} risiko · {', '.join(mission.get('markets') or [])} · {sector_text}"
         )
     from autonomy_overview import render_autonomy_overview
@@ -124,6 +190,7 @@ def render_expert_console() -> None:
     """Read-only expert inventory; edits remain in established owner panels."""
     st.markdown("### 🧰 Ekspertkontroll")
     st.caption("Teknisk innsyn er samlet her. Endringer gjøres fortsatt i modulens eierpanel og følger eksisterende guardrails.")
+    render_central_configuration()
     manifest = runtime_manifest()
     latest = _latest_run()
     policy = load_policy()

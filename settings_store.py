@@ -77,6 +77,31 @@ def _merge(settings):
                 out[k] = v
     return out
 
+def _registry_overlay(settings):
+    """Central registry is authoritative; old settings remain the write-through fallback."""
+    try:
+        from autonomi_core.configuration.registry import migration_in_progress, read
+        if migration_in_progress():
+            return settings
+        groups = {
+            "discovery.scanner": ("markets", "max_tickers_per_market", "scan_top_picks_only"),
+            "analysis.signals": ("min_buy_confidence", "min_buy_score"),
+            "portfolio.paper_trading": ("max_open_positions", "max_trades_per_day", "position_size_pct"),
+            "runtime.scanner": ("scan_interval_minutes", "background_scanning_enabled", "vacation_mode_enabled"),
+            "notifications": ("pushover_enabled", "notify_paper_trades", "notify_watchlist_signal_changes", "notify_min_confidence"),
+            "reporting.ui": ("ui_refresh_minutes", "ui_auto_refresh_enabled"),
+        }
+        merged = copy.deepcopy(settings)
+        for root, keys in groups.items():
+            section = read(root, {})
+            if isinstance(section, dict):
+                for key in keys:
+                    if key in section:
+                        merged[key] = copy.deepcopy(section[key])
+        return merged
+    except Exception:
+        return settings
+
 def init_settings_store():
     if not using_postgres():
         return False
@@ -99,7 +124,7 @@ def load_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_AT
     now = time.monotonic()
     if isinstance(_SETTINGS_CACHE, dict) and (now - _SETTINGS_CACHE_AT) <= SETTINGS_CACHE_TTL_SECONDS:
-        return copy.deepcopy(_SETTINGS_CACHE)
+        return _registry_overlay(copy.deepcopy(_SETTINGS_CACHE))
 
     if using_postgres():
         try:
@@ -113,7 +138,7 @@ def load_settings():
                 merged = _merge(json.loads(row[0]))
                 _SETTINGS_CACHE = copy.deepcopy(merged)
                 _SETTINGS_CACHE_AT = now
-                return merged
+                return _registry_overlay(merged)
         except Exception as e:
             print(f"load_settings DB fallback: {e}")
     storage = _storage()
@@ -123,7 +148,7 @@ def load_settings():
             merged = _merge(stored)
             _SETTINGS_CACHE = copy.deepcopy(merged)
             _SETTINGS_CACHE_AT = now
-            return merged
+            return _registry_overlay(merged)
 
     # One-time legacy migration from old root file if present locally.
     if SETTINGS_FILE.exists():
@@ -134,17 +159,31 @@ def load_settings():
                 storage.write_json(STORAGE_KEY, merged)
             _SETTINGS_CACHE = copy.deepcopy(merged)
             _SETTINGS_CACHE_AT = now
-            return merged
+            return _registry_overlay(merged)
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
     merged = _merge({})
     _SETTINGS_CACHE = copy.deepcopy(merged)
     _SETTINGS_CACHE_AT = now
-    return merged
+    return _registry_overlay(merged)
 
 def save_settings(settings):
     global _SETTINGS_CACHE, _SETTINGS_CACHE_AT
     settings = _merge(settings)
+    try:
+        from autonomi_core.configuration.registry import update
+        groups = {
+            "discovery.scanner": ("markets", "max_tickers_per_market", "scan_top_picks_only"),
+            "analysis.signals": ("min_buy_confidence", "min_buy_score"),
+            "portfolio.paper_trading": ("max_open_positions", "max_trades_per_day", "position_size_pct"),
+            "runtime.scanner": ("scan_interval_minutes", "background_scanning_enabled", "vacation_mode_enabled"),
+            "notifications": ("pushover_enabled", "notify_paper_trades", "notify_watchlist_signal_changes", "notify_min_confidence"),
+            "reporting.ui": ("ui_refresh_minutes", "ui_auto_refresh_enabled"),
+        }
+        changes = {f"{root}.{key}": settings[key] for root, keys in groups.items() for key in keys if key in settings}
+        update(changes, reason="Kompatibilitet: settings_store", actor="LEGACY_SETTINGS", compatibility=True)
+    except Exception as exc:
+        logging.warning("Central configuration write-through failed: %s", exc)
     if using_postgres():
         try:
             init_settings_store()

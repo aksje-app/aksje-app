@@ -96,7 +96,12 @@ def collect_autonomy_overview() -> dict[str, Any]:
     performance = read_json("autonomous_portfolio/performance.json", PERFORMANCE_PATH, {})
     performance = dict(performance) if isinstance(performance, Mapping) else {}
     approvals = _rows("controlled_learning/promotion_approvals.json", APPROVALS_PATH)
-    pending = [row for row in approvals if str(row.get("status") or "").upper() == "PENDING"]
+    pending = [{**row, "approval_source": "LEARNING"} for row in approvals if str(row.get("status") or "").upper() == "PENDING"]
+    try:
+        from autonomi_core.configuration.registry import load_registry
+        pending += [{**row, "approval_source": "CONFIGURATION"} for row in load_registry().get("approvals", []) if str(row.get("status") or "").upper() == "PENDING"]
+    except Exception:
+        pass
     contract = dict(latest_run.get("data_contract") or {})
     quality = dict(latest_run.get("data_quality") or {})
     push_rows = pushover_audit(100)
@@ -257,11 +262,19 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     st.warning(f"{item.get('version_id') or approval_id} · venter på eksplisitt godkjenning")
                     approve, reject = st.columns(2)
                     if approve.button("Godkjenn", key=f"overview_approve_{approval_id}", use_container_width=True):
-                        resolve_promotion_approval(approval_id, True)
+                        if item.get("approval_source") == "CONFIGURATION":
+                            from autonomi_core.configuration.registry import resolve_approval
+                            resolve_approval(approval_id, True)
+                        else:
+                            resolve_promotion_approval(approval_id, True)
                         st.success("Promoteringen er godkjent.")
                         st.rerun()
                     if reject.button("Avvis", key=f"overview_reject_{approval_id}", use_container_width=True):
-                        resolve_promotion_approval(approval_id, False)
+                        if item.get("approval_source") == "CONFIGURATION":
+                            from autonomi_core.configuration.registry import resolve_approval
+                            resolve_approval(approval_id, False)
+                        else:
+                            resolve_promotion_approval(approval_id, False)
                         st.warning("Promoteringen er avvist.")
                         st.rerun()
                 if st.button("Behandle i Learning Portfolio", key="autonomy_overview_approvals_v1883"):
