@@ -90,6 +90,9 @@ def validate_values(values: Mapping[str, Any]) -> list[str]:
         errors.append("Ukjente navnerom: " + ", ".join(unknown))
     numeric_rules = {
         "discovery.minimum_data_quality": (0, 100),
+        "discovery.composition.documented_pct": (0, 100),
+        "discovery.composition.new_pct": (0, 100),
+        "discovery.composition.experimental_pct": (0, 100),
         "analysis.minimum_score": (0, 100),
         "portfolio.parameters.maximum_risk_score": (0, 100),
         "portfolio.parameters.maximum_position_pct": (0.1, 100),
@@ -110,6 +113,11 @@ def validate_values(values: Mapping[str, Any]) -> list[str]:
         errors.append("Autonomi må være teoretisk i denne versjonen")
     if _get(values, "learning.allow_automatic_model_approval", False) is True:
         errors.append("Automatisk modellgodkjenning er ikke tillatt")
+    composition = _get(values, "discovery.composition", {})
+    if isinstance(composition, Mapping) and composition:
+        total = sum(float(composition.get(key, 0)) for key in ("documented_pct", "new_pct", "experimental_pct"))
+        if total != 100:
+            errors.append("discovery.composition må summere til 100")
     return errors
 
 
@@ -177,6 +185,8 @@ def _migrate(doc: dict[str, Any]) -> dict[str, Any]:
         sources.append("settings/app_settings.json")
     values["autonomy"].setdefault("policy", {})
     values["autonomy"]["policy"].setdefault("theoretical_only", True)
+    values["discovery"].setdefault("composition", {"documented_pct": 70, "new_pct": 20, "experimental_pct": 10})
+    values["discovery"].setdefault("rotation", {"enabled": True, "quarantine_unchanged": True, "explore_outside_indexes": True})
     values["learning"].setdefault("allow_automatic_model_approval", False)
     doc["migration"] = {"complete": True, "at": _now(), "sources": sources}
     return _commit(doc, event="MIGRATION", reason="Migrering fra gamle innstillinger", actor="SYSTEM", previous=None)
