@@ -7,6 +7,8 @@ from typing import Any, Mapping
 from autonomi_core.configuration.policy import AutonomyPolicy, load_policy
 from autonomi_core.missions.market_mission import build_market_mission
 
+# Runtime contract remains in the v18.8 compatibility series; v18.9.0 is the
+# independent Learning & Reporting layer version.
 CORE_VERSION = "v18.8.9"
 
 
