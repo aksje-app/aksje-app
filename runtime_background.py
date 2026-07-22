@@ -9,6 +9,7 @@ from typing import Any
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
+_SCHEDULER_THREAD: threading.Thread | None = None
 _STOP = threading.Event()
 _STATUS: dict[str, Any] = {
     "state": "NOT_STARTED", "started_at": None, "last_cycle_at": None,
@@ -37,14 +38,34 @@ def _worker() -> None:
         _STOP.wait(poll_seconds)
 
 
+def _scheduler_worker() -> None:
+    """Continuously check report schedules without blocking FX monitoring."""
+    poll_seconds = max(30, int(os.getenv("REPORT_SCHEDULER_POLL_SECONDS", "60") or 60))
+    while not _STOP.is_set():
+        try:
+            from market_intelligence import restore_public_reports
+            from scheduler_background import run_scheduler_cycle
+            restore_public_reports(limit=25)
+            run_scheduler_cycle()
+        except Exception:
+            # scheduler_background owns the persistent error audit/status.
+            pass
+        _STOP.wait(poll_seconds)
+
+
 def ensure_runtime_background_services() -> dict[str, Any]:
     """Idempotently start services once per Python process."""
-    global _THREAD
+    global _THREAD, _SCHEDULER_THREAD
     with _LOCK:
         if _THREAD is None or not _THREAD.is_alive():
             _STOP.clear()
             _THREAD = threading.Thread(target=_worker, name="fx-alert-runtime", daemon=True)
             _THREAD.start()
+        if _SCHEDULER_THREAD is None or not _SCHEDULER_THREAD.is_alive():
+            _SCHEDULER_THREAD = threading.Thread(
+                target=_scheduler_worker, name="report-scheduler-runtime", daemon=True
+            )
+            _SCHEDULER_THREAD.start()
         return dict(_STATUS)
 
 

@@ -27,6 +27,7 @@ from execution_control import ExecutionCancelled
 from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser_timezone,
                         install_browser_timezone_bootstrap, local_compact_stamp, local_display,
                         local_run_id, valid_timezone)
+from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 
 VERSION = "v18.7.12"
 ROOT = runtime_data_path("market_intelligence")
@@ -293,6 +294,7 @@ class JobProfile:
     min_alert_score: float = 80.0
     notify_pushover: bool = True
     notify_only_changes: bool = True
+    notification_mode: str = ""
     include_report_link: bool = True
     include_top3_in_notification: bool = True
     allow_weekends: bool = False
@@ -481,6 +483,7 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
         "report_type": identity.get("type"), "report_label": identity.get("label"),
         "pdf_path": run.get("pdf_path"), "json_path": str(RUNS_DIR / f"{run.get('run_id')}.json"),
+        "public_pdf_name": run.get("public_pdf_name"), "report_url": report_public_url(run),
         "markets": list(run.get("markets") or []), "recommended": int((run.get("summary") or {}).get("recommended", 0)),
         "top_ticker": top.get("ticker"), "top_score": top.get("investment_score"),
         "tickers": [str(x.get("ticker")) for x in candidates if x.get("ticker")],
@@ -537,18 +540,51 @@ def delete_archived_report(run_id: str) -> bool:
 
 
 def report_public_url(run: Mapping[str, Any]) -> str:
-    import os
-    base = str(os.getenv("REPORT_BASE_URL") or "").rstrip("/")
-    if not base or not run.get("pdf_path"):
-        return ""
-    return f"{base}/{Path(str(run.get('pdf_path'))).name}"
+    return public_report_url(run)
+
+
+def restore_public_reports(limit: int = 25) -> int:
+    """Restore unlisted static PDFs after a Render restart or deploy."""
+    restored = 0
+    for entry in _load_report_archive()[:max(0, int(limit))]:
+        run_id = str(entry.get("run_id") or "")
+        run = load_run(run_id) if run_id else {}
+        if not run:
+            continue
+        name = str(run.get("public_pdf_name") or entry.get("public_pdf_name") or "").strip()
+        if name:
+            run["public_pdf_name"] = name
+            target = PUBLIC_REPORT_DIR / Path(name).name
+            if target.exists():
+                continue
+        try:
+            source = Path(str(run.get("pdf_path") or ""))
+            pdf_bytes = source.read_bytes() if source.is_file() else build_pdf(run)
+            publish_pdf(run, pdf_bytes)
+            _write(RUNS_DIR / f"{run_id}.json", run)
+            restored += 1
+        except Exception as exc:
+            _audit("PUBLIC_REPORT_RESTORE_FAILED", {"run_id": run_id, "error": str(exc)})
+    return restored
+
+
+def _notification_mode(job: JobProfile) -> str:
+    mode = str(getattr(job, "notification_mode", "") or "").strip().upper()
+    if mode in {"ALWAYS", "CHANGES_ONLY", "ERRORS_ONLY"}:
+        return mode
+    if "morgen" in str(job.name or "").casefold():
+        return "ALWAYS"
+    return "CHANGES_ONLY" if job.notify_only_changes else "ALWAYS"
 
 
 def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     changes = run.get("changes") or {}
     interesting = [x for x in changes.get("new", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
     interesting += [x for x in changes.get("improved", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
-    if job.notify_only_changes and not interesting:
+    mode = _notification_mode(job)
+    if mode == "ERRORS_ONLY" and not list(run.get("errors") or []):
+        return False, "Ingen feil; varsling er satt til kun feil"
+    if mode == "CHANGES_ONLY" and not interesting:
         return False, "Ingen kvalifiserende endringer"
     if not job.notify_pushover:
         return False, "Pushover er deaktivert for jobben"
@@ -569,6 +605,8 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
         url = report_public_url(run) if job.include_report_link else ""
         ok, err = send_pushover_alert("\n".join(lines), title="Scheduled Market Intelligence", url=url or None, url_title="Åpne rapport" if url else None)
+        if ok and job.include_report_link and not url:
+            return True, "Sendt uten rapportlenke: offentlig rapportadresse mangler"
         return bool(ok), str(err or "Sendt")
     except Exception as exc:
         return False, str(exc)
@@ -1023,8 +1061,11 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
     run["notification"] = {"sent": False, "detail": "Rapport promotert fra validert utkast; ingen ny API-kjøring"}
     pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    pdf_path.write_bytes(build_pdf(run))
+    pdf_bytes = build_pdf(run)
+    pdf_path.write_bytes(pdf_bytes)
     run["pdf_path"] = str(pdf_path)
+    publish_pdf(run, pdf_bytes)
+    run["report_url"] = report_public_url(run)
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run.get(k) for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
@@ -1293,8 +1334,11 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     if job.save_pdf:
         pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_path.write_bytes(build_pdf(run))
+        pdf_bytes = build_pdf(run)
+        pdf_path.write_bytes(pdf_bytes)
         run["pdf_path"] = str(pdf_path)
+        publish_pdf(run, pdf_bytes)
+        run["report_url"] = report_public_url(run)
     emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
@@ -1478,13 +1522,23 @@ def render_market_intelligence() -> None:
                 st.warning(f"Maksprofil: opptil {250 * len(normalize_markets(markets or ['Norge']))} aksjer. Dette kan gi lang kjøretid og høy API-bruk.")
             deep = st.number_input("Grundig analyse av topp", 1, 100, current.deep_count if current else 20, 1, key="mi_deep_v18687")
             proposals = st.number_input("Antall forslag", 1, 30, current.proposal_count if current else 5, 1, key="mi_prop_v18687")
-        n1, n2, n3, n4 = st.columns(4)
+        n1, n2, n3 = st.columns(3)
         notify = n1.checkbox("Pushover", value=current.notify_pushover if current else True, key="mi_push_v18687")
-        only_changes = n2.checkbox("Bare ved endringer", value=current.notify_only_changes if current else True, key="mi_changes_v18687")
-        save_pdf = n3.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
-        enabled = n4.checkbox("Aktiv jobb", value=editing_job.enabled if editing_job else True, key="mi_enabled_v18687")
+        save_pdf = n2.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
+        enabled = n3.checkbox("Aktiv jobb", value=editing_job.enabled if editing_job else True, key="mi_enabled_v18687")
+        mode_labels = {
+            "ALWAYS": "Send alltid når rapporten er ferdig",
+            "CHANGES_ONLY": "Bare ved kvalifiserende endringer",
+            "ERRORS_ONLY": "Bare ved feil",
+        }
+        current_mode = _notification_mode(current) if current else "ALWAYS"
+        notification_label = st.selectbox(
+            "Når skal Pushover sendes?", list(mode_labels.values()),
+            index=list(mode_labels).index(current_mode), key="mi_notification_mode_v18715",
+        )
+        notification_mode = next(key for key, label in mode_labels.items() if label == notification_label)
         p1, p2 = st.columns(2)
-        include_report_link = p1.checkbox("Lenke til siste rapport", value=current.include_report_link if current else True, key="mi_report_link_v1870", help="Krever REPORT_BASE_URL i miljøvariabler.")
+        include_report_link = p1.checkbox("Direkte lenke til PDF", value=current.include_report_link if current else True, key="mi_report_link_v1870", help="På Render brukes tjenestens offentlige adresse automatisk. REPORT_PUBLIC_BASE_URL kan overstyre adressen.")
         include_top3 = p2.checkbox("Top 3 i varsel", value=current.include_top3_in_notification if current else True, key="mi_top3_push_v1870")
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         min_score = st.number_input("Minste score for varsel", 0, 100, int(current.min_alert_score if current else 80), 1, key="mi_min_score_v1870", help="Tallfelt brukes på mobil for å unngå utilsiktet endring av slider.")
@@ -1492,7 +1546,7 @@ def render_market_intelligence() -> None:
         reset_alerts = r1.button("↺ Tilbakestill varselstandard", key="mi_reset_alerts_v1870", use_container_width=True)
         reset_all = r2.button("↺ Tilbakestill hele jobbprofilen", key="mi_reset_all_v1870", use_container_width=True)
         if reset_alerts:
-            for key, value in {"mi_push_v18687": True, "mi_changes_v18687": True, "mi_pdf_v18687": True, "mi_min_score_v1870": 80, "mi_report_link_v1870": True, "mi_top3_push_v1870": True}.items(): st.session_state[key] = value
+            for key, value in {"mi_push_v18687": True, "mi_notification_mode_v18715": mode_labels["ALWAYS"], "mi_pdf_v18687": True, "mi_min_score_v1870": 80, "mi_report_link_v1870": True, "mi_top3_push_v1870": True}.items(): st.session_state[key] = value
             st.rerun()
         if reset_all:
             defaults = load_draft_job()
@@ -1510,7 +1564,7 @@ def render_market_intelligence() -> None:
             name=name.strip() or "Uten navn", markets=markets or ["Norge"], schedules=schedules or [],
             weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
             scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
-            notify_pushover=notify, notify_only_changes=only_changes, include_report_link=include_report_link,
+            notify_pushover=notify, notify_only_changes=(notification_mode == "CHANGES_ONLY"), notification_mode=notification_mode, include_report_link=include_report_link,
             include_top3_in_notification=include_top3, allow_weekends=allow_weekends, save_pdf=save_pdf, enabled=False,
             scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,
             timezone_name=timezone_name,

@@ -13219,16 +13219,18 @@ def render_currency_alerts_control_center_v1863af():
             f"sist oppdatert {lifecycle_state.get('updated_at', '-')}. Nytt Pushover-varsel sendes først etter normalisering."
         )
 
-    action_left, action_mid, action_test, action_diag = st.columns([0.16, 0.24, 0.22, 0.24])
+    action_left, action_mid = st.columns(2)
     with action_left:
-        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t")
+        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t", use_container_width=True)
     with action_mid:
-        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v1864t")
+        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v1864t", use_container_width=True)
+    action_test, action_diag = st.columns(2)
     with action_test:
         pushover_test_now = st.button(
             "Send Pushover-test",
             key="currency_alert_pushover_test_now_v1864u",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
+            use_container_width=True,
         )
     with action_diag:
         currency_trigger_test_now = st.button(
@@ -13236,6 +13238,7 @@ def render_currency_alerts_control_center_v1863af():
             key="currency_alert_full_chain_test_v18678a",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
             help="Tester kursinnhenting, trigger, varselmotor og Pushover i samme kjede.",
+            use_container_width=True,
         )
 
     if fetch_now:

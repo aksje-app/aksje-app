@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.14"
-APP_VERSION_NAME = "Intraday FX Alert Reliability"
+APP_VERSION = "v18.7.15"
+APP_VERSION_NAME = "Reliable Autonomy Scheduling, Direct Reports & Alert Diagnostics"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.7.15: Reliable Autonomy Scheduling, Direct Reports & Alert Diagnostics: rapport-scheduleren kjører nå som en vedvarende, koordinert bakgrunnstjeneste uavhengig av valgt panel. Morgenanalyse varsler som standard ved ferdig rapport, Pushover får en direkte, ulistet PDF-lenke med gjenoppretting etter deploy, og Test hele varselkjeden er igjen tydelig tilgjengelig på PC og mobil. Den separate valutavarsel-workerens logikk er bevart.",
     "v18.7.14: Intraday FX Alert Reliability: valutakurs hentes nå fra ferske 1-minutts/5-minutters data med daglig kurs kun som reserve. Faktisk grensekryssing oppdages fra forrige kurs, cooldown og hoppårsaker lagres eksplisitt, og diagnose viser kurstidspunkt, neste kontroll og neste tillatte varsel i norsk tid.",
     "v18.7.13: Persistent FX Alerts & Paper Warning Repair: en egen idempotent runtime-tjeneste starter ved webapp-oppstart og kontrollerer valutagrenser uavhengig av valgt panel, børsåpning og aksjescanner. PostgreSQL advisory lock og lokal prosesslås hindrer doble Pushover-varsler. Endrede symboler eller grenser nullstiller foreldet bruddstatus og kontrolleres umiddelbart. UI viser worker-helse og siste syklus. Paper Trading-varsler godtar gjenbrukte position_rows og regler uten render-feil.",
     "v18.7.12: Non-Blocking Runtime Status & Unified Local Time: PostgreSQL skrives før lokal speilfil, hver speilskriving bruker lås og unik atomisk tempfil, og status-/telemetrifeil kan aldri stoppe markedsanalysen. Ved terminal jobbstatus utføres én kontrollert full app-rerun slik at rapportarkiv og diagnostikk viser aktuell kjøring uten F5. Rapport-ID, filnavn, arkiv, historikk og brukerrettede tider følger jobbens IANA-tidssone (standard Europe/Oslo), mens databasen fortsatt lagrer UTC. Full analyse tvinger ferske markedsdata, men respekterer kortvarig kildecache for insider/nyheter; intelligence-oppslag parallelliseres kontrollert.",
