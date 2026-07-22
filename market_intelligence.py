@@ -1127,6 +1127,47 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         request = portfolio_layer.get("discovery_request") or {}
         if request:
             story += [Paragraph("Porteføljebehov har opprettet Discovery-oppdrag " + escape(str(request.get("request_id"))) + ".", styles["Small"])]
+    funnel = run.get("decision_funnel") or {}
+    if funnel:
+        rejection_names = {
+            "portfolio_active": "Portefølje ikke aktiv", "portfolio_layer_buy": "Porteføljelag",
+            "score": "Kjøpsscore", "data_quality": "Datakvalitet", "risk": "Risiko",
+            "price": "Markedspris", "position_capacity": "Posisjonsgrense",
+        }
+        counts = dict(funnel.get("rejection_counts") or {})
+        funnel_summary = Table([
+            ["Vurdert", funnel.get("evaluated", 0), "Kjøpskvalifisert", funnel.get("eligible", 0),
+             "Avvist", funnel.get("rejected", 0), "Produksjonsterskel", _fmt(funnel.get("production_threshold", 78), 1)],
+        ], colWidths=[24*mm, 18*mm]*4)
+        funnel_summary.setStyle(_table_style(6.5, header=False, padding=2))
+        rejection_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in counts.items()) or "Ingen avvisninger"
+        story += [Paragraph("Beslutningstrakt og kjøpsvurdering", styles["Section"]), funnel_summary,
+                  Paragraph(escape(rejection_text), styles["Small"])]
+        near_rows = [["Ticker", "Score / terskel", "Datakvalitet", "Risiko", "Portefølje", "Resultat / hovedgrunn"]]
+        for row in list(funnel.get("near_threshold") or [])[:10]:
+            near_rows.append([row.get("ticker"), f"{_fmt(row.get('score'))} / {_fmt(row.get('production_threshold'), 1)}",
+                              _fmt(row.get("data_quality")), _fmt(row.get("risk")), row.get("portfolio_action"),
+                              _p(_short("; ".join(row.get("reasons") or []), 130))])
+        if len(near_rows) > 1:
+            near_table = Table(near_rows, repeatRows=1, colWidths=[20*mm, 26*mm, 23*mm, 18*mm, 22*mm, 65*mm])
+            near_table.setStyle(_table_style(6.3, padding=2))
+            story += [Paragraph("Nærmest kjøpskravene", styles["Subsection"]), near_table]
+        shadow_rows = [["Terskel", "Rolle", "Kvalifiserte", "Kandidater", "Produksjon endret"]]
+        for row in funnel.get("shadow_thresholds") or []:
+            shadow_rows.append([_fmt(row.get("threshold"), 1), row.get("role"), row.get("eligible_count", 0),
+                                _p(", ".join(row.get("eligible_tickers") or []) or "Ingen"), "NEI"])
+        shadow_table = Table(shadow_rows, repeatRows=1, colWidths=[20*mm, 28*mm, 22*mm, 78*mm, 26*mm])
+        shadow_table.setStyle(_table_style(6.3, padding=2))
+        story += [Paragraph("Shadow Mode – kjøpsterskel", styles["Subsection"]), shadow_table,
+                  Paragraph("Tersklene 76, 74 og 72 er Challenger-simuleringer. De kan ikke utløse kjøp eller endre produksjonsregelen uten eksplisitt godkjenning.", styles["Small"])]
+        provenance = list(funnel.get("position_provenance") or [])
+        if provenance:
+            provenance_rows = [["Ticker", "Opprinnelse", "Kildekjøring", "Bevis"]]
+            for row in provenance:
+                provenance_rows.append([row.get("ticker"), row.get("origin"), row.get("source_run_id"), row.get("evidence")])
+            provenance_table = Table(provenance_rows, repeatRows=1, colWidths=[24*mm, 55*mm, 65*mm, 30*mm])
+            provenance_table.setStyle(_table_style(6.3, padding=2))
+            story += [Paragraph("Opprinnelse til åpne posisjoner", styles["Subsection"]), provenance_table]
     allocations = portfolio_proposal.get("allocations") or []
     if allocations:
         pdata = [["Ticker", "Marked", "Sektor", "Vekt %", "Score", "Konfidens", "Risiko (0-100)"]]
@@ -1631,6 +1672,18 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             raise
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
+    # v19.0.5: one canonical explanation mirrors the final Autonomous Portfolio
+    # gates. Shadow thresholds are diagnostic and never alter production.
+    try:
+        from autonomous_portfolio import TRADES_PATH, load_parameters, load_portfolio
+        from durable_runtime import read_json as read_durable_json
+        from autonomi_core.portfolio_decisions.decision_funnel import build_decision_funnel
+        trades = read_durable_json("autonomous_portfolio/trades.json", TRADES_PATH, []) or []
+        run["decision_funnel"] = build_decision_funnel(
+            all_candidates, parameters=load_parameters().normalized(), portfolio=load_portfolio(), trades=trades,
+        )
+    except Exception as exc:
+        run["decision_funnel"] = {"version": "v19.0.5", "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
     # v18.9.0: persist the domain result exactly once. Every downstream
     # consumer receives a view of this immutable record, not a separately
     # assembled copy of the analysis.

@@ -28,7 +28,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v19.0.4"
+VERSION = "v19.0.5"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -146,6 +146,7 @@ def collect_autonomy_overview() -> dict[str, Any]:
         "latest_linked_archive": latest_linked_archive,
         "report_pdf_path": latest_archive.get("pdf_path"),
         "parallel_validation": parallel_validation,
+        "decision_funnel": dict(latest_run.get("decision_funnel") or {}),
     }
 
 
@@ -407,6 +408,31 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 st.success("Datakontrakten har ingen registrerte kritiske blokkeringer.")
             else:
                 st.info("Datakvalitet vises etter første rapportkjøring.")
+
+    funnel = snapshot.get("decision_funnel") or {}
+    if funnel:
+        with st.expander("Beslutningstrakt og kjøpsvurdering", expanded=False):
+            f1, f2, f3, f4 = st.columns(4)
+            f1.metric("Vurdert", funnel.get("evaluated", 0))
+            f2.metric("Kjøpskvalifisert", funnel.get("eligible", 0))
+            f3.metric("Avvist", funnel.get("rejected", 0))
+            f4.metric("Produksjonsterskel", funnel.get("production_threshold", 78))
+            near = list(funnel.get("near_threshold") or [])
+            if near:
+                st.dataframe(pd.DataFrame([{
+                    "Ticker": row.get("ticker"), "Score / terskel": f"{row.get('score')} / {row.get('production_threshold')}",
+                    "Datakvalitet": row.get("data_quality"), "Risiko": row.get("risk"),
+                    "Portefølje": row.get("portfolio_action"), "Avslagsgrunn": "; ".join(row.get("reasons") or []),
+                } for row in near]), use_container_width=True, hide_index=True)
+            shadow = list(funnel.get("shadow_thresholds") or [])
+            if shadow:
+                st.markdown("##### Shadow Mode – kjøpsterskel")
+                st.dataframe(pd.DataFrame([{
+                    "Terskel": row.get("threshold"), "Rolle": row.get("role"),
+                    "Kvalifiserte": row.get("eligible_count"), "Kandidater": ", ".join(row.get("eligible_tickers") or []) or "Ingen",
+                    "Produksjon endret": "NEI",
+                } for row in shadow]), use_container_width=True, hide_index=True)
+            st.info("Challenger-tersklene er kun diagnostikk. Produksjonsterskelen endres ikke uten eksplisitt godkjenning.")
 
     ops1, ops2, ops3 = st.columns(3)
     with ops1:
