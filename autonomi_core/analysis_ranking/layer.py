@@ -157,7 +157,7 @@ def analyze_candidate(row: Mapping[str, Any], derived: Mapping[str, Any], *, ada
         score = _clamp(weighted / used) if used else 50.0
         coverage = used / sum(weights.values())
         confidence = _clamp(float(derived.get("confidence", 50)) * (.55 + .45 * coverage))
-        matched = bool(score >= 60 and confidence >= 45 and coverage >= .50)
+        matched = bool(score >= 65 and confidence >= 55 and coverage >= .60)
         positives = tuple(f"{item['component']} bidrar positivt ({item['component_score']:.0f}/100)" for item in contributions if float(item["component_score"]) >= 65)
         cautions = tuple(f"{item['component']} er svakt ({item['component_score']:.0f}/100)" for item in contributions if float(item["component_score"]) < 40)
         results[strategy] = StrategyResult(strategy, score, confidence, matched, sector, tuple(contributions), positives, cautions, tuple(missing)).to_dict()
@@ -175,5 +175,6 @@ def analyze_candidate(row: Mapping[str, Any], derived: Mapping[str, Any], *, ada
         "scenario_analysis": scenarios,
         "adaptive_ranking": dict(adaptive_meta or {}),
         "universal_score_created": False,
+        "match_thresholds": {"score": 65, "confidence": 55, "coverage": .60},
         "explainability": "Hver strategi viser råfelt, komponentpoeng, vekt og bidrag; manglende felt reduserer dekning og konfidens.",
     }
