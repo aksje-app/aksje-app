@@ -13,6 +13,7 @@ from services.storage_service import get_storage_service
 STATE_KEY = "autonomi_core/discovery_data/state.json"
 HISTORY_KEY = "autonomi_core/discovery_data/history.json"
 SOURCE_PROPOSALS_KEY = "autonomi_core/discovery_data/source_proposals.json"
+PORTFOLIO_REQUESTS_KEY = "autonomi_core/portfolio_decisions/discovery_requests.json"
 LAYER_VERSION = "v18.8.7"
 
 
@@ -80,6 +81,14 @@ def select_discovery_candidates(
     composition.validate()
     limit = max(1, int(limit)); run_date = run_date or datetime.now(timezone.utc).date()
     storage = get_storage_service()
+    portfolio_requests = storage.read_json(PORTFOLIO_REQUESTS_KEY, default=[]) or []
+    portfolio_request = next((dict(row) for row in portfolio_requests if row.get("status") == "READY" and
+                              (not configuration_version or row.get("configuration_version") == configuration_version)), None)
+    if portfolio_request:
+        portfolio_request["status"] = "STARTED"
+        portfolio_request["started_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        portfolio_requests = [portfolio_request if row.get("request_id") == portfolio_request.get("request_id") else row for row in portfolio_requests]
+        storage.write_json(PORTFOLIO_REQUESTS_KEY, portfolio_requests[:100])
     state = storage.read_json(STATE_KEY, default={}) or {}
     market_state = dict((state.get("markets") or {}).get(market) or {})
     previous = [str(x).upper() for x in market_state.get("tickers") or []]
@@ -154,6 +163,7 @@ def select_discovery_candidates(
         "degraded": bool(identical or len(selected) < limit),
         "degraded_reason": "Kildeuniverset var for lite til garantert rotasjon" if identical or len(selected) < limit else "",
         "source_control": "Kun eksisterende godkjente kilder; nye kilder krever eksplisitt godkjenning",
+        "portfolio_discovery_request": portfolio_request,
     }
     state.setdefault("markets", {})[market] = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "tickers": current,
