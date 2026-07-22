@@ -13,6 +13,8 @@ VERSION = "v18.9.3"
 ROOT = Path(__file__).resolve().parents[2] / ".app_runtime" / "data" / "autonomi_core" / "parallel_validation"
 LATEST_KEY = "autonomi_core/parallel_validation/latest.json"
 LATEST_PATH = ROOT / "latest.json"
+HISTORY_KEY = "autonomi_core/parallel_validation/history.json"
+HISTORY_PATH = ROOT / "history.json"
 HORIZONS = (5, 30, 90)
 
 
@@ -98,7 +100,7 @@ def build_parallel_validation(run: Mapping[str, Any], *, total_runtime_seconds: 
             "api_usage": _api_usage(run),
             "outcomes": {str(h): {"status": "PENDING", "trading_days": h, "authoritative_run_id": run.get("run_id"), "shadow_run_id": f"SHADOW-{run.get('run_id')}"} for h in HORIZONS},
         },
-        "shadow_candidates": [{"ticker": _ticker(x), "market": x.get("market"), "rank": i+1, "shadow_score": x.get("shadow_score"), "investment_score": x.get("shadow_score"), "action": x.get("shadow_action"), "status": "ANBEFALT FOR VURDERING" if x.get("shadow_action") in {"BUY", "REVIEW"} else "SKIP", "entry_price": x.get("current_price") or ((x.get("raw") or {}).get("current_price") if isinstance(x.get("raw"), Mapping) else None)} for i, x in enumerate(shadow["candidates"])],
+        "shadow_candidates": [{"ticker": _ticker(x), "market": x.get("market"), "sector": x.get("sector"), "source": (x.get("data_contract") or {}).get("source") if isinstance(x.get("data_contract"), Mapping) else x.get("source"), "discovery_bucket": x.get("discovery_bucket"), "strategies": list(x.get("strategy_matches") or []), "rank": i+1, "shadow_score": x.get("shadow_score"), "investment_score": x.get("shadow_score"), "action": x.get("shadow_action"), "status": "ANBEFALT FOR VURDERING" if x.get("shadow_action") in {"BUY", "REVIEW"} else "SKIP", "entry_price": x.get("current_price") or ((x.get("raw") or {}).get("current_price") if isinstance(x.get("raw"), Mapping) else None)} for i, x in enumerate(shadow["candidates"])],
         "approval_rule": "Gammel kjede er autoritativ; Shadow kan bare observere og sammenligne.",
     }
 
@@ -108,7 +110,15 @@ def save_parallel_validation(record: Mapping[str, Any]) -> dict[str, Any]:
     if not vid: raise ValueError("validation_id mangler")
     write_json(f"autonomi_core/parallel_validation/runs/{vid}.json", ROOT / "runs" / f"{vid}.json", value)
     write_json(LATEST_KEY, LATEST_PATH, value)
+    history = read_json(HISTORY_KEY, HISTORY_PATH, []) or []
+    history = [dict(x) for x in history if isinstance(x, Mapping) and x.get("validation_id") != vid]
+    write_json(HISTORY_KEY, HISTORY_PATH, ([value] + history)[:500])
     return value
+
+
+def load_parallel_validation_history(limit: int = 100) -> list[dict[str, Any]]:
+    rows = read_json(HISTORY_KEY, HISTORY_PATH, []) or []
+    return [dict(x) for x in rows if isinstance(x, Mapping)][:max(1, int(limit))]
 
 
 def load_latest_parallel_validation() -> dict[str, Any]:
