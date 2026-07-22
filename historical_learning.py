@@ -229,6 +229,23 @@ def report_performance(run_id: str) -> dict[str, Any]:
             "best": max(returns, key=lambda x:x[1]) if returns else None, "worst": min(returns, key=lambda x:x[1]) if returns else None}
 
 
+def run_horizon_performance(run_id: str, horizons: Sequence[int] = (5, 30, 90)) -> dict[str, Any]:
+    """Return comparable per-horizon outcomes for production/Shadow cohorts."""
+    rows = [x for x in _read() if str(x.get("run_id")) == str(run_id)]
+    result: dict[str, Any] = {}
+    for horizon in horizons:
+        values = []
+        for row in rows:
+            value = _num(((row.get("evaluations") or {}).get(str(horizon)) or {}).get("return_pct"))
+            if value is not None: values.append(value)
+        result[str(horizon)] = {
+            "status": "READY" if values else "PENDING", "count": len(values),
+            "average_return_pct": round(sum(values) / len(values), 3) if values else None,
+            "hit_rate_pct": round(sum(value > 0 for value in values) / len(values) * 100, 2) if values else None,
+        }
+    return result
+
+
 def render_accuracy_analytics() -> None:
     import pandas as pd
     import streamlit as st

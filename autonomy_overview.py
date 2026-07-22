@@ -26,7 +26,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v18.9.0"
+VERSION = "v18.9.3"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -87,6 +87,13 @@ def collect_autonomy_overview() -> dict[str, Any]:
     archive = _load_report_archive()
     latest_archive = dict(archive[0]) if archive else {}
     latest_run = load_run(str(latest_archive.get("run_id") or "")) if latest_archive else {}
+    parallel_validation = dict(latest_run.get("parallel_validation") or {})
+    if parallel_validation:
+        try:
+            from autonomi_core.runtime.parallel_validation import refresh_parallel_outcomes
+            parallel_validation = refresh_parallel_outcomes(parallel_validation)
+        except Exception:
+            pass
     candidates = list(latest_run.get("candidates") or status.get("top_candidates") or [])
     portfolio = load_portfolio()
     params = load_parameters()
@@ -124,6 +131,7 @@ def collect_autonomy_overview() -> dict[str, Any]:
         "scheduler": scheduler_status(), "storage": storage,
         "report_url": str(latest_archive.get("report_url") or latest_run.get("report_url") or ""),
         "report_pdf_path": latest_archive.get("pdf_path"),
+        "parallel_validation": parallel_validation,
     }
 
 
@@ -214,6 +222,14 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 st.error("Full Autonomy Execution er ufullstendig: " + ", ".join(full_execution.get("failed_stages") or []))
             with st.expander("Vis alle 13 Autonomi-trinn", expanded=False):
                 st.dataframe(pd.DataFrame([{ "#": x.get("number"), "Trinn": x.get("label"), "Status": x.get("status") } for x in full_execution.get("stages") or []]), use_container_width=True, hide_index=True)
+        parallel = dict(snapshot.get("parallel_validation") or {})
+        if parallel:
+            comparison = dict(parallel.get("comparison") or {})
+            candidate_cmp = dict(comparison.get("candidates") or {})
+            decision_cmp = dict(comparison.get("decisions") or {})
+            st.info(f"Shadow Mode {parallel.get('version')}: gammel kjede er autoritativ · kandidatoverlapping {candidate_cmp.get('jaccard_pct', 0)} % · beslutningssamsvar {decision_cmp.get('agreement_pct', 0)} %")
+            with st.expander("Vis Parallel Validation", expanded=False):
+                st.json({"autoritet": parallel.get("authoritative_chain"), "modus": parallel.get("mode"), "sammenligning": comparison})
 
     left, right = st.columns(2)
     with left:

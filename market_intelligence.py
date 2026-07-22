@@ -1217,6 +1217,7 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
     }
 
 def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
+    full_run_started = time_module.perf_counter()
     requested_job = job
     job, handoff = _effective_execution_job(job, trigger)
     # Portfolio demand is an input to the mission, never an afterthought.
@@ -1552,6 +1553,22 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     run["full_autonomy_execution"] = build_full_execution_receipt(run)
     if not run["full_autonomy_execution"].get("self_contained"):
         errors.append("Full Autonomy Execution er ufullstendig: " + ", ".join(run["full_autonomy_execution"].get("failed_stages") or []))
+    # v18.9.3: both evaluators inspect the same immutable input in parallel.
+    # The Shadow result is observational and cannot publish or execute anything.
+    from autonomi_core.runtime.parallel_validation import build_parallel_validation, save_parallel_validation
+    parallel = build_parallel_validation(run, total_runtime_seconds=round(time_module.perf_counter() - full_run_started, 3))
+    try:
+        from historical_learning import register_run as register_validation_run
+        shadow_rows = list(parallel.get("shadow_candidates") or [])
+        shadow_run = {
+            "run_id": f"SHADOW-{run_id}", "created_at": run.get("created_at"), "job_name": run.get("job_name"),
+            "report_identity": {"type": "SHADOW_VALIDATION"}, "candidates": shadow_rows, "proposals": shadow_rows,
+            "analysis_aborted": False,
+        }
+        parallel["shadow_learning_snapshots"] = register_validation_run(shadow_run)
+    except Exception as exc:
+        parallel["shadow_learning_error"] = str(exc)
+    run["parallel_validation"] = save_parallel_validation(parallel)
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     job.last_run_at = run["created_at"]
