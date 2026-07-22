@@ -1,8 +1,9 @@
-APP_VERSION = "v18.7.15"
-APP_VERSION_NAME = "Reliable Autonomy Scheduling, Direct Reports & Alert Diagnostics"
+APP_VERSION = "v18.8.0"
+APP_VERSION_NAME = "Autonomy Core Foundation"
 APP_BUILD_LABEL = APP_VERSION
 
 CHANGELOG = [
+    "v18.8.0: Autonomy Core Foundation: etablerer autonomi_core som programmets stabile oppdrags- og policygrense med separate domener for discovery/data, analyse/rangering, porteføljebeslutninger, læring/rapportering, missions, runtime og configuration. Markedsanalysens autonome etterkjede går nå gjennom Autonomy Core med full bakoverkompatibilitet mot eksisterende motorer. Learning Portfolio og Orchestrator/Scheduler samles i ett lazy Autonomi-hovedpanel i PC- og mobilnavigasjonen. All kjøring er fortsatt teoretisk, og modellendringer krever eksplisitt godkjenning.",
     "v18.7.15: Reliable Autonomy Scheduling, Direct Reports & Alert Diagnostics: rapport-scheduleren kjører nå som en vedvarende, koordinert bakgrunnstjeneste uavhengig av valgt panel. Morgenanalyse varsler som standard ved ferdig rapport, Pushover får en direkte, ulistet PDF-lenke med gjenoppretting etter deploy, og Test hele varselkjeden er igjen tydelig tilgjengelig på PC og mobil. Den separate valutavarsel-workerens logikk er bevart.",
     "v18.7.14: Intraday FX Alert Reliability: valutakurs hentes nå fra ferske 1-minutts/5-minutters data med daglig kurs kun som reserve. Faktisk grensekryssing oppdages fra forrige kurs, cooldown og hoppårsaker lagres eksplisitt, og diagnose viser kurstidspunkt, neste kontroll og neste tillatte varsel i norsk tid.",
     "v18.7.13: Persistent FX Alerts & Paper Warning Repair: en egen idempotent runtime-tjeneste starter ved webapp-oppstart og kontrollerer valutagrenser uavhengig av valgt panel, børsåpning og aksjescanner. PostgreSQL advisory lock og lokal prosesslås hindrer doble Pushover-varsler. Endrede symboler eller grenser nullstiller foreldet bruddstatus og kontrolleres umiddelbart. UI viser worker-helse og siste syklus. Paper Trading-varsler godtar gjenbrukte position_rows og regler uten render-feil.",

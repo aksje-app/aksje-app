@@ -173,13 +173,13 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
     elif nav == "autonomous":
-        st.session_state["ai_control_center_group_v1863m"] = "Testing og portefølje"
-        st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefølje"
-        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Learning Portfolio"
-        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Learning Portfolio"
-        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Learning Portfolio"
-        st.session_state["ai_control_center_group_radio_v1863aj"] = "Testing og portefølje (6)"
-        st.session_state["ai_control_center_panel_radio_v1863aj_Testing og portefølje"] = "🧠 Autonomi – Learning Portfolio"
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Autonomi (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Autonomi"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
@@ -194,7 +194,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "top_picks": ("Marked og signaler", "Top Picks"),
         "long_engine": ("Long Engine", "Long Engine"),
         "ai": ("Analyse og prognose", ""),
-        "autonomous": ("Testing og portefølje", "🧠 Autonomi – Learning Portfolio"),
+        "autonomous": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))

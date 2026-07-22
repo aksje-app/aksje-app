@@ -19301,9 +19301,40 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 
 
 
+def render_autonomy_core_control_center_v1880() -> None:
+    """Single, lazy workspace for all Autonomy operations."""
+    from autonomi_core.runtime.orchestrator import runtime_manifest
 
+    manifest = runtime_manifest()
+    st.markdown("## 🧠 Autonomi")
+    st.caption(
+        "Autonomi er programmets styringslag. Markedsdata, analyse, rangering, "
+        "porteføljebeslutninger, kontrollert læring og rapportering kobles sammen "
+        "gjennom ett stabilt oppdragsgrensesnitt. Ingen ekte handler utføres."
+    )
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Autonomy Core", manifest.get("version") or "-")
+    a2.metric("Status", "Aktiv grunnmur")
+    a3.metric("Kjøremodus", "Kun teoretisk")
+    a4.metric("Domener", len(manifest.get("domains") or []))
 
-
+    workspace = st.radio(
+        "Velg arbeidsflate",
+        ["Orchestrator og tidsplan", "Learning Portfolio", "Arkitektur og policy"],
+        horizontal=True, key="autonomy_core_workspace_v1880",
+    )
+    if workspace == "Orchestrator og tidsplan":
+        render_autonomous_orchestrator_control_center()
+    elif workspace == "Learning Portfolio":
+        render_autonomous_portfolio()
+    else:
+        st.markdown("### Autonomy Core")
+        st.success("FOUNDATION_ACTIVE · eksisterende motorer kjører gjennom kompatibilitetslaget")
+        st.json(manifest)
+        st.info(
+            "v18.8.0 flytter ikke produksjonskritisk logikk. Nye oppdrag går gjennom "
+            "Autonomy Core, mens motorene migreres trinnvis og verifiseres mot dagens resultat."
+        )
 
 
 def control_center_extra_panels_v18535():
@@ -19318,8 +19349,7 @@ def control_center_extra_panels_v18535():
         ("👥 Analyse – Aktørregister", render_actor_registry_panel),
         ("IPO", render_ipo),
         ("💼 Handel – Paper Trading", render_paper_trading_dashboard),
-        ("🧠 Autonomi – Learning Portfolio", render_autonomous_portfolio),
-        ("🚦 Autonomi – Orchestrator & Scheduler", render_autonomous_orchestrator_control_center),
+        ("🧠 Autonomi – Kontrollsenter", render_autonomy_core_control_center_v1880),
         ("🧪 Testing – Auto Test Lab", render_auto_test_lab_control_center_v18536),
         ("📊 Analyse – Fond / ETF", render_fund_etf_control_center_v18538),
         ("🛡️ Risikostyring – Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
@@ -20714,7 +20744,7 @@ try:
             "🤖 AI – Kandidattest": "analysis",
             "System/admin": "system",
             "⚙️ Innstillinger – System/admin": "system",
-            "🧠 Autonomi – Learning Portfolio": "autonomous",
+            "🧠 Autonomi – Kontrollsenter": "autonomous",
         }
         _nav_to_store_v18658 = _panel_to_nav_v18658.get(str(_active_control_center_panel_v18598 or ""))
         if _nav_to_store_v18658:

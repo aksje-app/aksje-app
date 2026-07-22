@@ -1316,9 +1316,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         if analysis_aborted:
             run["autonomous_chain"] = {"status": "SKIPPED", "reason": "Utilstrekkelige markedsdata"}
         else:
-            from autonomous_orchestrator import run_post_scan_chain
+            from autonomi_core.runtime.orchestrator import execute_market_mission
             emit("AUTONOMOUS", 0, 1, "Kjører teoretiske kjøps- og salgsbeslutninger")
-            run["autonomous_chain"] = run_post_scan_chain(
+            run["autonomous_chain"] = execute_market_mission(
             run,
             run_autonomous=job.run_autonomous_portfolio,
             run_learning=job.run_controlled_learning,

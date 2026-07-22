@@ -2327,6 +2327,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         group_map = {
             ai_candidate_group_name: ai_candidate_labels,
             "Long Engine": _matching_panel_labels("long engine"),
+            "Autonomi": _matching_panel_labels("autonomi"),
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
             "Marked og signaler": _matching_panel_labels("marked", "varsler og watchlist", "top picks", "beslut", "muligheter", "alpha"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
