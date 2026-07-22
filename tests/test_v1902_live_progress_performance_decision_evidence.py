@@ -44,7 +44,7 @@ class LiveProgressPerformanceDecisionEvidenceTests(unittest.TestCase):
 
     def test_overview_uses_isolated_live_fragment(self):
         source = (ROOT / "autonomy_overview.py").read_text(encoding="utf-8")
-        self.assertIn('fragment(run_every="3s")', source)
+        self.assertIn('fragment(run_every="5s")', source)
         self.assertIn("_render_live_progress", source)
         self.assertIn("Vis teknisk diagnostikk", source)
         self.assertIn("Markedsgjennomføring", source)

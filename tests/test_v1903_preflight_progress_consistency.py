@@ -18,8 +18,8 @@ class PreflightProgressConsistencyTests(unittest.TestCase):
 
     def test_live_panel_states_automatic_refresh_interval(self):
         source = (ROOT / "autonomy_overview.py").read_text(encoding="utf-8")
-        self.assertIn('fragment(run_every="3s")', source)
-        self.assertIn("oppdateres automatisk hvert 3. sekund", source)
+        self.assertIn('fragment(run_every="5s")', source)
+        self.assertIn("oppdateres automatisk hvert 5. sekund", source)
 
 
 if __name__ == "__main__":
