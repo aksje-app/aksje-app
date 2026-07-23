@@ -57,6 +57,7 @@ def run_once() -> dict[str, Any]:
         "completed_at": None,
         "scheduler": {},
         "report_repair": {},
+        "report_revalidation": {},
         "error": "",
         "process": "scheduled_runner",
         "last_failure_fingerprint": previous.get("last_failure_fingerprint", ""),
@@ -74,6 +75,16 @@ def run_once() -> dict[str, Any]:
         }
     except Exception as exc:
         state["report_repair"] = {"state": "FAILED", "error": str(exc)[:500]}
+
+    # Provisional reports are rerun as immutable revisions after their waiting
+    # interval. Revalidation has its own budget reserve and can never block the
+    # ordinary scheduler.
+    try:
+        from market_intelligence import revalidate_provisional_reports
+
+        state["report_revalidation"] = dict(revalidate_provisional_reports(limit=1) or {})
+    except Exception as exc:
+        state["report_revalidation"] = {"state": "FAILED", "error": str(exc)[:500]}
 
     try:
         from scheduler_background import run_scheduler_cycle

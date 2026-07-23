@@ -193,9 +193,34 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             elif discovery.get("status") == "NEWSAPI_NOT_CONFIGURED":
                 result.update({"signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
                                "reason": "NEWSAPI_KEY mangler; primærkilden ga ingen strukturerte transaksjoner."})
+            elif discovery.get("status") in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED"}:
+                result.update({
+                    "signal": "KILDEKONTROLL DELVIS",
+                    "coverage": "PARTIAL_SOURCE_FAILURE",
+                    "reason": (
+                        "Sekundær NewsAPI-kildeoppdagelse var begrenset. "
+                        "Dette betyr ikke at den navngitte primærkilden feilet eller ble kontrollert direkte."
+                    ),
+                })
             elif discovery.get("status") == "DISCOVERY_ERROR":
-                result.update({"signal": "KILDEFEIL", "coverage": "ERROR",
-                               "reason": str(discovery.get("error") or "Kildeoppslag feilet")})
+                result.update({"signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
+                               "reason": "Sekundær kildeoppdagelse feilet; primærkilden ble ikke kontrollert direkte."})
+            result.setdefault("search_log", []).append({
+                "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
+                "source_type": "SECONDARY_SOURCE_DISCOVERY",
+                "attempted": discovery.get("status") not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"},
+                "status": {
+                    "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
+                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR",
+                    "RATE_LIMITED": "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED": "DAILY_QUOTA_EXCEEDED",
+                }.get(str(discovery.get("status") or ""), "NOT_SEARCHED"),
+                "results": len(discovery.get("articles") or []),
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": "",
+                "requested_primary_source": discovery.get("official_source") or "",
+                "direct_primary_source_checked": False,
+                "error": str(discovery.get("error") or "")[:240],
+            })
             _store_cached_result(ticker, result)
         return result
     search_log: list[dict[str, Any]] = []
@@ -249,17 +274,20 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         if result.get("coverage") != "AVAILABLE" and market:
             discovery = discover_with_newsapi(ticker, company, market)
             search_log.append({
-                "source": discovery.get("official_source") or "Offisiell markeds-/tilsynskilde via NewsAPI",
-                "source_type": "PRIMARY_SOURCE_DISCOVERY",
-                "attempted": discovery.get("status") != "NEWSAPI_NOT_CONFIGURED",
+                "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
+                "source_type": "SECONDARY_SOURCE_DISCOVERY",
+                "attempted": discovery.get("status") not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"},
                 "status": {
                     "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
-                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "ERROR",
+                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR",
+                    "RATE_LIMITED": "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED": "DAILY_QUOTA_EXCEEDED",
                 }.get(str(discovery.get("status") or ""), "NOT_SEARCHED"),
                 "results": len(discovery.get("articles") or []),
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "url": discovery.get("official_search_url") or "",
-                "error": discovery.get("error") or "",
+                "url": "",
+                "requested_primary_source": discovery.get("official_source") or "",
+                "direct_primary_source_checked": False,
+                "error": str(discovery.get("error") or "")[:240],
             })
             result["source_discovery"] = discovery
             if discovery.get("articles"):
@@ -270,20 +298,31 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             elif discovery.get("status") == "NEWSAPI_NOT_CONFIGURED":
                 result.update({"signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
                                "reason": "NEWSAPI_KEY mangler; ingen sekundær kildeoppdagelse ble utført."})
+            elif discovery.get("status") in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED"}:
+                result.update({
+                    "signal": "KILDEKONTROLL DELVIS",
+                    "coverage": "PARTIAL_SOURCE_FAILURE",
+                    "reason": (
+                        "Sekundær NewsAPI-kildeoppdagelse var begrenset. "
+                        "Den navngitte primærkilden ble ikke kontrollert direkte."
+                    ),
+                })
             elif discovery.get("status") == "DISCOVERY_ERROR":
-                result.update({"signal": "KILDEFEIL", "coverage": "ERROR",
-                               "reason": str(discovery.get("error") or "Kildeoppslag feilet")})
+                result.update({"signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
+                               "reason": "Sekundær kildeoppdagelse feilet; primærkilden ble ikke kontrollert direkte."})
     except Exception as exc:
         source = source_for_market(market)
         discovery = discover_with_newsapi(ticker, company, market) if market else {}
         found = list(discovery.get("articles") or [])
+        discovery_status = str(discovery.get("status") or "")
+        partial = discovery_status in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "DISCOVERY_ERROR"}
         result = {
             "ticker": ticker, "score": 50.0,
-            "signal": "KILDER FUNNET" if found else "KILDEFEIL",
-            "coverage": "DISCOVERY_ONLY" if found else "ERROR",
+            "signal": "KILDER FUNNET" if found else ("KILDEKONTROLL DELVIS" if partial else "KILDEFEIL"),
+            "coverage": "DISCOVERY_ONLY" if found else ("PARTIAL_SOURCE_FAILURE" if partial else "ERROR"),
             "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [],
             "reason": (f"{len(found)} mulig(e) kildemelding(er) funnet; avventer strukturert verifikasjon."
-                       if found else str(exc)),
+                       if found else ("Sekundær kildeoppdagelse var ufullstendig; primærkilden ble ikke kontrollert direkte." if partial else str(exc))),
             "source": "NewsAPI discovery" if found else "unavailable",
             "source_discovery": discovery, "currency": source.get("currency", ""),
             "official_source": source.get("name", ""),

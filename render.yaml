@@ -16,6 +16,16 @@ services:
         sync: false
       - key: NEWSAPI_KEY
         sync: false
+      - key: NEWSAPI_PLAN
+        value: Developer
+      - key: NEWSAPI_DAILY_BUDGET
+        value: "60"
+      - key: NEWSAPI_SHARED_CACHE_TTL_HOURS
+        value: "12"
+      - key: NEWSAPI_FALLBACK_ONLY
+        value: "true"
+      - key: REPORT_REVALIDATION_HOURS
+        value: "6"
       - key: SEC_USER_AGENT
         sync: false
       - key: PUSHOVER_APP_TOKEN
@@ -48,6 +58,16 @@ services:
         sync: false
       - key: NEWSAPI_KEY
         sync: false
+      - key: NEWSAPI_PLAN
+        value: Developer
+      - key: NEWSAPI_DAILY_BUDGET
+        value: "60"
+      - key: NEWSAPI_SHARED_CACHE_TTL_HOURS
+        value: "12"
+      - key: NEWSAPI_FALLBACK_ONLY
+        value: "true"
+      - key: REPORT_REVALIDATION_HOURS
+        value: "6"
       - key: SEC_USER_AGENT
         sync: false
       - key: PUSHOVER_APP_TOKEN

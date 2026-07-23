@@ -505,6 +505,8 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     candidates = list(run.get("candidates") or [])
     top = candidates[0] if candidates else {}
     identity = resolve_report_identity(run)
+    report_status = run.get("report_status") if isinstance(run.get("report_status"), Mapping) else {}
+    revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"),
         "result_id": (run.get("canonical_result") or {}).get("result_id"),
@@ -517,6 +519,14 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "top_ticker": top.get("ticker"), "top_score": top.get("investment_score"),
         "tickers": [str(x.get("ticker")) for x in candidates if x.get("ticker")],
         "favorite": False, "analysis_aborted": bool(run.get("analysis_aborted")),
+        "report_state": report_status.get("state") or "LEGACY",
+        "report_status_label": report_status.get("label") or "",
+        "revalidation_required": bool(report_status.get("revalidation_required")),
+        "report_series_id": revision.get("series_id") or "",
+        "report_revision": revision.get("revision") or 1,
+        "report_revision_label": revision.get("revision_label") or "R1",
+        "supersedes_run_id": revision.get("supersedes_run_id") or "",
+        "content_sha256": revision.get("content_sha256") or "",
     }
 
 
@@ -706,10 +716,13 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     changes = run.get("changes") or {}
     interesting = [x for x in changes.get("new", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
     interesting += [x for x in changes.get("improved", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
+    integrity_change = bool((run.get("change_since_previous") or {}).get("material_change"))
+    revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
+    is_revised = bool(revision.get("supersedes_run_id"))
     mode = _notification_mode(job)
     if mode == "ERRORS_ONLY" and not list(run.get("errors") or []):
         return False, "Ingen feil; varsling er satt til kun feil"
-    if mode == "CHANGES_ONLY" and not interesting:
+    if mode == "CHANGES_ONLY" and not interesting and not integrity_change and not is_revised:
         return False, "Ingen kvalifiserende endringer"
     if not job.notify_pushover:
         return False, "Pushover er deaktivert for jobben"
@@ -720,6 +733,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         top = (run.get("proposals") or run.get("candidates") or [{}])[0]
         lines = [
             f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
+            f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {job.name}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
             f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
@@ -827,7 +841,7 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         "DISCOVERY_ONLY": 7.0, "STALE": 8.0, "NOT_CONFIGURED": 10.0,
         "UNAVAILABLE": 10.0, "ERROR": 12.0, "NOT_SEARCHED": 15.0,
         "VERIFIED_FACTS_FOUND": 0.0, "PARTIAL_SOURCE_FAILURE": 8.0,
-        "RATE_LIMITED": 10.0, "SOURCE_ERROR": 12.0,
+        "RATE_LIMITED": 10.0, "DAILY_QUOTA_EXCEEDED": 10.0, "SOURCE_ERROR": 12.0,
     }
     summary = {
         "evaluated": 0, "reduced": 0, "decision_downgraded": 0,
@@ -853,7 +867,8 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
                 penalty = 6.0
             total_penalty += penalty
             if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED",
-                          "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "SOURCE_ERROR"}:
+                          "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
+                          "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR"}:
                 critical_failures += 1
             conflicts = evidence_conflicts(evidence_rows)
             records[label] = {
@@ -876,7 +891,8 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         cap = 100.0
         if news_status != "VERIFIED_FACTS_FOUND" and insider_status in {
             "STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED",
-            "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "SOURCE_ERROR",
+            "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
+            "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR",
         }:
             cap = 60.0
         elif news_status != "VERIFIED_FACTS_FOUND" and insider_status != "VERIFIED_FACTS_FOUND":
@@ -978,7 +994,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     identity = resolve_report_identity(run)
     report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
@@ -1050,6 +1066,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 status = str(item.get("status") or "-").upper()
                 if status == "RATE_LIMITED":
                     detail = "HTTP 429 – kapasitetsgrense; øvrige kilder brukes"
+                elif status == "DAILY_QUOTA_EXCEEDED":
+                    detail = "NewsAPI-døgnbudsjettet er brukt; øvrige kilder brukes"
                 elif status in {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"}:
                     detail = f"Teknisk kildefeil: {_short(item.get('error') or item.get('reason') or '-', 90)}"
                 else:
@@ -1123,16 +1141,26 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         canvas.drawString(13*mm, height-8*mm, "AI Aksje Analyzer Pro")
         canvas.drawRightString(width-13*mm, height-8*mm, str(identity.get("label") or "Rapport"))
         canvas.line(13*mm, 9*mm, width-13*mm, 9*mm)
-        canvas.drawString(13*mm, 6*mm, str(run.get("run_id") or "-"))
+        revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
+        canvas.drawString(
+            13*mm, 6*mm,
+            f"{run.get('run_id') or '-'} · {revision.get('revision_label') or 'R1'}",
+        )
         canvas.drawRightString(width-13*mm, 6*mm, f"Side {document.page}")
         canvas.restoreState()
 
     markets_text = ", ".join(run.get("markets") or run.get("market_expansion") or [])
+    report_status = run.get("report_status") if isinstance(run.get("report_status"), Mapping) else {}
+    report_revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     meta = Table([
         [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(run.get("job_name", "-"), "Small")],
         [_p("Rapport-ID", "Small"), _p(run.get("run_id", "-"), "Small"), _p("Generert", "Small"),
          _p(local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)), "Small")],
         [_p("Markeder", "Small"), _p(markets_text, "Small"), "", ""],
+        [_p("Rapportstatus", "Small"), _p(report_status.get("label") or "Eldre rapportformat", "Small"),
+         _p("Revisjon", "Small"), _p(report_revision.get("revision_label") or "R1", "Small")],
+        [_p("Kontrollsum", "Small"), _p(str(report_revision.get("content_sha256") or "-")[:24], "Small"),
+         _p("Erstatter", "Small"), _p(report_revision.get("supersedes_run_id") or "-", "Small")],
     ], colWidths=[22*mm, 68*mm, 18*mm, 76*mm])
     meta.setStyle(_table_style(7, header=False, padding=2.5))
     meta.setStyle(TableStyle([("SPAN", (1, 2), (3, 2)), ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F5F8FA"))]))
@@ -1161,6 +1189,41 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     )
     story += [Paragraph("Executive Summary", styles["Section"]), summary_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"])]
+    if report_status.get("state") == "PROVISIONAL":
+        gaps = ", ".join(
+            f"{row.get('ticker')}/{row.get('area')}: {row.get('status')}"
+            for row in list(report_status.get("critical_gaps") or [])[:8]
+        )
+        story += [Paragraph(
+            "<b>FORELØPIG RAPPORT:</b> Kildekontrollen er ufullstendig. "
+            + escape(gaps or "vesentlig dokumentasjon mangler")
+            + ". Rapporten skal revalideres; denne revisjonen overskrives ikke.",
+            styles["BodyCompact"],
+        )]
+    preflight = run.get("integrity_preflight") if isinstance(run.get("integrity_preflight"), Mapping) else {}
+    if preflight:
+        preflight_rows = [["Kontroll", "Status", "Detalj"]]
+        for row in preflight.get("checks") or []:
+            preflight_rows.append([_p(row.get("name")), row.get("status"), _p(row.get("detail"))])
+        preflight_table = Table(preflight_rows, repeatRows=1, colWidths=[40*mm, 24*mm, 104*mm])
+        preflight_table.setStyle(_table_style(6.4, padding=2))
+        story += [Paragraph("Forhåndskontroll før skanning", styles["Subsection"]), preflight_table]
+    change_summary = run.get("change_since_previous") if isinstance(run.get("change_since_previous"), Mapping) else {}
+    if change_summary:
+        change_table = Table([
+            ["Topp 3 endret", "Nye", "Forbedret", "Svekket", "Utgått", "Kildehelse Δ", "Vesentlig"],
+            [
+                "Ja" if change_summary.get("top3_changed") else "Nei",
+                change_summary.get("new_candidates", 0),
+                change_summary.get("improved_candidates", 0),
+                change_summary.get("weakened_candidates", 0),
+                change_summary.get("dropped_candidates", 0),
+                change_summary.get("degraded_source_delta", 0),
+                "Ja" if change_summary.get("material_change") else "Nei",
+            ],
+        ], colWidths=[26*mm, 20*mm, 24*mm, 22*mm, 20*mm, 28*mm, 24*mm])
+        change_table.setStyle(_table_style(6.3, padding=2))
+        story += [Paragraph("Hva har endret seg siden forrige rapport?", styles["Subsection"]), change_table]
     user_mission = run.get("user_mission") or {}
     mission_summary = run.get("mission_summary") or {}
     if user_mission:
@@ -1237,6 +1300,30 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             combined_table,
             Paragraph("Grønn status krever både gyldige markedsdata og tilstrekkelig dokumentert evidens. Markedsdata alene kan ikke gi grønn beslutningsstatus.", styles["Small"]),
         ]
+    source_health = run.get("source_health") if isinstance(run.get("source_health"), Mapping) else {}
+    if source_health:
+        source_rows = [["Kilde", "Område", "Forsøk", "OK", "Treff", "429", "Kvote", "Feil", "Siste status"]]
+        for row in list(source_health.get("sources") or [])[:20]:
+            source_rows.append([
+                _p(row.get("source")), _p(", ".join(row.get("areas") or [])),
+                row.get("attempts", 0), row.get("successes", 0), row.get("with_results", 0),
+                row.get("rate_limited", 0), row.get("quota_exceeded", 0), row.get("errors", 0),
+                _p(row.get("last_status") or "-"),
+            ])
+        source_table = Table(
+            source_rows, repeatRows=1,
+            colWidths=[38*mm, 20*mm, 16*mm, 15*mm, 14*mm, 13*mm, 14*mm, 13*mm, 34*mm],
+        )
+        source_table.setStyle(_table_style(5.8, padding=1.6))
+        budget = source_health.get("newsapi_budget") if isinstance(source_health.get("newsapi_budget"), Mapping) else {}
+        budget_text = (
+            f"NewsAPI {budget.get('plan') or '-'}: {budget.get('used_today', 0)} brukt, "
+            f"{budget.get('remaining_today', 0)} igjen av lokalt døgnbudsjett {budget.get('daily_budget', 0)}. "
+            f"Cachetreff {budget.get('cache_hits', 0)}. "
+            + (f"Planen har oppgitt {budget.get('developer_delay_hours')} timers forsinkelse." if budget.get("developer_delay_hours") else "")
+        )
+        story += [Paragraph("Kildehelse og API-budsjett", styles["Subsection"]), source_table,
+                  Paragraph(escape(budget_text), styles["Small"])]
     discovery = run.get("discovery_data") or {}
     if discovery:
         discovery_rows = [["Marked", "Valgt", "Dokumentert", "Nye", "Eksperimentelle", "Karantene", "Rotert"]]
@@ -1359,7 +1446,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             weight_text = f"Vekt {r.get('proposed_position_pct', 0)} %" if evidence["action"] == "BUY" else "Ingen kjøpsvekt"
             medal_data.append([Paragraph(
                 f"<b>{medal_labels[idx]}</b><br/><b>{display_name}</b><br/>{r.get('ticker','-')} · {r.get('market','-')}<br/>"
-                f"Score {r.get('investment_score',0)} · Konf. {r.get('confidence_score',0)} %<br/>"
+                f"Score {r.get('investment_score',0)} · Modell {((r.get('confidence_profile') or {}).get('model_confidence', r.get('confidence_score',0)))} % · "
+                f"Data {((r.get('confidence_profile') or {}).get('data_coverage', '-'))} % · "
+                f"Beslutning {((r.get('confidence_profile') or {}).get('decision_confidence', r.get('confidence_score',0)))} %<br/>"
                 f"Risiko {format_risk(r.get('risk_score',0))} · {weight_text}<br/>"
                 f"<b>Driver:</b> {escape(evidence['drivers'])}<br/><b>Forbehold:</b> {escape(evidence['cautions'])}<br/>"
                 f"<b>Handling:</b> {escape(evidence['action'])}", styles["Small"])])
@@ -1388,13 +1477,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             "DISCOVERY_ONLY": "Kilder funnet – ikke strukturert/verifisert",
             "NOT_CONFIGURED": "Kilde ikke tilgjengelig", "UNAVAILABLE": "Kilde ikke tilgjengelig",
             "ERROR": "Kildefeil", "NOT_SEARCHED": "Ikke søkt", "STALE": "Foreldede data",
+            "PARTIAL_SOURCE_FAILURE": "Delvis kildefeil", "RATE_LIMITED": "Kilde midlertidig begrenset",
+            "DAILY_QUOTA_EXCEEDED": "Døgnbudsjett brukt", "SOURCE_ERROR": "Kildefeil",
         }
         for idx, candidate in enumerate(medal_candidates):
             raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
             insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
             news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
             evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
-            story += [PageBreak(), Paragraph(
+            story += [PageBreak() if idx == 0 else CondPageBreak(85*mm), Paragraph(
                 f"Plass {idx + 1}: {escape(str(candidate.get('ticker') or '-'))} – fullstendig beslutningsgrunnlag",
                 styles["ReportTitle"],
             )]
@@ -1480,7 +1571,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             for article in list(news.get("events") or [])[:12]:
                 news_rows_detail.append([
                     _p(_short(article.get("title"), 150)), article.get("published_at") or article.get("date") or "-",
-                    _p(article.get("source") or "-"), _p(", ".join(article.get("topics") or []) or ", ".join(news.get("topics") or []) or "-"),
+                    _p(article.get("source") or article.get("publisher") or "-"), _p(", ".join(article.get("topics") or []) or ", ".join(news.get("topics") or []) or "-"),
                     _fmt(article.get("sentiment_score")), article.get("impact") or "-",
                 ])
             if len(news_rows_detail) == 1:
@@ -1518,6 +1609,26 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                  candidate.get("evidence_gate_status") or "-", "Ja" if candidate.get("evidence_review_required") else "Nei"],
             ], colWidths=[29*mm, 22*mm, 22*mm, 22*mm, 39*mm, 34*mm])
             confidence_table.setStyle(_table_style(6.2, padding=2))
+            profile = candidate.get("confidence_profile") if isinstance(candidate.get("confidence_profile"), Mapping) else {}
+            profile_table = Table([
+                ["Modellkonfidens", "Datadekning", "Kalibrert", "Beslutningskonfidens", "Endrer handelsregler"],
+                [
+                    _fmt(profile.get("model_confidence")), _fmt(profile.get("data_coverage")),
+                    _fmt(profile.get("calibrated_confidence")), _fmt(profile.get("decision_confidence")),
+                    "Nei",
+                ],
+            ], colWidths=[31*mm, 29*mm, 29*mm, 42*mm, 37*mm])
+            profile_table.setStyle(_table_style(6.2, padding=2))
+            passport = candidate.get("evidence_passport") if isinstance(candidate.get("evidence_passport"), Mapping) else {}
+            passport_rows = [["Område", "Status", "Fakta", "Kilder", "Påvirket rangering", "Bidrag"]]
+            for area, area_data in (passport.get("areas") or {}).items():
+                passport_rows.append([
+                    area.title(), area_data.get("status") or "-", area_data.get("fact_count", 0),
+                    area_data.get("source_count", 0), "Ja" if area_data.get("affected_ranking") else "Nei",
+                    _fmt(area_data.get("ranking_contribution")),
+                ])
+            passport_table = Table(passport_rows, repeatRows=1, colWidths=[29*mm, 46*mm, 20*mm, 20*mm, 34*mm, 19*mm])
+            passport_table.setStyle(_table_style(6.1, padding=1.8))
             story += [
                 Paragraph("Faktaproveniens – etterprøvbare enkeltopplysninger", styles["Section"]),
                 provenance_table,
@@ -1525,6 +1636,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 source_log_table,
                 Paragraph("Konfidenskalibrering og evidensport", styles["Section"]),
                 confidence_table,
+                Paragraph("Separat modell-, data- og beslutningskonfidens", styles["Subsection"]),
+                profile_table,
+                Paragraph(escape(str(profile.get("explanation") or "")), styles["Small"]),
+                Paragraph(
+                    "Bevispass · kontrollsum " + escape(str(passport.get("fingerprint") or "-")[:24]),
+                    styles["Subsection"],
+                ),
+                passport_table,
             ]
 
             discovery_detail = raw.get("discovery_evidence") or raw.get("ai_discovery") or candidate.get("discovery_reason") or "Ingen separat Discovery-dokumentasjon registrert."
@@ -1532,7 +1651,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             positives = " • ".join(str(x) for x in (candidate.get("positives") or [])) or "Ingen særskilte positive drivere registrert."
             risks = " • ".join(str(x) for x in (candidate.get("risks") or [])) or "Ingen særskilte risikofaktorer registrert."
             story += [
-                Paragraph("AI Discovery, historikk og porteføljetilpasning", styles["Section"]),
+                Paragraph(
+                    f"{escape(str(candidate.get('ticker') or '-'))} – AI Discovery, historikk og porteføljetilpasning",
+                    styles["Section"],
+                ),
                 Paragraph(f"<b>Discovery:</b> {escape(_short(discovery_detail, 650))}", styles["Small"]),
                 Paragraph(f"<b>Backtest / historisk treffsikkerhet:</b> {escape(_short(backtest_detail, 650))}", styles["Small"]),
                 Paragraph(
@@ -1856,7 +1978,13 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
         "execution_trace": execution_trace,
     }
 
-def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callable[[Mapping[str, Any]], None] | None = None, force_refresh: bool = False) -> dict[str, Any]:
+def run_job(
+    job: JobProfile,
+    trigger: str = "MANUAL",
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    force_refresh: bool = False,
+    revision_parent: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     full_run_started = time_module.perf_counter()
     requested_job = job
     job, handoff = _effective_execution_job(job, trigger)
@@ -1887,8 +2015,16 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     from autonomi_core.configuration.registry import status as _central_configuration_status
     if investment_mission and str(investment_mission.get("configuration_version") or "") != str(_central_configuration_status().get("config_version") or ""):
         raise ValueError("Sentral konfigurasjon er endret etter at oppdraget ble opprettet. Opprett oppdraget på nytt.")
-    previous = _read(LATEST_PATH, {})
-    reusable = None if force_refresh else _recent_validated_draft(job, trigger)
+    from evidence_integrity import build_integrity_preflight
+    integrity_preflight = build_integrity_preflight(job)
+    if not integrity_preflight.get("can_run"):
+        blockers = ", ".join(
+            str(row.get("name") or "ukjent")
+            for row in integrity_preflight.get("checks") or [] if row.get("blocking")
+        )
+        raise ValueError(f"Forhåndskontroll blokkerte kjøringen: {blockers or 'ukjent blokkering'}")
+    previous = dict(revision_parent or {}) or _read(LATEST_PATH, {})
+    reusable = None if force_refresh or revision_parent else _recent_validated_draft(job, trigger)
     if reusable is not None:
         if progress_callback:
             progress_callback({"phase": "COMPLETE", "completed": 1, "total": 1, "message": "Validerte utkastdata gjenbrukes som endelig morgenrapport"})
@@ -2092,6 +2228,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "data_contract": data_contract_summary,
            "evidence_coverage": evidence_coverage_summary,
            "combined_data_quality": combined_quality,
+           "integrity_preflight": integrity_preflight,
            "portfolio_need_preflight": portfolio_need_preflight,
            "portfolio_decisions": portfolio_decisions,
            "discovery_data": {
@@ -2119,10 +2256,19 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
                "label": "Beslutningsklar Topp 3" if len(decision_candidates) >= 3 else "Færre enn tre beslutningsklare kandidater",
                "complete": len(decision_candidates) >= 3,
            },
-           "report_identity": report_identity(
-               trigger, job.name, job.job_id, created_at=run_created_at,
-               timezone_name=job.timezone_name,
+           "report_identity": (
+               dict(previous.get("report_identity") or {})
+               if revision_parent and isinstance(previous.get("report_identity"), Mapping)
+               else report_identity(
+                   trigger, job.name, job.job_id, created_at=run_created_at,
+                   timezone_name=job.timezone_name,
+               )
            ),
+           "revalidation": {
+               "is_revalidation": bool(revision_parent),
+               "parent_run_id": previous.get("run_id") if revision_parent else "",
+               "attempt": int((previous.get("revalidation") or {}).get("attempt") or 0) + 1 if revision_parent else 0,
+           },
            "execution_mode": "UNIFIED_PIPELINE",
            "configuration_handoff": handoff,
            "market_diagnostics": market_diagnostics,
@@ -2155,6 +2301,8 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     else:
         run["changes"] = compare_runs(run, previous)
         _update_history(run)
+    from evidence_integrity import finalize_run_integrity
+    finalize_run_integrity(run, previous)
     # Stable identity is known before Controlled Learning runs. The immutable
     # record itself is committed after the autonomous stages are complete.
     run["canonical_result"] = {"result_id": f"RESULT-{run_id}", "run_id": run_id, "pending_storage": True}
@@ -2367,6 +2515,91 @@ def run_due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
     return results
 
 
+def revalidate_provisional_reports(
+    now: datetime | None = None,
+    *,
+    limit: int = 1,
+) -> dict[str, Any]:
+    """Rerun a stored provisional report without overwriting its original revision.
+
+    Revalidation is deliberately conservative: at most one report is rerun per
+    unattended cycle by default, a local NewsAPI reserve is respected, and a
+    report series is attempted no more than the configured maximum.
+    """
+    import os
+
+    now = (now or _now()).astimezone(timezone.utc)
+    wait_hours = max(1, int(os.getenv("REPORT_REVALIDATION_HOURS", "6") or 6))
+    max_attempts = max(1, int(os.getenv("REPORT_REVALIDATION_MAX_ATTEMPTS", "3") or 3))
+    reserve = max(0, int(os.getenv("NEWSAPI_REVALIDATION_RESERVE", "10") or 10))
+    try:
+        from newsapi_budget import health_snapshot
+        budget = health_snapshot()
+    except Exception:
+        budget = {}
+    if budget.get("configured") and int(budget.get("remaining_today") or 0) <= reserve:
+        return {
+            "state": "SKIPPED_BUDGET_RESERVE",
+            "checked_at": now.isoformat(timespec="seconds"),
+            "remaining": int(budget.get("remaining_today") or 0),
+            "reserve": reserve,
+            "runs": [],
+        }
+    jobs = {job.job_id: job for job in load_jobs()}
+    latest_by_series: dict[str, dict[str, Any]] = {}
+    for entry in _load_report_archive():
+        series = str(entry.get("report_series_id") or entry.get("run_id") or "")
+        if series and series not in latest_by_series:
+            latest_by_series[series] = dict(entry)
+    candidates: list[tuple[datetime, dict[str, Any], dict[str, Any], JobProfile]] = []
+    for entry in latest_by_series.values():
+        if not entry.get("revalidation_required") and str(entry.get("report_state") or "") != "PROVISIONAL":
+            continue
+        run = load_archived_run(entry)
+        if not run or str(run.get("job_id") or "") == DRAFT_JOB_ID:
+            continue
+        attempt = int((run.get("revalidation") or {}).get("attempt") or 0)
+        if attempt >= max_attempts:
+            continue
+        job = jobs.get(str(run.get("job_id") or ""))
+        if not job:
+            continue
+        try:
+            created = datetime.fromisoformat(str(run.get("created_at") or "").replace("Z", "+00:00"))
+            created = created.replace(tzinfo=created.tzinfo or timezone.utc).astimezone(timezone.utc)
+        except Exception:
+            continue
+        if now - created < timedelta(hours=wait_hours):
+            continue
+        candidates.append((created, entry, run, job))
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for _created, entry, parent, job in sorted(candidates, key=lambda item: item[0])[:max(0, int(limit))]:
+        try:
+            revised = run_job(
+                job,
+                trigger="REVALIDATION",
+                force_refresh=True,
+                revision_parent=parent,
+            )
+            results.append({
+                "parent_run_id": parent.get("run_id"),
+                "run_id": revised.get("run_id"),
+                "revision": (revised.get("report_revision") or {}).get("revision_label"),
+                "state": (revised.get("report_status") or {}).get("state"),
+                "material_change": (revised.get("change_since_previous") or {}).get("material_change"),
+            })
+        except Exception as exc:
+            errors.append({"run_id": str(parent.get("run_id") or ""), "error": str(exc)[:500]})
+    return {
+        "state": "COMPLETED" if not errors else "COMPLETED_WITH_ERRORS",
+        "checked_at": now.isoformat(timespec="seconds"),
+        "eligible": len(candidates),
+        "runs": results,
+        "errors": errors,
+    }
+
+
 def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
@@ -2543,6 +2776,15 @@ def render_market_intelligence() -> None:
             identity = resolve_report_identity(latest)
             st.markdown(f"### {identity.get('label', 'Rapport')} · {latest.get('job_name', '-')}")
             st.caption(f"Rapporttype: {identity.get('type', '-')} · Kjøring: {latest.get('run_id', '-')}")
+            report_state = latest.get("report_status") if isinstance(latest.get("report_status"), Mapping) else {}
+            revision = latest.get("report_revision") if isinstance(latest.get("report_revision"), Mapping) else {}
+            if report_state.get("state") == "PROVISIONAL":
+                st.warning(
+                    f"{report_state.get('label')} · {revision.get('revision_label', 'R1')} · "
+                    "automatisk revalidering er nødvendig"
+                )
+            elif report_state:
+                st.success(f"{report_state.get('label', 'ENDELIG')} · {revision.get('revision_label', 'R1')}")
             if latest.get("analysis_aborted"):
                 st.error("Analyse avbrutt – utilstrekkelige data. Medaljer, anbefalinger og porteføljeforslag er deaktivert for denne kjøringen.")
             s = latest.get("summary") or {}; ch = latest.get("changes") or {}
@@ -2680,6 +2922,11 @@ def render_market_intelligence() -> None:
             shown_time = row.get("created_at_local") or local_display(row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE))
             label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {shown_time}"
             with st.expander(label, expanded=False):
+                state_label = row.get("report_status_label") or row.get("report_state") or "Eldre rapport"
+                st.caption(
+                    f"Status: {state_label} · Revisjon: {row.get('report_revision_label') or 'R1'}"
+                    + (f" · Erstatter {row.get('supersedes_run_id')}" if row.get("supersedes_run_id") else "")
+                )
                 m1,m2,m3,m4 = st.columns(4)
                 m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
                 saved_run = load_archived_run(row)
@@ -2728,6 +2975,18 @@ def render_market_intelligence() -> None:
             st.error(str(unattended.get("error")))
         with st.expander("Scheduler-detaljer", expanded=False):
             st.json(unattended)
+        latest_run = _read(LATEST_PATH, {})
+        source_health = latest_run.get("source_health") if isinstance(latest_run.get("source_health"), Mapping) else {}
+        if source_health:
+            st.markdown("#### Kildehelse")
+            budget = source_health.get("newsapi_budget") if isinstance(source_health.get("newsapi_budget"), Mapping) else {}
+            h1, h2, h3, h4 = st.columns(4)
+            h1.metric("Forringede kilder", source_health.get("degraded_sources", 0))
+            h2.metric("NewsAPI brukt", budget.get("used_today", 0))
+            h3.metric("NewsAPI igjen", budget.get("remaining_today", 0))
+            h4.metric("Cachetreff", budget.get("cache_hits", 0))
+            if source_health.get("sources"):
+                st.dataframe(pd.DataFrame(source_health.get("sources")), width="stretch", hide_index=True)
         st.code("Uavhengig kjøring: python scheduled_runner.py", language="bash")
         st.caption(f"Runtime-katalog: {ROOT}")
 

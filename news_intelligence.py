@@ -16,10 +16,15 @@ import json
 import math
 import os
 import re
-import threading
 import time
 
 from storage_architecture import runtime_data_path
+from newsapi_budget import (
+    NewsApiDailyQuotaExceeded,
+    NewsApiError,
+    NewsApiRateLimited,
+    fetch_articles as fetch_newsapi_articles,
+)
 
 VERSION = "v18.7.2"
 CACHE_PATH = runtime_data_path("news_intelligence") / "cache.json"
@@ -28,15 +33,6 @@ DEFAULT_LOOKBACK_DAYS = int(os.getenv("NEWS_INTELLIGENCE_LOOKBACK_DAYS", "14") o
 DEFAULT_RSS_FEEDS = {
     "Norge": [("E24 RSS", "https://e24.no/rss")],
 }
-_NEWSAPI_LOCK = threading.RLock()
-_NEWSAPI_LAST_REQUEST = 0.0
-
-
-class NewsApiRateLimited(RuntimeError):
-    def __init__(self, retry_after: float, detail: str = ""):
-        super().__init__(detail or "NewsAPI rate limit")
-        self.retry_after = retry_after
-
 POSITIVE_TERMS = {
     "beat": 1.4, "beats": 1.4, "record": 1.1, "growth": 0.8, "profit": 0.8,
     "upgrade": 1.2, "outperform": 1.0, "approval": 1.2, "contract": 0.9,
@@ -152,38 +148,14 @@ def _fetch_yfinance(ticker: str) -> list[dict[str, Any]]:
 
 
 def _fetch_newsapi(query: str, limit: int = 30) -> list[dict[str, Any]]:
-    key = os.getenv("NEWSAPI_KEY", "").strip()
-    if not key:
+    if not os.getenv("NEWSAPI_KEY", "").strip():
         return []
-    import requests
-    global _NEWSAPI_LAST_REQUEST
-    minimum_interval = max(0.1, float(os.getenv("NEWSAPI_MIN_INTERVAL_SECONDS", "0.75") or 0.75))
-    response = None
-    for attempt in range(3):
-        with _NEWSAPI_LOCK:
-            wait = max(0.0, minimum_interval - (time.monotonic() - _NEWSAPI_LAST_REQUEST))
-            if wait:
-                time.sleep(wait)
-            response = requests.get(
-                "https://newsapi.org/v2/everything",
-                params={"q": query, "sortBy": "publishedAt", "pageSize": min(100, limit), "apiKey": key},
-                timeout=12,
-            )
-            _NEWSAPI_LAST_REQUEST = time.monotonic()
-        if response.status_code != 429:
-            break
-        retry_after = min(5.0, max(0.5, _f(response.headers.get("Retry-After"), 1.0) * (attempt + 1)))
-        if attempt < 2:
-            time.sleep(retry_after)
-    if response is not None and response.status_code == 429:
-        raise NewsApiRateLimited(_f(response.headers.get("Retry-After"), 1.0), "HTTP 429 – NewsAPI-kapasitetsgrense")
-    response.raise_for_status()
-    rows = response.json().get("articles") or []
-    return [{
-        "title": x.get("title") or "", "summary": x.get("description") or "",
-        "url": x.get("url") or "", "publisher": (x.get("source") or {}).get("name") or "",
-        "published_at": x.get("publishedAt"),
-    } for x in rows if isinstance(x, Mapping)]
+    return fetch_newsapi_articles(
+        query,
+        purpose="NEWS_COMPANY",
+        limit=limit,
+        cache_ttl_seconds=CACHE_TTL_SECONDS,
+    )
 
 
 def _fetch_rss(url: str, publisher: str, query_tokens: Sequence[str]) -> list[dict[str, Any]]:
@@ -327,6 +299,44 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "attempted": True, "status": "SUCCESS_WITH_RESULTS" if yf_rows else "SUCCESS_NO_RESULTS",
             "results": len(yf_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
         })
+    except Exception as exc:
+        errors.append(f"yfinance: {exc}")
+        search_log.append({
+            "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
+            "attempted": True, "status": "ERROR", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": str(exc)[:500],
+        })
+    try:
+        fallback_only = str(os.getenv("NEWSAPI_FALLBACK_ONLY", "true")).strip().casefold() not in {"0", "false", "no"}
+        minimum_existing = max(1, int(os.getenv("NEWSAPI_FALLBACK_MIN_EXISTING_ARTICLES", "3") or 3))
+        if fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing:
+            search_log.append({
+                "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
+                "attempted": False, "status": "SKIPPED_BUDGET_POLICY", "results": 0,
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "error": f"Ikke brukt: yfinance ga minst {minimum_existing} saker; døgnbudsjett bevart",
+            })
+            api_rows = []
+        else:
+            query = f'"{company_name.strip()}" OR "{ticker}"' if company_name.strip() else ticker
+            api_rows = _fetch_newsapi(query)
+        rows.extend(api_rows)
+        if api_rows: sources.append("NewsAPI")
+        if not (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing):
+            search_log.append({
+                "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
+                "attempted": bool(os.getenv("NEWSAPI_KEY", "").strip()),
+                "status": ("SUCCESS_WITH_RESULTS" if api_rows else "SUCCESS_NO_RESULTS") if os.getenv("NEWSAPI_KEY", "").strip() else "NOT_CONFIGURED",
+                "results": len(api_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
+            })
+    except NewsApiDailyQuotaExceeded:
+        errors.append("NewsAPI: døgnbudsjettet er brukt")
+        search_log.append({
+            "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
+            "attempted": False, "status": "DAILY_QUOTA_EXCEEDED", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "error": "Lokalt døgnbudsjett er brukt; øvrige kilder benyttes",
+        })
     except NewsApiRateLimited as exc:
         errors.append("NewsAPI: HTTP 429 – kapasitetsgrense")
         search_log.append({
@@ -336,23 +346,12 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "retry_after_seconds": exc.retry_after,
             "error": "HTTP 429 – kapasitetsgrense; øvrige kilder brukes",
         })
-    except Exception as exc:
-        errors.append(f"yfinance: {exc}")
-        search_log.append({
-            "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
-            "attempted": True, "status": "ERROR", "results": 0,
-            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": str(exc)[:500],
-        })
-    try:
-        query = f'"{company_name.strip()}" OR "{ticker}"' if company_name.strip() else ticker
-        api_rows = _fetch_newsapi(query)
-        rows.extend(api_rows)
-        if api_rows: sources.append("NewsAPI")
+    except NewsApiError:
         search_log.append({
             "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
-            "attempted": bool(os.getenv("NEWSAPI_KEY", "").strip()),
-            "status": ("SUCCESS_WITH_RESULTS" if api_rows else "SUCCESS_NO_RESULTS") if os.getenv("NEWSAPI_KEY", "").strip() else "NOT_CONFIGURED",
-            "results": len(api_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
+            "attempted": False, "status": "NOT_CONFIGURED", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "error": "NewsAPI er ikke konfigurert; øvrige kilder benyttes",
         })
     except Exception as exc:
         errors.append(f"NewsAPI: {exc}")

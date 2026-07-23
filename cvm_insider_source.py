@@ -42,7 +42,7 @@ def _download(year: int, session: Any) -> bytes:
     if CACHE_FILE.is_file() and time.time() - CACHE_FILE.stat().st_mtime < CACHE_TTL:
         return CACHE_FILE.read_bytes()
     url = f"{CVM_DATASET}/vlmo_cia_aberta_{year}.zip"
-    response = session.get(url, timeout=35, headers={"User-Agent": "AI-Aksje-Analyzer/19.0.10"})
+    response = session.get(url, timeout=35, headers={"User-Agent": "AI-Aksje-Analyzer/19.0.11"})
     response.raise_for_status()
     data = bytes(response.content)
     CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)

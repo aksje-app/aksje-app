@@ -8,11 +8,15 @@ CHECKED_NO_EVENTS = "CHECKED_NO_EVENTS"
 PARTIAL_SOURCE_FAILURE = "PARTIAL_SOURCE_FAILURE"
 NOT_CONFIGURED = "NOT_CONFIGURED"
 RATE_LIMITED = "RATE_LIMITED"
+DAILY_QUOTA_EXCEEDED = "DAILY_QUOTA_EXCEEDED"
 SOURCE_ERROR = "SOURCE_ERROR"
 NOT_SEARCHED = "NOT_SEARCHED"
 STALE = "STALE"
 
-FAILURE_STATES = {PARTIAL_SOURCE_FAILURE, NOT_CONFIGURED, RATE_LIMITED, SOURCE_ERROR, NOT_SEARCHED, STALE}
+FAILURE_STATES = {
+    PARTIAL_SOURCE_FAILURE, NOT_CONFIGURED, RATE_LIMITED,
+    DAILY_QUOTA_EXCEEDED, SOURCE_ERROR, NOT_SEARCHED, STALE,
+}
 
 
 def canonical_status(payload: Mapping[str, Any], facts: Sequence[Mapping[str, Any]]) -> str:
@@ -22,6 +26,8 @@ def canonical_status(payload: Mapping[str, Any], facts: Sequence[Mapping[str, An
         return VERIFIED_FACTS_FOUND
     if "RATE_LIMITED" in statuses:
         return RATE_LIMITED
+    if "DAILY_QUOTA_EXCEEDED" in statuses:
+        return DAILY_QUOTA_EXCEEDED
     successes = statuses & {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"}
     failures = statuses & {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"}
     if successes and failures:
@@ -48,6 +54,7 @@ def source_budget(payload: Mapping[str, Any]) -> dict[str, int]:
         "with_facts": sum(status == "SUCCESS_WITH_RESULTS" for status in statuses),
         "no_events": sum(status == "SUCCESS_NO_RESULTS" for status in statuses),
         "rate_limited": sum(status == "RATE_LIMITED" for status in statuses),
+        "daily_quota_exceeded": sum(status == "DAILY_QUOTA_EXCEEDED" for status in statuses),
         "not_configured": sum(status == "NOT_CONFIGURED" for status in statuses),
         "errors": sum(status in {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"} for status in statuses),
     }
