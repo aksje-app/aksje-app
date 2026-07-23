@@ -4,6 +4,7 @@ import types
 
 import international_insider_sources as sources
 import market_intelligence as mi
+import newsapi_budget
 
 
 def test_whole_currency_and_market_mapping():
@@ -19,7 +20,7 @@ def test_risk_text_uses_reference_scale_not_percent():
     assert mi.format_risk(65) == "65 - HØY"
 
 
-def test_newsapi_discovery_uses_header_and_stays_discovery_only(monkeypatch):
+def test_newsapi_discovery_uses_header_and_stays_discovery_only(monkeypatch, tmp_path):
     captured = {}
 
     class Response:
@@ -37,6 +38,8 @@ def test_newsapi_discovery_uses_header_and_stays_discovery_only(monkeypatch):
         return Response()
 
     monkeypatch.setenv("NEWSAPI_KEY", "secret-test-key")
+    monkeypatch.setattr(newsapi_budget, "STATE_PATH", tmp_path / "budget.json")
+    monkeypatch.setattr(newsapi_budget, "CACHE_PATH", tmp_path / "cache.json")
     sources._NEWS_CACHE.clear()
     monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace(get=fake_get))
     result = sources.discover_with_newsapi("STB.OL", "Storebrand", "Norge")
