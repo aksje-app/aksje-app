@@ -11,7 +11,10 @@ def records(count=3, valid=True):
 
 class AutonomyCenteredApplicationTests(unittest.TestCase):
     def test_final_navigation_is_exact(self):
-        self.assertEqual([x[1] for x in application_navigation()], ["Dashboard", "Autonomi", "Analyse", "Top Picks", "Portefølje", "Rapporter", "System"])
+        self.assertEqual(
+            [x[1] for x in application_navigation()],
+            ["Dashboard", "Autonomi", "Analyse", "Top Picks", "Paper Trading", "Portefølje", "Rapporter", "System"],
+        )
 
     def test_shadow_gate_blocks_early_activation(self):
         self.assertFalse(shadow_readiness(records(2))["ready"])

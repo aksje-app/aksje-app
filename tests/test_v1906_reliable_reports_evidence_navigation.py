@@ -30,10 +30,16 @@ class ReliableReportsEvidenceNavigationTests(unittest.TestCase):
 
     def test_paper_trading_has_direct_pc_and_mobile_routes(self):
         app_source = Path("app.py").read_text(encoding="utf-8")
-        sidebar_source = Path("tools/ui_sidebar_stable.py").read_text(encoding="utf-8")
+        # app.py imports the root module first. Testing tools/ previously gave a
+        # false positive while the production sidebar still lacked the button.
+        sidebar_source = Path("ui_sidebar_stable.py").read_text(encoding="utf-8")
         self.assertIn('"paper_trading": _mobile_nav_href_v18646("paper_trading")', app_source)
         self.assertIn('nav in {"paper", "paper_trading", "papertrading"}', app_source)
         self.assertIn('"🧾 Paper Trading", "paper_trading"', sidebar_source)
+        self.assertIn('elif nav in {"paper", "paper_trading", "papertrading"}', sidebar_source)
+        self.assertIn('"paper_trading": ("Testing og portefolje", "Paper Trading og kontroll")', sidebar_source)
+        self.assertLess(sidebar_source.index('"🤖 AI", "ai"'), sidebar_source.index('"🧾 Paper Trading", "paper_trading"'))
+        self.assertLess(sidebar_source.index('"🧾 Paper Trading", "paper_trading"'), sidebar_source.index('"🧠 Autonomi", "autonomy"'))
 
 
 if __name__ == "__main__":
