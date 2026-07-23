@@ -1,4 +1,4 @@
-"""Canonical purchase-gate evidence for Autonomy v19.0.5.
+"""Canonical purchase-gate evidence for Autonomy v19.0.6.
 
 The module is diagnostic only.  It mirrors the production Autonomous Learning
 Portfolio gates and evaluates lower score thresholds as non-authoritative
@@ -10,7 +10,7 @@ from collections import Counter
 from typing import Any, Mapping, Sequence
 
 
-VERSION = "v19.0.5"
+VERSION = "v19.0.6"
 SHADOW_THRESHOLDS = (78.0, 76.0, 74.0, 72.0)
 
 
@@ -56,6 +56,7 @@ def _position_provenance(portfolio: Mapping[str, Any], trades: Sequence[Mapping[
 def build_decision_funnel(candidates: Sequence[Mapping[str, Any]], *, parameters: Any,
                           portfolio: Mapping[str, Any], trades: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
     """Build an explainable mirror of every pre-buy gate and Shadow outcome."""
+    from autonomous_portfolio import candidate_price
     production_threshold = _num(getattr(parameters, "minimum_investment_score", 78.0), 78.0)
     min_quality = _num(getattr(parameters, "minimum_data_quality", 55.0), 55.0)
     max_risk = _num(getattr(parameters, "maximum_risk_score", 65.0), 65.0)
@@ -68,8 +69,7 @@ def build_decision_funnel(candidates: Sequence[Mapping[str, Any]], *, parameters
         ticker = str(candidate.get("ticker") or "").upper()
         score = _num(candidate.get("investment_score")); quality, quality_source = _quality(candidate)
         risk = _num(candidate.get("risk_score"), 100.0)
-        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-        price = _num(candidate.get("price") or raw.get("current_price") or raw.get("regularMarketPrice"))
+        price = candidate_price(candidate, open_positions.get(ticker))
         portfolio_action = str(candidate.get("portfolio_action") or "UNASSESSED").upper()
         gates = {
             "portfolio_active": active,
@@ -100,8 +100,10 @@ def build_decision_funnel(candidates: Sequence[Mapping[str, Any]], *, parameters
                      "decision": "BUY_ELIGIBLE" if eligible else "REJECTED", "reasons": reasons})
     shadows = []
     for threshold in dict.fromkeys((production_threshold, *SHADOW_THRESHOLDS)):
+        score_qualified = [row["ticker"] for row in rows if row["score"] >= threshold]
         eligible = [row["ticker"] for row in rows if all(value for key, value in row["gates"].items() if key != "score") and row["score"] >= threshold]
         shadows.append({"threshold": threshold, "role": "PRODUCTION" if threshold == production_threshold else "CHALLENGER",
+                        "score_qualified_count": len(score_qualified), "score_qualified_tickers": score_qualified,
                         "eligible_count": len(eligible), "eligible_tickers": eligible, "changes_production": False})
     near = [row for row in rows if not row["eligible_for_theoretical_buy"] and row["score"] >= production_threshold - 6]
     return {"version": VERSION, "mode": "DIAGNOSTIC_ONLY", "production_threshold": production_threshold,
