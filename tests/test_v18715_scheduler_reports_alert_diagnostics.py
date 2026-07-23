@@ -12,7 +12,8 @@ class V18715ReleaseTests(unittest.TestCase):
     def test_version_and_two_independent_workers(self):
         version = (ROOT / "app_version.py").read_text(encoding="utf-8")
         runtime = (ROOT / "runtime_background.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "v18.7.15"', version)
+        self.assertIn('APP_VERSION = "v18.', version)
+        self.assertIn("v18.7.15: Reliable Autonomy Scheduling", version)
         self.assertIn('name="fx-alert-runtime"', runtime)
         self.assertIn('name="report-scheduler-runtime"', runtime)
         self.assertIn("run_scheduler_cycle()", runtime)
@@ -27,7 +28,8 @@ class V18715ReleaseTests(unittest.TestCase):
             target = report_delivery.publish_pdf(run, b"%PDF-test")
             self.assertEqual(target.read_bytes(), b"%PDF-test")
             url = report_delivery.public_report_url(run)
-            self.assertTrue(url.startswith("https://aksje-app.onrender.com/app/static/reports/report_"))
+            self.assertTrue(url.startswith("https://aksje-app.onrender.com/app/static/reports/"))
+            self.assertIn("rapport_analyse", url)
             self.assertTrue(url.endswith(".pdf"))
 
     def test_streamlit_static_serving_is_enabled(self):
