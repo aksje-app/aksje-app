@@ -997,7 +997,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     identity = resolve_report_identity(run)
-    report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
+    report_type = report_type or f"{identity.get('label', 'Rapport')} – Markedsanalyse"
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
                             title=report_type, author="AI Aksje Analyzer Pro")
@@ -1049,6 +1049,63 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         clipped = text[: max(1, limit - 1)].rsplit(" ", 1)[0]
         return (clipped or text[: max(1, limit - 1)]) + "…"
 
+    def _status_label(value: Any) -> str:
+        labels = {
+            "BUY": "KJØP", "REVIEW": "KREVER MANUELL VURDERING", "SKIP": "IKKE AKTUELL",
+            "HOLD": "BEHOLD", "SELL": "SELG", "PASS": "OK", "ERROR": "FEIL",
+            "NOT_SEARCHED": "IKKE SØKT", "VERIFIED_FACTS_FOUND": "VERIFISERTE FAKTA FUNNET",
+            "CHECKED_NO_EVENTS": "KONTROLLERT – INGEN HENDELSER",
+            "PARTIAL_SOURCE_FAILURE": "DELVIS KILDEFEIL", "RATE_LIMITED": "MIDLERTIDIG BEGRENSET",
+            "DAILY_QUOTA_EXCEEDED": "DØGNBUDSJETT BRUKT", "SOURCE_ERROR": "KILDEFEIL",
+        }
+        raw = str(value or "-").upper()
+        return labels.get(raw, str(value or "-"))
+
+    def _short_datetime(value: Any) -> str:
+        text = str(value or "-")
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return dt.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            return _short(text, 24)
+
+    def _report_mission_labels() -> tuple[str, str]:
+        report_kind = str(identity.get("type") or "").upper()
+        mapping = {
+            "MORGENRAPPORT": ("Morgenanalyse", "Kandidater ved børsåpning"),
+            "DAGSRAPPORT": ("Dagsanalyse", "Vesentlige endringer siden børsåpning"),
+            "KVELDSRAPPORT": ("Kveldsanalyse", "Kandidater til neste handelsdag"),
+            "NATTRAPPORT": ("Nattanalyse", "Globale signaler før neste handelsdag"),
+        }
+        return mapping.get(report_kind, (str(identity.get("label") or "Markedsanalyse"), "Investeringsmuligheter innenfor oppdraget"))
+
+    def _candidate_review_reasons(candidate: Mapping[str, Any]) -> list[str]:
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
+        reasons: list[str] = []
+        if str(readiness.get("news") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
+            reasons.append("Nyhetsgrunnlaget er ikke ferdig verifisert")
+        if str(readiness.get("insider") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
+            reasons.append("Insidergrunnlaget er ikke ferdig verifisert")
+        if int(readiness.get("conflicts") or 0):
+            reasons.append(f"{int(readiness.get('conflicts') or 0)} kildekonflikt(er) må avklares")
+        validity = str((candidate.get("data_contract") or {}).get("validity") or "").upper()
+        if validity and validity not in {"VALID", "GYLDIG"}:
+            reasons.append("Markedsdata oppfyller ikke full beslutningskvalitet")
+        if float(candidate.get("investment_score") or 0) < 78:
+            reasons.append("Samlet score er under kjøpsterskelen")
+        return reasons[:4] or ["Samlet risikokontroll krever menneskelig vurdering"]
+
+    def _quality_score() -> int:
+        quality = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
+        combined = run.get("combined_quality") if isinstance(run.get("combined_quality"), Mapping) else {}
+        market = float(quality.get("score") or 0)
+        total = max(1, int(combined.get("evaluated") or len(run.get("candidates") or []) or 1))
+        evidence = 100.0 * float(combined.get("overall_valid") or 0) / total
+        if not combined:
+            evidence = market
+        return max(0, min(100, round((market + evidence) / 2)))
+
     def _metric_value(name: Any, value: Any) -> str:
         if str(name or "").strip().lower() == "rsi":
             try:
@@ -1073,10 +1130,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 else:
                     detail = item.get("url") or item.get("reason") or "-"
                 rows.append([
-                    area, _p(item.get("source") or item.get("source_type") or "-"),
-                    "Ja" if item.get("attempted") else "Nei",
-                    _p(status), item.get("results", 0),
-                    _p(item.get("checked_at") or item.get("retrieved_at") or "-"),
+                    _p(area), _p(item.get("source") or item.get("source_type") or "-"),
+                    _p("Ja" if item.get("attempted") else "Nei"),
+                    _p(_status_label(status)), _p(item.get("results", 0)),
+                    _p(_short_datetime(item.get("checked_at") or item.get("retrieved_at") or "-")),
                     _p(_short(detail, 180)),
                 ])
         if len(rows) == 1:
@@ -1183,11 +1240,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     summary_table = Table(summary_grid, colWidths=[61.3*mm]*3)
     summary_table.setStyle(_table_style(7, header=False, padding=4))
     decision_conclusion = (
-        f"Beslutningskonklusjon: {int(portfolio_actions.get('BUY', 0) or 0)} BUY, "
-        f"{int(portfolio_actions.get('REVIEW', 0) or 0)} REVIEW og {int(portfolio_actions.get('SKIP', 0) or 0)} SKIP. "
-        + ("Ingen kandidat er kjøpsgodkjent i denne kjøringen." if not int(portfolio_actions.get("BUY", 0) or 0) else "Kun BUY-kandidater er klare for teoretisk posisjonering.")
+        f"Beslutningskonklusjon: {int(portfolio_actions.get('BUY', 0) or 0)} KJØP, "
+        f"{int(portfolio_actions.get('REVIEW', 0) or 0)} KREVER MANUELL VURDERING og "
+        f"{int(portfolio_actions.get('SKIP', 0) or 0)} IKKE AKTUELL. "
+        + ("Ingen kandidat er kjøpsgodkjent i denne kjøringen." if not int(portfolio_actions.get("BUY", 0) or 0) else "Kun KJØP-kandidater er klare for teoretisk posisjonering.")
     )
-    story += [Paragraph("Executive Summary", styles["Section"]), summary_table,
+    report_quality = _quality_score()
+    quality_label = "Høy" if report_quality >= 85 else "Middels" if report_quality >= 65 else "Lav"
+    quick_table = Table([
+        ["Rapportkvalitet", f"{report_quality} %", "AI-sikkerhet", quality_label,
+         "Rapportstatus", "Foreløpig" if report_status.get("state") == "PROVISIONAL" else "Endelig"],
+    ], colWidths=[26*mm, 20*mm, 23*mm, 23*mm, 28*mm, 48*mm])
+    quick_table.setStyle(_table_style(6.8, header=False, padding=2.5))
+    quick_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+                                     ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
+                                     ("FONTNAME", (4,0), (4,-1), "Helvetica-Bold")]))
+    story += [Paragraph("Sammendrag", styles["Section"]), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"])]
     if report_status.get("state") == "PROVISIONAL":
         gaps = ", ".join(
@@ -1195,9 +1263,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             for row in list(report_status.get("critical_gaps") or [])[:8]
         )
         story += [Paragraph(
-            "<b>FORELØPIG RAPPORT:</b> Kildekontrollen er ufullstendig. "
-            + escape(gaps or "vesentlig dokumentasjon mangler")
-            + ". Rapporten skal revalideres; denne revisjonen overskrives ikke.",
+            "<b>FORELØPIG RAPPORT – KREVER OPPFØLGING:</b> "
+            + escape(gaps or "Vesentlig dokumentasjon mangler")
+            + ". Kandidater med mangler kan ikke behandles som kjøpsklare. Rapporten revalideres automatisk, og denne revisjonen beholdes.",
             styles["BodyCompact"],
         )]
     preflight = run.get("integrity_preflight") if isinstance(run.get("integrity_preflight"), Mapping) else {}
@@ -1227,9 +1295,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     user_mission = run.get("user_mission") or {}
     mission_summary = run.get("mission_summary") or {}
     if user_mission:
+        report_goal, report_search = _report_mission_labels()
         mission_table = Table([
-            ["Mål", user_mission.get("objective") or user_mission.get("goal", "-"), "Tidshorisont", user_mission.get("horizon", "-")],
-            ["Leter etter", user_mission.get("search_for", "-"), "Strategi", user_mission.get("strategy", "-")],
+            ["Mål", report_goal, "Tidshorisont", user_mission.get("horizon", "-")],
+            ["Leter etter", report_search, "Strategi", user_mission.get("strategy", "-")],
             ["Risiko", user_mission.get("risk", "-"), "Risikogrense", mission_summary.get("risk_ceiling", "-")],
             ["Porteføljebehov", user_mission.get("portfolio_need", "-"), "Minimum datakvalitet", user_mission.get("minimum_data_quality", "-")],
             ["Bransjer", ", ".join(user_mission.get("sectors") or []) or "Alle", "Innenfor oppdrag", mission_summary.get("eligible", 0)],
@@ -1490,21 +1559,42 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 styles["ReportTitle"],
             )]
             decision = str(candidate.get("portfolio_action") or evidence["action"] or "REVIEW").upper()
+            decision_label = _status_label(decision)
+            review_reasons = _candidate_review_reasons(candidate)
             story += [Paragraph(
                 f"<b>AI-konklusjon:</b> Kandidaten er rangert som nummer {idx + 1} fordi {escape(evidence['drivers'])}. "
-                f"{escape(evidence['gap'])}. <b>Beslutning:</b> {escape(decision)}. "
+                f"{escape(evidence['gap'])}. <b>Beslutning:</b> {escape(decision_label)}. "
                 f"<b>Forbehold:</b> {escape(evidence['cautions'])}.",
                 styles["BodyCompact"],
-            )]
+            ), Paragraph("<b>Hvorfor denne handlingen:</b> " + escape("; ".join(review_reasons)), styles["BodyCompact"])]
             readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
             readiness_table = Table([
                 ["Beslutningsgrunnlag", readiness.get("status") or "-", "Rå rangering", candidate.get("raw_rank") or candidate.get("rank") or "-"],
                 ["Markedsdata", readiness.get("market_data") or "-", "Beslutningsklar rangering", candidate.get("decision_ready_rank") or "-"],
                 ["Nyheter", readiness.get("news") or "-", "Insider", readiness.get("insider") or "-"],
-                ["Kildekonflikter", readiness.get("conflicts", 0), "Tillatt handling", readiness.get("allowed_action") or "-"],
+                ["Kildekonflikter", readiness.get("conflicts", 0), "Tillatt handling", _status_label(readiness.get("allowed_action") or "-")],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
             story += [Paragraph("Beslutningsstempel", styles["Section"]), readiness_table]
+            confidence = round(float(candidate.get("confidence_score") or candidate.get("confidence") or 0), 1)
+            next_event = raw.get("next_event") or raw.get("next_expected_event") or raw.get("earnings_date") or "Ingen bekreftet kommende hendelse i datasettet"
+            change_conditions = []
+            if float(candidate.get("investment_score") or 0) < 78:
+                change_conditions.append("samlet score når kjøpsterskelen")
+            if str(readiness.get("insider") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
+                change_conditions.append("insiderkontrollen fullføres")
+            if str(readiness.get("news") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
+                change_conditions.append("nyhetskontrollen fullføres")
+            if int(readiness.get("conflicts") or 0):
+                change_conditions.append("kildekonflikter avklares")
+            if not change_conditions:
+                change_conditions.append("risiko- og porteføljeporten godkjenner kandidaten")
+            insight_table = Table([
+                ["AI-sikkerhet", f"{confidence:.1f} %", "Neste forventede hendelse", _p(_short(next_event, 120))],
+                ["Hva kan endre beslutningen?", _p("; ".join(change_conditions)), "Endring siden forrige", _p(candidate.get("score_change_reason") or candidate.get("change_reason") or "Ingen dokumentert vesentlig endring")],
+            ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
+            insight_table.setStyle(_table_style(6.3, header=False, padding=2.2))
+            story += [Paragraph("Beslutningsforklaring og neste utløsere", styles["Subsection"]), insight_table]
             formula = raw.get("score_formula") if isinstance(raw.get("score_formula"), Mapping) else {}
             weights = formula.get("weights") if isinstance(formula.get("weights"), Mapping) else {}
             contributions = formula.get("weighted_contributions") if isinstance(formula.get("weighted_contributions"), Mapping) else {}
@@ -1778,6 +1868,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                                ptable])]
     story += [KeepTogether([Paragraph("Metode og ansvarsfraskrivelse", styles["Section"]),
                             Paragraph("Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. Alle forslag krever manuell kontroll.", styles["BodyCompact"])])]
+    critique: list[str] = []
+    if report_status.get("state") == "PROVISIONAL":
+        critique.append("Kildekontrollen er ikke fullført")
+    if int((run.get("combined_quality") or {}).get("manual_review_required") or 0):
+        critique.append("Én eller flere kandidater krever manuell vurdering")
+    if int((run.get("data_quality") or {}).get("errors") or 0):
+        critique.append("Datainnhentingen inneholdt tekniske feil")
+    if not critique:
+        critique.append("Ingen kritiske svakheter er registrert, men analysen er fortsatt beslutningsstøtte og ikke en garanti")
+    story += [Paragraph("Rapportens egenkritikk", styles["Section"]),
+              Paragraph(escape(". ".join(critique)) + f". Estimert rapportkvalitet: {report_quality} %.", styles["BodyCompact"])]
+
     doc.build(story, onFirstPage=_page, onLaterPages=_page)
     pdf_bytes = buf.getvalue()
     # ReportLab inherits the Render host timezone for PDF metadata. Rewrite the
