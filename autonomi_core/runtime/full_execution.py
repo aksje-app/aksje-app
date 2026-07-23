@@ -46,6 +46,14 @@ def build_full_execution_receipt(run: Mapping[str, Any]) -> dict[str, Any]:
     notification = dict(run.get("notification") or {})
     learning = dict(run.get("historical_learning") or {})
     canonical = dict(run.get("canonical_result") or {})
+    pdf_delivery = dict(run.get("pdf_delivery") or {})
+    report_ok = bool(
+        persistence.get("ok")
+        and (
+            not pdf_delivery.get("required")
+            or (pdf_delivery.get("generated") and pdf_delivery.get("validated") and pdf_delivery.get("published"))
+        )
+    )
 
     rows = [
         _stage(1, *STAGES[0][1:], "OK" if preflight.get("read_at") and preflight.get("context") else "FAILED", {"read_at": preflight.get("read_at"), "source": preflight.get("source"), "positions": preflight.get("position_count", 0), "needs": preflight.get("needs", [])}),
@@ -58,7 +66,10 @@ def build_full_execution_receipt(run: Mapping[str, Any]) -> dict[str, Any]:
         _stage(8, *STAGES[7][1:], "OK" if decisions and all(x.get("portfolio_assessed") for x in decisions) else "FAILED", {"decisions": len(decisions), "actions": portfolio.get("actions")}),
         _stage(9, *STAGES[8][1:], "OK" if chain.get("status") == "OK" and decision_stage in {"OK", "SKIPPED"} else "FAILED", {"status": chain.get("status"), "decision_stage": decision_stage, "execution": chain.get("execution", "THEORETICAL_ONLY")}),
         _stage(10, *STAGES[9][1:], "OK" if top.get("published") else "FAILED", {"source": "CANONICAL_TOP_PICKS", "result_id": top.get("result_id")}),
-        _stage(11, *STAGES[10][1:], "OK" if persistence.get("ok") else "FAILED", {"archive": persistence.get("archive_saved"), "json": persistence.get("run_json_saved"), "pdf": run.get("pdf_path")}),
+        _stage(11, *STAGES[10][1:], "OK" if report_ok else "FAILED", {
+            "archive": persistence.get("archive_saved"), "json": persistence.get("run_json_saved"),
+            "pdf": run.get("pdf_path"), "pdf_delivery": pdf_delivery,
+        }),
         _stage(12, *STAGES[11][1:], ("OK" if notification.get("sent") else ("FAILED" if notification.get("required") and not any(token in str(notification.get("detail") or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert")) else "SKIPPED_POLICY")), {"sent": notification.get("sent", False), "required": notification.get("required", False), "detail": notification.get("detail")}),
         _stage(13, *STAGES[12][1:], "OK" if canonical.get("stored_once") and "snapshots_created" in learning and not learning.get("error") else "FAILED", {"result_id": canonical.get("result_id"), "snapshots": learning.get("snapshots_created"), "error": learning.get("error")}),
     ]
