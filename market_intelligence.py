@@ -826,6 +826,8 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         "AVAILABLE": 0.0, "CHECKED_NO_EVENTS": 3.0, "MISSING": 8.0,
         "DISCOVERY_ONLY": 7.0, "STALE": 8.0, "NOT_CONFIGURED": 10.0,
         "UNAVAILABLE": 10.0, "ERROR": 12.0, "NOT_SEARCHED": 15.0,
+        "VERIFIED_FACTS_FOUND": 0.0, "PARTIAL_SOURCE_FAILURE": 8.0,
+        "RATE_LIMITED": 10.0, "SOURCE_ERROR": 12.0,
     }
     summary = {
         "evaluated": 0, "reduced": 0, "decision_downgraded": 0,
@@ -833,36 +835,37 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         "sources_attempted": 0,
     }
     for candidate in candidates:
+        from evidence_contract import canonical_status, evidence_conflicts, source_budget
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
         records: dict[str, Any] = {}
         total_penalty = 0.0
         critical_failures = 0
         for label, key in (("insider", "insider_intelligence"), ("news", "news_intelligence")):
             payload = raw.get(key) if isinstance(raw.get(key), Mapping) else {}
-            status = str(payload.get("coverage") or "NOT_SEARCHED").upper()
             evidence_rows = payload.get("evidence") if label == "insider" else payload.get("events")
+            evidence_rows = list(evidence_rows or [])
             search_log = [dict(row) for row in (payload.get("search_log") or []) if isinstance(row, Mapping)]
-            successful_search = any(row.get("status") in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"} for row in search_log)
-            if status == "AVAILABLE" and not list(evidence_rows or []):
-                status = "CHECKED_NO_EVENTS" if successful_search else "NOT_SEARCHED"
-            elif status == "MISSING":
-                status = "CHECKED_NO_EVENTS" if successful_search else "NOT_SEARCHED"
+            status = canonical_status(payload, evidence_rows)
             penalty = penalties.get(status, 12.0)
             # No verified news for a ranked investment case is more material
             # than a valid insider search with no reportable transactions.
             if label == "news" and status == "CHECKED_NO_EVENTS":
                 penalty = 6.0
             total_penalty += penalty
-            if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED", "DISCOVERY_ONLY"}:
+            if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED",
+                          "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "SOURCE_ERROR"}:
                 critical_failures += 1
+            conflicts = evidence_conflicts(evidence_rows)
             records[label] = {
                 "status": status, "penalty": penalty,
                 "source": payload.get("official_source") or payload.get("source") or "Ikke oppgitt",
                 "fetched_at": payload.get("fetched_at"),
                 "reason": payload.get("reason") or payload.get("summary") or "",
-                "verified_facts": len(list(evidence_rows or [])),
+                "verified_facts": len(evidence_rows),
                 "sources_attempted": sum(1 for row in search_log if row.get("attempted")),
                 "search_log": search_log,
+                "source_budget": source_budget(payload),
+                "conflicts": conflicts,
             }
             summary["verified_facts"] += len(list(evidence_rows or []))
             summary["sources_attempted"] += records[label]["sources_attempted"]
@@ -871,9 +874,12 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         insider_status = records["insider"]["status"]
         news_status = records["news"]["status"]
         cap = 100.0
-        if news_status != "AVAILABLE" and insider_status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED", "DISCOVERY_ONLY"}:
+        if news_status != "VERIFIED_FACTS_FOUND" and insider_status in {
+            "STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED",
+            "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "SOURCE_ERROR",
+        }:
             cap = 60.0
-        elif news_status != "AVAILABLE" and insider_status != "AVAILABLE":
+        elif news_status != "VERIFIED_FACTS_FOUND" and insider_status != "VERIFIED_FACTS_FOUND":
             cap = 68.0
         elif critical_failures:
             cap = 75.0
@@ -883,8 +889,9 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
             cap = 85.0
         after = min(cap, max(0.0, round(before - total_penalty, 2)))
         review_required = bool(
-            (news_status != "AVAILABLE" and insider_status != "AVAILABLE")
+            (news_status != "VERIFIED_FACTS_FOUND" and insider_status != "VERIFIED_FACTS_FOUND")
             or critical_failures >= 1
+            or bool(records["insider"]["conflicts"] or records["news"]["conflicts"])
         )
         candidate["confidence_before_evidence_policy"] = before
         candidate["confidence_score"] = after
@@ -894,6 +901,15 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         candidate["evidence_review_required"] = review_required
         candidate["evidence_valid_for_decision"] = not review_required
         candidate["evidence_gate_status"] = "MANUAL_REVIEW" if review_required else "PASS"
+        candidate["decision_readiness"] = {
+            "status": "IKKE KOMPLETT" if review_required else "KOMPLETT",
+            "market_data": "AVVENTER DATAKONTRAKT",
+            "news": news_status,
+            "insider": insider_status,
+            "conflicts": len(records["insider"]["conflicts"]) + len(records["news"]["conflicts"]),
+            "confidence_before": before, "confidence_final": after,
+            "allowed_action": "MANUELL VURDERING" if review_required else str(candidate.get("portfolio_action") or "REVIEW"),
+        }
         summary["evaluated"] += 1
         if total_penalty:
             summary["reduced"] += 1
@@ -933,6 +949,18 @@ def combined_quality_summary(candidates: Sequence[Mapping[str, Any]],
         "sources_attempted": int(evidence_summary.get("sources_attempted") or 0),
         "status": status,
         "green": bool(total and overall_valid == total),
+        "news_verified": sum(
+            1 for row in candidates
+            if ((row.get("evidence_coverage") or {}).get("news") or {}).get("status") == "VERIFIED_FACTS_FOUND"
+        ),
+        "insider_verified": sum(
+            1 for row in candidates
+            if ((row.get("evidence_coverage") or {}).get("insider") or {}).get("status") == "VERIFIED_FACTS_FOUND"
+        ),
+        "news_rate_limited": sum(
+            1 for row in candidates
+            if ((row.get("evidence_coverage") or {}).get("news") or {}).get("status") == "RATE_LIMITED"
+        ),
     }
 
 
@@ -1019,11 +1047,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             for item in payload.get("search_log") or []:
                 if not isinstance(item, Mapping):
                     continue
-                detail = item.get("url") or item.get("error") or item.get("reason") or "-"
+                status = str(item.get("status") or "-").upper()
+                if status == "RATE_LIMITED":
+                    detail = "HTTP 429 – kapasitetsgrense; øvrige kilder brukes"
+                elif status in {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"}:
+                    detail = f"Teknisk kildefeil: {_short(item.get('error') or item.get('reason') or '-', 90)}"
+                else:
+                    detail = item.get("url") or item.get("reason") or "-"
                 rows.append([
                     area, _p(item.get("source") or item.get("source_type") or "-"),
                     "Ja" if item.get("attempted") else "Nei",
-                    _p(item.get("status") or "-"), item.get("results", 0),
+                    _p(status), item.get("results", 0),
                     _p(item.get("checked_at") or item.get("retrieved_at") or "-"),
                     _p(_short(detail, 180)),
                 ])
@@ -1191,6 +1225,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ["Samlet status", combined_quality.get("status", "-"), "Markedsdata gyldig", combined_quality.get("market_data_valid", 0)],
             ["Evidens gyldig", combined_quality.get("evidence_valid", 0), "Samlet gyldig", combined_quality.get("overall_valid", 0)],
             ["Verifiserte fakta", combined_quality.get("verified_evidence_facts", 0), "Kilder forsøkt", combined_quality.get("sources_attempted", 0)],
+            ["Nyheter verifisert", combined_quality.get("news_verified", 0), "Insider verifisert", combined_quality.get("insider_verified", 0)],
+            ["NewsAPI ratebegrenset", combined_quality.get("news_rate_limited", 0), "Samlet vurdering", combined_quality.get("status", "-")],
             ["Manuell vurdering", combined_quality.get("manual_review_required", 0), "Grønn samlet status", "JA" if combined_quality.get("green") else "NEI"],
         ], colWidths=[31*mm, 61*mm, 37*mm, 39*mm])
         combined_table.setStyle(_table_style(6.5, header=False, padding=2.2))
@@ -1296,7 +1332,27 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     elif candidates:
         medal_labels = ["GULL · BESTE KANDIDAT", "SØLV · NUMMER TO", "BRONSE · NUMMER TRE"]
         medal_data = []
-        medal_candidates = run.get("diverse_top3") or select_diverse_candidates(candidates, 3)
+        medal_candidates = (
+            list(run.get("decision_ready_top3") or [])
+            if "decision_ready_top3" in run
+            else (run.get("diverse_top3") or select_diverse_candidates(candidates, 3))
+        )
+        top3_status = run.get("top3_status") or {}
+        raw_fallback = False
+        if not medal_candidates:
+            medal_candidates = list(run.get("raw_top3") or select_diverse_candidates(candidates, 3))
+            raw_fallback = True
+        if len(medal_candidates) < 3:
+            story += [Paragraph(
+                f"Beslutningsklar Topp 3 er ufullstendig: {len(medal_candidates)} av 3 kandidater bestod både data- og evidensporten. "
+                "Rå rangering vises senere for sporbarhet, men manglende kandidater fylles ikke med udokumenterte alternativer.",
+                styles["BodyCompact"],
+            )]
+        if raw_fallback:
+            story += [Paragraph(
+                "Ingen kandidat bestod evidensporten. Kandidatene under er rå rangering for sporbarhet og er ikke beslutningsklare.",
+                styles["BodyCompact"],
+            )]
         for idx, r in enumerate(medal_candidates):
             evidence = _candidate_evidence(r, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
             display_name = str(r.get("name") or r.get("ticker") or "-")
@@ -1349,6 +1405,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 f"<b>Forbehold:</b> {escape(evidence['cautions'])}.",
                 styles["BodyCompact"],
             )]
+            readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
+            readiness_table = Table([
+                ["Beslutningsgrunnlag", readiness.get("status") or "-", "Rå rangering", candidate.get("raw_rank") or candidate.get("rank") or "-"],
+                ["Markedsdata", readiness.get("market_data") or "-", "Beslutningsklar rangering", candidate.get("decision_ready_rank") or "-"],
+                ["Nyheter", readiness.get("news") or "-", "Insider", readiness.get("insider") or "-"],
+                ["Kildekonflikter", readiness.get("conflicts", 0), "Tillatt handling", readiness.get("allowed_action") or "-"],
+            ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
+            readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
+            story += [Paragraph("Beslutningsstempel", styles["Section"]), readiness_table]
             formula = raw.get("score_formula") if isinstance(raw.get("score_formula"), Mapping) else {}
             weights = formula.get("weights") if isinstance(formula.get("weights"), Mapping) else {}
             contributions = formula.get("weighted_contributions") if isinstance(formula.get("weighted_contributions"), Mapping) else {}
@@ -1941,6 +2006,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
+        row["raw_rank"] = idx
     evidence_coverage_summary = apply_evidence_coverage_policy(all_candidates)
     from autonomi_core.discovery_data.freshness import apply_data_contracts
     from autonomi_core.configuration.policy import load_policy
@@ -1948,6 +2014,10 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     if investment_mission:
         freshness_policy = replace(freshness_policy, minimum_data_quality=float(investment_mission.get("minimum_data_quality", freshness_policy.minimum_data_quality)))
     data_contract_summary = apply_data_contracts(all_candidates, policy=freshness_policy)
+    for row in all_candidates:
+        readiness = row.get("decision_readiness") if isinstance(row.get("decision_readiness"), dict) else {}
+        readiness["market_data"] = "GYLDIG" if row.get("valid_for_decision") else "UGYLDIG"
+        row["decision_readiness"] = readiness
     combined_quality = combined_quality_summary(all_candidates, data_contract_summary, evidence_coverage_summary)
     totals["deep_analyzed"] = len(all_candidates)
     from autonomi_core.missions.user_mission import apply_user_mission, load_user_mission
@@ -1965,6 +2035,12 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         and bool(x.get("evidence_valid_for_decision"))
         and bool(x.get("mission_eligible", True))
     ]
+    for index, row in enumerate(decision_candidates, 1):
+        row["decision_ready_rank"] = index
+    decision_ready_tickers = {str(row.get("ticker") or "") for row in decision_candidates}
+    for row in all_candidates:
+        if str(row.get("ticker") or "") not in decision_ready_tickers:
+            row["decision_ready_rank"] = None
     totals["recommended"] = sum(1 for x in decision_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
     totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
     proposal_map: dict[str, dict[str, Any]] = {}
@@ -2034,7 +2110,15 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "partial_market_failure": partial_market_failure,
            "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),
            "executive_intelligence": executive_intelligence(decision_candidates),
+           "raw_top3": select_diverse_candidates(all_candidates, 3),
+           "decision_ready_top3": select_diverse_candidates(decision_candidates, 3),
            "diverse_top3": select_diverse_candidates(decision_candidates, 3),
+           "top3_status": {
+               "raw_count": min(3, len(all_candidates)),
+               "decision_ready_count": min(3, len(decision_candidates)),
+               "label": "Beslutningsklar Topp 3" if len(decision_candidates) >= 3 else "Færre enn tre beslutningsklare kandidater",
+               "complete": len(decision_candidates) >= 3,
+           },
            "report_identity": report_identity(
                trigger, job.name, job.job_id, created_at=run_created_at,
                timezone_name=job.timezone_name,
@@ -2120,6 +2204,17 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         run["pdf_path"] = str(pdf_path)
         publish_pdf(run, pdf_bytes)
         run["report_url"] = report_public_url(run)
+        run["pdf_delivery"] = {
+            "required": True, "generated": True,
+            "validated": _valid_pdf_bytes(pdf_bytes),
+            "published": bool(run.get("public_pdf_name")),
+            "report_url_available": bool(run.get("report_url")),
+        }
+    else:
+        run["pdf_delivery"] = {
+            "required": False, "generated": False, "validated": False,
+            "published": False, "report_url_available": False,
+        }
     emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
@@ -2481,6 +2576,16 @@ def render_market_intelligence() -> None:
             quality = latest.get("data_quality") or {}
             if quality:
                 st.progress(float(quality.get("score", 0))/100.0, text=f"Datakvalitet: {quality.get('score',0)} % · {quality.get('label','-')}")
+                st.caption("Dette gjelder kurs- og markedsdata, ikke samlet evidens.")
+            combined = latest.get("combined_data_quality") or {}
+            if combined:
+                level = st.success if combined.get("green") else st.warning
+                level(
+                    f"Samlet beslutningsgrunnlag: {combined.get('status', '-')} · "
+                    f"markedsdata gyldig {combined.get('market_data_valid', 0)} · "
+                    f"evidens gyldig {combined.get('evidence_valid', 0)} · "
+                    f"NewsAPI ratebegrenset {combined.get('news_rate_limited', 0)}"
+                )
             contract_summary = latest.get("data_contract") or {}
             if contract_summary:
                 st.markdown("#### 🛡️ Freshness & Data Contract")
@@ -2495,7 +2600,19 @@ def render_market_intelligence() -> None:
             if candidates:
                 st.markdown("#### 🏅 Topp 3")
                 medals = ["🥇 GULL", "🥈 SØLV", "🥉 BRONSE"]
-                medal_candidates = latest.get("diverse_top3") or select_diverse_candidates(candidates, 3)
+                medal_candidates = (
+                    list(latest.get("decision_ready_top3") or [])
+                    if "decision_ready_top3" in latest
+                    else (latest.get("diverse_top3") or select_diverse_candidates(candidates, 3))
+                )
+                if len(medal_candidates) < 3:
+                    st.warning(
+                        f"Beslutningsklar Topp 3 er ufullstendig: {len(medal_candidates)} av 3 kandidater "
+                        "bestod både data- og evidensporten."
+                    )
+                if not medal_candidates:
+                    medal_candidates = list(latest.get("raw_top3") or select_diverse_candidates(candidates, 3))
+                    st.error("Ingen kandidat er beslutningsklar. Rå rangering vises kun for sporbarhet.")
                 cols = st.columns(min(3, len(medal_candidates)))
                 for idx, candidate in enumerate(medal_candidates):
                     strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0), "Insider": (candidate.get("raw") or {}).get("insider_score",50)}

@@ -16,6 +16,7 @@ import json
 import math
 import os
 import re
+import threading
 import time
 
 from storage_architecture import runtime_data_path
@@ -27,6 +28,14 @@ DEFAULT_LOOKBACK_DAYS = int(os.getenv("NEWS_INTELLIGENCE_LOOKBACK_DAYS", "14") o
 DEFAULT_RSS_FEEDS = {
     "Norge": [("E24 RSS", "https://e24.no/rss")],
 }
+_NEWSAPI_LOCK = threading.RLock()
+_NEWSAPI_LAST_REQUEST = 0.0
+
+
+class NewsApiRateLimited(RuntimeError):
+    def __init__(self, retry_after: float, detail: str = ""):
+        super().__init__(detail or "NewsAPI rate limit")
+        self.retry_after = retry_after
 
 POSITIVE_TERMS = {
     "beat": 1.4, "beats": 1.4, "record": 1.1, "growth": 0.8, "profit": 0.8,
@@ -147,11 +156,27 @@ def _fetch_newsapi(query: str, limit: int = 30) -> list[dict[str, Any]]:
     if not key:
         return []
     import requests
-    response = requests.get(
-        "https://newsapi.org/v2/everything",
-        params={"q": query, "sortBy": "publishedAt", "pageSize": min(100, limit), "apiKey": key},
-        timeout=12,
-    )
+    global _NEWSAPI_LAST_REQUEST
+    minimum_interval = max(0.1, float(os.getenv("NEWSAPI_MIN_INTERVAL_SECONDS", "0.75") or 0.75))
+    response = None
+    for attempt in range(3):
+        with _NEWSAPI_LOCK:
+            wait = max(0.0, minimum_interval - (time.monotonic() - _NEWSAPI_LAST_REQUEST))
+            if wait:
+                time.sleep(wait)
+            response = requests.get(
+                "https://newsapi.org/v2/everything",
+                params={"q": query, "sortBy": "publishedAt", "pageSize": min(100, limit), "apiKey": key},
+                timeout=12,
+            )
+            _NEWSAPI_LAST_REQUEST = time.monotonic()
+        if response.status_code != 429:
+            break
+        retry_after = min(5.0, max(0.5, _f(response.headers.get("Retry-After"), 1.0) * (attempt + 1)))
+        if attempt < 2:
+            time.sleep(retry_after)
+    if response is not None and response.status_code == 429:
+        raise NewsApiRateLimited(_f(response.headers.get("Retry-After"), 1.0), "HTTP 429 – NewsAPI-kapasitetsgrense")
     response.raise_for_status()
     rows = response.json().get("articles") or []
     return [{
@@ -302,6 +327,15 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "attempted": True, "status": "SUCCESS_WITH_RESULTS" if yf_rows else "SUCCESS_NO_RESULTS",
             "results": len(yf_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
         })
+    except NewsApiRateLimited as exc:
+        errors.append("NewsAPI: HTTP 429 – kapasitetsgrense")
+        search_log.append({
+            "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
+            "attempted": True, "status": "RATE_LIMITED", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "retry_after_seconds": exc.retry_after,
+            "error": "HTTP 429 – kapasitetsgrense; øvrige kilder brukes",
+        })
     except Exception as exc:
         errors.append(f"yfinance: {exc}")
         search_log.append({
@@ -356,6 +390,9 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     result["search_log"] = search_log
     result["sources_checked"] = sum(1 for row in search_log if row.get("attempted"))
     result["verified_fact_count"] = len(result.get("events") or [])
+    from evidence_contract import canonical_status, source_budget
+    result["canonical_evidence_status"] = canonical_status(result, result.get("events") or [])
+    result["source_budget"] = source_budget(result)
     successful_checks = [row for row in search_log if row.get("status") in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"}]
     if not sources and errors and not successful_checks:
         result["coverage"] = "ERROR"

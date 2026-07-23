@@ -176,7 +176,9 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                                market: str = "", company: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
     cache = _load_cache(); cached = cache.get(ticker)
-    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
+    cached_logs = (cached.get("result") or {}).get("search_log") if cached else []
+    brazil_primary_cached = any("CVM" in str(row.get("source") or "") for row in cached_logs or [])
+    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and cached_logs and (market != "Brasil" or brazil_primary_cached):
         result = dict(cached.get("result") or {})
         source = source_for_market(market)
         result.setdefault("currency", source.get("currency", ""))
@@ -225,6 +227,13 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 "source", "source_type", "attempted", "status", "results", "filings_found", "checked_at", "error"
             )})
             verified_rows.extend(sec.get("transactions") or [])
+        if str(market or "") == "Brasil":
+            from cvm_insider_source import fetch_cvm_transactions
+            cvm = fetch_cvm_transactions(ticker, company, lookback_days=lookback_days)
+            search_log.append({key: cvm.get(key) for key in (
+                "source", "source_type", "attempted", "status", "results", "checked_at", "url", "error"
+            )})
+            verified_rows.extend(cvm.get("transactions") or [])
         result = score_transactions(ticker, verified_rows, lookback_days=lookback_days)
         result["source"] = ", ".join(
             row["source"] for row in search_log if row.get("status") == "SUCCESS_WITH_RESULTS"
@@ -234,6 +243,9 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         result["currency"] = source.get("currency", "")
         result["official_source"] = source.get("name", "")
         result["official_search_url"] = source.get("search_url", "")
+        if str(market or "") == "Brasil":
+            result["official_source"] = "CVM – Valores Mobiliários Negociados e Detidos"
+            result["official_search_url"] = "https://dados.cvm.gov.br/dataset/cia_aberta-doc-vlmo"
         if result.get("coverage") != "AVAILABLE" and market:
             discovery = discover_with_newsapi(ticker, company, market)
             search_log.append({

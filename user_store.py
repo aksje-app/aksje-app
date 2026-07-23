@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,8 +23,27 @@ PBKDF2_ITERATIONS = 220_000
 
 
 
+class DatabaseStarting(RuntimeError):
+    pass
+
+
 def _conn():
-    return psycopg2.connect(DATABASE_URL)
+    last_error = None
+    for attempt in range(5):
+        try:
+            return psycopg2.connect(DATABASE_URL, connect_timeout=5)
+        except Exception as exc:
+            last_error = exc
+            text = str(exc).casefold()
+            recoverable = any(token in text for token in (
+                "not yet accepting connections", "recovery", "starting up",
+                "connection refused", "could not connect",
+            ))
+            if not recoverable:
+                raise
+            if attempt < 4:
+                time.sleep(0.75 * (attempt + 1))
+    raise DatabaseStarting(f"Databasen starter fortsatt: {last_error}") from last_error
 
 
 def hash_password(password, salt=None):

@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.9"
-APP_VERSION_NAME = "Direct PDF Recovery & Canonical Market Tickers"
+APP_VERSION = "v19.0.10"
+APP_VERSION_NAME = "Evidence Reliability & Report Consistency"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.8"
+PREVIOUS_APP_VERSION = "v19.0.9"
 
 CHANGELOG = [
+    "v19.0.10: Evidence Reliability & Report Consistency: Brasil får direkte CVM VLMO-primærkilde med ticker-/selskapskobling og faktaproveniens. NewsAPI bruker global kø, kontrollert tempo, Retry-After og eksplisitt RATE_LIMITED-status. Evidensstatus standardiseres, kildekonflikter registreres, konfidens og beslutningsklar rangering skilles fra rå rangering, og Topp 3 kan ikke fylles med udokumenterte kandidater uten tydelig merking. Rapporten viser beslutningsstempel, samlet data-/evidenskvalitet og korte brukerrettede kildefeil. Obligatorisk PDF må genereres, valideres og publiseres før rapportsteget er komplett. PostgreSQL-recovery håndteres med retry og lesbar ventestatus. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",
     "v19.0.9: Direct PDF Recovery & Canonical Market Tickers: en fullført 13/13 Autonomi-kjøring viser umiddelbart validert PDF- og JSON-nedlasting for nøyaktig samme kjørings-ID. Rapportarkivet tilbyr alltid bytebasert PDF-nedlasting og bruker offentlig lenke kun som tillegg; manglende fil regenereres fra varig JSON, valideres og tilbakeføres til arkivet. Tickeridentitet bruker nå oppgitt marked før USA-fallback og legger til .OL/.ST/.HE/.CO/.SA før yfinance-kall, slik at nordiske og brasilianske symboler ikke feilaktig behandles som amerikanske eller avnoterte. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",
     "v19.0.8: Auditable Evidence & Credible Confidence: reell SEC Form 4-innhenting for USA, bredere nyhetsinnhenting med E24 RSS og valgfri selskaps-IR, faktanivå-proveniens og komplett søkelogg for Topp 1–3. Streng evidensport skiller verifiserte funn, kontrollert ingen funn, ikke konfigurert, kildefeil, ikke søkt og foreldet data; vesentlig dokumentasjonsmangel reduserer konfidens og blokkerer autonome beslutningsforslag. PDF viser konfidens før/etter, straff og tak, RSI med nøyaktig to desimaler og beskrivende, fortsatt ulistede PDF-filnavn. Autonomi-visningen følger programmets hovedversjon. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",
     "v19.0.7: Navigation & Unattended Scheduling Repair: den faktiske produksjonssidebaren får direkte Paper Trading-rute på PC, mens eksisterende mobilrute verifiseres mot aktiv import. En selvstendig Render Cron-prosess kjører planlagte rapporter uten nettleser eller innlogging, med etterslep, PostgreSQL-lås, varig heartbeat, eksplisitt audit og Pushover ved feil. PDF-reparasjon kan ikke lenger blokkere scheduler-kontrollen. Menybytte unngår synkron lagring av hver ytelsesmåling og gjenbruker kortlivet sentralkonfigurasjon, uten endring i handelsregler, produksjonsterskel eller porteføljedata.",

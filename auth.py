@@ -23,6 +23,7 @@ from user_store import (
     list_users,
     update_user,
     user_count,
+    DatabaseStarting,
 )
 
 
@@ -481,7 +482,13 @@ def render_login():
     st.stop()
 
 def require_login():
-    init_user_store()
+    try:
+        init_user_store()
+    except DatabaseStarting:
+        st.warning("Databasen starter eller gjenopprettes. Programmet prøver automatisk igjen.")
+        if st.button("Prøv databaseforbindelsen på nytt", width="stretch", key="database_starting_retry_v1910"):
+            st.rerun()
+        st.stop()
 
     if user_count() == 0:
         render_first_admin_setup()
@@ -538,4 +545,3 @@ def render_user_admin(current_user):
     # v18.6.49: Admin-panelet rendres ikke lenger i venstremenyen.
     # Bruk toppmenyen "⚙️ Admin" for å åpne System/admin i hovedvinduet.
     return
-
