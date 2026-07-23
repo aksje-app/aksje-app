@@ -34,6 +34,7 @@ def request_activation(*, actor: str = "USER") -> dict[str, Any]:
 def application_navigation() -> tuple[tuple[str, str, str], ...]:
     return (("🏠", "Dashboard", "dashboard"), ("🧠", "Autonomi", "autonomy"),
             ("📈", "Analyse", "analysis"), ("🎯", "Top Picks", "top_picks"),
+            ("🧾", "Paper Trading", "paper_trading"),
             ("💼", "Portefølje", "portfolio"), ("📚", "Rapporter", "reports"),
             ("⚙️", "System", "system"))
 

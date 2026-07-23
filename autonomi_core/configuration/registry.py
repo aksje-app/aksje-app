@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import time
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -24,6 +26,10 @@ LEGACY_KEY_MAP = {
 }
 SENSITIVE_PREFIXES = ("analysis.factor_weights", "portfolio.", "learning.", "runtime.execution")
 _MIGRATING = False
+_CACHE: dict[str, Any] | None = None
+_CACHE_AT = 0.0
+_CACHE_STORAGE_ID: int | None = None
+_CACHE_TTL_SECONDS = max(1.0, float(os.getenv("CONFIG_READ_CACHE_SECONDS", "30") or 30))
 
 
 def migration_in_progress() -> bool:
@@ -197,15 +203,26 @@ def _migrate(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_registry() -> dict[str, Any]:
-    raw = _storage().read_json(REGISTRY_KEY, default=None)
+    global _CACHE, _CACHE_AT, _CACHE_STORAGE_ID
+    now = time.monotonic()
+    storage = _storage()
+    storage_id = id(storage)
+    if _CACHE is not None and _CACHE_STORAGE_ID == storage_id and now - _CACHE_AT < _CACHE_TTL_SECONDS:
+        return deepcopy(_CACHE)
+    raw = storage.read_json(REGISTRY_KEY, default=None)
     doc = _normalize(raw)
     if raw is None:
-        _storage().write_json(REGISTRY_KEY, doc)
-    return _migrate(doc)
+        storage.write_json(REGISTRY_KEY, doc)
+    doc = _migrate(doc)
+    _CACHE = deepcopy(doc)
+    _CACHE_AT = now
+    _CACHE_STORAGE_ID = storage_id
+    return deepcopy(doc)
 
 
 def _commit(doc: dict[str, Any], *, event: str, reason: str, actor: str,
             previous: Mapping[str, Any] | None) -> dict[str, Any]:
+    global _CACHE, _CACHE_AT, _CACHE_STORAGE_ID
     errors = validate_values(doc["values"])
     if errors:
         raise ValueError("; ".join(errors))
@@ -225,7 +242,11 @@ def _commit(doc: dict[str, Any], *, event: str, reason: str, actor: str,
         "config_version": doc["config_version"], "checksum": doc["checksum"],
     })
     doc["history"] = doc["history"][:1000]
-    _storage().write_json(REGISTRY_KEY, doc)
+    storage = _storage()
+    storage.write_json(REGISTRY_KEY, doc)
+    _CACHE = deepcopy(doc)
+    _CACHE_AT = time.monotonic()
+    _CACHE_STORAGE_ID = id(storage)
     return deepcopy(doc)
 
 
@@ -249,6 +270,7 @@ def update(changes: Mapping[str, Any], *, reason: str, actor: str = "USER",
 
 
 def propose(changes: Mapping[str, Any], *, reason: str, actor: str = "USER") -> dict[str, Any]:
+    global _CACHE, _CACHE_AT, _CACHE_STORAGE_ID
     current = load_registry(); doc = deepcopy(current)
     candidate = deepcopy(doc["values"])
     for path, value in changes.items():
@@ -264,18 +286,27 @@ def propose(changes: Mapping[str, Any], *, reason: str, actor: str = "USER") -> 
         "base_config_version": current["config_version"], "changes": deepcopy(dict(changes)),
     }
     doc["approvals"].insert(0, approval)
-    _storage().write_json(REGISTRY_KEY, doc)
+    storage = _storage()
+    storage.write_json(REGISTRY_KEY, doc)
+    _CACHE = deepcopy(doc)
+    _CACHE_AT = time.monotonic()
+    _CACHE_STORAGE_ID = id(storage)
     return deepcopy(approval)
 
 
 def resolve_approval(approval_id: str, approve: bool, *, actor: str = "USER") -> dict[str, Any]:
+    global _CACHE, _CACHE_AT, _CACHE_STORAGE_ID
     current = load_registry(); doc = deepcopy(current)
     item = next((row for row in doc["approvals"] if row.get("approval_id") == approval_id), None)
     if not item or item.get("status") != "PENDING":
         raise ValueError("Godkjenningen finnes ikke eller er allerede behandlet")
     item["status"] = "APPROVED" if approve else "REJECTED"; item["resolved_at"] = _now(); item["resolved_by"] = actor
     if not approve:
-        _storage().write_json(REGISTRY_KEY, doc)
+        storage = _storage()
+        storage.write_json(REGISTRY_KEY, doc)
+        _CACHE = deepcopy(doc)
+        _CACHE_AT = time.monotonic()
+        _CACHE_STORAGE_ID = id(storage)
         return deepcopy(doc)
     for path, value in item.get("changes", {}).items():
         _set(doc["values"], path, value)
