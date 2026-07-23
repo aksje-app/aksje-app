@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -12,6 +13,8 @@ from durable_runtime import read_json as durable_read_json, write_json as durabl
 
 _METRICS_PATH = runtime_data_path('metrics', 'performance_metrics.json')
 _SESSION: Dict[str, Any] = {'render_times': [], 'api_calls': {}, 'cache': {'hit': 0, 'miss': 0}, 'reruns': 0}
+_PERSIST_INTERVAL_SECONDS = max(5.0, float(os.getenv("PERFORMANCE_PERSIST_INTERVAL_SECONDS", "30") or 30))
+_LAST_PERSIST_MONOTONIC = time.monotonic()
 
 
 def _load_persisted() -> Dict[str, Any]:
@@ -19,12 +22,19 @@ def _load_persisted() -> Dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _persist() -> None:
+def _persist(*, force: bool = False) -> bool:
+    """Persist buffered metrics without adding a DB round-trip to every menu click."""
+    global _LAST_PERSIST_MONOTONIC
+    now = time.monotonic()
+    if not force and now - _LAST_PERSIST_MONOTONIC < _PERSIST_INTERVAL_SECONDS:
+        return False
     try:
         payload = {'updated_at': datetime.now().isoformat(timespec='seconds'), **_SESSION}
         durable_write_json('metrics/performance_metrics.json', _METRICS_PATH, payload)
+        _LAST_PERSIST_MONOTONIC = now
+        return True
     except Exception:
-        pass
+        return False
 
 
 def mark_rerun() -> None:

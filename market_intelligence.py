@@ -2049,8 +2049,32 @@ def run_due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
     now = now or _now()
     results = []
     for job in load_jobs():
-        if _slot_due(job, now):
-            results.append(run_job(job, trigger="SCHEDULED"))
+        due = _slot_due(job, now)
+        _audit("SCHEDULE_CHECK", {
+            "job_id": job.job_id,
+            "job_name": job.name,
+            "enabled": job.enabled,
+            "due": due,
+            "last_run_at": job.last_run_at,
+            "timezone_name": job.timezone_name,
+        })
+        if not due:
+            continue
+        _audit("SCHEDULED_RUN_STARTED", {
+            "job_id": job.job_id, "job_name": job.name, "last_run_at": job.last_run_at,
+        })
+        try:
+            result = run_job(job, trigger="SCHEDULED")
+            results.append(result)
+            _audit("SCHEDULED_RUN_COMPLETED", {
+                "job_id": job.job_id, "job_name": job.name, "run_id": result.get("run_id"),
+                "status": job.last_status,
+            })
+        except Exception as exc:
+            _audit("SCHEDULED_RUN_FAILED", {
+                "job_id": job.job_id, "job_name": job.name, "error": str(exc)[:1000],
+            })
+            raise
     return results
 
 
@@ -2380,7 +2404,21 @@ def render_market_intelligence() -> None:
     with tab_ops:
         jobs = load_jobs(); active = [x for x in jobs if x.enabled]
         archive_count = len(_load_report_archive()); o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", archive_count); o4.metric("Regenererbare PDF-er", archive_count)
-        st.code("Ekstern scheduler/cron: python market_intelligence.py --run-due", language="bash")
+        try:
+            from scheduled_runner import load_unattended_state
+            unattended = load_unattended_state()
+        except Exception as exc:
+            unattended = {"state": "UNAVAILABLE", "error": str(exc)}
+        st.markdown("#### Uavhengig scheduler")
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Status", unattended.get("state") or "ALDRI KJØRT")
+        s2.metric("Sist forsøkt", local_display(unattended.get("started_at"), DEFAULT_TIMEZONE) if unattended.get("started_at") else "-")
+        s3.metric("Sist fullført", local_display(unattended.get("completed_at"), DEFAULT_TIMEZONE) if unattended.get("completed_at") else "-")
+        if unattended.get("error"):
+            st.error(str(unattended.get("error")))
+        with st.expander("Scheduler-detaljer", expanded=False):
+            st.json(unattended)
+        st.code("Uavhengig kjøring: python scheduled_runner.py", language="bash")
         st.caption(f"Runtime-katalog: {ROOT}")
 
 

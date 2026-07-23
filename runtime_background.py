@@ -44,8 +44,12 @@ def _scheduler_worker() -> None:
     while not _STOP.is_set():
         try:
             from market_intelligence import restore_public_reports
-            from scheduler_background import run_scheduler_cycle
             restore_public_reports(limit=25)
+        except Exception as exc:
+            # Delivery repair is maintenance. It must never suppress a due scan.
+            pass
+        try:
+            from scheduler_background import run_scheduler_cycle
             run_scheduler_cycle()
         except Exception:
             # scheduler_background owns the persistent error audit/status.

@@ -86,7 +86,7 @@ def run_static_regression_checks(root: Optional[Path] = None) -> Dict[str, Any]:
         "Global oppdatering",
         "Startkapital / reset-verdi",
         "Bruk porteføljeverdi",
-        "Cash / kjøpekraft",
+        "Cash/kjøpekraft",
         "Sikkerhetsmodus",
         "Protected zones",
         "Pushover-verifisering",
@@ -95,7 +95,7 @@ def run_static_regression_checks(root: Optional[Path] = None) -> Dict[str, Any]:
         "Datakvalitet",
     ]
     missing = [anchor for anchor in required_app_anchors if anchor not in app]
-    version_ok = "APP_VERSION" in version and "v18.5.89" in version
+    version_ok = 'APP_VERSION = "v19.0.7"' in version
     return {
         "ok": not missing and version_ok,
         "version_ok": version_ok,

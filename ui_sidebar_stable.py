@@ -77,6 +77,7 @@ def _sidebar_nav_links_v18659(st) -> None:
         ("🎯", "Top Picks", "top_picks"),
         ("🚀", "Long Engine", "long_engine"),
         ("🤖", "AI", "ai"),
+        ("🧾", "Paper Trading", "paper_trading"),
         ("🧠", "Autonomi", "autonomy"),
         ("💱", "Valutavarsler", "fx_alerts"),
         ("⚙️", "System", "system"),
@@ -190,6 +191,14 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
         st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
+    elif nav in {"paper", "paper_trading", "papertrading"}:
+        nav = "paper_trading"
+        st.session_state["ai_control_center_group_v1863m"] = "Testing og portefolje"
+        st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"autonomy", "autonomous", "autonomi"}:
         nav = "autonomy"
         st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
@@ -221,6 +230,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "top_picks": ("Marked og signaler", "Top Picks"),
         "long_engine": ("Long Engine", "Long Engine"),
         "ai": ("Analyse og prognose", ""),
+        "paper_trading": ("Testing og portefolje", "Paper Trading og kontroll"),
         "autonomy": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "fx_alerts": ("Andre paneler", "💱 Valutavarsler"),
         "portfolio": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
@@ -267,6 +277,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
         _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18660")
         _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
         _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
+        _sidebar_nav_button_v18650(st, "🧾 Paper Trading", "paper_trading", "sidebar_nav_paper_v1907")
         _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomy", "sidebar_nav_autonomy_v1882")
         _sidebar_nav_button_v18650(st, "💱 Valutavarsler", "fx_alerts", "sidebar_nav_fx_alerts_v1891")
         _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
