@@ -7,8 +7,10 @@ or negative evidence.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
+from xml.etree import ElementTree
 import hashlib
 import json
 import math
@@ -22,6 +24,9 @@ VERSION = "v18.7.2"
 CACHE_PATH = runtime_data_path("news_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = int(os.getenv("NEWS_INTELLIGENCE_CACHE_TTL_HOURS", "6") or 6) * 3600
 DEFAULT_LOOKBACK_DAYS = int(os.getenv("NEWS_INTELLIGENCE_LOOKBACK_DAYS", "14") or 14)
+DEFAULT_RSS_FEEDS = {
+    "Norge": [("E24 RSS", "https://e24.no/rss")],
+}
 
 POSITIVE_TERMS = {
     "beat": 1.4, "beats": 1.4, "record": 1.1, "growth": 0.8, "profit": 0.8,
@@ -85,7 +90,11 @@ def _parse_date(value: Any) -> datetime | None:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
         return dt.replace(tzinfo=dt.tzinfo or timezone.utc)
     except Exception:
-        return None
+        try:
+            dt = parsedate_to_datetime(text)
+            return dt.replace(tzinfo=dt.tzinfo or timezone.utc)
+        except Exception:
+            return None
 
 
 def _domain(url: str) -> str:
@@ -140,7 +149,7 @@ def _fetch_newsapi(query: str, limit: int = 30) -> list[dict[str, Any]]:
     import requests
     response = requests.get(
         "https://newsapi.org/v2/everything",
-        params={"q": query, "sortBy": "publishedAt", "pageSize": min(100, limit), "language": "en", "apiKey": key},
+        params={"q": query, "sortBy": "publishedAt", "pageSize": min(100, limit), "apiKey": key},
         timeout=12,
     )
     response.raise_for_status()
@@ -150,6 +159,39 @@ def _fetch_newsapi(query: str, limit: int = 30) -> list[dict[str, Any]]:
         "url": x.get("url") or "", "publisher": (x.get("source") or {}).get("name") or "",
         "published_at": x.get("publishedAt"),
     } for x in rows if isinstance(x, Mapping)]
+
+
+def _fetch_rss(url: str, publisher: str, query_tokens: Sequence[str]) -> list[dict[str, Any]]:
+    import requests
+
+    response = requests.get(url, timeout=12, headers={"User-Agent": "AI-Aksje-Analyzer/19.0.8"})
+    response.raise_for_status()
+    root = ElementTree.fromstring(response.content)
+    tokens = [str(token or "").strip().lower() for token in query_tokens if len(str(token or "").strip()) >= 3]
+    rows: list[dict[str, Any]] = []
+    for item in root.findall(".//item") + root.findall(".//{http://www.w3.org/2005/Atom}entry"):
+        def value(*tags: str) -> str:
+            for tag in tags:
+                node = item.find(tag)
+                if node is not None:
+                    if tag.endswith("link") and node.attrib.get("href"):
+                        return str(node.attrib.get("href"))
+                    return str(node.text or "").strip()
+            return ""
+        title = value("title", "{http://www.w3.org/2005/Atom}title")
+        summary = value("description", "summary", "{http://www.w3.org/2005/Atom}summary")
+        haystack = f"{title} {summary}".lower()
+        if tokens and not any(token in haystack for token in tokens):
+            continue
+        rows.append({
+            "title": title,
+            "summary": summary,
+            "url": value("link", "{http://www.w3.org/2005/Atom}link"),
+            "publisher": publisher,
+            "published_at": value("pubDate", "published", "updated", "{http://www.w3.org/2005/Atom}published", "{http://www.w3.org/2005/Atom}updated"),
+            "verification": "PUBLISHED_SOURCE",
+        })
+    return rows
 
 
 def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> list[dict[str, Any]]:
@@ -173,6 +215,7 @@ def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = D
             "published_at": dt.isoformat() if dt else "",
             "age_hours": round(age_hours, 1),
             "source_quality": round(_source_quality(url, str(raw.get("publisher") or "")), 2),
+            "verification": str(raw.get("verification") or "PUBLISHED_SOURCE"),
         }
         previous = unique.get(key)
         if not previous or item["source_quality"] > previous["source_quality"]:
@@ -181,6 +224,7 @@ def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = D
 
 
 def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
     articles = normalize_articles(rows, lookback_days)
     if not articles:
         return {
@@ -212,6 +256,13 @@ def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days
         copy = dict(item)
         copy["sentiment_score"] = round(raw_sentiment, 3)
         copy["impact"] = "HIGH" if impact > 1.0 else "NORMAL"
+        copy["source_url"] = copy.get("url") or ""
+        copy["source_type"] = "PRIMARY_COMPANY" if "investor" in _domain(copy.get("url") or "") else "PUBLISHED_NEWS"
+        copy["verification"] = str(copy.get("verification") or "PUBLISHED_SOURCE")
+        copy["retrieved_at"] = now.isoformat(timespec="seconds")
+        copy["fact_id"] = "NEWS-" + hashlib.sha1(
+            f"{copy.get('title','')}|{copy.get('url','')}|{copy.get('published_at','')}".encode("utf-8")
+        ).hexdigest()[:12].upper()
         enriched.append(copy)
     direction = weighted_total / max(0.01, total_weight)
     breadth = min(8.0, math.log1p(len(articles)) * 2.5)
@@ -229,34 +280,84 @@ def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days
     }
 
 
-def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: bool = False, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, Any]:
+def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: bool = False,
+                            lookback_days: int = DEFAULT_LOOKBACK_DAYS, market: str = "",
+                            ir_feed_url: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
-    key = f"{ticker}|{company_name.strip().lower()}|{lookback_days}"
+    key = f"{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}"
     cache = _load_cache()
     cached = cache.get(key)
-    if cached and not force_refresh and time.time() - _f(cached.get("cached_at")) < CACHE_TTL_SECONDS:
+    if cached and not force_refresh and time.time() - _f(cached.get("cached_at")) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
         return dict(cached.get("result") or {})
     sources: list[str] = []
+    search_log: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     try:
         yf_rows = _fetch_yfinance(ticker)
-        if yf_rows:
-            rows.extend(yf_rows); sources.append("yfinance")
+        rows.extend(yf_rows)
+        if yf_rows: sources.append("yfinance")
+        search_log.append({
+            "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
+            "attempted": True, "status": "SUCCESS_WITH_RESULTS" if yf_rows else "SUCCESS_NO_RESULTS",
+            "results": len(yf_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
+        })
     except Exception as exc:
         errors.append(f"yfinance: {exc}")
+        search_log.append({
+            "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
+            "attempted": True, "status": "ERROR", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": str(exc)[:500],
+        })
     try:
-        query = company_name.strip() or ticker
+        query = f'"{company_name.strip()}" OR "{ticker}"' if company_name.strip() else ticker
         api_rows = _fetch_newsapi(query)
-        if api_rows:
-            rows.extend(api_rows); sources.append("NewsAPI")
+        rows.extend(api_rows)
+        if api_rows: sources.append("NewsAPI")
+        search_log.append({
+            "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
+            "attempted": bool(os.getenv("NEWSAPI_KEY", "").strip()),
+            "status": ("SUCCESS_WITH_RESULTS" if api_rows else "SUCCESS_NO_RESULTS") if os.getenv("NEWSAPI_KEY", "").strip() else "NOT_CONFIGURED",
+            "results": len(api_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
+        })
     except Exception as exc:
         errors.append(f"NewsAPI: {exc}")
+        search_log.append({
+            "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
+            "attempted": True, "status": "ERROR", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": str(exc)[:500],
+        })
+    feed_specs = list(DEFAULT_RSS_FEEDS.get(str(market or ""), []))
+    if ir_feed_url:
+        feed_specs.append(("Selskapets IR-feed", ir_feed_url))
+    for publisher, feed_url in feed_specs:
+        try:
+            rss_rows = _fetch_rss(feed_url, publisher, [ticker.split(".")[0], company_name])
+            rows.extend(rss_rows)
+            if rss_rows: sources.append(publisher)
+            search_log.append({
+                "source": publisher, "source_type": "PRIMARY_OR_DIRECT_RSS",
+                "attempted": True, "status": "SUCCESS_WITH_RESULTS" if rss_rows else "SUCCESS_NO_RESULTS",
+                "results": len(rss_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": feed_url, "error": "",
+            })
+        except Exception as exc:
+            errors.append(f"{publisher}: {exc}")
+            search_log.append({
+                "source": publisher, "source_type": "PRIMARY_OR_DIRECT_RSS",
+                "attempted": True, "status": "ERROR", "results": 0,
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": feed_url, "error": str(exc)[:500],
+            })
     result = score_articles(ticker, rows, lookback_days)
     result["source"] = ", ".join(sources) if sources else "unavailable"
     result["fetched_at"] = datetime.now(timezone.utc).isoformat()
     result["errors"] = errors
-    if not sources and errors:
+    result["search_log"] = search_log
+    result["sources_checked"] = sum(1 for row in search_log if row.get("attempted"))
+    result["verified_fact_count"] = len(result.get("events") or [])
+    successful_checks = [row for row in search_log if row.get("status") in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"}]
+    if not sources and errors and not successful_checks:
         result["coverage"] = "ERROR"
         result["sentiment"] = "KILDEFEIL"
         result["summary"] = "Nyhetskildene kunne ikke hentes. Nøytral score brukes."
@@ -274,6 +375,8 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
             str(row.get("ticker") or row.get("symbol") or ""),
             str(row.get("name") or row.get("longName") or row.get("shortName") or ""),
             force_refresh=force_refresh,
+            market=str(row.get("market") or ""),
+            ir_feed_url=str(row.get("ir_feed_url") or row.get("investor_relations_feed") or ""),
         )
         row["news_intelligence"] = result
         row["news_score"] = result.get("score", 50.0)

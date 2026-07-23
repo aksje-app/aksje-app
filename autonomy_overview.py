@@ -26,9 +26,10 @@ from market_intelligence import _load_report_archive, load_draft_job, load_jobs,
 from notifier import pushover_audit, pushover_enabled
 from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
+from app_version import get_app_version
 
 
-VERSION = "v19.0.6"
+VERSION = get_app_version()
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 

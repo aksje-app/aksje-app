@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.7"
-APP_VERSION_NAME = "Navigation & Unattended Scheduling Repair"
+APP_VERSION = "v19.0.8"
+APP_VERSION_NAME = "Auditable Evidence & Credible Confidence"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.6"
+PREVIOUS_APP_VERSION = "v19.0.7"
 
 CHANGELOG = [
+    "v19.0.8: Auditable Evidence & Credible Confidence: reell SEC Form 4-innhenting for USA, bredere nyhetsinnhenting med E24 RSS og valgfri selskaps-IR, faktanivå-proveniens og komplett søkelogg for Topp 1–3. Streng evidensport skiller verifiserte funn, kontrollert ingen funn, ikke konfigurert, kildefeil, ikke søkt og foreldet data; vesentlig dokumentasjonsmangel reduserer konfidens og blokkerer autonome beslutningsforslag. PDF viser konfidens før/etter, straff og tak, RSI med nøyaktig to desimaler og beskrivende, fortsatt ulistede PDF-filnavn. Autonomi-visningen følger programmets hovedversjon. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",
     "v19.0.7: Navigation & Unattended Scheduling Repair: den faktiske produksjonssidebaren får direkte Paper Trading-rute på PC, mens eksisterende mobilrute verifiseres mot aktiv import. En selvstendig Render Cron-prosess kjører planlagte rapporter uten nettleser eller innlogging, med etterslep, PostgreSQL-lås, varig heartbeat, eksplisitt audit og Pushover ved feil. PDF-reparasjon kan ikke lenger blokkere scheduler-kontrollen. Menybytte unngår synkron lagring av hver ytelsesmåling og gjenbruker kortlivet sentralkonfigurasjon, uten endring i handelsregler, produksjonsterskel eller porteføljedata.",
     "v19.0.6: Reliable Reports, Evidence & Fast Navigation: rapportarkivet validerer PDF-signaturen, regenererer manglende PDF fra varig rapport-JSON og foretrekker offentlige, rerun-sikre lenker fremfor midlertidige nedlastingsendepunkter. Topp 3 får egne detaljerte beslutningssider med poengbidrag, tekniske og fundamentale funn, insidertransaksjoner, konkrete nyheter, Discovery, backtest, porteføljetilpasning, risiko og tydelig beslutning. Manglende bevis klassifiseres og reduserer konfidens/avgjørelsesstatus. Paper Trading får direkte PC- og mobilrute. Kort rapportarkiv-cache og terminal polling-stopp reduserer unødvendig lasting.",
     "v19.0.6 (grunnlag): Time-Aware Draft Reports & Canonical Price Gate: utkast beholder UTKAST-merket, men får korrekt lokal rapportperiode som morgen-, dags-, kvelds- eller nattrapport i PDF, arkiv og filnavn. Jobbprofilnavnet beholdes separat i metadata. Beslutningstrakten bruker nå nøyaktig samme kanoniske prisoppløsning som den autonome kjøpsmotoren, og Shadow Mode skiller mellom kandidater som består scoreterskelen og kandidater som består alle øvrige kjøpsporter.",

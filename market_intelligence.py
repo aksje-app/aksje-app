@@ -788,49 +788,117 @@ def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[
 def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Make missing intelligence explicit and conservatively calibrate confidence."""
     penalties = {
-        "AVAILABLE": 0.0, "MISSING": 1.0, "DISCOVERY_ONLY": 2.0,
-        "STALE": 4.0, "NOT_CONFIGURED": 5.0, "UNAVAILABLE": 5.0,
-        "ERROR": 6.0, "NOT_SEARCHED": 6.0,
+        "AVAILABLE": 0.0, "CHECKED_NO_EVENTS": 3.0, "MISSING": 8.0,
+        "DISCOVERY_ONLY": 7.0, "STALE": 8.0, "NOT_CONFIGURED": 10.0,
+        "UNAVAILABLE": 10.0, "ERROR": 12.0, "NOT_SEARCHED": 15.0,
     }
-    summary = {"evaluated": 0, "reduced": 0, "decision_downgraded": 0, "statuses": {}}
+    summary = {
+        "evaluated": 0, "reduced": 0, "decision_downgraded": 0,
+        "manual_review_required": 0, "statuses": {}, "verified_facts": 0,
+        "sources_attempted": 0,
+    }
     for candidate in candidates:
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
         records: dict[str, Any] = {}
         total_penalty = 0.0
-        material_failures = 0
+        critical_failures = 0
         for label, key in (("insider", "insider_intelligence"), ("news", "news_intelligence")):
             payload = raw.get(key) if isinstance(raw.get(key), Mapping) else {}
             status = str(payload.get("coverage") or "NOT_SEARCHED").upper()
             evidence_rows = payload.get("evidence") if label == "insider" else payload.get("events")
+            search_log = [dict(row) for row in (payload.get("search_log") or []) if isinstance(row, Mapping)]
+            successful_search = any(row.get("status") in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"} for row in search_log)
             if status == "AVAILABLE" and not list(evidence_rows or []):
-                status = "CHECKED_NO_EVENTS"
-            elif status == "MISSING" and payload:
-                status = "CHECKED_NO_EVENTS"
-            penalty = 1.0 if status == "CHECKED_NO_EVENTS" else penalties.get(status, 6.0)
+                status = "CHECKED_NO_EVENTS" if successful_search else "NOT_SEARCHED"
+            elif status == "MISSING":
+                status = "CHECKED_NO_EVENTS" if successful_search else "NOT_SEARCHED"
+            penalty = penalties.get(status, 12.0)
+            # No verified news for a ranked investment case is more material
+            # than a valid insider search with no reportable transactions.
+            if label == "news" and status == "CHECKED_NO_EVENTS":
+                penalty = 6.0
             total_penalty += penalty
-            if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED"}:
-                material_failures += 1
+            if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED", "DISCOVERY_ONLY"}:
+                critical_failures += 1
             records[label] = {
                 "status": status, "penalty": penalty,
                 "source": payload.get("official_source") or payload.get("source") or "Ikke oppgitt",
                 "fetched_at": payload.get("fetched_at"),
                 "reason": payload.get("reason") or payload.get("summary") or "",
+                "verified_facts": len(list(evidence_rows or [])),
+                "sources_attempted": sum(1 for row in search_log if row.get("attempted")),
+                "search_log": search_log,
             }
+            summary["verified_facts"] += len(list(evidence_rows or []))
+            summary["sources_attempted"] += records[label]["sources_attempted"]
             summary["statuses"][status] = int(summary["statuses"].get(status, 0)) + 1
         before = float(candidate.get("confidence_score") or 0)
-        after = max(0.0, round(before - total_penalty, 2))
+        insider_status = records["insider"]["status"]
+        news_status = records["news"]["status"]
+        cap = 100.0
+        if news_status != "AVAILABLE" and insider_status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED", "DISCOVERY_ONLY"}:
+            cap = 60.0
+        elif news_status != "AVAILABLE" and insider_status != "AVAILABLE":
+            cap = 68.0
+        elif critical_failures:
+            cap = 75.0
+        elif news_status == "CHECKED_NO_EVENTS":
+            cap = 78.0
+        elif insider_status == "CHECKED_NO_EVENTS":
+            cap = 85.0
+        after = min(cap, max(0.0, round(before - total_penalty, 2)))
+        review_required = bool(
+            (news_status != "AVAILABLE" and insider_status != "AVAILABLE")
+            or critical_failures >= 1
+        )
         candidate["confidence_before_evidence_policy"] = before
         candidate["confidence_score"] = after
         candidate["evidence_coverage"] = records
         candidate["evidence_confidence_penalty"] = total_penalty
+        candidate["evidence_confidence_cap"] = cap
+        candidate["evidence_review_required"] = review_required
+        candidate["evidence_valid_for_decision"] = not review_required
+        candidate["evidence_gate_status"] = "MANUAL_REVIEW" if review_required else "PASS"
         summary["evaluated"] += 1
         if total_penalty:
             summary["reduced"] += 1
-        if material_failures >= 2 and str(candidate.get("status") or "") == "ANBEFALT FOR VURDERING":
-            candidate["status_before_evidence_policy"] = candidate["status"]
-            candidate["status"] = "KREVER MANUELL VURDERING"
+        if review_required:
+            summary["manual_review_required"] += 1
+        if review_required and str(candidate.get("status") or "") not in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"}:
+            candidate["status_before_evidence_policy"] = candidate.get("status")
+            candidate["status"] = "KREVER MANUELL VURDERING – DOKUMENTASJON"
             summary["decision_downgraded"] += 1
     return summary
+
+
+def combined_quality_summary(candidates: Sequence[Mapping[str, Any]],
+                             data_contract: Mapping[str, Any],
+                             evidence_summary: Mapping[str, Any]) -> dict[str, Any]:
+    total = len(candidates)
+    market_valid = int(data_contract.get("valid_for_decision") or 0)
+    evidence_valid = sum(1 for row in candidates if row.get("evidence_valid_for_decision"))
+    verified = int(evidence_summary.get("verified_facts") or 0)
+    manual = int(evidence_summary.get("manual_review_required") or 0)
+    overall_valid = sum(
+        1 for row in candidates
+        if row.get("valid_for_decision") and row.get("evidence_valid_for_decision")
+    )
+    if total == 0:
+        status = "INGEN DATA"
+    elif overall_valid == total:
+        status = "FULLT BESLUTNINGSGRUNNLAG"
+    elif overall_valid > 0:
+        status = "DELVIS – MANUELL VURDERING"
+    else:
+        status = "UTILSTREKKELIG FOR AUTONOM BESLUTNING"
+    return {
+        "evaluated": total, "market_data_valid": market_valid,
+        "evidence_valid": evidence_valid, "overall_valid": overall_valid,
+        "manual_review_required": manual, "verified_evidence_facts": verified,
+        "sources_attempted": int(evidence_summary.get("sources_attempted") or 0),
+        "status": status,
+        "green": bool(total and overall_valid == total),
+    }
 
 
 def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
@@ -901,6 +969,32 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             return text
         clipped = text[: max(1, limit - 1)].rsplit(" ", 1)[0]
         return (clipped or text[: max(1, limit - 1)]) + "…"
+
+    def _metric_value(name: Any, value: Any) -> str:
+        if str(name or "").strip().lower() == "rsi":
+            try:
+                return f"{float(value):.2f}"
+            except (TypeError, ValueError):
+                pass
+        return _short(value, 100)
+
+    def _source_log_rows(insider: Mapping[str, Any], news: Mapping[str, Any]) -> list[list[Any]]:
+        rows: list[list[Any]] = [["Område", "Kilde", "Forsøkt", "Resultat", "Treff", "Kontrollert", "Adresse / feil"]]
+        for area, payload in (("Insider", insider), ("Nyheter", news)):
+            for item in payload.get("search_log") or []:
+                if not isinstance(item, Mapping):
+                    continue
+                detail = item.get("url") or item.get("error") or item.get("reason") or "-"
+                rows.append([
+                    area, _p(item.get("source") or item.get("source_type") or "-"),
+                    "Ja" if item.get("attempted") else "Nei",
+                    _p(item.get("status") or "-"), item.get("results", 0),
+                    _p(item.get("checked_at") or item.get("retrieved_at") or "-"),
+                    _p(_short(detail, 180)),
+                ])
+        if len(rows) == 1:
+            rows.append(["Begge", "Ingen registrert søkelogg", "Nei", "NOT_SEARCHED", 0, "-", "-"])
+        return rows
 
     def _candidate_evidence(candidate: Mapping[str, Any], next_candidate: Mapping[str, Any] | None = None) -> dict[str, str]:
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
@@ -1056,6 +1150,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         contract_table.setStyle(_table_style(6.6, header=False, padding=2.2))
         story += [Paragraph("Freshness & Data Contract", styles["Subsection"]), contract_table,
                   Paragraph(escape(str(contract_summary.get("approval_rule") or "Ingen anbefaling på kritiske, foreldede data")), styles["Small"])]
+    combined_quality = run.get("combined_data_quality") or {}
+    if combined_quality:
+        combined_table = Table([
+            ["Samlet status", combined_quality.get("status", "-"), "Markedsdata gyldig", combined_quality.get("market_data_valid", 0)],
+            ["Evidens gyldig", combined_quality.get("evidence_valid", 0), "Samlet gyldig", combined_quality.get("overall_valid", 0)],
+            ["Verifiserte fakta", combined_quality.get("verified_evidence_facts", 0), "Kilder forsøkt", combined_quality.get("sources_attempted", 0)],
+            ["Manuell vurdering", combined_quality.get("manual_review_required", 0), "Grønn samlet status", "JA" if combined_quality.get("green") else "NEI"],
+        ], colWidths=[31*mm, 61*mm, 37*mm, 39*mm])
+        combined_table.setStyle(_table_style(6.5, header=False, padding=2.2))
+        combined_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+                                            ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold")]))
+        story += [
+            Paragraph("Samlet datakvalitet og evidensgyldighet", styles["Subsection"]),
+            combined_table,
+            Paragraph("Grønn status krever både gyldige markedsdata og tilstrekkelig dokumentert evidens. Markedsdata alene kan ikke gi grønn beslutningsstatus.", styles["Small"]),
+        ]
     discovery = run.get("discovery_data") or {}
     if discovery:
         discovery_rows = [["Marked", "Valgt", "Dokumentert", "Nye", "Eksperimentelle", "Karantene", "Rotert"]]
@@ -1235,7 +1345,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             for pos in range(max(1, len(tech_items), len(fund_items))):
                 t = tech_items[pos] if pos < len(tech_items) else ("Ingen registrerte tekniske detaljdata", "-")
                 f = fund_items[pos] if pos < len(fund_items) else ("Ingen registrerte fundamentaldetaljer", "-")
-                metric_rows.append([_p(t[0]), _p(_short(t[1], 100)), _p(f[0]), _p(_short(f[1], 100))])
+                metric_rows.append([_p(t[0]), _p(_metric_value(t[0], t[1])), _p(f[0]), _p(_metric_value(f[0], f[1]))])
             metric_table = Table(metric_rows, repeatRows=1, colWidths=[50*mm, 34*mm, 50*mm, 34*mm])
             metric_table.setStyle(_table_style(6.5, padding=2))
             story += [Paragraph("Teknisk og fundamental dokumentasjon", styles["Section"]), metric_table]
@@ -1244,13 +1354,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             if insider_code == "AVAILABLE" and not list(insider.get("evidence") or []):
                 insider_code = "CHECKED_NO_EVENTS"
             insider_status = coverage_labels.get(insider_code, insider_code)
-            insider_rows = [["Navn / rolle", "Handling", "Dato", "Antall", "Verdi", "Valuta / kilde"]]
+            insider_rows = [["Navn / rolle", "Handling", "Dato", "Antall", "Verdi", "Kilde / dokument"]]
             for tx in list(insider.get("evidence") or [])[:20]:
                 insider_rows.append([
                     _p(f"{tx.get('insider','Ukjent')} / {tx.get('role','Ukjent rolle')}"),
                     tx.get("type"), tx.get("date"), _fmt(tx.get("shares")),
                     format_whole_currency(tx.get("value", 0), market_currency(candidate.get("market"), candidate.get("ticker"), insider.get("currency"))),
-                    _p(f"{insider.get('currency') or market_currency(candidate.get('market'), candidate.get('ticker'))} / {insider.get('official_source') or insider.get('source') or 'Ukjent'}"),
+                    _p(_short(
+                        f"{tx.get('source') or insider.get('official_source') or insider.get('source') or 'Ukjent'}; "
+                        f"{tx.get('verification') or 'Uverifisert'}; {tx.get('document_id') or '-'}; "
+                        f"{tx.get('source_url') or '-'}", 220
+                    )),
                 ])
             if len(insider_rows) == 1:
                 insider_rows.append([_p(insider_status), "-", "-", "-", "-", _p(insider.get("reason") or "Ingen dokumentasjon")])
@@ -1274,6 +1388,44 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             news_table = Table(news_rows_detail, repeatRows=1, colWidths=[58*mm, 25*mm, 27*mm, 22*mm, 20*mm, 20*mm])
             news_table.setStyle(_table_style(6.1, padding=1.8))
             story += [Paragraph(f"Nyhetsbevis – {escape(news_status)}", styles["Section"]), news_table]
+
+            provenance_rows = [["Type", "Fakta-ID / dokument", "Verifikasjon", "Publisert", "Hentet", "Direkte kilde"]]
+            for tx in list(insider.get("evidence") or [])[:20]:
+                provenance_rows.append([
+                    "Insider", _p(tx.get("document_id") or tx.get("fact_id") or "-"),
+                    _p(tx.get("verification") or "-"), _p(tx.get("published_at") or tx.get("date") or "-"),
+                    _p(tx.get("retrieved_at") or insider.get("fetched_at") or "-"),
+                    _p(_short(tx.get("source_url") or "-", 190)),
+                ])
+            for article in list(news.get("events") or [])[:12]:
+                provenance_rows.append([
+                    "Nyhet", _p(article.get("fact_id") or "-"), _p(article.get("verification") or "-"),
+                    _p(article.get("published_at") or article.get("date") or "-"),
+                    _p(article.get("retrieved_at") or news.get("fetched_at") or "-"),
+                    _p(_short(article.get("source_url") or article.get("url") or "-", 190)),
+                ])
+            if len(provenance_rows) == 1:
+                provenance_rows.append(["-", "Ingen verifiserte fakta", "-", "-", "-", "-"])
+            provenance_table = Table(provenance_rows, repeatRows=1, colWidths=[16*mm, 31*mm, 24*mm, 25*mm, 25*mm, 47*mm])
+            provenance_table.setStyle(_table_style(5.9, padding=1.6))
+            source_log_table = Table(_source_log_rows(insider, news), repeatRows=1,
+                                     colWidths=[15*mm, 29*mm, 13*mm, 30*mm, 12*mm, 27*mm, 42*mm])
+            source_log_table.setStyle(_table_style(5.8, padding=1.6))
+            confidence_table = Table([
+                ["Konfidens før evidens", "Straff", "Tak", "Endelig", "Evidensport", "Manuell kontroll"],
+                [_fmt(candidate.get("confidence_before_evidence_policy")), _fmt(candidate.get("evidence_confidence_penalty")),
+                 _fmt(candidate.get("evidence_confidence_cap")), _fmt(candidate.get("confidence_score")),
+                 candidate.get("evidence_gate_status") or "-", "Ja" if candidate.get("evidence_review_required") else "Nei"],
+            ], colWidths=[29*mm, 22*mm, 22*mm, 22*mm, 39*mm, 34*mm])
+            confidence_table.setStyle(_table_style(6.2, padding=2))
+            story += [
+                Paragraph("Faktaproveniens – etterprøvbare enkeltopplysninger", styles["Section"]),
+                provenance_table,
+                Paragraph("Kildedekningslogg – alle faktiske søkeforsøk", styles["Section"]),
+                source_log_table,
+                Paragraph("Konfidenskalibrering og evidensport", styles["Section"]),
+                confidence_table,
+            ]
 
             discovery_detail = raw.get("discovery_evidence") or raw.get("ai_discovery") or candidate.get("discovery_reason") or "Ingen separat Discovery-dokumentasjon registrert."
             backtest_detail = raw.get("backtest") or raw.get("validation") or candidate.get("validation_reason") or "Ingen detaljert backtest registrert."
@@ -1761,6 +1913,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     if investment_mission:
         freshness_policy = replace(freshness_policy, minimum_data_quality=float(investment_mission.get("minimum_data_quality", freshness_policy.minimum_data_quality)))
     data_contract_summary = apply_data_contracts(all_candidates, policy=freshness_policy)
+    combined_quality = combined_quality_summary(all_candidates, data_contract_summary, evidence_coverage_summary)
     totals["deep_analyzed"] = len(all_candidates)
     from autonomi_core.missions.user_mission import apply_user_mission, load_user_mission
     stored_mission = load_user_mission()
@@ -1773,7 +1926,9 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     )
     decision_candidates = [
         x for x in all_candidates
-        if bool(x.get("valid_for_decision")) and bool(x.get("mission_eligible", True))
+        if bool(x.get("valid_for_decision"))
+        and bool(x.get("evidence_valid_for_decision"))
+        and bool(x.get("mission_eligible", True))
     ]
     totals["recommended"] = sum(1 for x in decision_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
     totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
@@ -1790,12 +1945,15 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
         proposal.update({key: governed.get(key) for key in (
             "data_contract", "valid_for_decision", "confidence_score", "status",
             "status_before_data_contract", "confidence_before_data_contract",
+            "evidence_coverage", "evidence_valid_for_decision", "evidence_gate_status",
+            "evidence_review_required", "evidence_confidence_penalty", "evidence_confidence_cap",
+            "confidence_before_evidence_policy",
             "strategy_matches", "strategy_scores", "analysis_ranking",
             "portfolio_decision", "portfolio_action",
         ) if key in governed})
         proposal["mission_eligible"] = governed.get("mission_eligible", True)
         proposal["mission_fit"] = governed.get("mission_fit")
-        if proposal.get("valid_for_decision") and proposal.get("mission_eligible", True) and proposal.get("portfolio_action") in {"BUY", "REVIEW"}:
+        if proposal.get("valid_for_decision") and proposal.get("evidence_valid_for_decision") and proposal.get("mission_eligible", True) and proposal.get("portfolio_action") in {"BUY", "REVIEW"}:
             valid_proposals.append(proposal)
     all_proposals = sorted(valid_proposals, key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     totals["proposals"] = len(all_proposals)
@@ -1822,6 +1980,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
            "evidence_coverage": evidence_coverage_summary,
+           "combined_data_quality": combined_quality,
            "portfolio_need_preflight": portfolio_need_preflight,
            "portfolio_decisions": portfolio_decisions,
            "discovery_data": {

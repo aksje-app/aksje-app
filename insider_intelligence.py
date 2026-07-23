@@ -136,7 +136,15 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
         evidence.append({
             "date": dt.date().isoformat() if dt else "Ukjent", "type": kind,
             "insider": insider, "role": role or "Ukjent rolle", "shares": round(shares, 2),
+            "price": round(abs(_f(_pick(row, "price", "transaction price"), 0.0)), 4),
             "value": round(value, 2), "age_days": age,
+            "currency": str(_pick(row, "currency") or ""),
+            "source": str(_pick(row, "source") or "Offentlig innsiderrapportering"),
+            "source_url": str(_pick(row, "source url", "source_url", "url") or ""),
+            "document_id": str(_pick(row, "document id", "document_id", "accession") or ""),
+            "verification": str(_pick(row, "verification") or "STRUCTURED_PROVIDER"),
+            "published_at": str(_pick(row, "published at", "published_at", "filing date") or ""),
+            "retrieved_at": str(_pick(row, "retrieved at", "retrieved_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
         })
     evidence.sort(key=lambda x: (x["date"], x["value"]), reverse=True)
     if not evidence:
@@ -168,7 +176,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                                market: str = "", company: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
     cache = _load_cache(); cached = cache.get(ticker)
-    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS:
+    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
         result = dict(cached.get("result") or {})
         source = source_for_market(market)
         result.setdefault("currency", source.get("currency", ""))
@@ -188,19 +196,39 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                                "reason": str(discovery.get("error") or "Kildeoppslag feilet")})
             _store_cached_result(ticker, result)
         return result
+    search_log: list[dict[str, Any]] = []
     try:
         import yfinance as yf
         obj = yf.Ticker(ticker)
         value = None
+        provider_error = ""
         for attr in ("insider_transactions", "get_insider_transactions"):
             try:
                 candidate = getattr(obj, attr)
                 value = candidate() if callable(candidate) else candidate
                 if value is not None: break
-            except Exception:
+            except Exception as exc:
+                provider_error = str(exc)
                 continue
-        result = score_transactions(ticker, _records(value), lookback_days=lookback_days)
-        result["source"] = "yfinance/public filings"
+        provider_rows = _records(value)
+        search_log.append({
+            "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
+            "attempted": True, "status": "SUCCESS_WITH_RESULTS" if provider_rows else ("ERROR" if provider_error and value is None else "SUCCESS_NO_RESULTS"),
+            "results": len(provider_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "error": provider_error[:500] if value is None else "",
+        })
+        verified_rows = list(provider_rows)
+        if str(market or "") == "USA":
+            from sec_form4_source import fetch_sec_form4
+            sec = fetch_sec_form4(ticker, lookback_days=lookback_days)
+            search_log.append({key: sec.get(key) for key in (
+                "source", "source_type", "attempted", "status", "results", "filings_found", "checked_at", "error"
+            )})
+            verified_rows.extend(sec.get("transactions") or [])
+        result = score_transactions(ticker, verified_rows, lookback_days=lookback_days)
+        result["source"] = ", ".join(
+            row["source"] for row in search_log if row.get("status") == "SUCCESS_WITH_RESULTS"
+        ) or "Kontrollerte offentlige kilder"
         result["fetched_at"] = datetime.now(timezone.utc).isoformat()
         source = source_for_market(market)
         result["currency"] = source.get("currency", "")
@@ -208,6 +236,19 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         result["official_search_url"] = source.get("search_url", "")
         if result.get("coverage") != "AVAILABLE" and market:
             discovery = discover_with_newsapi(ticker, company, market)
+            search_log.append({
+                "source": discovery.get("official_source") or "Offisiell markeds-/tilsynskilde via NewsAPI",
+                "source_type": "PRIMARY_SOURCE_DISCOVERY",
+                "attempted": discovery.get("status") != "NEWSAPI_NOT_CONFIGURED",
+                "status": {
+                    "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
+                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "ERROR",
+                }.get(str(discovery.get("status") or ""), "NOT_SEARCHED"),
+                "results": len(discovery.get("articles") or []),
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": discovery.get("official_search_url") or "",
+                "error": discovery.get("error") or "",
+            })
             result["source_discovery"] = discovery
             if discovery.get("articles"):
                 result.update({
@@ -236,6 +277,15 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             "official_source": source.get("name", ""),
             "official_search_url": source.get("search_url", ""),
         }
+        search_log.append({
+            "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
+            "attempted": True, "status": "ERROR", "results": 0,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "error": str(exc)[:500],
+        })
+    result["search_log"] = search_log
+    result["sources_checked"] = sum(1 for row in search_log if row.get("attempted"))
+    result["verified_fact_count"] = len(result.get("evidence") or [])
     _store_cached_result(ticker, result)
     return result
 

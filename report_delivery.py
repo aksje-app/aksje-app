@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
@@ -14,7 +15,12 @@ def ensure_public_pdf_name(run: MutableMapping[str, Any]) -> str:
     current = str(run.get("public_pdf_name") or "").strip()
     if current and Path(current).name == current and current.lower().endswith(".pdf"):
         return current
-    name = f"report_{secrets.token_urlsafe(24)}.pdf"
+    identity = run.get("report_identity") if isinstance(run.get("report_identity"), Mapping) else {}
+    label = str(identity.get("label") or run.get("report_type") or "rapport")
+    job = str(run.get("job_name") or "analyse")
+    date = str(run.get("created_at_local") or run.get("created_at") or "")[:10]
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{label}_{job}_{date}").strip("_")[:72] or "rapport"
+    name = f"{stem}_{secrets.token_urlsafe(12)}.pdf"
     run["public_pdf_name"] = name
     return name
 
