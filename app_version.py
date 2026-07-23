@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.8"
-APP_VERSION_NAME = "Auditable Evidence & Credible Confidence"
+APP_VERSION = "v19.0.9"
+APP_VERSION_NAME = "Direct PDF Recovery & Canonical Market Tickers"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.7"
+PREVIOUS_APP_VERSION = "v19.0.8"
 
 CHANGELOG = [
+    "v19.0.9: Direct PDF Recovery & Canonical Market Tickers: en fullført 13/13 Autonomi-kjøring viser umiddelbart validert PDF- og JSON-nedlasting for nøyaktig samme kjørings-ID. Rapportarkivet tilbyr alltid bytebasert PDF-nedlasting og bruker offentlig lenke kun som tillegg; manglende fil regenereres fra varig JSON, valideres og tilbakeføres til arkivet. Tickeridentitet bruker nå oppgitt marked før USA-fallback og legger til .OL/.ST/.HE/.CO/.SA før yfinance-kall, slik at nordiske og brasilianske symboler ikke feilaktig behandles som amerikanske eller avnoterte. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",
     "v19.0.8: Auditable Evidence & Credible Confidence: reell SEC Form 4-innhenting for USA, bredere nyhetsinnhenting med E24 RSS og valgfri selskaps-IR, faktanivå-proveniens og komplett søkelogg for Topp 1–3. Streng evidensport skiller verifiserte funn, kontrollert ingen funn, ikke konfigurert, kildefeil, ikke søkt og foreldet data; vesentlig dokumentasjonsmangel reduserer konfidens og blokkerer autonome beslutningsforslag. PDF viser konfidens før/etter, straff og tak, RSI med nøyaktig to desimaler og beskrivende, fortsatt ulistede PDF-filnavn. Autonomi-visningen følger programmets hovedversjon. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",
     "v19.0.7: Navigation & Unattended Scheduling Repair: den faktiske produksjonssidebaren får direkte Paper Trading-rute på PC, mens eksisterende mobilrute verifiseres mot aktiv import. En selvstendig Render Cron-prosess kjører planlagte rapporter uten nettleser eller innlogging, med etterslep, PostgreSQL-lås, varig heartbeat, eksplisitt audit og Pushover ved feil. PDF-reparasjon kan ikke lenger blokkere scheduler-kontrollen. Menybytte unngår synkron lagring av hver ytelsesmåling og gjenbruker kortlivet sentralkonfigurasjon, uten endring i handelsregler, produksjonsterskel eller porteføljedata.",
     "v19.0.6: Reliable Reports, Evidence & Fast Navigation: rapportarkivet validerer PDF-signaturen, regenererer manglende PDF fra varig rapport-JSON og foretrekker offentlige, rerun-sikre lenker fremfor midlertidige nedlastingsendepunkter. Topp 3 får egne detaljerte beslutningssider med poengbidrag, tekniske og fundamentale funn, insidertransaksjoner, konkrete nyheter, Discovery, backtest, porteføljetilpasning, risiko og tydelig beslutning. Manglende bevis klassifiseres og reduserer konfidens/avgjørelsesstatus. Paper Trading får direkte PC- og mobilrute. Kort rapportarkiv-cache og terminal polling-stopp reduserer unødvendig lasting.",

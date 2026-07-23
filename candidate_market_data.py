@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
+from investment_pipeline import canonical_market_ticker
 
 VERSION = "v18.6.93e"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
@@ -226,8 +227,17 @@ def _fundamental_fields(info: Mapping[str, Any]) -> tuple[dict[str, Any], list[d
 
 def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_refresh: bool = False) -> dict[str, Any]:
     base = dict(row)
-    ticker = str(base.get("ticker") or base.get("symbol") or "").strip().upper()
+    original_ticker = str(base.get("ticker") or base.get("symbol") or "").strip().upper()
+    ticker = canonical_market_ticker(original_ticker, str(base.get("market") or base.get("source_market") or ""))
     base["ticker"] = ticker
+    base["symbol"] = ticker
+    if original_ticker and original_ticker != ticker:
+        base["ticker_normalization"] = {
+            "input": original_ticker,
+            "canonical": ticker,
+            "market": str(base.get("market") or base.get("source_market") or ""),
+            "reason": "MARKET_SUFFIX_ADDED",
+        }
     if not ticker:
         base.update({"data_fetch_status": "ERROR", "data_fetch_error": "Mangler ticker", "analysis_trace": []})
         return base

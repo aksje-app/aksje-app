@@ -42,22 +42,44 @@ MARKET_SUFFIX_MAP = {
     ".CO": "Danmark",
     ".SA": "Brasil",
 }
+MARKET_TICKER_SUFFIX = {
+    "Norge": ".OL",
+    "Sverige": ".ST",
+    "Finland": ".HE",
+    "Danmark": ".CO",
+    "Brasil": ".SA",
+}
+
+
+def canonical_market_ticker(ticker: str, market: str = "") -> str:
+    """Return the Yahoo-compatible symbol without rewriting explicit symbols."""
+    symbol = str(ticker or "").strip().upper()
+    if not symbol or "." in symbol:
+        return symbol
+    suffix = MARKET_TICKER_SUFFIX.get(str(market or "").strip())
+    return f"{symbol}{suffix}" if suffix else symbol
 
 def infer_market_from_ticker(ticker: str, fallback: str = "") -> str:
     symbol = str(ticker or "").strip().upper()
     for suffix, market in MARKET_SUFFIX_MAP.items():
         if symbol.endswith(suffix):
             return market
+    if str(fallback or "").strip():
+        return str(fallback).strip()
     if symbol and "." not in symbol:
         return "USA"
-    return str(fallback or "Ukjent")
+    return "Ukjent"
 
 def normalize_candidate_identity(row: Mapping[str, Any], expected_market: str = "") -> dict[str, Any]:
     clean = dict(row)
-    ticker = str(clean.get("ticker") or clean.get("symbol") or "").strip().upper()
+    declared_market = str(clean.get("market") or expected_market or "").strip()
+    ticker = canonical_market_ticker(
+        str(clean.get("ticker") or clean.get("symbol") or ""),
+        declared_market,
+    )
     clean["ticker"] = ticker
     clean["symbol"] = ticker
-    inferred = infer_market_from_ticker(ticker, str(clean.get("market") or expected_market))
+    inferred = infer_market_from_ticker(ticker, declared_market)
     clean["market"] = inferred
     clean["source_market"] = str(clean.get("source_market") or expected_market or inferred)
     clean["market_identity_valid"] = bool(ticker and (expected_market in ("", "Alle") or inferred == expected_market))

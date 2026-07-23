@@ -602,6 +602,24 @@ def _valid_pdf_bytes(value: bytes | bytearray | None) -> bool:
     return bool(value and len(value) >= 5 and bytes(value[:5]) == b"%PDF-")
 
 
+def load_archived_run(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Recover the canonical run from durable storage or the archived JSON path."""
+    archived = dict(entry or {})
+    run_id = str(archived.get("run_id") or "")
+    run = load_run(run_id) if run_id else {}
+    if run:
+        return dict(run)
+    json_path = Path(str(archived.get("json_path") or ""))
+    if json_path.is_file():
+        try:
+            payload = json.loads(json_path.read_text(encoding="utf-8"))
+            if isinstance(payload, Mapping):
+                return dict(payload)
+        except Exception as exc:
+            _audit("ARCHIVED_JSON_RECOVERY_FAILED", {"run_id": run_id, "error": str(exc)})
+    return {}
+
+
 def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return a durable public PDF, regenerating it from the canonical JSON.
 
@@ -643,12 +661,29 @@ def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | N
         if run_id:
             _write(RUNS_DIR / f"{run_id}.json", clean)
         url = report_public_url(clean)
+        if run_id:
+            archive_rows = _load_report_archive()
+            changed = False
+            for row in archive_rows:
+                if str(row.get("run_id") or "") == run_id:
+                    row.update({
+                        "pdf_path": clean.get("pdf_path"),
+                        "public_pdf_name": clean.get("public_pdf_name"),
+                        "report_url": url,
+                        "pdf_validated": True,
+                        "pdf_regenerated": regenerated,
+                    })
+                    changed = True
+                    break
+            if changed:
+                _save_report_archive(archive_rows)
     except Exception as exc:
         url = ""
         _audit("PUBLIC_REPORT_PUBLISH_FAILED", {"run_id": clean.get("run_id"), "error": str(exc)})
     return {
         "ok": True, "url": url, "data": pdf_bytes,
         "filename": safe_report_filename(clean, "pdf"), "regenerated": regenerated,
+        "validated": True,
     }
 
 
@@ -2530,19 +2565,18 @@ def render_market_intelligence() -> None:
             with st.expander(label, expanded=False):
                 m1,m2,m3,m4 = st.columns(4)
                 m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
-                saved_run = load_run(str(row.get("run_id") or ""))
+                saved_run = load_archived_run(row)
                 json_path = Path(str(row.get("json_path") or ""))
                 a,b,c = st.columns(3)
                 delivery = resolve_report_delivery(saved_run, row)
                 json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
-                if delivery.get("url"):
-                    a.link_button("📄 Åpne / last ned PDF", delivery["url"], use_container_width=True)
-                elif delivery.get("ok"):
-                    a.download_button("📄 Last ned PDF", data=delivery["data"], file_name=delivery["filename"], mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", use_container_width=True)
+                if delivery.get("ok"):
+                    a.download_button("📄 Last ned PDF", data=delivery["data"], file_name=delivery["filename"],
+                                      mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
                 else:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 if json_data:
-                    b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", use_container_width=True)
+                    b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", width="stretch")
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
                 if c.button(fav_label, key=f"mi_fav_{row.get('run_id')}", use_container_width=True):
                     set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); st.rerun()

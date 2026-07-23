@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from html import escape
+import json
 from typing import Any, Mapping
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -22,7 +23,10 @@ from controlled_parameter_learning import APPROVALS_PATH, resolve_promotion_appr
 from durable_runtime import read_json
 from local_time import local_display
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
-from market_intelligence import _load_report_archive, load_draft_job, load_jobs, load_run
+from market_intelligence import (
+    _load_report_archive, load_draft_job, load_jobs, load_run,
+    load_archived_run, resolve_report_delivery, safe_report_filename,
+)
 from notifier import pushover_audit, pushover_enabled
 from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
@@ -95,7 +99,11 @@ def collect_autonomy_overview() -> dict[str, Any]:
         (dict(row) for row in archive if isinstance(row, Mapping) and str(row.get("report_url") or "").strip()),
         {},
     )
-    latest_run = load_run(str(latest_archive.get("run_id") or "")) if latest_archive else {}
+    latest_run = load_archived_run(latest_archive) if latest_archive else {}
+    completed_run_id = str(status.get("run_id") or "") if str(status.get("state") or "") == "COMPLETED" else ""
+    completed_run = load_run(completed_run_id) if completed_run_id else {}
+    if completed_run:
+        latest_run = completed_run
     parallel_validation = dict(latest_run.get("parallel_validation") or {})
     if parallel_validation:
         try:
@@ -145,6 +153,7 @@ def collect_autonomy_overview() -> dict[str, Any]:
             or ""
         ),
         "latest_linked_archive": latest_linked_archive,
+        "completed_run": completed_run,
         "report_pdf_path": latest_archive.get("pdf_path"),
         "parallel_validation": parallel_validation,
         "decision_funnel": dict(latest_run.get("decision_funnel") or {}),
@@ -175,6 +184,38 @@ def _render_report_link(url: Any) -> bool:
         'aria-label="Åpne siste rapport i ny fane">Åpne siste rapport</a>',
         unsafe_allow_html=True,
     )
+    return True
+
+
+def _render_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any], *, key: str) -> bool:
+    """Always provide a validated byte download; public URL is only secondary."""
+    delivery = resolve_report_delivery(run, entry)
+    if not delivery.get("ok"):
+        st.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes fra rapportdataene."))
+        return False
+    left, middle, right = st.columns(3)
+    left.download_button(
+        "📄 Last ned PDF",
+        data=delivery["data"],
+        file_name=delivery["filename"],
+        mime="application/pdf",
+        key=f"{key}_pdf",
+        width="stretch",
+    )
+    middle.download_button(
+        "{ } Last ned JSON",
+        data=json.dumps(dict(run), ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        file_name=safe_report_filename(run, "json"),
+        mime="application/json",
+        key=f"{key}_json",
+        width="stretch",
+    )
+    if delivery.get("url"):
+        right.link_button("↗ Åpne offentlig PDF", delivery["url"], width="stretch")
+    else:
+        right.caption("Offentlig rapportlenke er ikke tilgjengelig. PDF kan fortsatt lastes ned direkte.")
+    status = "Regenerert og validert" if delivery.get("regenerated") else "Generert og validert"
+    st.caption(f"PDF-status: {status} · rapport-ID {run.get('run_id') or '-'}")
     return True
 
 
@@ -339,6 +380,18 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 st.error("Full Autonomy Execution er ufullstendig: " + ", ".join(full_execution.get("failed_stages") or []))
             with st.expander("Vis alle 13 Autonomi-trinn", expanded=False):
                 st.dataframe(pd.DataFrame([{ "#": x.get("number"), "Trinn": x.get("label"), "Status": x.get("status") } for x in full_execution.get("stages") or []]), use_container_width=True, hide_index=True)
+            if full_execution.get("self_contained"):
+                st.markdown("##### Ferdig rapport")
+                current_entry = next(
+                    (dict(row) for row in snapshot.get("archive") or []
+                     if str(row.get("run_id") or "") == current_result_id),
+                    {},
+                )
+                _render_report_delivery(
+                    latest,
+                    current_entry,
+                    key=f"autonomy_completed_{current_result_id}",
+                )
         parallel = dict(snapshot.get("parallel_validation") or {})
         if parallel:
             comparison = dict(parallel.get("comparison") or {})
@@ -497,8 +550,12 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     f"<div class='ar-row'><span class='ar-label'>Rapport-ID</span><span class='ar-value'>{report.get('run_id') or '-'}</span></div>"
                     "</div>", unsafe_allow_html=True,
                 )
-                if not _render_report_link(snapshot["report_url"]):
-                    st.info("Offentlig rapportlenke er ikke tilgjengelig. Åpne rapportarkivet.")
+                report_run = load_archived_run(report) or snapshot.get("latest_run") or {}
+                _render_report_delivery(
+                    report_run,
+                    report,
+                    key=f"autonomy_latest_{report.get('run_id') or 'none'}",
+                )
             else:
                 st.info("Ingen rapport er lagret.")
 
