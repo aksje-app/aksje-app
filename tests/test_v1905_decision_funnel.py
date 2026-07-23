@@ -26,6 +26,7 @@ class DecisionFunnelTests(unittest.TestCase):
         self.assertFalse(result["production_threshold_changed"])
         self.assertEqual(result["eligible"], 1)
         challenger = next(row for row in result["shadow_thresholds"] if row["threshold"] == 76)
+        self.assertEqual(challenger["score_qualified_count"], 2)
         self.assertEqual(challenger["eligible_count"], 2)
         self.assertFalse(challenger["changes_production"])
 
@@ -36,6 +37,14 @@ class DecisionFunnelTests(unittest.TestCase):
         row = result["candidates"][0]
         self.assertEqual(row["data_quality_source"], "MISSING_EXECUTION_FIELD")
         self.assertIn("Datakvalitet", ";".join(row["reasons"]))
+
+    def test_canonical_nested_last_price_is_accepted(self):
+        result = build_decision_funnel([
+            {"ticker": "LIVE.OL", "investment_score": 90, "data_quality": 90, "risk_score": 10,
+             "portfolio_action": "BUY", "raw": {"last_price": 123.45}}
+        ], parameters=self.params, portfolio=self.portfolio)
+        self.assertEqual(result["candidates"][0]["price"], 123.45)
+        self.assertTrue(result["candidates"][0]["gates"]["price"])
 
     def test_position_origin_is_reported(self):
         portfolio = {"status": "ACTIVE", "positions": {"OLD.OL": {"source_run_id": "RECOVERED-LEGACY"}}}
