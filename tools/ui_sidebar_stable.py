@@ -43,6 +43,13 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863m"] = ""
         st.session_state["ai_control_center_active_real_panel_v18598"] = ""
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
+    elif nav == "paper_trading":
+        st.session_state["ai_control_center_group_v1863m"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
@@ -73,6 +80,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18650")
     _sidebar_nav_button_v18650(st, "🚀 Long Engine", "long_engine", "sidebar_nav_long_engine_v18653")
     _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18650")
+    _sidebar_nav_button_v18650(st, "🧾 Paper Trading", "paper_trading", "sidebar_nav_paper_v1906")
     _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18650")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
