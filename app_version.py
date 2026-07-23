@@ -1,11 +1,13 @@
-APP_VERSION = "v19.0.5"
-APP_VERSION_NAME = "Decision Funnel & Threshold Shadow"
+APP_VERSION = "v19.0.6"
+APP_VERSION_NAME = "Reliable Reports, Evidence & Fast Navigation"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.4"
+PREVIOUS_APP_VERSION = "v19.0.5"
 
 CHANGELOG = [
+    "v19.0.6: Reliable Reports, Evidence & Fast Navigation: rapportarkivet validerer PDF-signaturen, regenererer manglende PDF fra varig rapport-JSON og foretrekker offentlige, rerun-sikre lenker fremfor midlertidige nedlastingsendepunkter. Topp 3 får egne detaljerte beslutningssider med poengbidrag, tekniske og fundamentale funn, insidertransaksjoner, konkrete nyheter, Discovery, backtest, porteføljetilpasning, risiko og tydelig beslutning. Manglende bevis klassifiseres og reduserer konfidens/avgjørelsesstatus. Paper Trading får direkte PC- og mobilrute. Kort rapportarkiv-cache og terminal polling-stopp reduserer unødvendig lasting.",
+    "v19.0.6 (grunnlag): Time-Aware Draft Reports & Canonical Price Gate: utkast beholder UTKAST-merket, men får korrekt lokal rapportperiode som morgen-, dags-, kvelds- eller nattrapport i PDF, arkiv og filnavn. Jobbprofilnavnet beholdes separat i metadata. Beslutningstrakten bruker nå nøyaktig samme kanoniske prisoppløsning som den autonome kjøpsmotoren, og Shadow Mode skiller mellom kandidater som består scoreterskelen og kandidater som består alle øvrige kjøpsporter.",
     "v19.0.5: Decision Funnel & Threshold Shadow: PDF og kjøringsresultat viser nå alle faktiske kjøpsporter, avvisningsgrunn per kandidat, score mot autoritativ terskel, kandidater nær kravene og opprinnelsen til åpne posisjoner. Tersklene 78/76/74/72 sammenlignes i diagnostisk Shadow Mode uten handler eller produksjonsendring. Produksjonsterskelen beholdes og kan bare endres gjennom eksplisitt godkjenning.",
     "v19.0.4: Report & Notification Control: ferdige og feilende jobber stopper all periodisk fremdriftspolling, mens aktive jobber oppdateres isolert hvert femte sekund. Rapportidentitet følger faktisk lokal kjøretid som morgen-, dags-, kvelds- eller nattrapport. Samme run-ID kan aldri sende samme rapportvarsel to ganger, manuell Enkel modus bruker endringsbasert varsling, og Pushover viser rapporttype samt planlagt/manuell opprinnelse. Enkel modus har direkte siste PDF og rapportarkiv, mens Rapporter og Valutavarsler alltid er tilgjengelige i en horisontalt rullbar mobilmeny.",
     "v19.0.3: Preflight & Live Progress Consistency: kompatibilitetsprofilen lagres før det versjonerte Investment Mission opprettes, slik at egen lagring ikke gjør det nye oppdraget foreldet før PREFLIGHT. Fremdriftspanelet opplyser om automatisk tresekundersoppdatering, og en eldre vellykket 13/13-kjøring vises aldri som resultatet av en ny pågående eller feilende kjøring.",

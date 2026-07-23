@@ -11156,6 +11156,14 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["autonomy_core_workspace_v1880"] = workspace
         st.session_state["autonomy_core_workspace_slug_v1882"] = slug
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"paper", "paper_trading", "papertrading"}:
+        nav = "paper_trading"
+        st.session_state["ai_control_center_group_v1863m"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
@@ -11238,7 +11246,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "system"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -11314,6 +11322,7 @@ _mobile_nav_links_v18646 = {
     "fx_alerts": _mobile_nav_href_v18646("fx_alerts"),
     "portfolio": _mobile_nav_href_v18646("portfolio"),
     "reports": _mobile_nav_href_v18646("reports"),
+    "paper_trading": _mobile_nav_href_v18646("paper_trading"),
 }
 try:
     from autonomi_core.configuration.application_centered import application_centered_enabled as _centered_nav_v1900
@@ -11326,6 +11335,7 @@ _mobile_nav_html_v1900 = (f"""
   <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
   <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
   <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
+  <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
   <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
   <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
   <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
@@ -11336,6 +11346,7 @@ _mobile_nav_html_v1900 = (f"""
   <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
   <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
+  <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
   <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
   <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
 """)

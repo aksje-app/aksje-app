@@ -250,6 +250,10 @@ def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
     trigger_key = str(trigger or "").upper()
     job_key = str(job_name or "").casefold()
     if str(job_id or "").upper() == DRAFT_JOB_ID or "DRAFT" in trigger_key or "TEST" in trigger_key:
+        if created_at is not None:
+            hour = as_local(created_at, timezone_name).hour
+            period = "Morgenrapport" if 5 <= hour < 12 else "Dagsrapport" if 12 <= hour < 17 else "Kveldsrapport" if 17 <= hour < 24 else "Nattrapport"
+            return {"type": "UTKAST", "label": f"Utkast – {period}", "slug": f"UTKAST_{period}"}
         return {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
     if created_at is not None:
         hour = as_local(created_at, timezone_name).hour
@@ -290,6 +294,10 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
     job_name = str(run.get("job_name") or "Analyse").strip().replace("–", "-")
     clean = "_".join(part for part in "".join(ch if ch.isalnum() or ch in " _-" else " " for ch in job_name).split())
     stamp = local_compact_stamp(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
+    # A time-qualified draft already carries its report period. Keep the saved
+    # job name in PDF metadata instead of duplicating/misleading in the filename.
+    if str(identity.get("type") or "") == "UTKAST" and str(identity.get("slug") or "").startswith("UTKAST_"):
+        return f"{identity.get('slug')}_{stamp}.{extension}"
     return f"{identity.get('slug','Rapport')}_{clean}_{stamp}.{extension}"
 
 
@@ -589,6 +597,61 @@ def restore_public_reports(limit: int = 25) -> int:
     return restored
 
 
+def _valid_pdf_bytes(value: bytes | bytearray | None) -> bool:
+    """Reject empty/error payloads before exposing a PDF download."""
+    return bool(value and len(value) >= 5 and bytes(value[:5]) == b"%PDF-")
+
+
+def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Return a durable public PDF, regenerating it from the canonical JSON.
+
+    Streamlit download endpoints are session-bound and can disappear on a
+    rerun.  Archive downloads therefore prefer the static public copy and only
+    fall back to a validated in-memory payload.
+    """
+    clean = dict(run or {})
+    archived = dict(entry or {})
+    if not clean:
+        return {"ok": False, "error": "Rapportdata mangler og PDF-en kan ikke gjenopprettes."}
+    name = str(clean.get("public_pdf_name") or archived.get("public_pdf_name") or "").strip()
+    target = PUBLIC_REPORT_DIR / Path(name).name if name else None
+    pdf_bytes: bytes | None = None
+    if target and target.is_file():
+        candidate = target.read_bytes()
+        if _valid_pdf_bytes(candidate):
+            pdf_bytes = candidate
+    if pdf_bytes is None:
+        source = Path(str(clean.get("pdf_path") or archived.get("pdf_path") or ""))
+        if source.is_file():
+            candidate = source.read_bytes()
+            if _valid_pdf_bytes(candidate):
+                pdf_bytes = candidate
+    regenerated = False
+    if pdf_bytes is None:
+        try:
+            candidate = build_pdf(clean)
+            if not _valid_pdf_bytes(candidate):
+                raise ValueError("PDF-generatoren returnerte ikke et gyldig PDF-dokument")
+            pdf_bytes = candidate
+            regenerated = True
+        except Exception as exc:
+            _audit("REPORT_REGENERATION_FAILED", {"run_id": clean.get("run_id"), "error": str(exc)})
+            return {"ok": False, "error": f"Rapporten finnes ikke lokalt og kunne ikke regenereres: {exc}"}
+    try:
+        publish_pdf(clean, pdf_bytes)
+        run_id = str(clean.get("run_id") or "")
+        if run_id:
+            _write(RUNS_DIR / f"{run_id}.json", clean)
+        url = report_public_url(clean)
+    except Exception as exc:
+        url = ""
+        _audit("PUBLIC_REPORT_PUBLISH_FAILED", {"run_id": clean.get("run_id"), "error": str(exc)})
+    return {
+        "ok": True, "url": url, "data": pdf_bytes,
+        "filename": safe_report_filename(clean, "pdf"), "regenerated": regenerated,
+    }
+
+
 def _notification_mode(job: JobProfile) -> str:
     mode = str(getattr(job, "notification_mode", "") or "").strip().upper()
     if mode in {"ALWAYS", "CHANGES_ONLY", "ERRORS_ONLY"}:
@@ -722,6 +785,54 @@ def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[
     return [grouped[key] for key in sorted(grouped)]
 
 
+def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Make missing intelligence explicit and conservatively calibrate confidence."""
+    penalties = {
+        "AVAILABLE": 0.0, "MISSING": 1.0, "DISCOVERY_ONLY": 2.0,
+        "STALE": 4.0, "NOT_CONFIGURED": 5.0, "UNAVAILABLE": 5.0,
+        "ERROR": 6.0, "NOT_SEARCHED": 6.0,
+    }
+    summary = {"evaluated": 0, "reduced": 0, "decision_downgraded": 0, "statuses": {}}
+    for candidate in candidates:
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        records: dict[str, Any] = {}
+        total_penalty = 0.0
+        material_failures = 0
+        for label, key in (("insider", "insider_intelligence"), ("news", "news_intelligence")):
+            payload = raw.get(key) if isinstance(raw.get(key), Mapping) else {}
+            status = str(payload.get("coverage") or "NOT_SEARCHED").upper()
+            evidence_rows = payload.get("evidence") if label == "insider" else payload.get("events")
+            if status == "AVAILABLE" and not list(evidence_rows or []):
+                status = "CHECKED_NO_EVENTS"
+            elif status == "MISSING" and payload:
+                status = "CHECKED_NO_EVENTS"
+            penalty = 1.0 if status == "CHECKED_NO_EVENTS" else penalties.get(status, 6.0)
+            total_penalty += penalty
+            if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED"}:
+                material_failures += 1
+            records[label] = {
+                "status": status, "penalty": penalty,
+                "source": payload.get("official_source") or payload.get("source") or "Ikke oppgitt",
+                "fetched_at": payload.get("fetched_at"),
+                "reason": payload.get("reason") or payload.get("summary") or "",
+            }
+            summary["statuses"][status] = int(summary["statuses"].get(status, 0)) + 1
+        before = float(candidate.get("confidence_score") or 0)
+        after = max(0.0, round(before - total_penalty, 2))
+        candidate["confidence_before_evidence_policy"] = before
+        candidate["confidence_score"] = after
+        candidate["evidence_coverage"] = records
+        candidate["evidence_confidence_penalty"] = total_penalty
+        summary["evaluated"] += 1
+        if total_penalty:
+            summary["reduced"] += 1
+        if material_failures >= 2 and str(candidate.get("status") or "") == "ANBEFALT FOR VURDERING":
+            candidate["status_before_evidence_policy"] = candidate["status"]
+            candidate["status"] = "KREVER MANUELL VURDERING"
+            summary["decision_downgraded"] += 1
+    return summary
+
+
 def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     """Build the compact professional market-intelligence report.
 
@@ -736,7 +847,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     identity = resolve_report_identity(run)
     report_type = report_type or f"{identity.get('label', 'Rapport')} – Market Intelligence"
@@ -1068,6 +1179,119 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         evidence_table.setStyle(_table_style(6.2, padding=2))
         story += [Paragraph("Topp 3", styles["Section"]), medal_table,
                   Paragraph("Konkret beslutningsbevis for plasseringene", styles["Subsection"]), evidence_table]
+        # v19.0.6: the three leading candidates receive auditable evidence
+        # pages.  Long tables may naturally continue on a following page.
+        coverage_labels = {
+            "AVAILABLE": "Data funnet", "MISSING": "Kontrollert – ingen hendelser funnet",
+            "CHECKED_NO_EVENTS": "Kontrollert – ingen hendelser funnet",
+            "DISCOVERY_ONLY": "Kilder funnet – ikke strukturert/verifisert",
+            "NOT_CONFIGURED": "Kilde ikke tilgjengelig", "UNAVAILABLE": "Kilde ikke tilgjengelig",
+            "ERROR": "Kildefeil", "NOT_SEARCHED": "Ikke søkt", "STALE": "Foreldede data",
+        }
+        for idx, candidate in enumerate(medal_candidates):
+            raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+            insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
+            news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
+            evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
+            story += [PageBreak(), Paragraph(
+                f"Plass {idx + 1}: {escape(str(candidate.get('ticker') or '-'))} – fullstendig beslutningsgrunnlag",
+                styles["ReportTitle"],
+            )]
+            decision = str(candidate.get("portfolio_action") or evidence["action"] or "REVIEW").upper()
+            story += [Paragraph(
+                f"<b>AI-konklusjon:</b> Kandidaten er rangert som nummer {idx + 1} fordi {escape(evidence['drivers'])}. "
+                f"{escape(evidence['gap'])}. <b>Beslutning:</b> {escape(decision)}. "
+                f"<b>Forbehold:</b> {escape(evidence['cautions'])}.",
+                styles["BodyCompact"],
+            )]
+            formula = raw.get("score_formula") if isinstance(raw.get("score_formula"), Mapping) else {}
+            weights = formula.get("weights") if isinstance(formula.get("weights"), Mapping) else {}
+            contributions = formula.get("weighted_contributions") if isinstance(formula.get("weighted_contributions"), Mapping) else {}
+            score_parts = formula.get("parts") if isinstance(formula.get("parts"), Mapping) else {}
+            component_rows = [["Analysemodul", "Råscore", "Vekt", "Bidrag"]]
+            component_defaults = {
+                "discovery": candidate.get("discovery_score"), "fundamental": candidate.get("fundamental_score"),
+                "research": candidate.get("research_score"), "validation": candidate.get("validation_score"),
+                "portfolio_fit": candidate.get("portfolio_fit_score"), "insider": raw.get("insider_score"),
+                "news": raw.get("news_score"), "risk": candidate.get("risk_score"),
+            }
+            for key in sorted(set(component_defaults) | set(score_parts) | set(weights) | set(contributions)):
+                component_rows.append([
+                    key.replace("_", " ").title(), _fmt(score_parts.get(key, component_defaults.get(key))),
+                    _fmt(weights.get(key)), _fmt(contributions.get(key)),
+                ])
+            component_table = Table(component_rows, repeatRows=1, colWidths=[58*mm, 36*mm, 36*mm, 36*mm])
+            component_table.setStyle(_table_style(6.8, padding=2.2))
+            story += [Paragraph("Poengberegning, vekter og modulbidrag", styles["Section"]), component_table]
+
+            technical = raw.get("technical") if isinstance(raw.get("technical"), Mapping) else {}
+            fundamental = raw.get("fundamental") if isinstance(raw.get("fundamental"), Mapping) else {}
+            if not technical:
+                technical = {k: raw.get(k) for k in ("rsi", "momentum", "trend", "ma20", "ma50", "volatility") if raw.get(k) is not None}
+            if not fundamental:
+                fundamental = {k: raw.get(k) for k in ("pe", "forward_pe", "pb", "roe", "growth", "debt", "dividend_yield") if raw.get(k) is not None}
+            metric_rows = [["Tekniske nøkkeltall / signaler", "Verdi", "Fundamentale nøkkeltall", "Verdi"]]
+            tech_items, fund_items = list(technical.items()), list(fundamental.items())
+            for pos in range(max(1, len(tech_items), len(fund_items))):
+                t = tech_items[pos] if pos < len(tech_items) else ("Ingen registrerte tekniske detaljdata", "-")
+                f = fund_items[pos] if pos < len(fund_items) else ("Ingen registrerte fundamentaldetaljer", "-")
+                metric_rows.append([_p(t[0]), _p(_short(t[1], 100)), _p(f[0]), _p(_short(f[1], 100))])
+            metric_table = Table(metric_rows, repeatRows=1, colWidths=[50*mm, 34*mm, 50*mm, 34*mm])
+            metric_table.setStyle(_table_style(6.5, padding=2))
+            story += [Paragraph("Teknisk og fundamental dokumentasjon", styles["Section"]), metric_table]
+
+            insider_code = str(insider.get("coverage") or "NOT_SEARCHED").upper()
+            if insider_code == "AVAILABLE" and not list(insider.get("evidence") or []):
+                insider_code = "CHECKED_NO_EVENTS"
+            insider_status = coverage_labels.get(insider_code, insider_code)
+            insider_rows = [["Navn / rolle", "Handling", "Dato", "Antall", "Verdi", "Valuta / kilde"]]
+            for tx in list(insider.get("evidence") or [])[:20]:
+                insider_rows.append([
+                    _p(f"{tx.get('insider','Ukjent')} / {tx.get('role','Ukjent rolle')}"),
+                    tx.get("type"), tx.get("date"), _fmt(tx.get("shares")),
+                    format_whole_currency(tx.get("value", 0), market_currency(candidate.get("market"), candidate.get("ticker"), insider.get("currency"))),
+                    _p(f"{insider.get('currency') or market_currency(candidate.get('market'), candidate.get('ticker'))} / {insider.get('official_source') or insider.get('source') or 'Ukjent'}"),
+                ])
+            if len(insider_rows) == 1:
+                insider_rows.append([_p(insider_status), "-", "-", "-", "-", _p(insider.get("reason") or "Ingen dokumentasjon")])
+            insider_table = Table(insider_rows, repeatRows=1, colWidths=[43*mm, 19*mm, 22*mm, 20*mm, 28*mm, 36*mm])
+            insider_table.setStyle(_table_style(6.2, padding=1.8))
+            story += [Paragraph(f"Insiderbevis – {escape(insider_status)}", styles["Section"]), insider_table]
+
+            news_code = str(news.get("coverage") or "NOT_SEARCHED").upper()
+            if news_code == "AVAILABLE" and not list(news.get("events") or []):
+                news_code = "CHECKED_NO_EVENTS"
+            news_status = coverage_labels.get(news_code, news_code)
+            news_rows_detail = [["Overskrift", "Dato", "Kilde", "Tema", "Sentiment", "Påvirkning"]]
+            for article in list(news.get("events") or [])[:12]:
+                news_rows_detail.append([
+                    _p(_short(article.get("title"), 150)), article.get("published_at") or article.get("date") or "-",
+                    _p(article.get("source") or "-"), _p(", ".join(article.get("topics") or []) or ", ".join(news.get("topics") or []) or "-"),
+                    _fmt(article.get("sentiment_score")), article.get("impact") or "-",
+                ])
+            if len(news_rows_detail) == 1:
+                news_rows_detail.append([_p(news_status), "-", _p(news.get("source") or "-"), "-", "-", _p(news.get("summary") or "Ingen dokumentasjon")])
+            news_table = Table(news_rows_detail, repeatRows=1, colWidths=[58*mm, 25*mm, 27*mm, 22*mm, 20*mm, 20*mm])
+            news_table.setStyle(_table_style(6.1, padding=1.8))
+            story += [Paragraph(f"Nyhetsbevis – {escape(news_status)}", styles["Section"]), news_table]
+
+            discovery_detail = raw.get("discovery_evidence") or raw.get("ai_discovery") or candidate.get("discovery_reason") or "Ingen separat Discovery-dokumentasjon registrert."
+            backtest_detail = raw.get("backtest") or raw.get("validation") or candidate.get("validation_reason") or "Ingen detaljert backtest registrert."
+            positives = " • ".join(str(x) for x in (candidate.get("positives") or [])) or "Ingen særskilte positive drivere registrert."
+            risks = " • ".join(str(x) for x in (candidate.get("risks") or [])) or "Ingen særskilte risikofaktorer registrert."
+            story += [
+                Paragraph("AI Discovery, historikk og porteføljetilpasning", styles["Section"]),
+                Paragraph(f"<b>Discovery:</b> {escape(_short(discovery_detail, 650))}", styles["Small"]),
+                Paragraph(f"<b>Backtest / historisk treffsikkerhet:</b> {escape(_short(backtest_detail, 650))}", styles["Small"]),
+                Paragraph(
+                    f"<b>Porteføljetilpasning:</b> score {_fmt(candidate.get('portfolio_fit_score'))}; "
+                    f"foreslått vekt {_fmt(candidate.get('proposed_position_pct'))} %. "
+                    f"<b>Strategier:</b> {escape(', '.join(candidate.get('strategy_matches') or []) or '-')}.",
+                    styles["Small"],
+                ),
+                Paragraph(f"<b>Positive drivere:</b> {escape(positives)}", styles["Small"]),
+                Paragraph(f"<b>Risikofaktorer og manglende data:</b> {escape(risks)}; {escape(evidence['cautions'])}", styles["Small"]),
+            ]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Trend", "Risiko (0-100)", "Status"]]
         for r in candidates[:10]:
             data.append([r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")), _fmt(r.get("confidence_score")), r.get("trend"), format_risk(r.get("risk_score")), _p(str(r.get("status", ""))[:35])])
@@ -1152,11 +1376,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             near_table = Table(near_rows, repeatRows=1, colWidths=[20*mm, 26*mm, 23*mm, 18*mm, 22*mm, 65*mm])
             near_table.setStyle(_table_style(6.3, padding=2))
             story += [Paragraph("Nærmest kjøpskravene", styles["Subsection"]), near_table]
-        shadow_rows = [["Terskel", "Rolle", "Kvalifiserte", "Kandidater", "Produksjon endret"]]
+        shadow_rows = [["Terskel", "Rolle", "Score bestått", "Alle porter bestått", "Kandidater", "Prod. endret"]]
         for row in funnel.get("shadow_thresholds") or []:
-            shadow_rows.append([_fmt(row.get("threshold"), 1), row.get("role"), row.get("eligible_count", 0),
-                                _p(", ".join(row.get("eligible_tickers") or []) or "Ingen"), "NEI"])
-        shadow_table = Table(shadow_rows, repeatRows=1, colWidths=[20*mm, 28*mm, 22*mm, 78*mm, 26*mm])
+            shadow_rows.append([_fmt(row.get("threshold"), 1), row.get("role"), row.get("score_qualified_count", 0),
+                                row.get("eligible_count", 0), _p(", ".join(row.get("eligible_tickers") or []) or "Ingen"), "NEI"])
+        shadow_table = Table(shadow_rows, repeatRows=1, colWidths=[18*mm, 27*mm, 25*mm, 29*mm, 55*mm, 20*mm])
         shadow_table.setStyle(_table_style(6.3, padding=2))
         story += [Paragraph("Shadow Mode – kjøpsterskel", styles["Subsection"]), shadow_table,
                   Paragraph("Tersklene 76, 74 og 72 er Challenger-simuleringer. De kan ikke utløse kjøp eller endre produksjonsregelen uten eksplisitt godkjenning.", styles["Small"])]
@@ -1530,6 +1754,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
+    evidence_coverage_summary = apply_evidence_coverage_policy(all_candidates)
     from autonomi_core.discovery_data.freshness import apply_data_contracts
     from autonomi_core.configuration.policy import load_policy
     freshness_policy = load_policy()
@@ -1596,6 +1821,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
+           "evidence_coverage": evidence_coverage_summary,
            "portfolio_need_preflight": portfolio_need_preflight,
            "portfolio_decisions": portfolio_decisions,
            "discovery_data": {
@@ -1672,7 +1898,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             raise
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
         errors.append(f"Autonom orkestrering: {exc}")
-    # v19.0.5: one canonical explanation mirrors the final Autonomous Portfolio
+    # v19.0.6: one canonical explanation mirrors the final Autonomous Portfolio
     # gates. Shadow thresholds are diagnostic and never alter production.
     try:
         from autonomous_portfolio import TRADES_PATH, load_parameters, load_portfolio
@@ -1683,7 +1909,7 @@ def run_job(job: JobProfile, trigger: str = "MANUAL", progress_callback: Callabl
             all_candidates, parameters=load_parameters().normalized(), portfolio=load_portfolio(), trades=trades,
         )
     except Exception as exc:
-        run["decision_funnel"] = {"version": "v19.0.5", "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
+        run["decision_funnel"] = {"version": "v19.0.6", "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
     # v18.9.0: persist the domain result exactly once. Every downstream
     # consumer receives a view of this immutable record, not a separately
     # assembled copy of the analysis.
@@ -2089,9 +2315,14 @@ def render_market_intelligence() -> None:
                     "Handling": action, "Status": x.get("status"),
                 })
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
-            pdf = build_pdf(latest)
+            delivery = resolve_report_delivery(latest)
             e1,e2 = st.columns(2)
-            e1.download_button("Last ned PDF-rapport", pdf, file_name=safe_report_filename(latest, "pdf"), mime="application/pdf", use_container_width=True, key="mi_download_pdf_v18687")
+            if delivery.get("url"):
+                e1.link_button("Åpne / last ned PDF-rapport", delivery["url"], use_container_width=True)
+            elif delivery.get("ok"):
+                e1.download_button("Last ned PDF-rapport", delivery["data"], file_name=delivery["filename"], mime="application/pdf", use_container_width=True, key="mi_download_pdf_v1906")
+            else:
+                e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
             e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", use_container_width=True, key="mi_download_json_v18687")
     with tab_reports:
         st.markdown("### 📚 Rapportarkiv")
@@ -2117,13 +2348,16 @@ def render_market_intelligence() -> None:
                 m1,m2,m3,m4 = st.columns(4)
                 m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
                 saved_run = load_run(str(row.get("run_id") or ""))
-                pdf_path = Path(str(row.get("pdf_path") or ""))
                 json_path = Path(str(row.get("json_path") or ""))
                 a,b,c = st.columns(3)
-                pdf_data = pdf_path.read_bytes() if pdf_path.exists() else (build_pdf(saved_run) if saved_run else None)
+                delivery = resolve_report_delivery(saved_run, row)
                 json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
-                if pdf_data:
-                    a.download_button("📄 Last ned PDF", data=pdf_data, file_name=safe_report_filename(saved_run or row, "pdf"), mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", use_container_width=True)
+                if delivery.get("url"):
+                    a.link_button("📄 Åpne / last ned PDF", delivery["url"], use_container_width=True)
+                elif delivery.get("ok"):
+                    a.download_button("📄 Last ned PDF", data=delivery["data"], file_name=delivery["filename"], mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", use_container_width=True)
+                else:
+                    a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 if json_data:
                     b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", use_container_width=True)
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"

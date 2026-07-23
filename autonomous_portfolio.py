@@ -179,7 +179,8 @@ def load_portfolio() -> dict[str, Any]:
     return value
 
 
-def _candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] | None = None) -> float:
+def candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] | None = None) -> float:
+    """Resolve the canonical execution price used by every purchase gate."""
     raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
     for key in ("price", "current_price", "last_price", "close", "regularMarketPrice", "last"):
         value = _f(candidate.get(key, raw.get(key)), 0.0)
@@ -190,6 +191,10 @@ def _candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] |
         if value > 0:
             return value
     return 0.0
+
+
+# Backwards-compatible private name used by the established execution engine.
+_candidate_price = candidate_price
 
 
 def portfolio_equity(portfolio: Mapping[str, Any]) -> float:

@@ -28,7 +28,7 @@ from scheduler_background import scheduler_status
 from services.storage_service import get_storage_service
 
 
-VERSION = "v19.0.5"
+VERSION = "v19.0.6"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
@@ -429,7 +429,8 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 st.markdown("##### Shadow Mode – kjøpsterskel")
                 st.dataframe(pd.DataFrame([{
                     "Terskel": row.get("threshold"), "Rolle": row.get("role"),
-                    "Kvalifiserte": row.get("eligible_count"), "Kandidater": ", ".join(row.get("eligible_tickers") or []) or "Ingen",
+                    "Score bestått": row.get("score_qualified_count"), "Alle porter bestått": row.get("eligible_count"),
+                    "Kandidater": ", ".join(row.get("eligible_tickers") or []) or "Ingen",
                     "Produksjon endret": "NEI",
                 } for row in shadow]), use_container_width=True, hide_index=True)
             st.info("Challenger-tersklene er kun diagnostikk. Produksjonsterskelen endres ikke uten eksplisitt godkjenning.")
