@@ -67,7 +67,7 @@ def test_compact_pdf_is_readable_and_bounded():
     assert pdf.startswith(b"%PDF")
     # v19.0.6 reserves dedicated evidence pages for the leading three.
     assert 4 <= len(reader.pages) <= 12
-    assert "Executive Summary" in text
+    assert "Sammendrag" in text
     assert "TEST1.OL" in text
     assert "125 000 NOK" in text
     assert "14 - LAV" in text
@@ -105,7 +105,7 @@ def test_draft_job_id_overrides_stale_morning_report_identity():
 
     assert identity == {"type": "UTKAST", "label": "Utkast – Morgenrapport", "slug": "UTKAST_Morgenrapport"}
     assert filename.startswith("UTKAST_Morgenrapport_")
-    assert "Utkast – Morgenrapport – Market Intelligence" in text
+    assert "Utkast – Morgenrapport – Markedsanalyse" in text
     assert "UTKAST" in text
     assert archive["report_type"] == "UTKAST"
     assert archive["report_label"] == "Utkast – Morgenrapport"
