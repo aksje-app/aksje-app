@@ -82,7 +82,7 @@ def test_learning_and_orchestrator_are_lazy_in_one_panel():
     start = source.index("def render_autonomy_core_control_center_v1880")
     block = source[start:start + 4000]
     assert 'if workspace == "Orchestrator og tidsplan"' in block
-    assert 'elif workspace == "Learning Portfolio"' in block
+    assert 'elif workspace == "Læringsportefølje"' in block
     assert "render_autonomous_orchestrator_control_center()" in block
     assert "render_autonomous_portfolio()" in block
 

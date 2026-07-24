@@ -54,7 +54,7 @@ def test_overview_is_default_workspace_and_detail_engines_remain_lazy():
     assert 'if workspace == "Oversikt"' in block
     assert "render_autonomy_overview()" in block
     assert 'elif workspace == "Orchestrator og tidsplan"' in block
-    assert 'elif workspace == "Learning Portfolio"' in block
+    assert 'elif workspace == "Læringsportefølje"' in block
 
 
 def test_release_metadata_v1883():
