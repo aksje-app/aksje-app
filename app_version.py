@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.13"
-APP_VERSION_NAME = "Trygg godkjenning og mobil tilgjengelighet"
+APP_VERSION = "v19.0.14"
+APP_VERSION_NAME = "Sporbar planlegger og trygg testkjøring"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.12"
+PREVIOUS_APP_VERSION = "v19.0.13"
 
 CHANGELOG = [
+    "v19.0.14: Sporbar planlegger og trygg testkjøring: planlagte rapportjobber viser neste planlagte kjøring, siste planlagte kjøring, siste faktiske kjøring, mistede kjøringer, Pushover-status og jobbhistorikk. Testkjøring er delt i Test uten varsling og Test med Pushover, har fremdriftslinje og merker eventuelle varsler som TESTVARSEL. Drift viser uavhengig planleggerstatus på norsk, mistede kjøringer kan kjøres manuelt som forsinket rapport, og rapporter kan eksporteres som tekst i tillegg til PDF/JSON. Ingen handelsregler, produksjonsterskler eller porteføljedata er endret.",
     "v19.0.13: Trygg godkjenning og mobil tilgjengelighet: retter Streamlit-state-feilen som blokkerte Læringsporteføljen, beholder eksplisitt menneskelig godkjenning for sensitive regler og modellparametere, og viser gammel/ny verdi, begrunnelse, testresultat, forventet effekt, risiko og reversering før beslutning. Godkjenning og avvisning krever kommentar og separat bekreftelse, lagres i revisjonsdataene og har mobiltilpasset énkolonnevisning med store trykkflater. Brukerrettede navn er fornorsket. Ingen handelsregler eller terskler er endret.",
     "v19.0.12: Norwegian Decision Report & Responsive Evidence: PDF-en bruker konsekvent norsk terminologi, kortere og innpakkede kildefelt som hindrer tekstoverlapping på mobil, og dynamisk autonomi-oppdrag som følger faktisk morgen-, dags-, kvelds- eller nattrapport. Sammendraget viser rapportkvalitet, AI-sikkerhet og tydelig foreløpig/endelig status. Kandidatsidene forklarer hvorfor manuell vurdering kreves, hva som kan endre beslutningen, neste forventede hendelse og endring siden forrige rapport. Rapporten avsluttes med eksplisitt egenkritikk. Ingen handelsregler, terskler eller porteføljedata er endret.",
     "v19.0.11: Evidence Integrity & Source Budget: Topp 3 får bevispass med faktiske kilder, hentetid, fakta-ID, kildekontroll og bidrag til rangeringen. Modellkonfidens, datadekning og rapportens beslutningskonfidens vises separat uten å endre handelsregler. Rapporter stemples ENDELIG eller FORELØPIG, får uforanderlige revisjoner, kontrollsum, endringsanalyse og automatisk revalidering via den uavhengige cron-prosessen. Kildehelse, forhåndskontroll og NewsAPI-døgnbudsjett vises i PDF og Drift. Nyhets- og insiderflyten deler én 12-timers cache og ett konservativt døgnbudsjett; NewsAPI brukes som reserve når andre nyheter finnes. Sekundær NewsAPI-kildeoppdagelse kan aldri fremstilles som direkte kontroll av NewsWeb, Finanstilsynet eller annen primærkilde. Ingen handelsregler, produksjonsterskel eller porteføljedata er endret.",

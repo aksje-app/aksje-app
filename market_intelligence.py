@@ -29,7 +29,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 
-VERSION = "v18.7.12"
+VERSION = "v19.0.14"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -41,6 +41,8 @@ AUDIT_PATH = ROOT / "audit.jsonl"
 REPORT_ARCHIVE_PATH = ROOT / "report_archive.json"
 REPORT_ARCHIVE_SETTINGS_PATH = ROOT / "report_archive_settings.json"
 REPORT_NOTIFICATION_RECEIPTS_PATH = ROOT / "report_notification_receipts.json"
+JOB_HISTORY_PATH = ROOT / "job_history.json"
+SCHEDULER_HEALTH_PATH = ROOT / "scheduler_health.json"
 DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 RECENT_DRAFT_REUSE_MINUTES = 30
@@ -50,6 +52,17 @@ MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
     "Backtesting Validation", "Portfolio Optimizer", "Learning Advisor", "Insider Intelligence", "News & Sentiment Intelligence",
 ]
+MODULE_LABELS_NO = {
+    "Market Scanner": "Markedsskanner",
+    "AI Discovery": "AI-funn",
+    "AI Research Assistant": "AI-analyseassistent",
+    "Strategy Match": "Strategisjekk",
+    "Backtesting Validation": "Historisk test",
+    "Portfolio Optimizer": "Porteføljeoptimalisering",
+    "Learning Advisor": "Læringsrådgiver",
+    "Insider Intelligence": "Innsideranalyse",
+    "News & Sentiment Intelligence": "Nyhets- og sentimentanalyse",
+}
 SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
@@ -222,6 +235,8 @@ def _durable_key(path: Path) -> str | None:
     if path == HISTORY_PATH: return "market_intelligence/candidate_history.json"
     if path == REPORT_ARCHIVE_PATH: return "market_intelligence/report_archive.json"
     if path == REPORT_NOTIFICATION_RECEIPTS_PATH: return "market_intelligence/report_notification_receipts.json"
+    if path == JOB_HISTORY_PATH: return "market_intelligence/job_history.json"
+    if path == SCHEDULER_HEALTH_PATH: return "market_intelligence/scheduler_health.json"
     if path.parent == RUNS_DIR: return f"market_intelligence/runs/{path.name}"
     if path.parent == SUMMARIES_DIR and path.suffix.lower() == ".json": return f"market_intelligence/summaries/{path.name}"
     return None
@@ -337,6 +352,11 @@ class JobProfile:
     created_at: str = field(default_factory=_now_iso)
     last_run_at: str = ""
     last_status: str = "ALDRI KJØRT"
+    last_scheduled_at: str = ""
+    last_attempted_at: str = ""
+    last_completed_at: str = ""
+    last_failed_at: str = ""
+    last_notification_status: str = ""
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "JobProfile":
@@ -424,6 +444,167 @@ def upsert_job(job: JobProfile) -> None:
 def delete_job(job_id: str) -> None:
     save_jobs([x for x in load_jobs() if x.job_id != job_id])
     _audit("JOB_DELETED", {"job_id": job_id})
+
+
+def load_job_history(limit: int = 200) -> list[dict[str, Any]]:
+    """Return durable per-job execution history used by the scheduler UI."""
+    rows = _read(JOB_HISTORY_PATH, [])
+    if not isinstance(rows, list):
+        return []
+    return [dict(x) for x in rows if isinstance(x, Mapping)][: max(0, int(limit))]
+
+
+def _append_job_history(row: Mapping[str, Any]) -> None:
+    payload = dict(row)
+    payload.setdefault("recorded_at", _now_iso())
+    rows = [payload] + load_job_history(limit=999)
+    _write(JOB_HISTORY_PATH, rows[:1000])
+
+
+def _localized_slot(job: JobProfile, local_date: Any) -> list[datetime]:
+    """Build scheduled local datetimes for one date, including scan windows."""
+    slots: list[datetime] = []
+    local_tz = ZoneInfo(valid_timezone(job.timezone_name))
+    for slot in job.schedules or []:
+        if slot == "Ved appstart":
+            continue
+        parsed = _parse_hhmm(slot)
+        if parsed:
+            slots.append(datetime.combine(local_date, time(*parsed), tzinfo=local_tz))
+    for window in job.scan_windows or []:
+        start_v, end_v = _parse_hhmm(window.get("start", "")), _parse_hhmm(window.get("end", ""))
+        if not start_v or not end_v:
+            continue
+        start_dt = datetime.combine(local_date, time(*start_v), tzinfo=local_tz)
+        end_dt = datetime.combine(local_date, time(*end_v), tzinfo=local_tz)
+        if end_dt < start_dt:
+            end_dt = end_dt + timedelta(days=1)
+        interval = max(5, min(1440, int(window.get("interval_minutes", 30) or 30)))
+        cursor = start_dt
+        while cursor <= end_dt:
+            slots.append(cursor)
+            cursor += timedelta(minutes=interval)
+    return sorted(set(slots))
+
+
+def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str, Any]:
+    """Return next/previous planned slot and whether the last slot was missed."""
+    now_utc = (now or _now()).astimezone(timezone.utc)
+    local_now = as_local(now_utc, job.timezone_name)
+    past: list[datetime] = []
+    future: list[datetime] = []
+    for day_offset in range(-7, 15):
+        d = (local_now + timedelta(days=day_offset)).date()
+        if d.weekday() not in job.weekdays:
+            continue
+        if d.weekday() >= 5 and not job.allow_weekends:
+            continue
+        for slot in _localized_slot(job, d):
+            if slot <= local_now:
+                past.append(slot)
+            else:
+                future.append(slot)
+    previous_slot = max(past) if past else None
+    next_slot = min(future) if future else None
+    try:
+        last_run = as_local(job.last_run_at, job.timezone_name) if job.last_run_at else None
+    except Exception:
+        last_run = None
+    grace_minutes = 5
+    missed = bool(job.enabled and previous_slot and local_now >= previous_slot + timedelta(minutes=grace_minutes) and (not last_run or last_run < previous_slot))
+    status = "Ikke startet" if missed else ("Fullført" if previous_slot and last_run and last_run >= previous_slot else "Venter")
+    return {
+        "job_id": job.job_id,
+        "job_name": job.name,
+        "enabled": bool(job.enabled),
+        "timezone_name": valid_timezone(job.timezone_name),
+        "local_now": local_now.isoformat(timespec="seconds"),
+        "previous_planned_local": previous_slot.isoformat(timespec="seconds") if previous_slot else "",
+        "previous_planned_utc": previous_slot.astimezone(timezone.utc).isoformat(timespec="seconds") if previous_slot else "",
+        "next_planned_local": next_slot.isoformat(timespec="seconds") if next_slot else "",
+        "next_planned_utc": next_slot.astimezone(timezone.utc).isoformat(timespec="seconds") if next_slot else "",
+        "last_actual_local": last_run.isoformat(timespec="seconds") if last_run else "",
+        "last_actual_utc": last_run.astimezone(timezone.utc).isoformat(timespec="seconds") if last_run else "",
+        "last_planned_status": status,
+        "missed": missed,
+        "missed_grace_minutes": grace_minutes,
+    }
+
+
+def scheduler_health_snapshot(now: datetime | None = None) -> dict[str, Any]:
+    """Human-readable health model for scheduled report execution."""
+    jobs = load_jobs()
+    timelines = [schedule_timeline(job, now) for job in jobs]
+    missed = [row for row in timelines if row.get("missed")]
+    next_rows = [row for row in timelines if row.get("next_planned_utc")]
+    next_row = min(next_rows, key=lambda r: str(r.get("next_planned_utc"))) if next_rows else {}
+    checked = (now or _now()).astimezone(timezone.utc).isoformat(timespec="seconds")
+    snapshot = {
+        "state": "MISTET_PLANLAGT_KJØRING" if missed else "OK",
+        "checked_at": checked,
+        "active_jobs": sum(1 for job in jobs if job.enabled),
+        "jobs": timelines,
+        "missed": missed,
+        "next": next_row,
+        "history": load_job_history(limit=50),
+    }
+    _write(SCHEDULER_HEALTH_PATH, snapshot)
+    return snapshot
+
+
+def build_text_report(run: Mapping[str, Any]) -> str:
+    """Plain Norwegian report export for copy/paste and systems that reject PDF/DOCX."""
+    identity = resolve_report_identity(run)
+    summary = run.get("summary") if isinstance(run.get("summary"), Mapping) else {}
+    quality = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
+    notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
+    lines = [
+        f"{identity.get('label', 'Rapport')} - AI Aksje Analyzer",
+        f"Kjøring: {run.get('run_id', '-')}",
+        f"Jobb: {run.get('job_name', '-')}",
+        f"Tid: {run.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}",
+        f"Markeder: {', '.join(run.get('markets') or [])}",
+        "",
+        "Sammendrag",
+        f"- Skannet: {summary.get('scanned', 0)}",
+        f"- Grundig analysert: {summary.get('deep_analyzed', 0)}",
+        f"- Forslag: {summary.get('proposals', 0)}",
+        f"- Anbefalt: {summary.get('recommended', 0)}",
+        f"- Datakvalitet: {quality.get('score', '-')} {quality.get('label', '')}".strip(),
+        f"- Pushover: {notification.get('status_label') or notification.get('detail') or 'Ikke registrert'}",
+        "",
+        "Toppkandidater",
+    ]
+    action_labels = {
+        "BUY": "Kjøp",
+        "HOLD": "Behold",
+        "SELL": "Selg",
+        "SKIP": "Ikke aktuell",
+        "REVIEW": "Krever manuell vurdering",
+    }
+    for candidate in list(run.get("candidates") or [])[:10]:
+        raw_action = candidate.get("portfolio_action") or candidate.get("status") or "-"
+        action = action_labels.get(str(raw_action).upper(), raw_action)
+        lines.append(
+            f"{candidate.get('rank', '-')}. {candidate.get('ticker', '-')} "
+            f"({candidate.get('market', '-')}) - score {candidate.get('investment_score', '-')} - {action}"
+        )
+    if run.get("errors"):
+        lines.extend(["", "Feil/advarsler"])
+        for error in run.get("errors") or []:
+            lines.append(f"- {error}")
+    lines.extend(["", "Dette er en analyse-/beslutningsstøtterapport. Ingen ekte handler utføres automatisk."])
+    return "\n".join(str(x) for x in lines)
+
+
+def safe_ascii_report_filename(run: Mapping[str, Any], extension: str = "txt") -> str:
+    raw = safe_report_filename(run, extension)
+    replacements = str.maketrans({"æ": "ae", "ø": "o", "å": "a", "Æ": "Ae", "Ø": "O", "Å": "A"})
+    ascii_name = raw.translate(replacements)
+    ascii_name = "".join(ch if (ch.isascii() and (ch.isalnum() or ch in "._-")) else "_" for ch in ascii_name)
+    while "__" in ascii_name:
+        ascii_name = ascii_name.replace("__", "_")
+    return ascii_name.strip("_") or f"rapport.{extension}"
 
 
 def _candidate_map(run: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -710,9 +891,30 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     run_id = str(run.get("run_id") or "").strip()
     receipts = _read(REPORT_NOTIFICATION_RECEIPTS_PATH, {})
     receipts = dict(receipts) if isinstance(receipts, Mapping) else {}
+
+    def record(sent: bool, detail: str, *, attempted: bool, skipped_reason: str = "") -> None:
+        if not run_id:
+            return
+        identity = resolve_report_identity(run)
+        receipts[run_id] = {
+            "sent": bool(sent), "attempted": bool(attempted), "at": _now_iso(),
+            "job_id": job.job_id, "job_name": job.name,
+            "report_type": identity.get("type"), "report_label": identity.get("label"),
+            "detail": str(detail or ""), "skipped_reason": skipped_reason,
+            "test_run": bool(run.get("test_run")), "scheduled_for": run.get("scheduled_for") or "",
+            "report_url": report_public_url(run),
+        }
+        _write(REPORT_NOTIFICATION_RECEIPTS_PATH, dict(list(receipts.items())[-1000:]))
+
     previous_receipt = dict(receipts.get(run_id) or {}) if run_id else {}
     if previous_receipt.get("sent") is True:
         return False, "Duplikat blokkert: denne rapportkjøringen er allerede varslet"
+    if run.get("suppress_notifications"):
+        detail = "Test uten varsling: Pushover ble ikke sendt"
+        record(False, detail, attempted=False, skipped_reason="SUPPRESSED_TEST")
+        _audit("REPORT_NOTIFICATION_SUPPRESSED", {"run_id": run_id, "job_id": job.job_id, "detail": detail})
+        return False, detail
+
     changes = run.get("changes") or {}
     interesting = [x for x in changes.get("new", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
     interesting += [x for x in changes.get("improved", []) if float(x.get("investment_score", 0)) >= job.min_alert_score]
@@ -721,24 +923,36 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     is_revised = bool(revision.get("supersedes_run_id"))
     mode = _notification_mode(job)
     if mode == "ERRORS_ONLY" and not list(run.get("errors") or []):
-        return False, "Ingen feil; varsling er satt til kun feil"
+        detail = "Ingen feil; varsling er satt til kun feil"
+        record(False, detail, attempted=False, skipped_reason="POLICY_ERRORS_ONLY")
+        return False, detail
     if mode == "CHANGES_ONLY" and not interesting and not integrity_change and not is_revised:
-        return False, "Ingen kvalifiserende endringer"
+        detail = "Ingen kvalifiserende endringer"
+        record(False, detail, attempted=False, skipped_reason="POLICY_CHANGES_ONLY")
+        return False, detail
     if not job.notify_pushover:
-        return False, "Pushover er deaktivert for jobben"
+        detail = "Pushover er deaktivert for jobben"
+        record(False, detail, attempted=False, skipped_reason="JOB_DISABLED")
+        return False, detail
     try:
         from notifier import send_pushover_alert
         identity = resolve_report_identity(run)
-        origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else "Manuell"
+        is_test = bool(run.get("test_run")) or "TEST" in str(run.get("trigger") or "").upper()
+        origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else ("Test" if is_test else "Manuell")
         top = (run.get("proposals") or run.get("candidates") or [{}])[0]
-        lines = [
+        lines: list[str] = []
+        if is_test:
+            lines.append("🧪 TESTVARSEL - ikke ordinær rapport")
+        if run.get("scheduled_for"):
+            lines.append(f"Planlagt tidspunkt: {run.get('scheduled_for')}")
+        lines.extend([
             f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {job.name}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
             f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
-        ]
+        ])
         if job.include_top3_in_notification:
             medals = run.get("diverse_top3") or select_diverse_candidates(run.get("candidates") or [], 3)
             for idx, item in enumerate(medals):
@@ -746,26 +960,26 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         else:
             lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
         url = report_public_url(run) if job.include_report_link else ""
+        title_prefix = "🧪 TESTVARSEL · " if is_test else ""
         ok, err = send_pushover_alert(
-            "\n".join(lines), title=f"{identity.get('label') or 'Rapport'} · AI Aksje Analyzer",
+            "\n".join(lines), title=f"{title_prefix}{identity.get('label') or 'Rapport'} · AI Aksje Analyzer",
             url=url or None, url_title="Åpne rapport" if url else None,
         )
-        if run_id:
-            receipts[run_id] = {
-                "sent": bool(ok), "at": _now_iso(), "job_id": job.job_id,
-                "job_name": job.name, "report_type": identity.get("type"),
-                "report_label": identity.get("label"), "detail": str(err or "Sendt"),
-            }
-            _write(REPORT_NOTIFICATION_RECEIPTS_PATH, dict(list(receipts.items())[-1000:]))
-            _audit("REPORT_NOTIFICATION_SENT" if ok else "REPORT_NOTIFICATION_FAILED", {
-                "run_id": run_id, "job_id": job.job_id, "report_label": identity.get("label"),
-                "detail": str(err or "Sendt"),
-            })
+        record(bool(ok), str(err or "Sendt"), attempted=True)
+        _audit("REPORT_NOTIFICATION_SENT" if ok else "REPORT_NOTIFICATION_FAILED", {
+            "run_id": run_id, "job_id": job.job_id, "report_label": identity.get("label"),
+            "detail": str(err or "Sendt"), "test_run": is_test,
+        })
         if ok and job.include_report_link and not url:
             return True, "Sendt uten rapportlenke: offentlig rapportadresse mangler"
         return bool(ok), str(err or "Sendt")
     except Exception as exc:
-        return False, str(exc)
+        detail = str(exc)
+        try:
+            record(False, detail, attempted=True)
+        except Exception:
+            pass
+        return False, detail
 
 
 MARKET_CURRENCIES = {
@@ -2086,6 +2300,8 @@ def run_job(
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     force_refresh: bool = False,
     revision_parent: Mapping[str, Any] | None = None,
+    send_notifications: bool = True,
+    scheduled_for: str | None = None,
 ) -> dict[str, Any]:
     full_run_started = time_module.perf_counter()
     requested_job = job
@@ -2324,7 +2540,10 @@ def run_job(
     run = {"version": VERSION, "run_id": run_id, "created_at": run_created_at,
            "created_at_local": local_display(run_created_at, job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
-           "trigger": trigger, "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
+           "trigger": trigger, "scheduled_for": scheduled_for or "",
+           "test_run": "TEST" in str(trigger or "").upper(),
+           "suppress_notifications": not bool(send_notifications),
+           "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
@@ -2484,10 +2703,20 @@ def run_job(
         run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
     emit("REPORT", 2, 3, "Rapport, arkiv og historikk er lagret; kontrollerer varsling")
     notification_view = dict(canonical_run)
-    notification_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
+    notification_view.update({key: run.get(key) for key in (
+        "pdf_path", "public_pdf_name", "report_url", "trigger", "test_run",
+        "suppress_notifications", "scheduled_for",
+    )})
     notify_ok, notify_detail = _notification(job, notification_view)
-    run["notification"] = {"sent": notify_ok, "detail": notify_detail, "report_url": report_public_url(run), "required": bool(job.notify_pushover)}
-    notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert", "Duplikat blokkert"))
+    notify_attempted = bool(job.notify_pushover and not run.get("suppress_notifications"))
+    status_label = "Sendt" if notify_ok else ("Ikke sendt" if not notify_attempted else "Feilet")
+    run["notification"] = {
+        "sent": notify_ok, "attempted": notify_attempted, "detail": notify_detail,
+        "status_label": status_label, "report_url": report_public_url(run),
+        "required": bool(job.notify_pushover and not run.get("suppress_notifications")),
+        "test_run": bool(run.get("test_run")),
+    }
+    notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert", "Duplikat blokkert", "Test uten varsling"))
     from autonomi_core.runtime.full_execution import build_full_execution_receipt, prepublication_gate
     prerequisite_gate = prepublication_gate(run)
     downstream_ok = prerequisite_gate.get("ok") and not bool(run.get("historical_learning", {}).get("error")) and (notify_ok or not job.notify_pushover or notification_is_policy_skip)
@@ -2523,8 +2752,22 @@ def run_job(
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     job.last_run_at = run["created_at"]
+    job.last_completed_at = run["created_at"]
+    job.last_scheduled_at = scheduled_for or job.last_scheduled_at
+    job.last_notification_status = str((run.get("notification") or {}).get("status_label") or "")
     job.last_status = "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK"))
     upsert_job(job)
+    _append_job_history({
+        "job_id": job.job_id, "job_name": job.name, "run_id": run_id,
+        "type": "Test" if run.get("test_run") else ("Planlagt" if str(trigger or "").upper() == "SCHEDULED" else "Manuell"),
+        "trigger": trigger, "planned_at": scheduled_for or "", "started_at": run_created_at,
+        "completed_at": _now_iso(), "status": "Fullført" if not errors else "Fullført med feil",
+        "pdf": bool(run.get("pdf_path")), "report_url": report_public_url(run),
+        "pushover_attempted": bool((run.get("notification") or {}).get("attempted")),
+        "pushover_sent": bool((run.get("notification") or {}).get("sent")),
+        "notification_detail": (run.get("notification") or {}).get("detail", ""),
+        "duration_seconds": round(time_module.perf_counter() - full_run_started, 2),
+    })
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
     emit("COMPLETE", 1, 1, "Hele kjeden er fullført", run_id=run_id)
     return run
@@ -2559,61 +2802,80 @@ def _window_slot_due(job: JobProfile, now: datetime, last: datetime | None) -> b
     return False
 
 
+def _due_slot_info(job: JobProfile, now: datetime) -> dict[str, Any]:
+    timeline = schedule_timeline(job, now)
+    # A slot is due as soon as the scheduled minute has passed and the
+    # last successful/attempted run is older than that planned slot.
+    # The user-facing status remains "Venter" until the grace window expires,
+    # but the scheduler itself must not wait five minutes before starting.
+    due = bool(
+        job.enabled
+        and timeline.get("previous_planned_utc")
+        and timeline.get("last_planned_status") != "Fullført"
+    )
+    return {**timeline, "due": due}
+
+
 def _slot_due(job: JobProfile, now: datetime) -> bool:
-    local_now = as_local(now, job.timezone_name)
-    if not job.enabled or local_now.weekday() not in job.weekdays:
-        return False
-    last = None
-    try:
-        last = as_local(job.last_run_at, job.timezone_name) if job.last_run_at else None
-    except Exception:
-        pass
-    if _window_slot_due(job, local_now, last):
-        return True
-    for slot in job.schedules:
-        if slot == "Ved appstart":
-            if not last or last.date() < local_now.date():
-                return True
-            continue
-        parsed = _parse_hhmm(slot)
-        if not parsed:
-            continue
-        scheduled = datetime.combine(local_now.date(), time(*parsed), tzinfo=local_now.tzinfo)
-        if local_now >= scheduled and (not last or last < scheduled):
-            return True
-    return False
+    return bool(_due_slot_info(job, now).get("due"))
 
 
 def run_due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
     now = now or _now()
     results = []
     for job in load_jobs():
-        due = _slot_due(job, now)
+        slot = _due_slot_info(job, now)
+        due = bool(slot.get("due"))
         _audit("SCHEDULE_CHECK", {
             "job_id": job.job_id,
             "job_name": job.name,
             "enabled": job.enabled,
             "due": due,
             "last_run_at": job.last_run_at,
+            "previous_planned_utc": slot.get("previous_planned_utc"),
+            "next_planned_utc": slot.get("next_planned_utc"),
             "timezone_name": job.timezone_name,
         })
         if not due:
             continue
+        planned_at = str(slot.get("previous_planned_utc") or "")
+        job.last_scheduled_at = planned_at
+        job.last_attempted_at = _now_iso()
+        upsert_job(job)
+        _append_job_history({
+            "job_id": job.job_id, "job_name": job.name, "type": "Planlagt",
+            "planned_at": planned_at, "started_at": job.last_attempted_at,
+            "status": "Startet", "pdf": False, "pushover_attempted": False,
+            "pushover_sent": False,
+        })
         _audit("SCHEDULED_RUN_STARTED", {
             "job_id": job.job_id, "job_name": job.name, "last_run_at": job.last_run_at,
+            "planned_at": planned_at,
         })
         try:
-            result = run_job(job, trigger="SCHEDULED")
+            result = run_job(job, trigger="SCHEDULED", scheduled_for=planned_at)
             results.append(result)
             _audit("SCHEDULED_RUN_COMPLETED", {
                 "job_id": job.job_id, "job_name": job.name, "run_id": result.get("run_id"),
-                "status": job.last_status,
+                "status": job.last_status, "planned_at": planned_at,
             })
         except Exception as exc:
+            job.last_failed_at = _now_iso()
+            job.last_status = "FEIL"
+            upsert_job(job)
+            _append_job_history({
+                "job_id": job.job_id, "job_name": job.name, "type": "Planlagt",
+                "planned_at": planned_at, "started_at": job.last_attempted_at,
+                "completed_at": job.last_failed_at, "status": "Feil",
+                "error": str(exc)[:1000], "pdf": False, "pushover_attempted": False,
+                "pushover_sent": False,
+            })
             _audit("SCHEDULED_RUN_FAILED", {
                 "job_id": job.job_id, "job_name": job.name, "error": str(exc)[:1000],
+                "planned_at": planned_at,
             })
             raise
+    scheduler_health_snapshot(now)
     return results
 
 
@@ -2718,10 +2980,14 @@ def render_market_intelligence() -> None:
       label, div[data-testid="stWidgetLabel"] p {font-size: 16px !important;}
       .stNumberInput, .stSelectbox, .stMultiSelect {margin-bottom: 10px !important;}
       div[data-testid="stHorizontalBlock"] {gap: 0.75rem !important;}
+      .stDataFrame, div[data-testid="stDataFrame"] {max-width:100% !important; overflow-x:auto !important;}
+      button[kind] {min-height:44px !important;}
+      .mi-mobile-card {overflow-wrap:anywhere; word-break:normal;}
     }
+    .mi-chip {display:inline-block; padding:.15rem .45rem; border:1px solid rgba(148,163,184,.45); border-radius:999px; margin:.1rem .15rem .1rem 0; overflow-wrap:anywhere;}
     </style>""", unsafe_allow_html=True)
-    st.markdown("#### ⏰ Scheduled Market Intelligence & PDF Reports")
-    st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, moduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
+    st.markdown("#### ⏰ Planlagte markedsrapporter og PDF")
+    st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, analysemoduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
     try:
         from scheduler_background import kick_scheduler_background, scheduler_status
         kick_scheduler_background()
@@ -2775,7 +3041,13 @@ def render_market_intelligence() -> None:
                 st.session_state["mi_days_v1870"] = WEEKDAY_NAMES[:5]
             weekday_names = st.multiselect("Ukedager", day_options, default=default_days, key="mi_days_v1870")
         with c2:
-            modules = st.multiselect("Pipeline-moduler", MODULE_OPTIONS, default=current.modules if current else MODULE_OPTIONS, key="mi_modules_v18687")
+            modules = st.multiselect(
+                "Analysemoduler",
+                MODULE_OPTIONS,
+                default=current.modules if current else MODULE_OPTIONS,
+                key="mi_modules_v18687",
+                format_func=lambda value: MODULE_LABELS_NO.get(str(value), str(value)),
+            )
             current_limit = int(current.scan_limit if current else 25)
             reverse_profile = {value: label for label, value in SCAN_PROFILES.items() if value is not None}
             default_profile = reverse_profile.get(current_limit, "Egendefinert (10–250)")
@@ -2846,13 +3118,40 @@ def render_market_intelligence() -> None:
         save_draft_job(draft_job)
         st.caption("💾 Utkastet lagres automatisk. Testkjøring oppretter ikke eller aktiverer en tidsplan.")
 
-        b1, b2, b3 = st.columns(3)
-        if b1.button("▶ Test gjeldende oppsett", type="primary", use_container_width=True, key="mi_test_draft_v18692a"):
-            with st.spinner("Kjører test fra automatisk lagret utkast..."):
-                st.session_state["mi_latest_v18687"] = run_job(draft_job, trigger="MANUAL_DRAFT_TEST")
-            st.success("Testkjøringen er fullført. Oppsettet er fortsatt bare et utkast.")
+        def _run_visible_test(send_push: bool) -> None:
+            progress = st.progress(0, text="Klargjør testkjøring")
+            detail_box = st.empty()
+            events: list[Mapping[str, Any]] = []
+            def ui_progress(event: Mapping[str, Any]) -> None:
+                events.append(dict(event))
+                try:
+                    from manual_job_background import progress_percent
+                    pct = int(progress_percent(event))
+                except Exception:
+                    pct = min(99, max(1, int(100 * float(event.get("completed", 0)) / max(1, float(event.get("total", 1))))))
+                message = str(event.get("message") or event.get("phase") or "Kjører")
+                progress.progress(min(100, pct), text=message)
+                recent = events[-6:]
+                detail_box.markdown("\n".join(f"- {'✓' if item is not event else '⟳'} {item.get('message') or item.get('phase')}" for item in recent))
+            trigger_name = "MANUAL_DRAFT_TEST_NOTIFICATION" if send_push else "MANUAL_DRAFT_TEST"
+            st.session_state["mi_latest_v18687"] = run_job(
+                draft_job, trigger=trigger_name, progress_callback=ui_progress,
+                send_notifications=bool(send_push),
+            )
+            progress.progress(100, text="Testkjøringen er fullført")
+
+        b1, b2, b3, b4 = st.columns(4)
+        if b1.button("▶ Test uten varsling", type="primary", use_container_width=True, key="mi_test_draft_no_push_v1914"):
+            with st.spinner("Kjører test fra automatisk lagret utkast uten å sende Pushover..."):
+                _run_visible_test(False)
+            st.success("Testkjøringen er fullført. Pushover ble ikke sendt. Oppsettet er fortsatt bare et utkast.")
             st.rerun()
-        if b2.button("Lagre og aktiver tidsplan", use_container_width=True, key="mi_save_activate_v18692a"):
+        if b2.button("🧪 Test med Pushover", use_container_width=True, key="mi_test_draft_push_v1914"):
+            with st.spinner("Kjører test og sender tydelig merket testvarsel..."):
+                _run_visible_test(True)
+            st.success("Testkjøringen er fullført. Eventuelt varsel er merket som TESTVARSEL.")
+            st.rerun()
+        if b3.button("Lagre og aktiver tidsplan", use_container_width=True, key="mi_save_activate_v18692a"):
             same_name = next((x for x in jobs if x.name.strip().casefold() == draft_job.name.strip().casefold()), None)
             target = editing_job or same_name
             job = JobProfile(**{**asdict(draft_job),
@@ -2864,11 +3163,53 @@ def render_market_intelligence() -> None:
             upsert_job(job)
             st.success("Jobben er lagret. Tidsplanen er aktivert dersom «Aktiv jobb» er valgt.")
             st.rerun()
-        if current and b3.button("Slett lagret jobb", use_container_width=True, key="mi_delete_v18692a"):
+        if current and b4.button("Slett lagret jobb", use_container_width=True, key="mi_delete_v18692a"):
             delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); st.rerun()
         if jobs:
-            st.dataframe(pd.DataFrame([{"Jobb": x.name, "Markeder": ", ".join(x.markets), "Tid": ", ".join(x.schedules), "Tidsrom": "; ".join(f"{w.get('start')}-{w.get('end')} / {w.get('interval_minutes')}m" for w in x.scan_windows), "Autonom kjede": x.run_autonomous_portfolio, "Aktiv": x.enabled,
-                                       "Sist kjørt": x.last_run_at or "-", "Status": x.last_status} for x in jobs]), use_container_width=True, hide_index=True)
+            health = scheduler_health_snapshot()
+            st.markdown("##### Planleggerstatus")
+            if health.get("missed"):
+                st.error("En eller flere planlagte kjøringer ser ikke ut til å ha startet.")
+            next_job = health.get("next") or {}
+            c_next, c_active, c_missed = st.columns(3)
+            c_next.metric("Neste planlagte kjøring", local_display(next_job.get("next_planned_utc"), str(next_job.get("timezone_name") or DEFAULT_TIMEZONE)) if next_job else "-")
+            c_active.metric("Aktive jobber", health.get("active_jobs", 0))
+            c_missed.metric("Mistet", len(health.get("missed") or []))
+            rows = []
+            for job in jobs:
+                tl = next((item for item in health.get("jobs", []) if item.get("job_id") == job.job_id), schedule_timeline(job))
+                rows.append({
+                    "Jobb": job.name, "Markeder": ", ".join(job.markets), "Tid": ", ".join(job.schedules),
+                    "Aktiv": job.enabled,
+                    "Neste planlagt": local_display(tl.get("next_planned_utc"), str(tl.get("timezone_name") or DEFAULT_TIMEZONE)) if tl.get("next_planned_utc") else "-",
+                    "Siste planlagt": local_display(tl.get("previous_planned_utc"), str(tl.get("timezone_name") or DEFAULT_TIMEZONE)) if tl.get("previous_planned_utc") else "-",
+                    "Siste faktisk": local_display(job.last_run_at, job.timezone_name) if job.last_run_at else "-",
+                    "Siste planlagte status": tl.get("last_planned_status"),
+                    "Varsel": job.last_notification_status or "-",
+                    "Status": job.last_status,
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            for missed in health.get("missed") or []:
+                job = next((x for x in jobs if x.job_id == missed.get("job_id")), None)
+                if not job:
+                    continue
+                with st.container():
+                    st.warning(f"{job.name}: planlagt kjøring {local_display(missed.get('previous_planned_utc'), job.timezone_name)} ble ikke registrert som startet/fullført.")
+                    if st.button(f"Kjør manglende rapport nå – {job.name}", key=f"mi_catchup_{job.job_id}", use_container_width=True):
+                        with st.spinner("Kjører forsinket automatisk rapport..."):
+                            st.session_state["mi_latest_v18687"] = run_job(job, trigger="MISSED_SCHEDULE_CATCHUP", scheduled_for=str(missed.get("previous_planned_utc") or ""))
+                        st.success("Forsinket rapport er kjørt og merket med opprinnelig planlagt tidspunkt.")
+                        st.rerun()
+            hist = load_job_history(limit=20)
+            if hist:
+                st.markdown("##### Jobbhistorikk")
+                st.dataframe(pd.DataFrame([{
+                    "Tidspunkt": local_display(x.get("started_at") or x.get("recorded_at"), DEFAULT_TIMEZONE),
+                    "Type": x.get("type"), "Jobb": x.get("job_name"), "Status": x.get("status"),
+                    "PDF": "Ja" if x.get("pdf") else "Nei",
+                    "Pushover": "Sendt" if x.get("pushover_sent") else ("Forsøkt" if x.get("pushover_attempted") else "Ikke forsøkt"),
+                    "Varighet": x.get("duration_seconds", "-"),
+                } for x in hist]), use_container_width=True, hide_index=True)
 
     latest = st.session_state.get("mi_latest_v18687") or _read(LATEST_PATH, {})
     with tab_latest:
@@ -3003,6 +3344,7 @@ def render_market_intelligence() -> None:
             else:
                 e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
             e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", use_container_width=True, key="mi_download_json_v18687")
+            st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", use_container_width=True, key="mi_download_txt_v1914")
     with tab_reports:
         st.markdown("### 📚 Rapportarkiv")
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
@@ -3033,7 +3375,7 @@ def render_market_intelligence() -> None:
                 m1.metric("Anbefalt", row.get("recommended",0)); m2.metric("Topp", row.get("top_ticker") or "-"); m3.metric("Score", row.get("top_score") or 0); m4.metric("Markeder", len(row.get("markets") or []))
                 saved_run = load_archived_run(row)
                 json_path = Path(str(row.get("json_path") or ""))
-                a,b,c = st.columns(3)
+                a,b,c,d = st.columns(4)
                 delivery = resolve_report_delivery(saved_run, row)
                 json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
                 if delivery.get("ok"):
@@ -3043,8 +3385,10 @@ def render_market_intelligence() -> None:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 if json_data:
                     b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", width="stretch")
+                if saved_run:
+                    c.download_button("Last ned tekst", data=build_text_report(saved_run), file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain", key=f"mi_dl_txt_{row.get('run_id')}", width="stretch")
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
-                if c.button(fav_label, key=f"mi_fav_{row.get('run_id')}", use_container_width=True):
+                if d.button(fav_label, key=f"mi_fav_{row.get('run_id')}", use_container_width=True):
                     set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); st.rerun()
                 confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
                 if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, use_container_width=True):
@@ -3068,15 +3412,22 @@ def render_market_intelligence() -> None:
             unattended = load_unattended_state()
         except Exception as exc:
             unattended = {"state": "UNAVAILABLE", "error": str(exc)}
-        st.markdown("#### Uavhengig scheduler")
-        s1, s2, s3 = st.columns(3)
+        st.markdown("#### Uavhengig planlegger")
+        health = scheduler_health_snapshot()
+        s1, s2, s3, s4 = st.columns(4)
         s1.metric("Status", unattended.get("state") or "ALDRI KJØRT")
         s2.metric("Sist forsøkt", local_display(unattended.get("started_at"), DEFAULT_TIMEZONE) if unattended.get("started_at") else "-")
         s3.metric("Sist fullført", local_display(unattended.get("completed_at"), DEFAULT_TIMEZONE) if unattended.get("completed_at") else "-")
+        s4.metric("Mistet planlagt", len(health.get("missed") or []))
         if unattended.get("error"):
-            st.error(str(unattended.get("error")))
-        with st.expander("Scheduler-detaljer", expanded=False):
-            st.json(unattended)
+            st.error("Planleggeren rapporterte feil. Teknisk detalj ligger under utvidet visning.")
+        if st.button("Kjør planleggersjekk nå", key="mi_run_scheduler_cycle_v1914", use_container_width=True):
+            from scheduler_background import run_scheduler_cycle
+            result = run_scheduler_cycle()
+            st.success(f"Planleggersjekk fullført. Kjøringer startet: {result.get('runs', 0)}")
+            st.rerun()
+        with st.expander("Planleggerdetaljer", expanded=False):
+            st.json({"unattended": unattended, "health": health})
         latest_run = _read(LATEST_PATH, {})
         source_health = latest_run.get("source_health") if isinstance(latest_run.get("source_health"), Mapping) else {}
         if source_health:

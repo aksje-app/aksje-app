@@ -11,7 +11,7 @@ from durable_runtime import append_event, read_events
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
-_STATUS: dict[str, Any] = {"state": "IDLE", "started_at": None, "completed_at": None, "runs": 0, "error": ""}
+_STATUS: dict[str, Any] = {"state": "IDLE", "started_at": None, "completed_at": None, "runs": 0, "error": "", "health": {}}
 _AUDIT_PATH = runtime_log_path("scheduler_audit.jsonl")
 _PG_ADVISORY_LOCK_ID = 1871501
 
@@ -55,10 +55,15 @@ def _worker() -> None:
     global _STATUS
     try:
         results = _run_due_jobs_coordinated()
-        _STATUS = {"state": "IDLE", "started_at": _STATUS.get("started_at"), "completed_at": _now(), "runs": len(results), "error": ""}
-        append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": _now(), "event": "BACKGROUND_CHECK_COMPLETED", "runs": len(results)})
+        try:
+            from market_intelligence import scheduler_health_snapshot
+            health = scheduler_health_snapshot()
+        except Exception as health_exc:
+            health = {"state": "UNAVAILABLE", "error": str(health_exc)[:500]}
+        _STATUS = {"state": "IDLE", "started_at": _STATUS.get("started_at"), "completed_at": _now(), "runs": len(results), "error": "", "health": health}
+        append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": _now(), "event": "BACKGROUND_CHECK_COMPLETED", "runs": len(results), "health_state": health.get("state")})
     except Exception as exc:
-        _STATUS = {"state": "ERROR", "started_at": _STATUS.get("started_at"), "completed_at": _now(), "runs": 0, "error": str(exc)}
+        _STATUS = {"state": "ERROR", "started_at": _STATUS.get("started_at"), "completed_at": _now(), "runs": 0, "error": str(exc), "health": {}}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": _now(), "event": "BACKGROUND_CHECK_FAILED", "error": str(exc)})
 
 
@@ -77,16 +82,21 @@ def run_scheduler_cycle() -> dict[str, Any]:
     """Run one durable due-job check from the persistent runtime worker."""
     global _STATUS
     started = _now()
-    _STATUS = {"state": "RUNNING", "started_at": started, "completed_at": None, "runs": 0, "error": ""}
+    _STATUS = {"state": "RUNNING", "started_at": started, "completed_at": None, "runs": 0, "error": "", "health": {}}
     append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": started, "event": "BACKGROUND_CHECK_STARTED"})
     try:
         results = _run_due_jobs_coordinated()
-        _STATUS = {"state": "IDLE", "started_at": started, "completed_at": _now(), "runs": len(results), "error": ""}
+        try:
+            from market_intelligence import scheduler_health_snapshot
+            health = scheduler_health_snapshot()
+        except Exception as health_exc:
+            health = {"state": "UNAVAILABLE", "error": str(health_exc)[:500]}
+        _STATUS = {"state": "IDLE", "started_at": started, "completed_at": _now(), "runs": len(results), "error": "", "health": health}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
-            "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_COMPLETED", "runs": len(results)
+            "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_COMPLETED", "runs": len(results), "health_state": health.get("state")
         })
     except Exception as exc:
-        _STATUS = {"state": "ERROR", "started_at": started, "completed_at": _now(), "runs": 0, "error": str(exc)}
+        _STATUS = {"state": "ERROR", "started_at": started, "completed_at": _now(), "runs": 0, "error": str(exc), "health": {}}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
             "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_FAILED", "error": str(exc)
         })
@@ -99,7 +109,7 @@ def kick_scheduler_background() -> dict[str, Any]:
     with _LOCK:
         if _THREAD is not None and _THREAD.is_alive():
             return dict(_STATUS)
-        _STATUS = {"state": "RUNNING", "started_at": _now(), "completed_at": None, "runs": 0, "error": ""}
+        _STATUS = {"state": "RUNNING", "started_at": _now(), "completed_at": None, "runs": 0, "error": "", "health": {}}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": _STATUS["started_at"], "event": "BACKGROUND_CHECK_STARTED"})
         _THREAD = threading.Thread(target=_worker, name="market-intelligence-scheduler", daemon=True)
         _THREAD.start()

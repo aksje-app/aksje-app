@@ -40,7 +40,7 @@ def _notify_failure_once(state: dict[str, Any], error: str) -> None:
         state["failure_notification"] = "DUPLIKAT_HOPPET_OVER"
         return
     ok, detail = send_pushover_alert(
-        "Den automatiske rapportkontrollen feilet. Åpne Drift/Scheduler for detaljer.\n"
+        "Den automatiske rapportkontrollen feilet. Åpne Drift/Planlegger for detaljer.\n"
         f"Feil: {fingerprint}",
         title="⚠️ Planlagt rapport feilet",
     )
@@ -91,8 +91,13 @@ def run_once() -> dict[str, Any]:
 
         scheduler = dict(run_scheduler_cycle() or {})
         state["scheduler"] = scheduler
+        try:
+            from market_intelligence import scheduler_health_snapshot
+            state["scheduler_health"] = dict(scheduler_health_snapshot() or {})
+        except Exception as health_exc:
+            state["scheduler_health"] = {"state": "UNAVAILABLE", "error": str(health_exc)[:500]}
         if scheduler.get("state") == "ERROR":
-            raise RuntimeError(str(scheduler.get("error") or "Scheduler feilet uten feildetalj"))
+            raise RuntimeError(str(scheduler.get("error") or "Planlegger feilet uten feildetalj"))
         state["state"] = "COMPLETED"
     except Exception as exc:
         state["state"] = "FAILED"
