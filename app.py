@@ -11121,6 +11121,14 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     nav = str(nav or "").strip().lower()
     if nav in {"autonomous", "autonomi"}:
         nav = "autonomy"
+    if nav in {"jobber", "jobs", "scheduler", "planlegger", "tidsplan"}:
+        nav = "jobs"
+    if nav in {"approvals", "approval", "godkjenninger", "ventende_godkjenninger", "ventende-godkjenninger"}:
+        nav = "approvals"
+    if nav in {"alerts", "varsler", "varsel", "operations", "drift"}:
+        nav = "operations"
+    if nav in {"settings", "innstillinger", "admin", "systemstatus"}:
+        nav = "system"
     if not nav:
         return False
     _clear_control_center_nav_state_v18663()
@@ -11145,15 +11153,22 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
-    elif nav in {"portfolio", "reports"}:
-        workspace = "Læringsportefølje" if nav == "portfolio" else "Rapporter"
-        slug = "learning_portfolio" if nav == "portfolio" else "reports"
+    elif nav in {"portfolio", "reports", "jobs", "approvals", "operations"}:
+        if nav in {"portfolio", "approvals"}:
+            slug = "learning_portfolio"
+        elif nav == "operations":
+            slug = "operations"
+        else:
+            # Rapporter and Jobber/Planlegger both open Market Intelligence;
+            # the job-profile tab is the first tab in that workspace.
+            slug = "reports"
         st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["autonomy_core_workspace_slug_v1882"] = slug
+        st.session_state["mobile_nav_last_choice_v19015"] = nav
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"paper", "paper_trading", "papertrading"}:
         nav = "paper_trading"
@@ -11245,7 +11260,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -11322,6 +11337,10 @@ _mobile_nav_links_v18646 = {
     "portfolio": _mobile_nav_href_v18646("portfolio"),
     "reports": _mobile_nav_href_v18646("reports"),
     "paper_trading": _mobile_nav_href_v18646("paper_trading"),
+    "jobs": _mobile_nav_href_v18646("jobs"),
+    "approvals": _mobile_nav_href_v18646("approvals"),
+    "alerts": _mobile_nav_href_v18646("alerts"),
+    "system": _mobile_nav_href_v18646("system"),
 }
 try:
     from autonomi_core.configuration.application_centered import application_centered_enabled as _centered_nav_v1900
@@ -11329,19 +11348,19 @@ try:
 except Exception:
     _centered_nav_active_v1900 = False
 _mobile_nav_html_v1900 = (f"""
-  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
+  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
   <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
   <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
+  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
   <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
   <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
   <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
   <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
   <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
 """ if _centered_nav_active_v1900 else f"""
-  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Dashboard" target="_self"><b>🏠</b><span>Dashboard</span></a>
+  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
   <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top Picks</span></a>
+  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
   <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
   <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
   <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
@@ -11353,6 +11372,44 @@ st.markdown(f"""
 <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
   {_mobile_nav_html_v1900}
 </div>
+""", unsafe_allow_html=True)
+
+# v19.0.15: Mobil høyremeny/hovedmeny. Streamlit-sidebaren skjules på mobil,
+# derfor må alle høyremenyvalg være tilgjengelige som en egen, fast drawer.
+_mobile_drawer_items_v19015 = [
+    ("🏠", "Oversikt", "Dashboard og marked nå", _mobile_nav_links_v18646["dashboard"]),
+    ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
+    ("📚", "Rapporter", "Siste og arkiverte rapporter", _mobile_nav_links_v18646["reports"]),
+    ("⏱️", "Jobber / Planlegger", "Tidsplan, test og Pushover", _mobile_nav_links_v18646["jobs"]),
+    ("✅", "Ventende godkjenninger", "Læringsforslag som krever valg", _mobile_nav_links_v18646["approvals"]),
+    ("💼", "Læringsportefølje", "Kontrollert læring og portefølje", _mobile_nav_links_v18646["portfolio"]),
+    ("🧾", "Paper Trading", "Teoretiske handler og regler", _mobile_nav_links_v18646["paper_trading"]),
+    ("🎯", "Top Picks", "Beste kandidater", _mobile_nav_links_v18646["top_picks"]),
+    ("📈", "Analyse", "AI Kandidattest", _mobile_nav_links_v18646["analysis"]),
+    ("🔔", "Varsler", "Varselsenter og drift", _mobile_nav_links_v18646["alerts"]),
+    ("💱", "Valuta", "Valutavarsler", _mobile_nav_links_v18646["fx_alerts"]),
+    ("⚙️", "Systemstatus", "System, admin og innstillinger", _mobile_nav_links_v18646["system"]),
+]
+_mobile_drawer_links_v19015 = "\n".join(
+    f'<a class="mobile-drawer-link-v19015" href="{html.escape(href)}" target="_self">'
+    f'<span class="mobile-drawer-icon-v19015">{icon}</span>'
+    f'<span><b>{html.escape(label)}</b><small>{html.escape(help_text)}</small></span>'
+    f'</a>'
+    for icon, label, help_text, href in _mobile_drawer_items_v19015
+)
+st.markdown(f"""
+<details class="mobile-drawer-v19015">
+  <summary aria-label="Åpne mobilmeny"><span>☰</span><b>Meny</b></summary>
+  <div class="mobile-drawer-panel-v19015" role="navigation" aria-label="Mobil hovedmeny">
+    <div class="mobile-drawer-head-v19015">
+      <div><b>AI Aksje Analyzer Pro</b><small>Mobil hovedmeny</small></div>
+      <em>Trykk et valg for å åpne</em>
+    </div>
+    <div class="mobile-drawer-grid-v19015">
+      {_mobile_drawer_links_v19015}
+    </div>
+  </div>
+</details>
 """, unsafe_allow_html=True)
 
 # --- Lagrede auto-innstillinger ---
@@ -11658,9 +11715,9 @@ html body .stApp .v18647-top-status .v18532-status-row {
 """, unsafe_allow_html=True)
 
 # v18.6.47: Admin/Drift er flyttet ut av venstresiden og inn i en liten toppmeny.
-_col_admin_v18647, _col_drift_v18647, _col_space_v18647 = st.columns([1.0, 1.0, 6.0])
+_col_admin_v18647, _col_drift_v18647, _col_space_v18647 = st.columns([1.8, 1.8, 5.4])
 with _col_admin_v18647:
-    if st.button("⚙️ Admin", key="top_admin_menu_v18647", help="Åpne System/admin i AI Kontrollsenter"):
+    if st.button("Admin", key="top_admin_menu_v18647", help="Åpne System/admin i AI Kontrollsenter"):
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
@@ -11671,7 +11728,7 @@ with _col_admin_v18647:
             pass
 with _col_drift_v18647:
     _drift_now_v18647 = bool(st.session_state.get("show_drift_controls_v18647", False))
-    if st.button("🔧 Drift" if not _drift_now_v18647 else "🔧 Skjul drift", key="top_drift_menu_v18647", help="Vis/skjul avanserte driftkontroller"):
+    if st.button("Drift" if not _drift_now_v18647 else "Skjul", key="top_drift_menu_v18647", help="Vis/skjul avanserte driftkontroller"):
         st.session_state["show_drift_controls_v18647"] = not _drift_now_v18647
         try:
             st.rerun()
@@ -19455,6 +19512,10 @@ def render_autonomy_core_control_center_v1880() -> None:
         st.session_state["autonomy_core_workspace_slug_v1882"] = ""
         from market_intelligence import render_market_intelligence
         render_market_intelligence(); return
+    if requested_workspace == "operations":
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        render_alerts_watchlist_control_center_v1869()
+        st.divider(); render_performance_dashboard(); return
     from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode
     interface_mode = render_mode_selector()
     if interface_mode != EXPERT:
@@ -20801,6 +20862,158 @@ if bool(globals().get("show_drift_controls_v1863cc", False)):
 
 st.markdown("""
 <style>
+/* v19.0.15 mobile drawer: ekte mobiltilgang til høyremenyen. */
+.mobile-drawer-v19015 { display: none; }
+@media (max-width: 760px) {
+  html body .mobile-drawer-v19015 {
+    display: block !important;
+    position: fixed !important;
+    top: calc(10px + env(safe-area-inset-top)) !important;
+    right: 10px !important;
+    z-index: 2147483300 !important;
+  }
+  html body .mobile-drawer-v19015 > summary {
+    list-style: none !important;
+    cursor: pointer !important;
+    min-width: 94px !important;
+    min-height: 46px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 7px !important;
+    border-radius: 999px !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    background: linear-gradient(180deg, #0ea5e9, #0369a1) !important;
+    border: 1px solid rgba(186,230,253,.92) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,.46) !important;
+    font-weight: 950 !important;
+    user-select: none !important;
+  }
+  html body .mobile-drawer-v19015 > summary::-webkit-details-marker { display: none !important; }
+  html body .mobile-drawer-v19015 > summary span {
+    font-size: 1.18rem !important;
+    line-height: 1 !important;
+  }
+  html body .mobile-drawer-v19015 > summary b {
+    font-size: .93rem !important;
+    line-height: 1 !important;
+    color: #ffffff !important;
+  }
+  html body .mobile-drawer-v19015[open]::before {
+    content: "" !important;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 2147483200 !important;
+    background: rgba(2, 6, 23, .78) !important;
+    backdrop-filter: blur(5px) !important;
+  }
+  html body .mobile-drawer-v19015[open] > summary {
+    position: fixed !important;
+    top: calc(10px + env(safe-area-inset-top)) !important;
+    right: 10px !important;
+    z-index: 2147483400 !important;
+  }
+  html body .mobile-drawer-panel-v19015 {
+    display: none !important;
+  }
+  html body .mobile-drawer-v19015[open] .mobile-drawer-panel-v19015 {
+    display: block !important;
+    position: fixed !important;
+    top: calc(64px + env(safe-area-inset-top)) !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: calc(78px + env(safe-area-inset-bottom)) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 12px !important;
+    border-radius: 24px !important;
+    background: linear-gradient(180deg, rgba(15,23,42,.99), rgba(2,6,23,.99)) !important;
+    border: 1px solid rgba(56,189,248,.42) !important;
+    box-shadow: 0 18px 48px rgba(0,0,0,.62) !important;
+    z-index: 2147483350 !important;
+  }
+  html body .mobile-drawer-head-v19015 {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    align-items: flex-start !important;
+    padding: 8px 8px 12px 8px !important;
+    border-bottom: 1px solid rgba(148,163,184,.24) !important;
+    margin-bottom: 10px !important;
+  }
+  html body .mobile-drawer-head-v19015 b {
+    display: block !important;
+    color: #f8fafc !important;
+    font-size: 1.04rem !important;
+    line-height: 1.12 !important;
+  }
+  html body .mobile-drawer-head-v19015 small,
+  html body .mobile-drawer-head-v19015 em {
+    display: block !important;
+    color: #cbd5e1 !important;
+    font-size: .74rem !important;
+    line-height: 1.25 !important;
+    font-style: normal !important;
+  }
+  html body .mobile-drawer-grid-v19015 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  html body .mobile-drawer-link-v19015 {
+    min-height: 58px !important;
+    display: grid !important;
+    grid-template-columns: 44px 1fr !important;
+    gap: 10px !important;
+    align-items: center !important;
+    padding: 10px 12px !important;
+    border-radius: 17px !important;
+    text-decoration: none !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    background: rgba(15, 23, 42, .94) !important;
+    border: 1px solid rgba(148,163,184,.24) !important;
+  }
+  html body .mobile-drawer-link-v19015:focus,
+  html body .mobile-drawer-link-v19015:hover {
+    border-color: rgba(125,211,252,.92) !important;
+    background: rgba(14, 116, 144, .55) !important;
+    outline: 2px solid rgba(125,211,252,.58) !important;
+    outline-offset: 2px !important;
+  }
+  html body .mobile-drawer-icon-v19015 {
+    width: 42px !important;
+    height: 42px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 14px !important;
+    background: rgba(14,165,233,.18) !important;
+    border: 1px solid rgba(56,189,248,.38) !important;
+    font-size: 1.18rem !important;
+  }
+  html body .mobile-drawer-link-v19015 b {
+    display: block !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    font-size: .97rem !important;
+    line-height: 1.18 !important;
+    white-space: normal !important;
+    word-break: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+  html body .mobile-drawer-link-v19015 small {
+    display: block !important;
+    color: #cbd5e1 !important;
+    -webkit-text-fill-color: #cbd5e1 !important;
+    font-size: .72rem !important;
+    line-height: 1.18 !important;
+    margin-top: 2px !important;
+    white-space: normal !important;
+  }
+}
+
 /* v18.6.45 final mobile/dashboard guard: overrides old sidebar CSS blocks. */
 .mobile-bottom-nav-v18644 { display:none; }
 @media (max-width: 760px) {
