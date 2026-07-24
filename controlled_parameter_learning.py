@@ -338,7 +338,7 @@ def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]
     return item
 
 
-def resolve_promotion_approval(approval_id: str, approve: bool) -> dict[str, Any]:
+def resolve_promotion_approval(approval_id: str, approve: bool, *, note: str = "") -> dict[str, Any]:
     approvals = _read(APPROVALS_PATH, [])
     approvals = approvals if isinstance(approvals, list) else []
     item = next((a for a in approvals if a.get("approval_id") == approval_id), None)
@@ -350,11 +350,15 @@ def resolve_promotion_approval(approval_id: str, approve: bool) -> dict[str, Any
         promoted = promote_trial()
         item["status"] = "APPROVED"
         item["resolved_at"] = _now()
+        item["decision_note"] = note
+        item["resolved_by"] = "USER"
         item["promoted_version_id"] = promoted.get("version_id")
         _audit("CHAMPION_PROMOTION_APPROVED", item)
     else:
         item["status"] = "REJECTED"
         item["resolved_at"] = _now()
+        item["decision_note"] = note
+        item["resolved_by"] = "USER"
         _audit("CHAMPION_PROMOTION_REJECTED", item)
         _notify("Autonomi: promotering avvist", f"Champion-promotering {item.get('version_id')} ble avvist.", item)
     _write(APPROVALS_PATH, approvals)
@@ -633,20 +637,13 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         st.markdown("##### Ventende Champion-godkjenninger")
         if not pending:
             st.info("Ingen ventende godkjenninger.")
-        for item in pending:
-            guard = item.get("guard") or {}
-            with st.container(border=True):
-                st.markdown(f"**{item.get('version_id')}** · {item.get('created_at','–')}")
-                st.write(f"Endrede parametere: {', '.join(guard.get('changed_parameters') or []) or '–'}")
-                st.write(f"Andel endret: {float(guard.get('changed_parameter_share_pct',0)):.1f}%")
-                if guard.get("material_risk_change"):
-                    st.warning("Vesentlig risikoendring er registrert.")
-                    st.json(guard.get("risk_changes") or [], expanded=False)
-                x,y = st.columns(2)
-                if x.button("Godkjenn og promoter", type="primary", use_container_width=True, key=f"approve_{item['approval_id']}"):
-                    resolve_promotion_approval(item["approval_id"], True); st.success("Ny Champion er godkjent."); st.rerun()
-                if y.button("Avvis", use_container_width=True, key=f"reject_{item['approval_id']}"):
-                    resolve_promotion_approval(item["approval_id"], False); st.warning("Promoteringen er avvist."); st.rerun()
+        if pending:
+            from approval_governance_ui import render_approval_card, inject_approval_mobile_css
+            inject_approval_mobile_css()
+            for item in pending:
+                enriched = dict(item)
+                enriched.setdefault("approval_source", "LEARNING")
+                render_approval_card(enriched, key_prefix="learning_portfolio", compact=False)
         if approvals:
             st.dataframe(pd.DataFrame(approvals), use_container_width=True, hide_index=True)
 

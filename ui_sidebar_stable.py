@@ -168,14 +168,13 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"portfolio", "reports"}:
         nav = nav
-        workspace = "Learning Portfolio" if nav == "portfolio" else "Rapporter"
+        workspace = "Læringsportefølje" if nav == "portfolio" else "Rapporter"
         slug = "learning_portfolio" if nav == "portfolio" else "reports"
         st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
         st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
-        st.session_state["autonomy_core_workspace_v1880"] = workspace
         st.session_state["autonomy_core_workspace_slug_v1882"] = slug
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":

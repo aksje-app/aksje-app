@@ -161,8 +161,14 @@ def collect_autonomy_overview() -> dict[str, Any]:
 
 
 def _goto(workspace: str) -> None:
-    st.session_state["autonomy_core_workspace_v1880"] = workspace
-    st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+    """Navigate without mutating an instantiated widget key."""
+    slug = {
+        "Læringsportefølje": "learning_portfolio",
+        "Learning Portfolio": "learning_portfolio",
+        "Rapporter": "reports",
+        "Oversikt": "overview",
+    }.get(str(workspace), "overview")
+    st.session_state["autonomy_core_workspace_slug_v1882"] = slug
     st.rerun()
 
 
@@ -432,8 +438,8 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             q3.metric("Avkastning", f"{snapshot['return_pct']:+.2f} %")
             q4.metric("Drawdown", f"{snapshot['drawdown_pct']:.2f} %")
             st.caption(f"{len(snapshot['positions'])} åpne teoretiske posisjoner · ingen ekte handler utføres.")
-            if st.button("Åpne Learning Portfolio", key="autonomy_overview_portfolio_v1883"):
-                _goto("Learning Portfolio")
+            if st.button("Åpne Læringsportefølje", key="autonomy_overview_portfolio_v1883"):
+                _goto("Læringsportefølje")
     with right:
         with st.container(border=True):
             st.markdown("#### Siste beslutninger")
@@ -498,7 +504,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 "<div class='autonomy-readable-card'>"
                 f"<div class='ar-row'><span class='ar-label'>Pushover</span><span class='ar-value'>{'Klar' if snapshot['pushover_ready'] else 'Ikke konfigurert'}</span></div>"
                 f"<div class='ar-row'><span class='ar-label'>Lagring</span><span class='ar-value'>{'PostgreSQL' if storage.ok and storage.persistent else 'Lokal fallback'}</span></div>"
-                f"<div class='ar-row'><span class='ar-label'>Scheduler</span><span class='ar-value'>{snapshot['scheduler'].get('state') or 'IDLE'}</span></div>"
+                f"<div class='ar-row'><span class='ar-label'>Planlegger</span><span class='ar-value'>{ {'IDLE':'Venter','ERROR':'Feil','RUNNING':'Kjører','COMPLETED':'Fullført'}.get(str(snapshot['scheduler'].get('state') or 'IDLE').upper(), snapshot['scheduler'].get('state') or 'Venter') }</span></div>"
                 "</div>", unsafe_allow_html=True,
             )
             push = snapshot["pushover_latest"]
@@ -513,28 +519,12 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             st.markdown("#### Ventende godkjenninger")
             pending = snapshot["pending_approvals"]
             if pending:
+                from approval_governance_ui import render_approval_card, inject_approval_mobile_css
+                inject_approval_mobile_css()
                 for item in pending[:5]:
-                    approval_id = str(item.get("approval_id") or "")
-                    st.warning(f"{item.get('version_id') or approval_id} · venter på eksplisitt godkjenning")
-                    approve, reject = st.columns(2)
-                    if approve.button("Godkjenn", key=f"overview_approve_{approval_id}", use_container_width=True):
-                        if item.get("approval_source") == "CONFIGURATION":
-                            from autonomi_core.configuration.registry import resolve_approval
-                            resolve_approval(approval_id, True)
-                        else:
-                            resolve_promotion_approval(approval_id, True)
-                        st.success("Promoteringen er godkjent.")
-                        st.rerun()
-                    if reject.button("Avvis", key=f"overview_reject_{approval_id}", use_container_width=True):
-                        if item.get("approval_source") == "CONFIGURATION":
-                            from autonomi_core.configuration.registry import resolve_approval
-                            resolve_approval(approval_id, False)
-                        else:
-                            resolve_promotion_approval(approval_id, False)
-                        st.warning("Promoteringen er avvist.")
-                        st.rerun()
-                if st.button("Behandle i Learning Portfolio", key="autonomy_overview_approvals_v1883"):
-                    _goto("Learning Portfolio")
+                    render_approval_card(item, key_prefix="overview", compact=True)
+                if st.button("Åpne Læringsportefølje", key="autonomy_overview_approvals_v1913", use_container_width=True):
+                    _goto("Læringsportefølje")
             else:
                 st.success("Ingen ventende godkjenninger.")
     with ops3:

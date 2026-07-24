@@ -542,7 +542,7 @@ def render_autonomous_portfolio() -> None:
     import pandas as pd
     import streamlit as st
 
-    st.markdown("#### 🧠 Autonomous Learning Portfolio")
+    st.markdown("#### 🧠 Autonom læringsportefølje")
     st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring kan kjøre som Observatør, Assistert autonomi eller Full autonomi. v18.6.90 kan kjøre hele kjeden automatisk etter planlagte skanninger.")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
@@ -580,7 +580,7 @@ def render_autonomous_portfolio() -> None:
             st.success(f"Syklus fullført: {len(result['trades'])} teoretiske handler og {len(result['decisions'])} beslutninger.")
             st.rerun()
 
-    st.markdown("##### 🚦 Autonom orkestrering")
+    st.markdown("##### 🚦 Autonom samordning")
     st.caption("Kjør hele kjeden: markedsskanning → Investment Pipeline → teoretiske handler → kontrollert læring.")
     try:
         from market_intelligence import load_jobs, run_job
@@ -620,7 +620,7 @@ def render_autonomous_portfolio() -> None:
     with st.expander("Faste parametere", expanded=False):
         p1, p2, p3, p4 = st.columns(4)
         initial_cash = p1.number_input("Startkapital", 1000.0, 100000000.0, float(params.initial_cash), 10000.0, key="alp_initial_v18688")
-        min_score = p2.slider("Minimum Investment Score", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_minscore_v18688")
+        min_score = p2.slider("Minimum investeringsscore", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_minscore_v18688")
         min_quality = p3.slider("Minimum datakvalitet", 0.0, 100.0, float(params.minimum_data_quality), 1.0, key="alp_quality_v18688")
         max_risk = p4.slider("Maks risikoscore", 0.0, 100.0, float(params.maximum_risk_score), 1.0, key="alp_risk_v18688")
         q1, q2, q3, q4 = st.columns(4)
@@ -640,12 +640,12 @@ def render_autonomous_portfolio() -> None:
             save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, notify_trades=notify, notify_risk_events=True))
             st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
 
-    with st.expander("🔐 Configuration Framework", expanded=False):
+    with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):
         cfg = configuration_status()
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Lagringskilde", "PostgreSQL" if cfg.get("persistent") else "Lokal fallback")
         k2.metric("Konfigurasjonsrevisjon", cfg.get("revision", 0))
-        k3.metric("Checksum", cfg.get("checksum", "–"))
+        k3.metric("Kontrollsum", cfg.get("checksum", "–"))
         k4.metric("Sist lagret", str(cfg.get("updated_at") or "–")[:19])
         st.caption("Én sentral, versjonert konfigurasjonskilde. Programoppdateringer overskriver ikke lagrede brukerinnstillinger.")
         left, right = st.columns(2)

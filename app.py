@@ -11146,14 +11146,13 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"portfolio", "reports"}:
-        workspace = "Learning Portfolio" if nav == "portfolio" else "Rapporter"
+        workspace = "Læringsportefølje" if nav == "portfolio" else "Rapporter"
         slug = "learning_portfolio" if nav == "portfolio" else "reports"
         st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
         st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
-        st.session_state["autonomy_core_workspace_v1880"] = workspace
         st.session_state["autonomy_core_workspace_slug_v1882"] = slug
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"paper", "paper_trading", "papertrading"}:
@@ -19464,8 +19463,8 @@ def render_autonomy_core_control_center_v1880() -> None:
 
     workspace_labels = {
         "overview": "Oversikt",
-        "orchestrator": "Orchestrator og tidsplan",
-        "learning_portfolio": "Learning Portfolio",
+        "orchestrator": "Orkestrering og tidsplan",
+        "learning_portfolio": "Læringsportefølje",
         "architecture": "Ekspertkontroll",
         "reports": "Rapporter",
         "operations": "Varsler og drift",
@@ -19473,7 +19472,13 @@ def render_autonomy_core_control_center_v1880() -> None:
     }
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
     if requested_workspace in workspace_labels:
-        st.session_state["autonomy_core_workspace_v1880"] = workspace_labels[requested_workspace]
+        # Set the radio default before widget creation; never mutate its key afterwards.
+        desired = workspace_labels[requested_workspace]
+        current = st.session_state.get("autonomy_core_workspace_v1880")
+        if current not in workspace_labels.values():
+            st.session_state["autonomy_core_workspace_v1880"] = desired
+        elif current != desired:
+            st.session_state["autonomy_core_workspace_v1880"] = desired
         st.session_state["autonomy_core_workspace_slug_v1882"] = ""
     workspace = st.radio(
         "Velg arbeidsflate",
@@ -19490,9 +19495,9 @@ def render_autonomy_core_control_center_v1880() -> None:
     if workspace == "Oversikt":
         from autonomy_overview import render_autonomy_overview
         render_autonomy_overview()
-    elif workspace == "Orchestrator og tidsplan":
+    elif workspace == "Orkestrering og tidsplan":
         render_autonomous_orchestrator_control_center()
-    elif workspace == "Learning Portfolio":
+    elif workspace == "Læringsportefølje":
         render_autonomous_portfolio()
     elif workspace == "Rapporter":
         from market_intelligence import render_market_intelligence
