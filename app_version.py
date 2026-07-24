@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.15"
-APP_VERSION_NAME = "Mobil høyremeny og navigasjonshotfix"
+APP_VERSION = "v19.0.16"
+APP_VERSION_NAME = "Full norsk rapportmotor og raskere intern navigasjon"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.14"
+PREVIOUS_APP_VERSION = "v19.0.15"
 
 CHANGELOG = [
+    "v19.0.16: Full norsk rapportmotor og raskere intern navigasjon: rapport-PDF, teksteksport og rapporttabeller bruker en sentral norsk ordliste for beslutninger, bevisstatuser, modellroller, analysekomponenter, strategier og sektorer. Brukerrettede råverdier som BUY/REVIEW/SKIP, VERIFIED, PRODUCTION/CHALLENGER, Backtesting, Growth, Value, Income, Quality og Event Recovery oversettes før visning, mens tekniske tickere, valutaer og ID-er beholdes. PDF-en får fargekodet statusstripe for rapportstatus, rapportkvalitet, kildekontroll og Pushover. Mobil/desktop navigasjon hopper over no-op navigasjonsoppdateringer og unødvendige UI-state-skrivinger for raskere flytting mellom områder. Ingen handelsregler, produksjonsterskler eller porteføljedata er endret.",
     "v19.0.15: Mobil høyremeny og navigasjonshotfix: mobil får en fast \"Meny\"-knapp øverst som åpner en fullskjerms drawer med alle hovedvalg fra desktop/høyremenyen, inkludert Oversikt, Autonomi, Læringsportefølje, Ventende godkjenninger, Rapporter, Jobber/Planlegger, Paper Trading, Top Picks, Varsler, Valuta, Systemstatus og Innstillinger/Admin. Høyremenyen er ikke lenger avhengig av skjult Streamlit-sidebar på mobil. Admin/Drift-knappene brytes ikke lenger i smale skjermer. Ingen handelsregler, produksjonsterskler eller porteføljedata er endret.",
     "v19.0.14: Sporbar planlegger og trygg testkjøring: planlagte rapportjobber viser neste planlagte kjøring, siste planlagte kjøring, siste faktiske kjøring, mistede kjøringer, Pushover-status og jobbhistorikk. Testkjøring er delt i Test uten varsling og Test med Pushover, har fremdriftslinje og merker eventuelle varsler som TESTVARSEL. Drift viser uavhengig planleggerstatus på norsk, mistede kjøringer kan kjøres manuelt som forsinket rapport, og rapporter kan eksporteres som tekst i tillegg til PDF/JSON. Ingen handelsregler, produksjonsterskler eller porteføljedata er endret.",
     "v19.0.13: Trygg godkjenning og mobil tilgjengelighet: retter Streamlit-state-feilen som blokkerte Læringsporteføljen, beholder eksplisitt menneskelig godkjenning for sensitive regler og modellparametere, og viser gammel/ny verdi, begrunnelse, testresultat, forventet effekt, risiko og reversering før beslutning. Godkjenning og avvisning krever kommentar og separat bekreftelse, lagres i revisjonsdataene og har mobiltilpasset énkolonnevisning med store trykkflater. Brukerrettede navn er fornorsket. Ingen handelsregler eller terskler er endret.",

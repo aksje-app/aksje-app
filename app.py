@@ -11058,8 +11058,24 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", ta
             "saved_at": datetime.now().isoformat(timespec="seconds"),
             "version": "v18.6.74e",
         }
+        signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if st.session_state.get("ui_state_last_signature_v19016") == signature:
+            return
+        st.session_state["ui_state_last_signature_v19016"] = signature
         path = _ui_state_path_v18658()
         path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existing = path.read_text(encoding="utf-8") if path.exists() else ""
+            if existing:
+                existing_payload = json.loads(existing)
+                comparable = dict(payload)
+                comparable.pop("saved_at", None)
+                existing_comparable = dict(existing_payload) if isinstance(existing_payload, dict) else {}
+                existing_comparable.pop("saved_at", None)
+                if comparable == existing_comparable:
+                    return
+        except Exception:
+            pass
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
@@ -11131,8 +11147,16 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         nav = "system"
     if not nav:
         return False
+    # v19.0.16: internal navigation can be tapped repeatedly on mobile.
+    # Avoid clearing/rerendering the entire control center when the user is
+    # already on the requested target. This makes moving between areas feel
+    # faster and reduces Streamlit reruns from stale links/query params.
+    last_nav = str(st.session_state.get("ai_control_center_last_applied_nav_v19016") or "").strip().lower()
+    if last_nav == nav and str(st.session_state.get("ai_control_center_force_nav_v18663") or "").strip().lower() == nav:
+        return True
     _clear_control_center_nav_state_v18663()
     st.session_state["ai_control_center_force_nav_v18663"] = nav
+    st.session_state["ai_control_center_last_applied_nav_v19016"] = nav
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
         st.session_state["ai_control_center_active_panel_v1863m"] = ""
