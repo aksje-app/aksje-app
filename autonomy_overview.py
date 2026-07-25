@@ -17,7 +17,7 @@ import streamlit as st
 
 from autonomous_portfolio import (
     DECISIONS_PATH, NOTIFICATIONS_PATH, PERFORMANCE_PATH,
-    load_parameters, load_portfolio, portfolio_equity,
+    load_parameters, load_portfolio, portfolio_equity, portfolio_status_summary,
 )
 from controlled_parameter_learning import APPROVALS_PATH, resolve_promotion_approval
 from durable_runtime import read_json
@@ -171,6 +171,61 @@ def _goto(workspace: str) -> None:
     st.session_state["autonomy_core_workspace_slug_v1882"] = slug
     st.rerun()
 
+
+
+def _render_autonomy_status_box(snapshot: Mapping[str, Any]) -> None:
+    """Always-visible operational status for Autonomy.
+
+    v19.0.18a: The detailed autonomy status existed in the learning portfolio,
+    but users could not see it on the main Autonomi page. Keep this box outside
+    any expander and place it at the top of Autonomi Oversikt so diagnostics are
+    visible immediately after deploy, refresh and mobile navigation.
+    """
+    try:
+        from autonomous_orchestrator import load_latest_chain
+        latest_chain = load_latest_chain()
+    except Exception:
+        latest_chain = dict(snapshot.get("latest_run") or {})
+
+    panel = portfolio_status_summary(latest_chain)
+    scheduler_raw = str((snapshot.get("scheduler") or {}).get("state") or "").upper()
+    if scheduler_raw in {"IDLE", "RUNNING", "COMPLETED"}:
+        panel["Planlegger"] = "Aktiv"
+    elif scheduler_raw == "ERROR":
+        panel["Planlegger"] = "Feil"
+
+    candidates = int(panel.get("Kandidater mottatt") or 0)
+    buys = int(panel.get("Teoretiske kjøp") or 0)
+    learning_buys = int(panel.get("Læringskjøp") or 0)
+    reason = str(panel.get("Årsak til ingen kjøp") or "Ingen siste kjøring")
+    problem = candidates == 0 or (buys == 0 and learning_buys == 0)
+
+    st.markdown("#### 🧭 Autonomi status")
+    st.caption("Samlet driftsstatus for autonom kjøring. Denne boksen er alltid synlig og viser om problemet ligger i runner, planlegger, kandidatflyt eller kjøpsporter.")
+    with st.container(border=True):
+        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+        r1c1.metric("Autonomi-runner", panel.get("Autonomi-runner", "Ukjent"))
+        r1c2.metric("Planlegger", panel.get("Planlegger", "Ukjent"))
+        r1c3.metric("Paper trading", panel.get("Paper trading", "Ukjent"))
+        r1c4.metric("Ekte handel", panel.get("Ekte handel", "Deaktivert"))
+        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+        r2c1.metric("Kandidater mottatt", candidates)
+        r2c2.metric("Teoretiske kjøp", buys)
+        r2c3.metric("Læringskjøp", learning_buys)
+        r2c4.metric("Læringskjøp aktivert", "Ja" if panel.get("Læringskjøp aktivert") else "Nei")
+        if problem:
+            st.warning(f"Årsak til ingen kjøp: {reason}")
+        else:
+            st.success(reason or "Autonomi har mottatt kandidater og opprettet teoretiske kjøp.")
+
+        handoff = dict((snapshot.get("latest_run") or {}).get("autonomy_candidate_handoff") or {})
+        if handoff:
+            h1, h2, h3, h4 = st.columns(4)
+            h1.metric("Rapportkandidater", int(handoff.get("report_candidates") or 0))
+            h2.metric("Sendt til Autonomi", int(handoff.get("forwarded_candidates") or handoff.get("sent_to_autonomy") or 0))
+            h3.metric("Mottatt av Autonomi", int(handoff.get("received_by_autonomy") or candidates or 0))
+            h4.metric("Avvik", "Ja" if handoff.get("handoff_mismatch") else "Nei")
+        st.caption("Ekte handel er fortsatt deaktivert. Teoretiske kjøp og læringskjøp brukes kun i paper/autonomi-læring.")
 
 def _safe_public_report_url(value: Any) -> str:
     """Accept only absolute HTTP(S) report links for the rendered anchor."""
@@ -355,6 +410,8 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     latest = snapshot["latest_run"]
     st.markdown("### 🧭 Autonomi Oversikt")
     st.caption("Samlet daglig drift og overvåking. Alle tall hentes fra eksisterende, varige motor- og servicelag.")
+
+    _render_autonomy_status_box(snapshot)
 
     top1, top2, top3, top4 = st.columns(4)
     top1.metric("Aktivt oppdrag", status.get("job_name") or (snapshot["active_jobs"][0].name if snapshot["active_jobs"] else "Ingen aktiv tidsplan"))
