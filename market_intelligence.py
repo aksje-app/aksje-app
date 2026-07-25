@@ -899,6 +899,7 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     source_error_count = sum(int(row.get("errors") or 0) for row in source_rows if isinstance(row, Mapping))
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"),
+        "operations_trace_id": run.get("operations_trace_id") or "",
         "result_id": (run.get("canonical_result") or {}).get("result_id"),
         "created_at_local": local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)),
         "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
@@ -2753,7 +2754,7 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
         "execution_trace": execution_trace,
     }
 
-def run_job(
+def _run_job_impl(
     job: JobProfile,
     trigger: str = "MANUAL",
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
@@ -2761,6 +2762,7 @@ def run_job(
     revision_parent: Mapping[str, Any] | None = None,
     send_notifications: bool = True,
     scheduled_for: str | None = None,
+    _trace_id: str = "",
 ) -> dict[str, Any]:
     full_run_started = time_module.perf_counter()
     requested_job = job
@@ -2807,8 +2809,19 @@ def run_job(
             progress_callback({"phase": "COMPLETE", "completed": 1, "total": 1, "message": "Validerte utkastdata gjenbrukes som endelig morgenrapport"})
         return _persist_promoted_run(reusable, job, trigger, handoff)
     def emit(phase: str, completed: int, total: int, message: str, **extra: Any) -> None:
+        payload = {"phase": phase, "completed": completed, "total": max(1, total), "message": message, **extra}
         if progress_callback:
-            progress_callback({"phase": phase, "completed": completed, "total": max(1, total), "message": message, **extra})
+            progress_callback(payload)
+        if _trace_id:
+            try:
+                from operational_telemetry import mark_run_stage
+                phase_status = "COMPLETED" if int(completed) >= int(max(1, total)) else "RUNNING"
+                mark_run_stage(_trace_id, phase, status=phase_status, message=message, metrics={
+                    key: value for key, value in payload.items() if key not in {"phase", "message"}
+                })
+            except Exception:
+                # Telemetry is observational and must never stop a report run.
+                pass
     emit("START", 0, 1, "Starter markedsskanning")
     market_runs, all_candidates, all_proposals = [], [], []
     market_diagnostics: list[dict[str, Any]] = []
@@ -2982,6 +2995,12 @@ def run_job(
     all_proposals = sorted(valid_proposals, key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     totals["proposals"] = len(all_proposals)
     run_id = local_run_id("MI", timezone_name=job.timezone_name)
+    if _trace_id:
+        try:
+            from operational_telemetry import bind_run_trace
+            bind_run_trace(_trace_id, run_id=run_id, report_id=run_id, job_id=job.job_id)
+        except Exception:
+            pass
     refresh_summary = _build_refresh_summary(all_candidates, force_refresh)
     attempted = int(refresh_summary.get("live_attempt_count", 0))
     successful = int(refresh_summary.get("live_count", 0)) + int(refresh_summary.get("cache_count", 0))
@@ -2997,6 +3016,7 @@ def run_job(
     partial_market_failure = bool(failed_markets and all_candidates)
     run_created_at = _now_iso()
     run = {"version": VERSION, "run_id": run_id, "created_at": run_created_at,
+           "operations_trace_id": _trace_id,
            "created_at_local": local_display(run_created_at, job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
            "trigger": trigger, "scheduled_for": scheduled_for or "",
@@ -3255,6 +3275,57 @@ def run_job(
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
     emit("COMPLETE", 1, 1, "Hele kjeden er fullført", run_id=run_id)
     return run
+
+
+def run_job(
+    job: JobProfile,
+    trigger: str = "MANUAL",
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    force_refresh: bool = False,
+    revision_parent: Mapping[str, Any] | None = None,
+    send_notifications: bool = True,
+    scheduled_for: str | None = None,
+) -> dict[str, Any]:
+    """Run one report job with a durable end-to-end operational trace."""
+    from operational_telemetry import (
+        begin_run_trace, bind_run_trace, complete_run_trace, mark_run_stage, stable_error_code,
+    )
+    trace = begin_run_trace(
+        kind="REPORT", trigger=trigger, job_id=str(getattr(job, "job_id", "") or ""),
+        metadata={
+            "job_name": str(getattr(job, "name", "") or ""),
+            "markets": list(getattr(job, "markets", []) or []),
+            "force_refresh": bool(force_refresh),
+            "scheduled_for": str(scheduled_for or ""),
+        },
+    )
+    trace_id = str(trace.get("trace_id") or "")
+    mark_run_stage(trace_id, "PREFLIGHT", status="RUNNING", message="Starter forhåndskontroll og klargjøring")
+    try:
+        result = _run_job_impl(
+            job, trigger=trigger, progress_callback=progress_callback, force_refresh=force_refresh,
+            revision_parent=revision_parent, send_notifications=send_notifications, scheduled_for=scheduled_for,
+            _trace_id=trace_id,
+        )
+        run_id = str(result.get("run_id") or "")
+        if run_id:
+            bind_run_trace(trace_id, run_id=run_id, report_id=run_id, job_id=str(getattr(job, "job_id", "") or ""))
+        result["operations_trace_id"] = trace_id
+        complete_run_trace(
+            trace_id, status="COMPLETED",
+            metrics={
+                "errors": len(result.get("errors") or []),
+                "warnings": len(result.get("warnings") or []),
+                "candidates": len(result.get("candidates") or []),
+                "proposals": len(result.get("proposals") or []),
+            },
+        )
+        return result
+    except Exception as exc:
+        code = stable_error_code("REPORT", "report_run_failed", "RUN")
+        mark_run_stage(trace_id, "FAILED", status="ERROR", message="Rapportkjøringen feilet", error_code=code, error=exc)
+        complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)
+        raise
 
 
 def _parse_hhmm(value: str) -> tuple[int, int] | None:
@@ -3948,6 +4019,30 @@ def render_market_intelligence() -> None:
                 if flags:
                     st.caption(" · ".join(flags))
                 saved_run = load_archived_run(row)
+                trace_id = str((saved_run or {}).get("operations_trace_id") or row.get("operations_trace_id") or "")
+                if trace_id and st.toggle("Vis komplett kjøringsspor", key=f"mi_trace_toggle_{row.get('run_id')}"):
+                    try:
+                        from operational_telemetry import load_run_trace
+                        trace = load_run_trace(trace_id)
+                        t1, t2, t3, t4 = st.columns(4)
+                        t1.metric("Trace-ID", trace.get("trace_id") or trace_id)
+                        t2.metric("Status", trace.get("status") or "-")
+                        t3.metric("Siste steg", trace.get("current_stage") or "-")
+                        t4.metric("Varighet", f"{trace.get('duration_seconds') or 0} s")
+                        stage_rows = [{
+                            "Tid": item.get("at"),
+                            "Steg": item.get("stage"),
+                            "Status": item.get("status"),
+                            "Melding": item.get("message"),
+                            "Feilkode": item.get("error_code") or "",
+                            "Feil": item.get("error") or "",
+                        } for item in trace.get("stages") or []]
+                        if stage_rows:
+                            st.dataframe(pd.DataFrame(stage_rows), use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("Kjøringssporet har ingen registrerte delsteg.")
+                    except Exception as trace_exc:
+                        st.warning(f"Kjøringssporet kunne ikke leses: {trace_exc}")
                 json_path = Path(str(row.get("json_path") or ""))
                 a,b,c,d = st.columns(4)
                 delivery = resolve_report_delivery(saved_run, row)

@@ -137,10 +137,26 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
             cache_age = source.get("cache_age_seconds")
             cache_text = "ikke cachet" if cache_age is None else f"cache {int(cache_age // 60)} min"
             last_error = str(source.get("last_error") or "").strip()
+            health_score = int(source.get("health_score") or 0)
+            if not source.get("enabled"):
+                status = "deaktivert"
+            elif source.get("alert"):
+                status = f"varsel ({health_score}/100)"
+            elif source.get("last_success_at"):
+                status = f"OK ({health_score}/100)"
+            else:
+                status = "aktiv, ikke testet"
             rows.append({
                 "Kilde": str(source.get("publisher") or source.get("label") or "Finansmedium"),
-                "Status": "aktiv" if source.get("enabled") else "deaktivert",
-                "Detalj": f"{source.get('market')} · {source.get('source_role')} · {cache_text}" + (f" · siste feil: {last_error[:80]}" if last_error else ""),
+                "Status": status,
+                "Detalj": (
+                    f"{source.get('market')} · {source.get('source_role')} · {cache_text} · "
+                    f"{int(source.get('last_response_ms') or 0)} ms · {int(source.get('article_count') or 0)} artikler · "
+                    f"{int(source.get('consecutive_failures') or 0)} feil på rad"
+                    + (" · reserve-feed" if source.get("fallback_used") else "")
+                    + (f" · feilkode {source.get('error_code')}" if source.get("error_code") else "")
+                    + (f" · siste feil: {last_error[:80]}" if last_error else "")
+                ),
                 "Vindu": "gratis RSS/Atom",
             })
     except Exception:

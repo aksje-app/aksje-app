@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.0.22"
-APP_VERSION_NAME = "Forenklet daglig brukeropplevelse"
+APP_VERSION = "v19.1.0"
+APP_VERSION_NAME = "Full operasjonssporbarhet"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.21"
+PREVIOUS_APP_VERSION = "v19.0.22"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -16,6 +16,7 @@ DATABASE_SCHEMA_VERSION = "1.0"
 RANKING_MODEL_VERSION = "v19.0.17"
 AUTONOMY_POLICY_VERSION = "v19.0.18b"
 SOURCE_CLASSIFIER_VERSION = "v19.0.19"
+OPERATIONS_TELEMETRY_VERSION = "v19.1.0"
 VERSION_CONTRACT_SCHEMA = "1.0"
 
 
@@ -29,6 +30,7 @@ class VersionContract:
     ranking_model_version: str
     autonomy_policy_version: str
     source_classifier_version: str
+    operations_telemetry_version: str = OPERATIONS_TELEMETRY_VERSION
     component_name: str = ""
     component_version: str = ""
 
@@ -66,6 +68,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.1.0: Full operasjonssporbarhet: strukturert hendelseslogg med stabile feilkoder, varig kildehelsehistorikk, responstid, parserstatus, artikkelvolum, relevante treff, duplikater, kommersielt filter, reserve-feed og avviksvarsler. Rapportkjøringer og scheduler får ett samlet spor fra start/preflight via marked, data, rapport, lagring og varsling til sluttstatus. Drift og rapportarkiv viser kildehelse, feil og komplette kjøringsspor. Telemetrien er observasjonell og endrer ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler.",
     "v19.0.22: Forenklet daglig brukeropplevelse: én global Enkel/Avansert-modus lagres per bruker. Enkel modus gir fire primærområder og Mer-meny, mobil får fem hovedvalg, startsiden prioriterer oppgaver som krever oppmerksomhet, kandidatkort får direkte handlinger, og brukerrettede statuser standardiseres på norsk. Avansert modus beholder alle spesialistpaneler. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler er endret.",
     "v19.0.21: Ny beslutningsrapport: PDF og tekst får en kompakt beslutningsdel med teknisk vedlegg, rapporttype-spesifikt fokus, endringer siden sist, oppgaver til neste kjøring, kandidatens blokkeringer og endringsvilkår, gyldighet og utløpsregler, kildekonsensus, separate mål for datadekning, kildesikkerhet og beslutningssikkerhet, forklarbar rapportpålitelighet og kandidatrelevant hendelseskalender. Rapportarkivet får alle rapporttyper og utvidede filtre. Alt bygges fra samme ReportDocument og endrer ingen score, handlinger, handelsregler, risikoterskler eller porteføljeporter.",
     "v19.0.20: Felles rapport- og versjonskontrakter: én sentral APP_VERSION og separate skjema-, modell-, autonomi- og kildeklassifiseringsversjoner samles i en maskinlesbar versjonskontrakt. En renderer-uavhengig ReportDocument-kontrakt standardiserer rapportidentitet, oppdrag, metadata, seksjoner og validering for PDF, tekst, arkiv og brukerflate. Eldre rapporter oppgraderes i minnet, mens eksplisitte konflikter mellom rapporttype og oppdrag stoppes. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeterskler er endret.",

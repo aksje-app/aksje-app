@@ -192,13 +192,57 @@ def build_source_health(candidates: Sequence[Mapping[str, Any]]) -> dict[str, An
         newsapi = health_snapshot()
     except Exception as exc:
         newsapi = {"source": "NewsAPI", "configured": False, "last_status": "HEALTH_ERROR", "error": str(exc)[:160]}
+    operational_rows: list[dict[str, Any]] = []
+    try:
+        from news_source_registry import SOURCE_REGISTRY
+        from operational_telemetry import source_health_snapshot as operational_source_health_snapshot
+        for source in operational_source_health_snapshot(SOURCE_REGISTRY):
+            operational_rows.append({
+                "source": source.get("publisher") or source.get("source_id") or "Ukjent",
+                "source_id": source.get("source_id") or source.get("id"),
+                "market": source.get("market") or "",
+                "source_role": source.get("source_role") or "",
+                "attempts": 1 if source.get("last_attempt_at") else 0,
+                "successes": 1 if source.get("last_success_at") else 0,
+                "with_results": 1 if int(source.get("article_count") or 0) > 0 else 0,
+                "rate_limited": 0,
+                "quota_exceeded": 0,
+                "errors": int(source.get("consecutive_failures") or 0),
+                "last_status": "ALERT" if source.get("alert") else ("OK" if source.get("last_success_at") else "NOT_TESTED"),
+                "last_checked_at": source.get("last_attempt_at") or "",
+                "last_success_at": source.get("last_success_at") or "",
+                "last_response_ms": source.get("last_response_ms"),
+                "fallback_used": bool(source.get("fallback_used")),
+                "parser_status": source.get("parser_status") or "",
+                "article_count": int(source.get("article_count") or 0),
+                "relevant_count": int(source.get("relevant_count") or 0),
+                "duplicate_count": int(source.get("duplicate_count") or 0),
+                "filtered_commercial_count": int(source.get("filtered_commercial_count") or 0),
+                "health_score": int(source.get("health_score") or 0),
+                "volume_anomaly": bool(source.get("volume_anomaly")),
+                "error_code": source.get("error_code") or "",
+                "last_error": source.get("last_error") or "",
+                "operational_health": True,
+                "areas": ["news"],
+                "success_rate_pct": 100.0 if source.get("last_success_at") and not source.get("consecutive_failures") else 0.0,
+            })
+    except Exception:
+        operational_rows = []
+    merged: dict[str, dict[str, Any]] = {str(row.get("source") or "").casefold(): dict(row) for row in rows}
+    for row in operational_rows:
+        key = str(row.get("source") or "").casefold()
+        if key in merged:
+            merged[key].update({k: v for k, v in row.items() if k not in {"areas", "attempts", "successes", "with_results", "errors"}})
+        else:
+            merged[key] = row
+    final_rows = sorted(merged.values(), key=lambda row: (str(row.get("source") or "").casefold()))
     return {
         "generated_at": _now_iso(),
-        "sources": sorted(rows, key=lambda row: (str(row.get("source") or "").casefold())),
+        "sources": final_rows,
         "newsapi_budget": newsapi,
         "degraded_sources": sum(
-            1 for row in rows
-            if row.get("rate_limited") or row.get("quota_exceeded") or row.get("errors")
+            1 for row in final_rows
+            if row.get("rate_limited") or row.get("quota_exceeded") or row.get("errors") or row.get("volume_anomaly") or row.get("last_status") == "ALERT"
         ),
     }
 

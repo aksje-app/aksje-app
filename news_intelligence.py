@@ -30,6 +30,7 @@ from news_source_registry import (
 
 from app_version import APP_VERSION
 from storage_architecture import runtime_data_path
+from operational_telemetry import record_source_attempt
 from newsapi_budget import (
     NewsApiDailyQuotaExceeded,
     NewsApiError,
@@ -37,7 +38,7 @@ from newsapi_budget import (
     fetch_articles as fetch_newsapi_articles,
 )
 
-COMPONENT_VERSION = "v19.0.19"
+COMPONENT_VERSION = "v19.1.0"
 VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("news_intelligence") / "cache.json"
 _CACHE_LOCK = RLock()
@@ -310,7 +311,14 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     try:
+        _yf_started = time.perf_counter()
         yf_rows = _fetch_yfinance(ticker)
+        record_source_attempt(
+            source_id="yahoo_finance", market=str(market or "Globalt"), publisher="Yahoo Finance",
+            url="https://finance.yahoo.com", success=True,
+            response_ms=(time.perf_counter() - _yf_started) * 1000.0, article_count=len(yf_rows),
+            relevant_count=len(yf_rows), cache_status="DIRECT", parser_status="OK", volume_check=False,
+        )
         rows.extend(yf_rows)
         if yf_rows: sources.append("Yahoo Finance / yfinance")
         search_log.append({
@@ -319,6 +327,12 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "results": len(yf_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
         })
     except Exception as exc:
+        record_source_attempt(
+            source_id="yahoo_finance", market=str(market or "Globalt"), publisher="Yahoo Finance",
+            url="https://finance.yahoo.com", success=False,
+            response_ms=(time.perf_counter() - locals().get("_yf_started", time.perf_counter())) * 1000.0,
+            parser_status="UNKNOWN", error=exc, volume_check=False,
+        )
         errors.append(f"yfinance: {exc}")
         search_log.append({
             "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
@@ -409,6 +423,12 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
                 "cache_status": feed_meta.get("cache_status"),
                 "cache_age_seconds": feed_meta.get("cache_age_seconds"),
                 "feed_items_scanned": feed_meta.get("feed_items_scanned"),
+                "relevant_items": feed_meta.get("relevant_items"),
+                "duplicate_items": feed_meta.get("duplicate_items"),
+                "filtered_commercial_items": feed_meta.get("filtered_commercial_items"),
+                "response_ms": feed_meta.get("response_ms"),
+                "source_health_score": feed_meta.get("source_health_score"),
+                "source_health_alert": feed_meta.get("source_health_alert"),
                 "error": "",
             })
         except Exception as exc:

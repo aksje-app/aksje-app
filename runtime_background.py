@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from operational_telemetry import record_event, stable_error_code, begin_run_trace, complete_run_trace, mark_run_stage
+
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
 _SCHEDULER_THREAD: threading.Thread | None = None
@@ -34,7 +36,10 @@ def _worker() -> None:
                 "cycles": int(_STATUS.get("cycles", 0)) + 1,
             })
         except Exception as exc:
-            _STATUS.update({"state": "DEGRADED", "last_cycle_at": _now(), "last_error": str(exc)[:500]})
+            code = stable_error_code("RUNTIME", "runtime_worker_failed", "FX")
+            _STATUS.update({"state": "DEGRADED", "last_cycle_at": _now(), "last_error": str(exc)[:500], "error_code": code})
+            record_event("FX_WORKER_FAILED", severity="ERROR", component="RUNTIME", stage="FX_ALERTS",
+                         message="Automatisk valutakontroll feilet", error_code=code, error=exc)
         _STOP.wait(poll_seconds)
 
 
@@ -47,13 +52,17 @@ def _scheduler_worker() -> None:
             restore_public_reports(limit=25)
         except Exception as exc:
             # Delivery repair is maintenance. It must never suppress a due scan.
-            pass
+            record_event("REPORT_DELIVERY_REPAIR_FAILED", severity="WARNING", component="RUNTIME", stage="DELIVERY_REPAIR",
+                         message="Vedlikehold av offentlige rapportfiler feilet; scheduler fortsetter",
+                         error_code=stable_error_code("RUNTIME", "delivery_repair_failed", "REPORTS"), error=exc)
         try:
             from scheduler_background import run_scheduler_cycle
             run_scheduler_cycle()
-        except Exception:
-            # scheduler_background owns the persistent error audit/status.
-            pass
+        except Exception as exc:
+            # scheduler_background owns the main audit; this records a worker-boundary failure.
+            record_event("SCHEDULER_WORKER_BOUNDARY_FAILED", severity="ERROR", component="RUNTIME", stage="SCHEDULER",
+                         message="Runtime-worker kunne ikke starte scheduler-syklusen",
+                         error_code=stable_error_code("RUNTIME", "runtime_worker_failed", "SCHEDULER"), error=exc)
         _STOP.wait(poll_seconds)
 
 

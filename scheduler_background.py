@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 from storage_architecture import runtime_log_path
 from durable_runtime import append_event, read_events
+from operational_telemetry import record_event, stable_error_code, begin_run_trace, complete_run_trace, mark_run_stage
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
@@ -34,6 +35,11 @@ def _global_scheduler_lock():
                 append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
                     "at": _now(), "event": "SCHEDULER_COORDINATION_DEGRADED", "error": str(exc)[:500]
                 })
+                record_event(
+                    "SCHEDULER_COORDINATION_DEGRADED", severity="WARNING", component="SCHEDULER",
+                    stage="COORDINATION", message="Global scheduler-lås kunne ikke brukes; lokal kjøring fortsetter",
+                    error_code=stable_error_code("SCHEDULER", "coordination_degraded", "LOCK"), error=exc,
+                )
                 acquired = True
         yield acquired
     finally:
@@ -65,6 +71,8 @@ def _worker() -> None:
     except Exception as exc:
         _STATUS = {"state": "ERROR", "started_at": _STATUS.get("started_at"), "completed_at": _now(), "runs": 0, "error": str(exc), "health": {}}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": _now(), "event": "BACKGROUND_CHECK_FAILED", "error": str(exc)})
+        record_event("BACKGROUND_CHECK_FAILED", severity="ERROR", component="SCHEDULER", stage="WORKER",
+                     message="Bakgrunnsscheduler feilet", error_code=stable_error_code("SCHEDULER", "scheduler_failed", "WORKER"), error=exc)
 
 
 def _run_due_jobs_coordinated() -> list[dict[str, Any]]:
@@ -79,27 +87,38 @@ def _run_due_jobs_coordinated() -> list[dict[str, Any]]:
 
 
 def run_scheduler_cycle() -> dict[str, Any]:
-    """Run one durable due-job check from the persistent runtime worker."""
+    """Run one durable due-job check with a complete structured trace."""
     global _STATUS
     started = _now()
-    _STATUS = {"state": "RUNNING", "started_at": started, "completed_at": None, "runs": 0, "error": "", "health": {}}
-    append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": started, "event": "BACKGROUND_CHECK_STARTED"})
+    trace = begin_run_trace(kind="SCHEDULER", trigger="BACKGROUND", metadata={"worker": "scheduler_background"})
+    trace_id = str(trace.get("trace_id") or "")
+    _STATUS = {"state": "RUNNING", "started_at": started, "completed_at": None, "runs": 0, "error": "", "health": {}, "trace_id": trace_id}
+    append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": started, "event": "BACKGROUND_CHECK_STARTED", "trace_id": trace_id})
+    mark_run_stage(trace_id, "DUE_JOB_SCAN", status="RUNNING", message="Kontrollerer planlagte jobber")
     try:
         results = _run_due_jobs_coordinated()
+        mark_run_stage(trace_id, "DUE_JOB_SCAN", status="COMPLETED", message="Planlagte jobber er kontrollert", metrics={"runs": len(results)})
         try:
             from market_intelligence import scheduler_health_snapshot
             health = scheduler_health_snapshot()
+            mark_run_stage(trace_id, "HEALTH", status="COMPLETED", message="Schedulerhelse er lest", metrics={"health_state": health.get("state")})
         except Exception as health_exc:
-            health = {"state": "UNAVAILABLE", "error": str(health_exc)[:500]}
-        _STATUS = {"state": "IDLE", "started_at": started, "completed_at": _now(), "runs": len(results), "error": "", "health": health}
+            code = stable_error_code("SCHEDULER", "report_stage_failed", "HEALTH")
+            health = {"state": "UNAVAILABLE", "error": str(health_exc)[:500], "error_code": code}
+            mark_run_stage(trace_id, "HEALTH", status="ERROR", message="Schedulerhelse kunne ikke leses", error_code=code, error=health_exc)
+        _STATUS = {"state": "IDLE", "started_at": started, "completed_at": _now(), "runs": len(results), "error": "", "health": health, "trace_id": trace_id}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
-            "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_COMPLETED", "runs": len(results), "health_state": health.get("state")
+            "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_COMPLETED", "runs": len(results), "health_state": health.get("state"), "trace_id": trace_id
         })
+        complete_run_trace(trace_id, status="COMPLETED", metrics={"runs": len(results), "health_state": health.get("state")})
     except Exception as exc:
-        _STATUS = {"state": "ERROR", "started_at": started, "completed_at": _now(), "runs": 0, "error": str(exc), "health": {}}
+        code = stable_error_code("SCHEDULER", "scheduler_failed", "CYCLE")
+        _STATUS = {"state": "ERROR", "started_at": started, "completed_at": _now(), "runs": 0, "error": str(exc), "health": {}, "trace_id": trace_id, "error_code": code}
         append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
-            "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_FAILED", "error": str(exc)
+            "at": _STATUS["completed_at"], "event": "BACKGROUND_CHECK_FAILED", "error": str(exc), "error_code": code, "trace_id": trace_id
         })
+        mark_run_stage(trace_id, "DUE_JOB_SCAN", status="ERROR", message="Schedulerkjøringen feilet", error_code=code, error=exc)
+        complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)
     return dict(_STATUS)
 
 

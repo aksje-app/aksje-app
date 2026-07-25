@@ -12000,6 +12000,11 @@ _block_reason = _auto_block_reason(_top_settings)
 
 if bool(globals().get("show_drift_controls_v1863cc", False)):
     render_global_update_action_panel_v1863g()
+    try:
+        from operations_ui import render_operations_trace_panel
+        render_operations_trace_panel()
+    except Exception as operations_ui_exc:
+        st.warning(f"Sporbar drift kunne ikke vises: {operations_ui_exc}")
 
 # V15.8: alle handlingsmeldinger vises fullbredde under kontrollgruppen.
 if st.session_state.get("auto_control_notice_v153"):

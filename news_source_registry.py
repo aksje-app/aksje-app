@@ -1,4 +1,4 @@
-"""Free financial-media source registry and cached RSS collection for v19.0.20.
+"""Free financial-media source registry and cached RSS collection for v19.1.0.
 
 The registry keeps source identity, market role and quality policy separate from
 company scoring. Feeds are cached once per URL so a 25-stock scan does not fetch
@@ -20,8 +20,11 @@ import unicodedata
 
 from app_version import APP_VERSION
 from storage_architecture import runtime_data_path
+from operational_telemetry import (
+    record_event, record_source_attempt, source_health_snapshot as _operational_source_health_snapshot, stable_error_code,
+)
 
-COMPONENT_VERSION = "v19.0.19"
+COMPONENT_VERSION = "v19.1.0"
 VERSION = APP_VERSION
 FEED_CACHE_PATH = runtime_data_path("news_intelligence") / "source_feed_cache.json"
 FEED_CACHE_TTL_SECONDS = max(300, int(os.getenv("NEWS_SOURCE_FEED_CACHE_MINUTES", "30") or 30) * 60)
@@ -192,7 +195,7 @@ def source_enabled(source_id: str) -> bool:
 
 
 def source_specs(market: str, ir_feed_url: str = "") -> list[dict[str, Any]]:
-    specs = [dict(row) for row in SOURCE_REGISTRY.get(str(market or ""), []) if source_enabled(str(row.get("id") or ""))]
+    specs = [{**dict(row), "market": str(market or "")} for row in SOURCE_REGISTRY.get(str(market or ""), []) if source_enabled(str(row.get("id") or ""))]
     if str(ir_feed_url or "").strip():
         specs.append({
             "id": "company_ir",
@@ -383,17 +386,24 @@ def fetch_rss_source(spec: Mapping[str, Any], tokens: Sequence[str]) -> tuple[li
     if not urls:
         raise ValueError("RSS-adresse mangler")
     publisher = str(spec.get("publisher") or spec.get("label") or "RSS")
+    source_id = str(spec.get("id") or "rss")
+    market = str(spec.get("market") or "")
     failures: list[str] = []
+    total_started = time.perf_counter()
     for url_index, url in enumerate(urls):
+        attempt_started = time.perf_counter()
         try:
             text, cache_status, cache_age_seconds = _fetch_feed_text(url)
             root = ElementTree.fromstring(text.encode("utf-8", errors="replace"))
             rows: list[dict[str, Any]] = []
             items = [node for node in root.iter() if _local_name(node.tag) in {"item", "entry"}]
+            filtered_commercial_count = 0
+            canonical_seen: set[str] = set()
+            duplicate_count = 0
             for item in items[:MAX_FEED_ITEMS]:
                 title = _value(item, "title")
                 summary = _value(item, "description", "summary", "content", "encoded")
-                if not title or not _matches_tokens(title, summary, tokens):
+                if not title:
                     continue
                 categories = _categories(item)
                 article_type = classify_article(
@@ -402,6 +412,15 @@ def fetch_rss_source(spec: Mapping[str, Any], tokens: Sequence[str]) -> tuple[li
                     categories,
                     default=str(spec.get("article_type_default") or "news"),
                 )
+                if article_type == "sponsored":
+                    filtered_commercial_count += 1
+                key = canonical_title(title)
+                if key and key in canonical_seen:
+                    duplicate_count += 1
+                elif key:
+                    canonical_seen.add(key)
+                if not _matches_tokens(title, summary, tokens):
+                    continue
                 source_node = _value(item, "source")
                 original_publisher = source_node or publisher
                 row_url = _value(item, "link", "guid", "id")
@@ -412,7 +431,7 @@ def fetch_rss_source(spec: Mapping[str, Any], tokens: Sequence[str]) -> tuple[li
                     "publisher": original_publisher,
                     "original_publisher": original_publisher,
                     "collector_source": str(spec.get("label") or publisher),
-                    "source_id": str(spec.get("id") or "rss"),
+                    "source_id": source_id,
                     "source_role": str(spec.get("source_role") or "PUBLISHED_NEWS"),
                     "published_at": _value(item, "pubdate", "published", "updated", "date"),
                     "verification": "PUBLISHED_SOURCE",
@@ -420,41 +439,91 @@ def fetch_rss_source(spec: Mapping[str, Any], tokens: Sequence[str]) -> tuple[li
                     "categories": categories,
                     "source_quality_override": spec.get("quality_override"),
                 })
+            response_ms = (time.perf_counter() - attempt_started) * 1000.0
+            used_fallback = bool(url_index > 0 or cache_status == "STALE_FALLBACK")
+            health = record_source_attempt(
+                source_id=source_id,
+                market=market,
+                publisher=publisher,
+                url=url,
+                success=True,
+                response_ms=response_ms,
+                article_count=min(len(items), MAX_FEED_ITEMS),
+                relevant_count=len(rows),
+                duplicate_count=duplicate_count,
+                filtered_commercial_count=filtered_commercial_count,
+                fallback_used=used_fallback,
+                cache_status=cache_status,
+                parser_status="OK",
+            )
             return rows, {
                 "cache_status": cache_status,
                 "cache_age_seconds": round(cache_age_seconds, 1),
                 "feed_items_scanned": min(len(items), MAX_FEED_ITEMS),
+                "relevant_items": len(rows),
+                "duplicate_items": duplicate_count,
+                "filtered_commercial_items": filtered_commercial_count,
                 "feed_url": url,
-                "fallback_used": url_index > 0,
+                "fallback_used": used_fallback,
                 "fallback_failures": failures,
+                "response_ms": round(response_ms, 1),
+                "source_health_score": health.get("health_score"),
+                "source_health_alert": health.get("alert"),
             }
+        except ElementTree.ParseError as exc:
+            failure = f"{url}: ParseError: {exc}"[:500]
+            failures.append(failure)
+            record_event(
+                "SOURCE_URL_FAILED", severity="WARNING", component="NEWS", stage="SOURCE_PARSE",
+                message=f"{publisher}: RSS/Atom-formatet kunne ikke tolkes",
+                source_id=source_id, error_code=stable_error_code("NEWS", "parse_failed", source_id),
+                error=exc, fallback_used=bool(url_index > 0),
+                details={"url": url, "url_index": url_index, "more_urls_available": url_index + 1 < len(urls)},
+            )
         except Exception as exc:
-            failures.append(f"{url}: {type(exc).__name__}: {exc}"[:500])
+            failure = f"{url}: {type(exc).__name__}: {exc}"[:500]
+            failures.append(failure)
+            record_event(
+                "SOURCE_URL_FAILED", severity="WARNING", component="NEWS", stage="SOURCE_FETCH",
+                message=f"{publisher}: kildeadressen feilet",
+                source_id=source_id, error_code=stable_error_code("NEWS", "fetch_failed", source_id),
+                error=exc, fallback_used=bool(url_index > 0),
+                details={"url": url, "url_index": url_index, "more_urls_available": url_index + 1 < len(urls)},
+            )
+    elapsed_ms = (time.perf_counter() - total_started) * 1000.0
+    record_source_attempt(
+        source_id=source_id,
+        market=market,
+        publisher=publisher,
+        url=primary_url,
+        success=False,
+        response_ms=elapsed_ms,
+        parser_status="FAILED" if any("ParseError" in failure for failure in failures) else "UNKNOWN",
+        error=" | ".join(failures),
+    )
     raise RuntimeError("Alle RSS-adresser feilet: " + " | ".join(failures))
 
 
 
 def source_health_snapshot() -> list[dict[str, Any]]:
+    """Return live operational health enriched with registry metadata and cache age."""
     now = time.time()
     with _CACHE_LOCK:
         cache = _read_cache()
-    rows: list[dict[str, Any]] = []
-    for market, specs in SOURCE_REGISTRY.items():
-        for spec in specs:
-            entry = dict(cache.get(str(spec.get("url") or "")) or {})
-            age = max(0.0, now - float(entry.get("cached_at") or 0.0)) if entry else None
-            rows.append({
-                "id": spec.get("id"),
-                "market": market,
-                "publisher": spec.get("publisher"),
-                "label": spec.get("label"),
-                "url": spec.get("url"),
-                "enabled": source_enabled(str(spec.get("id") or "")),
-                "source_role": spec.get("source_role"),
-                "cached": bool(entry.get("text")),
-                "cache_age_seconds": round(age, 1) if age is not None else None,
-                "last_error": str(entry.get("last_error") or ""),
-            })
+    registry = {
+        market: [{**dict(spec), "market": market} for spec in specs]
+        for market, specs in SOURCE_REGISTRY.items()
+    }
+    rows = _operational_source_health_snapshot(registry)
+    for row in rows:
+        primary_url = str(row.get("url") or "")
+        entry = dict(cache.get(primary_url) or {})
+        age = max(0.0, now - float(entry.get("cached_at") or 0.0)) if entry else None
+        row["enabled"] = source_enabled(str(row.get("source_id") or row.get("id") or ""))
+        row["cached"] = bool(entry.get("text"))
+        row["cache_age_seconds"] = round(age, 1) if age is not None else None
+        if not row.get("last_error"):
+            row["last_error"] = str(entry.get("last_error") or "")
     return rows
 
 
