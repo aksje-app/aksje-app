@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+import json
+import zipfile
+from pathlib import Path
+
+from app_version import APP_VERSION, PREVIOUS_APP_VERSION
+from tools.prepare_safe_upgrade import create_backup
+from tools.restore_safe_upgrade_backup import restore
+from tools.validate_distribution import FileEntry, validate_entries, validate_path
+
+
+def test_release_identity_is_safe_distribution_patch():
+    assert APP_VERSION == "v19.0.19a"
+    assert PREVIOUS_APP_VERSION == "v19.0.19"
+
+
+def test_validator_rejects_runtime_secret_and_generated_report():
+    entries = [
+        FileEntry("app.py", 1, b"x"),
+        FileEntry("app_version.py", 30, b'APP_VERSION = "v19.0.19a"'),
+        FileEntry("requirements.txt", 0, b""),
+        FileEntry(".env.example", 0, b""),
+        FileEntry("RELEASE_NOTES_v19.0.19a.md", 0, b""),
+        FileEntry("DEPLOY_v19.0.19a.md", 0, b""),
+        FileEntry("tools/validate_distribution.py", 0, b""),
+        FileEntry("tools/prepare_safe_upgrade.py", 0, b""),
+        FileEntry("DISTRIBUTION_MANIFEST.json", 2, b"{}"),
+        FileEntry(".app_runtime/data/portfolio.json", 2, b"{}"),
+        FileEntry(".env", 35, b"OPENAI_API_KEY=" + b"sk-" + b"abcdefghijklmnopqrstuvwxyz"),
+        FileEntry("static/reports/report_test.pdf", 4, None),
+    ]
+    result = validate_entries(entries, profile="full")
+    assert result["ok"] is False
+    codes = {item["code"] for item in result["issues"]}
+    assert "MUTABLE_RUNTIME" in codes
+    assert "FORBIDDEN_FILE" in codes
+    assert "SECRET_OPENAI_KEY" in codes
+    assert "GENERATED_REPORT" in codes
+
+
+def test_validator_rejects_zip_slip(tmp_path: Path):
+    archive = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("../outside.txt", "unsafe")
+    result = validate_path(archive, profile="migration")
+    assert result["ok"] is False
+    assert any(item["code"] == "UNSAFE_ARCHIVE_PATH" for item in result["issues"])
+
+
+def test_backup_is_non_destructive_and_restore_is_checksum_verified(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "app_version.py").write_text('APP_VERSION = "v19.0.19"\n', encoding="utf-8")
+    runtime_file = project / ".app_runtime" / "data" / "portfolio.json"
+    runtime_file.parent.mkdir(parents=True)
+    runtime_file.write_text('{"cash": 100000}', encoding="utf-8")
+    env_file = project / ".env"
+    env_file.write_text("DATABASE_URL=postgresql://local\n", encoding="utf-8")
+
+    backup_path = tmp_path / "backup.zip"
+    archive, manifest = create_backup(project, backup_path)
+    assert archive == backup_path
+    assert runtime_file.exists()
+    assert env_file.exists()
+    assert len(manifest["files"]) == 2
+
+    restore_root = tmp_path / "restored"
+    result = restore(backup_path, restore_root)
+    assert result["ok"] is True
+    assert (restore_root / ".app_runtime" / "data" / "portfolio.json").read_text(encoding="utf-8") == '{"cash": 100000}'
+    assert (restore_root / ".env").exists()
+
+    manifest_from_zip = json.loads(zipfile.ZipFile(backup_path).read("backup_manifest.json"))
+    assert all(item["sha256"] for item in manifest_from_zip["files"])
+
+
+def test_clean_source_has_no_mutable_distribution_data():
+    root = Path(__file__).resolve().parents[1]
+    forbidden = [
+        root / ".app_runtime",
+        root / "data",
+        root / "cache",
+        root / "logs",
+        root / "runtime",
+        root / "storage",
+        root / ".env",
+        root / ".streamlit" / "secrets.toml",
+    ]
+    assert not [path for path in forbidden if path.exists()]
+    reports = [path for path in (root / "static" / "reports").glob("*") if path.name != ".gitkeep"]
+    assert reports == []
