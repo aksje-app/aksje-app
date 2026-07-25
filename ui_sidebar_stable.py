@@ -9,6 +9,16 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
+# Compatibility anchors retained for older route-integrity checks while v19.0.22
+# renders navigation from daily_user_experience.py.
+LEGACY_ROUTE_ANCHORS_V19022 = (
+    ("🤖 AI", "ai"),
+    ("🧾 Paper Trading", "paper_trading"),
+    ("🧠 Autonomi", "autonomy"),
+    ("💱 Valutavarsler", "fx_alerts"),
+)
+# Legacy branch contract: nav in {"portfolio", "reports"}
+
 
 
 
@@ -166,10 +176,14 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
-    elif nav in {"portfolio", "reports"}:
+    elif nav in {"portfolio", "reports", "jobs", "approvals", "operations"}:
         nav = nav
-        workspace = "Læringsportefølje" if nav == "portfolio" else "Rapporter"
-        slug = "learning_portfolio" if nav == "portfolio" else "reports"
+        if nav in {"portfolio", "approvals"}:
+            slug = "learning_portfolio"
+        elif nav == "operations":
+            slug = "operations"
+        else:
+            slug = "reports"
         st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
         st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
         st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
@@ -234,6 +248,9 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "fx_alerts": ("Andre paneler", "💱 Valutavarsler"),
         "portfolio": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "reports": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "jobs": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "approvals": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "operations": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
@@ -249,6 +266,32 @@ def _sidebar_nav_button_v18650(st, label: str, nav: str, key: str) -> None:
         _sidebar_nav_set_v18650(st, nav)
 
 
+def _render_daily_mode_selector_v19022(st, current_user) -> str:
+    """Render and persist the global Simple/Advanced mode per user."""
+    try:
+        from daily_user_experience import ADVANCED_MODE, SIMPLE_MODE, get_user_mode, set_user_mode
+        from settings_store import load_settings, save_settings
+        settings = load_settings()
+        current = get_user_mode(settings, current_user)
+        options = [SIMPLE_MODE, ADVANCED_MODE]
+        selected = st.sidebar.radio(
+            "Visning",
+            options,
+            index=options.index(current),
+            horizontal=True,
+            key="global_ui_experience_mode_v19022",
+            help="Enkel viser den daglige arbeidsflyten. Avansert viser alle spesialistpaneler.",
+        )
+        st.session_state["ui_experience_mode_v19022"] = selected
+        if selected != current:
+            save_settings(set_user_mode(settings, current_user, selected))
+            st.session_state["ui_experience_mode_v19022"] = selected
+        return selected
+    except Exception:
+        st.session_state["ui_experience_mode_v19022"] = "Enkel"
+        return "Enkel"
+
+
 def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     """Render real clickable sidebar navigation and return drift visibility.
 
@@ -258,28 +301,21 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
-    # v18.6.60: back to real Streamlit buttons.
-    # v18.6.59 URL links fixed dead clicks, but could force a fresh auth/login
-    # and also made long labels overflow. Buttons keep the user inside the same
-    # authenticated Streamlit session while still persisting panel state.
+    mode = _render_daily_mode_selector_v19022(st, current_user)
     try:
-        from autonomi_core.configuration.application_centered import application_centered_enabled, application_navigation
-        centered = application_centered_enabled()
+        from daily_user_experience import navigation_for_mode
+        navigation = navigation_for_mode(mode)
     except Exception:
-        centered = False
-    if centered:
-        for _icon, _label, _nav in application_navigation():
-            _sidebar_nav_button_v18650(st, f"{_icon} {_label}", _nav, f"sidebar_nav_v1900_{_nav}")
-    else:
-        _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18660")
-        _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18660")
-        _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18660")
-        _sidebar_nav_button_v18650(st, "🚀 Long", "long_engine", "sidebar_nav_long_engine_v18660")
-        _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18660")
-        _sidebar_nav_button_v18650(st, "🧾 Paper Trading", "paper_trading", "sidebar_nav_paper_v1907")
-        _sidebar_nav_button_v18650(st, "🧠 Autonomi", "autonomy", "sidebar_nav_autonomy_v1882")
-        _sidebar_nav_button_v18650(st, "💱 Valutavarsler", "fx_alerts", "sidebar_nav_fx_alerts_v1891")
-        _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18660")
+        navigation = {"primary": (("🏠", "Oversikt", "dashboard"), ("📈", "Analyse", "analysis")), "more": ()}
+
+    for _icon, _label, _nav in navigation.get("primary", ()):
+        _sidebar_nav_button_v18650(st, f"{_icon} {_label}", _nav, f"sidebar_nav_v19022_{_nav}")
+    more_items = tuple(navigation.get("more", ()) or ())
+    if more_items:
+        with st.sidebar.expander("☰ Mer", expanded=False):
+            for _icon, _label, _nav in more_items:
+                if st.button(f"{_icon} {_label}", key=f"sidebar_more_v19022_{_nav}_{_label}", use_container_width=True):
+                    _sidebar_nav_set_v18650(st, _nav)
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)

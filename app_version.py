@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.0.21"
-APP_VERSION_NAME = "Ny beslutningsrapport"
+APP_VERSION = "v19.0.22"
+APP_VERSION_NAME = "Forenklet daglig brukeropplevelse"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.20"
+PREVIOUS_APP_VERSION = "v19.0.21"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -66,6 +66,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.0.22: Forenklet daglig brukeropplevelse: én global Enkel/Avansert-modus lagres per bruker. Enkel modus gir fire primærområder og Mer-meny, mobil får fem hovedvalg, startsiden prioriterer oppgaver som krever oppmerksomhet, kandidatkort får direkte handlinger, og brukerrettede statuser standardiseres på norsk. Avansert modus beholder alle spesialistpaneler. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler er endret.",
     "v19.0.21: Ny beslutningsrapport: PDF og tekst får en kompakt beslutningsdel med teknisk vedlegg, rapporttype-spesifikt fokus, endringer siden sist, oppgaver til neste kjøring, kandidatens blokkeringer og endringsvilkår, gyldighet og utløpsregler, kildekonsensus, separate mål for datadekning, kildesikkerhet og beslutningssikkerhet, forklarbar rapportpålitelighet og kandidatrelevant hendelseskalender. Rapportarkivet får alle rapporttyper og utvidede filtre. Alt bygges fra samme ReportDocument og endrer ingen score, handlinger, handelsregler, risikoterskler eller porteføljeporter.",
     "v19.0.20: Felles rapport- og versjonskontrakter: én sentral APP_VERSION og separate skjema-, modell-, autonomi- og kildeklassifiseringsversjoner samles i en maskinlesbar versjonskontrakt. En renderer-uavhengig ReportDocument-kontrakt standardiserer rapportidentitet, oppdrag, metadata, seksjoner og validering for PDF, tekst, arkiv og brukerflate. Eldre rapporter oppgraderes i minnet, mens eksplisitte konflikter mellom rapporttype og oppdrag stoppes. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeterskler er endret.",
     "v19.0.19a: Sikker distribusjon og databevaring: fullpakken bygges uten runtime-data, testposisjoner, rapportarkiv, logger, cache, databaser eller hemmeligheter. Automatisk distribusjonsvalidator kontrollerer mapper og ZIP-filer, blokkerer utrygge arkivstier og kjente legitimasjonsformater, og releasebyggingen lager separate full-, oppdaterings- og migreringspakker med SHA-256. Ikke-destruktive backup- og gjenopprettingsverktøy bevarer eksisterende .app_runtime, eldre dataområder, .env og Streamlit-hemmeligheter før oppgradering. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljelogikk er endret.",

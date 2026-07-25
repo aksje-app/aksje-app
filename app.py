@@ -41,6 +41,14 @@ try:
 except ModuleNotFoundError:
     from tools.ui_sidebar_stable import render_stable_sidebar_v18641
 from settings_store import load_settings, save_settings, reset_settings
+from daily_user_experience import (
+    ADVANCED_MODE as UX_ADVANCED_MODE_V19022,
+    SIMPLE_MODE as UX_SIMPLE_MODE_V19022,
+    build_attention_items as build_attention_items_v19022,
+    candidate_action_payload as candidate_action_payload_v19022,
+    get_user_mode as get_user_mode_v19022,
+    status_label as ux_status_label_v19022,
+)
 from alert_state import reset_alert_state
 from market_hours import open_markets, market_status_lines, market_statuses
 from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, market_scope_options
@@ -4453,9 +4461,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# V18.6.4l: Kompakt/Full var likt i praksis. Ikke vis et valg som ikke endrer arbeidsflyten.
-st.session_state["global_view_mode_v145"] = "Full"
-APP_VIEW_MODE = "Full"
+# v19.0.22: Global Enkel/Avansert-modus styrer informasjonsmengden i hele appen.
+try:
+    _early_ui_mode_v19022 = get_user_mode_v19022(load_settings(), current_user)
+except Exception:
+    _early_ui_mode_v19022 = UX_SIMPLE_MODE_V19022
+st.session_state["ui_experience_mode_v19022"] = _early_ui_mode_v19022
+APP_VIEW_MODE = "Kompakt" if _early_ui_mode_v19022 == UX_SIMPLE_MODE_V19022 else "Full"
+st.session_state["global_view_mode_v145"] = APP_VIEW_MODE
 st.session_state["app_view_mode"] = APP_VIEW_MODE
 st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
 
@@ -7352,7 +7365,7 @@ def render_action_chips(decision):
     st.markdown(
         f"""
         <div class="action-chip-row">
-            <span class="action-chip action-info">Teknisk: {decision.get("decision", "HOLD / WAIT")}</span>
+            <span class="action-chip action-info">Teknisk: {ux_status_label_v19022(decision.get("decision", "HOLD / WAIT"), str(decision.get("decision", "HOLD / WAIT")))}</span>
             <span class="action-chip {decision.get("action_class", "action-hold")}">{decision.get("action_icon", "🟡")} {decision.get("action_now", "VENT")}</span>
             <span class="action-chip action-info">Conf: {decision.get("confidence", 0)}%</span>
             <span class="action-chip action-info">Risiko: {decision.get("risk", "Middels")}</span>
@@ -7550,6 +7563,113 @@ def _ranking_display_limit_choice_v1864(title: str, total: int) -> tuple[str, in
     return choice, int(choice.replace("Topp ", ""))
 
 
+
+def _add_candidate_to_watchlist_v19022(ticker: str) -> tuple[bool, str]:
+    ticker = normalize_user_ticker(ticker)
+    if not ticker:
+        return False, "Mangler ticker"
+    settings = load_settings()
+    current = str(settings.get("manual_watchlist_extra_text_v18611") or "")
+    values = _dedupe_text_list(parse_watchlist(current) + [ticker])
+    settings["manual_watchlist_extra_text_v18611"] = ", ".join(values)
+    save_settings(settings)
+    st.session_state["latest_watchlist_tickers_v156"] = _dedupe_text_list(
+        list(st.session_state.get("latest_watchlist_tickers_v156") or []) + [ticker]
+    )
+    return True, f"{ticker} er lagt til overvåking"
+
+
+def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx: int) -> None:
+    """Direct candidate actions without changing any decision or trading rule."""
+    payload = candidate_action_payload_v19022(item, decision)
+    ticker = payload.get("ticker") or str(item.get("ticker") or "")
+    if not ticker:
+        return
+    base = safe_widget_key(f"candidate_actions_v19022_{title}_{ticker}_{idx}")
+    st.markdown("**Handlinger**")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("📈 Analyse", key=f"{base}_analysis", use_container_width=True):
+            st.session_state["search_main_v157"] = ticker
+            st.session_state["ai_candidate_single_ticker_v1864t"] = ticker
+            st.session_state["cc_interactive_ticker_v18535"] = ticker
+            _apply_nav_target_v18658("analysis")
+            st.rerun()
+    with c2:
+        if st.button("👁 Overvåk", key=f"{base}_watch", use_container_width=True):
+            ok, message = _add_candidate_to_watchlist_v19022(ticker)
+            (st.success if ok else st.warning)(message)
+    with c3:
+        if st.button("🧾 Paper", key=f"{base}_paper", use_container_width=True):
+            st.session_state["paper_selected_ticker_v19022"] = ticker
+            _apply_nav_target_v18658("paper_trading")
+            st.rerun()
+    with c4:
+        if st.button("↻ Oppdater", key=f"{base}_refresh", use_container_width=True):
+            with st.spinner(f"Oppdaterer data for {ticker}..."):
+                refreshed = cached_score_stock_manual(ticker, use_news=True, force=True)
+            if refreshed:
+                st.session_state["cc_interactive_last_result_v18535"] = [refreshed]
+                st.success(f"Data er oppdatert for {ticker}")
+            else:
+                st.warning(f"Kunne ikke oppdatere {ticker}")
+
+    with st.expander("Kilder, vilkår, hendelser og historikk", expanded=False):
+        tabs = st.tabs(["Beslutning", "Kilder", "Hendelser", "Historikk", "Eksport"])
+        with tabs[0]:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Status", payload.get("status") or "-")
+            m2.metric("Nåværende score", payload.get("current_score") if payload.get("current_score") is not None else "-")
+            delta = payload.get("score_delta")
+            m3.metric("Endring", delta if delta is not None else "-")
+            blockers = payload.get("blockers") or []
+            conditions = payload.get("change_conditions") or []
+            st.markdown("**Hva hindrer beslutning?**")
+            if blockers:
+                for value in blockers[:8]: st.markdown(f"- {value}")
+            else:
+                st.caption("Ingen eksplisitte blokkeringer er lagret for kandidaten.")
+            st.markdown("**Hva kan endre vurderingen?**")
+            if conditions:
+                for value in conditions[:8]: st.markdown(f"- {value}")
+            else:
+                st.caption("Ingen eksplisitte endringsvilkår er lagret ennå.")
+        with tabs[1]:
+            sources = payload.get("sources") or []
+            if sources:
+                normalized = [dict(x) if isinstance(x, dict) else {"Kilde": str(x)} for x in sources[:20]]
+                st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen kandidatspesifikke kilder er lagret i denne visningen.")
+        with tabs[2]:
+            events = payload.get("events") or []
+            if events:
+                normalized = [dict(x) if isinstance(x, dict) else {"Hendelse": str(x)} for x in events[:20]]
+                st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen kommende kandidatspesifikke hendelser er lagret.")
+        with tabs[3]:
+            history = payload.get("history") or []
+            if history:
+                normalized = [dict(x) if isinstance(x, dict) else {"Historikk": str(x)} for x in history[:30]]
+                st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
+            else:
+                previous = payload.get("previous_score")
+                if previous is not None:
+                    st.write({"Forrige score": previous, "Nåværende score": payload.get("current_score"), "Endring": payload.get("score_delta")})
+                else:
+                    st.caption("Ingen tidligere kandidatobservasjoner er tilgjengelige i kortet.")
+        with tabs[4]:
+            st.download_button(
+                "Last ned kandidatanalyse som JSON",
+                data=payload.get("export_json") or "{}",
+                file_name=f"{ticker.replace('.', '_')}_kandidatanalyse.json",
+                mime="application/json",
+                key=f"{base}_download",
+                use_container_width=True,
+            )
+
+
 def render_ranking(results, title):
     st.subheader(title)
     results = _ranked_for_display(results)
@@ -7738,6 +7858,7 @@ def render_ranking(results, title):
                                 st.warning(_msg)
                 except Exception as _e:
                     st.caption(f"Paper-knapp ikke tilgjengelig: {_e}")
+                _render_candidate_actions_v19022(item, card_decision, title, idx)
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -11366,75 +11487,173 @@ _mobile_nav_links_v18646 = {
     "alerts": _mobile_nav_href_v18646("alerts"),
     "system": _mobile_nav_href_v18646("system"),
 }
-try:
-    from autonomi_core.configuration.application_centered import application_centered_enabled as _centered_nav_v1900
-    _centered_nav_active_v1900 = _centered_nav_v1900()
-except Exception:
-    _centered_nav_active_v1900 = False
-_mobile_nav_html_v1900 = (f"""
-  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
-  <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
-  <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
-  <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
-  <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
-  <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
-  <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
-  <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
-""" if _centered_nav_active_v1900 else f"""
-  <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
-  <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-  <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
-  <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
-  <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
-  <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
-  <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
-  <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
-  <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
-""")
-st.markdown(f"""
-<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
-  {_mobile_nav_html_v1900}
-</div>
-""", unsafe_allow_html=True)
+_ui_mode_v19022 = str(st.session_state.get("ui_experience_mode_v19022") or UX_SIMPLE_MODE_V19022)
+if _ui_mode_v19022 == UX_SIMPLE_MODE_V19022:
+    _mobile_more_items_v19022 = [
+        ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
+        ("🧾", "Paper Trading", "Teoretiske handler og regler", _mobile_nav_links_v18646["paper_trading"]),
+        ("✅", "Godkjenninger", "Forslag som krever valg", _mobile_nav_links_v18646["approvals"]),
+        ("⏱️", "Jobber", "Planlegger og testkjøringer", _mobile_nav_links_v18646["jobs"]),
+        ("🔔", "Varsler og drift", "Kildefeil og driftsstatus", _mobile_nav_links_v18646["alerts"]),
+        ("💱", "Valuta", "Valutavarsler", _mobile_nav_links_v18646["fx_alerts"]),
+        ("⚙️", "Innstillinger", "System og administrasjon", _mobile_nav_links_v18646["system"]),
+    ]
+    _mobile_more_links_v19022 = "\n".join(
+        f'<a class="mobile-drawer-link-v19015" href="{html.escape(href)}" target="_self">'
+        f'<span class="mobile-drawer-icon-v19015">{icon}</span>'
+        f'<span><b>{html.escape(label)}</b><small>{html.escape(help_text)}</small></span></a>'
+        for icon, label, help_text, href in _mobile_more_items_v19022
+    )
+    st.markdown(f"""
+    <style>
+    @media (max-width: 900px) {{
+      html body .mobile-bottom-nav-v18644 {{ overflow-x:hidden !important; }}
+      html body .mobile-bottom-nav-v18644 > a,
+      html body .mobile-bottom-nav-v18644 > .mobile-more-v19022 {{
+        flex:1 1 20% !important; min-width:0 !important; width:20% !important;
+      }}
+      html body .mobile-more-v19022 {{ position: static !important; min-width: 0 !important; height:52px !important; }}
+      html body .mobile-more-v19022 > summary {{
+        list-style:none !important; min-height:48px !important; display:flex !important;
+        flex-direction:column !important; align-items:center !important; justify-content:center !important;
+        gap:2px !important; border-radius:14px !important; cursor:pointer !important;
+        color:#e0f2fe !important; background:linear-gradient(180deg,rgba(14,56,90,.88),rgba(8,30,55,.92)) !important;
+        border:1px solid rgba(96,165,250,.30) !important;
+      }}
+      html body .mobile-more-v19022 > summary::-webkit-details-marker {{ display:none !important; }}
+      html body .mobile-more-v19022 > summary b {{ font-size:1.05rem !important; line-height:1 !important; }}
+      html body .mobile-more-v19022 > summary span {{ font-size:.58rem !important; font-weight:900 !important; }}
+      html body .mobile-more-panel-v19022 {{
+        position:fixed !important; left:.55rem !important; right:.55rem !important; bottom:5.3rem !important;
+        z-index:1000001 !important; max-height:70vh !important; overflow:auto !important;
+        padding:.8rem !important; border-radius:18px !important; background:rgba(2,10,24,.98) !important;
+        border:1px solid rgba(56,189,248,.45) !important; box-shadow:0 22px 60px rgba(0,0,0,.55) !important;
+      }}
+      html body .mobile-more-panel-v19022 h3 {{ margin:.1rem .2rem .65rem !important; color:#f8fafc !important; }}
+    }}
+    </style>
+    <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
+      <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
+      <a href="{_mobile_nav_links_v18646['reports']}" title="Rapport" target="_self"><b>📚</b><span>Rapport</span></a>
+      <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
+      <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
+      <details class="mobile-more-v19022">
+        <summary aria-label="Åpne flere valg"><b>☰</b><span>Mer</span></summary>
+        <div class="mobile-more-panel-v19022" role="navigation" aria-label="Flere mobilvalg">
+          <h3>Mer</h3>
+          <div class="mobile-drawer-grid-v19015">{_mobile_more_links_v19022}</div>
+        </div>
+      </details>
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    try:
+        from autonomi_core.configuration.application_centered import application_centered_enabled as _centered_nav_v1900
+        _centered_nav_active_v1900 = _centered_nav_v1900()
+    except Exception:
+        _centered_nav_active_v1900 = False
+    _mobile_nav_html_v1900 = (f"""
+      <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
+      <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
+      <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
+      <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
+      <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
+      <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
+      <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
+      <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
+      <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
+    """ if _centered_nav_active_v1900 else f"""
+      <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
+      <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
+      <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
+      <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
+      <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
+      <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
+      <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
+      <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
+      <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
+    """)
+    st.markdown(f"""<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">{_mobile_nav_html_v1900}</div>""", unsafe_allow_html=True)
+    _mobile_drawer_items_v19015 = [
+        ("🏠", "Oversikt", "Dashboard og marked nå", _mobile_nav_links_v18646["dashboard"]),
+        ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
+        ("📚", "Rapporter", "Siste og arkiverte rapporter", _mobile_nav_links_v18646["reports"]),
+        ("⏱️", "Jobber / Planlegger", "Tidsplan, test og Pushover", _mobile_nav_links_v18646["jobs"]),
+        ("✅", "Ventende godkjenninger", "Læringsforslag som krever valg", _mobile_nav_links_v18646["approvals"]),
+        ("💼", "Læringsportefølje", "Kontrollert læring og portefølje", _mobile_nav_links_v18646["portfolio"]),
+        ("🧾", "Paper Trading", "Teoretiske handler og regler", _mobile_nav_links_v18646["paper_trading"]),
+        ("🎯", "Top Picks", "Beste kandidater", _mobile_nav_links_v18646["top_picks"]),
+        ("📈", "Analyse", "AI Kandidattest", _mobile_nav_links_v18646["analysis"]),
+        ("🔔", "Varsler", "Varselsenter og drift", _mobile_nav_links_v18646["alerts"]),
+        ("💱", "Valuta", "Valutavarsler", _mobile_nav_links_v18646["fx_alerts"]),
+        ("⚙️", "Systemstatus", "System, admin og innstillinger", _mobile_nav_links_v18646["system"]),
+    ]
+    _mobile_drawer_links_v19015 = "\n".join(
+        f'<a class="mobile-drawer-link-v19015" href="{html.escape(href)}" target="_self"><span class="mobile-drawer-icon-v19015">{icon}</span><span><b>{html.escape(label)}</b><small>{html.escape(help_text)}</small></span></a>'
+        for icon, label, help_text, href in _mobile_drawer_items_v19015
+    )
+    st.markdown(f"""
+    <details class="mobile-drawer-v19015"><summary aria-label="Åpne mobilmeny"><span>☰</span><b>Meny</b></summary>
+      <div class="mobile-drawer-panel-v19015" role="navigation" aria-label="Mobil hovedmeny">
+        <div class="mobile-drawer-head-v19015"><div><b>AI Aksje Analyzer Pro</b><small>Avansert mobilmeny</small></div><em>Trykk et valg for å åpne</em></div>
+        <div class="mobile-drawer-grid-v19015">{_mobile_drawer_links_v19015}</div>
+      </div>
+    </details>
+    """, unsafe_allow_html=True)
 
-# v19.0.15: Mobil høyremeny/hovedmeny. Streamlit-sidebaren skjules på mobil,
-# derfor må alle høyremenyvalg være tilgjengelige som en egen, fast drawer.
-_mobile_drawer_items_v19015 = [
-    ("🏠", "Oversikt", "Dashboard og marked nå", _mobile_nav_links_v18646["dashboard"]),
-    ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
-    ("📚", "Rapporter", "Siste og arkiverte rapporter", _mobile_nav_links_v18646["reports"]),
-    ("⏱️", "Jobber / Planlegger", "Tidsplan, test og Pushover", _mobile_nav_links_v18646["jobs"]),
-    ("✅", "Ventende godkjenninger", "Læringsforslag som krever valg", _mobile_nav_links_v18646["approvals"]),
-    ("💼", "Læringsportefølje", "Kontrollert læring og portefølje", _mobile_nav_links_v18646["portfolio"]),
-    ("🧾", "Paper Trading", "Teoretiske handler og regler", _mobile_nav_links_v18646["paper_trading"]),
-    ("🎯", "Top Picks", "Beste kandidater", _mobile_nav_links_v18646["top_picks"]),
-    ("📈", "Analyse", "AI Kandidattest", _mobile_nav_links_v18646["analysis"]),
-    ("🔔", "Varsler", "Varselsenter og drift", _mobile_nav_links_v18646["alerts"]),
-    ("💱", "Valuta", "Valutavarsler", _mobile_nav_links_v18646["fx_alerts"]),
-    ("⚙️", "Systemstatus", "System, admin og innstillinger", _mobile_nav_links_v18646["system"]),
-]
-_mobile_drawer_links_v19015 = "\n".join(
-    f'<a class="mobile-drawer-link-v19015" href="{html.escape(href)}" target="_self">'
-    f'<span class="mobile-drawer-icon-v19015">{icon}</span>'
-    f'<span><b>{html.escape(label)}</b><small>{html.escape(help_text)}</small></span>'
-    f'</a>'
-    for icon, label, help_text, href in _mobile_drawer_items_v19015
-)
-st.markdown(f"""
-<details class="mobile-drawer-v19015">
-  <summary aria-label="Åpne mobilmeny"><span>☰</span><b>Meny</b></summary>
-  <div class="mobile-drawer-panel-v19015" role="navigation" aria-label="Mobil hovedmeny">
-    <div class="mobile-drawer-head-v19015">
-      <div><b>AI Aksje Analyzer Pro</b><small>Mobil hovedmeny</small></div>
-      <em>Trykk et valg for å åpne</em>
-    </div>
-    <div class="mobile-drawer-grid-v19015">
-      {_mobile_drawer_links_v19015}
-    </div>
-  </div>
-</details>
-""", unsafe_allow_html=True)
+
+def _attention_dashboard_visible_v19022() -> bool:
+    if str(st.session_state.get("ui_experience_mode_v19022") or UX_SIMPLE_MODE_V19022) != UX_SIMPLE_MODE_V19022:
+        return False
+    nav = str(
+        st.session_state.get("active_nav_target_v18674c")
+        or st.session_state.get("ai_control_center_force_nav_v18663")
+        or "dashboard"
+    ).strip().lower()
+    return nav in {"", "dashboard"}
+
+
+def render_daily_attention_dashboard_v19022() -> None:
+    """Task-first home surface. Reads persisted status only; starts no heavy work."""
+    if not _attention_dashboard_visible_v19022():
+        return
+    try:
+        from market_intelligence import _load_report_archive
+        archive = _load_report_archive()
+    except Exception:
+        archive = []
+    try:
+        from autonomi_core.configuration.registry import status as _registry_status
+        pending = int((_registry_status() or {}).get("pending_approvals") or 0)
+    except Exception:
+        pending = 0
+    items = build_attention_items_v19022(archive, pending_approvals=pending, scheduler_ok=None, max_items=7)
+    severity_meta = {
+        "critical": ("🔴", "Kritisk"), "warning": ("🟠", "Følg opp"),
+        "info": ("🔵", "Informasjon"), "ok": ("🟢", "OK"),
+    }
+    st.markdown("### Hva trenger oppmerksomhet nå?")
+    st.caption("Bygget fra siste lagrede rapport, kildehelse og godkjenningsstatus. Ingen ny markedshenting startes her.")
+    rows = []
+    for item in items:
+        icon, status_text = severity_meta.get(str(item.get("severity")), ("⚪", "Status"))
+        rows.append({"Status": f"{icon} {status_text}", "Oppgave": item.get("title"), "Detalj": item.get("detail")})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    a1, a2, a3, a4, a5 = st.columns(5)
+    actions = [
+        (a1, "▶ Kjør rapport", "reports", "attention_run_report_v19022"),
+        (a2, "📚 Siste rapport", "reports", "attention_open_report_v19022"),
+        (a3, "Δ Se endringer", "reports", "attention_changes_v19022"),
+        (a4, "✅ Godkjenninger", "approvals", "attention_approvals_v19022"),
+        (a5, "🛠 Drift", "operations", "attention_operations_v19022"),
+    ]
+    for column, label, nav, key in actions:
+        with column:
+            if st.button(label, key=key, use_container_width=True):
+                _apply_nav_target_v18658(nav)
+                st.rerun()
+
 
 # --- Lagrede auto-innstillinger ---
 st.sidebar.markdown(
@@ -12225,7 +12444,7 @@ def render_top_picks_control_center_v1863s():
                 "Ticker": x.get("ticker"), "Oppdrag": x.get("mission_id"),
                 "Strategi": x.get("strategy"), "Datakvalitet": x.get("canonical_data_quality"),
                 "Hvorfor valgt": x.get("selection_reason"),
-                "Endring": x.get("score_delta_since_previous"), "Status": x.get("candidate_state"),
+                "Endring": x.get("score_delta_since_previous"), "Status": ux_status_label_v19022(x.get("candidate_state"), str(x.get("candidate_state") or "")),
             } for x in top_picks]
             st.dataframe(pd.DataFrame(metadata_rows), use_container_width=True, hide_index=True)
 
@@ -21159,6 +21378,7 @@ try:
     _dashboard2026_kpi_slot_v18636 = st.empty()
     with _dashboard2026_kpi_slot_v18636:
         render_dashboard2026_kpis_v18631()
+    render_daily_attention_dashboard_v19022()
     # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
     render_live_market_banner()
