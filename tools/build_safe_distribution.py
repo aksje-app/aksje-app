@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.0.22 release archives."""
+"""Build clean, validated v19.1.0 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,26 +25,34 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.0.22"
-VERSION_FILE = "19_0_22"
+VERSION = "v19.1.0"
+VERSION_FILE = "19_1_0"
 
 UPDATE_FILES = {
+    ".env.example",
     "app.py",
     "app_version.py",
-    "daily_user_experience.py",
-    "ui_sidebar_stable.py",
+    "data_source_diagnostics.py",
+    "evidence_integrity.py",
+    "market_intelligence.py",
+    "news_intelligence.py",
+    "news_source_registry.py",
+    "operational_telemetry.py",
+    "operations_ui.py",
+    "runtime_background.py",
+    "scheduler_background.py",
     "safety_audit.py",
-    "RELEASE_NOTES_v19.0.22.md",
-    "DEPLOY_v19.0.22.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.0.22.md",
-    "MIGRATION_v19.0.22.md",
-    "TEST_REPORT_v19.0.22.md",
+    "RELEASE_NOTES_v19.1.0.md",
+    "DEPLOY_v19.1.0.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
+    "MIGRATION_v19.1.0.md",
+    "TEST_REPORT_v19.1.0.md",
     "tools/__init__.py",
     "tools/build_safe_distribution.py",
     "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py",
     "tools/restore_safe_upgrade_backup.py",
-    "test_v19022_daily_user_experience.py",
+    "tests/test_v1910_operational_traceability.py",
     "tests/test_v1922_daily_user_experience.py",
     "tests/test_v1921_decision_report.py",
     "tests/test_v1920_report_version_contracts.py",
@@ -55,15 +63,17 @@ UPDATE_FILES = {
 }
 
 
+
 MIGRATION_FILES = {
-    "MIGRATION_v19.0.22.md",
-    "DEPLOY_v19.0.22.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.0.22.md",
+    "MIGRATION_v19.1.0.md",
+    "DEPLOY_v19.1.0.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
     "tools/__init__.py",
     "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py",
     "tools/restore_safe_upgrade_backup.py",
 }
+
 
 
 
@@ -197,7 +207,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.0.22-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.1.0-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()
