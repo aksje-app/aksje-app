@@ -11,18 +11,18 @@ from tools.validate_distribution import FileEntry, validate_entries, validate_pa
 
 
 def test_release_identity_is_safe_distribution_patch():
-    assert APP_VERSION == "v19.0.19a"
-    assert PREVIOUS_APP_VERSION == "v19.0.19"
+    assert APP_VERSION == "v19.0.20"
+    assert PREVIOUS_APP_VERSION == "v19.0.19a"
 
 
 def test_validator_rejects_runtime_secret_and_generated_report():
     entries = [
         FileEntry("app.py", 1, b"x"),
-        FileEntry("app_version.py", 30, b'APP_VERSION = "v19.0.19a"'),
+        FileEntry("app_version.py", 30, b'APP_VERSION = "v19.0.20"'),
         FileEntry("requirements.txt", 0, b""),
         FileEntry(".env.example", 0, b""),
-        FileEntry("RELEASE_NOTES_v19.0.19a.md", 0, b""),
-        FileEntry("DEPLOY_v19.0.19a.md", 0, b""),
+        FileEntry("RELEASE_NOTES_v19.0.20.md", 0, b""),
+        FileEntry("DEPLOY_v19.0.20.md", 0, b""),
         FileEntry("tools/validate_distribution.py", 0, b""),
         FileEntry("tools/prepare_safe_upgrade.py", 0, b""),
         FileEntry("DISTRIBUTION_MANIFEST.json", 2, b"{}"),
@@ -75,18 +75,21 @@ def test_backup_is_non_destructive_and_restore_is_checksum_verified(tmp_path: Pa
     assert all(item["sha256"] for item in manifest_from_zip["files"])
 
 
-def test_clean_source_has_no_mutable_distribution_data():
+def test_mutable_test_runtime_is_excluded_from_distribution():
+    # The full regression suite intentionally creates local runtime files. The
+    # release invariant is therefore that every such file is excluded by the
+    # packager, not that the working tree stays empty while tests are running.
+    from tools.build_safe_distribution import excluded
+
     root = Path(__file__).resolve().parents[1]
-    forbidden = [
-        root / ".app_runtime",
-        root / "data",
-        root / "cache",
-        root / "logs",
-        root / "runtime",
-        root / "storage",
-        root / ".env",
-        root / ".streamlit" / "secrets.toml",
-    ]
-    assert not [path for path in forbidden if path.exists()]
-    reports = [path for path in (root / "static" / "reports").glob("*") if path.name != ".gitkeep"]
-    assert reports == []
+    mutable_roots = [".app_runtime", "data", "cache", "logs", "runtime", "storage"]
+    for root_name in mutable_roots:
+        folder = root / root_name
+        for path in folder.rglob("*") if folder.exists() else []:
+            assert excluded(path.relative_to(root)) is True
+    for sensitive in (root / ".env", root / ".streamlit" / "secrets.toml"):
+        assert not sensitive.exists()
+    report_dir = root / "static" / "reports"
+    for path in report_dir.glob("*") if report_dir.exists() else []:
+        if path.name != ".gitkeep":
+            assert excluded(path.relative_to(root)) is True
