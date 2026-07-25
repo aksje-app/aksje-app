@@ -1,0 +1,785 @@
+"""Decision-report enrichment for AI Aksje Analyzer v19.0.21.
+
+This module is deliberately read-only with respect to ranking and trading logic.
+It derives explanation, reliability, validity, event and follow-up metadata from
+an already completed market-intelligence run. It never changes candidate scores,
+actions, portfolio weights, thresholds or autonomous execution rules.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from typing import Any, Mapping, MutableMapping, Sequence
+
+from local_time import DEFAULT_TIMEZONE, as_local, valid_timezone
+
+DECISION_REPORT_SCHEMA_VERSION = "1.0"
+TASK_STATUSES = ("VENTER", "PÅGÅR", "UTFØRT", "FORTSATT_PROBLEM", "IKKE_LENGER_RELEVANT")
+CONSENSUS_LEVELS = ("STERK", "MODERAT", "SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT")
+
+ACTION_LABELS_NO = {
+    "BUY": "Kjøp", "HOLD": "Behold", "SELL": "Selg",
+    "SKIP": "Ikke aktuell", "REVIEW": "Krever manuell vurdering",
+    "KJØP": "Kjøp",
+}
+
+def _action_label(value: Any) -> str:
+    text = str(value or "Krever manuell vurdering")
+    return ACTION_LABELS_NO.get(text.upper(), text)
+
+REPORT_FOCUS: dict[str, list[str]] = {
+    "MORGENRAPPORT": [
+        "Hendelser siden forrige markedsslutt",
+        "USA- og Asia-utvikling før åpning",
+        "Dagens resultater, makrotall og kandidatrisiko",
+        "Kandidater som bør overvåkes ved børsåpning",
+    ],
+    "DAGSRAPPORT": [
+        "Markedsbevegelser siden åpning",
+        "Nye nyheter, volum- og kursutslag",
+        "Kandidater som nærmer seg beslutningsterskler",
+        "Endringer i risiko, likviditet og datakvalitet",
+    ],
+    "KVELDSRAPPORT": [
+        "Hva som skjedde gjennom handelsdagen",
+        "Om morgenens hypoteser ble bekreftet eller svekket",
+        "Nye, forbedrede, svekkede og utgåtte kandidater",
+        "Oppgaver og hendelser før neste handelsdag",
+    ],
+    "NATTRAPPORT": [
+        "USA-avslutning og etterbørshendelser",
+        "Overnight-risiko og Asia-relevante signaler",
+        "Hendelser som kan påvirke neste morgenrapport",
+        "Datakilder som må være klare før neste kjøring",
+    ],
+    "MANUELL_RAPPORT": [
+        "Brukerens eksplisitte analyseoppdrag",
+        "Vesentlige endringer og beslutningshindringer",
+        "Datadekning og kildegrunnlag",
+        "Konkrete oppfølgingspunkter",
+    ],
+    "UTKAST": [
+        "Foreløpige funn innenfor periodeoppdraget",
+        "Manglende data og kilder som må fullføres",
+        "Kandidater som ikke er klare for beslutning",
+        "Oppgaver før rapporten kan ferdigstilles",
+    ],
+}
+
+TTL_HOURS = {
+    "MORGENRAPPORT": 6,
+    "DAGSRAPPORT": 4,
+    "KVELDSRAPPORT": 16,
+    "NATTRAPPORT": 10,
+    "MANUELL_RAPPORT": 6,
+    "UTKAST": 3,
+    "SHADOW_VALIDATION": 3,
+}
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+        return number if number == number else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _rows(value: Any) -> list[Mapping[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return []
+    return [row for row in value if isinstance(row, Mapping)]
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                dt = datetime.strptime(text[:10], "%Y-%m-%d")
+            except ValueError:
+                return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _created_at(run: Mapping[str, Any]) -> datetime:
+    return _parse_datetime(run.get("created_at")) or datetime.now(timezone.utc)
+
+
+def _decision_threshold(run: Mapping[str, Any]) -> float:
+    funnel = _mapping(run.get("decision_funnel"))
+    portfolio = _mapping(run.get("portfolio_decisions"))
+    for value in (funnel.get("production_threshold"), portfolio.get("production_threshold")):
+        if value is not None:
+            return _safe_float(value, 78.0)
+    return 78.0
+
+
+def _risk_limit(run: Mapping[str, Any]) -> float:
+    funnel = _mapping(run.get("decision_funnel"))
+    params = _mapping(funnel.get("parameters"))
+    for value in (params.get("max_risk"), funnel.get("max_risk"), 65.0):
+        if value is not None:
+            return _safe_float(value, 65.0)
+    return 65.0
+
+
+def _source_names(payload: Mapping[str, Any], evidence_rows: Sequence[Mapping[str, Any]]) -> set[str]:
+    names: set[str] = set()
+    for key in ("source", "official_source", "publisher", "original_publisher"):
+        value = str(payload.get(key) or "").strip()
+        if value and value.casefold() not in {"unavailable", "ikke oppgitt", "none"}:
+            for part in value.replace(";", ",").split(","):
+                if part.strip():
+                    names.add(part.strip())
+    for row in evidence_rows:
+        for key in ("source", "publisher", "original_publisher", "provider"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                names.add(value)
+                break
+    for row in _rows(payload.get("search_log")):
+        if _safe_int(row.get("results"), 0) <= 0:
+            continue
+        value = str(row.get("source") or row.get("publisher") or "").strip()
+        if value:
+            names.add(value)
+    return names
+
+
+def _primary_source_present(payload: Mapping[str, Any], evidence_rows: Sequence[Mapping[str, Any]]) -> bool:
+    if payload.get("official_source"):
+        return True
+    primary_tokens = {"OFFICIAL", "EXCHANGE", "REGULATOR", "COMPANY_IR", "PRIMARY_SOURCE", "SEC_FILING", "BØRSMELDING"}
+    for row in [*_rows(payload.get("search_log")), *evidence_rows]:
+        source_type = str(row.get("source_type") or row.get("type") or "").upper()
+        role = str(row.get("source_role") or "").upper()
+        if any(token in source_type or token in role for token in primary_tokens):
+            return True
+    return False
+
+
+def _sponsored_count(payload: Mapping[str, Any], evidence_rows: Sequence[Mapping[str, Any]]) -> int:
+    count = 0
+    tokens = ("SPONSORED", "BRANDED", "PROMOTED", "PUBLieditorial".upper(), "CONTEÚDO DE MARCA")
+    for row in evidence_rows:
+        text = " ".join(str(row.get(k) or "") for k in ("article_type", "classification", "title", "source_role")).upper()
+        if any(token in text for token in tokens):
+            count += 1
+    return count
+
+
+def candidate_source_consensus(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe source agreement without changing evidence or candidate status."""
+    raw = _mapping(candidate.get("raw"))
+    readiness = _mapping(candidate.get("decision_readiness"))
+    all_sources: set[str] = set()
+    verified_facts = 0
+    primary = False
+    sponsored = 0
+    attempted = 0
+    successful = 0
+    areas: dict[str, Any] = {}
+    conflicts = _safe_int(readiness.get("conflicts"), 0)
+
+    for area, key, evidence_key in (
+        ("news", "news_intelligence", "events"),
+        ("insider", "insider_intelligence", "evidence"),
+    ):
+        payload = _mapping(raw.get(key))
+        evidence = _rows(payload.get(evidence_key))
+        search_log = _rows(payload.get("search_log"))
+        names = _source_names(payload, evidence)
+        all_sources.update(names)
+        verified_facts += len(evidence)
+        primary = primary or _primary_source_present(payload, evidence)
+        sponsored += _sponsored_count(payload, evidence)
+        attempted += sum(1 for row in search_log if row.get("attempted"))
+        successful += sum(1 for row in search_log if str(row.get("status") or "").upper().startswith("SUCCESS"))
+        area_status = str(readiness.get(area) or payload.get("coverage") or payload.get("status") or "NOT_SEARCHED").upper()
+        area_conflicts = _safe_int(_mapping(readiness.get("records")).get(area, {}).get("conflicts"), 0) if isinstance(_mapping(readiness.get("records")).get(area), Mapping) else 0
+        conflicts += area_conflicts
+        areas[area] = {
+            "status": area_status,
+            "verified_facts": len(evidence),
+            "sources": sorted(names),
+            "attempted": sum(1 for row in search_log if row.get("attempted")),
+        }
+
+    independent = len(all_sources)
+    if conflicts > 0:
+        level = "MOTSTRIDENDE"
+    elif independent >= 3 and (primary or verified_facts >= 3):
+        level = "STERK"
+    elif independent >= 2 and verified_facts >= 1:
+        level = "MODERAT"
+    elif independent >= 1 or verified_facts >= 1 or successful >= 1:
+        level = "SVAK"
+    else:
+        level = "IKKE_VERIFISERT"
+
+    score_map = {"STERK": 90, "MODERAT": 75, "SVAK": 55, "MOTSTRIDENDE": 30, "IKKE_VERIFISERT": 20}
+    explanation_parts = [f"{independent} uavhengig(e) kilde(r)", f"{verified_facts} verifisert(e) fakta"]
+    explanation_parts.append("primærkilde funnet" if primary else "ingen tydelig primærkilde")
+    if conflicts:
+        explanation_parts.append(f"{conflicts} konflikt(er)")
+    if sponsored:
+        explanation_parts.append(f"{sponsored} kommersiell(e) sak(er) er ikke brukt som ordinært bevis")
+    return {
+        "level": level,
+        "score": score_map[level],
+        "independent_sources": independent,
+        "sources": sorted(all_sources),
+        "verified_facts": verified_facts,
+        "primary_source_present": primary,
+        "conflicts": conflicts,
+        "sponsored_items": sponsored,
+        "sources_attempted": attempted,
+        "successful_source_attempts": successful,
+        "areas": areas,
+        "explanation": "; ".join(explanation_parts),
+    }
+
+
+def candidate_confidence_profile(candidate: Mapping[str, Any], consensus: Mapping[str, Any]) -> dict[str, Any]:
+    contract = _mapping(candidate.get("data_contract"))
+    readiness = _mapping(candidate.get("decision_readiness"))
+    validity = str(contract.get("validity") or "").upper()
+    source = str(contract.get("source") or "").upper()
+    completeness = _safe_float(candidate.get("data_completeness"), -1.0)
+    if completeness < 0:
+        completeness = _safe_float(contract.get("completeness"), -1.0)
+    if 0 <= completeness <= 1:
+        completeness *= 100
+    if completeness < 0:
+        completeness = 100.0 if validity in {"VALID", "GYLDIG"} else 65.0 if validity else 50.0
+    data_coverage = max(0, min(100, round(completeness)))
+    if validity and validity not in {"VALID", "GYLDIG"}:
+        data_coverage = min(data_coverage, 60)
+    if source in {"CACHE", "FALLBACK"}:
+        data_coverage = min(data_coverage, 75)
+
+    source_confidence = _safe_int(consensus.get("score"), 20)
+    model_confidence = max(0, min(100, round(_safe_float(candidate.get("confidence_score"), 0.0))))
+    decision_ready = bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision", True))
+    allowed = str(readiness.get("allowed_action") or candidate.get("portfolio_action") or "").upper()
+    if decision_ready:
+        decision_confidence = min(100, round((model_confidence * 0.55) + (data_coverage * 0.25) + (source_confidence * 0.20)))
+    else:
+        decision_confidence = min(69, round((model_confidence * 0.45) + (data_coverage * 0.30) + (source_confidence * 0.25)))
+    if allowed in {"SKIP", "SELL"}:
+        decision_confidence = min(decision_confidence, 65)
+    return {
+        "data_coverage": data_coverage,
+        "source_confidence": source_confidence,
+        "decision_confidence": max(0, min(100, decision_confidence)),
+        "model_confidence": model_confidence,
+        "decision_ready": decision_ready,
+        "note": "Målene beskriver datagrunnlag og beslutningsklarhet, ikke sannsynlighet for gevinst.",
+    }
+
+
+def candidate_blockers_and_triggers(candidate: Mapping[str, Any], run: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    threshold = _decision_threshold(run)
+    risk_limit = _risk_limit(run)
+    score = _safe_float(candidate.get("investment_score"), 0.0)
+    risk = _safe_float(candidate.get("risk_score"), 0.0)
+    readiness = _mapping(candidate.get("decision_readiness"))
+    contract = _mapping(candidate.get("data_contract"))
+    action = str(readiness.get("allowed_action") or candidate.get("portfolio_action") or "REVIEW").upper()
+    blockers: list[str] = []
+    triggers: list[str] = []
+
+    if score < threshold:
+        blockers.append(f"Score {score:.1f} er {threshold - score:.1f} poeng under beslutningsterskel {threshold:.1f}")
+        triggers.append(f"Samlet score må nå minst {threshold:.1f}")
+    if risk > risk_limit:
+        blockers.append(f"Risiko {risk:.1f} er over tillatt nivå {risk_limit:.1f}")
+        triggers.append(f"Risiko må falle til {risk_limit:.1f} eller lavere")
+    validity = str(contract.get("validity") or "").upper()
+    if validity and validity not in {"VALID", "GYLDIG"}:
+        blockers.append("Markedsdata oppfyller ikke full beslutningskvalitet")
+        triggers.append("Datakontrakten må bli gyldig med ferske markedsdata")
+    news_status = str(readiness.get("news") or "").upper()
+    insider_status = str(readiness.get("insider") or "").upper()
+    valid_evidence = {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "AVAILABLE", ""}
+    if news_status not in valid_evidence:
+        blockers.append("Nyhetsgrunnlaget er ikke ferdig verifisert")
+        triggers.append("Nyhetsgrunnlaget må verifiseres eller dokumenteres uten vesentlige hendelser")
+    if insider_status not in valid_evidence:
+        blockers.append("Insidergrunnlaget er ikke ferdig verifisert")
+        triggers.append("Insidergrunnlaget må verifiseres eller dokumenteres uten rapporterbare hendelser")
+    conflicts = _safe_int(readiness.get("conflicts"), 0)
+    if conflicts:
+        blockers.append(f"{conflicts} kildekonflikt(er) må avklares")
+        triggers.append("Motstridende kilder må avklares med en sterkere eller primær kilde")
+    if action not in {"BUY", "KJØP"} and not blockers:
+        blockers.append(f"Handlingsporten står i {_action_label(action)}")
+        triggers.append("Alle produksjonsporter må godkjenne Kjøp uten at risikoreglene endres")
+    if not blockers:
+        blockers.append("Ingen eksplisitt blokkering; vurderingen er klar innenfor gjeldende regler")
+    if not triggers:
+        triggers.append("Ny vurdering kreves ved vesentlig kurs-, risiko-, kilde- eller hendelsesendring")
+    return blockers[:5], triggers[:5]
+
+
+def candidate_validity(candidate: Mapping[str, Any], run: Mapping[str, Any], report_type: str) -> dict[str, Any]:
+    created = _created_at(run)
+    ttl = TTL_HOURS.get(report_type, 6)
+    valid_until = created + timedelta(hours=ttl)
+    raw = _mapping(candidate.get("raw"))
+    price = 0.0
+    for value in (
+        candidate.get("current_price"), candidate.get("price"), raw.get("current_price"),
+        raw.get("price"), raw.get("last_price"), raw.get("market_price"),
+    ):
+        if _safe_float(value, 0.0) > 0:
+            price = _safe_float(value)
+            break
+    price_range: dict[str, Any] = {}
+    if price > 0:
+        price_range = {
+            "reference": round(price, 4),
+            "minimum": round(price * 0.97, 4),
+            "maximum": round(price * 1.03, 4),
+            "basis": "Forklaringsområde ±3 % rundt analysekurs; dette er ikke en ordregrense.",
+        }
+    invalidators = [
+        "Ny vesentlig selskaps-, regulatorisk eller makrohendelse",
+        "Ny insidertransaksjon eller motstridende kildebevis",
+        "Markedsdata som blir eldre enn datakontraktens grense",
+    ]
+    if price_range:
+        invalidators.append("Kurs utenfor det oppgitte forklaringsområdet")
+    return {
+        "valid_from": created.isoformat(timespec="seconds"),
+        "valid_until": valid_until.isoformat(timespec="seconds"),
+        "ttl_hours": ttl,
+        "price_range": price_range,
+        "invalidated_by": invalidators,
+        "status": "GYLDIG_VED_GENERERING",
+    }
+
+
+def build_candidate_decision_contract(candidate: Mapping[str, Any], run: Mapping[str, Any], report_type: str) -> dict[str, Any]:
+    consensus = candidate_source_consensus(candidate)
+    confidence = candidate_confidence_profile(candidate, consensus)
+    blockers, triggers = candidate_blockers_and_triggers(candidate, run)
+    return {
+        "ticker": str(candidate.get("ticker") or ""),
+        "action": str(candidate.get("portfolio_action") or candidate.get("status") or "REVIEW"),
+        "score": candidate.get("investment_score"),
+        "blockers": blockers,
+        "change_conditions": triggers,
+        "validity": candidate_validity(candidate, run, report_type),
+        "source_consensus": consensus,
+        "confidence": confidence,
+    }
+
+
+def _candidate_by_ticker(run: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    return {str(row.get("ticker") or "").upper(): row for row in _rows(run.get("candidates")) if row.get("ticker")}
+
+
+def build_change_summary(run: Mapping[str, Any], previous: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    changes = _mapping(run.get("changes") or run.get("change_since_previous"))
+    new_rows = _rows(changes.get("new"))
+    improved = _rows(changes.get("improved"))
+    weakened = _rows(changes.get("weakened"))
+    dropped = _rows(changes.get("dropped"))
+    has_previous = bool(
+        previous
+        or _mapping(run.get("report_revision")).get("supersedes_run_id")
+        or _mapping(run.get("report_document")).get("metadata", {}).get("previous_report_id")
+    )
+    current_top = [str(row.get("ticker") or "") for row in _rows(run.get("candidates"))[:3]]
+    previous_top = [str(row.get("ticker") or "") for row in _rows((previous or {}).get("candidates"))[:3]]
+    top_added = [ticker for ticker in current_top if ticker and ticker not in previous_top] if has_previous else []
+    top_removed = [ticker for ticker in previous_top if ticker and ticker not in current_top] if has_previous else []
+    largest_improvement = max(improved, key=lambda row: _safe_float(row.get("score_delta")), default={})
+    largest_weakening = min(weakened, key=lambda row: _safe_float(row.get("score_delta")), default={})
+    action_changes: list[dict[str, Any]] = []
+    previous_map = _candidate_by_ticker(previous or {})
+    for row in _rows(run.get("candidates")):
+        ticker = str(row.get("ticker") or "").upper()
+        old = previous_map.get(ticker)
+        if not old:
+            continue
+        old_action = str(old.get("portfolio_action") or old.get("status") or "")
+        new_action = str(row.get("portfolio_action") or row.get("status") or "")
+        if old_action != new_action:
+            action_changes.append({"ticker": ticker, "from": old_action, "to": new_action})
+    return {
+        "has_previous": has_previous,
+        "top3_added": top_added,
+        "top3_removed": top_removed,
+        "new": [{"ticker": row.get("ticker"), "score": row.get("investment_score")} for row in new_rows[:10]],
+        "improved": [{"ticker": row.get("ticker"), "delta": row.get("score_delta")} for row in improved[:10]],
+        "weakened": [{"ticker": row.get("ticker"), "delta": row.get("score_delta")} for row in weakened[:10]],
+        "dropped": [{"ticker": row.get("ticker"), "score": row.get("investment_score")} for row in dropped[:10]],
+        "largest_improvement": {
+            "ticker": largest_improvement.get("ticker"), "delta": largest_improvement.get("score_delta"),
+        } if largest_improvement else {},
+        "largest_weakening": {
+            "ticker": largest_weakening.get("ticker"), "delta": largest_weakening.get("score_delta"),
+        } if largest_weakening else {},
+        "action_changes": action_changes[:10],
+        "unchanged_count": _safe_int(changes.get("unchanged_count"), 0),
+        "top3_changed": bool(top_added or top_removed),
+    }
+
+
+def _event_date_and_title(candidate: Mapping[str, Any]) -> tuple[str, str, str]:
+    raw = _mapping(candidate.get("raw"))
+    ticker = str(candidate.get("ticker") or "")
+    candidates = [
+        (raw.get("earnings_date"), "Resultatpublisering", "BEKREFTET"),
+        (raw.get("next_event"), "Kommende selskapshendelse", "ESTIMERT"),
+        (raw.get("next_expected_event"), "Forventet selskapshendelse", "ESTIMERT"),
+        (candidate.get("earnings_date"), "Resultatpublisering", "BEKREFTET"),
+    ]
+    for value, title, status in candidates:
+        if not value:
+            continue
+        if isinstance(value, Mapping):
+            date_value = value.get("date") or value.get("at") or value.get("event_date")
+            title_value = value.get("title") or value.get("name") or title
+            if date_value:
+                return str(date_value), str(title_value), status
+        text = str(value)
+        if _parse_datetime(text):
+            return text, title, status
+    event_risk = _mapping(raw.get("event_risk"))
+    diagnostics = _mapping(event_risk.get("diagnostics"))
+    earnings = _mapping(diagnostics.get("earnings"))
+    if earnings.get("date"):
+        return str(earnings.get("date")), "Resultatpublisering", "BEKREFTET"
+    return "", "", ""
+
+
+def build_event_calendar(run: Mapping[str, Any]) -> list[dict[str, Any]]:
+    timezone_name = valid_timezone(run.get("timezone_name") or DEFAULT_TIMEZONE)
+    events: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for row in _rows(run.get("critical_events")):
+        ticker = str(row.get("ticker") or "")
+        event_at = str(row.get("event_at") or row.get("date") or row.get("at") or row.get("event_date") or "")
+        title = str(row.get("title") or row.get("name") or row.get("message") or "Kritisk hendelse")
+        key = (ticker, event_at, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        events.append({
+            "ticker": ticker,
+            "event_at": event_at,
+            "event_at_local": str(row.get("event_at_local") or (as_local(_parse_datetime(event_at), timezone_name).isoformat(timespec="minutes") if _parse_datetime(event_at) else event_at)),
+            "title": title,
+            "importance": str(row.get("importance") or row.get("impact") or "HØY").upper(),
+            "source": str(row.get("source") or "Rapportdata"),
+            "verification": str(row.get("verification") or "BEKREFTET").upper(),
+        })
+    for candidate in _rows(run.get("candidates")):
+        event_at, title, verification = _event_date_and_title(candidate)
+        if not event_at:
+            continue
+        ticker = str(candidate.get("ticker") or "")
+        key = (ticker, event_at, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        dt = _parse_datetime(event_at)
+        events.append({
+            "ticker": ticker,
+            "event_at": event_at,
+            "event_at_local": as_local(dt, timezone_name).isoformat(timespec="minutes") if dt else event_at,
+            "title": title,
+            "importance": "HØY",
+            "source": "Kandidatdata",
+            "verification": verification,
+        })
+    def sort_key(row: Mapping[str, Any]) -> tuple[int, str]:
+        dt = _parse_datetime(row.get("event_at"))
+        return (0 if dt else 1, dt.isoformat() if dt else str(row.get("event_at") or "9999"))
+    return sorted(events, key=sort_key)[:20]
+
+
+def build_report_confidence(run: Mapping[str, Any], candidate_contracts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    profiles = [_mapping(row.get("confidence")) for row in candidate_contracts]
+    if profiles:
+        data = round(sum(_safe_float(row.get("data_coverage")) for row in profiles) / len(profiles))
+        sources = round(sum(_safe_float(row.get("source_confidence")) for row in profiles) / len(profiles))
+        decision = round(sum(_safe_float(row.get("decision_confidence")) for row in profiles) / len(profiles))
+    else:
+        quality = _mapping(run.get("data_quality"))
+        data = round(_safe_float(quality.get("score"), 0))
+        sources = 0
+        decision = 0
+    return {
+        "data_coverage": max(0, min(100, data)),
+        "source_confidence": max(0, min(100, sources)),
+        "decision_confidence": max(0, min(100, decision)),
+        "candidate_count": len(profiles),
+        "interpretation": {
+            "data_coverage": "Har rapporten nok ferske markeds- og analysedata?",
+            "source_confidence": "Er vesentlige påstander verifisert av gode og uavhengige kilder?",
+            "decision_confidence": "Oppfyller kandidatene gjeldende handlings- og risikoregler?",
+        },
+        "warning": "Verdiene er ikke sannsynlighet for fremtidig avkastning.",
+    }
+
+
+def build_report_reliability(run: Mapping[str, Any], candidate_contracts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    score = 100
+    deductions: list[dict[str, Any]] = []
+
+    def deduct(points: int, code: str, reason: str) -> None:
+        nonlocal score
+        points = max(0, int(points))
+        if not points:
+            return
+        score -= points
+        deductions.append({"points": points, "code": code, "reason": reason})
+
+    data_quality = _safe_float(_mapping(run.get("data_quality")).get("score"), 100.0)
+    if data_quality < 95:
+        deduct(min(20, round((95 - data_quality) * 0.35)), "DATA_QUALITY", f"Markedsdatakvalitet er {data_quality:.0f}/100")
+    combined = _mapping(run.get("combined_data_quality") or run.get("combined_quality"))
+    evaluated = _safe_int(combined.get("evaluated"), 0)
+    valid = _safe_int(combined.get("overall_valid"), 0)
+    if combined and evaluated and valid < evaluated:
+        deduct(min(20, round(20 * (evaluated - valid) / evaluated)), "EVIDENCE_COVERAGE", f"Bare {valid} av {evaluated} kandidater har samlet gyldig evidens")
+    conflicts = sum(_safe_int(_mapping(row.get("source_consensus")).get("conflicts"), 0) for row in candidate_contracts)
+    if conflicts:
+        deduct(min(12, conflicts * 4), "SOURCE_CONFLICTS", f"{conflicts} kildekonflikt(er) er ikke avklart")
+    weak_sources = sum(1 for row in candidate_contracts if str(_mapping(row.get("source_consensus")).get("level")) in {"SVAK", "IKKE_VERIFISERT"})
+    if weak_sources:
+        deduct(min(12, weak_sources * 2), "WEAK_CONSENSUS", f"{weak_sources} kandidat(er) har svakt eller uverifisert kildegrunnlag")
+    missing_insider = 0
+    for candidate in _rows(run.get("candidates")):
+        readiness = _mapping(candidate.get("decision_readiness"))
+        if str(readiness.get("insider") or "").upper() not in {"", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "AVAILABLE"}:
+            missing_insider += 1
+    if missing_insider:
+        deduct(min(12, missing_insider * 2), "INSIDER_GAPS", f"Insidergrunnlaget er ufullstendig for {missing_insider} kandidat(er)")
+    source_health = _mapping(run.get("source_health"))
+    fallback_count = 0
+    source_errors = 0
+    for row in _rows(source_health.get("sources")):
+        fallback_count += _safe_int(row.get("fallback_used"), 0)
+        source_errors += _safe_int(row.get("errors"), 0)
+    # Raw search logs retain fallback metadata even when aggregated health does not.
+    for candidate in _rows(run.get("candidates")):
+        raw = _mapping(candidate.get("raw"))
+        for key in ("news_intelligence", "insider_intelligence"):
+            for item in _rows(_mapping(raw.get(key)).get("search_log")):
+                fallback_count += 1 if item.get("fallback_used") else 0
+    if fallback_count:
+        deduct(min(8, fallback_count), "FALLBACK_SOURCE", f"Reserve-feed eller kontrollert fallback ble brukt {fallback_count} gang(er)")
+    if source_errors:
+        deduct(min(12, source_errors * 2), "SOURCE_ERRORS", f"Kildeinnhentingen registrerte {source_errors} feil")
+    errors = len(list(run.get("errors") or []))
+    warnings = len(list(run.get("warnings") or []))
+    if errors:
+        deduct(min(16, errors * 4), "RUN_ERRORS", f"Kjøringen registrerte {errors} feil")
+    if warnings:
+        deduct(min(5, warnings), "RUN_WARNINGS", f"Kjøringen registrerte {warnings} advarsel/advarsler")
+    if run.get("analysis_aborted"):
+        deduct(25, "ANALYSIS_ABORTED", "Analysen ble avbrutt før fullføring")
+    if run.get("partial_market_failure"):
+        deduct(10, "PARTIAL_MARKET_FAILURE", "Ett eller flere valgte markeder feilet")
+    status = _mapping(run.get("report_status"))
+    if str(status.get("state") or "").upper() == "PROVISIONAL":
+        deduct(8, "PROVISIONAL", "Rapporten er foreløpig og krever revalidering")
+
+    score = max(0, min(100, score))
+    label = "HØY" if score >= 85 else "MIDDELS" if score >= 65 else "LAV"
+    return {
+        "score": score,
+        "label": label,
+        "deductions": sorted(deductions, key=lambda row: row["points"], reverse=True),
+        "basis": "Forklarbar rapportpålitelighet basert på data, kilder, feil og fullføringsstatus.",
+        "not_investment_probability": True,
+    }
+
+
+def _task_id(kind: str, subject: str, reason: str) -> str:
+    digest = sha256(f"{kind}|{subject}|{reason}".encode("utf-8")).hexdigest()[:10].upper()
+    return f"TASK-{digest}"
+
+
+def build_next_run_tasks(
+    run: Mapping[str, Any],
+    candidate_contracts: Sequence[Mapping[str, Any]],
+    events: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+    created = _created_at(run).isoformat(timespec="seconds")
+
+    def add(kind: str, subject: str, reason: str, action: str, priority: str = "NORMAL") -> None:
+        task = {
+            "task_id": _task_id(kind, subject, reason),
+            "kind": kind,
+            "subject": subject,
+            "reason": reason,
+            "action": action,
+            "priority": priority,
+            "status": "VENTER",
+            "created_at": created,
+            "source_report_id": str(run.get("run_id") or ""),
+            "result": "",
+        }
+        if not any(row["task_id"] == task["task_id"] for row in tasks):
+            tasks.append(task)
+
+    for error in list(run.get("errors") or [])[:5]:
+        add("RUN_ERROR", "Rapportkjøring", str(error), "Kjør berørt trinn på nytt og bekreft at feilen er borte", "KRITISK")
+    for row in candidate_contracts[:10]:
+        ticker = str(row.get("ticker") or "Ukjent")
+        confidence = _mapping(row.get("confidence"))
+        consensus = _mapping(row.get("source_consensus"))
+        blockers = list(row.get("blockers") or [])
+        score = _safe_float(row.get("score"), 0)
+        gap = max(0.0, _decision_threshold(run) - score)
+        if 0 < gap <= 3:
+            add("NEAR_THRESHOLD", ticker, f"Kandidaten er {gap:.1f} poeng under beslutningsterskelen", "Reevaluer kandidaten med ferske data ved neste kjøring", "HØY")
+        if str(consensus.get("level")) in {"SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT"}:
+            add("VERIFY_SOURCES", ticker, consensus.get("explanation") or "Svakt kildegrunnlag", "Finn en uavhengig eller primær kilde og oppdater kildekonsensus", "HØY")
+        if _safe_int(confidence.get("data_coverage"), 0) < 70:
+            add("REFRESH_DATA", ticker, f"Datadekning er {confidence.get('data_coverage', 0)}/100", "Hent ferske markeds- og analysedata", "HØY")
+        if blockers and str(row.get("action") or "").upper() in {"REVIEW", "KREVER MANUELL VURDERING"}:
+            add("MANUAL_REVIEW", ticker, "; ".join(blockers[:2]), "Kontroller blokkeringene og dokumenter manuell vurdering", "NORMAL")
+    source_health = _mapping(run.get("source_health"))
+    for row in _rows(source_health.get("sources")):
+        if _safe_int(row.get("errors"), 0) > 0 or row.get("fallback_used"):
+            source = str(row.get("source") or "Ukjent kilde")
+            reason = f"Feil: {row.get('errors', 0)}; reserve-feed: {'ja' if row.get('fallback_used') else 'nei'}"
+            add("SOURCE_HEALTH", source, reason, "Kontroller primærfeed og parser før neste rapport", "HØY")
+    handoff = _mapping(run.get("autonomy_candidate_handoff"))
+    if handoff.get("mismatch"):
+        add("AUTONOMY_HANDOFF", "Autonomi", str(handoff.get("warning") or "Kandidatantall avviker"), "Sammenlign rapportkandidater med kandidater mottatt av Autonomi", "KRITISK")
+    ready_count = sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("decision_ready"))
+    if ready_count < 3:
+        add("TOP3_COVERAGE", "Beslutningsklar Top 3", f"Bare {ready_count} kandidat(er) er beslutningsklare", "Forsøk å fylle manglende plasser uten å senke produksjonstersklene", "NORMAL")
+    now = _created_at(run)
+    for event in events[:5]:
+        dt = _parse_datetime(event.get("event_at"))
+        if dt and now <= dt <= now + timedelta(days=3):
+            ticker = str(event.get("ticker") or "Marked")
+            add("UPCOMING_EVENT", ticker, str(event.get("title") or "Kommende hendelse"), "Reevaluer kandidaten etter hendelsen eller når nye fakta foreligger", "HØY")
+    return sorted(tasks, key=lambda row: ({"KRITISK": 0, "HØY": 1, "NORMAL": 2}.get(str(row.get("priority")), 3), str(row.get("subject"))))[:25]
+
+
+def build_decision_overview(
+    run: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    candidate_contracts: Sequence[Mapping[str, Any]],
+    change_summary: Mapping[str, Any],
+    tasks: Sequence[Mapping[str, Any]],
+    events: Sequence[Mapping[str, Any]],
+    confidence: Mapping[str, Any],
+    reliability: Mapping[str, Any],
+) -> dict[str, Any]:
+    actions: dict[str, int] = {}
+    for row in candidate_contracts:
+        action = str(row.get("action") or "REVIEW").upper()
+        actions[action] = actions.get(action, 0) + 1
+    urgent_tasks = sum(1 for row in tasks if str(row.get("priority")) in {"KRITISK", "HØY"})
+    return {
+        "report_type": identity.get("type"),
+        "mission_label": identity.get("mission_label"),
+        "mission_objective": identity.get("mission_objective"),
+        "focus": REPORT_FOCUS.get(str(identity.get("type") or ""), REPORT_FOCUS["MANUELL_RAPPORT"]),
+        "actions": actions,
+        "candidate_count": len(candidate_contracts),
+        "decision_ready_count": sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("decision_ready")),
+        "top3_changed": bool(change_summary.get("top3_changed")),
+        "urgent_task_count": urgent_tasks,
+        "upcoming_event_count": len(events),
+        "confidence": dict(confidence),
+        "reliability": dict(reliability),
+        "conclusion": (
+            f"{sum(1 for row in candidate_contracts if str(row.get('action') or '').upper() in {'BUY', 'KJØP'})} kandidat(er) er merket Kjøp, "
+            f"{sum(1 for row in candidate_contracts if str(row.get('action') or '').upper() == 'REVIEW')} krever vurdering, "
+            f"og {urgent_tasks} oppfølgingspunkt(er) har høy eller kritisk prioritet."
+        ),
+    }
+
+
+def build_decision_report(
+    run: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+    identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    report_type = str(identity.get("type") or "MANUELL_RAPPORT").upper()
+    candidate_contracts = [build_candidate_decision_contract(row, run, report_type) for row in _rows(run.get("candidates"))]
+    existing = _mapping(run.get("decision_report"))
+    existing_changes = _mapping(existing.get("changes"))
+    changes = deepcopy(existing_changes) if previous is None and existing_changes else build_change_summary(run, previous)
+    events = build_event_calendar(run)
+    confidence = build_report_confidence(run, candidate_contracts)
+    reliability = build_report_reliability(run, candidate_contracts)
+    tasks = build_next_run_tasks(run, candidate_contracts, events)
+    overview = build_decision_overview(run, identity, candidate_contracts, changes, tasks, events, confidence, reliability)
+    source_consensus = {
+        "candidates": {str(row.get("ticker") or ""): deepcopy(row.get("source_consensus") or {}) for row in candidate_contracts},
+        "strong": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") == "STERK"),
+        "moderate": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") == "MODERAT"),
+        "weak_or_unverified": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") in {"SVAK", "IKKE_VERIFISERT"}),
+        "conflicting": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") == "MOTSTRIDENDE"),
+    }
+    return {
+        "schema_version": DECISION_REPORT_SCHEMA_VERSION,
+        "overview": overview,
+        "candidate_contracts": candidate_contracts,
+        "changes": changes,
+        "events": events,
+        "next_run_tasks": tasks,
+        "confidence": confidence,
+        "reliability": reliability,
+        "source_consensus": source_consensus,
+    }
+
+
+def enrich_decision_report(
+    run: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+    identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build and attach decision-report metadata when the run is mutable."""
+    payload = build_decision_report(run, previous, identity)
+    if isinstance(run, MutableMapping):
+        run["decision_report"] = deepcopy(payload)
+        run["critical_events"] = deepcopy(payload["events"])
+        run["next_run_tasks"] = deepcopy(payload["next_run_tasks"])
+        run["report_confidence"] = deepcopy(payload["confidence"])
+        run["report_reliability"] = deepcopy(payload["reliability"])
+        run["source_consensus"] = deepcopy(payload["source_consensus"])
+    return payload
+
+
+__all__ = [
+    "CONSENSUS_LEVELS", "DECISION_REPORT_SCHEMA_VERSION", "REPORT_FOCUS", "TASK_STATUSES",
+    "build_change_summary", "build_decision_report", "build_event_calendar", "build_next_run_tasks",
+    "build_report_confidence", "build_report_reliability", "candidate_source_consensus",
+    "enrich_decision_report",
+]

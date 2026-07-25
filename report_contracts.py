@@ -1,4 +1,4 @@
-"""Canonical report identity, metadata and document contracts for v19.0.20.
+"""Canonical report identity, metadata and document contracts for v19.0.21.
 
 The contract is deliberately renderer-independent. PDF, text, archive and UI
 consumers receive the same serialisable ReportDocument representation. Legacy
@@ -15,7 +15,7 @@ from app_version import APP_VERSION, REPORT_SCHEMA_VERSION, get_version_contract
 from local_time import DEFAULT_TIMEZONE, as_local, local_display, valid_timezone
 
 
-REPORT_CONTRACT_VERSION = "1.0"
+REPORT_CONTRACT_VERSION = "1.1"
 
 
 class ReportContractError(ValueError):
@@ -82,6 +82,11 @@ class CandidateDecision:
     action: str
     status: str
     decision_ready: bool
+    blockers: Sequence[str] = field(default_factory=tuple)
+    change_conditions: Sequence[str] = field(default_factory=tuple)
+    validity: Mapping[str, Any] = field(default_factory=dict)
+    source_consensus: Mapping[str, Any] = field(default_factory=dict)
+    confidence: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -262,13 +267,16 @@ def _validate_identity_mission(identity: Mapping[str, Any], spec: ReportSpec) ->
         )
 
 
-def _candidate_decisions(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _candidate_decisions(rows: Sequence[Mapping[str, Any]], contracts: Sequence[Mapping[str, Any]] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
+    contract_map = {str(row.get("ticker") or "").upper(): row for row in (contracts or []) if isinstance(row, Mapping)}
     for index, row in enumerate(rows, 1):
         try:
             score = float(row.get("investment_score")) if row.get("investment_score") is not None else None
         except (TypeError, ValueError):
             score = None
+        contract = contract_map.get(str(row.get("ticker") or "").upper(), {})
+        confidence = contract.get("confidence") if isinstance(contract.get("confidence"), Mapping) else {}
         decision = CandidateDecision(
             rank=int(row.get("rank") or index) if row.get("rank") or index else None,
             ticker=str(row.get("ticker") or ""),
@@ -276,7 +284,12 @@ def _candidate_decisions(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, An
             score=score,
             action=str(row.get("portfolio_action") or row.get("status") or "REVIEW"),
             status=str(row.get("status") or ""),
-            decision_ready=bool(row.get("valid_for_decision") and row.get("evidence_valid_for_decision", True)),
+            decision_ready=bool(confidence.get("decision_ready", row.get("valid_for_decision") and row.get("evidence_valid_for_decision", True))),
+            blockers=tuple(contract.get("blockers") or ()),
+            change_conditions=tuple(contract.get("change_conditions") or ()),
+            validity=dict(contract.get("validity") or {}),
+            source_consensus=dict(contract.get("source_consensus") or {}),
+            confidence=dict(confidence),
         )
         result.append(asdict(decision))
     return result
@@ -289,6 +302,8 @@ def _section(key: str, title: str, payload: Any, order: int, technical: bool = F
 def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Build the canonical renderer-independent report document."""
     identity = resolve_report_identity(run)
+    from decision_report import build_decision_report
+    decision_report = run.get("decision_report") if isinstance(run.get("decision_report"), Mapping) else build_decision_report(run, previous, identity)
     status = run.get("report_status") if isinstance(run.get("report_status"), Mapping) else {}
     revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     previous_id = str(
@@ -329,9 +344,16 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
             "data_quality": dict(run.get("data_quality") or {}),
             "combined_data_quality": dict(run.get("combined_data_quality") or {}),
         }, 10),
-        _section("candidate_decisions", "Kandidatbeslutninger", _candidate_decisions(list(run.get("candidates") or [])), 20),
-        _section("changes", "Endringer siden forrige rapport", dict(run.get("changes") or run.get("change_since_previous") or {}), 30),
-        _section("events", "Kritiske hendelser", list(run.get("critical_events") or []), 40),
+        _section("decision_overview", "Beslutningsoversikt", dict(decision_report.get("overview") or {}), 15),
+        _section("candidate_decisions", "Kandidatbeslutninger", _candidate_decisions(
+            list(run.get("candidates") or []), list(decision_report.get("candidate_contracts") or [])
+        ), 20),
+        _section("changes", "Endringer siden forrige rapport", dict(decision_report.get("changes") or {}), 30),
+        _section("next_run_tasks", "Oppgaver til neste kjøring", list(decision_report.get("next_run_tasks") or []), 35),
+        _section("events", "Kritiske hendelser", list(decision_report.get("events") or []), 40),
+        _section("confidence_profile", "Datadekning, kildesikkerhet og beslutningssikkerhet", dict(decision_report.get("confidence") or {}), 45),
+        _section("report_reliability", "Rapportpålitelighet", dict(decision_report.get("reliability") or {}), 50),
+        _section("source_consensus", "Kildekonsensus", dict(decision_report.get("source_consensus") or {}), 55),
         _section("technical_status", "Teknisk status", {
             "errors": list(run.get("errors") or []),
             "warnings": list(run.get("warnings") or []),
@@ -341,6 +363,7 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
             "report_revision": dict(revision),
         }, 900, technical=True),
     )
+
     versions = get_version_contract(
         component_name="market_intelligence",
         component_version=str(run.get("version") or APP_VERSION),
@@ -375,7 +398,11 @@ def validate_report_document(document: Mapping[str, Any], *, raise_on_error: boo
         errors.append("Utkast mangler gyldig periodeoppdrag")
     sections = document.get("sections") if isinstance(document.get("sections"), Sequence) else []
     keys = [str(row.get("key") or "") for row in sections if isinstance(row, Mapping)]
-    for required in ("executive_summary", "candidate_decisions", "technical_status"):
+    for required in (
+        "executive_summary", "decision_overview", "candidate_decisions", "changes",
+        "next_run_tasks", "events", "confidence_profile", "report_reliability",
+        "source_consensus", "technical_status",
+    ):
         if required not in keys:
             errors.append(f"Påkrevd seksjon mangler: {required}")
     result = {"ok": not errors, "errors": errors, "schema_version": REPORT_SCHEMA_VERSION}
@@ -388,6 +415,9 @@ def ensure_report_document(
     run: Mapping[str, Any], previous: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build and, when possible, attach the current canonical document to a run."""
+    identity = resolve_report_identity(run)
+    from decision_report import enrich_decision_report
+    enrich_decision_report(run, previous, identity)
     document = build_report_document(run, previous)
     if isinstance(run, MutableMapping):
         run["version"] = APP_VERSION
