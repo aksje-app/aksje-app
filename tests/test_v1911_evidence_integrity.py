@@ -117,6 +117,7 @@ class EvidenceIntegrityTests(unittest.TestCase):
 
     def test_insider_discovery_labels_newsapi_as_secondary(self):
         with patch.dict(os.environ, {"NEWSAPI_KEY": "test"}), \
+             patch.object(international_insider_sources, "_NEWS_CACHE", {}), \
              patch.object(
                  international_insider_sources,
                  "fetch_newsapi_articles",

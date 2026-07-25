@@ -44,5 +44,5 @@ def test_source_log_uses_short_date_and_localized_status():
     }
     text = _text(run)
     assert "17.07.2026 22:15" in text
-    assert "IKKE SØKT" in text
+    assert "Ikke søkt" in text
     assert "2026-07-17T22:15:04+00:00" not in text

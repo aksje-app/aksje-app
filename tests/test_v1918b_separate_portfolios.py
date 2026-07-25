@@ -44,6 +44,6 @@ def test_learning_positions_do_not_modify_ordinary_cash_or_holdings():
     assert len(result["learning_trades"]) == 2
 
 
-def test_app_version_is_v19018b():
+def test_app_version_is_v19019():
     from app_version import APP_VERSION
-    assert APP_VERSION == "v19.0.18b"
+    assert APP_VERSION == "v19.0.19"

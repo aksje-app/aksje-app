@@ -42,18 +42,18 @@ def test_overview_uses_existing_durable_services_and_safe_cancel():
     assert "pushover_audit" in source
     assert "promotion_approvals.json" in source
     assert "AUTONOMY_OVERVIEW" in source
-    assert "resolve_promotion_approval(approval_id, True)" in source
-    assert "resolve_promotion_approval(approval_id, False)" in source
+    assert "from approval_governance_ui import render_approval_card" in source
+    assert "render_approval_card(item" in source
 
 
 def test_overview_is_default_workspace_and_detail_engines_remain_lazy():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
     start = source.index("def render_autonomy_core_control_center_v1880")
-    block = source[start:start + 5000]
+    block = source[start:source.index("def control_center_extra_panels_v18535", start)]
     assert '"overview": "Oversikt"' in block
     assert 'if workspace == "Oversikt"' in block
     assert "render_autonomy_overview()" in block
-    assert 'elif workspace == "Orchestrator og tidsplan"' in block
+    assert 'elif workspace == "Orkestrering og tidsplan"' in block
     assert 'elif workspace == "Læringsportefølje"' in block
 
 

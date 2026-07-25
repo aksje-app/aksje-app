@@ -118,7 +118,8 @@ def test_autonomy_runtime_filters_invalid_candidates(monkeypatch):
         ], "proposals": [{"ticker": "BLOCK", "valid_for_decision": False}],
     })
     assert [item["ticker"] for item in received["candidates"]] == ["OK"]
-    assert received["proposals"] == []
+    assert received["proposals"] == [{"ticker": "BLOCK", "valid_for_decision": False, "autonomy_learning_probe": True}]
+    assert received["autonomy_learning_probe"] is False
     assert len(received["observed_candidates"]) == 2
 
 

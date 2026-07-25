@@ -62,7 +62,7 @@ class DecisionFunnelTests(unittest.TestCase):
                             "portfolio_decisions": {}, "decision_funnel": funnel})
         text = "\n".join((page.extract_text() or "") for page in PdfReader(BytesIO(pdf)).pages)
         self.assertIn("Beslutningstrakt og kjøpsvurdering", text)
-        self.assertIn("Shadow Mode", text)
+        self.assertIn("Skyggemodus", text)
 
 
 if __name__ == "__main__":

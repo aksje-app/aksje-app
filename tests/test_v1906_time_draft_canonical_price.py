@@ -20,7 +20,7 @@ class TimeAwareDraftTests(unittest.TestCase):
         self.assertTrue(mi.safe_report_filename(run).startswith("UTKAST_Nattrapport_20260723T002510"))
         self.assertNotIn("Morgenanalyse", mi.safe_report_filename(run))
         text = "\n".join((page.extract_text() or "") for page in PdfReader(BytesIO(mi.build_pdf(run))).pages)
-        self.assertIn("Utkast – Nattrapport – Market Intelligence", text)
+        self.assertIn("Utkast – Nattrapport – Markedsanalyse", text)
         self.assertIn("Morgenanalyse", text)  # remains the separate job metadata
 
     def test_all_local_periods(self):

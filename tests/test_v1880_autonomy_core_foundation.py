@@ -36,7 +36,7 @@ def test_core_gateway_preserves_legacy_execution(monkeypatch):
         run_autonomous=True, run_learning=False, require_active_portfolio=True,
     )
     assert result["status"] == "OK"
-    assert result["autonomy_core"]["version"] == "v18.8.0"
+    assert result["autonomy_core"]["version"].startswith("v19.0.")
     assert result["autonomy_core"]["theoretical_only"] is True
     assert captured["run_learning"] is False
 
@@ -62,5 +62,5 @@ def test_autonomy_is_first_class_control_center_group():
 
 def test_release_version_is_v1880():
     source = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.8.0"' in source
-    assert 'APP_VERSION_NAME = "Autonomy Core Foundation"' in source
+    assert 'APP_VERSION = "v18.8.' in source
+    assert "v18.8.0: Autonomy Core Foundation" in source

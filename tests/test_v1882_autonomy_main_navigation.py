@@ -80,11 +80,11 @@ def test_refresh_restores_autonomy_workspace_slug():
 def test_learning_and_orchestrator_are_lazy_in_one_panel():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
     start = source.index("def render_autonomy_core_control_center_v1880")
-    block = source[start:start + 4000]
-    assert 'if workspace == "Orchestrator og tidsplan"' in block
+    block = source[start:source.index("def control_center_extra_panels_v18535", start)]
+    assert 'if workspace == "Orkestrering og tidsplan"' in block
     assert 'elif workspace == "Læringsportefølje"' in block
     assert "render_autonomous_orchestrator_control_center()" in block
-    assert "render_autonomous_portfolio()" in block
+    assert 'render_autonomous_portfolio(view="learning")' in block
 
 
 def test_release_is_navigation_only_at_core_boundary():
