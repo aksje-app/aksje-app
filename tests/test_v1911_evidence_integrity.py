@@ -231,7 +231,8 @@ class EvidenceIntegrityTests(unittest.TestCase):
     def test_version_and_release_notes_are_updated(self):
         version = Path("app_version.py").read_text(encoding="utf-8")
         notes = Path("RELEASE_NOTES_v19.0.11.md").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "v19.0.11"', version)
+        self.assertIn('v19.0.11:', version)
+        self.assertIn('APP_VERSION = "v19.0.18b"', version)
         self.assertIn("Evidence Integrity", notes)
         self.assertIn("Ingen handelsregler", notes)
 

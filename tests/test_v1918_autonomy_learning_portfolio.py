@@ -11,6 +11,11 @@ from autonomous_portfolio import (
     TRADES_PATH,
     DECISIONS_PATH,
     EQUITY_HISTORY_PATH,
+    LEARNING_PORTFOLIO_PATH,
+    LEARNING_TRADES_PATH,
+    LEARNING_DECISIONS_PATH,
+    LEARNING_EQUITY_HISTORY_PATH,
+    default_learning_portfolio,
 )
 
 
@@ -37,6 +42,10 @@ def _reset_active():
     _write(TRADES_PATH, [])
     _write(DECISIONS_PATH, [])
     _write(EQUITY_HISTORY_PATH, [])
+    _write(LEARNING_PORTFOLIO_PATH, default_learning_portfolio(params))
+    _write(LEARNING_TRADES_PATH, [])
+    _write(LEARNING_DECISIONS_PATH, [])
+    _write(LEARNING_EQUITY_HISTORY_PATH, [])
 
 
 def test_learning_probe_buys_when_ordinary_gates_block_all_candidates():
@@ -49,7 +58,9 @@ def test_learning_probe_buys_when_ordinary_gates_block_all_candidates():
     buys = [t for t in result["trades"] if t["action"] == "BUY"]
     assert len(buys) == 2
     assert all(t.get("learning_probe") for t in buys)
-    assert result["portfolio"]["positions"]["AAA"].get("origin") == "AUTONOMY_LEARNING_PROBE"
+    assert result["portfolio"]["positions"] == {}
+    assert result["learning_portfolio"]["positions"]["AAA"].get("origin") == "AUTONOMY_LEARNING_PROBE"
+    assert result["learning_portfolio"]["positions"]["AAA"].get("portfolio_type") == "LEARNING"
     assert load_equity_history(10)
 
 
