@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.18a"
-APP_VERSION_NAME = "Synlig Autonomi-status hotfix"
+APP_VERSION = "v19.0.18b"
+APP_VERSION_NAME = "Separate Autonomi- og læringsporteføljer"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.17"
+PREVIOUS_APP_VERSION = "v19.0.18a"
 
 CHANGELOG = [
+    "v19.0.18b: Fullført porteføljeseparasjon: ordinære autonome teoretiske kjøp og læringsobservasjoner føres nå i to separate porteføljer, separate handler, beslutninger, historikk og resultatregnskap. Eksisterende læringsposisjoner migreres idempotent ut av Autonom portefølje og tidligere trukket kostbasis tilbakeføres til ordinær kontantbeholdning. Autonomi Oversikt får tydelige knapper til Autonom portefølje og Læringsportefølje. Læringsposisjoner påvirker ikke kontanter, sektorgrenser, risikorammer, maks antall posisjoner eller avkastning i Autonom portefølje. Kandidater som senere består ordinære porter kan promoteres fra læringsobservasjon til ordinær autonom posisjon med sporbar historikk. Ingen ekte handel aktiveres.",
     "v19.0.18a: Synlig Autonomi-status hotfix: den samlede Autonomi-statusboksen flyttes inn på hovedsiden Autonomi Oversikt, over øvrige metrikker og utenfor lukkede seksjoner. Boksen viser Autonomi-runner, Planlegger, Paper Trading, Ekte handel, kandidater mottatt, teoretiske kjøp, læringskjøp og årsak til ingen kjøp, slik at kandidatflyt og kjøpsporter kan feilsøkes uten å åpne Læringsportefølje. Ingen handelsregler, terskler, porteføljegrenser eller ekte handel endres.",
     "v19.0.18: Autonomi-status, læringskjøp og porteføljeoversikt: Autonomi-panelet får én samlet statusboks som viser Autonomi-runner, Planlegger, Paper Trading, Ekte handel, kandidater mottatt, teoretiske kjøp, læringskjøp og årsak til ingen kjøp. Kandidater som tidligere ble stoppet før porteføljemotoren kan nå sendes videre som teoretiske læringsprober når alle ordinære porter blokkerer. Hvis aktiv Autonomi mottar kandidater men ikke får ordinære BUY, kan den opprette små, eksplisitt merkede læringskjøp i paper-porteføljen for å skape læringsdata. Ekte handel forblir deaktivert og produksjonsterskler endres ikke. Autonom portefølje får historikk, utviklingsgraf, opprettet-av, læringskjøp-merking og bedre beholdningsoversikt.",
     "v19.0.17: Rapportlogikk, Pushover og rangeringstydelighet: PDF-en regenereres etter varslingsbeslutningen slik at rapporten forklarer om Pushover ble sendt, hoppet over eller feilet. Rapporten skiller tydelig mellom nyhetsrangering, rå rangering, beslutningsklar rangering og Top 3, og forklarer hvorfor en aksje med høy nyhetsscore ikke nødvendigvis blir Top 3. Kildekontroll 0/60 gir tydelig alvorlig status og ikke en tilsynelatende beslutningsklar rapport. Autonomi-kandidatflyten instrumenteres fra rapportkandidater til mottatt av Autonomi; REVIEW-kandidater forsvinner ikke lenger i overleveringen før diagnose/læring. Ingen produksjonsterskler eller ekte handelsregler er endret.",

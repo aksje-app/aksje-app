@@ -34,7 +34,7 @@ from norwegian_report_language import (
     translate_report_text, USER_FACING_ENGLISH_BLOCKLIST, status_dot,
 )
 
-VERSION = "v19.0.18"
+VERSION = "v19.0.18b"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -723,7 +723,7 @@ def build_autonomy_candidate_handoff(run: Mapping[str, Any], autonomous_chain: M
     learning_buys = int(autonomous_detail.get("learning_buys") or 0)
     theoretical_buys = int(autonomous_detail.get("buys") or 0)
     return {
-        "version": "v19.0.18",
+        "version": "v19.0.18b",
         "report_candidates": len(candidates),
         "report_proposals": len(proposals),
         "decision_ready_candidates": len(decision_ready),

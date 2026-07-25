@@ -16,7 +16,7 @@ from storage_architecture import runtime_data_path
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 from local_time import as_local, local_display
 
-VERSION = "v19.0.18"
+VERSION = "v19.0.18b"
 ROOT = runtime_data_path("autonomous_orchestrator")
 RUNS_DIR = ROOT / "runs"
 LATEST_PATH = ROOT / "latest_run.json"
@@ -90,16 +90,18 @@ def run_post_scan_chain(
                 buys = [x for x in cycle_trades if x.get("action") == "BUY"]
                 sells = [x for x in cycle_trades if x.get("action") == "SELL"]
                 learning_buys = [x for x in buys if x.get("learning_probe")]
+                ordinary_buys = [x for x in buys if not x.get("learning_probe")]
                 skips = [x for x in cycle_decisions if x.get("action") == "SKIP"]
                 stage("AUTONOMOUS_PORTFOLIO", "OK", {
-                    "trades": len(cycle_trades), "buys": len(buys), "learning_buys": len(learning_buys), "sells": len(sells),
+                    "trades": len(cycle_trades), "buys": len(buys), "ordinary_buys": len(ordinary_buys), "learning_buys": len(learning_buys), "sells": len(sells),
                     "skips": len(skips), "decisions": len(cycle_decisions),
                     "open_positions": len((cycle.get("portfolio") or {}).get("positions") or {}),
+                    "learning_open_positions": len((cycle.get("learning_portfolio") or {}).get("positions") or {}),
                     "status": cycle.get("portfolio", {}).get("status"),
-                    "buy_tickers": [x.get("ticker") for x in buys],
+                    "buy_tickers": [x.get("ticker") for x in ordinary_buys],
                     "learning_buy_tickers": [x.get("ticker") for x in learning_buys],
                     "sell_tickers": [x.get("ticker") for x in sells],
-                    "reason": "Teoretiske læringskjøp opprettet" if learning_buys else ("Ingen kjøp opprettet" if not buys else "Teoretiske kjøp opprettet"),
+                    "reason": "Separate læringsposisjoner opprettet" if learning_buys and not ordinary_buys else ("Ingen kjøp opprettet" if not buys else "Ordinære teoretiske porteføljekjøp opprettet"),
                 })
         except Exception as exc:
             result["errors"].append(f"Autonomous Portfolio: {exc}")

@@ -163,6 +163,7 @@ def collect_autonomy_overview() -> dict[str, Any]:
 def _goto(workspace: str) -> None:
     """Navigate without mutating an instantiated widget key."""
     slug = {
+        "Autonom portefølje": "autonomous_portfolio",
         "Læringsportefølje": "learning_portfolio",
         "Learning Portfolio": "learning_portfolio",
         "Rapporter": "reports",
@@ -195,8 +196,8 @@ def _render_autonomy_status_box(snapshot: Mapping[str, Any]) -> None:
         panel["Planlegger"] = "Feil"
 
     candidates = int(panel.get("Kandidater mottatt") or 0)
-    buys = int(panel.get("Teoretiske kjøp") or 0)
-    learning_buys = int(panel.get("Læringskjøp") or 0)
+    buys = int(panel.get("Ordinære porteføljekjøp") or panel.get("Teoretiske kjøp") or 0)
+    learning_buys = int(panel.get("Læringsposisjoner opprettet") or panel.get("Læringskjøp") or 0)
     reason = str(panel.get("Årsak til ingen kjøp") or "Ingen siste kjøring")
     problem = candidates == 0 or (buys == 0 and learning_buys == 0)
 
@@ -210,9 +211,14 @@ def _render_autonomy_status_box(snapshot: Mapping[str, Any]) -> None:
         r1c4.metric("Ekte handel", panel.get("Ekte handel", "Deaktivert"))
         r2c1, r2c2, r2c3, r2c4 = st.columns(4)
         r2c1.metric("Kandidater mottatt", candidates)
-        r2c2.metric("Teoretiske kjøp", buys)
-        r2c3.metric("Læringskjøp", learning_buys)
-        r2c4.metric("Læringskjøp aktivert", "Ja" if panel.get("Læringskjøp aktivert") else "Nei")
+        r2c2.metric("Ordinære kjøp sist", buys)
+        r2c3.metric("Læringsposisjoner opprettet sist", learning_buys)
+        r2c4.metric("Læring aktivert", "Ja" if panel.get("Læringskjøp aktivert") else "Nei")
+        r3c1, r3c2, r3c3, r3c4 = st.columns(4)
+        r3c1.metric("Åpne autonome posisjoner", int(panel.get("Åpne autonome posisjoner") or 0))
+        r3c2.metric("Åpne læringsposisjoner", int(panel.get("Åpne læringsposisjoner") or 0))
+        r3c3.metric("Porteføljer adskilt", "Ja")
+        r3c4.metric("Ekte ordre sendt", "Nei")
         if problem:
             st.warning(f"Årsak til ingen kjøp: {reason}")
         else:
@@ -225,7 +231,12 @@ def _render_autonomy_status_box(snapshot: Mapping[str, Any]) -> None:
             h2.metric("Sendt til Autonomi", int(handoff.get("forwarded_candidates") or handoff.get("sent_to_autonomy") or 0))
             h3.metric("Mottatt av Autonomi", int(handoff.get("received_by_autonomy") or candidates or 0))
             h4.metric("Avvik", "Ja" if handoff.get("handoff_mismatch") else "Nei")
-        st.caption("Ekte handel er fortsatt deaktivert. Teoretiske kjøp og læringskjøp brukes kun i paper/autonomi-læring.")
+        st.caption("Ekte handel er fortsatt deaktivert. Ordinære porteføljekjøp og læringsposisjoner føres i separate porteføljer og separate resultatregnskap.")
+        nav_left, nav_right = st.columns(2)
+        if nav_left.button("📈 Åpne autonom portefølje", use_container_width=True, key="overview_open_autonomous_portfolio_v19018b"):
+            _goto("Autonom portefølje")
+        if nav_right.button("🧪 Vis læringsportefølje", use_container_width=True, key="overview_open_learning_portfolio_v19018b"):
+            _goto("Læringsportefølje")
 
 def _safe_public_report_url(value: Any) -> str:
     """Accept only absolute HTTP(S) report links for the rendered anchor."""

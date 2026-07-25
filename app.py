@@ -19529,9 +19529,12 @@ def render_autonomy_core_control_center_v1880() -> None:
     a4.metric("Domener", len(manifest.get("domains") or []))
 
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
+    if requested_workspace == "autonomous_portfolio":
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        render_autonomous_portfolio(view="autonomous"); return
     if requested_workspace == "learning_portfolio":
         st.session_state["autonomy_core_workspace_slug_v1882"] = ""
-        render_autonomous_portfolio(); return
+        render_autonomous_portfolio(view="learning"); return
     if requested_workspace == "reports":
         st.session_state["autonomy_core_workspace_slug_v1882"] = ""
         from market_intelligence import render_market_intelligence
@@ -19549,6 +19552,7 @@ def render_autonomy_core_control_center_v1880() -> None:
     workspace_labels = {
         "overview": "Oversikt",
         "orchestrator": "Orkestrering og tidsplan",
+        "autonomous_portfolio": "Autonom portefølje",
         "learning_portfolio": "Læringsportefølje",
         "architecture": "Ekspertkontroll",
         "reports": "Rapporter",
@@ -19582,8 +19586,10 @@ def render_autonomy_core_control_center_v1880() -> None:
         render_autonomy_overview()
     elif workspace == "Orkestrering og tidsplan":
         render_autonomous_orchestrator_control_center()
+    elif workspace == "Autonom portefølje":
+        render_autonomous_portfolio(view="autonomous")
     elif workspace == "Læringsportefølje":
-        render_autonomous_portfolio()
+        render_autonomous_portfolio(view="learning")
     elif workspace == "Rapporter":
         from market_intelligence import render_market_intelligence
         render_market_intelligence()

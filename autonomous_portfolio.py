@@ -21,7 +21,7 @@ from persistent_config_store import read_persistent_json, write_persistent_json,
 from configuration_framework import export_bundle, import_bundle, status as configuration_status
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
-VERSION = "v19.0.18"
+VERSION = "v19.0.18b"
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
@@ -31,6 +31,12 @@ NOTIFICATIONS_PATH = ROOT / "notifications.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 PERFORMANCE_PATH = ROOT / "performance.json"
 EQUITY_HISTORY_PATH = ROOT / "equity_history.json"
+LEARNING_PORTFOLIO_PATH = ROOT / "learning_portfolio.json"
+LEARNING_TRADES_PATH = ROOT / "learning_trades.json"
+LEARNING_DECISIONS_PATH = ROOT / "learning_decisions.json"
+LEARNING_EQUITY_HISTORY_PATH = ROOT / "learning_equity_history.json"
+LEARNING_PERFORMANCE_PATH = ROOT / "learning_performance.json"
+LEGACY_MIXED_EQUITY_HISTORY_PATH = ROOT / "equity_history_pre_separation.json"
 LATEST_PIPELINE_PATH = runtime_data_path("investment_pipeline") / "latest_run.json"
 
 
@@ -46,6 +52,12 @@ _PERSISTENT_PATH_KEYS = {
     NOTIFICATIONS_PATH: "autonomous_portfolio/notifications.json",
     PERFORMANCE_PATH: "autonomous_portfolio/performance.json",
     EQUITY_HISTORY_PATH: "autonomous_portfolio/equity_history.json",
+    LEARNING_PORTFOLIO_PATH: "autonomous_portfolio/learning_portfolio.json",
+    LEARNING_TRADES_PATH: "autonomous_portfolio/learning_trades.json",
+    LEARNING_DECISIONS_PATH: "autonomous_portfolio/learning_decisions.json",
+    LEARNING_EQUITY_HISTORY_PATH: "autonomous_portfolio/learning_equity_history.json",
+    LEARNING_PERFORMANCE_PATH: "autonomous_portfolio/learning_performance.json",
+    LEGACY_MIXED_EQUITY_HISTORY_PATH: "autonomous_portfolio/equity_history_pre_separation.json",
     LATEST_PIPELINE_PATH: "investment_pipeline/latest_run.json",
 }
 
@@ -112,6 +124,8 @@ class AutonomousParameters:
     enable_learning_probe_buys: bool = True
     learning_probe_minimum_score: float = 70.0
     learning_probe_max_buys: int = 3
+    learning_probe_notional_value: float = 2500.0
+    learning_probe_horizon_days: int = 30
     notify_trades: bool = True
     notify_risk_events: bool = True
 
@@ -135,6 +149,8 @@ class AutonomousParameters:
             enable_learning_probe_buys=bool(self.enable_learning_probe_buys),
             learning_probe_minimum_score=max(0.0, min(100.0, _f(self.learning_probe_minimum_score, 70.0))),
             learning_probe_max_buys=max(0, min(10, int(self.learning_probe_max_buys))),
+            learning_probe_notional_value=max(100.0, min(100000.0, _f(self.learning_probe_notional_value, 2500.0))),
+            learning_probe_horizon_days=max(1, min(365, int(self.learning_probe_horizon_days))),
             notify_trades=bool(self.notify_trades),
             notify_risk_events=bool(self.notify_risk_events),
         )
@@ -177,13 +193,128 @@ def default_portfolio(params: AutonomousParameters | None = None) -> dict[str, A
     }
 
 
+def default_learning_portfolio(params: AutonomousParameters | None = None) -> dict[str, Any]:
+    p = (params or load_parameters()).normalized()
+    return {
+        "version": VERSION,
+        "account_id": "AUTONOMY-LEARNING-OBSERVATION-PORTFOLIO",
+        "mode": "LEARNING_ONLY",
+        "status": "ACTIVE" if p.enable_learning_probe_buys else "PAUSED",
+        "created_at": _now(),
+        "updated_at": _now(),
+        "positions": {},
+        "closed_positions": [],
+        "realized_pnl": 0.0,
+        "total_entry_notional": 0.0,
+        "last_run_id": None,
+        "purpose": "Skyggeposisjoner for læring. Påvirker ikke autonom portefølje, kontanter, risiko eller posisjonsgrenser.",
+    }
+
+
+def _split_legacy_learning_rows(primary_path: Path, learning_path: Path) -> None:
+    primary_rows = _read(primary_path, [])
+    learning_rows = _read(learning_path, [])
+    if not isinstance(primary_rows, list):
+        primary_rows = []
+    if not isinstance(learning_rows, list):
+        learning_rows = []
+    existing_ids = {str(r.get("trade_id") or r.get("decision_id") or "") for r in learning_rows if isinstance(r, Mapping)}
+    keep, moved = [], []
+    for row in primary_rows:
+        if isinstance(row, Mapping) and row.get("learning_probe"):
+            key = str(row.get("trade_id") or row.get("decision_id") or "")
+            if not key or key not in existing_ids:
+                moved.append(dict(row))
+        else:
+            keep.append(row)
+    if moved:
+        _write(primary_path, keep)
+        _write(learning_path, moved + learning_rows)
+
+
+def ensure_portfolio_separation() -> dict[str, int]:
+    """Migrate legacy learning probes out of the ordinary autonomous portfolio.
+
+    v19.0.18 stored learning probes as normal positions and deducted their value
+    from ordinary portfolio cash. v19.0.18b separates the ledgers and restores
+    the exact cost basis to the ordinary theoretical portfolio. The migration is
+    idempotent and leaves an explicit audit record.
+    """
+    params = load_parameters()
+    primary = _read(PORTFOLIO_PATH, None)
+    primary_created = not isinstance(primary, dict)
+    if primary_created:
+        primary = default_portfolio(params)
+    learning = _read(LEARNING_PORTFOLIO_PATH, None)
+    learning_created = not isinstance(learning, dict)
+    if learning_created:
+        learning = default_learning_portfolio(params)
+    primary.setdefault("positions", {})
+    learning.setdefault("positions", {})
+    moved = 0
+    restored = 0.0
+    for ticker, raw in list(primary["positions"].items()):
+        position = dict(raw) if isinstance(raw, Mapping) else {}
+        if not position.get("learning_probe"):
+            continue
+        entry_value = _f(position.get("quantity")) * _f(position.get("average_price"))
+        position["portfolio_type"] = "LEARNING"
+        position["origin"] = position.get("origin") or "AUTONOMY_LEARNING_PROBE"
+        position["migrated_from_primary_at"] = _now()
+        learning["positions"][ticker] = position
+        del primary["positions"][ticker]
+        primary["cash"] = _f(primary.get("cash")) + entry_value
+        learning["total_entry_notional"] = _f(learning.get("total_entry_notional")) + entry_value
+        restored += entry_value
+        moved += 1
+    if moved:
+        primary["updated_at"] = _now()
+        learning["updated_at"] = _now()
+        ordinary_equity = _f(primary.get("cash")) + sum(
+            _f(pos.get("quantity")) * _f(pos.get("last_price", pos.get("average_price")))
+            for pos in (primary.get("positions") or {}).values()
+        )
+        primary["last_equity"] = ordinary_equity
+        primary["high_watermark"] = max(_f(primary.get("initial_cash"), ordinary_equity), ordinary_equity)
+        legacy_history = _read(EQUITY_HISTORY_PATH, [])
+        if isinstance(legacy_history, list) and legacy_history and not _read(LEGACY_MIXED_EQUITY_HISTORY_PATH, []):
+            _write(LEGACY_MIXED_EQUITY_HISTORY_PATH, legacy_history)
+            _write(EQUITY_HISTORY_PATH, [])
+        _write(PORTFOLIO_PATH, primary)
+        _write(LEARNING_PORTFOLIO_PATH, learning)
+        _split_legacy_learning_rows(TRADES_PATH, LEARNING_TRADES_PATH)
+        _split_legacy_learning_rows(DECISIONS_PATH, LEARNING_DECISIONS_PATH)
+        _write(PERFORMANCE_PATH, calculate_performance(primary))
+        _write(LEARNING_PERFORMANCE_PATH, learning_portfolio_performance(learning))
+        _append_audit("LEARNING_PORTFOLIO_SEPARATED", {"positions_moved": moved, "cash_restored": round(restored, 2), "ordinary_equity_reset": round(ordinary_equity, 2), "legacy_history_archived": bool(legacy_history)})
+    else:
+        if primary_created:
+            _write(PORTFOLIO_PATH, primary)
+        if learning_created:
+            _write(LEARNING_PORTFOLIO_PATH, learning)
+    return {"positions_moved": moved, "cash_restored": round(restored, 2)}
+
+
 def load_portfolio() -> dict[str, Any]:
+    ensure_portfolio_separation()
     params = load_parameters()
     value = _read(PORTFOLIO_PATH, None)
     if not isinstance(value, dict):
         value = default_portfolio(params)
         _write(PORTFOLIO_PATH, value)
     value.setdefault("positions", {})
+    return value
+
+
+def load_learning_portfolio() -> dict[str, Any]:
+    ensure_portfolio_separation()
+    params = load_parameters()
+    value = _read(LEARNING_PORTFOLIO_PATH, None)
+    if not isinstance(value, dict):
+        value = default_learning_portfolio(params)
+        _write(LEARNING_PORTFOLIO_PATH, value)
+    value.setdefault("positions", {})
+    value.setdefault("closed_positions", [])
     return value
 
 
@@ -263,8 +394,126 @@ def load_equity_history(limit: int = 200) -> list[dict[str, Any]]:
     return list(rows[:limit]) if isinstance(rows, list) else []
 
 
+def learning_portfolio_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    portfolio = dict(portfolio or load_learning_portfolio())
+    positions = portfolio.get("positions") or {}
+    entry_open = sum(_f(p.get("quantity")) * _f(p.get("average_price")) for p in positions.values())
+    current_open = sum(_f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price"))) for p in positions.values())
+    unrealized = current_open - entry_open
+    realized = _f(portfolio.get("realized_pnl"))
+    total_entry = max(_f(portfolio.get("total_entry_notional")), entry_open)
+    total_pnl = realized + unrealized
+    return {
+        "updated_at": _now(), "open_positions": len(positions),
+        "entry_notional": round(entry_open, 2), "current_value": round(current_open, 2),
+        "unrealized_pnl": round(unrealized, 2), "realized_pnl": round(realized, 2),
+        "total_pnl": round(total_pnl, 2),
+        "return_pct": round(total_pnl / total_entry * 100, 2) if total_entry else 0.0,
+        "total_observations": len(positions) + len(portfolio.get("closed_positions") or []),
+    }
+
+
+def _append_learning_equity_history(portfolio: Mapping[str, Any], run_id: str, *, trades: int, decisions: int) -> None:
+    history = _read(LEARNING_EQUITY_HISTORY_PATH, [])
+    if not isinstance(history, list):
+        history = []
+    perf = learning_portfolio_performance(portfolio)
+    history.insert(0, {"timestamp": _now(), "run_id": run_id, **perf, "trades": trades, "decisions": decisions, "mode": "LEARNING_ONLY"})
+    _write(LEARNING_EQUITY_HISTORY_PATH, history[:2000])
+
+
+def load_learning_equity_history(limit: int = 200) -> list[dict[str, Any]]:
+    rows = _read(LEARNING_EQUITY_HISTORY_PATH, [])
+    return list(rows[:limit]) if isinstance(rows, list) else []
+
+
+def _record_learning_trade(trade: dict[str, Any]) -> None:
+    rows = _read(LEARNING_TRADES_PATH, [])
+    if not isinstance(rows, list):
+        rows = []
+    rows.insert(0, trade)
+    _write(LEARNING_TRADES_PATH, rows)
+    _append_audit("LEARNING_SIMULATED_TRADE", trade)
+
+
+def _record_learning_decisions(rows: Sequence[Mapping[str, Any]]) -> None:
+    current = _read(LEARNING_DECISIONS_PATH, [])
+    if not isinstance(current, list):
+        current = []
+    _write(LEARNING_DECISIONS_PATH, list(rows) + current[:5000])
+
+
+def _days_opened(value: Any) -> int:
+    try:
+        opened = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if opened.tzinfo is None:
+            opened = opened.replace(tzinfo=timezone.utc)
+        return max(0, (datetime.now(timezone.utc) - opened.astimezone(timezone.utc)).days)
+    except Exception:
+        return 0
+
+
+def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str) -> dict[str, Any] | None:
+    pos = (portfolio.get("positions") or {}).get(ticker)
+    if not pos or price <= 0:
+        return None
+    quantity = _f(pos.get("quantity"))
+    entry = _f(pos.get("average_price"), price)
+    pnl = quantity * (price - entry)
+    portfolio["realized_pnl"] = _f(portfolio.get("realized_pnl")) + pnl
+    closed = {**dict(pos), "closed_at": _now(), "close_price": price, "close_reason": reason, "pnl": round(pnl, 2), "pnl_pct": round((price / entry - 1) * 100, 2) if entry else 0.0}
+    portfolio.setdefault("closed_positions", []).insert(0, closed)
+    del portfolio["positions"][ticker]
+    trade = {
+        "trade_id": f"LT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+        "action": "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
+        "value": round(quantity * price, 2), "pnl": round(pnl, 2), "pnl_pct": closed["pnl_pct"],
+        "reason": reason, "strategy": pos.get("strategy"), "mode": "LEARNING_ONLY", "learning_probe": True,
+    }
+    _record_learning_trade(trade)
+    return trade
+
+
+def _update_learning_positions(portfolio: dict[str, Any], candidate_map: Mapping[str, Mapping[str, Any]], run_id: str, params: AutonomousParameters) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    decisions: list[dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
+    for ticker, pos in list((portfolio.get("positions") or {}).items()):
+        candidate = candidate_map.get(ticker, {})
+        if not candidate:
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Ikke med i dagens kandidatsett; siste markering beholdes", "learning_probe": True})
+            continue
+        price = _candidate_price(candidate, pos)
+        if price <= 0:
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Mangler ny pris; læringsposisjonen beholdes", "learning_probe": True})
+            continue
+        pos["last_price"] = price
+        pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
+        pos["last_evaluated_at"] = _now()
+        avg = _f(pos.get("average_price"), price)
+        score = _candidate_score(candidate, _f(pos.get("entry_score"), 100.0))
+        age = _days_opened(pos.get("opened_at"))
+        reason = None
+        if price <= avg * (1 - params.stop_loss_pct / 100):
+            reason = "Læringsobservasjon: stop loss"
+        elif price >= avg * (1 + params.take_profit_pct / 100):
+            reason = "Læringsobservasjon: gevinstmål"
+        elif candidate and score < params.score_exit_threshold:
+            reason = f"Læringsobservasjon: score falt til {score:.1f}"
+        elif age >= params.learning_probe_horizon_days:
+            reason = f"Læringshorisont {params.learning_probe_horizon_days} dager fullført"
+        if reason:
+            trade = _close_learning_position(portfolio, ticker, price, reason, run_id)
+            if trade:
+                trades.append(trade)
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "CLOSE_OBSERVATION", "reason": reason, "price": price, "score": score, "learning_probe": True})
+        else:
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Følges videre; dag {age}/{params.learning_probe_horizon_days}", "price": price, "score": score, "learning_probe": True})
+    return decisions, trades
+
+
 def portfolio_status_summary(latest_chain: Mapping[str, Any] | None = None) -> dict[str, Any]:
     portfolio = load_portfolio()
+    learning_portfolio = load_learning_portfolio()
     params = load_parameters()
     latest_chain = dict(latest_chain or {})
     stages = latest_chain.get("stages") if isinstance(latest_chain.get("stages"), list) else []
@@ -274,20 +523,29 @@ def portfolio_status_summary(latest_chain: Mapping[str, Any] | None = None) -> d
     auto_detail = auto.get("detail") if isinstance(auto.get("detail"), Mapping) else {}
     handoff = market_detail.get("handoff_input") if isinstance(market_detail.get("handoff_input"), Mapping) else {}
     received = int(market_detail.get("candidates") or handoff.get("forwarded_candidates") or 0)
-    buys = int(auto_detail.get("buys") or 0)
+    total_buys = int(auto_detail.get("buys") or 0)
     learning_buys = int(auto_detail.get("learning_buys") or 0)
+    ordinary_buys = int(auto_detail.get("ordinary_buys") if auto_detail.get("ordinary_buys") is not None else max(0, total_buys - learning_buys))
     reason = str(auto_detail.get("reason") or auto_detail.get("warning") or auto.get("status") or "Ingen siste kjøring")
     if received == 0:
         reason = str(auto_detail.get("reason") or "Ingen kandidater fra skanning")
+    elif ordinary_buys == 0 and learning_buys:
+        reason = "Ingen ordinære porteføljekjøp; læringsposisjoner ble opprettet separat"
+    elif ordinary_buys:
+        reason = "Ordinære teoretiske porteføljekjøp opprettet"
     return {
         "Autonomi-runner": "Aktiv" if portfolio.get("status") == "ACTIVE" else "Pauset",
         "Planlegger": "Aktiv" if latest_chain else "Ukjent",
         "Paper trading": "Aktiv",
         "Ekte handel": "Deaktivert",
         "Kandidater mottatt": received,
-        "Teoretiske kjøp": buys,
+        "Ordinære porteføljekjøp": ordinary_buys,
+        "Læringsposisjoner opprettet": learning_buys,
+        "Teoretiske kjøp": ordinary_buys,
         "Læringskjøp": learning_buys,
-        "Årsak til ingen kjøp": reason if buys == 0 else "Teoretiske kjøp opprettet",
+        "Åpne autonome posisjoner": len(portfolio.get("positions") or {}),
+        "Åpne læringsposisjoner": len(learning_portfolio.get("positions") or {}),
+        "Årsak til ingen kjøp": reason,
         "Minimum ordinær score": params.minimum_investment_score,
         "Minimum læringsscore": params.learning_probe_minimum_score,
         "Læringskjøp aktivert": bool(params.enable_learning_probe_buys),
@@ -402,13 +660,22 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
 def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | None = None) -> dict[str, Any]:
     params = load_parameters().normalized()
     portfolio = load_portfolio()
+    learning_portfolio = load_learning_portfolio()
     run_id = run_id or f"ALP-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     decisions: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
+    learning_decisions: list[dict[str, Any]] = []
+    learning_trades: list[dict[str, Any]] = []
     exited_this_cycle: set[str] = set()
     candidate_map = {str(c.get("ticker") or "").upper(): c for c in candidates if str(c.get("ticker") or "").strip()}
 
-    # Mark positions and evaluate hard exits first.
+    # Learning observations have their own ledger and never affect ordinary
+    # portfolio cash, position limits, sector exposure or performance.
+    observed_decisions, observed_trades = _update_learning_positions(learning_portfolio, candidate_map, run_id, params)
+    learning_decisions.extend(observed_decisions)
+    learning_trades.extend(observed_trades)
+
+    # Mark ordinary autonomous positions and evaluate hard exits first.
     for ticker, pos in list((portfolio.get("positions") or {}).items()):
         candidate = candidate_map.get(ticker, {})
         price = _candidate_price(candidate, pos)
@@ -492,6 +759,11 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": "Utilstrekkelig kapital eller sektorrom", "score": score})
                 continue
 
+            if ticker in learning_portfolio.get("positions", {}):
+                promoted = _close_learning_position(learning_portfolio, ticker, price, "Promotert til ordinær autonom portefølje", run_id)
+                if promoted:
+                    learning_trades.append(promoted)
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "PROMOTED", "reason": "Kandidaten bestod ordinære kjøpsporter og ble flyttet til Autonom portefølje", "price": price, "score": score, "learning_probe": True})
             portfolio["cash"] = _f(portfolio.get("cash")) - value
             portfolio["positions"][ticker] = {
                 "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
@@ -535,7 +807,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         # create a small number of explicitly marked learning-probe positions.
         # This does not alter real trading, production thresholds or risk limits;
         # it prevents a week of Autonomi runs from producing zero learning data.
-        normal_buys_this_cycle = [t for t in trades if t.get("action") == "BUY"]
+        normal_buys_this_cycle = [t for t in trades if t.get("action") == "BUY" and not t.get("learning_probe")]
         if params.enable_learning_probe_buys and not normal_buys_this_cycle and candidates:
             learning_ranked = sorted(candidates, key=lambda c: _candidate_score(c), reverse=True)
             learning_count = 0
@@ -543,39 +815,34 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 if learning_count >= params.learning_probe_max_buys:
                     break
                 ticker = str(candidate.get("ticker") or "").upper()
-                if not ticker or ticker in portfolio["positions"] or ticker in exited_this_cycle:
+                if not ticker or ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
                     continue
                 score = _candidate_score(candidate)
                 if score < params.learning_probe_minimum_score:
-                    decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Under læringsgrense {score:.1f} < {params.learning_probe_minimum_score:.1f}", "score": score})
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Under læringsgrense {score:.1f} < {params.learning_probe_minimum_score:.1f}", "score": score})
                     continue
                 price = _candidate_price(candidate)
                 if price <= 0:
-                    decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Mangler gyldig pris for læringskjøp", "score": score})
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Mangler gyldig pris for læringskjøp", "score": score})
                     continue
                 risk = _candidate_risk(candidate)
                 quality = _candidate_quality(candidate)
-                equity = portfolio_equity(portfolio)
-                reserve = equity * params.reserve_cash_pct / 100
-                available = max(0.0, _f(portfolio.get("cash")) - reserve)
-                # Keep learning-probe trades smaller than normal max positions.
-                proposed = min(params.maximum_position_pct, 2.5, max(0.5, _f(candidate.get("proposed_position_pct"), 2.5)))
-                target_value = equity * proposed / 100
-                sector = str(candidate.get("sector") or "Unknown")
-                sector_room = max(0.0, equity * params.maximum_sector_pct / 100 - _sector_value(portfolio, sector))
-                value = min(target_value, available, sector_room)
+                # A learning position is a shadow observation with fixed notional.
+                # It does not reserve or deduct ordinary portfolio cash.
+                value = params.learning_probe_notional_value
                 quantity = math.floor(value / price * 10000) / 10000 if price > 0 else 0
                 value = quantity * price
+                sector = str(candidate.get("sector") or "Unknown")
                 if quantity <= 0 or value < 100:
-                    decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Utilstrekkelig kapital eller sektorrom for læringskjøp", "score": score})
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Ugyldig notional for læringsposisjon", "score": score, "learning_probe": True})
                     continue
-                portfolio["cash"] = _f(portfolio.get("cash")) - value
-                portfolio["positions"][ticker] = {
+                learning_portfolio["positions"][ticker] = {
                     "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
                     "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
                     "opened_at": _now(), "strategy": _candidate_strategy(candidate),
                     "entry_score": score, "entry_risk_score": risk, "entry_data_quality": quality,
-                    "source_run_id": run_id, "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE",
+                    "source_run_id": run_id, "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
+                    "observation_horizon_days": params.learning_probe_horizon_days,
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
@@ -587,11 +854,11 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     },
                 }
                 trade = {
-                    "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+                    "trade_id": f"LT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                     "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                     "value": round(value, 2), "pnl": 0.0,
                     "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
-                    "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY", "learning_probe": True,
+                    "strategy": _candidate_strategy(candidate), "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
@@ -602,9 +869,10 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                         "risk_adjustment": 100.0 - risk,
                     },
                 }
-                _record_trade(trade)
-                trades.append(trade)
-                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "learning_probe": True})
+                _record_learning_trade(trade)
+                learning_trades.append(trade)
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "learning_probe": True})
+                learning_portfolio["total_entry_notional"] = _f(learning_portfolio.get("total_entry_notional")) + value
                 learning_count += 1
                 if params.notify_trades:
                     _notification("TRADE", f"AUTONOMY LEARNING BUY {ticker}", f"Teoretisk læringskjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade)
@@ -614,19 +882,26 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     portfolio["last_run_id"] = run_id
     portfolio["last_equity"] = equity
     portfolio["high_watermark"] = max(_f(portfolio.get("high_watermark"), equity), equity)
+    learning_portfolio["updated_at"] = _now()
+    learning_portfolio["last_run_id"] = run_id
     _write(PORTFOLIO_PATH, portfolio)
+    _write(LEARNING_PORTFOLIO_PATH, learning_portfolio)
     _record_decisions(decisions)
+    _record_learning_decisions(learning_decisions)
     _append_equity_history(portfolio, run_id, trades=len(trades), decisions=len(decisions))
+    _append_learning_equity_history(learning_portfolio, run_id, trades=len(learning_trades), decisions=len(learning_decisions))
     perf = calculate_performance(portfolio)
+    learning_perf = learning_portfolio_performance(learning_portfolio)
     _write(PERFORMANCE_PATH, perf)
-    _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "trades": len(trades), "equity": equity, "status": portfolio.get("status")})
+    _write(LEARNING_PERFORMANCE_PATH, learning_perf)
+    _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status")})
     learning_result = None
     try:
         from controlled_parameter_learning import run_automatic_learning_if_due
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "portfolio": portfolio, "decisions": decisions, "trades": trades, "performance": perf, "learning": learning_result}
+    return {"run_id": run_id, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions, "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -687,16 +962,16 @@ def build_evaluation_bundle() -> bytes:
         pass
     manifest = {
         "version": VERSION, "created_at": _now(), "purpose": "Module evaluation",
-        "contains": ["portfolio", "parameters", "trades", "decisions", "performance", "equity_history", "notifications", "audit", "latest_pipeline", "controlled_learning"],
+        "contains": ["autonomous_portfolio", "learning_portfolio", "parameters", "ordinary_trades", "learning_trades", "ordinary_decisions", "learning_decisions", "performance", "equity_history", "learning_equity_history", "notifications", "audit", "latest_pipeline", "controlled_learning"],
         "privacy_note": "Review before sharing. The bundle is intended to contain trading simulation data, not credentials.",
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         for name, path in (
-            ("portfolio.json", PORTFOLIO_PATH), ("parameters.json", PARAMETERS_PATH), ("trades.json", TRADES_PATH),
-            ("decisions.json", DECISIONS_PATH), ("performance.json", PERFORMANCE_PATH), ("equity_history.json", EQUITY_HISTORY_PATH), ("notifications.json", NOTIFICATIONS_PATH),
-            ("audit.jsonl", AUDIT_PATH), ("latest_pipeline.json", LATEST_PIPELINE_PATH),
+            ("portfolio.json", PORTFOLIO_PATH), ("learning_portfolio.json", LEARNING_PORTFOLIO_PATH), ("parameters.json", PARAMETERS_PATH), ("trades.json", TRADES_PATH), ("learning_trades.json", LEARNING_TRADES_PATH),
+            ("decisions.json", DECISIONS_PATH), ("learning_decisions.json", LEARNING_DECISIONS_PATH), ("performance.json", PERFORMANCE_PATH), ("learning_performance.json", LEARNING_PERFORMANCE_PATH), ("equity_history.json", EQUITY_HISTORY_PATH), ("learning_equity_history.json", LEARNING_EQUITY_HISTORY_PATH), ("notifications.json", NOTIFICATIONS_PATH),
+            ("audit.jsonl", AUDIT_PATH), ("equity_history_pre_separation.json", LEGACY_MIXED_EQUITY_HISTORY_PATH), ("latest_pipeline.json", LATEST_PIPELINE_PATH),
         ):
             if path.exists():
                 zf.writestr(name, path.read_bytes())
@@ -715,12 +990,91 @@ def build_evaluation_bundle() -> bytes:
     return buffer.getvalue()
 
 
-def render_autonomous_portfolio() -> None:
+def _navigate_autonomy_workspace(slug: str) -> None:
+    import streamlit as st
+    st.session_state["autonomy_core_workspace_slug_v1882"] = slug
+    st.rerun()
+
+
+def render_learning_portfolio() -> None:
     import pandas as pd
     import streamlit as st
 
-    st.markdown("#### 🧠 Autonom læringsportefølje")
-    st.caption("Separat, teoretisk portefølje med faste brukerdefinerte regler. Ingen meglerkobling, ingen ekte handler og kontrollert parameterlæring kan kjøre som Observatør, Assistert autonomi eller Full autonomi. v18.6.90 kan kjøre hele kjeden automatisk etter planlagte skanninger.")
+    portfolio = load_learning_portfolio()
+    perf = learning_portfolio_performance(portfolio)
+    params = load_parameters()
+    st.markdown("#### 🧪 Læringsportefølje")
+    st.caption("Separate skyggeposisjoner for å måle hva som skjer med kandidater som ikke ble ordinært kjøpt. Disse posisjonene påvirker ikke Autonom portefølje, kontanter, risiko, sektorgrenser eller ekte handel.")
+    b1, b2 = st.columns(2)
+    if b1.button("📈 Åpne autonom portefølje", use_container_width=True, key="learning_to_autonomous_v19018b"):
+        _navigate_autonomy_workspace("autonomous_portfolio")
+    if b2.button("🧭 Til Autonomi Oversikt", use_container_width=True, key="learning_to_overview_v19018b"):
+        _navigate_autonomy_workspace("overview")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Åpne læringsposisjoner", perf["open_positions"])
+    c2.metric("Inngangsnotional", f"{perf['entry_notional']:,.0f}")
+    c3.metric("Nåverdi", f"{perf['current_value']:,.0f}")
+    c4.metric("Samlet P/L", f"{perf['total_pnl']:+,.0f}")
+    c5.metric("Læringsavkastning", f"{perf['return_pct']:+.2f}%")
+    st.info(f"Fast notional per ny læringsposisjon: {params.learning_probe_notional_value:,.0f}. Normal observasjonshorisont: {params.learning_probe_horizon_days} dager.")
+
+    history = load_learning_equity_history(200)
+    st.markdown("##### Utvikling i læringsporteføljen")
+    if history:
+        hist_df = pd.DataFrame(history).sort_values("timestamp")
+        chart_cols = [c for c in ("total_pnl", "return_pct") if c in hist_df.columns]
+        if chart_cols:
+            st.line_chart(hist_df.set_index("timestamp")[chart_cols], use_container_width=True)
+        st.dataframe(hist_df.sort_values("timestamp", ascending=False).head(25), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen læringshistorikk ennå. Historikk opprettes etter neste autonome beslutningssyklus.")
+
+    positions = list((portfolio.get("positions") or {}).values())
+    st.markdown("##### Åpne læringsposisjoner")
+    if positions:
+        rows = []
+        for pos in positions:
+            avg, last, qty = _f(pos.get("average_price")), _f(pos.get("last_price")), _f(pos.get("quantity"))
+            rows.append({
+                "Ticker": pos.get("ticker"), "Sektor": pos.get("sector"), "Strategi": pos.get("strategy"),
+                "Inngang": avg, "Siste": last, "Notional": qty * avg, "Nåverdi": qty * last,
+                "P/L": qty * (last - avg), "P/L %": (last / avg - 1) * 100 if avg else 0,
+                "Inngangsscore": pos.get("entry_score"), "Åpnet": pos.get("opened_at"),
+                "Sist vurdert": pos.get("last_evaluated_at"), "Horisont dager": pos.get("observation_horizon_days", params.learning_probe_horizon_days),
+                "Opprinnelse": "Autonomi læringsobservasjon",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ingen åpne læringsposisjoner.")
+
+    learning_trades = _read(LEARNING_TRADES_PATH, [])
+    learning_decisions = _read(LEARNING_DECISIONS_PATH, [])
+    closed = portfolio.get("closed_positions") or []
+    t1, t2, t3 = st.tabs(["Læringshandler", "Observasjonsbeslutninger", "Lukkede observasjoner"])
+    with t1:
+        st.dataframe(pd.DataFrame(learning_trades[:500]), use_container_width=True, hide_index=True) if learning_trades else st.caption("Ingen læringshandler registrert.")
+    with t2:
+        st.dataframe(pd.DataFrame(learning_decisions[:1000]), use_container_width=True, hide_index=True) if learning_decisions else st.caption("Ingen observasjonsbeslutninger registrert.")
+    with t3:
+        st.dataframe(pd.DataFrame(closed[:500]), use_container_width=True, hide_index=True) if closed else st.caption("Ingen lukkede læringsobservasjoner.")
+
+
+def render_autonomous_portfolio(view: str = "autonomous") -> None:
+    import pandas as pd
+    import streamlit as st
+
+    if str(view).lower() == "learning":
+        render_learning_portfolio()
+        return
+
+    st.markdown("#### 📈 Autonom portefølje")
+    st.caption("Den ordinære, teoretiske porteføljen som styres av Autonomi. Bare kandidater som består ordinære kjøpsporter påvirker beholdning, kontanter, risiko og porteføljeavkastning. Læringsobservasjoner føres separat.")
+    nav1, nav2 = st.columns(2)
+    if nav1.button("🧪 Vis læringsportefølje", use_container_width=True, key="autonomous_to_learning_v19018b"):
+        _navigate_autonomy_workspace("learning_portfolio")
+    if nav2.button("🧭 Til Autonomi Oversikt", use_container_width=True, key="autonomous_to_overview_v19018b"):
+        _navigate_autonomy_workspace("overview")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
         st.success("🔒 Parameterlås aktiv: lagrede innstillinger hentes fra persistent database og beholdes ved refresh, omstart og ny versjon.")
@@ -751,15 +1105,15 @@ def render_autonomous_portfolio() -> None:
     sp4.metric("Ekte handel", status_panel.get("Ekte handel"))
     sp5, sp6, sp7, sp8 = st.columns(4)
     sp5.metric("Kandidater mottatt", status_panel.get("Kandidater mottatt"))
-    sp6.metric("Teoretiske kjøp", status_panel.get("Teoretiske kjøp"))
-    sp7.metric("Læringskjøp", status_panel.get("Læringskjøp"))
+    sp6.metric("Ordinære porteføljekjøp", status_panel.get("Ordinære porteføljekjøp"))
+    sp7.metric("Separate læringsposisjoner", status_panel.get("Læringsposisjoner opprettet"))
     sp8.metric("Læringsgrense", status_panel.get("Minimum læringsscore"))
     reason_text = status_panel.get("Årsak til ingen kjøp")
     if status_panel.get("Teoretiske kjøp", 0):
         st.success(f"Status: {reason_text}")
     else:
         st.warning(f"Årsak til ingen kjøp: {reason_text}")
-    st.caption("Ekte handel er deaktivert. Læringskjøp er små, teoretiske paper-posisjoner som bare brukes for å skape læringsdata når ordinære kjøpsporter ikke slipper gjennom kandidater.")
+    st.caption("Ekte handel er deaktivert. Læringsposisjoner ligger i en separat læringsportefølje og påvirker ikke tallene på denne siden.")
 
     a, b, c = st.columns(3)
     if portfolio.get("status") == "ACTIVE":
@@ -839,9 +1193,12 @@ def render_autonomous_portfolio() -> None:
         learning_enabled = s2.checkbox("Aktiver læringskjøp", params.enable_learning_probe_buys, key="alp_learning_probe_enabled_v19018")
         learning_min_score = s3.slider("Minimum læringsscore", 0.0, 100.0, float(params.learning_probe_minimum_score), 1.0, key="alp_learning_probe_min_v19018")
         learning_max_buys = s4.number_input("Maks læringskjøp", 0, 10, int(params.learning_probe_max_buys), 1, key="alp_learning_probe_max_v19018")
+        u1, u2 = st.columns(2)
+        learning_notional = u1.number_input("Notional per læringsposisjon", 100.0, 100000.0, float(params.learning_probe_notional_value), 100.0, key="alp_learning_notional_v19018b")
+        learning_horizon = u2.number_input("Læringshorisont (dager)", 1, 365, int(params.learning_probe_horizon_days), 1, key="alp_learning_horizon_v19018b")
         notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
         if st.button("Lagre parametere", key="alp_save_params_v18688"):
-            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_max_buys=int(learning_max_buys), notify_trades=notify, notify_risk_events=True))
+            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
             st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
 
     with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):
@@ -887,7 +1244,7 @@ def render_autonomous_portfolio() -> None:
         rows = []
         for p in positions:
             avg, last, qty = _f(p.get("average_price")), _f(p.get("last_price")), _f(p.get("quantity"))
-            rows.append({"Ticker": p.get("ticker"), "Sektor": p.get("sector"), "Antall": qty, "Snitt": avg, "Siste": last, "Verdi": qty * last, "P/L %": (last / avg - 1) * 100 if avg else 0, "Strategi": p.get("strategy"), "Opprettet av": p.get("origin", "AUTONOMI"), "Læringskjøp": "Ja" if p.get("learning_probe") else "Nei", "Åpnet": p.get("opened_at"), "Sist vurdert": portfolio.get("last_run_id")})
+            rows.append({"Ticker": p.get("ticker"), "Sektor": p.get("sector"), "Antall": qty, "Snitt": avg, "Siste": last, "Verdi": qty * last, "P/L %": (last / avg - 1) * 100 if avg else 0, "Strategi": p.get("strategy"), "Opprettet av": p.get("origin", "AUTONOMI"), "Åpnet": p.get("opened_at"), "Sist vurdert": portfolio.get("last_run_id")})
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen åpne teoretiske posisjoner.")
