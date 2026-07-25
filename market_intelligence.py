@@ -34,7 +34,7 @@ from norwegian_report_language import (
     translate_report_text, USER_FACING_ENGLISH_BLOCKLIST, status_dot,
 )
 
-VERSION = "v19.0.17"
+VERSION = "v19.0.18"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -720,8 +720,10 @@ def build_autonomy_candidate_handoff(run: Mapping[str, Any], autonomous_chain: M
     received = int(market_detail.get("candidates") or 0)
     avvik = bool(candidates and received == 0)
     reason = str(autonomous_detail.get("reason") or "")
+    learning_buys = int(autonomous_detail.get("learning_buys") or 0)
+    theoretical_buys = int(autonomous_detail.get("buys") or 0)
     return {
-        "version": "v19.0.17",
+        "version": "v19.0.18",
         "report_candidates": len(candidates),
         "report_proposals": len(proposals),
         "decision_ready_candidates": len(decision_ready),
@@ -730,6 +732,9 @@ def build_autonomy_candidate_handoff(run: Mapping[str, Any], autonomous_chain: M
         "sent_to_autonomy": received,
         "autonomy_stage_status": autonomous_stage.get("status") or "IKKE_KJØRT",
         "autonomy_reason": reason,
+        "theoretical_buys": theoretical_buys,
+        "learning_buys": learning_buys,
+        "learning_probe_mode": bool(market_detail.get("learning_probe_mode") or (market_detail.get("handoff_input") or {}).get("learning_probe_mode")),
         "mismatch": avvik,
         "warning": (
             "Rapporten har kandidater, men Autonomi mottok 0. Kandidatoverlevering må kontrolleres."
