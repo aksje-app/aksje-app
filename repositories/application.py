@@ -1,0 +1,88 @@
+"""Canonical repository registry for v19.2.0.
+
+The registry owns permanent application domains while exact-key document and
+event adapters keep legacy modules operational during the staged migration.
+"""
+from __future__ import annotations
+
+from repositories.base import (
+    DocumentRepository,
+    EventRepository,
+    JsonRepository,
+    LegacyDocumentRepository,
+    LegacyEventRepository,
+)
+from services.storage_service import StorageService, get_storage_service
+
+
+class ReportRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("reports", storage=storage, id_field="run_id")
+class PortfolioRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("portfolios", storage=storage, id_field="portfolio_id")
+class TradeRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("trades", storage=storage, id_field="trade_id")
+class TaskRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("tasks", storage=storage, id_field="task_id")
+class ApprovalRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("approvals", storage=storage, id_field="approval_id")
+class SourceHealthRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("source_health", storage=storage, id_field="source_id")
+class SchedulerRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("scheduler_jobs", storage=storage, id_field="job_id")
+class RunTraceRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("run_traces", storage=storage, id_field="trace_id")
+class ConfigurationRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("configurations", storage=storage, id_field="config_id")
+class LearningRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("learning_records", storage=storage, id_field="learning_id")
+class ModelStateRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("model_state", storage=storage, id_field="model_id")
+class NotificationRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("notifications", storage=storage, id_field="notification_id")
+class OperationalEventRepository(EventRepository):
+    def __init__(self, storage=None): super().__init__("operational_events", storage=storage)
+class AuditEventRepository(EventRepository):
+    def __init__(self, storage=None): super().__init__("audit_events", storage=storage)
+
+
+class RepositoryRegistry:
+    def __init__(self, storage: StorageService | None = None):
+        storage = storage or get_storage_service()
+        self.storage = storage
+        self.documents = LegacyDocumentRepository(storage=storage)
+        self.events = LegacyEventRepository(storage=storage)
+        self.settings = DocumentRepository("settings", storage=storage)
+        self.reports = ReportRepository(storage)
+        self.portfolios = PortfolioRepository(storage)
+        self.trades = TradeRepository(storage)
+        self.tasks = TaskRepository(storage)
+        self.approvals = ApprovalRepository(storage)
+        self.source_health = SourceHealthRepository(storage)
+        self.scheduler = SchedulerRepository(storage)
+        self.run_traces = RunTraceRepository(storage)
+        self.configurations = ConfigurationRepository(storage)
+        self.learning = LearningRepository(storage)
+        self.model_state = ModelStateRepository(storage)
+        self.notifications = NotificationRepository(storage)
+        self.operational_events = OperationalEventRepository(storage)
+        self.audit_events = AuditEventRepository(storage)
+
+    def domain_names(self) -> tuple[str, ...]:
+        return (
+            "settings", "reports", "portfolios", "trades", "tasks", "approvals",
+            "source_health", "scheduler", "run_traces", "configurations",
+            "learning", "model_state", "notifications", "operational_events",
+            "audit_events",
+        )
+
+
+_default_registry: RepositoryRegistry | None = None
+
+
+def get_repository_registry(storage: StorageService | None = None) -> RepositoryRegistry:
+    global _default_registry
+    if storage is not None:
+        return RepositoryRegistry(storage)
+    if _default_registry is None:
+        _default_registry = RepositoryRegistry()
+    return _default_registry
