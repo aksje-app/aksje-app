@@ -14,7 +14,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 from local_time import DEFAULT_TIMEZONE, as_local, valid_timezone
 
-DECISION_REPORT_SCHEMA_VERSION = "1.0"
+DECISION_REPORT_SCHEMA_VERSION = "1.1"
 TASK_STATUSES = ("VENTER", "PÅGÅR", "UTFØRT", "FORTSATT_PROBLEM", "IKKE_LENGER_RELEVANT")
 CONSENSUS_LEVELS = ("STERK", "MODERAT", "SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT")
 
@@ -735,11 +735,43 @@ def build_decision_report(
     existing = _mapping(run.get("decision_report"))
     existing_changes = _mapping(existing.get("changes"))
     changes = deepcopy(existing_changes) if previous is None and existing_changes else build_change_summary(run, previous)
+
+    # v19.3.0: derive read-only decision intelligence from already calculated
+    # results. No score, action, threshold, risk limit or portfolio field is changed.
+    from decision_intelligence import (
+        build_decision_diffs,
+        build_historical_evaluations,
+        enrich_candidate_contracts,
+    )
+    threshold = _decision_threshold(run)
+    risk_limit = _risk_limit(run)
+    existing_decision_diffs = _mapping(existing.get("decision_diffs"))
+    decision_diffs = (
+        deepcopy(existing_decision_diffs)
+        if previous is None and existing_decision_diffs
+        else build_decision_diffs(
+            run, previous, candidate_contracts,
+            threshold=threshold, risk_limit=risk_limit,
+        )
+    )
+    candidate_contracts = enrich_candidate_contracts(
+        run, previous, candidate_contracts, decision_diffs,
+        threshold=threshold, risk_limit=risk_limit,
+    )
+    existing_historical = existing.get("historical_evaluations")
+    historical_evaluations = (
+        deepcopy(list(existing_historical))
+        if previous is None and isinstance(existing_historical, Sequence) and not isinstance(existing_historical, (str, bytes, bytearray))
+        else build_historical_evaluations(run, previous, candidate_contracts)
+    )
+
     events = build_event_calendar(run)
     confidence = build_report_confidence(run, candidate_contracts)
     reliability = build_report_reliability(run, candidate_contracts)
     tasks = build_next_run_tasks(run, candidate_contracts, events)
     overview = build_decision_overview(run, identity, candidate_contracts, changes, tasks, events, confidence, reliability)
+    overview["decision_diff_count"] = int(decision_diffs.get("changed_count") or 0)
+    overview["historical_evaluation_count"] = len(historical_evaluations)
     source_consensus = {
         "candidates": {str(row.get("ticker") or ""): deepcopy(row.get("source_consensus") or {}) for row in candidate_contracts},
         "strong": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") == "STERK"),
@@ -757,6 +789,20 @@ def build_decision_report(
         "confidence": confidence,
         "reliability": reliability,
         "source_consensus": source_consensus,
+        "decision_diffs": decision_diffs,
+        "historical_evaluations": historical_evaluations,
+        "counter_hypotheses": {
+            str(row.get("ticker") or ""): deepcopy(row.get("counter_hypothesis") or {})
+            for row in candidate_contracts[:3]
+        },
+        "controlled_learning_guard": {
+            "production_rules_auto_change_allowed": False,
+            "protected_rules": [
+                "maximum_position_pct", "stop_loss_pct", "maximum_risk_score",
+                "minimum_investment_score", "approval_requirements", "autonomy_mode",
+            ],
+            "require_explicit_user_approval": True,
+        },
     }
 
 
@@ -774,6 +820,10 @@ def enrich_decision_report(
         run["report_confidence"] = deepcopy(payload["confidence"])
         run["report_reliability"] = deepcopy(payload["reliability"])
         run["source_consensus"] = deepcopy(payload["source_consensus"])
+        run["decision_diffs"] = deepcopy(payload["decision_diffs"])
+        run["historical_decision_evaluations"] = deepcopy(payload["historical_evaluations"])
+        run["counter_hypotheses"] = deepcopy(payload["counter_hypotheses"])
+        run["controlled_learning_guard"] = deepcopy(payload["controlled_learning_guard"])
     return payload
 
 

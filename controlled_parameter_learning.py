@@ -24,7 +24,7 @@ from autonomous_portfolio import (
 )
 from durable_runtime import append_event, read_events
 
-VERSION = "v18.6.91a"
+VERSION = "v19.3.0"
 ROOT = runtime_data_path("controlled_learning")
 STATE_PATH = ROOT / "state.json"
 HYPOTHESES_PATH = ROOT / "hypotheses.json"
@@ -33,6 +33,18 @@ VERSIONS_PATH = ROOT / "parameter_versions.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 REPORTS_PATH = ROOT / "management_reports.json"
 APPROVALS_PATH = ROOT / "promotion_approvals.json"
+
+LEARNING_LIFECYCLE = (
+    "HYPOTESE", "SIMULERT", "PARALLELLTESTET", "KLAR_FOR_VURDERING",
+    "GODKJENT", "AVVIST", "TILBAKERULLERT",
+)
+PROTECTED_PRODUCTION_PARAMETERS = {
+    "maximum_position_pct", "maximum_sector_pct", "maximum_drawdown_pct",
+    "stop_loss_pct", "trailing_stop_pct", "take_profit_pct",
+    "reserve_cash_pct", "maximum_open_positions", "maximum_risk_score",
+    "daily_loss_limit_pct", "minimum_investment_score", "minimum_data_quality",
+    "score_exit_threshold", "enable_learning_probe_buys",
+}
 
 
 def _now() -> str:
@@ -104,11 +116,14 @@ def default_state() -> dict[str, Any]:
         "evaluation_interval_minutes": 60,
         "management_report_frequency": "DAILY",
         "last_management_report_at": None,
-        "auto_rollback": True,
+        "auto_rollback": False,
         "allow_hypothesis_creation": True,
         "allow_auto_challenger": True,
         "allow_auto_trial": True,
-        "allow_auto_promotion": True,
+        "allow_auto_promotion": False,
+        "require_explicit_user_approval": True,
+        "production_parameter_auto_change_allowed": False,
+        "protected_production_parameters": sorted(PROTECTED_PRODUCTION_PARAMETERS),
         "require_confirmation_major_change": True,
         "major_change_parameter_share_pct": 20.0,
         "material_risk_change_pct": 10.0,
@@ -134,11 +149,26 @@ def load_state() -> dict[str, Any]:
     raw = _read(STATE_PATH, {})
     if isinstance(raw, dict):
         state.update(raw)
+    # v19.3.0 hard safety contract: persisted legacy settings cannot re-enable
+    # autonomous production changes after an upgrade.
+    state["auto_promote"] = False
+    state["auto_rollback"] = False
+    state["allow_auto_promotion"] = False
+    state["require_explicit_user_approval"] = True
+    state["production_parameter_auto_change_allowed"] = False
+    state["protected_production_parameters"] = sorted(PROTECTED_PRODUCTION_PARAMETERS)
     return state
 
 
 def save_state(state: Mapping[str, Any]) -> dict[str, Any]:
-    merged = default_state(); merged.update(dict(state)); _write(STATE_PATH, merged)
+    merged = default_state(); merged.update(dict(state))
+    merged["auto_promote"] = False
+    merged["auto_rollback"] = False
+    merged["allow_auto_promotion"] = False
+    merged["require_explicit_user_approval"] = True
+    merged["production_parameter_auto_change_allowed"] = False
+    merged["protected_production_parameters"] = sorted(PROTECTED_PRODUCTION_PARAMETERS)
+    _write(STATE_PATH, merged)
     _audit("LEARNING_SETTINGS_SAVED", merged)
     return merged
 
@@ -207,7 +237,7 @@ def generate_hypotheses() -> list[dict[str, Any]]:
     open_keys = {(h.get("parameter"), h.get("status")) for h in existing if h.get("status") in {"NEW", "READY", "TESTING", "TRIAL"}}
     for parameter, before, after, reason in proposals:
         if any(k[0] == parameter for k in open_keys): continue
-        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": stats, "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM"}
+        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": stats, "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
         existing.insert(0, h); created.append(h); _audit("HYPOTHESIS_CREATED", h)
         _notify("Learning: ny hypotese", f"{parameter}: {before:g} → {after:g}. {reason}", h)
     _write(HYPOTHESES_PATH, existing)
@@ -220,22 +250,26 @@ def start_challenger(hypothesis_id: str) -> dict[str, Any]:
     if not h: raise ValueError("Hypotesen finnes ikke.")
     champion = ensure_champion_version()
     params = dict(champion["parameters"]); params[h["parameter"]] = h["after"]
-    experiment = {"experiment_id": "E-" + uuid.uuid4().hex[:10], "hypothesis_id": hypothesis_id, "created_at": _now(), "status": "TESTING", "champion_version_id": champion["version_id"], "challenger_parameters": params, "baseline": _stats(_closed_trades()), "trial_trades": [], "minimum_trial_trades": int(load_state()["minimum_trial_trades"]), "conclusion": None}
+    experiment = {"experiment_id": "E-" + uuid.uuid4().hex[:10], "hypothesis_id": hypothesis_id, "created_at": _now(), "status": "TESTING", "lifecycle_status": "SIMULERT", "mode": "SHADOW_READ_ONLY", "champion_version_id": champion["version_id"], "challenger_parameters": params, "baseline": _stats(_closed_trades()), "trial_trades": [], "minimum_trial_trades": int(load_state()["minimum_trial_trades"]), "conclusion": None, "production_applied": False}
     experiments = _read(EXPERIMENTS_PATH, []); experiments = experiments if isinstance(experiments, list) else []; experiments.insert(0, experiment); _write(EXPERIMENTS_PATH, experiments)
-    h["status"] = "TESTING"; h["experiment_id"] = experiment["experiment_id"]; _write(HYPOTHESES_PATH, hypotheses)
+    h["status"] = "TESTING"; h["lifecycle_status"] = "SIMULERT"; h["experiment_id"] = experiment["experiment_id"]; h["production_applied"] = False; _write(HYPOTHESES_PATH, hypotheses)
     _audit("CHALLENGER_STARTED", experiment); _notify("Learning: Challenger startet", f"Tester {h['parameter']} {h['before']} → {h['after']}", experiment)
     return experiment
 
 
 def apply_trial(hypothesis_id: str) -> dict[str, Any]:
+    """Create a read-only shadow trial; never change production parameters."""
     hypotheses = _read(HYPOTHESES_PATH, []); h = next((x for x in hypotheses if x.get("hypothesis_id") == hypothesis_id), None)
     if not h: raise ValueError("Hypotesen finnes ikke.")
     params = load_parameters(); data = asdict(params); data[h["parameter"]] = h["after"]
-    previous = asdict(params); save_parameters(AutonomousParameters(**data))
+    previous = asdict(params)
     versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
-    trial = {"version_id": "PV-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "TRIAL", "parameters": data, "previous_parameters": previous, "hypothesis_id": hypothesis_id, "baseline_performance": calculate_performance()}
-    versions.insert(0, trial); _write(VERSIONS_PATH, versions); h["status"] = "TRIAL"; _write(HYPOTHESES_PATH, hypotheses)
-    _audit("TRIAL_PARAMETERS_APPLIED", trial); _notify("Learning: midlertidig endring", f"{h['parameter']}: {h['before']} → {h['after']} i prøvemodus.", trial)
+    existing = next((v for v in versions if v.get("hypothesis_id") == hypothesis_id and v.get("status") == "TRIAL"), None)
+    if existing:
+        return existing
+    trial = {"version_id": "PV-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "TRIAL", "lifecycle_status": "PARALLELLTESTET", "mode": "SHADOW_READ_ONLY", "parameters": data, "previous_parameters": previous, "hypothesis_id": hypothesis_id, "baseline_performance": calculate_performance(), "production_applied": False, "requires_explicit_user_approval": True}
+    versions.insert(0, trial); _write(VERSIONS_PATH, versions); h["status"] = "TRIAL"; h["lifecycle_status"] = "PARALLELLTESTET"; h["production_applied"] = False; _write(HYPOTHESES_PATH, hypotheses)
+    _audit("SHADOW_TRIAL_CREATED", trial); _notify("Learning: parallelltest klar", f"{h['parameter']}: {h['before']} → {h['after']} testes uten produksjonspåvirkning.", trial)
     return trial
 
 
@@ -245,20 +279,41 @@ def rollback(reason: str = "Manuell rollback") -> dict[str, Any]:
     champion = next((v for v in versions if v.get("status") == "CHAMPION"), None)
     target = (current or {}).get("previous_parameters") or (champion or {}).get("parameters")
     if not target: raise ValueError("Ingen tidligere parameter-versjon tilgjengelig.")
-    save_parameters(AutonomousParameters(**target))
-    if current: current["status"] = "ROLLED_BACK"; current["rollback_reason"] = reason; current["rolled_back_at"] = _now()
-    _write(VERSIONS_PATH, versions); _audit("PARAMETER_ROLLBACK", {"reason": reason, "target": target}); _notify("Learning: rollback", reason, {"target": target})
-    return target
+    if current and current.get("production_applied"):
+        save_parameters(AutonomousParameters(**target))
+    if current:
+        current["status"] = "ROLLED_BACK"; current["lifecycle_status"] = "TILBAKERULLERT"; current["rollback_reason"] = reason; current["rolled_back_at"] = _now()
+        hypotheses = _read(HYPOTHESES_PATH, [])
+        if isinstance(hypotheses, list):
+            h = next((x for x in hypotheses if x.get("hypothesis_id") == current.get("hypothesis_id")), None)
+            if h: h["lifecycle_status"] = "TILBAKERULLERT"; h["status"] = "ROLLED_BACK"
+            _write(HYPOTHESES_PATH, hypotheses)
+    _write(VERSIONS_PATH, versions); _audit("PARAMETER_ROLLBACK", {"reason": reason, "target": target, "production_changed": bool(current and current.get("production_applied"))}); _notify("Learning: rollback", reason, {"target": target})
+    return {"version_id": (current or {}).get("version_id"), "parameters": target, "production_changed": bool(current and current.get("production_applied"))}
 
 
-def promote_trial() -> dict[str, Any]:
+def promote_trial(*, explicit_user_approval: bool = False, approval_id: str = "") -> dict[str, Any]:
+    """Promote only after an explicit user approval; never from automation."""
+    if not explicit_user_approval or not approval_id:
+        raise PermissionError("Champion-promotering krever en eksplisitt godkjenningsbeslutning fra bruker.")
     versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
     trial = next((v for v in versions if v.get("status") == "TRIAL"), None)
     if not trial: raise ValueError("Ingen aktiv prøveversjon.")
+    approvals = _read(APPROVALS_PATH, []); approvals = approvals if isinstance(approvals, list) else []
+    approval = next((a for a in approvals if a.get("approval_id") == approval_id and a.get("version_id") == trial.get("version_id") and a.get("status") == "PENDING"), None)
+    if not approval:
+        raise PermissionError("Gyldig ventende brukergodkjenning ble ikke funnet.")
+    previous = asdict(load_parameters())
+    save_parameters(AutonomousParameters(**dict(trial.get("parameters") or {})))
     old = next((v for v in versions if v.get("status") == "CHAMPION"), None)
     if old: old["status"] = "ARCHIVED_CHAMPION"
-    trial["status"] = "CHAMPION"; trial["promoted_at"] = _now(); trial["promotion_performance"] = calculate_performance()
-    _write(VERSIONS_PATH, versions); _audit("TRIAL_PROMOTED_TO_CHAMPION", trial); _notify("Learning: ny Champion", f"Parameter-versjon {trial['version_id']} er promotert.", trial)
+    trial["status"] = "CHAMPION"; trial["lifecycle_status"] = "GODKJENT"; trial["production_applied"] = True; trial["approval_id"] = approval_id; trial["previous_parameters"] = previous; trial["promoted_at"] = _now(); trial["promotion_performance"] = calculate_performance()
+    hypotheses = _read(HYPOTHESES_PATH, [])
+    if isinstance(hypotheses, list):
+        h = next((x for x in hypotheses if x.get("hypothesis_id") == trial.get("hypothesis_id")), None)
+        if h: h["lifecycle_status"] = "GODKJENT"; h["status"] = "APPROVED"; h["production_applied"] = True
+        _write(HYPOTHESES_PATH, hypotheses)
+    _write(VERSIONS_PATH, versions); _audit("TRIAL_PROMOTED_TO_CHAMPION", trial); _notify("Learning: ny Champion", f"Parameter-versjon {trial['version_id']} er godkjent og promotert.", trial)
     return trial
 
 
@@ -278,8 +333,8 @@ def _mode_policy(state: Mapping[str, Any]) -> dict[str, bool]:
         "auto_hypothesis": not stopped and bool(state.get("allow_hypothesis_creation", True)),
         "auto_challenger": not stopped and mode in {"ASSISTED", "FULL"} and bool(state.get("allow_auto_challenger", True)),
         "auto_trial": not stopped and mode in {"ASSISTED", "FULL"} and bool(state.get("allow_auto_trial", True)),
-        "auto_promote": not stopped and mode == "FULL" and bool(state.get("allow_auto_promotion", True)),
-        "auto_rollback": not stopped and mode in {"ASSISTED", "FULL"} and bool(state.get("auto_rollback", True)),
+        "auto_promote": False,
+        "auto_rollback": False,
     }
 
 
@@ -291,9 +346,9 @@ def _promotion_guard(trial: Mapping[str, Any], state: Mapping[str, Any]) -> dict
     changed = [k for k in comparable if before.get(k) != after.get(k)]
     share = (len(changed) / max(1, len(comparable))) * 100.0
     risk_keys = {
-        "maximum_position_pct", "maximum_sector_exposure_pct", "maximum_drawdown_pct",
-        "stop_loss_pct", "trailing_stop_pct", "take_profit_pct", "minimum_cash_reserve_pct",
-        "maximum_open_positions", "maximum_risk_score",
+        "maximum_position_pct", "maximum_sector_pct", "maximum_drawdown_pct",
+        "stop_loss_pct", "trailing_stop_pct", "take_profit_pct", "reserve_cash_pct",
+        "maximum_open_positions", "maximum_risk_score", "daily_loss_limit_pct",
     }
     risk_changes = []
     material_limit = float(state.get("material_risk_change_pct", 10.0))
@@ -308,7 +363,7 @@ def _promotion_guard(trial: Mapping[str, Any], state: Mapping[str, Any]) -> dict
     major = share > float(state.get("major_change_parameter_share_pct", 20.0))
     material_risk = bool(risk_changes)
     return {
-        "requires_confirmation": bool(state.get("require_confirmation_major_change", True)) and (major or material_risk),
+        "requires_confirmation": True,
         "major_change": major,
         "material_risk_change": material_risk,
         "changed_parameters": changed,
@@ -327,12 +382,25 @@ def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]
         "approval_id": "PA-" + uuid.uuid4().hex[:10],
         "created_at": _now(),
         "status": "PENDING",
+        "lifecycle_status": "KLAR_FOR_VURDERING",
         "version_id": trial.get("version_id"),
         "hypothesis_id": trial.get("hypothesis_id"),
         "guard": dict(guard),
     }
     approvals.insert(0, item)
     _write(APPROVALS_PATH, approvals)
+    trial["lifecycle_status"] = "KLAR_FOR_VURDERING"
+    versions = _read(VERSIONS_PATH, [])
+    if isinstance(versions, list):
+        for version in versions:
+            if version.get("version_id") == trial.get("version_id"):
+                version["lifecycle_status"] = "KLAR_FOR_VURDERING"
+        _write(VERSIONS_PATH, versions)
+    hypotheses = _read(HYPOTHESES_PATH, [])
+    if isinstance(hypotheses, list):
+        h = next((x for x in hypotheses if x.get("hypothesis_id") == trial.get("hypothesis_id")), None)
+        if h: h["lifecycle_status"] = "KLAR_FOR_VURDERING"
+        _write(HYPOTHESES_PATH, hypotheses)
     _audit("CHAMPION_PROMOTION_APPROVAL_REQUIRED", item)
     _notify("Autonomi: godkjenning kreves", f"Champion-promotering {trial.get('version_id')} krever brukerbekreftelse.", item)
     return item
@@ -347,8 +415,9 @@ def resolve_promotion_approval(approval_id: str, approve: bool, *, note: str = "
     if item.get("status") != "PENDING":
         raise ValueError("Godkjenningsforespørselen er allerede behandlet.")
     if approve:
-        promoted = promote_trial()
+        promoted = promote_trial(explicit_user_approval=True, approval_id=approval_id)
         item["status"] = "APPROVED"
+        item["lifecycle_status"] = "GODKJENT"
         item["resolved_at"] = _now()
         item["decision_note"] = note
         item["resolved_by"] = "USER"
@@ -356,9 +425,15 @@ def resolve_promotion_approval(approval_id: str, approve: bool, *, note: str = "
         _audit("CHAMPION_PROMOTION_APPROVED", item)
     else:
         item["status"] = "REJECTED"
+        item["lifecycle_status"] = "AVVIST"
         item["resolved_at"] = _now()
         item["decision_note"] = note
         item["resolved_by"] = "USER"
+        hypotheses = _read(HYPOTHESES_PATH, [])
+        if isinstance(hypotheses, list):
+            h = next((x for x in hypotheses if x.get("hypothesis_id") == item.get("hypothesis_id")), None)
+            if h: h["lifecycle_status"] = "AVVIST"; h["status"] = "REJECTED"
+            _write(HYPOTHESES_PATH, hypotheses)
         _audit("CHAMPION_PROMOTION_REJECTED", item)
         _notify("Autonomi: promotering avvist", f"Champion-promotering {item.get('version_id')} ble avvist.", item)
     _write(APPROVALS_PATH, approvals)
@@ -382,6 +457,20 @@ def _refresh_experiments(state: Mapping[str, Any], perf: Mapping[str, Any], stat
         exp["latest_statistics"] = dict(stats)
         exp["latest_performance"] = dict(perf)
         exp["updated_at"] = _now()
+        minimum = max(1, int(exp.get("minimum_trial_trades") or state.get("minimum_trial_trades", 20)))
+        if int(exp.get("observed_trades") or 0) >= minimum:
+            baseline_pf = _f((exp.get("baseline") if isinstance(exp.get("baseline"), Mapping) else {}).get("profit_factor"), 0.0)
+            current_pf = _f(stats.get("profit_factor"), 0.0)
+            improved = current_pf >= max(1.0, baseline_pf)
+            exp["lifecycle_status"] = "KLAR_FOR_VURDERING" if improved else "PARALLELLTESTET"
+            exp["conclusion"] = "FORBEDRET" if improved else "IKKE_DOKUMENTERT_FORBEDRING"
+            hypotheses = _read(HYPOTHESES_PATH, [])
+            if isinstance(hypotheses, list):
+                hypothesis = next((h for h in hypotheses if h.get("hypothesis_id") == exp.get("hypothesis_id")), None)
+                if hypothesis:
+                    hypothesis["lifecycle_status"] = exp["lifecycle_status"]
+                    hypothesis["parallel_test_result"] = exp["conclusion"]
+                _write(HYPOTHESES_PATH, hypotheses)
         changed = True
     if changed:
         _write(EXPERIMENTS_PATH, experiments)
@@ -460,9 +549,8 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
             else:
                 p = load_parameters(); reduced = max(0.5, p.maximum_position_pct * float(state["risk_reduction_factor"]))
                 if reduced < p.maximum_position_pct:
-                    data = asdict(p); old = p.maximum_position_pct; data["maximum_position_pct"] = reduced; save_parameters(AutonomousParameters(**data))
-                    action = {"type": "RISK_REDUCTION", "parameter": "maximum_position_pct", "before": old, "after": reduced, "reason": "Drawdown/negativ expectancy trigger"}
-                    actions.append(action); _audit("AUTOMATIC_RISK_PROTECTION", action); _notify("Learning: risiko redusert", f"Maks posisjon {old:.2f}% → {reduced:.2f}%", action)
+                    action = {"type": "RISK_REDUCTION_PROPOSED", "parameter": "maximum_position_pct", "before": p.maximum_position_pct, "after": reduced, "reason": "Drawdown/negativ expectancy trigger", "applied": False, "requires_explicit_user_approval": True}
+                    actions.append(action); _audit("RISK_PROTECTION_PROPOSAL", action); _notify("Learning: risikoforslag", f"Forslag: maks posisjon {p.maximum_position_pct:.2f}% → {reduced:.2f}%. Ingen automatisk endring er utført.", action)
         hypotheses = _read(HYPOTHESES_PATH, []); hypotheses = hypotheses if isinstance(hypotheses, list) else []
         if policy["auto_challenger"] and len(trades) >= int(state["challenger_min_closed_trades"]):
             candidate = next((h for h in hypotheses if h.get("status") == "NEW"), None)
@@ -472,7 +560,7 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
         if policy["auto_trial"] and len(trades) >= int(state["trial_promotion_min_closed_trades"]):
             candidate = next((h for h in hypotheses if h.get("status") == "TESTING"), None)
             if candidate:
-                trial = apply_trial(candidate["hypothesis_id"]); actions.append({"type": "TRIAL_APPLIED", "version_id": trial["version_id"]})
+                trial = apply_trial(candidate["hypothesis_id"]); actions.append({"type": "SHADOW_TRIAL_CREATED", "version_id": trial["version_id"], "production_applied": False})
         if policy["auto_promote"] and len(trades) >= int(state["full_promotion_min_closed_trades"]):
             versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
             trial = next((v for v in versions if v.get("status") == "TRIAL"), None)
@@ -486,7 +574,8 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
                         approval = _queue_promotion_approval(trial, guard)
                         actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
                     else:
-                        champion = promote_trial(); actions.append({"type": "CHAMPION_PROMOTED", "version_id": champion["version_id"]})
+                        approval = _queue_promotion_approval(trial, guard)
+                        actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
         # Roll back a trial quickly when drawdown materially worsens.
         if policy["auto_rollback"]:
             versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
@@ -582,7 +671,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         confirmation = s1.toggle("Krev bekreftelse ved stor endring", value=bool(state.get("require_confirmation_major_change", True)), key=_k("cpl_confirm_v18689b"))
         major_share = float(s2.number_input("Stor endring over (%)", 1.0, 100.0, float(state.get("major_change_parameter_share_pct", 20.0)), 1.0, key=_k("cpl_major_share_v18689b")))
         material_risk = float(s3.number_input("Vesentlig risikoendring over (%)", 1.0, 100.0, float(state.get("material_risk_change_pct", 10.0)), 1.0, key=_k("cpl_material_risk_v18689b")))
-        st.info("I Full autonomi blir en promotering satt på vent når mer enn valgt andel av parameterne endres, eller en risikoparameter endres vesentlig. Du må da godkjenne den i fanen Godkjenninger.")
+        st.info("Alle produksjonsendringer settes på vent og krever eksplisitt brukergodkjenning. Risiko-, kjøpsterskel-, stop-loss-, posisjons- og autonomiregler kan aldri endres automatisk.")
 
         st.markdown("###### Evaluering og varsling")
         e1,e2,e3,e4 = st.columns(4)
@@ -676,9 +765,13 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         with t3:
             if versions: st.dataframe(pd.DataFrame(versions), use_container_width=True, hide_index=True)
             else: st.caption("Champion opprettes ved første evaluering.")
-            if st.button("Promoter aktiv prøveversjon til Champion", key=_k("cpl_promote_v18689b")):
-                try: promote_trial(); st.success("Ny Champion er aktivert og varslet."); st.rerun()
-                except ValueError as exc: st.warning(str(exc))
+            if st.button("Send aktiv prøveversjon til godkjenning", key=_k("cpl_promote_v18689b")):
+                try:
+                    trial = next((v for v in versions if v.get("status") == "TRIAL"), None)
+                    if not trial: raise ValueError("Ingen aktiv parallelltest.")
+                    approval = _queue_promotion_approval(trial, _promotion_guard(trial, state))
+                    st.success(f"Godkjenning opprettet: {approval.get('approval_id')}"); st.rerun()
+                except (ValueError, PermissionError) as exc: st.warning(str(exc))
         with t4:
             reports = _read(REPORTS_PATH, [])
             r1, r2 = st.columns(2)

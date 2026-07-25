@@ -3,21 +3,23 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.2.0"
-APP_VERSION_NAME = "Modulær arkitektur og samlet lagring"
+APP_VERSION = "v19.3.0"
+APP_VERSION_NAME = "Beslutningsintelligens og kontrollert læring"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.1.0"
+PREVIOUS_APP_VERSION = "v19.2.0"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
-REPORT_SCHEMA_VERSION = "1.1"
+REPORT_SCHEMA_VERSION = "1.2"
 DATABASE_SCHEMA_VERSION = "2.0"
 RANKING_MODEL_VERSION = "v19.0.17"
-AUTONOMY_POLICY_VERSION = "v19.0.18b"
+AUTONOMY_POLICY_VERSION = "v19.3.0"
 SOURCE_CLASSIFIER_VERSION = "v19.0.19"
 OPERATIONS_TELEMETRY_VERSION = "v19.1.0"
 STORAGE_REPOSITORY_VERSION = "v19.2.0"
+DECISION_INTELLIGENCE_VERSION = "v19.3.0"
+CONTROLLED_LEARNING_POLICY_VERSION = "v19.3.0"
 VERSION_CONTRACT_SCHEMA = "1.0"
 
 
@@ -33,6 +35,8 @@ class VersionContract:
     source_classifier_version: str
     operations_telemetry_version: str = OPERATIONS_TELEMETRY_VERSION
     storage_repository_version: str = STORAGE_REPOSITORY_VERSION
+    decision_intelligence_version: str = DECISION_INTELLIGENCE_VERSION
+    controlled_learning_policy_version: str = CONTROLLED_LEARNING_POLICY_VERSION
     component_name: str = ""
     component_version: str = ""
 
@@ -50,6 +54,8 @@ def get_version_contract(*, component_name: str = "", component_version: str = "
         source_classifier_version=SOURCE_CLASSIFIER_VERSION,
         operations_telemetry_version=OPERATIONS_TELEMETRY_VERSION,
         storage_repository_version=STORAGE_REPOSITORY_VERSION,
+        decision_intelligence_version=DECISION_INTELLIGENCE_VERSION,
+        controlled_learning_policy_version=CONTROLLED_LEARNING_POLICY_VERSION,
         component_name=str(component_name or ""),
         component_version=str(component_version or APP_VERSION),
     ))
@@ -61,7 +67,8 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
         "schema_version", "app_version", "report_schema_version",
         "database_schema_version", "ranking_model_version",
         "autonomy_policy_version", "source_classifier_version",
-        "storage_repository_version",
+        "storage_repository_version", "decision_intelligence_version",
+        "controlled_learning_policy_version",
     }
     missing = sorted(required - set(value or {}))
     if missing:
@@ -73,6 +80,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.3.0: Avansert beslutningsintelligens og kontrollert læring: data-, modell- og beslutningsdiff forklarer hvorfor vurderinger endres; Top 3 får datastøttede motargumenter, kritiske antakelser og komplett beslutningskontrakt; utløpte vurderinger evalueres historisk; læringsflyten standardiseres fra HYPOTESE via SIMULERT og PARALLELLTESTET til eksplisitt GODKJENT/AVVIST/TILBAKERULLERT. Produksjonsrisiko, kjøpsterskler, stop-loss, posisjonsgrenser, godkjenningskrav og autonominivå kan ikke endres automatisk. Synligheten til offentlig PDF-knapp og desktop-lekkasje fra mobilnavigasjon/tickerområdet er rettet.",
     "v19.2.0: Modulær arkitektur og samlet permanent lagring: sentral PersistenceService og RepositoryRegistry samler rapporter, porteføljer, oppgaver, godkjenninger, scheduler, kildehelse, kjøringsspor og driftshendelser bak PostgreSQL-first StorageService. Nye domain/, repositories/, pages/ og ui/-grenser reduserer direkte kobling til app.py. Migreringsverktøy importerer JSON/JSONL kontrollsummert og ikke-destruktivt. Lokal fallback er kun utvikling/test; produksjon kan kreve Postgres eksplisitt. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler er endret.",
     "v19.1.0: Full operasjonssporbarhet: strukturert hendelseslogg med stabile feilkoder, varig kildehelsehistorikk, responstid, parserstatus, artikkelvolum, relevante treff, duplikater, kommersielt filter, reserve-feed og avviksvarsler. Rapportkjøringer og scheduler får ett samlet spor fra start/preflight via marked, data, rapport, lagring og varsling til sluttstatus. Drift og rapportarkiv viser kildehelse, feil og komplette kjøringsspor. Telemetrien er observasjonell og endrer ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler.",
     "v19.0.22: Forenklet daglig brukeropplevelse: én global Enkel/Avansert-modus lagres per bruker. Enkel modus gir fire primærområder og Mer-meny, mobil får fem hovedvalg, startsiden prioriterer oppgaver som krever oppmerksomhet, kandidatkort får direkte handlinger, og brukerrettede statuser standardiseres på norsk. Avansert modus beholder alle spesialistpaneler. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler er endret.",

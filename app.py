@@ -7321,7 +7321,7 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
                 st.warning(f"Kunne ikke oppdatere {ticker}")
 
     with st.expander("Kilder, vilkår, hendelser og historikk", expanded=False):
-        tabs = st.tabs(["Beslutning", "Kilder", "Hendelser", "Historikk", "Eksport"])
+        tabs = st.tabs(["Beslutning", "Diff og motargument", "Kilder", "Hendelser", "Historikk", "Eksport"])
         with tabs[0]:
             m1, m2, m3 = st.columns(3)
             m1.metric("Status", payload.get("status") or "-")
@@ -7341,20 +7341,47 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
             else:
                 st.caption("Ingen eksplisitte endringsvilkår er lagret ennå.")
         with tabs[1]:
+            diff = payload.get("decision_diff") or {}
+            counter = payload.get("counter_hypothesis") or {}
+            assumptions = payload.get("critical_assumptions") or []
+            st.markdown("**Data-, modell- og beslutningsdiff**")
+            if diff:
+                st.write(diff.get("summary") or "Ingen oppsummering")
+                model_rows = list(diff.get("model_diff") or [])
+                rule_rows = list(diff.get("decision_diff") or [])
+                if model_rows:
+                    st.dataframe(pd.DataFrame(model_rows[:8]), use_container_width=True, hide_index=True)
+                if rule_rows:
+                    st.dataframe(pd.DataFrame(rule_rows[:8]), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen sammenlignbar tidligere vurdering er tilgjengelig.")
+            st.markdown("**Sterkeste motargument**")
+            if counter:
+                st.warning(counter.get("strongest_argument") or "Motargument mangler")
+                for evidence in list(counter.get("evidence") or [])[:4]:
+                    if isinstance(evidence, Mapping):
+                        st.markdown(f"- {evidence.get('fact')} · {evidence.get('source')}")
+            else:
+                st.caption("Ingen datastøttet mothypotese er lagret.")
+            if assumptions:
+                held = sum(1 for item in assumptions if isinstance(item, Mapping) and item.get("holds"))
+                st.markdown(f"**Kritiske antakelser:** {held}/{len(assumptions)} holder")
+                st.dataframe(pd.DataFrame([dict(item) for item in assumptions if isinstance(item, Mapping)]), use_container_width=True, hide_index=True)
+        with tabs[2]:
             sources = payload.get("sources") or []
             if sources:
                 normalized = [dict(x) if isinstance(x, dict) else {"Kilde": str(x)} for x in sources[:20]]
                 st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
             else:
                 st.caption("Ingen kandidatspesifikke kilder er lagret i denne visningen.")
-        with tabs[2]:
+        with tabs[3]:
             events = payload.get("events") or []
             if events:
                 normalized = [dict(x) if isinstance(x, dict) else {"Hendelse": str(x)} for x in events[:20]]
                 st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
             else:
                 st.caption("Ingen kommende kandidatspesifikke hendelser er lagret.")
-        with tabs[3]:
+        with tabs[4]:
             history = payload.get("history") or []
             if history:
                 normalized = [dict(x) if isinstance(x, dict) else {"Historikk": str(x)} for x in history[:30]]
@@ -7365,7 +7392,7 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
                     st.write({"Forrige score": previous, "Nåværende score": payload.get("current_score"), "Endring": payload.get("score_delta")})
                 else:
                     st.caption("Ingen tidligere kandidatobservasjoner er tilgjengelige i kortet.")
-        with tabs[4]:
+        with tabs[5]:
             st.download_button(
                 "Last ned kandidatanalyse som JSON",
                 data=payload.get("export_json") or "{}",
@@ -9782,6 +9809,8 @@ if _ui_mode_v19022 == UX_SIMPLE_MODE_V19022:
     )
     st.markdown(f"""
     <style>
+    html body .mobile-bottom-nav-v18644 {{ display:none !important; background:transparent !important; min-height:0 !important; }}
+    @media (max-width: 760px) {{ html body .mobile-bottom-nav-v18644 {{ display:flex !important; }} }}
     @media (max-width: 900px) {{
       html body .mobile-bottom-nav-v18644 {{ overflow-x:hidden !important; }}
       html body .mobile-bottom-nav-v18644 > a,
@@ -9808,7 +9837,7 @@ if _ui_mode_v19022 == UX_SIMPLE_MODE_V19022:
       html body .mobile-more-panel-v19022 h3 {{ margin:.1rem .2rem .65rem !important; color:#f8fafc !important; }}
     }}
     </style>
-    <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">
+    <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon" style="display:none">
       <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
       <a href="{_mobile_nav_links_v18646['reports']}" title="Rapport" target="_self"><b>📚</b><span>Rapport</span></a>
       <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
@@ -9849,7 +9878,7 @@ else:
       <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
       <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
     """)
-    st.markdown(f"""<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon">{_mobile_nav_html_v1900}</div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon" style="display:none">{_mobile_nav_html_v1900}</div>""", unsafe_allow_html=True)
     _mobile_drawer_items_v19015 = [
         ("🏠", "Oversikt", "Dashboard og marked nå", _mobile_nav_links_v18646["dashboard"]),
         ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
@@ -9869,7 +9898,7 @@ else:
         for icon, label, help_text, href in _mobile_drawer_items_v19015
     )
     st.markdown(f"""
-    <details class="mobile-drawer-v19015"><summary aria-label="Åpne mobilmeny"><span>☰</span><b>Meny</b></summary>
+    <details class="mobile-drawer-v19015" style="display:none"><summary aria-label="Åpne mobilmeny"><span>☰</span><b>Meny</b></summary>
       <div class="mobile-drawer-panel-v19015" role="navigation" aria-label="Mobil hovedmeny">
         <div class="mobile-drawer-head-v19015"><div><b>AI Aksje Analyzer Pro</b><small>Avansert mobilmeny</small></div><em>Trykk et valg for å åpne</em></div>
         <div class="mobile-drawer-grid-v19015">{_mobile_drawer_links_v19015}</div>

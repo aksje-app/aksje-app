@@ -253,7 +253,7 @@ def _render_report_link(url: Any) -> bool:
     st.markdown(
         '<a class="autonomy-report-link-v1901" '
         f'href="{escape(safe_url, quote=True)}" target="_blank" rel="noopener noreferrer" '
-        'aria-label="Åpne siste rapport i ny fane">Åpne siste rapport</a>',
+        'aria-label="Åpne offentlig PDF i ny fane">↗ Åpne offentlig PDF</a>',
         unsafe_allow_html=True,
     )
     return True
@@ -283,7 +283,8 @@ def _render_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any], *,
         width="stretch",
     )
     if delivery.get("url"):
-        right.link_button("↗ Åpne offentlig PDF", delivery["url"], width="stretch")
+        with right:
+            _render_report_link(delivery["url"])
     else:
         right.caption("Offentlig rapportlenke er ikke tilgjengelig. PDF kan fortsatt lastes ned direkte.")
     status = "Regenerert og validert" if delivery.get("regenerated") else "Generert og validert"

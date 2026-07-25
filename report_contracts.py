@@ -15,7 +15,7 @@ from app_version import APP_VERSION, REPORT_SCHEMA_VERSION, get_version_contract
 from local_time import DEFAULT_TIMEZONE, as_local, local_display, valid_timezone
 
 
-REPORT_CONTRACT_VERSION = "1.1"
+REPORT_CONTRACT_VERSION = "1.2"
 
 
 class ReportContractError(ValueError):
@@ -87,6 +87,11 @@ class CandidateDecision:
     validity: Mapping[str, Any] = field(default_factory=dict)
     source_consensus: Mapping[str, Any] = field(default_factory=dict)
     confidence: Mapping[str, Any] = field(default_factory=dict)
+    decision_diff: Mapping[str, Any] = field(default_factory=dict)
+    counter_hypothesis: Mapping[str, Any] = field(default_factory=dict)
+    critical_assumptions: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
+    rationale: Sequence[str] = field(default_factory=tuple)
+    decision_contract: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -290,6 +295,11 @@ def _candidate_decisions(rows: Sequence[Mapping[str, Any]], contracts: Sequence[
             validity=dict(contract.get("validity") or {}),
             source_consensus=dict(contract.get("source_consensus") or {}),
             confidence=dict(confidence),
+            decision_diff=dict(contract.get("decision_diff") or {}),
+            counter_hypothesis=dict(contract.get("counter_hypothesis") or {}),
+            critical_assumptions=tuple(contract.get("critical_assumptions") or ()),
+            rationale=tuple(contract.get("rationale") or ()),
+            decision_contract=dict(contract.get("decision_contract") or {}),
         )
         result.append(asdict(decision))
     return result
@@ -349,11 +359,15 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
             list(run.get("candidates") or []), list(decision_report.get("candidate_contracts") or [])
         ), 20),
         _section("changes", "Endringer siden forrige rapport", dict(decision_report.get("changes") or {}), 30),
+        _section("decision_diffs", "Data-, modell- og beslutningsdiff", dict(decision_report.get("decision_diffs") or {}), 32),
+        _section("counter_hypotheses", "Sterkeste motargumenter", dict(decision_report.get("counter_hypotheses") or {}), 33),
         _section("next_run_tasks", "Oppgaver til neste kjøring", list(decision_report.get("next_run_tasks") or []), 35),
+        _section("historical_evaluations", "Historisk evaluering", list(decision_report.get("historical_evaluations") or []), 37),
         _section("events", "Kritiske hendelser", list(decision_report.get("events") or []), 40),
         _section("confidence_profile", "Datadekning, kildesikkerhet og beslutningssikkerhet", dict(decision_report.get("confidence") or {}), 45),
         _section("report_reliability", "Rapportpålitelighet", dict(decision_report.get("reliability") or {}), 50),
         _section("source_consensus", "Kildekonsensus", dict(decision_report.get("source_consensus") or {}), 55),
+        _section("controlled_learning_guard", "Kontrollert læringsvern", dict(decision_report.get("controlled_learning_guard") or {}), 58),
         _section("technical_status", "Teknisk status", {
             "errors": list(run.get("errors") or []),
             "warnings": list(run.get("warnings") or []),
@@ -401,7 +415,8 @@ def validate_report_document(document: Mapping[str, Any], *, raise_on_error: boo
     for required in (
         "executive_summary", "decision_overview", "candidate_decisions", "changes",
         "next_run_tasks", "events", "confidence_profile", "report_reliability",
-        "source_consensus", "technical_status",
+        "source_consensus", "decision_diffs", "counter_hypotheses",
+        "historical_evaluations", "controlled_learning_guard", "technical_status",
     ):
         if required not in keys:
             errors.append(f"Påkrevd seksjon mangler: {required}")
