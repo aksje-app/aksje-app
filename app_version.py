@@ -1,11 +1,72 @@
-APP_VERSION = "v19.0.19a"
-APP_VERSION_NAME = "Sikker distribusjon og databevaring"
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+APP_VERSION = "v19.0.20"
+APP_VERSION_NAME = "Felles rapport- og versjonskontrakter"
 APP_BUILD_LABEL = APP_VERSION
-# Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.19"
+PREVIOUS_APP_VERSION = "v19.0.19a"
+
+# Independent compatibility contracts. These change only when their own
+# serialised or behavioural contract changes, not for every app release.
+REPORT_SCHEMA_VERSION = "1.0"
+DATABASE_SCHEMA_VERSION = "1.0"
+RANKING_MODEL_VERSION = "v19.0.17"
+AUTONOMY_POLICY_VERSION = "v19.0.18b"
+SOURCE_CLASSIFIER_VERSION = "v19.0.19"
+VERSION_CONTRACT_SCHEMA = "1.0"
+
+
+@dataclass(frozen=True)
+class VersionContract:
+    schema_version: str
+    app_version: str
+    app_version_name: str
+    report_schema_version: str
+    database_schema_version: str
+    ranking_model_version: str
+    autonomy_policy_version: str
+    source_classifier_version: str
+    component_name: str = ""
+    component_version: str = ""
+
+
+def get_version_contract(*, component_name: str = "", component_version: str = "") -> dict[str, Any]:
+    """Return the canonical serialisable version contract used by reports and logs."""
+    return asdict(VersionContract(
+        schema_version=VERSION_CONTRACT_SCHEMA,
+        app_version=APP_VERSION,
+        app_version_name=APP_VERSION_NAME,
+        report_schema_version=REPORT_SCHEMA_VERSION,
+        database_schema_version=DATABASE_SCHEMA_VERSION,
+        ranking_model_version=RANKING_MODEL_VERSION,
+        autonomy_policy_version=AUTONOMY_POLICY_VERSION,
+        source_classifier_version=SOURCE_CLASSIFIER_VERSION,
+        component_name=str(component_name or ""),
+        component_version=str(component_version or APP_VERSION),
+    ))
+
+
+def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+    required = {
+        "schema_version", "app_version", "report_schema_version",
+        "database_schema_version", "ranking_model_version",
+        "autonomy_policy_version", "source_classifier_version",
+    }
+    missing = sorted(required - set(value or {}))
+    if missing:
+        errors.append("Mangler: " + ", ".join(missing))
+    if str((value or {}).get("app_version") or "") != APP_VERSION:
+        errors.append("Appversjonen stemmer ikke med sentral APP_VERSION")
+    if str((value or {}).get("schema_version") or "") != VERSION_CONTRACT_SCHEMA:
+        errors.append("Ugyldig versjonskontraktskjema")
+    return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.0.20: Felles rapport- og versjonskontrakter: én sentral APP_VERSION og separate skjema-, modell-, autonomi- og kildeklassifiseringsversjoner samles i en maskinlesbar versjonskontrakt. En renderer-uavhengig ReportDocument-kontrakt standardiserer rapportidentitet, oppdrag, metadata, seksjoner og validering for PDF, tekst, arkiv og brukerflate. Eldre rapporter oppgraderes i minnet, mens eksplisitte konflikter mellom rapporttype og oppdrag stoppes. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeterskler er endret.",
     "v19.0.19a: Sikker distribusjon og databevaring: fullpakken bygges uten runtime-data, testposisjoner, rapportarkiv, logger, cache, databaser eller hemmeligheter. Automatisk distribusjonsvalidator kontrollerer mapper og ZIP-filer, blokkerer utrygge arkivstier og kjente legitimasjonsformater, og releasebyggingen lager separate full-, oppdaterings- og migreringspakker med SHA-256. Ikke-destruktive backup- og gjenopprettingsverktøy bevarer eksisterende .app_runtime, eldre dataområder, .env og Streamlit-hemmeligheter før oppgradering. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljelogikk er endret.",
     "v19.0.19: Utvidet gratis finansmediedekning: eksisterende E24 beholdes, mens EFN, InfoMoney, Money Times, Brazil Journal og CNBC legges til som markedstilpassede RSS/Atom-kilder. Yahoo Finance/yfinance beholder originalutgiver og vektes etter faktisk utgiver, blant annet Reuters, AP, Bloomberg, Yahoo Finance, Business Wire, StockStory og Motley Fool. Delte feed-cacher hindrer ett nettverkskall per aksje, foreldet feed kan brukes kontrollert som reserve, og kildehelsen viser cache og siste feil. Sponset innhold filtreres fra score som standard, anbefalinger/opinion/pressemeldinger klassifiseres og nedvekttes, og alle kilder kan deaktiveres separat med miljøvariabler. Ingen handelsregler, porteføljegrenser eller ekte handel endres.",
     "v19.0.18b: Fullført porteføljeseparasjon: ordinære autonome teoretiske kjøp og læringsobservasjoner føres nå i to separate porteføljer, separate handler, beslutninger, historikk og resultatregnskap. Eksisterende læringsposisjoner migreres idempotent ut av Autonom portefølje og tidligere trukket kostbasis tilbakeføres til ordinær kontantbeholdning. Autonomi Oversikt får tydelige knapper til Autonom portefølje og Læringsportefølje. Læringsposisjoner påvirker ikke kontanter, sektorgrenser, risikorammer, maks antall posisjoner eller avkastning i Autonom portefølje. Kandidater som senere består ordinære porter kan promoteres fra læringsobservasjon til ordinær autonom posisjon med sporbar historikk. Ingen ekte handel aktiveres.",

@@ -1,4 +1,4 @@
-"""Free financial-media source registry and cached RSS collection for v19.0.19a.
+"""Free financial-media source registry and cached RSS collection for v19.0.20.
 
 The registry keeps source identity, market role and quality policy separate from
 company scoring. Feeds are cached once per URL so a 25-stock scan does not fetch
@@ -18,9 +18,11 @@ import re
 import time
 import unicodedata
 
+from app_version import APP_VERSION
 from storage_architecture import runtime_data_path
 
-VERSION = "v19.0.19a"
+COMPONENT_VERSION = "v19.0.19"
+VERSION = APP_VERSION
 FEED_CACHE_PATH = runtime_data_path("news_intelligence") / "source_feed_cache.json"
 FEED_CACHE_TTL_SECONDS = max(300, int(os.getenv("NEWS_SOURCE_FEED_CACHE_MINUTES", "30") or 30) * 60)
 FEED_STALE_MAX_SECONDS = max(

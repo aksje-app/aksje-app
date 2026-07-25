@@ -28,13 +28,20 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         install_browser_timezone_bootstrap, local_compact_stamp, local_display,
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
+from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
+from report_contracts import (
+    build_report_identity as build_report_identity_contract,
+    ensure_report_document,
+    resolve_report_identity as resolve_report_identity_contract,
+    section_payload,
+)
 from norwegian_report_language import (
     component_label, decision_color, decision_label, decision_text_color, label_for,
     model_role_label, quality_status, score_status, sector_label, translate_list,
     translate_report_text, USER_FACING_ENGLISH_BLOCKLIST, status_dot,
 )
 
-VERSION = "v19.0.18b"
+VERSION = APP_VERSION
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -231,7 +238,11 @@ def _write(path: Path, payload: Any) -> None:
 
 
 def _audit(event: str, payload: Mapping[str, Any]) -> None:
-    row = {"at": _now_iso(), "event": event, **dict(payload)}
+    row = {
+        "at": _now_iso(), "event": event,
+        "app_version": APP_VERSION, "report_schema_version": REPORT_SCHEMA_VERSION,
+        **dict(payload),
+    }
     append_event("market_intelligence/audit.jsonl", AUDIT_PATH, row)
 
 
@@ -267,46 +278,17 @@ def normalize_markets(markets: Sequence[str]) -> list[str]:
 def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
                     created_at: datetime | str | None = None,
                     timezone_name: str = DEFAULT_TIMEZONE) -> dict[str, str]:
-    trigger_key = str(trigger or "").upper()
-    job_key = str(job_name or "").casefold()
-    if str(job_id or "").upper() == DRAFT_JOB_ID or "DRAFT" in trigger_key or "TEST" in trigger_key:
-        if created_at is not None:
-            hour = as_local(created_at, timezone_name).hour
-            period = "Morgenrapport" if 5 <= hour < 12 else "Dagsrapport" if 12 <= hour < 17 else "Kveldsrapport" if 17 <= hour < 24 else "Nattrapport"
-            return {"type": "UTKAST", "label": f"Utkast – {period}", "slug": f"UTKAST_{period}"}
-        return {"type": "UTKAST", "label": "Utkast", "slug": "UTKAST"}
-    if created_at is not None:
-        hour = as_local(created_at, timezone_name).hour
-        if 5 <= hour < 12:
-            return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
-        if 12 <= hour < 17:
-            return {"type": "DAGSRAPPORT", "label": "Dagsrapport", "slug": "Dagsrapport"}
-        if 17 <= hour < 24:
-            return {"type": "KVELDSRAPPORT", "label": "Kveldsrapport", "slug": "Kveldsrapport"}
-        return {"type": "NATTRAPPORT", "label": "Nattrapport", "slug": "Nattrapport"}
-    if trigger_key == "SCHEDULED" or (trigger_key == "MANUAL_FULL_CHAIN" and "morgen" in job_key):
-        return {"type": "MORGENRAPPORT", "label": "Morgenrapport", "slug": "Morgenrapport"}
-    return {"type": "MANUELL_RAPPORT", "label": "Manuell rapport", "slug": "Manuell_rapport"}
+    """Backward-compatible three-field view of the canonical report identity."""
+    identity = build_report_identity_contract(
+        trigger, job_name, job_id, created_at=created_at, timezone_name=timezone_name,
+    )
+    return {key: str(identity.get(key) or "") for key in ("type", "label", "slug")}
 
 
 def resolve_report_identity(run: Mapping[str, Any]) -> dict[str, str]:
-    """Resolve identity with the immutable draft job id as highest authority.
-
-    Stored identity remains backwards compatible for ordinary reports, while a
-    draft can never inherit a morning-report label from a stale or incorrect
-    trigger during a Streamlit rerun.
-    """
-    trigger = str(run.get("trigger") or "")
-    job_name = str(run.get("job_name") or "")
-    job_id = str(run.get("job_id") or "")
-    if job_id.upper() == DRAFT_JOB_ID:
-        return report_identity(trigger, job_name, job_id, created_at=run.get("created_at"),
-                               timezone_name=str(run.get("timezone_name") or DEFAULT_TIMEZONE))
-    stored = run.get("report_identity")
-    return dict(stored) if isinstance(stored, Mapping) else report_identity(
-        trigger, job_name, job_id, created_at=run.get("created_at"),
-        timezone_name=str(run.get("timezone_name") or DEFAULT_TIMEZONE),
-    )
+    """Backward-compatible identity view; the full contract lives in ReportDocument."""
+    identity = resolve_report_identity_contract(run)
+    return {key: str(identity.get(key) or "") for key in ("type", "label", "slug")}
 
 
 def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
@@ -558,17 +540,25 @@ def scheduler_health_snapshot(now: datetime | None = None) -> dict[str, Any]:
 
 
 def build_text_report(run: Mapping[str, Any]) -> str:
-    """Plain Norwegian report export for copy/paste and systems that reject PDF/DOCX."""
-    identity = resolve_report_identity(run)
-    summary = run.get("summary") if isinstance(run.get("summary"), Mapping) else {}
-    quality = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
+    """Render text from the same canonical ReportDocument used by PDF and archive."""
+    document = ensure_report_document(run)
+    metadata = document.get("metadata") or {}
+    summary_payload = section_payload(document, "executive_summary", {}) or {}
+    summary = summary_payload.get("summary") if isinstance(summary_payload, Mapping) else {}
+    summary = summary if isinstance(summary, Mapping) else {}
+    quality = summary_payload.get("data_quality") if isinstance(summary_payload, Mapping) else {}
+    quality = quality if isinstance(quality, Mapping) else {}
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
+    candidates = section_payload(document, "candidate_decisions", []) or []
     lines = [
-        f"{identity.get('label', 'Rapport')} - AI Aksje Analyzer",
-        f"Kjøring: {run.get('run_id', '-')}",
-        f"Jobb: {run.get('job_name', '-')}",
-        f"Tid: {run.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}",
-        f"Markeder: {', '.join(run.get('markets') or [])}",
+        f"{metadata.get('report_label', 'Rapport')} - AI Aksje Analyzer",
+        f"Oppdrag: {metadata.get('mission_label') or '-'}",
+        f"Kjøring: {metadata.get('run_id') or '-'}",
+        f"Jobb: {metadata.get('job_name') or '-'}",
+        f"Tid: {metadata.get('created_at_local') or '-'}",
+        f"Markeder: {', '.join(summary_payload.get('markets') or [])}",
+        f"Appversjon: {metadata.get('app_version') or APP_VERSION}",
+        f"Rapportskjema: {metadata.get('report_schema_version') or REPORT_SCHEMA_VERSION}",
         "",
         "Sammendrag",
         f"- Skannet: {summary.get('scanned', 0)}",
@@ -581,26 +571,24 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         "Toppkandidater",
     ]
     action_labels = {
-        "BUY": "Kjøp",
-        "HOLD": "Behold",
-        "SELL": "Selg",
-        "SKIP": "Ikke aktuell",
-        "REVIEW": "Krever manuell vurdering",
+        "BUY": "Kjøp", "HOLD": "Behold", "SELL": "Selg",
+        "SKIP": "Ikke aktuell", "REVIEW": "Krever manuell vurdering",
     }
-    for candidate in list(run.get("candidates") or [])[:10]:
-        raw_action = candidate.get("portfolio_action") or candidate.get("status") or "-"
+    for candidate in list(candidates)[:10]:
+        raw_action = candidate.get("action") or candidate.get("status") or "-"
         action = action_labels.get(str(raw_action).upper(), raw_action)
         lines.append(
             f"{candidate.get('rank', '-')}. {candidate.get('ticker', '-')} "
-            f"({candidate.get('market', '-')}) - score {candidate.get('investment_score', '-')} - {action}"
+            f"({candidate.get('market', '-')}) - score {candidate.get('score', '-')} - {action}"
         )
-    if run.get("errors"):
+    technical = section_payload(document, "technical_status", {}) or {}
+    errors = technical.get("errors") if isinstance(technical, Mapping) else []
+    if errors:
         lines.extend(["", "Feil/advarsler"])
-        for error in run.get("errors") or []:
+        for error in errors:
             lines.append(f"- {error}")
     lines.extend(["", "Dette er en analyse-/beslutningsstøtterapport. Ingen ekte handler utføres automatisk."])
     return "\n".join(str(x) for x in lines)
-
 
 
 
@@ -828,6 +816,8 @@ def _save_report_archive(rows: Sequence[Mapping[str, Any]]) -> None:
 
 
 def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
+    document = ensure_report_document(run)
+    metadata = document.get("metadata") if isinstance(document.get("metadata"), Mapping) else {}
     candidates = list(run.get("candidates") or [])
     top = candidates[0] if candidates else {}
     identity = resolve_report_identity(run)
@@ -839,6 +829,12 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "created_at_local": local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)),
         "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
         "report_type": identity.get("type"), "report_label": identity.get("label"),
+        "report_id": metadata.get("report_id") or run.get("run_id"),
+        "mission_code": metadata.get("mission_code") or identity.get("mission_code"),
+        "mission_label": metadata.get("mission_label") or identity.get("mission_label"),
+        "app_version": metadata.get("app_version") or APP_VERSION,
+        "report_schema_version": metadata.get("report_schema_version") or REPORT_SCHEMA_VERSION,
+        "report_contract_version": metadata.get("contract_version") or "1.0",
         "pdf_path": run.get("pdf_path"), "json_path": str(RUNS_DIR / f"{run.get('run_id')}.json"),
         "public_pdf_name": run.get("public_pdf_name"), "report_url": report_public_url(run),
         "markets": list(run.get("markets") or []), "recommended": int((run.get("summary") or {}).get("recommended", 0)),
@@ -1355,8 +1351,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib.units import mm
     from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    report_document = ensure_report_document(run)
+    report_metadata = report_document.get("metadata") if isinstance(report_document.get("metadata"), Mapping) else {}
     identity = resolve_report_identity(run)
-    report_type = report_type or f"{identity.get('label', 'Rapport')} – Markedsanalyse"
+    report_type = report_type or f"{report_metadata.get('report_label') or identity.get('label', 'Rapport')} – Markedsanalyse"
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
                             title=report_type, author="AI Aksje Analyzer Pro")
@@ -1426,14 +1424,26 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             return _short(text, 24)
 
     def _report_mission_labels() -> tuple[str, str]:
-        report_kind = str(identity.get("type") or "").upper()
-        mapping = {
-            "MORGENRAPPORT": ("Morgenanalyse", "Kandidater ved børsåpning"),
-            "DAGSRAPPORT": ("Dagsanalyse", "Vesentlige endringer siden børsåpning"),
-            "KVELDSRAPPORT": ("Kveldsanalyse", "Kandidater til neste handelsdag"),
-            "NATTRAPPORT": ("Nattanalyse", "Globale signaler før neste handelsdag"),
+        report_kind = str(report_metadata.get("report_type") or identity.get("type") or "").upper()
+        analysis_labels = {
+            "MORGENRAPPORT": "Morgenanalyse",
+            "DAGSRAPPORT": "Dagsanalyse",
+            "KVELDSRAPPORT": "Kveldsanalyse",
+            "NATTRAPPORT": "Nattanalyse",
+            "UTKAST": "Utkastanalyse",
         }
-        return mapping.get(report_kind, (str(identity.get("label") or "Markedsanalyse"), "Investeringsmuligheter innenfor oppdraget"))
+        search_labels = {
+            "MORGENRAPPORT": "Kandidater ved børsåpning",
+            "DAGSRAPPORT": "Vesentlige endringer siden børsåpning",
+            "KVELDSRAPPORT": "Kandidater til neste handelsdag",
+            "NATTRAPPORT": "Globale signaler før neste handelsdag",
+            "UTKAST": "Kandidater innenfor utkastets periodeoppdrag",
+        }
+        heading = analysis_labels.get(report_kind, "Markedsanalyse")
+        search = search_labels.get(report_kind, "Investeringsmuligheter innenfor oppdraget")
+        mission = str(report_metadata.get("mission_label") or "")
+        objective = str(report_metadata.get("mission_objective") or "")
+        return heading, f"{search}. {mission}. {objective}".strip()
 
     def _candidate_review_reasons(candidate: Mapping[str, Any]) -> list[str]:
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
@@ -1574,6 +1584,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
          _p("Revisjon", "Small"), _p(report_revision.get("revision_label") or "R1", "Small")],
         [_p("Kontrollsum", "Small"), _p(str(report_revision.get("content_sha256") or "-")[:24], "Small"),
          _p("Erstatter", "Small"), _p(report_revision.get("supersedes_run_id") or "-", "Small")],
+        [_p("Appversjon", "Small"), _p(report_metadata.get("app_version") or APP_VERSION, "Small"),
+         _p("Rapportskjema", "Small"), _p(report_metadata.get("report_schema_version") or REPORT_SCHEMA_VERSION, "Small")],
+        [_p("Oppdrag", "Small"), _p(report_metadata.get("mission_label") or identity.get("mission_label") or "-", "Small"),
+         _p("Kontrakt", "Small"), _p(report_metadata.get("contract_version") or "1.0", "Small")],
     ], colWidths=[22*mm, 68*mm, 18*mm, 76*mm])
     meta.setStyle(_table_style(7, header=False, padding=2.5))
     meta.setStyle(TableStyle([("SPAN", (1, 2), (3, 2)), ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F5F8FA"))]))
@@ -2409,6 +2423,7 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
     validation.update({"unified_execution_pipeline": True, "promoted_from_validated_draft": True})
     run["validation"] = validation
     run["notification"] = {"sent": False, "detail": "Rapport promotert fra validert utkast; ingen ny API-kjøring"}
+    ensure_report_document(run, source)
     pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_bytes = build_pdf(run)
@@ -2822,6 +2837,7 @@ def run_job(
         _update_history(run)
     from evidence_integrity import finalize_run_integrity
     finalize_run_integrity(run, previous)
+    ensure_report_document(run, previous)
     # Stable identity is known before Controlled Learning runs. The immutable
     # record itself is committed after the autonomous stages are complete.
     run["canonical_result"] = {"result_id": f"RESULT-{run_id}", "run_id": run_id, "pending_storage": True}
@@ -2862,6 +2878,7 @@ def run_job(
     # consumer receives a view of this immutable record, not a separately
     # assembled copy of the analysis.
     from autonomi_core.learning_reporting import canonical_payload, publish_canonical_top_picks, save_canonical_result
+    ensure_report_document(run, previous)
     canonical_record = save_canonical_result(run)
     canonical_run = canonical_payload(canonical_record)
     run["canonical_result"] = dict(canonical_run["canonical_result"])

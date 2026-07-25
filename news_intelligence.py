@@ -28,6 +28,7 @@ from news_source_registry import (
     source_specs,
 )
 
+from app_version import APP_VERSION
 from storage_architecture import runtime_data_path
 from newsapi_budget import (
     NewsApiDailyQuotaExceeded,
@@ -36,7 +37,8 @@ from newsapi_budget import (
     fetch_articles as fetch_newsapi_articles,
 )
 
-VERSION = "v19.0.19a"
+COMPONENT_VERSION = "v19.0.19"
+VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("news_intelligence") / "cache.json"
 _CACHE_LOCK = RLock()
 CACHE_TTL_SECONDS = int(os.getenv("NEWS_INTELLIGENCE_CACHE_TTL_HOURS", "6") or 6) * 3600
