@@ -9,7 +9,7 @@ from autonomi_core.missions.market_mission import build_market_mission
 
 # Runtime contract remains in the v18.8 compatibility series; v18.9.0 is the
 # independent Learning & Reporting layer version.
-CORE_VERSION = "v19.0.18"
+CORE_VERSION = "v19.0.18b"
 
 
 def execute_market_mission(
@@ -32,7 +32,7 @@ def execute_market_mission(
     governed_run = dict(mission.market_run)
     observed = list(governed_run.get("candidates") or [])
     governed_run["observed_candidates"] = observed
-    # v19.0.18: Autonomi must receive candidates for diagnostics and controlled
+    # v19.0.18b: Autonomi must receive candidates for diagnostics and controlled
     # learning even when evidence/data gates prevent a final BUY recommendation.
     # Real trading is still impossible; the downstream portfolio is explicitly
     # theoretical-only. Normal decision-valid candidates are preferred, but when
