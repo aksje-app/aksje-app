@@ -42,7 +42,7 @@ STATUS_LABELS: dict[str, str] = {
     "UNVERIFIED": "Ikke verifisert",
     "PARTIAL": "Delvis verifisert",
     "STALE": "Utdatert",
-    "NOT_SEARCHED": "Ikke søkt",
+    "NOT_SEARCHED": "Ikke forsøkt",
     "CHECKED_NO_EVENTS": "Kontrollert – ingen hendelser",
     "VERIFIED_FACTS_FOUND": "Verifiserte fakta funnet",
     "VERIFIED_FACTS_NONE": "Kontrollert – ingen faktafunn",
@@ -53,6 +53,14 @@ STATUS_LABELS: dict[str, str] = {
     "SKIPPED": "Hoppet over",
     "SKIPPED_BUDGET_POLICY": "Hoppet over av budsjettregel",
     "SKIPPED_BUDGET_RESERVE": "Hoppet over av budsjettreserve",
+    "WARNING": "Advarsel",
+    "DISABLED": "Deaktivert",
+    "THEORETICAL_ONLY": "Kun teoretisk",
+    "SENT": "Sendt",
+    "SUCCESS": "Vellykket",
+    "COMPLETED_WITH_ERRORS": "Fullført med feil",
+    "RUNNING": "Kjører",
+    "COMPLETED": "Fullført",
     "AVAILABLE": "Tilgjengelig",
     "MISSING": "Mangler",
     "VALID": "Gyldig",
@@ -292,6 +300,18 @@ def quality_status(score: Any) -> str:
     if value >= 65:
         return "REVIEW"
     return "ERROR"
+
+
+def status_dot(value: Any) -> str:
+    """Readable colored-dot status indicator for reports and exports."""
+    raw = _key(value)
+    if raw in {"BUY", "STRONG_BUY", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID", "SENT", "SUCCESS"}:
+        return "●"
+    if raw in {"REVIEW", "MANUAL_REVIEW", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE", "WARNING", "NOT_SEARCHED"}:
+        return "●"
+    if raw in {"SKIP", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
+        return "●"
+    return "●"
 
 
 USER_FACING_ENGLISH_BLOCKLIST = {

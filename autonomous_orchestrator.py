@@ -16,7 +16,7 @@ from storage_architecture import runtime_data_path
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 from local_time import as_local, local_display
 
-VERSION = "v18.6.92f"
+VERSION = "v19.0.17"
 ROOT = runtime_data_path("autonomous_orchestrator")
 RUNS_DIR = ROOT / "runs"
 LATEST_PATH = ROOT / "latest_run.json"
@@ -64,8 +64,15 @@ def run_post_scan_chain(
     def stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> None:
         result["stages"].append({"name": name, "status": status, "at": _now(), "detail": dict(detail or {})})
 
+    observed_candidates: Sequence[Mapping[str, Any]] = market_run.get("observed_candidates") or []
     candidates: Sequence[Mapping[str, Any]] = market_run.get("candidates") or market_run.get("proposals") or []
-    stage("MARKET_SCAN", "OK", {"candidates": len(candidates), "markets": market_run.get("markets", [])})
+    handoff_input = market_run.get("autonomy_handoff_input") if isinstance(market_run.get("autonomy_handoff_input"), Mapping) else {}
+    scan_status = "WARNING" if observed_candidates and not candidates else "OK"
+    stage("MARKET_SCAN", scan_status, {
+        "candidates": len(candidates), "observed_candidates": len(observed_candidates),
+        "markets": market_run.get("markets", []), "handoff_input": dict(handoff_input),
+        "warning": "Rapportkandidater finnes, men ingen ble videresendt til Autonomi" if observed_candidates and not candidates else "",
+    })
 
     if run_autonomous:
         try:

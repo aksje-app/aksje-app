@@ -31,10 +31,10 @@ from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from norwegian_report_language import (
     component_label, decision_color, decision_label, decision_text_color, label_for,
     model_role_label, quality_status, score_status, sector_label, translate_list,
-    translate_report_text, USER_FACING_ENGLISH_BLOCKLIST,
+    translate_report_text, USER_FACING_ENGLISH_BLOCKLIST, status_dot,
 )
 
-VERSION = "v19.0.16"
+VERSION = "v19.0.17"
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -601,6 +601,141 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     lines.extend(["", "Dette er en analyse-/beslutningsstøtterapport. Ingen ekte handler utføres automatisk."])
     return "\n".join(str(x) for x in lines)
 
+
+
+
+def _safe_float_v1917(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+        return number if number == number else default
+    except Exception:
+        return default
+
+
+def _notification_status_explanation(notification: Mapping[str, Any] | None) -> str:
+    """Return one user-safe sentence explaining notification state."""
+    row = dict(notification or {})
+    detail = str(row.get("detail") or row.get("skipped_reason") or "").strip()
+    if row.get("sent") is True or str(row.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}:
+        return "Pushover sendt"
+    if row.get("attempted"):
+        return "Pushover forsøkt, men ikke sendt" + (f": {detail}" if detail else "")
+    if detail:
+        return "Pushover ikke forsøkt: " + detail
+    return "Pushover ikke forsøkt: Ingen varslingsbeslutning registrert"
+
+
+def _news_score_v1917(candidate: Mapping[str, Any]) -> float:
+    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    for key in ("news_score", "sentiment_score", "news_sentiment_score"):
+        if key in raw:
+            return _safe_float_v1917(raw.get(key), 0.0)
+        if key in candidate:
+            return _safe_float_v1917(candidate.get(key), 0.0)
+    news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
+    for key in ("score", "sentiment_score", "confidence", "signal_score"):
+        if key in news:
+            return _safe_float_v1917(news.get(key), 0.0)
+    return 0.0
+
+
+def _candidate_blockers_v1917(candidate: Mapping[str, Any], *, threshold: float = 73.0) -> list[str]:
+    blockers: list[str] = []
+    score = _safe_float_v1917(candidate.get("investment_score"), 0.0)
+    if score < threshold:
+        blockers.append(f"score {score:.1f} er under terskel {threshold:.1f}")
+    readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
+    allowed = str(readiness.get("allowed_action") or candidate.get("portfolio_action") or "").upper()
+    if allowed and allowed not in {"BUY", "KJØP"}:
+        blockers.append(f"handlingsporten sier {decision_label(allowed).lower()}")
+    validity = str((candidate.get("data_contract") or {}).get("validity") or "").upper()
+    if validity and validity not in {"VALID", "GYLDIG"}:
+        blockers.append("datakontrakten er ikke fullt gyldig")
+    if str(readiness.get("news") or "").upper() not in {"", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
+        blockers.append("nyhetsgrunnlaget er ikke ferdig verifisert")
+    if str(readiness.get("insider") or "").upper() not in {"", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
+        blockers.append("innsidergrunnlaget er ikke ferdig verifisert")
+    if not blockers:
+        blockers.append("samlet score, risiko eller porteføljeport var svakere enn Top 3-kandidatene")
+    return blockers[:3]
+
+
+def build_ranking_explanation(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Explain why different rankings can disagree.
+
+    v19.0.17 keeps four ranking concepts separate: news, raw score,
+    decision-ready candidates and displayed Top 3.
+    """
+    candidates = [dict(x) for x in (run.get("candidates") or []) if isinstance(x, Mapping)]
+    raw_top3 = [dict(x) for x in (run.get("raw_top3") or []) if isinstance(x, Mapping)] or candidates[:3]
+    decision_top3 = [dict(x) for x in (run.get("decision_ready_top3") or []) if isinstance(x, Mapping)]
+    news_ranked = sorted(candidates, key=_news_score_v1917, reverse=True)
+    top_news = news_ranked[0] if news_ranked and _news_score_v1917(news_ranked[0]) > 0 else {}
+    decision_tickers = {str(x.get("ticker") or "").upper() for x in decision_top3}
+    threshold = _safe_float_v1917((run.get("portfolio_decisions") or {}).get("production_threshold"), 73.0)
+    top_news_ticker = str(top_news.get("ticker") or "").upper()
+    note = ""
+    blockers: list[str] = []
+    if top_news and top_news_ticker not in decision_tickers:
+        blockers = _candidate_blockers_v1917(top_news, threshold=threshold)
+        note = (
+            f"{top_news_ticker} hadde sterkest nyhetsscore ({_news_score_v1917(top_news):.1f}), "
+            f"men er ikke i beslutningsklar Top 3 fordi " + "; ".join(blockers) + "."
+        )
+    elif top_news:
+        note = f"{top_news_ticker} hadde sterkest nyhetsscore og er også med i beslutningsklar Top 3."
+    return {
+        "news_leader": top_news,
+        "news_score": round(_news_score_v1917(top_news), 2) if top_news else 0,
+        "raw_top3_count": min(3, len(raw_top3)),
+        "decision_top3_count": min(3, len(decision_top3)),
+        "decision_top3_complete": len(decision_top3) >= 3,
+        "note": note,
+        "blockers": blockers,
+        "ranking_types": [
+            {"name": "Nyhetsrangering", "description": "Sterkeste nyhets- og sentimentbidrag isolert."},
+            {"name": "Rå rangering", "description": "Samlet score før alle data-, evidens- og porteføljeporter."},
+            {"name": "Beslutningsklar rangering", "description": "Kandidater som har bestått påkrevde porter."},
+            {"name": "Top 3", "description": "Beste beslutningsklare kandidater, eller tydelig merket rå rangering hvis ingen er klare."},
+        ],
+    }
+
+
+def build_autonomy_candidate_handoff(run: Mapping[str, Any], autonomous_chain: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Trace candidate counts from report to Autonomi.
+
+    This is the diagnostic the UI lacked when Autonomi received zero candidates.
+    """
+    candidates = [dict(x) for x in (run.get("candidates") or []) if isinstance(x, Mapping)]
+    proposals = [dict(x) for x in (run.get("proposals") or []) if isinstance(x, Mapping)]
+    decision_ready = [dict(x) for x in (run.get("decision_ready_top3") or []) if isinstance(x, Mapping)]
+    chain = dict(autonomous_chain or run.get("autonomous_chain") or {})
+    stages = chain.get("stages") if isinstance(chain.get("stages"), list) else []
+    market_stage = next((s for s in stages if s.get("name") == "MARKET_SCAN"), {})
+    market_detail = market_stage.get("detail") if isinstance(market_stage.get("detail"), Mapping) else {}
+    autonomous_stage = next((s for s in stages if s.get("name") == "AUTONOMOUS_PORTFOLIO"), {})
+    autonomous_detail = autonomous_stage.get("detail") if isinstance(autonomous_stage.get("detail"), Mapping) else {}
+    buy_candidates = [x for x in candidates if str(x.get("portfolio_action") or "").upper() == "BUY"]
+    review_candidates = [x for x in candidates if str(x.get("portfolio_action") or x.get("status") or "").upper() in {"REVIEW", "KREVER MANUELL VURDERING"}]
+    received = int(market_detail.get("candidates") or 0)
+    avvik = bool(candidates and received == 0)
+    reason = str(autonomous_detail.get("reason") or "")
+    return {
+        "version": "v19.0.17",
+        "report_candidates": len(candidates),
+        "report_proposals": len(proposals),
+        "decision_ready_candidates": len(decision_ready),
+        "buy_candidates": len(buy_candidates),
+        "review_candidates": len(review_candidates),
+        "sent_to_autonomy": received,
+        "autonomy_stage_status": autonomous_stage.get("status") or "IKKE_KJØRT",
+        "autonomy_reason": reason,
+        "mismatch": avvik,
+        "warning": (
+            "Rapporten har kandidater, men Autonomi mottok 0. Kandidatoverlevering må kontrolleres."
+            if avvik else "Kandidatoverlevering registrert."
+        ),
+    }
 
 def safe_ascii_report_filename(run: Mapping[str, Any], extension: str = "txt") -> str:
     raw = safe_report_filename(run, extension)
@@ -1474,14 +1609,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     report_state_raw = "REVIEW" if report_status.get("state") == "PROVISIONAL" else "PASS"
     quality_state_raw = quality_status(report_quality)
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
-    notification_raw = "PASS" if str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"} else ("REVIEW" if notification else "NOT_SEARCHED")
-    source_total = int((run.get("combined_quality") or {}).get("evaluated") or len(run.get("candidates") or []) or 0)
-    source_valid = int((run.get("combined_quality") or {}).get("overall_valid") or 0)
+    notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
+    combined_quality = run.get("combined_quality") if isinstance(run.get("combined_quality"), Mapping) else (run.get("combined_data_quality") if isinstance(run.get("combined_data_quality"), Mapping) else {})
+    source_total = int(combined_quality.get("evaluated") or len(run.get("candidates") or []) or 0)
+    source_valid = int(combined_quality.get("overall_valid") or 0)
+    source_raw = "PASS" if source_total and source_valid >= source_total else ("ERROR" if source_total and source_valid == 0 else "REVIEW")
+    notification_text = _notification_status_explanation(notification)
     status_stripe = Table([[
-        Paragraph(f"<b>{_status_label(report_state_raw)}</b><br/>{'Foreløpig rapport' if report_state_raw == 'REVIEW' else 'Endelig rapport'}", styles["Small"]),
-        Paragraph(f"<b>{_status_label(quality_state_raw)}</b><br/>Rapportkvalitet {report_quality} %", styles["Small"]),
-        Paragraph(f"<b>Kildekontroll</b><br/>{source_valid}/{source_total} kandidater gyldige" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
-        Paragraph(f"<b>Pushover</b><br/>{escape(_loc(notification.get('status_label') or notification.get('detail') or _status_label(notification_raw)))}", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Foreløpig rapport' if report_state_raw == 'REVIEW' else 'Endelig rapport'}", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>{_status_label(quality_state_raw)}</b><br/>Rapportkvalitet {report_quality} %", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kildekontroll</b><br/>{source_valid}/{source_total} kandidater gyldige" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover</b><br/>{escape(_loc(notification_text))}", styles["Small"]),
     ]], colWidths=[42*mm, 42*mm, 42*mm, 42*mm])
     status_stripe.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), .35, grid),
@@ -1489,8 +1627,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ("TEXTCOLOR", (0,0), (0,0), colors.HexColor(decision_text_color(report_state_raw))),
         ("BACKGROUND", (1,0), (1,0), colors.HexColor(decision_color(quality_state_raw))),
         ("TEXTCOLOR", (1,0), (1,0), colors.HexColor(decision_text_color(quality_state_raw))),
-        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color("PASS" if not source_total or source_valid >= source_total else "REVIEW"))),
-        ("TEXTCOLOR", (2,0), (2,0), colors.HexColor(decision_text_color("PASS" if not source_total or source_valid >= source_total else "REVIEW"))),
+        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(source_raw))),
+        ("TEXTCOLOR", (2,0), (2,0), colors.HexColor(decision_text_color(source_raw))),
         ("BACKGROUND", (3,0), (3,0), colors.HexColor(decision_color(notification_raw))),
         ("TEXTCOLOR", (3,0), (3,0), colors.HexColor(decision_text_color(notification_raw))),
         ("VALIGN", (0,0), (-1,-1), "TOP"),
@@ -1499,6 +1637,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     ]))
     story += [Paragraph("Sammendrag", styles["Section"]), status_stripe, Spacer(1, 1*mm), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"])]
+    if source_total and source_valid == 0:
+        invalid_table = Table([[Paragraph(
+            "<b>Ingen beslutningsklar kildekontroll</b><br/>"
+            + f"Kildekontrollen viser 0/{source_total} gyldige kandidater. Topplister er derfor foreløpige og må ikke tolkes som kjøpsklare anbefalinger.",
+            styles["BodyCompact"],
+        )]], colWidths=[168*mm])
+        invalid_table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(decision_color("ERROR"))), ("TEXTCOLOR", (0,0), (-1,-1), colors.HexColor(decision_text_color("ERROR"))), ("BOX", (0,0), (-1,-1), .5, colors.HexColor("#DC2626")), ("LEFTPADDING", (0,0), (-1,-1), 5), ("RIGHTPADDING", (0,0), (-1,-1), 5), ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4)]))
+        story += [invalid_table]
     if report_status.get("state") == "PROVISIONAL":
         gaps = ", ".join(
             f"{row.get('ticker')}/{row.get('area')}: {row.get('status')}"
@@ -1780,7 +1926,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ])
         evidence_table = Table(evidence_rows, repeatRows=1, colWidths=[18*mm, 51*mm, 51*mm, 54*mm])
         evidence_table.setStyle(_table_style(6.2, padding=2))
+        ranking_explanation = build_ranking_explanation(run)
+        ranking_rows = [["Rangeringstype", "Hva betyr den?"]] + [[item.get("name"), _p(item.get("description"), "Tiny")] for item in ranking_explanation.get("ranking_types") or []]
+        ranking_table = Table(ranking_rows, repeatRows=1, colWidths=[42*mm, 124*mm])
+        ranking_table.setStyle(_table_style(6.4, padding=2))
+        ranking_note = ranking_explanation.get("note") or "Top 3 bygger på beslutningsklar rangering, ikke nyhetsscore alene."
         story += [Paragraph("Topp 3", styles["Section"]), medal_table,
+                  Paragraph("Slik leses rangeringene", styles["Subsection"]), ranking_table,
+                  Paragraph(escape(_loc(ranking_note)), styles["BodyCompact"]),
                   Paragraph("Konkret beslutningsbevis for plasseringene", styles["Subsection"]), evidence_table]
         # v19.0.6: the three leading candidates receive auditable evidence
         # pages.  Long tables may naturally continue on a following page.
@@ -2651,6 +2804,8 @@ def run_job(
                    for item in market_runs
                },
            }}
+    run["ranking_explanation"] = build_ranking_explanation(run)
+    run["autonomy_candidate_handoff"] = build_autonomy_candidate_handoff(run)
     from autonomi_core.portfolio_decisions.layer import build_portfolio_aware_proposal
     emit("PORTFOLIO_PROPOSAL", 1, 1, "Beregner porteføljeforslag")
     run["portfolio_proposal"] = ({"positions": [], "allocations": [], "invested_pct": 0.0, "cash_pct": 100.0, "status": "AVBRUTT_UTILSTREKKELIGE_DATA"}
@@ -2678,6 +2833,9 @@ def run_job(
             require_active_portfolio=job.require_active_portfolio,
                 trigger=trigger,
             )
+            run["autonomy_candidate_handoff"] = build_autonomy_candidate_handoff(run, run.get("autonomous_chain"))
+            if run["autonomy_candidate_handoff"].get("mismatch"):
+                warnings.append(run["autonomy_candidate_handoff"].get("warning"))
     except Exception as exc:
         if isinstance(exc, ExecutionCancelled):
             raise
@@ -2754,6 +2912,24 @@ def run_job(
         "required": bool(job.notify_pushover and not run.get("suppress_notifications")),
         "test_run": bool(run.get("test_run")),
     }
+    # v19.0.17: the first PDF is generated before the notification step so the
+    # public URL can be included in Pushover. Regenerate once after the
+    # notification decision so the PDF itself explains whether Pushover was sent,
+    # skipped or failed.
+    if job.save_pdf and run.get("pdf_path"):
+        try:
+            pdf_bytes = build_pdf(run)
+            Path(str(run["pdf_path"])).write_bytes(pdf_bytes)
+            publish_pdf(run, pdf_bytes)
+            run["report_url"] = report_public_url(run)
+            run["pdf_delivery"] = {
+                "required": True, "generated": True, "validated": _valid_pdf_bytes(pdf_bytes),
+                "published": bool(run.get("public_pdf_name")),
+                "report_url_available": bool(run.get("report_url")),
+                "regenerated_after_notification": True,
+            }
+        except Exception as exc:
+            errors.append(f"PDF etter Pushover-status kunne ikke regenereres: {exc}")
     notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert", "Duplikat blokkert", "Test uten varsling"))
     from autonomi_core.runtime.full_execution import build_full_execution_receipt, prepublication_gate
     prerequisite_gate = prepublication_gate(run)
@@ -3363,16 +3539,34 @@ def render_market_intelligence() -> None:
                 action = x.get("portfolio_action") or ("BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "REVIEW" if x.get("status") == "KREVER MANUELL VURDERING" else "SKIP")
                 table.append({
                     "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
-                    "Sektor": x.get("sector"), "Score": x.get("investment_score"),
-                    "Porteføljebeslutning": action,
+                    "Sektor": sector_label(x.get("sector")), "Score": x.get("investment_score"),
+                    "Porteføljebeslutning": decision_label(action),
                     "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"),
                     "Datagyldighet": (x.get("data_contract") or {}).get("validity", "UKJENT"),
                     "Datakilde": (x.get("data_contract") or {}).get("source", "UKJENT"),
                     "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"),
-                    "Sterkeste faktor": f"{strongest} {float(strengths[strongest] or 0):.1f}",
-                    "Handling": action, "Status": x.get("status"),
+                    "Sterkeste faktor": f"{component_label(strongest)} {float(strengths[strongest] or 0):.1f}",
+                    "Handling": decision_label(action), "Status": translate_report_text(x.get("status")),
                 })
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
+            handoff = latest.get("autonomy_candidate_handoff") if isinstance(latest.get("autonomy_candidate_handoff"), Mapping) else {}
+            if handoff:
+                st.markdown("#### Autonomi-kandidatoverlevering")
+                h1, h2, h3, h4 = st.columns(4)
+                h1.metric("Rapportkandidater", handoff.get("report_candidates", 0))
+                h2.metric("Sendt til Autonomi", handoff.get("sent_to_autonomy", 0))
+                h3.metric("Autonomi-status", label_for(handoff.get("autonomy_stage_status") or "-"))
+                h4.metric("Avvik", "Ja" if handoff.get("mismatch") else "Nei")
+                if handoff.get("mismatch"):
+                    st.error(handoff.get("warning"))
+                elif handoff.get("autonomy_reason"):
+                    st.info(handoff.get("autonomy_reason"))
+            ranking_explanation = latest.get("ranking_explanation") if isinstance(latest.get("ranking_explanation"), Mapping) else {}
+            if ranking_explanation:
+                st.markdown("#### Slik leses rangeringene")
+                if ranking_explanation.get("note"):
+                    st.info(ranking_explanation.get("note"))
+                st.dataframe(pd.DataFrame(ranking_explanation.get("ranking_types") or []), use_container_width=True, hide_index=True)
             delivery = resolve_report_delivery(latest)
             e1,e2 = st.columns(2)
             if delivery.get("url"):
