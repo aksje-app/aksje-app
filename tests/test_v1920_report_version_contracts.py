@@ -57,7 +57,7 @@ def _run(created_at: str = "2026-07-25T18:30:00+00:00") -> dict:
 
 def test_version_contract_separates_app_and_compatibility_versions():
     contract = get_version_contract(component_name="market_intelligence", component_version="engine-1")
-    assert APP_VERSION == "v19.0.20"
+    assert APP_VERSION == "v19.0.21"
     assert contract["app_version"] == APP_VERSION
     assert contract["report_schema_version"] == REPORT_SCHEMA_VERSION
     assert contract["database_schema_version"] == DATABASE_SCHEMA_VERSION
@@ -131,9 +131,14 @@ def test_document_has_required_renderer_independent_sections():
     keys = [row["key"] for row in document["sections"]]
     assert keys == [
         "executive_summary",
+        "decision_overview",
         "candidate_decisions",
         "changes",
+        "next_run_tasks",
         "events",
+        "confidence_profile",
+        "report_reliability",
+        "source_consensus",
         "technical_status",
     ]
     assert document["contract"] == "AI_AKSJE_ANALYZER_REPORT_DOCUMENT"
