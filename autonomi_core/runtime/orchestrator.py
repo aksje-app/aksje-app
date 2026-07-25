@@ -9,7 +9,7 @@ from autonomi_core.missions.market_mission import build_market_mission
 
 # Runtime contract remains in the v18.8 compatibility series; v18.9.0 is the
 # independent Learning & Reporting layer version.
-CORE_VERSION = "v19.0.17"
+CORE_VERSION = "v19.0.18"
 
 
 def execute_market_mission(
@@ -32,25 +32,37 @@ def execute_market_mission(
     governed_run = dict(mission.market_run)
     observed = list(governed_run.get("candidates") or [])
     governed_run["observed_candidates"] = observed
-    # v19.0.17: REVIEW candidates must not vanish before Autonomi. They may
-    # still be stopped by the autonomous portfolio thresholds, but they are
-    # visible for diagnostics and controlled learning.
+    # v19.0.18: Autonomi must receive candidates for diagnostics and controlled
+    # learning even when evidence/data gates prevent a final BUY recommendation.
+    # Real trading is still impossible; the downstream portfolio is explicitly
+    # theoretical-only. Normal decision-valid candidates are preferred, but when
+    # every candidate is filtered out we forward the observed list as a learning
+    # probe so the portfolio engine can explain and, if configured, create small
+    # theoretical learning positions instead of silently skipping the run.
     valid_observed = [item for item in observed if item.get("valid_for_decision", True)]
+    forward_source = valid_observed if valid_observed else observed
+    governed_run["autonomy_learning_probe"] = bool(observed and not valid_observed)
     governed_run["candidates"] = [
-        item for item in valid_observed
-        if not item.get("portfolio_action") or item.get("portfolio_action") in {"BUY", "HOLD", "SELL", "REVIEW"}
+        {**dict(item), "autonomy_learning_probe": bool(observed and not valid_observed)}
+        for item in forward_source
+        if not item.get("portfolio_action") or str(item.get("portfolio_action")).upper() in {"BUY", "HOLD", "SELL", "REVIEW", "SKIP"}
     ]
-    governed_run["proposals"] = [
-        item for item in list(governed_run.get("proposals") or [])
+    raw_proposals = list(governed_run.get("proposals") or [])
+    valid_proposals = [
+        item for item in raw_proposals
         if item.get("valid_for_decision", True)
-        and (not item.get("portfolio_action") or item.get("portfolio_action") in {"BUY", "REVIEW"})
+        and (not item.get("portfolio_action") or str(item.get("portfolio_action")).upper() in {"BUY", "REVIEW"})
+    ]
+    governed_run["proposals"] = valid_proposals if valid_proposals else [
+        {**dict(item), "autonomy_learning_probe": True} for item in raw_proposals[:10]
     ]
     governed_run["autonomy_handoff_input"] = {
         "observed_candidates": len(observed),
         "valid_observed": len(valid_observed),
         "forwarded_candidates": len(governed_run["candidates"]),
         "forwarded_proposals": len(governed_run["proposals"]),
-        "review_candidates_forwarded": sum(1 for item in governed_run["candidates"] if str(item.get("portfolio_action") or "").upper() == "REVIEW"),
+        "review_candidates_forwarded": sum(1 for item in governed_run["candidates"] if str(item.get("portfolio_action") or item.get("status") or "").upper() in {"REVIEW", "KREVER MANUELL VURDERING"}),
+        "learning_probe_mode": bool(governed_run.get("autonomy_learning_probe")),
     }
 
     # Compatibility bridge. The existing, regression-tested engine remains the
