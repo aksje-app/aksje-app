@@ -9,7 +9,7 @@ from autonomi_core.missions.market_mission import build_market_mission
 
 # Runtime contract remains in the v18.8 compatibility series; v18.9.0 is the
 # independent Learning & Reporting layer version.
-CORE_VERSION = "v18.8.9"
+CORE_VERSION = "v19.0.17"
 
 
 def execute_market_mission(
@@ -32,16 +32,26 @@ def execute_market_mission(
     governed_run = dict(mission.market_run)
     observed = list(governed_run.get("candidates") or [])
     governed_run["observed_candidates"] = observed
+    # v19.0.17: REVIEW candidates must not vanish before Autonomi. They may
+    # still be stopped by the autonomous portfolio thresholds, but they are
+    # visible for diagnostics and controlled learning.
+    valid_observed = [item for item in observed if item.get("valid_for_decision", True)]
     governed_run["candidates"] = [
-        item for item in observed
-        if item.get("valid_for_decision", True)
-        and (not item.get("portfolio_action") or item.get("portfolio_action") in {"BUY", "HOLD", "SELL"})
+        item for item in valid_observed
+        if not item.get("portfolio_action") or item.get("portfolio_action") in {"BUY", "HOLD", "SELL", "REVIEW"}
     ]
     governed_run["proposals"] = [
         item for item in list(governed_run.get("proposals") or [])
         if item.get("valid_for_decision", True)
-        and (not item.get("portfolio_action") or item.get("portfolio_action") == "BUY")
+        and (not item.get("portfolio_action") or item.get("portfolio_action") in {"BUY", "REVIEW"})
     ]
+    governed_run["autonomy_handoff_input"] = {
+        "observed_candidates": len(observed),
+        "valid_observed": len(valid_observed),
+        "forwarded_candidates": len(governed_run["candidates"]),
+        "forwarded_proposals": len(governed_run["proposals"]),
+        "review_candidates_forwarded": sum(1 for item in governed_run["candidates"] if str(item.get("portfolio_action") or "").upper() == "REVIEW"),
+    }
 
     # Compatibility bridge. The existing, regression-tested engine remains the
     # executor until its stages are migrated individually behind these contracts.
@@ -60,6 +70,7 @@ def execute_market_mission(
         "configuration_version": governed_run.get("configuration_version") or (governed_run.get("investment_mission") or {}).get("configuration_version"),
         "policy_schema": effective.schema_version,
         "theoretical_only": effective.theoretical_only,
+        "handoff_input": governed_run.get("autonomy_handoff_input") or {},
     }
     return result
 
