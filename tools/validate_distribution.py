@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.0.21"
+EXPECTED_VERSION = "v19.0.22"
 
 FORBIDDEN_ROOT_DIRS = {
     ".app_runtime",
@@ -93,29 +93,36 @@ PROFILE_REQUIRED_FILES = {
     "full": {
         "app.py",
         "app_version.py",
+        "daily_user_experience.py",
+        "ui_sidebar_stable.py",
         "report_contracts.py",
         "decision_report.py",
         "requirements.txt",
         ".env.example",
-        "RELEASE_NOTES_v19.0.21.md",
-        "DEPLOY_v19.0.21.md",
+        "RELEASE_NOTES_v19.0.22.md",
+        "DEPLOY_v19.0.22.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.0.22.md",
         "tools/validate_distribution.py",
         "tools/prepare_safe_upgrade.py",
         "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
+        "app.py",
         "app_version.py",
-        "report_contracts.py",
-        "decision_report.py",
+        "daily_user_experience.py",
+        "ui_sidebar_stable.py",
         "safety_audit.py",
-        "RELEASE_NOTES_v19.0.21.md",
-        "DEPLOY_v19.0.21.md",
+        "RELEASE_NOTES_v19.0.22.md",
+        "DEPLOY_v19.0.22.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.0.22.md",
         "tools/validate_distribution.py",
         "tools/prepare_safe_upgrade.py",
         "DISTRIBUTION_MANIFEST.json",
     },
     "migration": {
-        "MIGRATION_v19.0.21.md",
+        "MIGRATION_v19.0.22.md",
+        "DEPLOY_v19.0.22.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.0.22.md",
         "tools/prepare_safe_upgrade.py",
         "tools/restore_safe_upgrade_backup.py",
         "tools/validate_distribution.py",
