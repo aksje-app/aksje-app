@@ -8,15 +8,25 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from pathlib import Path
+from threading import RLock
 from typing import Any, Mapping, Sequence
-from urllib.parse import urlparse
-from xml.etree import ElementTree
 import hashlib
 import json
 import math
 import os
 import re
 import time
+
+from news_source_registry import (
+    DEFAULT_RSS_FEEDS,
+    canonical_title as source_canonical_title,
+    classify_article,
+    fetch_rss_source,
+    query_tokens as build_query_tokens,
+    source_quality as registry_source_quality,
+    source_specs,
+)
 
 from storage_architecture import runtime_data_path
 from newsapi_budget import (
@@ -26,13 +36,11 @@ from newsapi_budget import (
     fetch_articles as fetch_newsapi_articles,
 )
 
-VERSION = "v18.7.2"
+VERSION = "v19.0.19"
 CACHE_PATH = runtime_data_path("news_intelligence") / "cache.json"
+_CACHE_LOCK = RLock()
 CACHE_TTL_SECONDS = int(os.getenv("NEWS_INTELLIGENCE_CACHE_TTL_HOURS", "6") or 6) * 3600
 DEFAULT_LOOKBACK_DAYS = int(os.getenv("NEWS_INTELLIGENCE_LOOKBACK_DAYS", "14") or 14)
-DEFAULT_RSS_FEEDS = {
-    "Norge": [("E24 RSS", "https://e24.no/rss")],
-}
 POSITIVE_TERMS = {
     "beat": 1.4, "beats": 1.4, "record": 1.1, "growth": 0.8, "profit": 0.8,
     "upgrade": 1.2, "outperform": 1.0, "approval": 1.2, "contract": 0.9,
@@ -52,13 +60,6 @@ HIGH_IMPACT_TERMS = (
     "investigation", "lawsuit", "bankruptcy", "resultat", "oppkjøp", "fusjon",
     "resultatvarsel", "godkjenning", "etterforskning",
 )
-SOURCE_QUALITY = {
-    "reuters.com": 1.00, "apnews.com": 0.95, "bloomberg.com": 0.95,
-    "ft.com": 0.93, "wsj.com": 0.93, "cnbc.com": 0.85, "marketwatch.com": 0.80,
-    "finance.yahoo.com": 0.76, "globenewswire.com": 0.72, "businesswire.com": 0.72,
-    "nasdaq.com": 0.80, "sec.gov": 1.00, "newsweb.no": 0.95,
-}
-
 
 def _f(value: Any, default: float = 0.0) -> float:
     try:
@@ -77,7 +78,22 @@ def _load_cache() -> dict[str, Any]:
 
 def _save_cache(cache: Mapping[str, Any]) -> None:
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(dict(cache), ensure_ascii=False, indent=2), encoding="utf-8")
+    temp = Path(str(CACHE_PATH) + ".tmp")
+    temp.write_text(json.dumps(dict(cache), ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(CACHE_PATH)
+
+
+def _cache_get(key: str) -> dict[str, Any]:
+    with _CACHE_LOCK:
+        return dict((_load_cache().get(key) or {}))
+
+
+def _cache_put(key: str, result: Mapping[str, Any]) -> None:
+    with _CACHE_LOCK:
+        cache = _load_cache()
+        cache[key] = {"cached_at": time.time(), "result": dict(result)}
+        _save_cache(cache)
+
 
 
 def _parse_date(value: Any) -> datetime | None:
@@ -103,28 +119,20 @@ def _parse_date(value: Any) -> datetime | None:
 
 
 def _domain(url: str) -> str:
+    from urllib.parse import urlparse
     try:
-        host = urlparse(str(url or "")).netloc.lower().removeprefix("www.")
-        return host
+        return urlparse(str(url or "")).netloc.lower().removeprefix("www.")
     except Exception:
         return ""
 
 
-def _source_quality(url: str, publisher: str = "") -> float:
-    domain = _domain(url)
-    for known, quality in SOURCE_QUALITY.items():
-        if domain == known or domain.endswith("." + known):
-            return quality
-    text = str(publisher or "").lower()
-    if any(x in text for x in ("reuters", "associated press", "bloomberg", "financial times")):
-        return 0.93
-    return 0.62
+def _source_quality(url: str, publisher: str = "", article_type: str = "news", override: Any = None) -> float:
+    return registry_source_quality(url, publisher, article_type, override)
 
 
 def _canonical_title(title: str) -> str:
-    words = re.findall(r"[a-z0-9æøå]+", str(title or "").lower())
-    stop = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with", "at", "from"}
-    return " ".join(x for x in words if x not in stop)[:180]
+    return source_canonical_title(title)
+
 
 
 def _item_from_yfinance(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -132,11 +140,18 @@ def _item_from_yfinance(raw: Mapping[str, Any]) -> dict[str, Any]:
     provider = content.get("provider") if isinstance(content.get("provider"), Mapping) else {}
     click = content.get("clickThroughUrl") if isinstance(content.get("clickThroughUrl"), Mapping) else {}
     canonical = content.get("canonicalUrl") if isinstance(content.get("canonicalUrl"), Mapping) else {}
+    publisher = provider.get("displayName") or raw.get("publisher") or ""
+    title = content.get("title") or raw.get("title") or ""
+    summary = content.get("summary") or content.get("description") or raw.get("summary") or ""
     return {
-        "title": content.get("title") or raw.get("title") or "",
-        "summary": content.get("summary") or content.get("description") or raw.get("summary") or "",
+        "title": title,
+        "summary": summary,
         "url": click.get("url") or canonical.get("url") or content.get("link") or raw.get("link") or "",
-        "publisher": provider.get("displayName") or raw.get("publisher") or "",
+        "publisher": publisher,
+        "original_publisher": publisher,
+        "collector_source": "Yahoo Finance / yfinance",
+        "source_role": "TICKER_DISCOVERY",
+        "article_type": classify_article(title, summary),
         "published_at": content.get("pubDate") or raw.get("providerPublishTime") or raw.get("published_at"),
     }
 
@@ -158,60 +173,47 @@ def _fetch_newsapi(query: str, limit: int = 30) -> list[dict[str, Any]]:
     )
 
 
-def _fetch_rss(url: str, publisher: str, query_tokens: Sequence[str]) -> list[dict[str, Any]]:
-    import requests
-
-    response = requests.get(url, timeout=12, headers={"User-Agent": "AI-Aksje-Analyzer/19.0.8"})
-    response.raise_for_status()
-    root = ElementTree.fromstring(response.content)
-    tokens = [str(token or "").strip().lower() for token in query_tokens if len(str(token or "").strip()) >= 3]
-    rows: list[dict[str, Any]] = []
-    for item in root.findall(".//item") + root.findall(".//{http://www.w3.org/2005/Atom}entry"):
-        def value(*tags: str) -> str:
-            for tag in tags:
-                node = item.find(tag)
-                if node is not None:
-                    if tag.endswith("link") and node.attrib.get("href"):
-                        return str(node.attrib.get("href"))
-                    return str(node.text or "").strip()
-            return ""
-        title = value("title", "{http://www.w3.org/2005/Atom}title")
-        summary = value("description", "summary", "{http://www.w3.org/2005/Atom}summary")
-        haystack = f"{title} {summary}".lower()
-        if tokens and not any(token in haystack for token in tokens):
-            continue
-        rows.append({
-            "title": title,
-            "summary": summary,
-            "url": value("link", "{http://www.w3.org/2005/Atom}link"),
-            "publisher": publisher,
-            "published_at": value("pubDate", "published", "updated", "{http://www.w3.org/2005/Atom}published", "{http://www.w3.org/2005/Atom}updated"),
-            "verification": "PUBLISHED_SOURCE",
-        })
-    return rows
-
-
 def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> list[dict[str, Any]]:
     now = datetime.now(timezone.utc)
     unique: dict[str, dict[str, Any]] = {}
+    include_sponsored = str(os.getenv("NEWS_INCLUDE_SPONSORED", "false")).strip().casefold() in {"1", "true", "yes", "on"}
     for raw in rows:
         title = str(raw.get("title") or "").strip()
         if not title:
+            continue
+        summary = str(raw.get("summary") or raw.get("description") or "").strip()
+        article_type = str(raw.get("article_type") or classify_article(title, summary, raw.get("categories") or [])).casefold()
+        if article_type == "sponsored" and not include_sponsored:
             continue
         dt = _parse_date(raw.get("published_at") or raw.get("publishedAt") or raw.get("providerPublishTime"))
         age_hours = max(0.0, (now - dt).total_seconds() / 3600.0) if dt else lookback_days * 24.0
         if age_hours > lookback_days * 24.0:
             continue
         url = str(raw.get("url") or raw.get("link") or "")
-        key = hashlib.sha1(_canonical_title(title).encode("utf-8")).hexdigest()[:16]
+        publisher = str(raw.get("original_publisher") or raw.get("publisher") or raw.get("source") or "").strip()
+        canonical = _canonical_title(title)
+        if not canonical:
+            continue
+        key = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:16]
         item = {
             "title": title,
-            "summary": str(raw.get("summary") or raw.get("description") or "").strip(),
+            "summary": summary,
             "url": url,
-            "publisher": str(raw.get("publisher") or raw.get("source") or "").strip(),
+            "publisher": publisher,
+            "original_publisher": publisher,
+            "collector_source": str(raw.get("collector_source") or raw.get("collector") or publisher).strip(),
+            "source_id": str(raw.get("source_id") or "").strip(),
+            "source_role": str(raw.get("source_role") or "PUBLISHED_NEWS").strip(),
+            "article_type": article_type,
+            "categories": list(raw.get("categories") or []),
             "published_at": dt.isoformat() if dt else "",
             "age_hours": round(age_hours, 1),
-            "source_quality": round(_source_quality(url, str(raw.get("publisher") or "")), 2),
+            "source_quality": round(_source_quality(
+                url,
+                publisher,
+                article_type,
+                raw.get("source_quality_override"),
+            ), 2),
             "verification": str(raw.get("verification") or "PUBLISHED_SOURCE"),
         }
         previous = unique.get(key)
@@ -220,13 +222,27 @@ def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = D
     return sorted(unique.values(), key=lambda x: (x["age_hours"], -x["source_quality"]))
 
 
+
 def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
+    filtered_sponsored_count = sum(
+        1 for row in rows
+        if str(row.get("article_type") or classify_article(
+            str(row.get("title") or ""), str(row.get("summary") or row.get("description") or ""), row.get("categories") or []
+        )).casefold() == "sponsored"
+    )
+    recommendation_count = sum(
+        1 for row in rows
+        if str(row.get("article_type") or classify_article(
+            str(row.get("title") or ""), str(row.get("summary") or row.get("description") or ""), row.get("categories") or []
+        )).casefold() == "recommendation"
+    )
     articles = normalize_articles(rows, lookback_days)
     if not articles:
         return {
             "ticker": ticker, "score": 50.0, "sentiment": "INGEN DATA", "coverage": "MISSING",
             "article_count": 0, "positive_count": 0, "negative_count": 0, "high_impact_count": 0,
+            "filtered_sponsored_count": filtered_sponsored_count, "recommendation_count": recommendation_count,
             "events": [], "summary": "Ingen relevante nyheter funnet i tilgjengelige kilder.",
         }
     weighted_total = 0.0
@@ -254,7 +270,8 @@ def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days
         copy["sentiment_score"] = round(raw_sentiment, 3)
         copy["impact"] = "HIGH" if impact > 1.0 else "NORMAL"
         copy["source_url"] = copy.get("url") or ""
-        copy["source_type"] = "PRIMARY_COMPANY" if "investor" in _domain(copy.get("url") or "") else "PUBLISHED_NEWS"
+        role = str(copy.get("source_role") or "PUBLISHED_NEWS")
+        copy["source_type"] = "PRIMARY_COMPANY" if role == "PRIMARY_COMPANY" or "investor" in _domain(copy.get("url") or "") else "PUBLISHED_NEWS"
         copy["verification"] = str(copy.get("verification") or "PUBLISHED_SOURCE")
         copy["retrieved_at"] = now.isoformat(timespec="seconds")
         copy["fact_id"] = "NEWS-" + hashlib.sha1(
@@ -273,7 +290,8 @@ def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days
     return {
         "ticker": ticker, "score": round(score, 2), "sentiment": sentiment, "coverage": "AVAILABLE",
         "article_count": len(articles), "positive_count": positive_count, "negative_count": negative_count,
-        "high_impact_count": high_impact_count, "topics": top_topics, "events": enriched[:10], "summary": summary,
+        "high_impact_count": high_impact_count, "filtered_sponsored_count": filtered_sponsored_count,
+        "recommendation_count": recommendation_count, "topics": top_topics, "events": enriched[:10], "summary": summary,
     }
 
 
@@ -281,9 +299,8 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
                             lookback_days: int = DEFAULT_LOOKBACK_DAYS, market: str = "",
                             ir_feed_url: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
-    key = f"{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}"
-    cache = _load_cache()
-    cached = cache.get(key)
+    key = f"{VERSION}|{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}"
+    cached = _cache_get(key)
     if cached and not force_refresh and time.time() - _f(cached.get("cached_at")) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
         return dict(cached.get("result") or {})
     sources: list[str] = []
@@ -293,7 +310,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     try:
         yf_rows = _fetch_yfinance(ticker)
         rows.extend(yf_rows)
-        if yf_rows: sources.append("yfinance")
+        if yf_rows: sources.append("Yahoo Finance / yfinance")
         search_log.append({
             "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
             "attempted": True, "status": "SUCCESS_WITH_RESULTS" if yf_rows else "SUCCESS_NO_RESULTS",
@@ -320,6 +337,10 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
         else:
             query = f'"{company_name.strip()}" OR "{ticker}"' if company_name.strip() else ticker
             api_rows = _fetch_newsapi(query)
+        for row in api_rows:
+            row.setdefault("collector_source", "NewsAPI")
+            row.setdefault("source_role", "LICENSED_AGGREGATOR")
+            row.setdefault("article_type", classify_article(str(row.get("title") or ""), str(row.get("description") or row.get("summary") or "")))
         rows.extend(api_rows)
         if api_rows: sources.append("NewsAPI")
         if not (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing):
@@ -360,30 +381,56 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "attempted": True, "status": "ERROR", "results": 0,
             "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": str(exc)[:500],
         })
-    feed_specs = list(DEFAULT_RSS_FEEDS.get(str(market or ""), []))
-    if ir_feed_url:
-        feed_specs.append(("Selskapets IR-feed", ir_feed_url))
-    for publisher, feed_url in feed_specs:
+    feed_specs = source_specs(str(market or ""), ir_feed_url)
+    tokens = build_query_tokens(ticker, company_name)
+    for spec in feed_specs:
+        publisher = str(spec.get("label") or spec.get("publisher") or "RSS")
+        feed_url = str(spec.get("url") or "")
         try:
-            rss_rows = _fetch_rss(feed_url, publisher, [ticker.split(".")[0], company_name])
+            rss_rows, feed_meta = fetch_rss_source(spec, tokens)
             rows.extend(rss_rows)
-            if rss_rows: sources.append(publisher)
+            if rss_rows:
+                sources.append(str(spec.get("publisher") or publisher))
             search_log.append({
-                "source": publisher, "source_type": "PRIMARY_OR_DIRECT_RSS",
-                "attempted": True, "status": "SUCCESS_WITH_RESULTS" if rss_rows else "SUCCESS_NO_RESULTS",
-                "results": len(rss_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "url": feed_url, "error": "",
+                "source": publisher,
+                "source_id": str(spec.get("id") or "rss"),
+                "source_type": "PRIMARY_OR_DIRECT_RSS",
+                "source_role": str(spec.get("source_role") or "PUBLISHED_NEWS"),
+                "attempted": True,
+                "status": "SUCCESS_WITH_RESULTS" if rss_rows else "SUCCESS_NO_RESULTS",
+                "results": len(rss_rows),
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": feed_meta.get("feed_url") or feed_url,
+                "configured_url": feed_url,
+                "fallback_used": bool(feed_meta.get("fallback_used")),
+                "fallback_failures": list(feed_meta.get("fallback_failures") or []),
+                "cache_status": feed_meta.get("cache_status"),
+                "cache_age_seconds": feed_meta.get("cache_age_seconds"),
+                "feed_items_scanned": feed_meta.get("feed_items_scanned"),
+                "error": "",
             })
         except Exception as exc:
             errors.append(f"{publisher}: {exc}")
             search_log.append({
-                "source": publisher, "source_type": "PRIMARY_OR_DIRECT_RSS",
-                "attempted": True, "status": "ERROR", "results": 0,
+                "source": publisher,
+                "source_id": str(spec.get("id") or "rss"),
+                "source_type": "PRIMARY_OR_DIRECT_RSS",
+                "source_role": str(spec.get("source_role") or "PUBLISHED_NEWS"),
+                "attempted": True,
+                "status": "ERROR",
+                "results": 0,
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "url": feed_url, "error": str(exc)[:500],
+                "url": feed_url,
+                "error": str(exc)[:500],
             })
     result = score_articles(ticker, rows, lookback_days)
-    result["source"] = ", ".join(sources) if sources else "unavailable"
+    unique_sources = list(dict.fromkeys(source for source in sources if source))
+    result["source"] = ", ".join(unique_sources) if unique_sources else "unavailable"
+    result["configured_market_sources"] = [str(spec.get("label") or spec.get("publisher") or "") for spec in feed_specs]
+    result["source_breakdown"] = {
+        publisher: sum(1 for event in result.get("events") or [] if str(event.get("publisher") or "") == publisher)
+        for publisher in sorted({str(event.get("publisher") or "") for event in result.get("events") or [] if event.get("publisher")})
+    }
     result["fetched_at"] = datetime.now(timezone.utc).isoformat()
     result["errors"] = errors
     result["search_log"] = search_log
@@ -397,8 +444,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
         result["coverage"] = "ERROR"
         result["sentiment"] = "KILDEFEIL"
         result["summary"] = "Nyhetskildene kunne ikke hentes. Nøytral score brukes."
-    cache[key] = {"cached_at": time.time(), "result": result}
-    _save_cache(cache)
+    _cache_put(key, result)
     return result
 
 

@@ -13,6 +13,7 @@ MARKET_DIAGNOSTIC_TICKERS = {
     "Sverige": "VOLV-B.ST",
     "Danmark": "NOVO-B.CO",
     "Finland": "NOKIA.HE",
+    "Brasil": "PETR4.SA",
 }
 
 
@@ -67,7 +68,7 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
     else:
         source_note = "ikke funnet"
         detail = "0 env-fil(er) og ingen API-nokler funnet"
-    return [
+    rows = [
         {
             "Kilde": "Miljo/API-nokler",
             "Status": source_note,
@@ -129,6 +130,22 @@ def build_data_source_status(horizon: str | None = None) -> list[dict[str, Any]]
             "Vindu": "importerte 1D/1M/3M/6M/ALLE-filer",
         },
     ]
+    try:
+        from news_source_registry import source_health_snapshot
+
+        for source in source_health_snapshot():
+            cache_age = source.get("cache_age_seconds")
+            cache_text = "ikke cachet" if cache_age is None else f"cache {int(cache_age // 60)} min"
+            last_error = str(source.get("last_error") or "").strip()
+            rows.append({
+                "Kilde": str(source.get("publisher") or source.get("label") or "Finansmedium"),
+                "Status": "aktiv" if source.get("enabled") else "deaktivert",
+                "Detalj": f"{source.get('market')} · {source.get('source_role')} · {cache_text}" + (f" · siste feil: {last_error[:80]}" if last_error else ""),
+                "Vindu": "gratis RSS/Atom",
+            })
+    except Exception:
+        pass
+    return rows
 
 
 def _safe_error(value: Any) -> str:

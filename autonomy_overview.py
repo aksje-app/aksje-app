@@ -19,7 +19,7 @@ from autonomous_portfolio import (
     DECISIONS_PATH, NOTIFICATIONS_PATH, PERFORMANCE_PATH,
     load_parameters, load_portfolio, portfolio_equity, portfolio_status_summary,
 )
-from controlled_parameter_learning import APPROVALS_PATH, resolve_promotion_approval
+from controlled_parameter_learning import APPROVALS_PATH
 from durable_runtime import read_json
 from local_time import local_display
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
