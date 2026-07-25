@@ -114,7 +114,7 @@ def test_decision_report_is_read_only_for_ranking_and_trading_fields():
     before = deepcopy(run["candidates"])
     document = ensure_report_document(run)
     assert run["candidates"] == before
-    assert APP_VERSION == "v19.0.21"
+    assert APP_VERSION == "v19.0.22"
     assert REPORT_SCHEMA_VERSION == "1.1"
     assert document["schema_version"] == "1.1"
     assert run["decision_report"]["schema_version"] == "1.0"
