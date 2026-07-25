@@ -12,7 +12,15 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping
 
+from repositories.application import RepositoryRegistry
 from services.storage_service import get_storage_service
+
+
+
+def _repositories() -> RepositoryRegistry:
+    # Construct from the current storage provider so legacy tests and controlled
+    # dependency injection can replace get_storage_service safely.
+    return RepositoryRegistry(get_storage_service())
 
 _LOCAL_LOCKS: dict[str, threading.RLock] = {}
 _LOCAL_LOCKS_GUARD = threading.Lock()
@@ -25,8 +33,8 @@ def _path_lock(path: Path) -> threading.RLock:
 
 
 def read_json(key: str, path: Path, default: Any) -> Any:
-    storage = get_storage_service()
-    stored = storage.read_json(key, default=None)
+    repository = _repositories().documents
+    stored = repository.read(key, default=None)
     if stored is not None:
         # PostgreSQL is authoritative. A diagnostic mirror must never make a
         # successful database read fail or interrupt an analysis callback.
@@ -39,13 +47,13 @@ def read_json(key: str, path: Path, default: Any) -> Any:
         local = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
-    storage.write_json(key, local)
+    repository.write(key, local)
     return local
 
 
 def write_json(key: str, path: Path, value: Any) -> None:
-    storage = get_storage_service()
-    persisted = storage.write_json(key, value)
+    repository = _repositories().documents
+    persisted = repository.write(key, value)
     try:
         _write_local(path, value)
     except OSError:
@@ -58,11 +66,11 @@ def append_event(key: str, path: Path, row: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-    get_storage_service().append_jsonl(key, payload)
+    _repositories().events.append(key, payload)
 
 
 def read_events(key: str, path: Path, limit: int = 500) -> list[dict[str, Any]]:
-    rows = list(get_storage_service().read_jsonl(key, limit=limit) or [])
+    rows = list(_repositories().events.list(key, limit=limit) or [])
     if rows:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("".join(json.dumps(row, ensure_ascii=False, default=str) + "\n" for row in rows), encoding="utf-8")
@@ -78,7 +86,7 @@ def read_events(key: str, path: Path, limit: int = 500) -> list[dict[str, Any]]:
         except Exception:
             continue
     for row in local:
-        get_storage_service().append_jsonl(key, row)
+        _repositories().events.append(key, row)
     return local
 
 

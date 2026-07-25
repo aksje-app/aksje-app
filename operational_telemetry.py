@@ -22,7 +22,7 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from runtime_env import redact_secrets
 from storage_architecture import runtime_data_path, runtime_log_path
 
-COMPONENT_VERSION = "v19.1.0"
+COMPONENT_VERSION = "v19.2.0"
 EVENTS_PATH = runtime_log_path("operations", "events.jsonl")
 ERRORS_PATH = runtime_log_path("operations", "errors.jsonl")
 SOURCE_EVENTS_PATH = runtime_log_path("operations", "source_health.jsonl")
@@ -87,6 +87,7 @@ def _safe_details(value: Any) -> Any:
 
 
 def _safe_append(key: str, path: Path, row: Mapping[str, Any]) -> bool:
+    """Write once through durable_runtime -> repository, with local mirror."""
     try:
         append_event(key, path, row)
         return True
@@ -114,7 +115,6 @@ def _safe_write_json(key: str, path: Path, value: Any) -> bool:
         return True
     except Exception:
         return False
-
 
 def _event_id(payload: Mapping[str, Any]) -> str:
     seed = "|".join(str(payload.get(key) or "") for key in ("at", "event", "component", "run_id", "source_id", "message"))

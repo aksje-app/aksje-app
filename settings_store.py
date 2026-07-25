@@ -59,10 +59,10 @@ DEFAULT_SETTINGS = {
 }
 
 
-def _storage():
+def _settings_repository():
     try:
-        from services.storage_service import get_storage_service
-        return get_storage_service()
+        from repositories.application import get_repository_registry
+        return get_repository_registry().documents
     except Exception:
         return None
 
@@ -126,6 +126,19 @@ def load_settings():
     if isinstance(_SETTINGS_CACHE, dict) and (now - _SETTINGS_CACHE_AT) <= SETTINGS_CACHE_TTL_SECONDS:
         return _registry_overlay(copy.deepcopy(_SETTINGS_CACHE))
 
+    repository = _settings_repository()
+    if repository is not None:
+        try:
+            stored = repository.read(STORAGE_KEY, default=None)
+            if isinstance(stored, dict):
+                merged = _merge(stored)
+                _SETTINGS_CACHE = copy.deepcopy(merged)
+                _SETTINGS_CACHE_AT = now
+                return _registry_overlay(merged)
+        except Exception as exc:
+            logging.warning("Central settings repository read failed: %s", exc)
+
+    # v19.2.0 compatibility migration from the legacy dedicated table.
     if using_postgres():
         try:
             init_settings_store()
@@ -136,27 +149,21 @@ def load_settings():
             conn.close()
             if row:
                 merged = _merge(json.loads(row[0]))
+                if repository is not None:
+                    repository.write(STORAGE_KEY, merged)
                 _SETTINGS_CACHE = copy.deepcopy(merged)
                 _SETTINGS_CACHE_AT = now
                 return _registry_overlay(merged)
         except Exception as e:
-            print(f"load_settings DB fallback: {e}")
-    storage = _storage()
-    if storage is not None:
-        stored = storage.read_json(STORAGE_KEY, default=None)
-        if isinstance(stored, dict):
-            merged = _merge(stored)
-            _SETTINGS_CACHE = copy.deepcopy(merged)
-            _SETTINGS_CACHE_AT = now
-            return _registry_overlay(merged)
+            logging.warning("Legacy settings table migration failed: %s", e)
 
     # One-time legacy migration from old root file if present locally.
     if SETTINGS_FILE.exists():
         try:
             legacy = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             merged = _merge(legacy)
-            if storage is not None:
-                storage.write_json(STORAGE_KEY, merged)
+            if repository is not None:
+                repository.write(STORAGE_KEY, merged)
             _SETTINGS_CACHE = copy.deepcopy(merged)
             _SETTINGS_CACHE_AT = now
             return _registry_overlay(merged)
@@ -184,6 +191,13 @@ def save_settings(settings):
         update(changes, reason="Kompatibilitet: settings_store", actor="LEGACY_SETTINGS", compatibility=True)
     except Exception as exc:
         logging.warning("Central configuration write-through failed: %s", exc)
+    repository = _settings_repository()
+    if repository is not None:
+        repository.write(STORAGE_KEY, settings)
+        _SETTINGS_CACHE = copy.deepcopy(settings)
+        _SETTINGS_CACHE_AT = time.monotonic()
+
+    # Temporary v19.2.x compatibility mirror for deployments using app_settings.
     if using_postgres():
         try:
             init_settings_store()
@@ -201,20 +215,12 @@ def save_settings(settings):
             return True
         except Exception as e:
             print(f"save_settings DB fallback: {e}")
-    storage = _storage()
-    if storage is not None:
-        try:
-            storage.write_json(STORAGE_KEY, settings)
-            _SETTINGS_CACHE = copy.deepcopy(settings)
-            _SETTINGS_CACHE_AT = time.monotonic()
-            return False
-        except Exception as e:
-            logging.warning("Silenced exception restored in v18.6.3: %s", e)
     # Last-resort local dev fallback only.
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+    if repository is None:
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
     _SETTINGS_CACHE = copy.deepcopy(settings)
     _SETTINGS_CACHE_AT = time.monotonic()
-    return False
+    return bool(repository and repository.storage.using_postgres())
 
 def reset_settings():
     save_settings(DEFAULT_SETTINGS)

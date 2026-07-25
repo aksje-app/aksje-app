@@ -864,6 +864,16 @@ def _update_history(run: Mapping[str, Any]) -> None:
 
 
 def _load_report_archive() -> list[dict[str, Any]]:
+    # v19.2.0: PostgreSQL/repository is authoritative when configured.
+    try:
+        from repositories.application import get_repository_registry
+        repo = get_repository_registry().reports
+        if repo.storage.using_postgres():
+            rows = repo.list()
+            if rows:
+                return [dict(x) for x in rows if isinstance(x, Mapping)]
+    except Exception as exc:
+        logging.warning("ReportRepository read failed; durable compatibility fallback used: %s", exc)
     rows = _read(REPORT_ARCHIVE_PATH, [])
     if not rows:
         legacy = read_persistent_json("market_intelligence/report_archive.json", default=[])
@@ -871,11 +881,28 @@ def _load_report_archive() -> list[dict[str, Any]]:
             rows = legacy
             _write(REPORT_ARCHIVE_PATH, rows)
             _audit("REPORT_ARCHIVE_MIGRATED_TO_DURABLE_STORAGE", {"reports": len(rows)})
+    # Promote legacy data to PostgreSQL without deleting the compatibility copy.
+    try:
+        from repositories.application import get_repository_registry
+        repo = get_repository_registry().reports
+        if repo.storage.using_postgres() and rows:
+            repo.replace_all(rows)
+    except Exception as exc:
+        logging.warning("ReportRepository promotion failed: %s", exc)
     return [dict(x) for x in rows if isinstance(x, Mapping)]
 
 
 def _save_report_archive(rows: Sequence[Mapping[str, Any]]) -> None:
     payload = [dict(x) for x in rows]
+    repository_written = False
+    try:
+        from repositories.application import get_repository_registry
+        repo = get_repository_registry().reports
+        repository_written = bool(repo.replace_all(payload))
+    except Exception as exc:
+        logging.warning("ReportRepository write failed; compatibility storage used: %s", exc)
+    # Compatibility mirror remains during the v19.2 transition. It is not the
+    # production source of truth when PostgreSQL is available.
     _write(REPORT_ARCHIVE_PATH, payload)
     write_persistent_json("market_intelligence/report_archive.json", payload)
 

@@ -16,10 +16,11 @@ DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": [], "fund_savi
 
 
 def _storage():
+    """Repository-backed document adapter; exact legacy key is preserved."""
     try:
-        from services.storage_service import get_storage_service
+        from repositories.application import get_repository_registry
 
-        return get_storage_service()
+        return get_repository_registry().documents
     except Exception:
         return None
 
