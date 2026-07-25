@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.0.20 release archives."""
+"""Build clean, validated v19.0.21 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,38 +25,39 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.0.20"
-VERSION_FILE = "19_0_20"
+VERSION = "v19.0.21"
+VERSION_FILE = "19_0_21"
 
 UPDATE_FILES = {
     "app_version.py",
+    "decision_report.py",
     "market_intelligence.py",
     "report_contracts.py",
-    "news_intelligence.py",
-    "news_source_registry.py",
     "safety_audit.py",
-    "RELEASE_NOTES_v19.0.20.md",
-    "DEPLOY_v19.0.20.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.0.20.md",
-    "MIGRATION_v19.0.20.md",
-    "TEST_REPORT_v19.0.20.md",
+    "RELEASE_NOTES_v19.0.21.md",
+    "DEPLOY_v19.0.21.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.0.21.md",
+    "MIGRATION_v19.0.21.md",
+    "TEST_REPORT_v19.0.21.md",
     "tools/__init__.py",
     "tools/build_safe_distribution.py",
     "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py",
     "tools/restore_safe_upgrade_backup.py",
+    "tests/test_v1921_decision_report.py",
     "tests/test_v1920_report_version_contracts.py",
     "tests/test_v1919a_safe_distribution.py",
+    "tests/test_v1918b_separate_portfolios.py",
     "tests/test_v1911_evidence_integrity.py",
     "tests/test_v1915_mobile_navigation.py",
-    "tests/test_v1918b_separate_portfolios.py",
 }
 
 
+
 MIGRATION_FILES = {
-    "MIGRATION_v19.0.20.md",
-    "DEPLOY_v19.0.20.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.0.20.md",
+    "MIGRATION_v19.0.21.md",
+    "DEPLOY_v19.0.21.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.0.21.md",
     "tools/__init__.py",
     "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py",
@@ -195,7 +196,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.0.20-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.0.21-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()

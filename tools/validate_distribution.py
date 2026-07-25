@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.0.20"
+EXPECTED_VERSION = "v19.0.21"
 
 FORBIDDEN_ROOT_DIRS = {
     ".app_runtime",
@@ -94,10 +94,11 @@ PROFILE_REQUIRED_FILES = {
         "app.py",
         "app_version.py",
         "report_contracts.py",
+        "decision_report.py",
         "requirements.txt",
         ".env.example",
-        "RELEASE_NOTES_v19.0.20.md",
-        "DEPLOY_v19.0.20.md",
+        "RELEASE_NOTES_v19.0.21.md",
+        "DEPLOY_v19.0.21.md",
         "tools/validate_distribution.py",
         "tools/prepare_safe_upgrade.py",
         "DISTRIBUTION_MANIFEST.json",
@@ -105,15 +106,16 @@ PROFILE_REQUIRED_FILES = {
     "update": {
         "app_version.py",
         "report_contracts.py",
+        "decision_report.py",
         "safety_audit.py",
-        "RELEASE_NOTES_v19.0.20.md",
-        "DEPLOY_v19.0.20.md",
+        "RELEASE_NOTES_v19.0.21.md",
+        "DEPLOY_v19.0.21.md",
         "tools/validate_distribution.py",
         "tools/prepare_safe_upgrade.py",
         "DISTRIBUTION_MANIFEST.json",
     },
     "migration": {
-        "MIGRATION_v19.0.20.md",
+        "MIGRATION_v19.0.21.md",
         "tools/prepare_safe_upgrade.py",
         "tools/restore_safe_upgrade_backup.py",
         "tools/validate_distribution.py",
