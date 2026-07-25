@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.1.0"
+EXPECTED_VERSION = "v19.2.0"
 
 FORBIDDEN_ROOT_DIRS = {
     ".app_runtime",
@@ -91,51 +91,40 @@ TEXT_SUFFIXES = {
 
 PROFILE_REQUIRED_FILES = {
     "full": {
-        "app.py",
-        "app_version.py",
-        "operational_telemetry.py",
-        "operations_ui.py",
-        "news_source_registry.py",
-        "market_intelligence.py",
-        "scheduler_background.py",
-        "runtime_background.py",
-        "report_contracts.py",
-        "decision_report.py",
-        "requirements.txt",
-        ".env.example",
-        "RELEASE_NOTES_v19.1.0.md",
-        "DEPLOY_v19.1.0.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
-        "tools/validate_distribution.py",
-        "tools/prepare_safe_upgrade.py",
-        "DISTRIBUTION_MANIFEST.json",
+        "app.py", "app_version.py", "requirements.txt", ".env.example",
+        "services/storage_service.py", "services/persistence_service.py",
+        "repositories/base.py", "repositories/application.py", "domain/persistence.py",
+        "pages/overview.py", "pages/analysis.py", "pages/ranking.py", "pages/paper_trading.py",
+        "pages/top_picks.py", "pages/long_engine.py", "pages/autonomy.py", "pages/trading.py",
+        "ui/candidate_cards.py", "ui/live_market_banner.py", "ui/legacy_context.py",
+        "migrations/migrate_legacy_storage.py", "tools/export_persistent_storage_v1920.py",
+        "tools/import_persistent_storage_v1920.py", "operational_telemetry.py", "report_contracts.py",
+        "decision_report.py", "RELEASE_NOTES_v19.2.0.md", "DEPLOY_v19.2.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.2.0.md", "MIGRATION_v19.2.0.md",
+        "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
-        "app.py",
-        "app_version.py",
-        "operational_telemetry.py",
-        "operations_ui.py",
-        "news_source_registry.py",
-        "market_intelligence.py",
-        "scheduler_background.py",
-        "runtime_background.py",
-        "RELEASE_NOTES_v19.1.0.md",
-        "DEPLOY_v19.1.0.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
-        "tools/validate_distribution.py",
-        "tools/prepare_safe_upgrade.py",
-        "DISTRIBUTION_MANIFEST.json",
+        "app.py", "app_version.py", "durable_runtime.py", "settings_store.py", "paper_store.py",
+        "services/storage_service.py", "services/persistence_service.py",
+        "repositories/base.py", "repositories/application.py", "domain/persistence.py",
+        "pages/analysis.py", "pages/ranking.py", "pages/paper_trading.py", "pages/top_picks.py",
+        "pages/long_engine.py", "pages/autonomy.py", "pages/trading.py",
+        "ui/live_market_banner.py", "ui/legacy_context.py",
+        "migrations/migrate_legacy_storage.py", "tools/export_persistent_storage_v1920.py",
+        "tools/import_persistent_storage_v1920.py", "RELEASE_NOTES_v19.2.0.md",
+        "DEPLOY_v19.2.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.2.0.md",
+        "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "migration": {
-        "MIGRATION_v19.1.0.md",
-        "DEPLOY_v19.1.0.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
-        "tools/prepare_safe_upgrade.py",
-        "tools/restore_safe_upgrade_backup.py",
-        "tools/validate_distribution.py",
-        "DISTRIBUTION_MANIFEST.json",
+        "migrations/migrate_legacy_storage.py", "services/__init__.py", "services/storage_service.py",
+        "services/persistence_service.py", "storage_architecture.py", "utils.py", "repositories/base.py", "repositories/application.py",
+        "domain/persistence.py", "tools/export_persistent_storage_v1920.py",
+        "tools/import_persistent_storage_v1920.py", "MIGRATION_v19.2.0.md", "DEPLOY_v19.2.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.2.0.md", "tools/prepare_safe_upgrade.py",
+        "tools/restore_safe_upgrade_backup.py", "tools/validate_distribution.py", "DISTRIBUTION_MANIFEST.json",
     },
 }
+
 
 
 

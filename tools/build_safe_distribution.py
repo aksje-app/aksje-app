@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.1.0 release archives."""
+"""Build clean, validated v19.2.0 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,54 +25,44 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.1.0"
-VERSION_FILE = "19_1_0"
+VERSION = "v19.2.0"
+VERSION_FILE = "19_2_0"
 
 UPDATE_FILES = {
-    ".env.example",
-    "app.py",
-    "app_version.py",
-    "data_source_diagnostics.py",
-    "evidence_integrity.py",
-    "market_intelligence.py",
-    "news_intelligence.py",
-    "news_source_registry.py",
-    "operational_telemetry.py",
-    "operations_ui.py",
-    "runtime_background.py",
-    "scheduler_background.py",
-    "safety_audit.py",
-    "RELEASE_NOTES_v19.1.0.md",
-    "DEPLOY_v19.1.0.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
-    "MIGRATION_v19.1.0.md",
-    "TEST_REPORT_v19.1.0.md",
-    "tools/__init__.py",
-    "tools/build_safe_distribution.py",
-    "tools/validate_distribution.py",
-    "tools/prepare_safe_upgrade.py",
-    "tools/restore_safe_upgrade_backup.py",
-    "tests/test_v1910_operational_traceability.py",
-    "tests/test_v1922_daily_user_experience.py",
-    "tests/test_v1921_decision_report.py",
-    "tests/test_v1920_report_version_contracts.py",
-    "tests/test_v1919a_safe_distribution.py",
-    "tests/test_v1918b_separate_portfolios.py",
-    "tests/test_v1915_mobile_navigation.py",
-    "tests/test_v1911_evidence_integrity.py",
+    ".env.example", "app.py", "app_version.py", "durable_runtime.py", "settings_store.py", "paper_store.py",
+    "market_intelligence.py", "operational_telemetry.py", "operations_ui.py", "news_source_registry.py",
+    "runtime_background.py", "scheduler_background.py",
+    "services/storage_service.py", "services/service_registry.py", "services/persistence_service.py",
+    "domain/__init__.py", "domain/persistence.py",
+    "repositories/__init__.py", "repositories/base.py", "repositories/application.py",
+    "pages/__init__.py", "pages/overview.py", "pages/analysis.py", "pages/ranking.py",
+    "pages/trading.py", "pages/paper_trading.py", "pages/top_picks.py", "pages/long_engine.py", "pages/autonomy.py",
+    "ui/__init__.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "ui/legacy_context.py",
+    "migrations/__init__.py", "migrations/migrate_legacy_storage.py",
+    "RELEASE_NOTES_v19.2.0.md", "DEPLOY_v19.2.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.2.0.md",
+    "MIGRATION_v19.2.0.md", "TEST_REPORT_v19.2.0.md",
+    "tools/__init__.py", "tools/build_safe_distribution.py", "tools/validate_distribution.py",
+    "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
+    "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
+    "tests/test_v1920_modular_persistence.py", "tests/test_v1919a_safe_distribution.py",
+    "tests/test_v1918b_separate_portfolios.py", "tests/test_v1920_report_version_contracts.py",
+    "tests/test_v1921_decision_report.py", "tests/test_v1922_daily_user_experience.py",
+    "tests/test_v1915_mobile_navigation.py", "tests/test_v1911_evidence_integrity.py",
 }
+
 
 
 
 MIGRATION_FILES = {
-    "MIGRATION_v19.1.0.md",
-    "DEPLOY_v19.1.0.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.1.0.md",
-    "tools/__init__.py",
-    "tools/validate_distribution.py",
-    "tools/prepare_safe_upgrade.py",
-    "tools/restore_safe_upgrade_backup.py",
+    "MIGRATION_v19.2.0.md", "DEPLOY_v19.2.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.2.0.md",
+    "domain/__init__.py", "domain/persistence.py", "repositories/__init__.py", "repositories/base.py",
+    "repositories/application.py", "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
+    "storage_architecture.py", "utils.py", "migrations/__init__.py", "migrations/migrate_legacy_storage.py", "tools/__init__.py",
+    "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
+    "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
 }
+
+
 
 
 
@@ -207,7 +197,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.1.0-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.2.0-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()
