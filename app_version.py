@@ -1,11 +1,12 @@
-APP_VERSION = "v19.0.19"
-APP_VERSION_NAME = "Nordiske, amerikanske og brasilianske finansmedier"
+APP_VERSION = "v19.0.19a"
+APP_VERSION_NAME = "Sikker distribusjon og databevaring"
 APP_BUILD_LABEL = APP_VERSION
 # Retained for update/migration diagnostics and v18.8 compatibility checks.
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.0.18b"
+PREVIOUS_APP_VERSION = "v19.0.19"
 
 CHANGELOG = [
+    "v19.0.19a: Sikker distribusjon og databevaring: fullpakken bygges uten runtime-data, testposisjoner, rapportarkiv, logger, cache, databaser eller hemmeligheter. Automatisk distribusjonsvalidator kontrollerer mapper og ZIP-filer, blokkerer utrygge arkivstier og kjente legitimasjonsformater, og releasebyggingen lager separate full-, oppdaterings- og migreringspakker med SHA-256. Ikke-destruktive backup- og gjenopprettingsverktøy bevarer eksisterende .app_runtime, eldre dataområder, .env og Streamlit-hemmeligheter før oppgradering. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljelogikk er endret.",
     "v19.0.19: Utvidet gratis finansmediedekning: eksisterende E24 beholdes, mens EFN, InfoMoney, Money Times, Brazil Journal og CNBC legges til som markedstilpassede RSS/Atom-kilder. Yahoo Finance/yfinance beholder originalutgiver og vektes etter faktisk utgiver, blant annet Reuters, AP, Bloomberg, Yahoo Finance, Business Wire, StockStory og Motley Fool. Delte feed-cacher hindrer ett nettverkskall per aksje, foreldet feed kan brukes kontrollert som reserve, og kildehelsen viser cache og siste feil. Sponset innhold filtreres fra score som standard, anbefalinger/opinion/pressemeldinger klassifiseres og nedvekttes, og alle kilder kan deaktiveres separat med miljøvariabler. Ingen handelsregler, porteføljegrenser eller ekte handel endres.",
     "v19.0.18b: Fullført porteføljeseparasjon: ordinære autonome teoretiske kjøp og læringsobservasjoner føres nå i to separate porteføljer, separate handler, beslutninger, historikk og resultatregnskap. Eksisterende læringsposisjoner migreres idempotent ut av Autonom portefølje og tidligere trukket kostbasis tilbakeføres til ordinær kontantbeholdning. Autonomi Oversikt får tydelige knapper til Autonom portefølje og Læringsportefølje. Læringsposisjoner påvirker ikke kontanter, sektorgrenser, risikorammer, maks antall posisjoner eller avkastning i Autonom portefølje. Kandidater som senere består ordinære porter kan promoteres fra læringsobservasjon til ordinær autonom posisjon med sporbar historikk. Ingen ekte handel aktiveres.",
     "v19.0.18a: Synlig Autonomi-status hotfix: den samlede Autonomi-statusboksen flyttes inn på hovedsiden Autonomi Oversikt, over øvrige metrikker og utenfor lukkede seksjoner. Boksen viser Autonomi-runner, Planlegger, Paper Trading, Ekte handel, kandidater mottatt, teoretiske kjøp, læringskjøp og årsak til ingen kjøp, slik at kandidatflyt og kjøpsporter kan feilsøkes uten å åpne Læringsportefølje. Ingen handelsregler, terskler, porteføljegrenser eller ekte handel endres.",
