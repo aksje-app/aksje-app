@@ -10,12 +10,16 @@ from services.top_picks_service import get_top_picks_service
 from services.paper_trading_service import get_paper_trading_service
 from services.portfolio_service import get_portfolio_service
 from services.forecast_service import get_forecast_service
+from services.persistence_service import get_persistence_service
+from repositories.application import get_repository_registry
 
 
 class ServiceRegistry:
     def __init__(self, session_state: Optional[Any] = None, score_provider=None):
         self.state = get_state_service(session_state)
         self.storage = get_storage_service()
+        self.persistence = get_persistence_service()
+        self.repositories = get_repository_registry(self.storage)
         self.universe = get_universe_service(
             state_service=self.state,
             storage_service=self.storage,
