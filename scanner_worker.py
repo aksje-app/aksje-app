@@ -46,6 +46,7 @@ from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_hea
 from signal_engine import build_trading_decision
 from services.market_snapshot_service import get_market_snapshot_service
 from services.parallel_strategy_service import get_parallel_strategy_service
+from services.production_strategy_service import get_production_strategy_service
 from services.strategy_account_service import get_strategy_account_service
 from services.simulated_execution_service import get_simulated_execution_service
 from services.paper_quality_enrichment_service import get_paper_quality_enrichment_service
@@ -213,7 +214,10 @@ def analyze_ticker(ticker, *, market_snapshot_id="", run_id=""):
     candidate_snapshot = snapshot_service.build_candidate_snapshot(
         item, technical_context, market_snapshot_id=market_snapshot_id, run_id=run_id, source="paper_scanner"
     )
-    decision = build_trading_decision(candidate_snapshot.to_dict(), technical_context)
+    base_decision = build_trading_decision(candidate_snapshot.to_dict(), technical_context)
+    decision = get_production_strategy_service().evaluate_technical(
+        candidate_snapshot, base_decision, run_id=run_id or market_snapshot_id or ticker, portfolio_state=load_portfolio(),
+    )
 
     signal = decision.get("decision", "HOLD / WAIT")
     confidence = int(decision.get("confidence", 0) or 0)
