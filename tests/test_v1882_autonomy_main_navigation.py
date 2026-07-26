@@ -45,12 +45,12 @@ def test_old_orchestrator_url_maps_to_new_workspace():
     assert state["tab"] == "orchestrator"
 
 
-def test_mobile_menu_has_fixed_autonomy_button_and_six_columns():
+def test_responsive_sidebar_is_single_navigation_surface():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
+    config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
     assert '"autonomy": _mobile_nav_href_v18646("autonomy")' in source
-    assert "_mobile_nav_links_v18646['autonomy']" in source
-    assert "<span>Autonomi</span>" in source
-    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in source
+    assert "Do not inject a second mobile/navigation DOM into the main page" in source
+    assert "showSidebarNavigation = false" in config
     href_block = source[source.index("def _mobile_nav_href_v18646"):source.index("def _ui_state_path_v18658")]
     assert 'params.pop(key, None)' in href_block
 

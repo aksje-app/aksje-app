@@ -6,37 +6,24 @@ VERSION = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
 
 def test_version_is_v1915():
-    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.3.0"' in VERSION
+    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.4.0"' in VERSION
     assert 'Mobil høyremeny og navigasjonshotfix' in VERSION
 
 
-def test_mobile_drawer_exists_and_is_not_sidebar_dependent():
-    assert 'mobile-drawer-v19015' in APP
-    assert 'mobile-drawer-panel-v19015' in APP
-    assert 'role="navigation" aria-label="Mobil hovedmeny"' in APP
-    assert 'Åpne mobilmeny' in APP
-    # Sidebar may still be hidden on mobile, but the drawer is rendered in main DOM.
+def test_responsive_sidebar_replaces_main_document_mobile_drawer():
+    config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
+    assert "Do not inject a second mobile/navigation DOM into the main page" in APP
+    assert '[data-testid="stSidebarNav"] { display:none !important; }' in APP
+    assert "showSidebarNavigation = false" in config
     assert 'section[data-testid="stSidebar"]' in APP
-    assert '_mobile_drawer_items_v19015' in APP
 
 
-def test_mobile_drawer_contains_required_main_areas():
-    required = [
-        'Oversikt',
-        'Autonomi',
-        'Rapporter',
-        'Jobber / Planlegger',
-        'Ventende godkjenninger',
-        'Læringsportefølje',
-        'Paper Trading',
-        'Top Picks',
-        'Analyse',
-        'Varsler',
-        'Valuta',
-        'Systemstatus',
-    ]
+def test_sidebar_navigation_contains_required_main_areas():
+    sidebar = (ROOT / "ui_sidebar_stable.py").read_text(encoding="utf-8")
+    required = ["Oversikt", "Autonomi", "Rapport", "Jobber", "Godkjenninger", "Portefølje", "Paper Trading", "Top Picks", "Analyse", "Varsler", "Valuta", "Innstillinger"]
+    combined = APP + sidebar
     for label in required:
-        assert label in APP
+        assert label in combined
 
 
 def test_mobile_routes_cover_jobs_approvals_alerts_and_system():

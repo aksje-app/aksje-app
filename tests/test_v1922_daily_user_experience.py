@@ -18,7 +18,7 @@ VERSION = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
 
 def test_version_and_changelog():
-    assert 'APP_VERSION = "v19.3.0"' in VERSION
+    assert 'APP_VERSION = "v19.4.0"' in VERSION
     assert "Forenklet daglig brukeropplevelse" in VERSION
 
 
@@ -51,11 +51,12 @@ def test_sidebar_renders_global_mode_and_more_group():
     assert "navigation_for_mode" in SIDEBAR
 
 
-def test_mobile_has_exact_five_primary_choices_in_simple_mode():
-    assert "mobile-more-v19022" in APP
-    for label in (">Oversikt<", ">Rapport<", ">Analyse<", ">Portefølje<", ">Mer<"):
-        assert label in APP
-    assert "grid-template-columns: repeat(5" in APP
+def test_simple_mode_uses_responsive_sidebar_without_duplicate_mobile_dom():
+    assert "Do not inject a second mobile/navigation DOM into the main page" in APP
+    assert 'st.sidebar.expander("☰ Mer"' in SIDEBAR
+    experience = (ROOT / "daily_user_experience.py").read_text(encoding="utf-8")
+    for label in ("Oversikt", "Rapport", "Analyse", "Portefølje"):
+        assert label in experience
 
 
 def test_attention_home_is_task_based_and_read_only():

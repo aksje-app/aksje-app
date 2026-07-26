@@ -48,7 +48,8 @@ class ReportNotificationControlTests(unittest.TestCase):
         app = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("📄 Åpne siste rapport", simple)
         self.assertIn("📚 Rapportarkiv", simple)
-        self.assertGreaterEqual(app.count("title=\"Rapporter\""), 2)
+        self.assertIn("render_daily_attention_dashboard_v19022", app)
+        self.assertIn("Rapport", (ROOT / "daily_user_experience.py").read_text(encoding="utf-8"))
         self.assertIn("overflow-x: auto", app)
 
 

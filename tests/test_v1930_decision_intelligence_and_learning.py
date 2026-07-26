@@ -255,7 +255,7 @@ def test_public_pdf_button_and_desktop_mobile_navigation_have_stable_css_guards(
     assert "right.link_button" not in autonomy
     assert "_render_report_link(delivery[\"url\"])" in autonomy
     assert "↗ Åpne offentlig PDF" in autonomy
-    assert 'class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon" style="display:none"' in app
-    assert "html body .mobile-bottom-nav-v18644 {{ display:none !important" in app
+    assert 'Do not inject a second mobile/navigation DOM into the main page' in app
+    assert '[data-testid="stSidebarNav"] { display:none !important; }' in app
     assert "@media (max-width: 760px)" in app
     assert "display:flex !important" in app

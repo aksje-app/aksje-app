@@ -33,9 +33,10 @@ def test_promotion_decision_is_auditable():
     assert 'item["decision_note"] = note' in learning
     assert 'item["resolved_by"] = "USER"' in learning
 
-def test_mobile_navigation_exposes_critical_destinations():
+def test_responsive_sidebar_exposes_critical_destinations():
     app = (ROOT / 'app.py').read_text()
-    block = app[app.index('_mobile_nav_html_v1900'):app.index('# --- Lagrede auto-innstillinger ---')]
-    for destination in ('dashboard', 'autonomy', 'portfolio', 'reports', 'paper_trading', 'system'):
-        assert destination in block
-    assert 'overflow-x: auto' in app
+    sidebar = (ROOT / 'ui_sidebar_stable.py').read_text()
+    combined = app + sidebar
+    for label in ("Autonomi", "Paper Trading", "Rapport", "Godkjenninger", "Jobber", "Varsler", "Valuta", "Innstillinger"):
+        assert label in combined
+    assert "Do not inject a second mobile/navigation DOM into the main page" in app
