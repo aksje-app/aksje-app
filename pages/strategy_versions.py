@@ -1,8 +1,8 @@
-"""Strategy registry and shared snapshot workspace for v19.6.0.
+"""Strategy registry, shared snapshots and parallel evaluation for v19.7.0.
 
-The page manages identity and lifecycle metadata only. It cannot promote a
-challenger to production or change strategy parameters, trading rules or risk
-limits.
+The page can define bounded technical challenger parameters, but every shadow
+or challenger remains read-only. Production promotion and shared execution are
+not available in this roadmap phase.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def render_strategy_versions(app_context: Any) -> None:
     st.markdown("### 🧬 Strategiversjoner")
     st.caption(
         "Registeret gjør teknisk benchmark og Autonomi sporbare som versjonerte strategier. "
-        "v19.6.0 legger til felles markedssnapshot og teknisk signaltjeneste uten å endre terskler, handler eller risikoregler."
+        "v19.7.0 kjører produksjon, shadow og challenger parallelt på samme snapshot gjennom ett felles, skrivebeskyttet strategigrensesnitt."
     )
 
     productions = [row for row in rows if row.get("status") == StrategyStatus.PRODUCTION.value]
@@ -82,23 +82,39 @@ def render_strategy_versions(app_context: Any) -> None:
         f"{row.get('display_name')} · {row.get('strategy_version')}": row.get("version_id")
         for row in productions
     }
+    production_rows = {row.get("version_id"): row for row in productions}
     with st.expander("Opprett skrivebeskyttet challenger", expanded=False):
         if not production_options:
             st.warning("Ingen produksjonsstrategi er registrert.")
         else:
-            with st.form("strategy_challenger_create_v1950"):
+            with st.form("strategy_challenger_create_v1970"):
                 source_label = st.selectbox("Kildestrategi", list(production_options))
+                selected_source = production_rows.get(production_options[source_label], {})
                 new_version = st.text_input("Ny strategiversjon", placeholder="f.eks. 1.1.0")
                 parameter_version = st.text_input("Parameterprofil", placeholder="f.eks. technical-params-1.1")
                 description = st.text_area("Formål og hypotese", placeholder="Hva skal challengeren teste?")
+                technical_parameters = {}
+                if selected_source.get("strategy_family") == "technical":
+                    st.caption("Avgrensede testparametre. De påvirker bare denne shadow/challengeren.")
+                    p1, p2 = st.columns(2)
+                    technical_parameters = {
+                        "buy_score_threshold": p1.number_input("Kjøpsterskel", 0.0, 10.0, 7.2, 0.1),
+                        "sell_score_threshold": p2.number_input("Salg/unngå-terskel", 0.0, 10.0, 4.2, 0.1),
+                        "maximum_buy_rsi": p1.number_input("Maks RSI ved kjøp", 0.0, 100.0, 70.0, 1.0),
+                        "extreme_sell_rsi": p2.number_input("Ekstrem RSI / salg", 0.0, 100.0, 80.0, 1.0),
+                        "block_high_risk": p1.checkbox("Blokker høy risiko", value=True),
+                        "require_positive_confirmation": p2.checkbox("Krev MACD/breakout-bekreftelse", value=True),
+                    }
                 submitted = st.form_submit_button("Opprett shadow-versjon")
             if submitted:
                 try:
+                    metadata = {"technical_parameters": technical_parameters} if technical_parameters else {}
                     created = service.create_challenger(
                         production_options[source_label], new_version,
                         parameter_version=parameter_version,
                         description=description,
                         actor=actor,
+                        metadata=metadata,
                     )
                     st.success(f"Opprettet {created['version_id']} som skrivebeskyttet shadow.")
                     st.rerun()
@@ -161,6 +177,47 @@ def render_strategy_versions(app_context: Any) -> None:
             st.dataframe(pd.DataFrame(display), use_container_width=True, hide_index=True)
         else:
             st.caption("Ingen snapshot er lagret ennå. De opprettes ved nye scanner- og autonomikjøringer.")
+
+
+    with st.expander("Parallelle strategikjøringer", expanded=False):
+        parallel = app_context.services.parallel_strategies
+        runs = parallel.recent_runs(limit=30)
+        decisions = parallel.recent_decisions(limit=500)
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Kjøringer", len(runs))
+        r2.metric("Beslutninger", len(decisions))
+        r3.metric("Feilbeslutninger", sum(1 for row in decisions if row.get("action") == "ERROR"))
+        st.caption(
+            "Alle rader er observasjoner. Selv produksjonsstrategien har execution_authorized=false i denne sammenligningsmotoren; "
+            "faktiske teoretiske handler utføres fortsatt bare av eksisterende Paper- og Autonomi-motor."
+        )
+        if runs:
+            run_display = [{
+                "Kjøring": row.get("run_id"),
+                "Snapshot": row.get("market_snapshot_id"),
+                "Kilde": row.get("source"),
+                "Strategier": row.get("strategy_count"),
+                "Kandidater": row.get("candidate_count"),
+                "Beslutninger": row.get("decision_count"),
+                "Feil": row.get("error_count"),
+                "Fullført": row.get("completed_at"),
+            } for row in runs]
+            st.dataframe(pd.DataFrame(run_display), use_container_width=True, hide_index=True)
+        if decisions:
+            decision_display = [{
+                "Ticker": row.get("ticker"),
+                "Strategi": f"{row.get('strategy_id')}@{row.get('strategy_version')}",
+                "Status": row.get("strategy_status"),
+                "Handling": row.get("action"),
+                "Score": row.get("score"),
+                "Sikkerhet": row.get("confidence"),
+                "Snapshot": row.get("market_snapshot_id"),
+                "Utførelse": "Nei" if row.get("execution_authorized") is False else "FEIL",
+                "Tid": row.get("evaluated_at"),
+            } for row in decisions[:200]]
+            st.dataframe(pd.DataFrame(decision_display), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Ingen parallelle strategibeslutninger er lagret ennå.")
 
     with st.expander("Teknisk identitet og hendelser", expanded=False):
         st.caption("Disse feltene skal følge fremtidige beslutninger og handler.")
