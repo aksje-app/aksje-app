@@ -16,6 +16,11 @@ from services.strategy_registry_service import StrategyRegistryService
 from services.market_snapshot_service import MarketSnapshotService
 from services.technical_signal_service import TechnicalSignalService
 from services.parallel_strategy_service import ParallelStrategyService
+from services.strategy_account_service import StrategyAccountService
+from services.simulated_execution_service import SimulatedExecutionService
+from services.autonomy_activation_service import AutonomyActivationService
+from services.autonomy_learning_account_service import AutonomyLearningAccountService
+from services.evaluation_export_service import EvaluationExportService
 
 
 class ServiceRegistry:
@@ -29,6 +34,13 @@ class ServiceRegistry:
         self.technical_signals = TechnicalSignalService(self.market_snapshots)
         self.parallel_strategies = ParallelStrategyService(
             self.repositories, self.strategy_registry, self.technical_signals
+        )
+        self.strategy_accounts = StrategyAccountService(self.repositories, self.strategy_registry)
+        self.simulated_execution = SimulatedExecutionService(self.repositories, self.strategy_accounts)
+        self.autonomy_activation = AutonomyActivationService(self.repositories)
+        self.autonomy_learning_account = AutonomyLearningAccountService(self.strategy_accounts, self.simulated_execution)
+        self.evaluation_export = EvaluationExportService(
+            self.repositories, self.autonomy_activation, self.strategy_accounts, self.simulated_execution
         )
         self.universe = get_universe_service(
             state_service=self.state,
