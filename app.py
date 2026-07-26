@@ -171,6 +171,7 @@ st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout=
 def _inject_global_compact_ui_v18665():
     st.markdown("""
     <style>
+[data-testid="stSidebarNav"] { display:none !important; }
     /* v18.6.65 GLOBAL COMPACT UI
        Målet er å redusere svært brede tall-/parameterfelt i hele appen uten å endre motorlogikk. */
     :root {
@@ -5930,14 +5931,16 @@ def render_special_watch_banner_surface_v18620() -> None:
     _render_special_banner_watch_v18612(banner_cards, config)
 
 
-def render_special_watch_menu_v18619() -> None:
+def render_special_watch_menu_v18619(*, embedded: bool = False) -> None:
     settings = load_settings() or {}
     config = _load_banner_alert_config_v18610(settings)
     individual = dict(config.get("individual") or {})
     watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
 
-    with st.expander("Særskilt overvåking", expanded=False):
-        st.caption("Alt som gjelder det nederste banneret er samlet her. Tickere havner her når de har egne varselgrenser.")
+    from contextlib import nullcontext
+    _special_ctx = nullcontext() if embedded else st.expander("Rediger særskilt overvåking", expanded=False)
+    with _special_ctx:
+        st.caption("Tickere havner her når de har egne varselgrenser. Standardbanner og særskilt overvåking redigeres fra samme hovedkontroll.")
 
         # v18.6.29: rulling/fart/visning må styres utenfor st.form.
         # Når dette lå inne i form, ble ikke banneret endret før Lagre ble trykket, og
@@ -6285,149 +6288,149 @@ def render_banner_sidebar_controls(expanded=False):
 
 
 def render_banner_main_controls():
-    """Oppgave 111 / v15.8.2: Rediger ticker-banner rett under selve banneret.
+    """Samlet redigering for standardbanner og særskilt overvåking."""
+    with st.expander("Rediger bannere", expanded=False):
+        standard_tab, special_tab = st.tabs(["Standardbanner", "Særskilt overvåking"])
+        with standard_tab:
+            settings = load_settings()
+            raw = settings.get("live_banner_tickers", {}) or {}
+            if not isinstance(raw, dict):
+                raw = {}
 
-    Hard fix: form-renderingen er lagt direkte her, så appen ikke kan krasje med
-    NameError hvis en hjelpefunksjon ikke er lastet i runtime.
-    """
-    with st.expander("Ticker-banner", expanded=False):
-        settings = load_settings()
-        raw = settings.get("live_banner_tickers", {}) or {}
-        if not isinstance(raw, dict):
-            raw = {}
+            visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+            if isinstance(visible_markets, str):
+                visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
+            visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
 
-        visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
-        if isinstance(visible_markets, str):
-            visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
-        visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
+            if st.session_state.pop("banner_settings_saved_message_v1864p", False):
+                st.success("Ticker-banner oppdatert.")
 
-        if st.session_state.pop("banner_settings_saved_message_v1864p", False):
-            st.success("Ticker-banner oppdatert.")
+            st.caption("Endre bannerfeltene her. Endringene brukes forst nar du trykker Lagre og bruk banner.")
 
-        st.caption("Endre bannerfeltene her. Endringene brukes forst nar du trykker Lagre og bruk banner.")
-
-        with st.form("banner_settings_form_v17", clear_on_submit=False):
-            c_enable, c_speed, c_refresh = st.columns(3)
-            with c_enable:
-                live_banner_enabled = st.checkbox(
-                    "Vis ticker-banner",
-                    value=bool(settings.get("live_banner_enabled", True)),
-                    key="banner_v1582_enabled",
-                )
-            with c_speed:
-                live_banner_speed = st.number_input(
-                    "Bannerhastighet sekunder",
-                    min_value=10,
-                    max_value=240,
-                    value=int(settings.get("live_banner_speed_seconds", 70) or 70),
-                    step=5,
-                    key="banner_v1582_speed",
-                    help="Lavere tall ruller raskere. Høyere tall ruller saktere.",
-                )
-                st.caption("Lavere tall = raskere. Høyere tall = saktere.")
-            with c_refresh:
-                ui_refresh_minutes = st.number_input(
-                    "Oppdateringsintervall min",
-                    min_value=1,
-                    max_value=240,
-                    value=int(settings.get("ui_refresh_minutes", 60) or 60),
-                    step=1,
-                    key="banner_v1582_refresh",
-                    help="Hvor ofte hovedbanneret forsøker å hente nye kurser.",
-                )
-
-            st.markdown("**Markeder som vises i banneret**")
-            banner_market_values = {}
-            market_cols = st.columns(3)
-            for idx, market in enumerate(LIVE_BANNER_MARKETS):
-                with market_cols[idx % 3]:
-                    banner_market_values[market] = st.checkbox(market, value=(market in visible_markets), key=f"banner_v1582_show_{market.lower()}")
-
-            ticker_texts = {}
-            ticker_cols = st.columns(3)
-            for idx, market in enumerate(LIVE_BANNER_MARKETS):
-                with ticker_cols[idx % 3]:
-                    ticker_texts[market] = st.text_area(
-                        f"{market} tickere",
-                        value=str(raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, ""))),
-                        height=84,
-                        key=f"banner_v1582_{market.lower()}_tickers",
+            with st.form("banner_settings_form_v17", clear_on_submit=False):
+                c_enable, c_speed, c_refresh = st.columns(3)
+                with c_enable:
+                    live_banner_enabled = st.checkbox(
+                        "Vis ticker-banner",
+                        value=bool(settings.get("live_banner_enabled", True)),
+                        key="banner_v1582_enabled",
+                    )
+                with c_speed:
+                    live_banner_speed = st.number_input(
+                        "Bannerhastighet sekunder",
+                        min_value=10,
+                        max_value=240,
+                        value=int(settings.get("live_banner_speed_seconds", 70) or 70),
+                        step=5,
+                        key="banner_v1582_speed",
+                        help="Lavere tall ruller raskere. Høyere tall ruller saktere.",
+                    )
+                    st.caption("Lavere tall = raskere. Høyere tall = saktere.")
+                with c_refresh:
+                    ui_refresh_minutes = st.number_input(
+                        "Oppdateringsintervall min",
+                        min_value=1,
+                        max_value=240,
+                        value=int(settings.get("ui_refresh_minutes", 60) or 60),
+                        step=1,
+                        key="banner_v1582_refresh",
+                        help="Hvor ofte hovedbanneret forsøker å hente nye kurser.",
                     )
 
-            submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)
+                st.markdown("**Markeder som vises i banneret**")
+                banner_market_values = {}
+                market_cols = st.columns(3)
+                for idx, market in enumerate(LIVE_BANNER_MARKETS):
+                    with market_cols[idx % 3]:
+                        banner_market_values[market] = st.checkbox(market, value=(market in visible_markets), key=f"banner_v1582_show_{market.lower()}")
 
-        if submitted:
-            new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
-            if not new_visible:
-                new_visible = ["USA", "Norge", "Sverige"]
+                ticker_texts = {}
+                ticker_cols = st.columns(3)
+                for idx, market in enumerate(LIVE_BANNER_MARKETS):
+                    with ticker_cols[idx % 3]:
+                        ticker_texts[market] = st.text_area(
+                            f"{market} tickere",
+                            value=str(raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, ""))),
+                            height=84,
+                            key=f"banner_v1582_{market.lower()}_tickers",
+                        )
 
-            settings.update({
-                "live_banner_enabled": bool(live_banner_enabled),
-                "live_banner_speed_seconds": int(live_banner_speed),
-                "ui_refresh_minutes": int(ui_refresh_minutes),
-                "live_banner_markets_visible": new_visible,
-                "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
-            })
-            save_settings(settings)
-            for key in list(st.session_state.keys()):
-                if str(key).startswith("live_banner_cache_v16_"):
-                    st.session_state.pop(key, None)
-            try:
-                banner_items = parse_banner_tickers(settings)
-                banner_fp = tuple((str(m), str(t), str(l)) for m, t, l in banner_items)
-                banner_key = f"live_banner_cache_v16_{_cache_key_safe(banner_fp)}"
-                banner_cards = fetch_live_banner_snapshot(banner_items)
-                if banner_cards:
-                    st.session_state[banner_key] = banner_cards
-                    st.session_state["live_banner_cache_v16_latest"] = banner_cards
-            except Exception as exc:
-                logging.warning("Ticker-banner refresh after save failed: %s", exc)
-            st.session_state["banner_settings_saved_message_v1864p"] = True
-            st.rerun()
+                submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)
 
-        with st.expander("Importer tickere", expanded=False):
-            st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel en-kolonne CSV tolkes som tickere i valgt marked.")
-            st.markdown(
-                "<div class='v18-dark-row'>Eksempel CSV: <b>ticker,market</b><br>YAR.OL,Norge<br>ORKLY.OL,Norge<br>VOLV-B.ST,Sverige</div>",
-                unsafe_allow_html=True,
-            )
-            i1, i2, i3 = st.columns([1.2, 0.8, 0.9])
-            with i1:
-                upload = st.file_uploader("Last opp CSV", type=["csv", "txt"], key="banner_import_upload_v18615")
-                pasted = st.text_area("Eller lim inn CSV/tickerliste", value="", height=86, key="banner_import_text_v18615", placeholder="ticker,market\nYAR.OL,Norge\nORKLY.OL,Norge")
-            with i2:
-                import_market = st.selectbox("Standard marked", LIVE_BANNER_MARKETS, index=LIVE_BANNER_MARKETS.index("Norge"), key="banner_import_market_v18615")
-                import_mode = st.radio("Importmodus", ["Legg til", "Erstatt marked"], horizontal=False, key="banner_import_mode_v18615")
-            with i3:
-                st.caption("Mulige kilder: borsenes egne lister, Nordnet/megler-eksport, Yahoo-symboler eller egne CSV-lister.")
-                st.markdown("<div class='v18-dark-row'>Tips: bruk .OL, .ST, .HE, .CO og .SA for nordiske/Brasil-symboler der Yahoo krever suffiks.</div>", unsafe_allow_html=True)
-            imported_text = str(pasted or "")
-            if upload is not None:
-                try:
-                    imported_text = upload.getvalue().decode("utf-8-sig")
-                except Exception:
-                    imported_text = upload.getvalue().decode("latin-1", errors="ignore")
-            imported = parse_banner_csv_text(imported_text, default_market=import_market) if imported_text.strip() else {}
-            if imported:
-                preview_rows = [{"marked": market, "tickere": ", ".join(tickers), "antall": len(tickers)} for market, tickers in imported.items()]
-                st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
-            apply_import = st.button("Importer til tickerfeltene", key="banner_import_apply_v18615", disabled=not bool(imported))
-            if apply_import:
-                current = settings.get("live_banner_tickers", {}) if isinstance(settings.get("live_banner_tickers", {}), dict) else {}
-                settings["live_banner_tickers"] = merge_ticker_maps(current, imported, mode=import_mode)
-                imported_markets = [m for m in imported.keys() if m in LIVE_BANNER_MARKETS]
-                current_visible = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
-                if isinstance(current_visible, str):
-                    current_visible = [m.strip() for m in current_visible.replace(";", ",").split(",") if m.strip()]
-                settings["live_banner_markets_visible"] = list(dict.fromkeys(list(current_visible or []) + imported_markets))
+            if submitted:
+                new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
+                if not new_visible:
+                    new_visible = ["USA", "Norge", "Sverige"]
+
+                settings.update({
+                    "live_banner_enabled": bool(live_banner_enabled),
+                    "live_banner_speed_seconds": int(live_banner_speed),
+                    "ui_refresh_minutes": int(ui_refresh_minutes),
+                    "live_banner_markets_visible": new_visible,
+                    "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
+                })
                 save_settings(settings)
-                st.success("Import lagret i tickerfeltene. Apne Rediger ticker-banner igjen for a se listen.")
+                for key in list(st.session_state.keys()):
+                    if str(key).startswith("live_banner_cache_v16_"):
+                        st.session_state.pop(key, None)
+                try:
+                    banner_items = parse_banner_tickers(settings)
+                    banner_fp = tuple((str(m), str(t), str(l)) for m, t, l in banner_items)
+                    banner_key = f"live_banner_cache_v16_{_cache_key_safe(banner_fp)}"
+                    banner_cards = fetch_live_banner_snapshot(banner_items)
+                    if banner_cards:
+                        st.session_state[banner_key] = banner_cards
+                        st.session_state["live_banner_cache_v16_latest"] = banner_cards
+                except Exception as exc:
+                    logging.warning("Ticker-banner refresh after save failed: %s", exc)
+                st.session_state["banner_settings_saved_message_v1864p"] = True
                 st.rerun()
 
-    _render_banner_alert_settings_v18610()
-    _render_nordnet_datatest_v18610()
-    _render_nordnet_manual_workspace_v18615()
+            with st.expander("Importer tickere", expanded=False):
+                st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel en-kolonne CSV tolkes som tickere i valgt marked.")
+                st.markdown(
+                    "<div class='v18-dark-row'>Eksempel CSV: <b>ticker,market</b><br>YAR.OL,Norge<br>ORKLY.OL,Norge<br>VOLV-B.ST,Sverige</div>",
+                    unsafe_allow_html=True,
+                )
+                i1, i2, i3 = st.columns([1.2, 0.8, 0.9])
+                with i1:
+                    upload = st.file_uploader("Last opp CSV", type=["csv", "txt"], key="banner_import_upload_v18615")
+                    pasted = st.text_area("Eller lim inn CSV/tickerliste", value="", height=86, key="banner_import_text_v18615", placeholder="ticker,market\nYAR.OL,Norge\nORKLY.OL,Norge")
+                with i2:
+                    import_market = st.selectbox("Standard marked", LIVE_BANNER_MARKETS, index=LIVE_BANNER_MARKETS.index("Norge"), key="banner_import_market_v18615")
+                    import_mode = st.radio("Importmodus", ["Legg til", "Erstatt marked"], horizontal=False, key="banner_import_mode_v18615")
+                with i3:
+                    st.caption("Mulige kilder: borsenes egne lister, Nordnet/megler-eksport, Yahoo-symboler eller egne CSV-lister.")
+                    st.markdown("<div class='v18-dark-row'>Tips: bruk .OL, .ST, .HE, .CO og .SA for nordiske/Brasil-symboler der Yahoo krever suffiks.</div>", unsafe_allow_html=True)
+                imported_text = str(pasted or "")
+                if upload is not None:
+                    try:
+                        imported_text = upload.getvalue().decode("utf-8-sig")
+                    except Exception:
+                        imported_text = upload.getvalue().decode("latin-1", errors="ignore")
+                imported = parse_banner_csv_text(imported_text, default_market=import_market) if imported_text.strip() else {}
+                if imported:
+                    preview_rows = [{"marked": market, "tickere": ", ".join(tickers), "antall": len(tickers)} for market, tickers in imported.items()]
+                    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+                apply_import = st.button("Importer til tickerfeltene", key="banner_import_apply_v18615", disabled=not bool(imported))
+                if apply_import:
+                    current = settings.get("live_banner_tickers", {}) if isinstance(settings.get("live_banner_tickers", {}), dict) else {}
+                    settings["live_banner_tickers"] = merge_ticker_maps(current, imported, mode=import_mode)
+                    imported_markets = [m for m in imported.keys() if m in LIVE_BANNER_MARKETS]
+                    current_visible = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+                    if isinstance(current_visible, str):
+                        current_visible = [m.strip() for m in current_visible.replace(";", ",").split(",") if m.strip()]
+                    settings["live_banner_markets_visible"] = list(dict.fromkeys(list(current_visible or []) + imported_markets))
+                    save_settings(settings)
+                    st.success("Import lagret i tickerfeltene. Apne Rediger ticker-banner igjen for a se listen.")
+                    st.rerun()
 
+                _render_banner_alert_settings_v18610()
+                _render_nordnet_datatest_v18610()
+                _render_nordnet_manual_workspace_v18615()
+
+        with special_tab:
+            render_special_watch_menu_v18619(embedded=True)
 
 def render_system_admin_workspace(expanded=False):
     """Fase 3: Cron/bakgrunnssøk og systemdrift samlet i Kontrollsenter."""
@@ -9791,120 +9794,10 @@ _mobile_nav_links_v18646 = {
     "system": _mobile_nav_href_v18646("system"),
 }
 _ui_mode_v19022 = str(st.session_state.get("ui_experience_mode_v19022") or UX_SIMPLE_MODE_V19022)
-if _ui_mode_v19022 == UX_SIMPLE_MODE_V19022:
-    _mobile_more_items_v19022 = [
-        ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
-        ("🧾", "Paper Trading", "Teoretiske handler og regler", _mobile_nav_links_v18646["paper_trading"]),
-        ("✅", "Godkjenninger", "Forslag som krever valg", _mobile_nav_links_v18646["approvals"]),
-        ("⏱️", "Jobber", "Planlegger og testkjøringer", _mobile_nav_links_v18646["jobs"]),
-        ("🔔", "Varsler og drift", "Kildefeil og driftsstatus", _mobile_nav_links_v18646["alerts"]),
-        ("💱", "Valuta", "Valutavarsler", _mobile_nav_links_v18646["fx_alerts"]),
-        ("⚙️", "Innstillinger", "System og administrasjon", _mobile_nav_links_v18646["system"]),
-    ]
-    _mobile_more_links_v19022 = "\n".join(
-        f'<a class="mobile-drawer-link-v19015" href="{html.escape(href)}" target="_self">'
-        f'<span class="mobile-drawer-icon-v19015">{icon}</span>'
-        f'<span><b>{html.escape(label)}</b><small>{html.escape(help_text)}</small></span></a>'
-        for icon, label, help_text, href in _mobile_more_items_v19022
-    )
-    st.markdown(f"""
-    <style>
-    html body .mobile-bottom-nav-v18644 {{ display:none !important; background:transparent !important; min-height:0 !important; }}
-    @media (max-width: 760px) {{ html body .mobile-bottom-nav-v18644 {{ display:flex !important; }} }}
-    @media (max-width: 900px) {{
-      html body .mobile-bottom-nav-v18644 {{ overflow-x:hidden !important; }}
-      html body .mobile-bottom-nav-v18644 > a,
-      html body .mobile-bottom-nav-v18644 > .mobile-more-v19022 {{
-        flex:1 1 20% !important; min-width:0 !important; width:20% !important;
-      }}
-      html body .mobile-more-v19022 {{ position: static !important; min-width: 0 !important; height:52px !important; }}
-      html body .mobile-more-v19022 > summary {{
-        list-style:none !important; min-height:48px !important; display:flex !important;
-        flex-direction:column !important; align-items:center !important; justify-content:center !important;
-        gap:2px !important; border-radius:14px !important; cursor:pointer !important;
-        color:#e0f2fe !important; background:linear-gradient(180deg,rgba(14,56,90,.88),rgba(8,30,55,.92)) !important;
-        border:1px solid rgba(96,165,250,.30) !important;
-      }}
-      html body .mobile-more-v19022 > summary::-webkit-details-marker {{ display:none !important; }}
-      html body .mobile-more-v19022 > summary b {{ font-size:1.05rem !important; line-height:1 !important; }}
-      html body .mobile-more-v19022 > summary span {{ font-size:.58rem !important; font-weight:900 !important; }}
-      html body .mobile-more-panel-v19022 {{
-        position:fixed !important; left:.55rem !important; right:.55rem !important; bottom:5.3rem !important;
-        z-index:1000001 !important; max-height:70vh !important; overflow:auto !important;
-        padding:.8rem !important; border-radius:18px !important; background:rgba(2,10,24,.98) !important;
-        border:1px solid rgba(56,189,248,.45) !important; box-shadow:0 22px 60px rgba(0,0,0,.55) !important;
-      }}
-      html body .mobile-more-panel-v19022 h3 {{ margin:.1rem .2rem .65rem !important; color:#f8fafc !important; }}
-    }}
-    </style>
-    <div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon" style="display:none">
-      <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
-      <a href="{_mobile_nav_links_v18646['reports']}" title="Rapport" target="_self"><b>📚</b><span>Rapport</span></a>
-      <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-      <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
-      <details class="mobile-more-v19022">
-        <summary aria-label="Åpne flere valg"><b>☰</b><span>Mer</span></summary>
-        <div class="mobile-more-panel-v19022" role="navigation" aria-label="Flere mobilvalg">
-          <h3>Mer</h3>
-          <div class="mobile-drawer-grid-v19015">{_mobile_more_links_v19022}</div>
-        </div>
-      </details>
-    </div>
-    """, unsafe_allow_html=True)
-else:
-    try:
-        from autonomi_core.configuration.application_centered import application_centered_enabled as _centered_nav_v1900
-        _centered_nav_active_v1900 = _centered_nav_v1900()
-    except Exception:
-        _centered_nav_active_v1900 = False
-    _mobile_nav_html_v1900 = (f"""
-      <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
-      <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
-      <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-      <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
-      <a href="{_mobile_nav_links_v18646['portfolio']}" title="Portefølje" target="_self"><b>💼</b><span>Portefølje</span></a>
-      <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
-      <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
-      <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
-      <a href="{_mobile_nav_href_v18646('system')}" title="System" target="_self"><b>⚙️</b><span>System</span></a>
-    """ if _centered_nav_active_v1900 else f"""
-      <a href="{_mobile_nav_links_v18646['dashboard']}" title="Oversikt" target="_self"><b>🏠</b><span>Oversikt</span></a>
-      <a href="{_mobile_nav_links_v18646['analysis']}" title="Analyse" target="_self"><b>📈</b><span>Analyse</span></a>
-      <a href="{_mobile_nav_links_v18646['top_picks']}" title="Top Picks" target="_self"><b>🎯</b><span>Top</span></a>
-      <a href="{_mobile_nav_links_v18646['long_engine']}" title="Long Engine" target="_self"><b>🚀</b><span>Long</span></a>
-      <a href="{_mobile_nav_links_v18646['ai']}" title="AI" target="_self"><b>🤖</b><span>AI</span></a>
-      <a href="{_mobile_nav_links_v18646['autonomy']}" title="Autonomi" target="_self"><b>🧠</b><span>Autonomi</span></a>
-      <a href="{_mobile_nav_links_v18646['paper_trading']}" title="Paper Trading" target="_self"><b>🧾</b><span>Paper</span></a>
-      <a href="{_mobile_nav_links_v18646['reports']}" title="Rapporter" target="_self"><b>📚</b><span>Rapporter</span></a>
-      <a href="{_mobile_nav_links_v18646['fx_alerts']}" title="Valutavarsler" target="_self"><b>💱</b><span>Valuta</span></a>
-    """)
-    st.markdown(f"""<div class="mobile-bottom-nav-v18644" aria-label="Mobilnavigasjon" style="display:none">{_mobile_nav_html_v1900}</div>""", unsafe_allow_html=True)
-    _mobile_drawer_items_v19015 = [
-        ("🏠", "Oversikt", "Dashboard og marked nå", _mobile_nav_links_v18646["dashboard"]),
-        ("🧠", "Autonomi", "Kontrollsenter og oppdrag", _mobile_nav_links_v18646["autonomy"]),
-        ("📚", "Rapporter", "Siste og arkiverte rapporter", _mobile_nav_links_v18646["reports"]),
-        ("⏱️", "Jobber / Planlegger", "Tidsplan, test og Pushover", _mobile_nav_links_v18646["jobs"]),
-        ("✅", "Ventende godkjenninger", "Læringsforslag som krever valg", _mobile_nav_links_v18646["approvals"]),
-        ("💼", "Læringsportefølje", "Kontrollert læring og portefølje", _mobile_nav_links_v18646["portfolio"]),
-        ("🧾", "Paper Trading", "Teoretiske handler og regler", _mobile_nav_links_v18646["paper_trading"]),
-        ("🎯", "Top Picks", "Beste kandidater", _mobile_nav_links_v18646["top_picks"]),
-        ("📈", "Analyse", "AI Kandidattest", _mobile_nav_links_v18646["analysis"]),
-        ("🔔", "Varsler", "Varselsenter og drift", _mobile_nav_links_v18646["alerts"]),
-        ("💱", "Valuta", "Valutavarsler", _mobile_nav_links_v18646["fx_alerts"]),
-        ("⚙️", "Systemstatus", "System, admin og innstillinger", _mobile_nav_links_v18646["system"]),
-    ]
-    _mobile_drawer_links_v19015 = "\n".join(
-        f'<a class="mobile-drawer-link-v19015" href="{html.escape(href)}" target="_self"><span class="mobile-drawer-icon-v19015">{icon}</span><span><b>{html.escape(label)}</b><small>{html.escape(help_text)}</small></span></a>'
-        for icon, label, help_text, href in _mobile_drawer_items_v19015
-    )
-    st.markdown(f"""
-    <details class="mobile-drawer-v19015" style="display:none"><summary aria-label="Åpne mobilmeny"><span>☰</span><b>Meny</b></summary>
-      <div class="mobile-drawer-panel-v19015" role="navigation" aria-label="Mobil hovedmeny">
-        <div class="mobile-drawer-head-v19015"><div><b>AI Aksje Analyzer Pro</b><small>Avansert mobilmeny</small></div><em>Trykk et valg for å åpne</em></div>
-        <div class="mobile-drawer-grid-v19015">{_mobile_drawer_links_v19015}</div>
-      </div>
-    </details>
-    """, unsafe_allow_html=True)
+# v19.4.0: Do not inject a second mobile/navigation DOM into the main page.
+# Streamlit's responsive sidebar is the single navigation surface on both
+# desktop and mobile. The former injected navigation could inherit older CSS
+# and expand into a large white desktop block with stray icons/text.
 
 
 def _attention_dashboard_visible_v19022() -> bool:
@@ -19220,6 +19113,18 @@ if not st.session_state.get("ai_control_center_landed_default_v1864l"):
     st.session_state.setdefault("ai_control_center_active_panel_v1863aj", "")
     st.session_state["ai_control_center_landed_default_v1864l"] = True
 
+# v19.4.0: non-blocking scheduler safety net while the web process is awake.
+# Render Cron remains the primary unattended runner, but the web process now
+# performs a guarded due-job check at most once every five minutes per session.
+try:
+    _scheduler_kick_last_v1940 = float(st.session_state.get("scheduler_kick_last_v1940", 0) or 0)
+    if time.time() - _scheduler_kick_last_v1940 >= 300:
+        from scheduler_background import kick_scheduler_background
+        st.session_state["scheduler_kick_last_v1940"] = time.time()
+        st.session_state["scheduler_kick_status_v1940"] = kick_scheduler_background()
+except Exception as _scheduler_kick_exc_v1940:
+    st.session_state["scheduler_kick_status_v1940"] = {"state": "ERROR", "error": str(_scheduler_kick_exc_v1940)[:500]}
+
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
@@ -19233,7 +19138,6 @@ try:
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
     render_live_market_banner()
     render_special_watch_banner_surface_v18620()
-    render_special_watch_menu_v18619()
     render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
     try:

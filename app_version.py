@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.3.0"
-APP_VERSION_NAME = "Beslutningsintelligens og kontrollert læring"
+APP_VERSION = "v19.4.0"
+APP_VERSION_NAME = "Driftssikker autonomi og portefølje-UX"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.2.0"
+PREVIOUS_APP_VERSION = "v19.3.0"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -80,6 +80,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.4.0: Driftssikker autonomi og portefølje-UX: autonom portefølje følger Paper Trading-mønsteret med nøkkeltall, mobilkort, lesbare handler og beslutnings-/ordreledger. Manuelle utkast kan ikke arve gamle planlagte tider, gamle rapportvarsler utløper, og Pushover-kvitteringer viser opprettet, planlagt, forsøkt, sendt og utløsende prosess. Parallel mobil-/hurtignavigasjon fjernes fra hoveddokumentet, Streamlits tekniske sidemeny skjules, tickerkort viser Data mangler eksplisitt, og bannerredigering samles. Rapportkravene fra v19.0.21-v19.3.0 regresjonstestes uten endring i handels- eller risikoreglene.",
     "v19.3.0: Avansert beslutningsintelligens og kontrollert læring: data-, modell- og beslutningsdiff forklarer hvorfor vurderinger endres; Top 3 får datastøttede motargumenter, kritiske antakelser og komplett beslutningskontrakt; utløpte vurderinger evalueres historisk; læringsflyten standardiseres fra HYPOTESE via SIMULERT og PARALLELLTESTET til eksplisitt GODKJENT/AVVIST/TILBAKERULLERT. Produksjonsrisiko, kjøpsterskler, stop-loss, posisjonsgrenser, godkjenningskrav og autonominivå kan ikke endres automatisk. Synligheten til offentlig PDF-knapp og desktop-lekkasje fra mobilnavigasjon/tickerområdet er rettet.",
     "v19.2.0: Modulær arkitektur og samlet permanent lagring: sentral PersistenceService og RepositoryRegistry samler rapporter, porteføljer, oppgaver, godkjenninger, scheduler, kildehelse, kjøringsspor og driftshendelser bak PostgreSQL-first StorageService. Nye domain/, repositories/, pages/ og ui/-grenser reduserer direkte kobling til app.py. Migreringsverktøy importerer JSON/JSONL kontrollsummert og ikke-destruktivt. Lokal fallback er kun utvikling/test; produksjon kan kreve Postgres eksplisitt. Ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler er endret.",
     "v19.1.0: Full operasjonssporbarhet: strukturert hendelseslogg med stabile feilkoder, varig kildehelsehistorikk, responstid, parserstatus, artikkelvolum, relevante treff, duplikater, kommersielt filter, reserve-feed og avviksvarsler. Rapportkjøringer og scheduler får ett samlet spor fra start/preflight via marked, data, rapport, lagring og varsling til sluttstatus. Drift og rapportarkiv viser kildehelse, feil og komplette kjøringsspor. Telemetrien er observasjonell og endrer ingen analyse-, handels-, risiko-, autonomi- eller porteføljeregler.",

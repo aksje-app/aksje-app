@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import threading
 import uuid
 import time as time_module
@@ -1186,8 +1187,18 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         if not run_id:
             return
         identity = resolve_report_identity(run)
+        now_iso = _now_iso()
         receipts[run_id] = {
-            "sent": bool(sent), "attempted": bool(attempted), "at": _now_iso(),
+            "notification_id": f"REPORT-{run_id}-PUSHOVER",
+            "sent": bool(sent), "attempted": bool(attempted), "at": now_iso,
+            "created_at": str(run.get("created_at") or now_iso),
+            "scheduled_at": str(run.get("scheduled_for") or ""),
+            "attempted_at": now_iso if attempted else "",
+            "sent_at": now_iso if sent else "",
+            "expires_at": str(run.get("notification_expires_at") or (datetime.now(timezone.utc) + timedelta(minutes=max(5, int(os.getenv("PUSHOVER_REPORT_MAX_AGE_MINUTES", "90") or 90)))).isoformat(timespec="seconds")),
+            "status": "SENT" if sent else ("FAILED" if attempted else "SKIPPED"),
+            "triggered_by": str(run.get("trigger") or "MANUAL").upper(),
+            "channel": "PUSHOVER", "report_id": str(run.get("report_id") or run_id), "run_id": run_id,
             "job_id": job.job_id, "job_name": job.name,
             "report_type": identity.get("type"), "report_label": identity.get("label"),
             "detail": str(detail or ""), "skipped_reason": skipped_reason,
@@ -1199,6 +1210,20 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     previous_receipt = dict(receipts.get(run_id) or {}) if run_id else {}
     if previous_receipt.get("sent") is True:
         return False, "Duplikat blokkert: denne rapportkjøringen er allerede varslet"
+    created_raw = str(run.get("created_at") or "")
+    if created_raw:
+        try:
+            created_dt = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+            if created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+            age_minutes = (datetime.now(timezone.utc) - created_dt.astimezone(timezone.utc)).total_seconds() / 60.0
+            max_age = max(5, int(os.getenv("PUSHOVER_REPORT_MAX_AGE_MINUTES", "90") or 90))
+            if age_minutes > max_age:
+                detail = f"Varsel utløpt: rapporten er {age_minutes:.0f} minutter gammel"
+                record(False, detail, attempted=False, skipped_reason="EXPIRED_REPORT")
+                return False, detail
+        except Exception:
+            pass
     if run.get("suppress_notifications"):
         detail = "Test uten varsling: Pushover ble ikke sendt"
         record(False, detail, attempted=False, skipped_reason="SUPPRESSED_TEST")
@@ -2848,6 +2873,12 @@ def _run_job_impl(
 ) -> dict[str, Any]:
     full_run_started = time_module.perf_counter()
     requested_job = job
+    trigger = str(trigger or "MANUAL").upper()
+    # A manual/test run must never inherit an old planned slot. This was the
+    # root cause of manually started drafts looking like delayed scheduled
+    # reports in Pushover.
+    if trigger != "SCHEDULED":
+        scheduled_for = None
     job, handoff = _effective_execution_job(job, trigger)
     # Portfolio demand is an input to the mission, never an afterthought.
     from autonomi_core.portfolio_decisions import read_portfolio_needs

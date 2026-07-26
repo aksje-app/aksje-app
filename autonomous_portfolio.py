@@ -12,7 +12,7 @@ import json
 import math
 import zipfile
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -570,15 +570,23 @@ def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any
     rows = _read(NOTIFICATIONS_PATH, [])
     if not isinstance(rows, list):
         rows = []
-    rows.insert(0, {"timestamp": _now(), "kind": kind, "title": title, "message": message, "payload": dict(payload), "delivery": "LOCAL_QUEUE"})
-    _write(NOTIFICATIONS_PATH, rows[:1000])
+    created_at = _now()
+    item = {"notification_id": f"AN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": created_at,
+            "created_at": created_at, "scheduled_at": created_at, "attempted_at": "", "sent_at": "",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(timespec="seconds"),
+            "kind": kind, "title": title, "message": message, "payload": dict(payload),
+            "report_id": str(payload.get("report_id") or ""), "run_id": str(payload.get("run_id") or ""),
+            "triggered_by": str(payload.get("triggered_by") or "AUTONOMY"), "status": "PENDING", "delivery": "LOCAL_QUEUE"}
+    rows.insert(0, item); _write(NOTIFICATIONS_PATH, rows[:1000])
     try:
         from notification_service import send_pushover_notification
-        send_pushover_notification(title, message)
-        rows[0]["delivery"] = "PUSHOVER_ATTEMPTED"
-        _write(NOTIFICATIONS_PATH, rows[:1000])
-    except Exception:
-        pass
+        item["attempted_at"] = _now(); ok = send_pushover_notification(title, message)
+        item["status"] = "SENT" if ok is not False else "FAILED"; item["delivery"] = "PUSHOVER_SENT" if ok is not False else "PUSHOVER_FAILED"
+        if ok is not False: item["sent_at"] = _now()
+        else: item["error"] = "Pushover-sender returnerte False"
+    except Exception as exc:
+        item["attempted_at"] = _now(); item["status"] = "FAILED"; item["delivery"] = "PUSHOVER_FAILED"; item["error"] = str(exc)[:500]
+    _write(NOTIFICATIONS_PATH, rows[:1000])
 
 
 def _record_trade(trade: dict[str, Any]) -> None:
@@ -594,7 +602,18 @@ def _record_decisions(rows: Sequence[Mapping[str, Any]]) -> None:
     current = _read(DECISIONS_PATH, [])
     if not isinstance(current, list):
         current = []
-    _write(DECISIONS_PATH, list(rows) + current[:5000])
+    normalized = []
+    for raw in rows:
+        row = dict(raw)
+        action = str(row.get("action") or "").upper()
+        row.setdefault("sent_to_autonomy", True)
+        row.setdefault("portfolio_check_completed", True)
+        row.setdefault("order_intent_created", action in {"BUY", "SELL"})
+        row.setdefault("order_executed", action in {"BUY", "SELL"})
+        row.setdefault("stop_reason", "" if action in {"BUY", "SELL"} else str(row.get("reason") or "Ikke handlet"))
+        row.setdefault("execution_stage", "ORDER_EXECUTED" if action in {"BUY", "SELL"} else "PORTFOLIO_GATE_STOPPED")
+        normalized.append(row)
+    _write(DECISIONS_PATH, normalized + current[:5000])
 
 
 def recover_missing_position_history(portfolio: Mapping[str, Any] | None = None) -> int:
@@ -714,7 +733,20 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             _notification("RISK", "AUTONOMOUS PORTFOLIO PAUSED", portfolio["pause_reason"], {"drawdown_pct": drawdown, "run_id": run_id})
         _append_audit("PORTFOLIO_AUTO_PAUSED", {"reason": portfolio["pause_reason"], "run_id": run_id})
 
-    # New buys only when explicitly active.
+    # New buys only when explicitly active. Every received candidate still gets
+    # a ledger row, so a paused portfolio can never look like a missing handoff.
+    if portfolio.get("status") != "ACTIVE":
+        pause_reason = str(portfolio.get("pause_reason") or f"Autonom portefølje er {portfolio.get('status') or 'PAUSED'}")
+        held = set((portfolio.get("positions") or {}).keys())
+        for candidate in sorted(candidates, key=lambda c: _candidate_score(c), reverse=True):
+            ticker = str(candidate.get("ticker") or "").upper()
+            if not ticker or ticker in held:
+                continue
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
+                              "reason": pause_reason, "score": _candidate_score(candidate),
+                              "sent_to_autonomy": True, "portfolio_check_completed": True,
+                              "order_intent_created": False, "order_executed": False,
+                              "execution_stage": "PORTFOLIO_PAUSED"})
     if portfolio.get("status") == "ACTIVE":
         ranked = sorted(candidates, key=lambda c: _candidate_score(c), reverse=True)
         for candidate in ranked:
@@ -729,6 +761,11 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             risk = _candidate_risk(candidate)
             price = _candidate_price(candidate)
             if ticker in portfolio["positions"] and not params.allow_additions:
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
+                                  "reason": "Finnes allerede i porteføljen; tilleggskjøp er deaktivert", "score": score,
+                                  "sent_to_autonomy": True, "portfolio_check_completed": True,
+                                  "order_intent_created": False, "order_executed": False,
+                                  "execution_stage": "PORTFOLIO_GATE_STOPPED"})
                 continue
             rejection = None
             if score < params.minimum_investment_score:
@@ -1060,9 +1097,156 @@ def render_learning_portfolio() -> None:
         st.dataframe(pd.DataFrame(closed[:500]), use_container_width=True, hide_index=True) if closed else st.caption("Ingen lukkede læringsobservasjoner.")
 
 
+
+def _fmt_nb_money(value: Any) -> str:
+    try:
+        return f"{float(value):,.0f} kr".replace(",", " ")
+    except Exception:
+        return "-"
+
+
+def _fmt_nb_number(value: Any, decimals: int = 2) -> str:
+    try:
+        return f"{float(value):,.{decimals}f}".replace(",", " ")
+    except Exception:
+        return "-"
+
+
+def _short_local_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return raw[:16].replace("T", " ")
+
+
+def autonomous_position_rows(portfolio: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for pos in (portfolio.get("positions") or {}).values():
+        avg = _f(pos.get("average_price"))
+        last = _f(pos.get("last_price", pos.get("average_price")))
+        qty = _f(pos.get("quantity"))
+        value = qty * last
+        pnl = qty * (last - avg)
+        rows.append({
+            "Ticker": str(pos.get("ticker") or "-"), "Selskap": str(pos.get("company") or pos.get("name") or ""),
+            "Sektor": str(pos.get("sector") or "Ukjent"), "Antall": qty, "Snittkurs": avg, "Siste kurs": last,
+            "Markedsverdi": value, "Avkastning kr": pnl, "Avkastning %": ((last / avg) - 1.0) * 100 if avg else 0.0,
+            "Risiko": str(pos.get("risk_status") or pos.get("strategy") or "-"), "Åpnet": _short_local_time(pos.get("opened_at")),
+        })
+    return sorted(rows, key=lambda row: float(row.get("Markedsverdi") or 0), reverse=True)
+
+
+def autonomous_trade_display_rows(trades: Sequence[Mapping[str, Any]], limit: int = 250) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for trade in list(trades or [])[:limit]:
+        price = _f(trade.get("price")); qty = _f(trade.get("quantity", trade.get("shares")))
+        out.append({"Tid": _short_local_time(trade.get("timestamp")), "Ticker": str(trade.get("ticker") or "-"),
+            "Kjøp/salg": str(trade.get("side") or trade.get("action") or trade.get("trade_type") or "-").upper(),
+            "Antall": qty, "Kurs": price, "Beløp": _f(trade.get("notional", trade.get("amount"))) or qty * price,
+            "Begrunnelse": str(trade.get("reason") or "-"), "Status": str(trade.get("status") or "Utført"),
+            "Teknisk ID": str(trade.get("trade_id") or "")})
+    return out
+
+
+def autonomous_decision_ledger_rows(decisions: Sequence[Mapping[str, Any]], limit: int = 1000) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for decision in list(decisions or [])[:limit]:
+        action = str(decision.get("action") or "-").upper(); reason = str(decision.get("stop_reason") or decision.get("reason") or "-")
+        sent = bool(decision.get("sent_to_autonomy", True)); order_intent = bool(decision.get("order_intent_created", action in {"BUY", "SELL"})); executed = bool(decision.get("order_executed", action in {"BUY", "SELL"}))
+        stage = "Ordre utført" if executed else ("Ordreintensjon opprettet" if order_intent else ("Stoppet i porteføljekontroll" if sent else "Ikke overlevert til Autonomi"))
+        rows.append({"Tid": _short_local_time(decision.get("timestamp")), "Ticker": str(decision.get("ticker") or "-"), "Score": decision.get("score"),
+            "Beslutning": action, "Siste steg": str(decision.get("execution_stage") or stage), "Handlet": "Ja" if executed else "Nei",
+            "Stoppårsak / begrunnelse": reason, "Kjørings-ID": str(decision.get("run_id") or "-")})
+    return rows
+
+
+
+def autonomous_trade_block_summary(decisions: Sequence[Mapping[str, Any]], portfolio: Mapping[str, Any], params: AutonomousParameters) -> dict[str, Any]:
+    rows = list(decisions or [])
+    latest_run = str(rows[0].get("run_id") or "") if rows else ""
+    current = [dict(row) for row in rows if not latest_run or str(row.get("run_id") or "") == latest_run]
+    buy_sell = [row for row in current if str(row.get("action") or "").upper() in {"BUY", "SELL"}]
+    blocked = [row for row in current if str(row.get("action") or "").upper() in {"SKIP", "HOLD", "OBSERVE"}]
+    counts: dict[str, int] = {}
+    for row in blocked:
+        reason = str(row.get("stop_reason") or row.get("reason") or "Ukjent årsak")
+        counts[reason] = counts.get(reason, 0) + 1
+    reasons = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    status = str(portfolio.get("status") or "PAUSED").upper()
+    if buy_sell:
+        headline = f"{len(buy_sell)} handel/handler registrert i siste beslutningssyklus"
+    elif status != "ACTIVE":
+        headline = f"Ingen nye handler: autonom portefølje er {status}"
+    elif len(portfolio.get("positions") or {}) >= int(params.maximum_open_positions):
+        headline = f"Ingen nye handler: maks {params.maximum_open_positions} åpne posisjoner er nådd"
+    elif reasons:
+        headline = f"Ingen nye handler: vanligste stoppårsak er {reasons[0][0]}"
+    else:
+        headline = "Ingen nye handler: ingen beslutningsdata er registrert for siste syklus"
+    return {"run_id": latest_run, "headline": headline, "trade_count": len(buy_sell), "blocked_count": len(blocked), "reasons": reasons[:8], "portfolio_status": status}
+
+def _render_position_cards_mobile(rows: Sequence[Mapping[str, Any]], st: Any) -> None:
+    import html as _html
+    cards = []
+    for row in rows:
+        pnl_pct = float(row.get("Avkastning %") or 0); pnl_class = "positive" if pnl_pct >= 0 else "negative"
+        cards.append(f'''<article class="autonomous-position-card-v1940"><header><div><b>{_html.escape(str(row.get("Ticker") or "-"))}</b><small>{_html.escape(str(row.get("Selskap") or row.get("Sektor") or ""))}</small></div><strong class="{pnl_class}">{pnl_pct:+.2f}%</strong></header><div class="grid"><span><em>Verdi</em>{_html.escape(_fmt_nb_money(row.get("Markedsverdi")))}</span><span><em>Avkastning</em>{_html.escape(_fmt_nb_money(row.get("Avkastning kr")))}</span><span><em>Antall</em>{_html.escape(_fmt_nb_number(row.get("Antall"), 2))}</span><span><em>Snitt / siste</em>{_html.escape(_fmt_nb_number(row.get("Snittkurs"), 2))} / {_html.escape(_fmt_nb_number(row.get("Siste kurs"), 2))}</span></div><footer>{_html.escape(str(row.get("Sektor") or "Ukjent"))} · {_html.escape(str(row.get("Risiko") or "-"))}</footer></article>''')
+    st.markdown('''<style>.autonomous-position-cards-v1940{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.7rem;margin:.4rem 0 1rem}.autonomous-position-card-v1940{background:linear-gradient(160deg,#071426,#0b1f35);border:1px solid rgba(56,189,248,.3);border-radius:16px;padding:.8rem;color:#f8fafc}.autonomous-position-card-v1940 header{display:flex;justify-content:space-between;gap:.7rem}.autonomous-position-card-v1940 small{display:block;color:#94a3b8}.autonomous-position-card-v1940 .positive{color:#34d399}.autonomous-position-card-v1940 .negative{color:#fb7185}.autonomous-position-card-v1940 .grid{display:grid;grid-template-columns:1fr 1fr;gap:.55rem;margin:.75rem 0}.autonomous-position-card-v1940 span{font-weight:800}.autonomous-position-card-v1940 em{display:block;font-size:.68rem;font-style:normal;color:#94a3b8;text-transform:uppercase}.autonomous-position-card-v1940 footer{font-size:.72rem;color:#cbd5e1;border-top:1px solid rgba(148,163,184,.18);padding-top:.45rem}@media (min-width:761px){.autonomous-position-cards-v1940{display:none!important}}</style><div class="autonomous-position-cards-v1940">''' + ''.join(cards) + '</div>', unsafe_allow_html=True)
+
+
+def _render_trade_cards_mobile(rows: Sequence[Mapping[str, Any]], st: Any) -> None:
+    import html as _html
+    cards = []
+    for row in rows:
+        cards.append(
+            f'<article class="autonomous-log-card-v1940"><header><b>{_html.escape(str(row.get("Ticker") or "-"))}</b>'
+            f'<strong>{_html.escape(str(row.get("Kjøp/salg") or "-"))}</strong></header>'
+            f'<div><span>Tid</span>{_html.escape(str(row.get("Tid") or "-"))}</div>'
+            f'<div><span>Antall / kurs</span>{_html.escape(_fmt_nb_number(row.get("Antall"), 2))} / {_html.escape(_fmt_nb_number(row.get("Kurs"), 2))}</div>'
+            f'<div><span>Beløp</span>{_html.escape(_fmt_nb_money(row.get("Beløp")))}</div>'
+            f'<footer>{_html.escape(str(row.get("Begrunnelse") or "-"))} · {_html.escape(str(row.get("Status") or "-"))}</footer></article>'
+        )
+    st.markdown('<div class="autonomous-mobile-log-cards-v1940">' + ''.join(cards) + '</div>', unsafe_allow_html=True)
+
+
+def _render_decision_cards_mobile(rows: Sequence[Mapping[str, Any]], st: Any) -> None:
+    import html as _html
+    cards = []
+    for row in rows:
+        cards.append(
+            f'<article class="autonomous-log-card-v1940"><header><b>{_html.escape(str(row.get("Ticker") or "-"))}</b>'
+            f'<strong>{_html.escape(str(row.get("Beslutning") or "-"))}</strong></header>'
+            f'<div><span>Siste steg</span>{_html.escape(str(row.get("Siste steg") or "-"))}</div>'
+            f'<div><span>Handlet</span>{_html.escape(str(row.get("Handlet") or "Nei"))}</div>'
+            f'<div><span>Score</span>{_html.escape(str(row.get("Score") if row.get("Score") is not None else "-"))}</div>'
+            f'<footer>{_html.escape(str(row.get("Stoppårsak / begrunnelse") or "-"))}</footer></article>'
+        )
+    st.markdown('<div class="autonomous-mobile-log-cards-v1940">' + ''.join(cards) + '</div>', unsafe_allow_html=True)
+
+
+def _render_responsive_portfolio_css(st: Any) -> None:
+    st.markdown('''<style>
+    .autonomous-mobile-log-cards-v1940{display:none}
+    .autonomous-log-card-v1940{background:#071426;border:1px solid rgba(56,189,248,.28);border-radius:14px;padding:.75rem;margin:.55rem 0;color:#f8fafc}
+    .autonomous-log-card-v1940 header{display:flex;justify-content:space-between;gap:.6rem;margin-bottom:.55rem}
+    .autonomous-log-card-v1940 strong{color:#7dd3fc}.autonomous-log-card-v1940 div{display:flex;justify-content:space-between;gap:.8rem;padding:.2rem 0}
+    .autonomous-log-card-v1940 span{color:#94a3b8;font-size:.76rem}.autonomous-log-card-v1940 footer{border-top:1px solid rgba(148,163,184,.18);margin-top:.45rem;padding-top:.45rem;color:#cbd5e1}
+    @media(max-width:760px){
+      .autonomous-mobile-log-cards-v1940{display:block!important}
+      [class*="st-key-autonomous-desktop-positions-v1940"],
+      [class*="st-key-autonomous-desktop-trades-v1940"],
+      [class*="st-key-autonomous-desktop-decisions-v1940"]{display:none!important}
+    }
+    </style>''', unsafe_allow_html=True)
+
 def render_autonomous_portfolio(view: str = "autonomous") -> None:
     import pandas as pd
     import streamlit as st
+    _render_responsive_portfolio_css(st)
 
     if str(view).lower() == "learning":
         render_learning_portfolio()
@@ -1108,6 +1292,17 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     sp6.metric("Ordinære porteføljekjøp", status_panel.get("Ordinære porteføljekjøp"))
     sp7.metric("Separate læringsposisjoner", status_panel.get("Læringsposisjoner opprettet"))
     sp8.metric("Læringsgrense", status_panel.get("Minimum læringsscore"))
+
+    _recent_decisions_v1940 = _read(DECISIONS_PATH, [])
+    _block_summary_v1940 = autonomous_trade_block_summary(_recent_decisions_v1940 if isinstance(_recent_decisions_v1940, list) else [], portfolio, params)
+    st.markdown("##### Hvorfor ble det ikke handlet?")
+    if _block_summary_v1940["trade_count"]:
+        st.success(_block_summary_v1940["headline"])
+    else:
+        st.warning(_block_summary_v1940["headline"])
+    if _block_summary_v1940["reasons"]:
+        st.caption(" · ".join(f"{reason} ({count})" for reason, count in _block_summary_v1940["reasons"]))
+    st.caption(f"Kjørings-ID: {_block_summary_v1940['run_id'] or '-'} · Status: {_block_summary_v1940['portfolio_status']} · Åpne posisjoner: {len(portfolio.get('positions') or {})}/{params.maximum_open_positions}")
     reason_text = status_panel.get("Årsak til ingen kjøp")
     if status_panel.get("Teoretiske kjøp", 0):
         st.success(f"Status: {reason_text}")
@@ -1230,22 +1425,46 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
                     st.error(f"Import mislyktes: {exc}")
 
     history = load_equity_history(200)
-    st.markdown("##### Autonom porteføljeutvikling")
-    if history:
-        hist_df = pd.DataFrame(history)
-        st.line_chart(hist_df.sort_values("timestamp").set_index("timestamp")[["equity"]], use_container_width=True)
-        st.dataframe(hist_df[["timestamp", "run_id", "equity", "total_return_pct", "open_positions", "trades", "decisions"]].head(25), use_container_width=True, hide_index=True)
+    invested = sum(_f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price"))) for p in (portfolio.get("positions") or {}).values())
+    cash = _f(portfolio.get("cash"))
+    start_value = _f(params.initial_cash) or perf["equity"]
+    total_return_value = perf["equity"] - start_value
+    st.markdown("##### Porteføljeoversikt")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Porteføljeverdi", _fmt_nb_money(perf["equity"]), f"{perf['total_return_pct']:+.2f}%")
+    k2.metric("Total avkastning", _fmt_nb_money(total_return_value))
+    k3.metric("Investert", _fmt_nb_money(invested))
+    k4.metric("Kontanter", _fmt_nb_money(cash))
+    k5, k6, k7, k8 = st.columns(4)
+    k5.metric("Åpne posisjoner", perf["open_positions"])
+    k6.metric("Eksponering", f"{(invested / perf['equity'] * 100) if perf['equity'] else 0:.1f}%")
+    k7.metric("Drawdown", f"{perf['drawdown_pct']:.2f}%")
+    k8.metric("Siste beslutningssyklus", str(portfolio.get("last_run_id") or "-")[:22])
+
+    st.markdown("##### Porteføljeutvikling")
+    if history and len(history) >= 3:
+        hist_df = pd.DataFrame(history).sort_values("timestamp")
+        hist_df["Dato"] = hist_df["timestamp"].map(_short_local_time)
+        st.line_chart(hist_df.set_index("Dato")[["equity"]], use_container_width=True, height=280)
+        with st.expander("Vis historikkdetaljer", expanded=False):
+            view = hist_df.sort_values("timestamp", ascending=False).head(25).copy()
+            view = view.rename(columns={"equity":"Porteføljeverdi", "total_return_pct":"Avkastning %", "open_positions":"Posisjoner", "trades":"Handler", "decisions":"Beslutninger", "run_id":"Kjørings-ID"})
+            st.dataframe(view[["Dato", "Kjørings-ID", "Porteføljeverdi", "Avkastning %", "Posisjoner", "Handler", "Beslutninger"]], use_container_width=True, hide_index=True)
+    elif history:
+        st.info("For få historikkpunkter til en meningsfull graf. Neste autonome kjøringer bygger utviklingskurven.")
+        hist_df = pd.DataFrame(history).sort_values("timestamp", ascending=False)
+        hist_df["Dato"] = hist_df["timestamp"].map(_short_local_time)
+        st.dataframe(hist_df[["Dato", "run_id", "equity", "total_return_pct"]].rename(columns={"run_id":"Kjørings-ID", "equity":"Porteføljeverdi", "total_return_pct":"Avkastning %"}), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen porteføljehistorikk ennå. Historikk opprettes etter neste autonome beslutningssyklus.")
 
-    positions = list((portfolio.get("positions") or {}).values())
+    position_rows = autonomous_position_rows(portfolio)
     st.markdown("##### Åpne posisjoner")
-    if positions:
-        rows = []
-        for p in positions:
-            avg, last, qty = _f(p.get("average_price")), _f(p.get("last_price")), _f(p.get("quantity"))
-            rows.append({"Ticker": p.get("ticker"), "Sektor": p.get("sector"), "Antall": qty, "Snitt": avg, "Siste": last, "Verdi": qty * last, "P/L %": (last / avg - 1) * 100 if avg else 0, "Strategi": p.get("strategy"), "Opprettet av": p.get("origin", "AUTONOMI"), "Åpnet": p.get("opened_at"), "Sist vurdert": portfolio.get("last_run_id")})
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    if position_rows:
+        _render_position_cards_mobile(position_rows, st)
+        desktop_rows = [{k:v for k,v in row.items() if k not in {"Selskap"}} for row in position_rows]
+        with st.container(key="autonomous-desktop-positions-v1940"):
+            st.dataframe(pd.DataFrame(desktop_rows), use_container_width=True, hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Snittkurs": st.column_config.NumberColumn(format="%.2f"), "Siste kurs": st.column_config.NumberColumn(format="%.2f"), "Markedsverdi": st.column_config.NumberColumn(format="%.0f kr"), "Avkastning kr": st.column_config.NumberColumn(format="%+.0f kr"), "Avkastning %": st.column_config.NumberColumn(format="%+.2f%%")})
     else:
         st.info("Ingen åpne teoretiske posisjoner.")
 
@@ -1255,16 +1474,25 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     trades = _read(TRADES_PATH, [])
     decisions = _read(DECISIONS_PATH, [])
     notifications = _read(NOTIFICATIONS_PATH, [])
-    t1, t2, t3, t4 = st.tabs(["Handler", "Beslutninger", "Kontrollert læring", "Audit og deling"])
+    t1, t2, t3, t4 = st.tabs(["Handler", "Beslutninger og ordreledger", "Kontrollert læring", "Audit og sporbarhet"])
     with t1:
         if trades:
-            st.dataframe(pd.DataFrame(trades[:500]), use_container_width=True, hide_index=True)
+            trade_rows = autonomous_trade_display_rows(trades, limit=500)
+            _render_trade_cards_mobile(trade_rows, st)
+            with st.container(key="autonomous-desktop-trades-v1940"):
+                st.dataframe(pd.DataFrame([{k:v for k,v in row.items() if k != "Teknisk ID"} for row in trade_rows]), use_container_width=True, hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Kurs": st.column_config.NumberColumn(format="%.2f"), "Beløp": st.column_config.NumberColumn(format="%.0f kr")})
+            with st.expander("Tekniske handelsdetaljer", expanded=False):
+                st.dataframe(pd.DataFrame(trade_rows), use_container_width=True, hide_index=True)
             st.download_button("Eksporter handler JSON", json.dumps(trades, ensure_ascii=False, indent=2), "autonomous_trades.json", "application/json", key="alp_trades_json_v18688")
         else:
             st.caption("Ingen handler registrert.")
     with t2:
         if decisions:
-            st.dataframe(pd.DataFrame(decisions[:1000]), use_container_width=True, hide_index=True)
+            st.caption("Viser hvor hver kandidat stoppet: overlevering, porteføljekontroll, ordreintensjon eller utført ordre.")
+            ledger_rows = autonomous_decision_ledger_rows(decisions)
+            _render_decision_cards_mobile(ledger_rows, st)
+            with st.container(key="autonomous-desktop-decisions-v1940"):
+                st.dataframe(pd.DataFrame(ledger_rows), use_container_width=True, hide_index=True)
         else:
             st.caption("Ingen beslutninger registrert.")
     with t3:
