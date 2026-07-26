@@ -21,7 +21,7 @@ from domain.market_snapshot import (
 )
 from repositories.application import RepositoryRegistry, get_repository_registry
 
-SNAPSHOT_SERVICE_VERSION = "1.0"
+SNAPSHOT_SERVICE_VERSION = "1.1"
 _EXCLUDED_INPUT_KEYS = {"hist", "history", "dataframe", "df", "client", "session", "raw_bytes"}
 
 
@@ -183,9 +183,12 @@ class MarketSnapshotService:
             "price": price,
             "data_timestamp": data_timestamp,
             "base_score": _pick_number(row, "score", "investment_score", "decision_score", "combined_score"),
-            "data_quality": _pick_number(row, "data_quality", "quality_score", "confidence_score"),
+            "data_quality": _pick_number(row, "data_quality", "data_quality_score", "quality_score"),
             "source_consensus": _pick_number(row, "source_consensus", "source_confidence", "consensus_score"),
-            "liquidity": _pick_number(row, "liquidity", "liquidity_score", "average_volume"),
+            # Raw average volume is deliberately not treated as a 0-100 score.
+            "liquidity": _pick_number(row, "liquidity_score", "liquidity"),
+            "quality_evidence": dict(row.get("quality_evidence") or {}),
+            "quality_coverage": dict(row.get("quality_coverage") or {}),
             "technical": technical,
             "decision_inputs": decision_inputs,
             "provenance": {

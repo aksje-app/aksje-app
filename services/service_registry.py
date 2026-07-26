@@ -24,6 +24,8 @@ from services.autonomy_learning_account_service import AutonomyLearningAccountSe
 from services.evaluation_export_service import EvaluationExportService
 from services.autonomy_technical_contribution_service import AutonomyTechnicalContributionService
 from services.strategy_lab_service import StrategyLabService
+from services.paper_quality_enrichment_service import PaperQualityEnrichmentService
+from services.strategy_outcome_service import StrategyOutcomeService
 
 
 class ServiceRegistry:
@@ -36,10 +38,12 @@ class ServiceRegistry:
         self.market_snapshots = MarketSnapshotService(self.repositories)
         self.technical_signals = TechnicalSignalService(self.market_snapshots)
         self.technical_quality = TechnicalQualityService(self.technical_signals)
+        self.paper_quality_enrichment = PaperQualityEnrichmentService()
         self.parallel_strategies = ParallelStrategyService(
             self.repositories, self.strategy_registry, self.technical_signals, self.technical_quality
         )
-        self.strategy_lab = StrategyLabService(self.repositories, self.strategy_registry, self.parallel_strategies)
+        self.strategy_outcomes = StrategyOutcomeService(self.repositories)
+        self.strategy_lab = StrategyLabService(self.repositories, self.strategy_registry, self.parallel_strategies, self.strategy_outcomes)
         self.strategy_accounts = StrategyAccountService(self.repositories, self.strategy_registry)
         self.simulated_execution = SimulatedExecutionService(self.repositories, self.strategy_accounts)
         self.autonomy_activation = AutonomyActivationService(self.repositories)
