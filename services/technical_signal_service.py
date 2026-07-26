@@ -6,6 +6,8 @@ ownership, adds canonical snapshot input and returns traceable model metadata.
 from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
+import hashlib
+import json
 
 from domain.market_snapshot import CandidateSnapshot
 from services.market_snapshot_service import MarketSnapshotService, get_market_snapshot_service
@@ -14,6 +16,41 @@ from utils import _clamp, _safe_float
 TECHNICAL_SIGNAL_SCHEMA_VERSION = "1.0"
 TECHNICAL_SIGNAL_MODEL_VERSION = "legacy-1.0.0"
 TECHNICAL_SIGNAL_PARAMETER_VERSION = "paper-trading-rules-current"
+
+TECHNICAL_DECISION_DEFAULTS = {
+    "buy_score_threshold": 7.2,
+    "sell_score_threshold": 4.2,
+    "maximum_buy_rsi": 70.0,
+    "extreme_sell_rsi": 80.0,
+    "block_high_risk": True,
+    "require_positive_confirmation": True,
+}
+
+
+def normalize_technical_parameter_overrides(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return a bounded decision profile without changing legacy defaults."""
+    raw = dict(value or {})
+    out = dict(TECHNICAL_DECISION_DEFAULTS)
+    numeric_bounds = {
+        "buy_score_threshold": (0.0, 10.0),
+        "sell_score_threshold": (0.0, 10.0),
+        "maximum_buy_rsi": (0.0, 100.0),
+        "extreme_sell_rsi": (0.0, 100.0),
+    }
+    for key, (low, high) in numeric_bounds.items():
+        if key in raw:
+            out[key] = float(_clamp(_safe_float(raw.get(key), out[key]), low, high))
+    for key in ("block_high_risk", "require_positive_confirmation"):
+        if key in raw:
+            out[key] = bool(raw.get(key))
+    if out["sell_score_threshold"] > out["buy_score_threshold"]:
+        out["sell_score_threshold"] = out["buy_score_threshold"]
+    return out
+
+
+def technical_parameter_checksum(parameters: Mapping[str, Any]) -> str:
+    payload = json.dumps(dict(parameters or {}), sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _get(item: Mapping[str, Any], key: str, default: Any = None) -> Any:
@@ -64,13 +101,21 @@ class TechnicalSignalService:
         run_id: str = "",
         source: str = "",
         market_snapshot_id: str = "",
+        parameter_overrides: Mapping[str, Any] | None = None,
+        model_version: str = "",
+        parameter_version: str = "",
     ) -> dict[str, Any]:
         snapshot = self._coerce_snapshot(
             item, technical_context, run_id=run_id, source=source, market_snapshot_id=market_snapshot_id
         )
         decision_input = dict(snapshot.decision_inputs or {})
         technical = dict(snapshot.technical or {})
-        return self._evaluate_legacy_rules(decision_input, technical, insider, analyst, earnings, snapshot)
+        return self._evaluate_legacy_rules(
+            decision_input, technical, insider, analyst, earnings, snapshot,
+            parameters=normalize_technical_parameter_overrides(parameter_overrides),
+            model_version=model_version or TECHNICAL_SIGNAL_MODEL_VERSION,
+            parameter_version=parameter_version or TECHNICAL_SIGNAL_PARAMETER_VERSION,
+        )
 
     def evaluate_many(
         self,
@@ -79,9 +124,15 @@ class TechnicalSignalService:
         run_id: str = "",
         source: str = "technical_signal_batch",
         market_snapshot_id: str = "",
+        parameter_overrides: Mapping[str, Any] | None = None,
+        model_version: str = "",
+        parameter_version: str = "",
     ) -> list[dict[str, Any]]:
         return [
-            self.evaluate(candidate, run_id=run_id, source=source, market_snapshot_id=market_snapshot_id)
+            self.evaluate(
+                candidate, run_id=run_id, source=source, market_snapshot_id=market_snapshot_id,
+                parameter_overrides=parameter_overrides, model_version=model_version, parameter_version=parameter_version,
+            )
             for candidate in candidates or []
         ]
 
@@ -93,6 +144,10 @@ class TechnicalSignalService:
         analyst: Mapping[str, Any] | None,
         earnings: Mapping[str, Any] | None,
         snapshot: CandidateSnapshot,
+        *,
+        parameters: Mapping[str, Any],
+        model_version: str,
+        parameter_version: str,
     ) -> dict[str, Any]:
         reasons: list[str] = []
         warnings: list[str] = []
@@ -186,9 +241,17 @@ class TechnicalSignalService:
         risk = _risk_label(risk_score)
         confidence = int(_clamp(round(score * 10), 35, 95))
 
-        if score >= 7.2 and risk != "Høy" and rsi < 70 and (macd_bullish or breakout_type in ["bullish", "breakout", "up"]):
+        buy_score_threshold = float(parameters["buy_score_threshold"])
+        sell_score_threshold = float(parameters["sell_score_threshold"])
+        maximum_buy_rsi = float(parameters["maximum_buy_rsi"])
+        extreme_sell_rsi = float(parameters["extreme_sell_rsi"])
+        high_risk_block = bool(parameters["block_high_risk"]) and risk == "Høy"
+        positive_confirmation = macd_bullish or breakout_type in ["bullish", "breakout", "up"]
+        confirmation_ok = positive_confirmation or not bool(parameters["require_positive_confirmation"])
+
+        if score >= buy_score_threshold and not high_risk_block and rsi < maximum_buy_rsi and confirmation_ok:
             decision = "BUY"; emoji = "🟢"
-        elif score <= 4.2 or risk == "Høy" or rsi >= 80 or breakout_type in ["bearish", "breakdown", "down"]:
+        elif score <= sell_score_threshold or high_risk_block or rsi >= extreme_sell_rsi or breakout_type in ["bearish", "breakdown", "down"]:
             decision = "SELL / AVOID"; emoji = "🔴"
         else:
             decision = "HOLD / WAIT"; emoji = "🟡"
@@ -220,8 +283,10 @@ class TechnicalSignalService:
             "snapshot_checksum": snapshot.checksum,
             "snapshot_schema_version": snapshot.schema_version,
             "technical_signal_schema_version": TECHNICAL_SIGNAL_SCHEMA_VERSION,
-            "technical_model_version": TECHNICAL_SIGNAL_MODEL_VERSION,
-            "technical_parameter_version": TECHNICAL_SIGNAL_PARAMETER_VERSION,
+            "technical_model_version": model_version,
+            "technical_parameter_version": parameter_version,
+            "technical_parameters": dict(parameters),
+            "technical_parameter_checksum": technical_parameter_checksum(parameters),
         }
 
 

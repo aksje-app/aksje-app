@@ -15,6 +15,7 @@ from repositories.application import get_repository_registry
 from services.strategy_registry_service import StrategyRegistryService
 from services.market_snapshot_service import MarketSnapshotService
 from services.technical_signal_service import TechnicalSignalService
+from services.parallel_strategy_service import ParallelStrategyService
 
 
 class ServiceRegistry:
@@ -26,6 +27,9 @@ class ServiceRegistry:
         self.strategy_registry = StrategyRegistryService(self.repositories)
         self.market_snapshots = MarketSnapshotService(self.repositories)
         self.technical_signals = TechnicalSignalService(self.market_snapshots)
+        self.parallel_strategies = ParallelStrategyService(
+            self.repositories, self.strategy_registry, self.technical_signals
+        )
         self.universe = get_universe_service(
             state_service=self.state,
             storage_service=self.storage,
