@@ -16,7 +16,7 @@ from services.autonomy_activation_service import AutonomyActivationService
 from services.strategy_account_service import StrategyAccountService
 from services.simulated_execution_service import SimulatedExecutionService
 
-EVALUATION_EXPORT_SERVICE_VERSION = "1.0"
+EVALUATION_EXPORT_SERVICE_VERSION = "1.1"
 _SECRET_KEY_RE = re.compile(r"(token|secret|password|api[_-]?key|user[_-]?key|authorization|database_url)", re.I)
 _SECRET_VALUE_RE = re.compile(r"(?i)(bearer\s+[a-z0-9._-]+|https?://[^\s:@]+:[^\s@]+@|(?:token|secret|password|api[_-]?key|user[_-]?key|authorization|database[_-]?url)\s*[:=]\s*\S+)")
 
@@ -71,6 +71,12 @@ def _summary_markdown(analysis: Mapping[str, Any], accounts: Sequence[Mapping[st
         f"- Ordreintensjoner: {funnel.get('order_intents_created', 0)}",
         f"- Utførte paperordrer: {funnel.get('orders_executed', 0)}",
         "",
+        "## Teknisk bidrag til Autonomi",
+        "",
+        f"- Kandidater med teknisk bidrag: {sum(1 for row in analysis.get('candidate_decisions') or [] if row.get('technical_contribution_applied'))}",
+        f"- Teknisk VENT: {sum(1 for row in analysis.get('candidate_decisions') or [] if row.get('technical_entry_wait') or row.get('execution_stage') == 'TECHNICAL_TIMING_WAIT')}",
+        f"- Kjøpsgrense krysset med teknisk bidrag: {sum(1 for row in analysis.get('candidate_decisions') or [] if float(row.get('base_score') or row.get('autonomy_base_investment_score') or row.get('score') or 0) < float((analysis.get('parameters') or {}).get('minimum_investment_score') or 78) <= float(row.get('score') or row.get('autonomy_adjusted_investment_score') or 0))}",
+        "",
         "## Vanligste blokkeringer",
         "",
     ]
@@ -112,8 +118,10 @@ class EvaluationExportService:
         versions = self.repositories.strategy_versions.list()
         created_at = _now()
         export_id = "EXP-" + hashlib.sha256(f"{created_at}|{analysis.get('analysis_id')}".encode("utf-8")).hexdigest()[:20]
+        technical_policy = self.repositories.configurations.get("autonomy_technical_contribution_policy") or {}
         parameter_snapshot = {
             "analysis_parameters": analysis.get("parameters") or {},
+            "autonomy_technical_contribution_policy": technical_policy,
             "strategy_versions": versions,
             "strategy_accounts": [{k: v for k, v in row.items() if k != "positions"} for row in self.accounts.list_accounts()],
             "parameter_change_applied": False,
@@ -136,6 +144,26 @@ class EvaluationExportService:
         for row in analysis.get("top_blockers") or []:
             funnel_rows.append({"stage": "blocker", **dict(row), "run_id": analysis.get("run_id")})
         trades = [{**dict(fill), "order_status": next((o.get("status") for o in orders if o.get("order_id") == fill.get("order_id")), "FILLED")} for fill in fills]
+        technical_rows = []
+        for row in decisions:
+            if row.get("technical_contribution_applied") or row.get("technical_strategy_version_id") or row.get("technical_timing"):
+                technical_rows.append({
+                    "run_id": row.get("run_id"), "ticker": row.get("ticker"), "action": row.get("action"),
+                    "base_score": row.get("base_score", row.get("autonomy_base_investment_score")),
+                    "adjusted_score": row.get("score", row.get("autonomy_adjusted_investment_score")),
+                    "contribution_points": row.get("technical_contribution_points"),
+                    "technical_score_100": row.get("technical_score_100"),
+                    "technical_confidence": row.get("technical_signal_confidence"),
+                    "technical_action": row.get("technical_signal_action"),
+                    "technical_timing": row.get("technical_timing"),
+                    "technical_entry_wait": row.get("technical_entry_wait"),
+                    "strategy_version_id": row.get("technical_strategy_version_id"),
+                    "model_version": row.get("technical_model_version"),
+                    "parameter_version": row.get("technical_parameter_version"),
+                    "policy_version": row.get("technical_contribution_policy_version"),
+                    "execution_stage": row.get("execution_stage"),
+                    "reason": row.get("reason"),
+                })
         error_lines: list[str] = []
         for item in errors or []:
             if isinstance(item, Mapping):
@@ -150,6 +178,7 @@ class EvaluationExportService:
             "activation_funnel.csv": _csv_bytes(funnel_rows),
             "strategy_comparison.csv": _csv_bytes(accounts),
             "candidate_decisions.csv": _csv_bytes(decisions),
+            "technical_contribution.csv": _csv_bytes(technical_rows),
             "orders.csv": _csv_bytes(orders),
             "trades.csv": _csv_bytes(trades),
             "portfolio_metrics.csv": _csv_bytes(accounts),

@@ -21,6 +21,7 @@ from services.simulated_execution_service import SimulatedExecutionService
 from services.autonomy_activation_service import AutonomyActivationService
 from services.autonomy_learning_account_service import AutonomyLearningAccountService
 from services.evaluation_export_service import EvaluationExportService
+from services.autonomy_technical_contribution_service import AutonomyTechnicalContributionService
 
 
 class ServiceRegistry:
@@ -42,6 +43,7 @@ class ServiceRegistry:
         self.evaluation_export = EvaluationExportService(
             self.repositories, self.autonomy_activation, self.strategy_accounts, self.simulated_execution
         )
+        self.autonomy_technical_contribution = AutonomyTechnicalContributionService(self.repositories)
         self.universe = get_universe_service(
             state_service=self.state,
             storage_service=self.storage,

@@ -22,7 +22,7 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 
 def _score(row: Mapping[str, Any]) -> float:
-    return _f(row.get("investment_score", row.get("final_score", row.get("score"))))
+    return _f(row.get("autonomy_adjusted_investment_score", row.get("investment_score", row.get("final_score", row.get("score")))))
 
 
 def _quality(row: Mapping[str, Any]) -> float:
@@ -163,18 +163,20 @@ class AutonomyLearningAccountService:
                 continue
             score = _score(candidate); quality = _quality(candidate); risk = _risk(candidate); price = _price(candidate)
             blocker = ""
-            if score < policy["minimum_score"]:
-                blocker = f"Score {score:.1f} under læringsgrense {policy['minimum_score']:.1f}"
-            elif quality < policy["minimum_data_quality"]:
+            if quality < policy["minimum_data_quality"]:
                 blocker = f"Datakvalitet {quality:.1f} under hard grense {policy['minimum_data_quality']:.1f}"
             elif risk > policy["maximum_risk_score"]:
                 blocker = f"Risiko {risk:.1f} over hard grense {policy['maximum_risk_score']:.1f}"
+            elif bool(candidate.get("technical_entry_wait")):
+                blocker = str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT")
+            elif score < policy["minimum_score"]:
+                blocker = f"Justert score {score:.1f} under læringsgrense {policy['minimum_score']:.1f}"
             elif price <= 0:
                 blocker = "Mangler gyldig markedspris"
             elif len(account.get("positions") or {}) >= policy["maximum_open_positions"]:
                 blocker = "Maks antall læringsposisjoner"
             if blocker:
-                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": blocker, "score": score, "data_quality": quality, "risk": risk, "account_id": "autonomy_learning", "order_intent_created": False, "order_executed": False})
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT" if bool(candidate.get("technical_entry_wait")) else "SKIP", "reason": blocker, "score": score, "base_score": _f(candidate.get("autonomy_base_investment_score"), score), "data_quality": quality, "risk": risk, "account_id": "autonomy_learning", "order_intent_created": False, "order_executed": False, "technical_timing": candidate.get("technical_timing"), "technical_score_100": candidate.get("technical_score_100"), "technical_contribution_points": candidate.get("technical_contribution_points"), "technical_strategy_version_id": candidate.get("technical_strategy_version_id")})
                 continue
 
             equity = self.accounts.equity(account)
@@ -189,8 +191,8 @@ class AutonomyLearningAccountService:
                 market_snapshot_id=market_snapshot_id,
                 candidate_snapshot_id=str(candidate.get("candidate_snapshot_id") or ""),
                 execution_authorized=True,
-                risk_context={"score": score, "data_quality": quality, "risk": risk, "policy": policy},
-                metadata={"account_role": "LEARNING", "source": "autonomy_learning_cycle", "main_strategy_buys": len(main_buys)},
+                risk_context={"score": score, "base_score": _f(candidate.get("autonomy_base_investment_score"), score), "data_quality": quality, "risk": risk, "policy": policy, "technical_timing": candidate.get("technical_timing")},
+                metadata={"account_role": "LEARNING", "source": "autonomy_learning_cycle", "main_strategy_buys": len(main_buys), "technical_strategy_version_id": candidate.get("technical_strategy_version_id"), "technical_contribution_points": candidate.get("technical_contribution_points")},
             )
             orders.append(result["order"])
             if result.get("fill"): fills.append(result["fill"])
@@ -198,7 +200,8 @@ class AutonomyLearningAccountService:
                 "timestamp": _now(), "run_id": run_id, "ticker": ticker,
                 "action": "BUY" if result["ok"] else "SKIP",
                 "reason": reason if result["ok"] else result["order"].get("rejection_reason"),
-                "score": score, "data_quality": quality, "risk": risk,
+                "score": score, "base_score": _f(candidate.get("autonomy_base_investment_score"), score), "data_quality": quality, "risk": risk,
+                "technical_timing": candidate.get("technical_timing"), "technical_score_100": candidate.get("technical_score_100"), "technical_contribution_points": candidate.get("technical_contribution_points"), "technical_strategy_version_id": candidate.get("technical_strategy_version_id"),
                 "account_id": "autonomy_learning", "order_intent_created": True,
                 "order_executed": bool(result["ok"]), "order_id": result["order"].get("order_id"),
             })

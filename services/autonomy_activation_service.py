@@ -40,6 +40,7 @@ def classify_blocker(row: Mapping[str, Any]) -> tuple[str, str]:
         ("PORTFOLIO_PAUSED", ("paus", "ikke aktiv", "portfolio_paused"), "Porteføljen er pauset"),
         ("DATA_QUALITY_BELOW_THRESHOLD", ("datakvalitet", "data quality"), "Datakvalitet under minimum"),
         ("RISK_ABOVE_LIMIT", ("risiko", "risk"), "Risiko over maksimal grense"),
+        ("TECHNICAL_TIMING_WAIT", ("teknisk produksjonsbenchmark", "teknisk timing", "technical timing"), "Teknisk timing gir VENT"),
         ("SCORE_BELOW_THRESHOLD", ("score", "under læringsgrense"), "Score under kjøpsgrensen"),
         ("INVALID_PRICE", ("mangler gyldig markedspris", "mangler gyldig pris", "invalid price"), "Mangler gyldig pris"),
         ("MAX_OPEN_POSITIONS", ("maks antall åpne", "maximum open positions"), "Maks antall posisjoner nådd"),
@@ -68,7 +69,7 @@ def classify_blocker(row: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def _score_from_row(row: Mapping[str, Any]) -> float:
-    return _f(row.get("score", row.get("investment_score", row.get("final_score"))))
+    return _f(row.get("score", row.get("autonomy_adjusted_investment_score", row.get("investment_score", row.get("final_score")))))
 
 
 def _quality_from_row(row: Mapping[str, Any]) -> float:
@@ -161,6 +162,20 @@ class AutonomyActivationService:
                 "execution_stage": raw.get("execution_stage"),
                 "market_snapshot_id": raw.get("market_snapshot_id"),
                 "candidate_snapshot_id": raw.get("candidate_snapshot_id"),
+                "base_score": raw.get("base_score", raw.get("autonomy_base_investment_score", score)),
+                "autonomy_adjusted_investment_score": raw.get("autonomy_adjusted_investment_score", score),
+                "technical_contribution_applied": raw.get("technical_contribution_applied", False),
+                "technical_contribution_points": raw.get("technical_contribution_points"),
+                "technical_score_100": raw.get("technical_score_100"),
+                "technical_signal_action": raw.get("technical_signal_action"),
+                "technical_signal_confidence": raw.get("technical_signal_confidence"),
+                "technical_timing": raw.get("technical_timing"),
+                "technical_entry_wait": raw.get("technical_entry_wait", False),
+                "technical_strategy_version_id": raw.get("technical_strategy_version_id"),
+                "technical_model_version": raw.get("technical_model_version"),
+                "technical_parameter_version": raw.get("technical_parameter_version"),
+                "technical_contribution_policy_version": raw.get("technical_contribution_policy_version"),
+                "reason": raw.get("reason"),
             })
 
         simulations: list[dict[str, Any]] = []
