@@ -11,20 +11,20 @@ from tools.validate_distribution import FileEntry, validate_entries, validate_pa
 
 
 def test_release_identity_is_safe_distribution_patch():
-    assert APP_VERSION == "v19.5.0"
-    assert PREVIOUS_APP_VERSION == "v19.4.0"
+    assert APP_VERSION == "v19.6.0"
+    assert PREVIOUS_APP_VERSION == "v19.5.0"
 
 
 def test_validator_rejects_runtime_secret_and_generated_report():
     entries = [
         FileEntry("app.py", 1, b"x"),
-        FileEntry("app_version.py", 30, b'APP_VERSION = "v19.5.0"'),
+        FileEntry("app_version.py", 30, b'APP_VERSION = "v19.6.0"'),
         FileEntry("report_contracts.py", 1, b"x"),
         FileEntry("decision_report.py", 1, b"x"),
         FileEntry("requirements.txt", 0, b""),
         FileEntry(".env.example", 0, b""),
-        FileEntry("RELEASE_NOTES_v19.5.0.md", 0, b""),
-        FileEntry("DEPLOY_v19.5.0.md", 0, b""),
+        FileEntry("RELEASE_NOTES_v19.6.0.md", 0, b""),
+        FileEntry("DEPLOY_v19.6.0.md", 0, b""),
         FileEntry("tools/validate_distribution.py", 0, b""),
         FileEntry("tools/prepare_safe_upgrade.py", 0, b""),
         FileEntry("DISTRIBUTION_MANIFEST.json", 2, b"{}"),
