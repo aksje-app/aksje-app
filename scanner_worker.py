@@ -48,6 +48,7 @@ from services.market_snapshot_service import get_market_snapshot_service
 from services.parallel_strategy_service import get_parallel_strategy_service
 from services.strategy_account_service import get_strategy_account_service
 from services.simulated_execution_service import get_simulated_execution_service
+from services.paper_quality_enrichment_service import get_paper_quality_enrichment_service
 
 
 force_schema_migration()
@@ -203,6 +204,12 @@ def analyze_ticker(ticker, *, market_snapshot_id="", run_id=""):
 
     snapshot_service = get_market_snapshot_service()
     technical_context = build_cron_technical_context(item)
+    # Enrich only the immutable snapshot evidence. The legacy technical score
+    # and trading decision remain authoritative and unchanged.
+    try:
+        item = get_paper_quality_enrichment_service().enrich(item, technical_context)
+    except Exception as exc:
+        logging.warning("Paper quality enrichment failed open for %s: %s", ticker, exc)
     candidate_snapshot = snapshot_service.build_candidate_snapshot(
         item, technical_context, market_snapshot_id=market_snapshot_id, run_id=run_id, source="paper_scanner"
     )

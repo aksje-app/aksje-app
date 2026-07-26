@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.10.0"
-APP_VERSION_NAME = "Strategy Lab og Technical Quality Challenger"
+APP_VERSION = "v19.11.0"
+APP_VERSION_NAME = "Strategisammenligning, resultatattribusjon og kvalitetsevidens"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.9.0"
+PREVIOUS_APP_VERSION = "v19.10.0"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -21,7 +21,7 @@ STORAGE_REPOSITORY_VERSION = "v19.2.0"
 DECISION_INTELLIGENCE_VERSION = "v19.3.0"
 CONTROLLED_LEARNING_POLICY_VERSION = "v19.3.0"
 STRATEGY_REGISTRY_VERSION = "1.0"
-MARKET_SNAPSHOT_VERSION = "1.0"
+MARKET_SNAPSHOT_VERSION = "1.1"
 TECHNICAL_SIGNAL_SERVICE_VERSION = "1.1"
 STRATEGY_INTERFACE_VERSION = "1.0"
 PARALLEL_STRATEGY_SERVICE_VERSION = "1.1"
@@ -29,10 +29,13 @@ STRATEGY_ACCOUNT_SERVICE_VERSION = "1.0"
 SIMULATED_EXECUTION_SERVICE_VERSION = "1.0"
 AUTONOMY_ACTIVATION_SERVICE_VERSION = "1.0"
 AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION = "1.0"
-EVALUATION_EXPORT_SERVICE_VERSION = "1.2"
+EVALUATION_EXPORT_SERVICE_VERSION = "1.4"
 AUTONOMY_TECHNICAL_CONTRIBUTION_SERVICE_VERSION = "1.0"
-TECHNICAL_QUALITY_SERVICE_VERSION = "1.0"
-STRATEGY_LAB_SERVICE_VERSION = "1.0"
+TECHNICAL_QUALITY_SERVICE_VERSION = "1.1"
+STRATEGY_LAB_SERVICE_VERSION = "1.1"
+PAPER_QUALITY_ENRICHMENT_SERVICE_VERSION = "1.0"
+QUALITY_EVIDENCE_NORMALIZER_VERSION = "1.0"
+STRATEGY_OUTCOME_SERVICE_VERSION = "1.0"
 VERSION_CONTRACT_SCHEMA = "1.0"
 
 
@@ -63,6 +66,9 @@ class VersionContract:
     autonomy_technical_contribution_service_version: str = AUTONOMY_TECHNICAL_CONTRIBUTION_SERVICE_VERSION
     technical_quality_service_version: str = TECHNICAL_QUALITY_SERVICE_VERSION
     strategy_lab_service_version: str = STRATEGY_LAB_SERVICE_VERSION
+    paper_quality_enrichment_service_version: str = PAPER_QUALITY_ENRICHMENT_SERVICE_VERSION
+    quality_evidence_normalizer_version: str = QUALITY_EVIDENCE_NORMALIZER_VERSION
+    strategy_outcome_service_version: str = STRATEGY_OUTCOME_SERVICE_VERSION
     component_name: str = ""
     component_version: str = ""
 
@@ -95,6 +101,9 @@ def get_version_contract(*, component_name: str = "", component_version: str = "
         autonomy_technical_contribution_service_version=AUTONOMY_TECHNICAL_CONTRIBUTION_SERVICE_VERSION,
         technical_quality_service_version=TECHNICAL_QUALITY_SERVICE_VERSION,
         strategy_lab_service_version=STRATEGY_LAB_SERVICE_VERSION,
+        paper_quality_enrichment_service_version=PAPER_QUALITY_ENRICHMENT_SERVICE_VERSION,
+        quality_evidence_normalizer_version=QUALITY_EVIDENCE_NORMALIZER_VERSION,
+        strategy_outcome_service_version=STRATEGY_OUTCOME_SERVICE_VERSION,
         component_name=str(component_name or ""),
         component_version=str(component_version or APP_VERSION),
     ))
@@ -115,6 +124,8 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
         "autonomy_activation_service_version", "autonomy_learning_account_service_version",
         "evaluation_export_service_version", "autonomy_technical_contribution_service_version",
         "technical_quality_service_version", "strategy_lab_service_version",
+        "paper_quality_enrichment_service_version", "quality_evidence_normalizer_version",
+        "strategy_outcome_service_version",
     }
     missing = sorted(required - set(value or {}))
     if missing:
@@ -126,6 +137,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.11.0: Strategisammenligning og resultatattribusjon: Paper-snapshots berikes med normalisert kvalitetsevidens uten å endre produksjonsscore. Strategy Lab skiller MANGLER, UGYLDIG og UNDER TERSKEL, viser aggregert evidensdekning og blokkårsaker, og lagrer observerte 1-, 5- og 20-handelsdagers utfall i et separat, uforanderlig utfallsregister. Resultatattribusjonen viser blant annet unngåtte tap, tapte gevinster og utfallsdekning uten look-ahead, ordreutførelse eller automatisk promotering.",
     "v19.10.0: Strategy Lab og Technical Quality Challenger: produksjonsbenchmarken forblir uendret, mens en skrivebeskyttet kvalitetschallenger bruker avgrenset datakvalitet, kildekonsensus, likviditet, insider, analytiker, resultater, regime og nyhetskontekst fra samme snapshot. Strategy Lab lagrer hypoteser, snapshot-replay, tidsordnet walk-forward-splitt, sammenligningsmal, manuell godkjenning og rollback uten automatisk promotering eller ordreutførelse. Evaluerings-ZIP inkluderer lab- og challengerresultater.",
     "v19.9.0: Kontrollert teknisk bidrag inn i Autonomi: teknisk produksjonsbenchmark fra samme snapshot gir et begrenset entry-only scorebidrag og kan gi VENT ved tydelig negativ timing. Positivt bidrag krever et minimumsnivå på Autonomis egen base score. Datakvalitet, risiko, kapital, sektor, posisjonsgrenser og harde exits kan ikke overstyres. Alle bidrag lagres med teknisk versjon, modell, parametre, policy og score-diff og eksporteres i technical_contribution.csv.",
     "v19.8.0: Felles ordre-/porteføljemotor og separate strategikontoer: teknisk benchmark, autonomy_main og autonomy_learning får isolerte, persistente konti med felles ordreintensjon, simulert fill, posisjon og kontosnapshot. Eksisterende Paper Trading og Autonomi synkroniseres til samme ledger uten å endre produksjonsregler. En kontrollert læringskonto bruker små posisjoner og lavere, eksplisitt godkjent scoregrense, men kan ikke svekke datakvalitets- eller risikogrenser. Aktiveringsanalyse viser kandidatfunnel, blokkeringer og simulerte terskler direkte i appen. En sanitert ZIP-eksport samler sammendrag, kandidatbeslutninger, ordre, handler, porteføljemålinger, parametre og rensede feil.",
