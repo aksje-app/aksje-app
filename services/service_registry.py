@@ -13,6 +13,8 @@ from services.forecast_service import get_forecast_service
 from services.persistence_service import get_persistence_service
 from repositories.application import get_repository_registry
 from services.strategy_registry_service import StrategyRegistryService
+from services.market_snapshot_service import MarketSnapshotService
+from services.technical_signal_service import TechnicalSignalService
 
 
 class ServiceRegistry:
@@ -22,6 +24,8 @@ class ServiceRegistry:
         self.persistence = get_persistence_service()
         self.repositories = get_repository_registry(self.storage)
         self.strategy_registry = StrategyRegistryService(self.repositories)
+        self.market_snapshots = MarketSnapshotService(self.repositories)
+        self.technical_signals = TechnicalSignalService(self.market_snapshots)
         self.universe = get_universe_service(
             state_service=self.state,
             storage_service=self.storage,
