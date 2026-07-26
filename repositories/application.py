@@ -39,6 +39,10 @@ class ModelStateRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("model_state", storage=storage, id_field="model_id")
 class NotificationRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("notifications", storage=storage, id_field="notification_id")
+class StrategyVersionRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_versions", storage=storage, id_field="version_id")
+class StrategyEventRepository(EventRepository):
+    def __init__(self, storage=None): super().__init__("strategy_events", storage=storage)
 class OperationalEventRepository(EventRepository):
     def __init__(self, storage=None): super().__init__("operational_events", storage=storage)
 class AuditEventRepository(EventRepository):
@@ -64,6 +68,8 @@ class RepositoryRegistry:
         self.learning = LearningRepository(storage)
         self.model_state = ModelStateRepository(storage)
         self.notifications = NotificationRepository(storage)
+        self.strategy_versions = StrategyVersionRepository(storage)
+        self.strategy_events = StrategyEventRepository(storage)
         self.operational_events = OperationalEventRepository(storage)
         self.audit_events = AuditEventRepository(storage)
 
@@ -71,8 +77,8 @@ class RepositoryRegistry:
         return (
             "settings", "reports", "portfolios", "trades", "tasks", "approvals",
             "source_health", "scheduler", "run_traces", "configurations",
-            "learning", "model_state", "notifications", "operational_events",
-            "audit_events",
+            "learning", "model_state", "notifications", "strategy_versions",
+            "strategy_events", "operational_events", "audit_events",
         )
 
 
