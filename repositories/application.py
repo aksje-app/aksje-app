@@ -59,6 +59,12 @@ class ActivationAnalysisRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("activation_analyses", storage=storage, id_field="analysis_id")
 class EvaluationExportRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("evaluation_exports", storage=storage, id_field="export_id")
+class StrategyLabExperimentRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_lab_experiments", storage=storage, id_field="experiment_id")
+class StrategyLabRunRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_lab_runs", storage=storage, id_field="lab_run_id")
+class StrategyLabApprovalRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_lab_approvals", storage=storage, id_field="approval_id")
 class StrategyEventRepository(EventRepository):
     def __init__(self, storage=None): super().__init__("strategy_events", storage=storage)
 class OperationalEventRepository(EventRepository):
@@ -96,6 +102,9 @@ class RepositoryRegistry:
         self.strategy_account_snapshots = StrategyAccountSnapshotRepository(storage)
         self.activation_analyses = ActivationAnalysisRepository(storage)
         self.evaluation_exports = EvaluationExportRepository(storage)
+        self.strategy_lab_experiments = StrategyLabExperimentRepository(storage)
+        self.strategy_lab_runs = StrategyLabRunRepository(storage)
+        self.strategy_lab_approvals = StrategyLabApprovalRepository(storage)
         self.strategy_events = StrategyEventRepository(storage)
         self.operational_events = OperationalEventRepository(storage)
         self.audit_events = AuditEventRepository(storage)
@@ -107,6 +116,7 @@ class RepositoryRegistry:
             "learning", "model_state", "notifications", "strategy_versions", "market_snapshots",
             "strategy_decisions", "strategy_runs", "strategy_accounts", "strategy_orders", "strategy_fills",
             "strategy_account_snapshots", "activation_analyses", "evaluation_exports",
+            "strategy_lab_experiments", "strategy_lab_runs", "strategy_lab_approvals",
             "strategy_events", "operational_events", "audit_events",
         )
 
