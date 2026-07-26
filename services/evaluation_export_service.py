@@ -16,7 +16,7 @@ from services.autonomy_activation_service import AutonomyActivationService
 from services.strategy_account_service import StrategyAccountService
 from services.simulated_execution_service import SimulatedExecutionService
 
-EVALUATION_EXPORT_SERVICE_VERSION = "1.4"
+EVALUATION_EXPORT_SERVICE_VERSION = "1.5"
 _SECRET_KEY_RE = re.compile(r"(token|secret|password|api[_-]?key|user[_-]?key|authorization|database_url)", re.I)
 _SECRET_VALUE_RE = re.compile(r"(?i)(bearer\s+[a-z0-9._-]+|https?://[^\s:@]+:[^\s@]+@|(?:token|secret|password|api[_-]?key|user[_-]?key|authorization|database[_-]?url)\s*[:=]\s*\S+)")
 
@@ -120,6 +120,8 @@ class EvaluationExportService:
         lab_runs = self.repositories.strategy_lab_runs.list()
         lab_approvals = self.repositories.strategy_lab_approvals.list()
         strategy_outcomes = self.repositories.strategy_outcomes.list()
+        production_bindings = self.repositories.strategy_production_bindings.list()
+        strategy_promotions = self.repositories.strategy_promotions.list()
         latest_lab_run = max(lab_runs, key=lambda row: str(row.get("completed_at") or ""), default={})
         created_at = _now()
         export_id = "EXP-" + hashlib.sha256(f"{created_at}|{analysis.get('analysis_id')}".encode("utf-8")).hexdigest()[:20]
@@ -145,6 +147,8 @@ class EvaluationExportService:
             "latest_outcome_coverage": latest_lab_run.get("outcome_coverage") or {},
             "latest_outcome_settlement": latest_lab_run.get("outcome_settlement") or {},
             "strategy_outcome_count": len(strategy_outcomes),
+            "production_bindings": production_bindings,
+            "strategy_promotion_count": len(strategy_promotions),
             "additional_metadata": dict(additional_metadata or {}),
             "privacy": "Sanitised export. Known credential fields and secret-like values are redacted.",
         }
@@ -250,6 +254,8 @@ class EvaluationExportService:
             "quality_diagnostics.csv": _csv_bytes(quality_diagnostic_rows),
             "result_attribution.csv": _csv_bytes(attribution_rows),
             "strategy_outcomes.csv": _csv_bytes(strategy_outcomes),
+            "strategy_production_bindings.csv": _csv_bytes(production_bindings),
+            "strategy_promotions.csv": _csv_bytes(strategy_promotions),
             "orders.csv": _csv_bytes(orders),
             "trades.csv": _csv_bytes(trades),
             "portfolio_metrics.csv": _csv_bytes(accounts),

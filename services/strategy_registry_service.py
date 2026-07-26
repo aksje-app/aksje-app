@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import Any, Mapping
 
 from app_version import APP_VERSION, AUTONOMY_POLICY_VERSION
+from domain.strategy_promotion import StrategyProductionBinding
 from domain.strategy_versioning import (
     ExecutionMode,
     StrategyStatus,
@@ -28,6 +29,7 @@ class StrategyRegistryService:
         self.repositories = repositories or get_repository_registry()
         self.versions = self.repositories.strategy_versions
         self.events = self.repositories.strategy_events
+        self.bindings = self.repositories.strategy_production_bindings
 
     def list_versions(self, *, family: str = "", status: str = "") -> list[dict[str, Any]]:
         rows = self.versions.list()
@@ -43,10 +45,58 @@ class StrategyRegistryService:
         return self.versions.get(version_id)
 
     def production_for_family(self, family: str) -> dict[str, Any] | None:
-        rows = self.list_versions(family=family, status=StrategyStatus.PRODUCTION.value)
+        family_key = str(family or "").strip().lower()
+        binding = self.bindings.get(family_key)
+        if binding and binding.get("version_id"):
+            bound = self.get(str(binding.get("version_id")))
+            if bound:
+                return bound
+            raise StrategyRegistryError(f"Produksjonsbinding peker på ukjent versjon for {family_key}")
+        rows = self.list_versions(family=family_key, status=StrategyStatus.PRODUCTION.value)
         if len(rows) > 1:
-            raise StrategyRegistryError(f"Flere produksjonsstrategier er registrert for {family}")
+            raise StrategyRegistryError(f"Flere produksjonsstrategier er registrert for {family_key}")
         return rows[0] if rows else None
+
+    def ensure_production_bindings(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for family in ("technical", "autonomy"):
+            existing = self.bindings.get(family)
+            if existing and self.get(str(existing.get("version_id") or "")):
+                if str(existing.get("state") or "ACTIVE") != "ACTIVE":
+                    active_id = str(existing.get("version_id") or "")
+                    for version in self.list_versions(family=family):
+                        updated = dict(version)
+                        if str(version.get("version_id") or "") == active_id:
+                            updated["status"] = StrategyStatus.PRODUCTION.value
+                            updated["execution_mode"] = ExecutionMode.PAPER.value
+                        elif str(version.get("status") or "") == StrategyStatus.PRODUCTION.value:
+                            updated["status"] = StrategyStatus.SHADOW.value
+                            updated["execution_mode"] = ExecutionMode.SHADOW_READ_ONLY.value
+                        else:
+                            continue
+                        updated["updated_at"] = utc_now_iso()
+                        self.versions.upsert(updated)
+                    recovered = dict(existing)
+                    recovered.update({
+                        "state": "ACTIVE", "pending_version_id": "", "updated_at": utc_now_iso(),
+                        "updated_by": "system", "reason": "Recovered incomplete v19.12 promotion transaction",
+                        "binding_revision": int(existing.get("binding_revision") or 0) + 1,
+                    })
+                    self.bindings.upsert(recovered)
+                    existing = recovered
+                rows.append(existing)
+                continue
+            candidates = self.list_versions(family=family, status=StrategyStatus.PRODUCTION.value)
+            if len(candidates) != 1:
+                raise StrategyRegistryError(f"Kan ikke etablere entydig produksjonsbinding for {family}")
+            production = candidates[0]
+            binding = StrategyProductionBinding(
+                binding_id=family, strategy_family=family, version_id=str(production.get("version_id")),
+                updated_by="system", reason="v19.12 canonical production binding bootstrap",
+            ).to_dict()
+            self.bindings.upsert(binding)
+            rows.append(binding)
+        return rows
 
     def _event(self, event_type: str, row: Mapping[str, Any], *, actor: str = "system", reason: str = "") -> None:
         self.events.append({
@@ -176,6 +226,7 @@ class StrategyRegistryService:
             version_id = build_version_id(default.strategy_id, default.strategy_version)
             existing = self.get(version_id)
             rows.append(existing or self.register(default, reason="versioned strategy bootstrap"))
+        self.ensure_production_bindings()
         return rows
 
     def create_challenger(

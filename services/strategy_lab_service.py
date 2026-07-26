@@ -23,7 +23,7 @@ from services.strategy_outcome_service import (
     StrategyOutcomeService,
 )
 
-STRATEGY_LAB_SERVICE_VERSION = "1.1"
+STRATEGY_LAB_SERVICE_VERSION = "1.2"
 
 
 def _now() -> str:
@@ -508,6 +508,8 @@ class StrategyLabService:
     def approve(self, experiment_id: str, *, actor: str, reason: str, confirmation: str) -> dict[str, Any]:
         if str(confirmation or "").strip().upper() != "GODKJENN":
             raise StrategyLabError("Type GODKJENN to approve the lab result")
+        if not str(reason or "").strip():
+            raise StrategyLabError("Begrunnelse er påkrevd for godkjenning")
         experiment = self.experiments.get(experiment_id)
         if not experiment or str(experiment.get("status") or "") not in {StrategyLabStatus.REVIEW.value, StrategyLabStatus.COMPLETED.value}:
             raise StrategyLabError("Experiment is not ready for approval")
@@ -517,6 +519,8 @@ class StrategyLabService:
             "approval_id": approval_id,
             "experiment_id": experiment_id,
             "lab_run_id": experiment.get("latest_lab_run_id"),
+            "baseline_version_id": experiment.get("baseline_version_id"),
+            "challenger_version_ids": list(experiment.get("challenger_version_ids") or []),
             "status": "APPROVED_FOR_MANUAL_PROMOTION_REVIEW",
             "actor": str(actor or "user"),
             "reason": str(reason or ""),
@@ -539,6 +543,8 @@ class StrategyLabService:
         approval = self.approvals.get(approval_id)
         if not approval:
             raise StrategyLabError("Unknown approval")
+        if bool(approval.get("production_applied")) or str(approval.get("status") or "") == "PROMOTED":
+            raise StrategyLabError("Godkjenningen er allerede promotert. Bruk produksjons-rollback, ikke trekk tilbake godkjenningen.")
         updated = dict(approval)
         updated.update({
             "status": "ROLLED_BACK",
