@@ -48,7 +48,7 @@ def _snapshot(snapshots):
 
 
 def test_version_contract_exposes_shared_strategy_interface():
-    assert APP_VERSION == "v19.10.0"
+    assert APP_VERSION == "v19.11.0"
     contract = get_version_contract()
     assert contract["strategy_interface_version"] == "1.0"
     assert contract["parallel_strategy_service_version"] == "1.1"
@@ -158,7 +158,7 @@ def test_paused_and_retired_versions_do_not_run(tmp_path):
     registry.set_status(challenger["version_id"], "PAUSED")
     result = parallel.evaluate_snapshot(_snapshot(snapshots), families=["technical"])
     assert result["strategy_count"] == 2
-    assert {row["strategy_version"] for row in result["decisions"]} == {"legacy-1.0.0", "1.0.0"}
+    assert {row["strategy_version"] for row in result["decisions"]} == {"legacy-1.0.0", "1.1.0"}
 
 
 def test_parallel_service_has_no_order_execution_dependency():

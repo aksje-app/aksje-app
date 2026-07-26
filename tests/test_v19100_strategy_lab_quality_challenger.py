@@ -70,21 +70,21 @@ def _save_snapshots(snapshots, count=4):
 
 
 def test_version_contract_exposes_strategy_lab_and_quality_service():
-    assert APP_VERSION == "v19.10.0"
+    assert APP_VERSION == "v19.11.0"
     contract = get_version_contract()
-    assert contract["technical_quality_service_version"] == "1.0"
-    assert contract["strategy_lab_service_version"] == "1.0"
+    assert contract["technical_quality_service_version"] == "1.1"
+    assert contract["strategy_lab_service_version"] == "1.1"
     assert contract["parallel_strategy_service_version"] == "1.1"
-    assert contract["evaluation_export_service_version"] == "1.2"
+    assert contract["evaluation_export_service_version"] == "1.4"
 
 
 def test_default_quality_challenger_is_read_only(tmp_path):
     _, registry, _, _, _ = _stack(tmp_path)
-    challenger = registry.get("technical_quality_challenger@1.0.0")
+    challenger = registry.get("technical_quality_challenger@1.1.0")
     assert challenger is not None
     assert challenger["status"] == "CHALLENGER"
     assert challenger["execution_mode"] == "SHADOW_READ_ONLY"
-    assert challenger["parent_version_id"] == "technical_benchmark@legacy-1.0.0"
+    assert challenger["parent_version_id"] == "technical_quality_challenger@1.0.0"
     assert challenger["metadata"]["production_applied"] is False
 
 
@@ -99,11 +99,11 @@ def test_low_quality_blocks_challenger_without_changing_benchmark(tmp_path):
     result = parallel.evaluate_snapshot(
         snapshot,
         families=["technical"],
-        version_ids=["technical_benchmark@legacy-1.0.0", "technical_quality_challenger@1.0.0"],
+        version_ids=["technical_benchmark@legacy-1.0.0", "technical_quality_challenger@1.1.0"],
     )
     by_id = {row["strategy_version_id"]: row for row in result["decisions"]}
     benchmark = by_id["technical_benchmark@legacy-1.0.0"]
-    challenger = by_id["technical_quality_challenger@1.0.0"]
+    challenger = by_id["technical_quality_challenger@1.1.0"]
     assert benchmark["action"] == "BUY"
     assert challenger["action"] == "AVOID"
     assert challenger["execution_authorized"] is False
@@ -122,11 +122,11 @@ def test_quality_evidence_can_promote_only_the_challenger(tmp_path):
     result = parallel.evaluate_snapshot(
         snapshot,
         families=["technical"],
-        version_ids=["technical_benchmark@legacy-1.0.0", "technical_quality_challenger@1.0.0"],
+        version_ids=["technical_benchmark@legacy-1.0.0", "technical_quality_challenger@1.1.0"],
     )
     by_id = {row["strategy_version_id"]: row for row in result["decisions"]}
     benchmark = by_id["technical_benchmark@legacy-1.0.0"]
-    challenger = by_id["technical_quality_challenger@1.0.0"]
+    challenger = by_id["technical_quality_challenger@1.1.0"]
     assert challenger["score"] >= benchmark["score"]
     assert challenger["metadata"]["quality_adjustment"] > 0
     assert all(row["execution_authorized"] is False for row in result["decisions"])
@@ -139,7 +139,7 @@ def test_strategy_lab_replay_is_time_ordered_persistent_and_read_only(tmp_path):
         name="Quality replay",
         hypothesis="Quality filter improves selection",
         baseline_version_id="technical_benchmark@legacy-1.0.0",
-        challenger_version_ids=["technical_quality_challenger@1.0.0"],
+        challenger_version_ids=["technical_quality_challenger@1.1.0"],
         snapshot_ids=[row.snapshot_id for row in saved],
         mode="WALK_FORWARD",
         train_ratio=0.5,
@@ -153,7 +153,7 @@ def test_strategy_lab_replay_is_time_ordered_persistent_and_read_only(tmp_path):
     assert result["execution_authorized"] is False
     assert {row["strategy_version_id"] for row in result["metrics"]} == {
         "technical_benchmark@legacy-1.0.0",
-        "technical_quality_challenger@1.0.0",
+        "technical_quality_challenger@1.1.0",
     }
     assert all(row["execution_authorized"] is False for row in result["decisions"])
     repositories2 = RepositoryRegistry(StorageService(base_dir=tmp_path, database_url="", mode="local"))
@@ -168,7 +168,7 @@ def test_lab_approval_and_rollback_never_promote(tmp_path):
         name="Approval test",
         hypothesis="Manual review only",
         baseline_version_id="technical_benchmark@legacy-1.0.0",
-        challenger_version_ids=["technical_quality_challenger@1.0.0"],
+        challenger_version_ids=["technical_quality_challenger@1.1.0"],
         snapshot_ids=[row.snapshot_id for row in saved],
         actor="tester",
     )
@@ -190,7 +190,7 @@ def test_evaluation_zip_contains_strategy_lab_and_quality_results(tmp_path):
         name="Export lab",
         hypothesis="Export comparable evidence",
         baseline_version_id="technical_benchmark@legacy-1.0.0",
-        challenger_version_ids=["technical_quality_challenger@1.0.0"],
+        challenger_version_ids=["technical_quality_challenger@1.1.0"],
         snapshot_ids=[row.snapshot_id for row in saved],
         actor="tester",
     )
@@ -204,7 +204,9 @@ def test_evaluation_zip_contains_strategy_lab_and_quality_results(tmp_path):
         assert "strategy_lab_experiments.csv" in names
         assert "strategy_lab_runs.csv" in names
         assert "strategy_lab_approvals.csv" in names
-        assert len(names) == 16
+        assert "quality_diagnostics.csv" in names
+        assert "result_attribution.csv" in names
+        assert len(names) == 19
         manifest = archive.read("manifest.json").decode("utf-8")
         metadata = archive.read("run_metadata.json").decode("utf-8")
         assert '"contains_secrets": false' in manifest

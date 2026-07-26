@@ -57,7 +57,7 @@ def _run(created_at: str = "2026-07-25T18:30:00+00:00") -> dict:
 
 def test_version_contract_separates_app_and_compatibility_versions():
     contract = get_version_contract(component_name="market_intelligence", component_version="engine-1")
-    assert APP_VERSION == "v19.10.0"
+    assert APP_VERSION == "v19.11.0"
     assert contract["app_version"] == APP_VERSION
     assert contract["report_schema_version"] == REPORT_SCHEMA_VERSION
     assert contract["database_schema_version"] == DATABASE_SCHEMA_VERSION
