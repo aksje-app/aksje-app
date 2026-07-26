@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.3.0"
+EXPECTED_VERSION = "v19.4.0"
 
 FORBIDDEN_ROOT_DIRS = {
     ".app_runtime",
@@ -100,24 +100,25 @@ PROFILE_REQUIRED_FILES = {
         "migrations/migrate_legacy_storage.py", "tools/export_persistent_storage_v1920.py",
         "tools/import_persistent_storage_v1920.py", "operational_telemetry.py", "report_contracts.py",
         "decision_report.py", "decision_intelligence.py", "controlled_parameter_learning.py",
-        "autonomy_overview.py", "RELEASE_NOTES_v19.3.0.md", "DEPLOY_v19.3.0.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.3.0.md", "MIGRATION_v19.3.0.md",
+        "autonomy_overview.py", "RELEASE_NOTES_v19.4.0.md", "DEPLOY_v19.4.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.4.0.md", "MIGRATION_v19.4.0.md", "ACCEPTANCE_v19.4.0.md",
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
         "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
         "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
-        "market_intelligence.py", "report_contracts.py", "ui/candidate_cards.py", "safety_audit.py",
-        "RELEASE_NOTES_v19.3.0.md", "DEPLOY_v19.3.0.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.3.0.md", "MIGRATION_v19.3.0.md",
+        "market_intelligence.py", "report_contracts.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "safety_audit.py",
+        "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py", ".streamlit/config.toml",
+        "RELEASE_NOTES_v19.4.0.md", "DEPLOY_v19.4.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.4.0.md", "MIGRATION_v19.4.0.md", "ACCEPTANCE_v19.4.0.md",
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "migration": {
         "migrations/migrate_legacy_storage.py", "services/__init__.py", "services/storage_service.py",
         "services/persistence_service.py", "storage_architecture.py", "utils.py", "repositories/base.py", "repositories/application.py",
         "domain/persistence.py", "tools/export_persistent_storage_v1920.py",
-        "tools/import_persistent_storage_v1920.py", "MIGRATION_v19.3.0.md", "DEPLOY_v19.3.0.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.3.0.md", "tools/prepare_safe_upgrade.py",
+        "tools/import_persistent_storage_v1920.py", "MIGRATION_v19.4.0.md", "DEPLOY_v19.4.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.4.0.md", "tools/prepare_safe_upgrade.py",
         "tools/restore_safe_upgrade_backup.py", "tools/validate_distribution.py", "DISTRIBUTION_MANIFEST.json",
     },
 }
