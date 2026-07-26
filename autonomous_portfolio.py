@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from services.strategy_binding import stamp_strategy_metadata
+from services.market_snapshot_service import get_market_snapshot_service
 
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
@@ -374,6 +375,29 @@ def _candidate_strategy(candidate: Mapping[str, Any]) -> str:
         strategy = candidate.get("strategy_matches")[0]
     return str(strategy or "Learning Probe")
 
+def _candidate_snapshot_metadata(candidate: Mapping[str, Any] | None, market_snapshot: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    candidate = dict(candidate or {})
+    market_snapshot = dict(market_snapshot or {})
+    return {
+        "market_snapshot_id": str(candidate.get("market_snapshot_id") or market_snapshot.get("snapshot_id") or ""),
+        "candidate_snapshot_id": str(candidate.get("candidate_snapshot_id") or ""),
+        "snapshot_checksum": str(candidate.get("snapshot_checksum") or candidate.get("checksum") or ""),
+        "snapshot_schema_version": str(candidate.get("snapshot_schema_version") or candidate.get("schema_version") or ""),
+        "market_snapshot_checksum": str(market_snapshot.get("checksum") or ""),
+    }
+
+
+def _attach_snapshot_metadata(rows: Sequence[Mapping[str, Any]], candidate_map: Mapping[str, Mapping[str, Any]], market_snapshot: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw or {})
+        ticker = str(row.get("ticker") or "").upper()
+        for key, value in _candidate_snapshot_metadata(candidate_map.get(ticker), market_snapshot).items():
+            if value:
+                row.setdefault(key, value)
+        output.append(row)
+    return output
+
 
 def _append_equity_history(portfolio: Mapping[str, Any], run_id: str, *, trades: int, decisions: int) -> None:
     history = _read(EQUITY_HISTORY_PATH, [])
@@ -477,6 +501,7 @@ def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: floa
         "action": "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
         "value": round(quantity * price, 2), "pnl": round(pnl, 2), "pnl_pct": closed["pnl_pct"],
         "reason": reason, "strategy": pos.get("strategy"), "mode": "LEARNING_ONLY", "learning_probe": True,
+        **_candidate_snapshot_metadata(pos),
     }
     _record_learning_trade(trade)
     return trade
@@ -680,6 +705,7 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
         "action": "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
         "value": round(proceeds, 2), "pnl": round(pnl, 2), "pnl_pct": round((price / _f(pos.get('average_price'), price) - 1) * 100, 2),
         "reason": reason, "strategy": pos.get("strategy"), "mode": "THEORETICAL_ONLY",
+        **_candidate_snapshot_metadata(pos),
     }
     _record_trade(trade)
     if params.notify_trades:
@@ -697,6 +723,30 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     learning_decisions: list[dict[str, Any]] = []
     learning_trades: list[dict[str, Any]] = []
     exited_this_cycle: set[str] = set()
+
+    original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
+    market_snapshot_row: dict[str, Any] = {}
+    try:
+        snapshot_service = get_market_snapshot_service()
+        market_snapshot = snapshot_service.build_market_snapshot(
+            original_candidates, run_id=run_id, source="autonomy_cycle",
+            metadata={"strategy_family": "autonomy", "candidate_count": len(original_candidates)},
+        )
+        market_snapshot_row = market_snapshot.to_dict()
+        snapshot_service.save(market_snapshot)
+        snapshots_by_ticker = {str(row.get("ticker") or "").upper(): row for row in market_snapshot_row.get("candidates", [])}
+        enriched_candidates = []
+        for candidate in original_candidates:
+            row = dict(candidate)
+            snapshot_row = snapshots_by_ticker.get(str(row.get("ticker") or "").upper(), {})
+            for key, value in _candidate_snapshot_metadata(snapshot_row, market_snapshot_row).items():
+                if value:
+                    row.setdefault(key, value)
+            enriched_candidates.append(row)
+        candidates = enriched_candidates
+    except Exception as exc:
+        _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
+        candidates = original_candidates
     candidate_map = {str(c.get("ticker") or "").upper(): c for c in candidates if str(c.get("ticker") or "").strip()}
 
     # Learning observations have their own ledger and never affect ordinary
@@ -819,6 +869,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 "opened_at": _now(), "strategy": _candidate_strategy(candidate),
                 "entry_score": score, "entry_risk_score": risk, "entry_data_quality": quality,
                 "source_run_id": run_id,
+                **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 "entry_confidence": _f(candidate.get("confidence_score")),
                 "entry_components": {
                     "discovery": _f(candidate.get("discovery_score")),
@@ -834,6 +885,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                 "value": round(value, 2), "pnl": 0.0, "reason": f"Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
                 "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY",
+                **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 "entry_confidence": _f(candidate.get("confidence_score")),
                 "entry_components": {
                     "discovery": _f(candidate.get("discovery_score")),
@@ -889,7 +941,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
                     "opened_at": _now(), "strategy": _candidate_strategy(candidate),
                     "entry_score": score, "entry_risk_score": risk, "entry_data_quality": quality,
-                    "source_run_id": run_id, "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
+                    "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
                     "observation_horizon_days": params.learning_probe_horizon_days,
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "entry_components": {
@@ -907,6 +959,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     "value": round(value, 2), "pnl": 0.0,
                     "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
                     "strategy": _candidate_strategy(candidate), "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
+                    **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
@@ -934,6 +987,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     learning_portfolio["last_run_id"] = run_id
     _write(PORTFOLIO_PATH, portfolio)
     _write(LEARNING_PORTFOLIO_PATH, learning_portfolio)
+    decisions = _attach_snapshot_metadata(decisions, candidate_map, market_snapshot_row)
+    learning_decisions = _attach_snapshot_metadata(learning_decisions, candidate_map, market_snapshot_row)
     _record_decisions(decisions)
     _record_learning_decisions(learning_decisions)
     _append_equity_history(portfolio, run_id, trades=len(trades), decisions=len(decisions))
@@ -949,7 +1004,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions, "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions, "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:

@@ -31,6 +31,7 @@ from settings_store import load_settings, enabled_markets
 import os
 import time
 import requests
+from datetime import datetime, timezone
 
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
@@ -43,6 +44,7 @@ from analysis import score_stock
 from technical import calculate_rsi, calculate_macd, detect_trend
 from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_head_shoulders
 from signal_engine import build_trading_decision
+from services.market_snapshot_service import get_market_snapshot_service
 
 
 force_schema_migration()
@@ -77,58 +79,11 @@ def _merge_unique(*lists):
 
 
 def build_cron_technical_context(item):
-    """
-    Samme type teknisk kontekst som Top Picks / Kjøp nå-kortene bruker.
-    Dette gjør at Cron og UI vurderer BUY/HOLD/SELL på samme grunnlag.
-    """
+    """Compatibility wrapper around the canonical v19.6.0 snapshot builder."""
     try:
-        df = item.get("hist")
-        if df is None or df.empty or "Close" not in df:
-            return {}
-
-        rsi_series = calculate_rsi(df)
-        rsi_clean = rsi_series.dropna()
-        latest_rsi = float(rsi_clean.iloc[-1]) if len(rsi_clean) else 50.0
-
-        macd, macd_signal, _ = calculate_macd(df)
-        macd_clean = macd.dropna()
-        signal_clean = macd_signal.dropna()
-        latest_macd = float(macd_clean.iloc[-1]) if len(macd_clean) else 0.0
-        latest_signal = float(signal_clean.iloc[-1]) if len(signal_clean) else 0.0
-
-        trend_text = str(detect_trend(df))
-        if "Opptrend" in trend_text:
-            trend = "up"
-        elif "Nedtrend" in trend_text:
-            trend = "down"
-        else:
-            trend = "neutral"
-
-        breakout = breakout_scanner(df)
-        hs = detect_head_shoulders(df)
-        inv = detect_inverse_head_shoulders(df)
-
-        close = df["Close"].dropna()
-        recent = close.tail(80)
-        if len(recent) > 5:
-            low = float(recent.min())
-            high = float(recent.max())
-            last = float(close.iloc[-1])
-            channel_pos = ((last - low) / (high - low) * 100) if high != low else 50
-        else:
-            channel_pos = 50
-
-        return {
-            "rsi": latest_rsi,
-            "macd_bullish": latest_macd > latest_signal,
-            "breakout_type": breakout.get("type", "neutral"),
-            "trend": trend,
-            "channel_pos": channel_pos,
-            "head_shoulders_found": bool(hs.get("found")),
-            "inverse_head_shoulders_found": bool(inv.get("found")),
-        }
-    except Exception as e:
-        print(f"Teknisk context feilet: {e}")
+        return get_market_snapshot_service().technical_context_from_history((item or {}).get("hist"))
+    except Exception as exc:
+        print(f"Teknisk context feilet: {exc}")
         return {}
 
 
@@ -233,7 +188,7 @@ def get_rsi_values(item):
     return None, None
 
 
-def analyze_ticker(ticker):
+def analyze_ticker(ticker, *, market_snapshot_id="", run_id=""):
     item = score_stock(ticker, use_news=False)
     if not item:
         return None
@@ -243,8 +198,12 @@ def analyze_ticker(ticker):
         print(f"{ticker}: mangler pris")
         return None
 
+    snapshot_service = get_market_snapshot_service()
     technical_context = build_cron_technical_context(item)
-    decision = build_trading_decision(item, technical_context)
+    candidate_snapshot = snapshot_service.build_candidate_snapshot(
+        item, technical_context, market_snapshot_id=market_snapshot_id, run_id=run_id, source="paper_scanner"
+    )
+    decision = build_trading_decision(candidate_snapshot.to_dict(), technical_context)
 
     signal = decision.get("decision", "HOLD / WAIT")
     confidence = int(decision.get("confidence", 0) or 0)
@@ -266,6 +225,9 @@ def analyze_ticker(ticker):
         "rsi": rsi,
         "prev_rsi": prev_rsi,
         "technical_context": technical_context,
+        "candidate_snapshot": candidate_snapshot.to_dict(),
+        "market_snapshot_id": candidate_snapshot.market_snapshot_id,
+        "candidate_snapshot_id": candidate_snapshot.candidate_snapshot_id,
     }
 
 
@@ -344,6 +306,10 @@ def run_once(force=False):
     tickers = get_watchlist()
     print(f"Scanner {len(tickers)} tickers: {tickers}")
 
+    snapshot_service = get_market_snapshot_service()
+    scan_run_id = f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
+    candidate_snapshots = []
     latest_prices = {}
     trades_executed = 0
 
@@ -353,11 +319,13 @@ def run_once(force=False):
                 print(f"⏸ {ticker}: marked stengt")
                 continue
 
-            result = analyze_ticker(ticker)
+            result = analyze_ticker(ticker, market_snapshot_id=market_snapshot_id, run_id=scan_run_id)
             if result is None:
                 continue
 
             latest_prices[ticker] = result["price"]
+            if isinstance(result.get("candidate_snapshot"), dict):
+                candidate_snapshots.append(result["candidate_snapshot"])
 
             print(
                 f"{ticker}: {result['signal']} "
@@ -434,6 +402,17 @@ def run_once(force=False):
 
         except Exception as e:
             print(f"Feil på {ticker}: {type(e).__name__}: {e}")
+
+    if candidate_snapshots:
+        try:
+            market_snapshot = snapshot_service.build_market_snapshot(
+                candidate_snapshots, run_id=scan_run_id, source="paper_scanner", snapshot_id=market_snapshot_id,
+                metadata={"strategy_family": "technical", "candidate_count": len(candidate_snapshots)},
+            )
+            save_result = snapshot_service.save(market_snapshot)
+            print(f"Market snapshot {market_snapshot.snapshot_id}: saved={save_result.get('saved')} candidates={len(candidate_snapshots)}")
+        except Exception as exc:
+            print(f"Market snapshot kunne ikke lagres: {exc}")
 
     portfolio = load_portfolio()
     value = portfolio_value(portfolio, latest_prices)

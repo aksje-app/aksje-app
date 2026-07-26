@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.5.0"
-APP_VERSION_NAME = "Modulær applikasjon og strategiversjonering"
+APP_VERSION = "v19.6.0"
+APP_VERSION_NAME = "Felles markedssnapshot og teknisk signaltjeneste"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.4.0"
+PREVIOUS_APP_VERSION = "v19.5.0"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -21,6 +21,8 @@ STORAGE_REPOSITORY_VERSION = "v19.2.0"
 DECISION_INTELLIGENCE_VERSION = "v19.3.0"
 CONTROLLED_LEARNING_POLICY_VERSION = "v19.3.0"
 STRATEGY_REGISTRY_VERSION = "1.0"
+MARKET_SNAPSHOT_VERSION = "1.0"
+TECHNICAL_SIGNAL_SERVICE_VERSION = "1.0"
 VERSION_CONTRACT_SCHEMA = "1.0"
 
 
@@ -39,6 +41,8 @@ class VersionContract:
     decision_intelligence_version: str = DECISION_INTELLIGENCE_VERSION
     controlled_learning_policy_version: str = CONTROLLED_LEARNING_POLICY_VERSION
     strategy_registry_version: str = STRATEGY_REGISTRY_VERSION
+    market_snapshot_version: str = MARKET_SNAPSHOT_VERSION
+    technical_signal_service_version: str = TECHNICAL_SIGNAL_SERVICE_VERSION
     component_name: str = ""
     component_version: str = ""
 
@@ -59,6 +63,8 @@ def get_version_contract(*, component_name: str = "", component_version: str = "
         decision_intelligence_version=DECISION_INTELLIGENCE_VERSION,
         controlled_learning_policy_version=CONTROLLED_LEARNING_POLICY_VERSION,
         strategy_registry_version=STRATEGY_REGISTRY_VERSION,
+        market_snapshot_version=MARKET_SNAPSHOT_VERSION,
+        technical_signal_service_version=TECHNICAL_SIGNAL_SERVICE_VERSION,
         component_name=str(component_name or ""),
         component_version=str(component_version or APP_VERSION),
     ))
@@ -73,6 +79,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
         "storage_repository_version", "decision_intelligence_version",
         "controlled_learning_policy_version",
         "strategy_registry_version",
+        "market_snapshot_version", "technical_signal_service_version",
     }
     missing = sorted(required - set(value or {}))
     if missing:
@@ -84,6 +91,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.6.0: Felles markedssnapshot og TechnicalSignalService: markeds- og kandidatdata normaliseres til kontrollsummerte, JSON-serialiserbare snapshots med samme snapshot-ID for alle strategier i en kjøring. Dagens tekniske Paper Trading-regler er flyttet uendret til en ren TechnicalSignalService; signal_engine er nå kompatibilitetsfasade. Paper-scanner og Autonomi lagrer snapshot-ID på beslutningsgrunnlag, beslutninger, nye posisjoner og simulerte handler. Ingen scoreformler, kjøps-/salgsterskler, risiko-, kapital- eller porteføljeregler er endret.",
     "v19.5.0: Modulær applikasjon og strategiversjonering: store globale stilblokker flyttes ut av app.py med uendret injeksjonsrekkefølge, og utskilte sider får renderer-avgrenset ApplicationContext med eksplisitt service- og repositorytilgang i stedet for direkte globals(). Teknisk benchmark og Autonomi registreres som separate, persistente produksjonsstrategier med strategy_id, strategy_version, parameter_version, execution_mode og hendelseshistorikk. Nye challengere opprettes kun som SHADOW_READ_ONLY; produksjonsbindingen kan ikke promoteres eller endres i denne versjonen. Ingen signal-, kjøps-, salgs-, portefølje- eller risikoregler er endret.",
     "v19.4.0: Driftssikker autonomi og portefølje-UX: autonom portefølje følger Paper Trading-mønsteret med nøkkeltall, mobilkort, lesbare handler og beslutnings-/ordreledger. Manuelle utkast kan ikke arve gamle planlagte tider, gamle rapportvarsler utløper, og Pushover-kvitteringer viser opprettet, planlagt, forsøkt, sendt og utløsende prosess. Parallel mobil-/hurtignavigasjon fjernes fra hoveddokumentet, Streamlits tekniske sidemeny skjules, tickerkort viser Data mangler eksplisitt, og bannerredigering samles. Rapportkravene fra v19.0.21-v19.3.0 regresjonstestes uten endring i handels- eller risikoreglene.",
     "v19.3.0: Avansert beslutningsintelligens og kontrollert læring: data-, modell- og beslutningsdiff forklarer hvorfor vurderinger endres; Top 3 får datastøttede motargumenter, kritiske antakelser og komplett beslutningskontrakt; utløpte vurderinger evalueres historisk; læringsflyten standardiseres fra HYPOTESE via SIMULERT og PARALLELLTESTET til eksplisitt GODKJENT/AVVIST/TILBAKERULLERT. Produksjonsrisiko, kjøpsterskler, stop-loss, posisjonsgrenser, godkjenningskrav og autonominivå kan ikke endres automatisk. Synligheten til offentlig PDF-knapp og desktop-lekkasje fra mobilnavigasjon/tickerområdet er rettet.",
