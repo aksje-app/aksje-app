@@ -23,7 +23,7 @@ def _service(tmp_path) -> StrategyRegistryService:
 
 
 def test_version_contract_exposes_strategy_registry():
-    assert APP_VERSION == "v19.9.0"
+    assert APP_VERSION == "v19.10.0"
     contract = get_version_contract()
     assert contract["strategy_registry_version"] == "1.0"
 
@@ -31,7 +31,7 @@ def test_version_contract_exposes_strategy_registry():
 def test_default_strategies_are_separate_and_persistent(tmp_path):
     service = _service(tmp_path)
     defaults = service.ensure_defaults()
-    assert len(defaults) == 2
+    assert len(defaults) == 3
     technical = service.production_for_family("technical")
     autonomy = service.production_for_family("autonomy")
     assert technical["strategy_id"] == "technical_benchmark"
@@ -40,8 +40,8 @@ def test_default_strategies_are_separate_and_persistent(tmp_path):
     assert technical["execution_mode"] == ExecutionMode.PAPER.value
     # Recreate service to prove repository persistence and idempotent bootstrap.
     recreated = _service(tmp_path)
-    assert len(recreated.ensure_defaults()) == 2
-    assert len(recreated.list_versions()) == 2
+    assert len(recreated.ensure_defaults()) == 3
+    assert len(recreated.list_versions()) == 3
 
 
 def test_challenger_is_shadow_read_only_and_does_not_replace_production(tmp_path):

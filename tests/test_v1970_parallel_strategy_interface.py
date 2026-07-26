@@ -48,10 +48,10 @@ def _snapshot(snapshots):
 
 
 def test_version_contract_exposes_shared_strategy_interface():
-    assert APP_VERSION == "v19.9.0"
+    assert APP_VERSION == "v19.10.0"
     contract = get_version_contract()
     assert contract["strategy_interface_version"] == "1.0"
-    assert contract["parallel_strategy_service_version"] == "1.0"
+    assert contract["parallel_strategy_service_version"] == "1.1"
     assert contract["technical_signal_service_version"] == "1.1"
 
 
@@ -71,8 +71,8 @@ def test_parallel_versions_use_same_snapshot_and_never_authorize_execution(tmp_p
         families=["technical"],
         portfolio_states={"technical": {"positions": {}}},
     )
-    assert result["strategy_count"] == 2
-    assert result["decision_count"] == 2
+    assert result["strategy_count"] == 3
+    assert result["decision_count"] == 3
     assert result["error_count"] == 0
     decisions = result["decisions"]
     assert {row["market_snapshot_id"] for row in decisions} == {snapshot.snapshot_id}
@@ -143,7 +143,7 @@ def test_strategy_failure_is_isolated(tmp_path, monkeypatch):
 
     monkeypatch.setattr(parallel, "_implementation", implementation)
     result = parallel.evaluate_snapshot(_snapshot(snapshots), families=["technical"])
-    assert result["decision_count"] == 2
+    assert result["decision_count"] == 3
     assert result["error_count"] == 1
     assert any(row["action"] == "BUY" for row in result["decisions"])
     failed = next(row for row in result["decisions"] if row["action"] == "ERROR")
@@ -157,8 +157,8 @@ def test_paused_and_retired_versions_do_not_run(tmp_path):
     challenger = registry.create_challenger(production["version_id"], "paused-1")
     registry.set_status(challenger["version_id"], "PAUSED")
     result = parallel.evaluate_snapshot(_snapshot(snapshots), families=["technical"])
-    assert result["strategy_count"] == 1
-    assert {row["strategy_version"] for row in result["decisions"]} == {"legacy-1.0.0"}
+    assert result["strategy_count"] == 2
+    assert {row["strategy_version"] for row in result["decisions"]} == {"legacy-1.0.0", "1.0.0"}
 
 
 def test_parallel_service_has_no_order_execution_dependency():
