@@ -47,6 +47,18 @@ class StrategyDecisionRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_decisions", storage=storage, id_field="decision_id")
 class StrategyRunRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_runs", storage=storage, id_field="strategy_run_id")
+class StrategyAccountRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_accounts", storage=storage, id_field="account_id")
+class StrategyOrderRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_orders", storage=storage, id_field="order_id")
+class StrategyFillRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_fills", storage=storage, id_field="fill_id")
+class StrategyAccountSnapshotRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("strategy_account_snapshots", storage=storage, id_field="account_snapshot_id")
+class ActivationAnalysisRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("activation_analyses", storage=storage, id_field="analysis_id")
+class EvaluationExportRepository(JsonRepository):
+    def __init__(self, storage=None): super().__init__("evaluation_exports", storage=storage, id_field="export_id")
 class StrategyEventRepository(EventRepository):
     def __init__(self, storage=None): super().__init__("strategy_events", storage=storage)
 class OperationalEventRepository(EventRepository):
@@ -78,6 +90,12 @@ class RepositoryRegistry:
         self.market_snapshots = MarketSnapshotRepository(storage)
         self.strategy_decisions = StrategyDecisionRepository(storage)
         self.strategy_runs = StrategyRunRepository(storage)
+        self.strategy_accounts = StrategyAccountRepository(storage)
+        self.strategy_orders = StrategyOrderRepository(storage)
+        self.strategy_fills = StrategyFillRepository(storage)
+        self.strategy_account_snapshots = StrategyAccountSnapshotRepository(storage)
+        self.activation_analyses = ActivationAnalysisRepository(storage)
+        self.evaluation_exports = EvaluationExportRepository(storage)
         self.strategy_events = StrategyEventRepository(storage)
         self.operational_events = OperationalEventRepository(storage)
         self.audit_events = AuditEventRepository(storage)
@@ -87,7 +105,9 @@ class RepositoryRegistry:
             "settings", "reports", "portfolios", "trades", "tasks", "approvals",
             "source_health", "scheduler", "run_traces", "configurations",
             "learning", "model_state", "notifications", "strategy_versions", "market_snapshots",
-            "strategy_decisions", "strategy_runs", "strategy_events", "operational_events", "audit_events",
+            "strategy_decisions", "strategy_runs", "strategy_accounts", "strategy_orders", "strategy_fills",
+            "strategy_account_snapshots", "activation_analyses", "evaluation_exports",
+            "strategy_events", "operational_events", "audit_events",
         )
 
 
