@@ -57,6 +57,7 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
         "reports": "Rapporter",
         "operations": "Varsler og drift",
         "strategy_versions": "Strategiversjoner",
+        "strategy_lab": "Strategy Lab",
         "engine_details": "Motorresultater",
     }
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
@@ -99,6 +100,9 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     elif workspace == "Strategiversjoner":
         from pages.strategy_versions import render_strategy_versions
         render_strategy_versions(app_context)
+    elif workspace == "Strategy Lab":
+        from pages.strategy_lab import render_strategy_lab
+        render_strategy_lab(app_context)
     elif workspace == "Motorresultater":
         from autonomy_overview import collect_autonomy_overview
         latest = collect_autonomy_overview().get("latest_run") or {}

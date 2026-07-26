@@ -1,4 +1,4 @@
-"""Strategy registry, shared accounts and parallel evaluation for v19.8.0.
+"""Strategy registry, shared accounts and parallel evaluation for v19.10.0.
 
 Shadow and challenger evaluation remains read-only. Production and learning
 paper accounts share one simulated order/portfolio contract while their cash,
@@ -60,7 +60,7 @@ def render_strategy_versions(app_context: Any) -> None:
     st.markdown("### 🧬 Strategiversjoner")
     st.caption(
         "Registeret gjør teknisk benchmark og Autonomi sporbare som versjonerte strategier. "
-        "v19.8.0 kombinerer samme snapshot og strategigrensesnitt med separate, persistente paperkontoer og én felles ordre-/porteføljemotor."
+        "v19.10.0 legger til Strategy Lab og en skrivebeskyttet Technical Quality Challenger uten å endre produksjonsbenchmarken."
     )
 
     productions = [row for row in rows if row.get("status") == StrategyStatus.PRODUCTION.value]
@@ -151,6 +151,31 @@ def render_strategy_versions(app_context: Any) -> None:
                     except StrategyRegistryError as exc:
                         st.error(str(exc))
 
+
+
+    with st.expander("Technical Quality Challenger", expanded=True):
+        quality = next((row for row in rows if row.get("strategy_id") == "technical_quality_challenger"), None)
+        if not quality:
+            st.warning("Technical Quality Challenger er ikke registrert.")
+        else:
+            policy = dict((quality.get("metadata") or {}).get("quality_policy") or {})
+            q1, q2, q3, q4 = st.columns(4)
+            q1.metric("Status", quality.get("status"))
+            q2.metric("Kjøremodus", quality.get("execution_mode"))
+            q3.metric("Min. datakvalitet", policy.get("minimum_data_quality", 55))
+            q4.metric("Min. likviditet", policy.get("minimum_liquidity", 35))
+            st.caption(
+                "Challengeren bruker datakvalitet, kildekonsensus, likviditet, insider, analytiker, "
+                "resultatoverraskelser, regime og nyhetskontekst fra samme snapshot. Manglende data gir ikke positiv bonus. "
+                "execution_authorized=false og production_applied=false er faste garantier."
+            )
+            st.json({
+                "version_id": quality.get("version_id"),
+                "parent_version_id": quality.get("parent_version_id"),
+                "quality_policy": policy,
+                "automatic_promotion": False,
+                "production_applied": False,
+            }, expanded=False)
 
     with st.expander("Felles markedssnapshot og teknisk motor", expanded=False):
         contract = dict(getattr(app_context, "version_contract", {}) or {})
