@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.4.0 release archives."""
+"""Build clean, validated v19.5.0 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,18 +25,22 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.4.0"
-VERSION_FILE = "19_4_0"
+VERSION = "v19.5.0"
+VERSION_FILE = "19_5_0"
 
 UPDATE_FILES = {
     "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
+    "app_core/__init__.py", "app_core/context.py", "domain/__init__.py", "domain/strategy_versioning.py",
+    "repositories/application.py", "services/service_registry.py", "services/strategy_registry_service.py",
+    "services/strategy_binding.py", "pages/autonomy.py", "pages/strategy_versions.py", "ui/global_styles.py",
+    "trading_engine.py",
     "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
     "market_intelligence.py", "report_contracts.py", "safety_audit.py",
     "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py",
     "ui/candidate_cards.py", "ui/live_market_banner.py", ".streamlit/config.toml",
-    "RELEASE_NOTES_v19.4.0.md", "DEPLOY_v19.4.0.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.4.0.md", "MIGRATION_v19.4.0.md",
-    "TEST_REPORT_v19.4.0.md", "ACCEPTANCE_v19.4.0.md",
+    "RELEASE_NOTES_v19.5.0.md", "DEPLOY_v19.5.0.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.5.0.md", "MIGRATION_v19.5.0.md",
+    "TEST_REPORT_v19.5.0.md", "ACCEPTANCE_v19.5.0.md",
     "tools/__init__.py", "tools/build_safe_distribution.py", "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
     "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
@@ -47,15 +51,18 @@ UPDATE_FILES = {
     "tests/test_v1919a_safe_distribution.py", "tests/test_v1940_operational_repairs.py",
     "tests/test_v1882_autonomy_main_navigation.py", "tests/test_v1904_report_notification_control.py",
     "tests/test_v1913_approval_governance_mobile.py",
+    "tests/test_v1950_modular_strategy_versioning.py",
 }
 
 
 
 
 MIGRATION_FILES = {
-    "MIGRATION_v19.4.0.md", "DEPLOY_v19.4.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.4.0.md",
-    "domain/__init__.py", "domain/persistence.py", "repositories/__init__.py", "repositories/base.py",
-    "repositories/application.py", "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
+    "app_version.py", "MIGRATION_v19.5.0.md", "DEPLOY_v19.5.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.5.0.md",
+    "domain/__init__.py", "domain/persistence.py", "domain/strategy_versioning.py",
+    "repositories/__init__.py", "repositories/base.py", "repositories/application.py",
+    "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
+    "services/strategy_registry_service.py", "services/strategy_binding.py",
     "storage_architecture.py", "utils.py", "migrations/__init__.py", "migrations/migrate_legacy_storage.py", "tools/__init__.py",
     "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
     "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
@@ -196,7 +203,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.4.0-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.5.0-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()
