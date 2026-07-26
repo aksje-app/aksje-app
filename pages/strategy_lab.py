@@ -1,4 +1,4 @@
-"""Strategy Lab workspace for v19.10.0."""
+"""Strategy Lab workspace for v19.11.0."""
 from __future__ import annotations
 
 from typing import Any
@@ -87,13 +87,19 @@ def render_strategy_lab(app_context: Any) -> None:
         labels = {f"{row.get('name')} | {row.get('status')} | {row.get('experiment_id')}": row for row in experiments}
         selected_label = st.selectbox("Velg eksperiment", list(labels), key="strategy_lab_selected_v19100")
         selected = labels[selected_label]
-        r1, r2 = st.columns(2)
+        r1, r2, r3 = st.columns([1, 1, 1])
         snapshot_count = r1.number_input("Bruk siste antall snapshots", min_value=1, max_value=500, value=30, step=1)
-        if r2.button("Kj\u00f8r skrivebeskyttet replay", key="strategy_lab_run_v19100"):
+        settle_outcomes = r2.checkbox(
+            "Oppdater observerte utfall",
+            value=True,
+            key="strategy_lab_settle_outcomes_v19110",
+            help="Henter etterf\u00f8lgende sluttkurser og lagrer 1-, 5- og 20-handelsdagers utfall separat. Snapshotene endres ikke.",
+        )
+        if r3.button("Kj\u00f8r skrivebeskyttet replay", key="strategy_lab_run_v19110"):
             try:
                 snapshots = sorted(app_context.services.repositories.market_snapshots.list(), key=lambda row: str(row.get("captured_at") or ""))
                 snapshot_ids = [row.get("snapshot_id") for row in snapshots[-int(snapshot_count):] if row.get("snapshot_id")]
-                result = lab.run_experiment(selected["experiment_id"], snapshot_ids=snapshot_ids, actor=actor)
+                result = lab.run_experiment(selected["experiment_id"], snapshot_ids=snapshot_ids, actor=actor, settle_outcomes=settle_outcomes)
                 st.success(f"Lab-kj\u00f8ring fullf\u00f8rt: {result.get('decision_count')} beslutninger, {result.get('error_count')} feil.")
                 st.rerun()
             except StrategyLabError as exc:
@@ -102,14 +108,83 @@ def render_strategy_lab(app_context: Any) -> None:
         latest_run_id = selected.get("latest_lab_run_id")
         latest_run = next((row for row in runs if row.get("lab_run_id") == latest_run_id), None)
         if latest_run:
-            st.markdown("#### Sammenligningsresultat")
+            st.markdown("#### Strategisammenligning")
             metrics = list(latest_run.get("metrics") or [])
             if metrics:
                 st.dataframe(pd.DataFrame(metrics), use_container_width=True, hide_index=True)
+
+            diagnostics = dict(latest_run.get("quality_diagnostics") or {})
+            if diagnostics:
+                st.markdown("#### Datadekning og blokkårsaker")
+                q1, q2, q3, q4 = st.columns(4)
+                q1.metric("Kvalitetsvurderinger", diagnostics.get("quality_decisions", 0))
+                q2.metric("Tilstrekkelig evidens", diagnostics.get("sufficient_evidence_count", 0))
+                q3.metric("Mangler evidens", diagnostics.get("insufficient_evidence_count", 0))
+                q4.metric("Evidensdekning", f"{diagnostics.get('sufficient_evidence_pct', 0):.1f} %")
+                component_rows = list(diagnostics.get("components") or [])
+                if component_rows:
+                    st.caption("MANGLER DATA og UGYLDIG DATA er separate fra UNDER TERSKEL. Manglende data regnes ikke som svak verdi.")
+                    st.dataframe(pd.DataFrame(component_rows), use_container_width=True, hide_index=True)
+                blocker_rows = list(diagnostics.get("blocker_counts") or [])
+                combo_rows = list(diagnostics.get("blocker_combinations") or [])
+                b1, b2 = st.columns(2)
+                with b1:
+                    st.markdown("**Blokkårsaker**")
+                    if blocker_rows:
+                        st.dataframe(pd.DataFrame(blocker_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Ingen terskelblokkeringer i denne kjøringen.")
+                with b2:
+                    st.markdown("**Samtidige blokkårsaker**")
+                    if combo_rows:
+                        st.dataframe(pd.DataFrame(combo_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Ingen kombinerte blokkeringer.")
+
+            outcome_coverage = dict(latest_run.get("outcome_coverage") or {})
+            outcome_settlement = dict(latest_run.get("outcome_settlement") or {})
+            if outcome_coverage:
+                st.markdown("#### Observerte utfall")
+                o1, o2, o3, o4 = st.columns(4)
+                o1.metric("Kandidater", outcome_coverage.get("selected_candidates", 0))
+                o2.metric("5-dagersutfall", outcome_coverage.get("observed_candidates", 0))
+                o3.metric("Mangler utfall", outcome_coverage.get("missing_outcomes", 0))
+                o4.metric("Utfallsdekning", f"{outcome_coverage.get('coverage_pct', 0):.1f} %")
+                if outcome_settlement.get("requested"):
+                    st.caption(
+                        f"Nyregistrert: {outcome_settlement.get('created', 0)} | "
+                        f"Allerede lagret: {outcome_settlement.get('existing', 0)} | "
+                        f"Ikke modent enn\u00e5: {outcome_settlement.get('unavailable', 0)} | "
+                        f"Feil: {outcome_settlement.get('error_count', 0)}. "
+                        "Utfall lagres separat og brukes aldri i den opprinnelige beslutningen."
+                    )
+
+            attribution = list(latest_run.get("result_attribution") or [])
+            if attribution:
+                st.markdown("#### Resultatattribusjon")
+                flat = [{k: v for k, v in row.items() if k not in {"blocker_outcomes", "component_attribution"}} for row in attribution]
+                st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
+                if not any(bool(row.get("attribution_reliable")) for row in attribution):
+                    st.warning("Resultatattribusjonen har foreløpig færre enn 20 observerte utfall per sammenligning. Den er informativ, men ikke sterk nok for promotering.")
+                for row in attribution:
+                    label = str(row.get("challenger_version_id") or "Challenger")
+                    with st.expander(f"Attribusjonsdetaljer – {label}", expanded=False):
+                        blocker_outcomes = list(row.get("blocker_outcomes") or [])
+                        component_attribution = list(row.get("component_attribution") or [])
+                        if blocker_outcomes:
+                            st.markdown("**Utfall for filtrerte kjøp per blokkårsak**")
+                            st.dataframe(pd.DataFrame(blocker_outcomes), use_container_width=True, hide_index=True)
+                        if component_attribution:
+                            st.markdown("**Gjennomsnittlig scorebidrag per komponent**")
+                            st.dataframe(pd.DataFrame(component_attribution), use_container_width=True, hide_index=True)
+                        if not blocker_outcomes and not component_attribution:
+                            st.info("Ingen attribusjonsdetaljer tilgjengelig ennå.")
+
             split = dict(latest_run.get("split") or {})
             st.caption(
                 f"Tidsordnet split: {split.get('train_snapshots', 0)} trening / "
-                f"{split.get('validation_snapshots', 0)} validering. Utf\u00f8relse og produksjonsp\u00e5virkning er deaktivert."
+                f"{split.get('validation_snapshots', 0)} validering. Ingen fremtidsdata brukes i beslutningen; utfall kobles kun på etterpå for attribusjon. "
+                "Utførelse og produksjonspåvirkning er deaktivert."
             )
 
         with st.expander("Manuell vurdering, godkjenning og rollback", expanded=False):
