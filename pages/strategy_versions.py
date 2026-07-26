@@ -1,8 +1,8 @@
-"""Strategy registry, shared snapshots and parallel evaluation for v19.7.0.
+"""Strategy registry, shared accounts and parallel evaluation for v19.8.0.
 
-The page can define bounded technical challenger parameters, but every shadow
-or challenger remains read-only. Production promotion and shared execution are
-not available in this roadmap phase.
+Shadow and challenger evaluation remains read-only. Production and learning
+paper accounts share one simulated order/portfolio contract while their cash,
+positions and performance remain fully isolated.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def render_strategy_versions(app_context: Any) -> None:
     st.markdown("### 🧬 Strategiversjoner")
     st.caption(
         "Registeret gjør teknisk benchmark og Autonomi sporbare som versjonerte strategier. "
-        "v19.7.0 kjører produksjon, shadow og challenger parallelt på samme snapshot gjennom ett felles, skrivebeskyttet strategigrensesnitt."
+        "v19.8.0 kombinerer samme snapshot og strategigrensesnitt med separate, persistente paperkontoer og én felles ordre-/porteføljemotor."
     )
 
     productions = [row for row in rows if row.get("status") == StrategyStatus.PRODUCTION.value]
@@ -74,8 +74,8 @@ def render_strategy_versions(app_context: Any) -> None:
 
     st.dataframe(pd.DataFrame(_display_rows(rows)), use_container_width=True, hide_index=True)
     st.info(
-        "Produksjonsbindingen er låst. En ny versjon kan opprettes og kjøres i "
-        "shadow, men kan ikke automatisk overta handler eller endre Autonomis beslutninger."
+        "Produksjonsbindingen er låst. En ny versjon kan opprettes og kjøres i shadow, "
+        "men kan ikke automatisk overta handler, bruke en annen kontos kapital eller endre autonomy_main."
     )
 
     production_options = {
@@ -218,6 +218,31 @@ def render_strategy_versions(app_context: Any) -> None:
             st.dataframe(pd.DataFrame(decision_display), use_container_width=True, hide_index=True)
         else:
             st.caption("Ingen parallelle strategibeslutninger er lagret ennå.")
+
+    with st.expander("Felles strategikontoer og ordreledger", expanded=True):
+        accounts = app_context.services.strategy_accounts
+        execution = app_context.services.simulated_execution
+        accounts.ensure_defaults()
+        account_rows = accounts.comparison()
+        orders = execution.recent_orders(limit=500)
+        fills = execution.recent_fills(limit=500)
+        a1, a2, a3, a4 = st.columns(4)
+        a1.metric("Strategikontoer", len(account_rows))
+        a2.metric("Ordreintensjoner", len(orders))
+        a3.metric("Simulerte fills", len(fills))
+        a4.metric("Utførelsesmodus", "Kun paper")
+        st.caption("technical_benchmark_main, autonomy_main og autonomy_learning har separate kontanter og posisjoner, men bruker samme kanoniske ordre-, fill- og kontosnapshot-format.")
+        if account_rows:
+            st.dataframe(pd.DataFrame(account_rows), use_container_width=True, hide_index=True)
+        if orders:
+            order_display = [{
+                "Tid": row.get("created_at"), "Konto": row.get("account_id"), "Ticker": row.get("ticker"),
+                "Side": row.get("side"), "Status": row.get("status"), "Antall": row.get("filled_quantity", row.get("requested_quantity")),
+                "Pris": row.get("fill_price", row.get("reference_price")), "Avvisningskode": row.get("rejection_code"),
+                "Kjøring": row.get("run_id"),
+            } for row in orders[:200]]
+            st.dataframe(pd.DataFrame(order_display), use_container_width=True, hide_index=True)
+        st.info("Shadow- og challengerbeslutninger har fortsatt execution_authorized=false. Bare aktive PAPER-kontoer kan utføre ordre gjennom den felles motoren.")
 
     with st.expander("Teknisk identitet og hendelser", expanded=False):
         st.caption("Disse feltene skal følge fremtidige beslutninger og handler.")
