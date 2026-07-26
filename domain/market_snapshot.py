@@ -93,6 +93,8 @@ class CandidateSnapshot:
     data_quality: float | None = None
     source_consensus: float | None = None
     liquidity: float | None = None
+    quality_evidence: Mapping[str, Any] = field(default_factory=dict)
+    quality_coverage: Mapping[str, Any] = field(default_factory=dict)
     technical: Mapping[str, Any] = field(default_factory=dict)
     decision_inputs: Mapping[str, Any] = field(default_factory=dict)
     provenance: Mapping[str, Any] = field(default_factory=dict)
@@ -101,6 +103,8 @@ class CandidateSnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         row = asdict(self)
+        row["quality_evidence"] = _json_safe(self.quality_evidence)
+        row["quality_coverage"] = _json_safe(self.quality_coverage)
         row["technical"] = _json_safe(self.technical)
         row["decision_inputs"] = _json_safe(self.decision_inputs)
         row["provenance"] = _json_safe(self.provenance)
@@ -125,6 +129,8 @@ class CandidateSnapshot:
             data_quality=_finite_or_none(row.get("data_quality")),
             source_consensus=_finite_or_none(row.get("source_consensus")),
             liquidity=_finite_or_none(row.get("liquidity")),
+            quality_evidence=dict(row.get("quality_evidence") or {}),
+            quality_coverage=dict(row.get("quality_coverage") or {}),
             technical=dict(row.get("technical") or {}),
             decision_inputs=dict(row.get("decision_inputs") or {}),
             provenance=dict(row.get("provenance") or {}),
