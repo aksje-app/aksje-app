@@ -23,6 +23,7 @@ from services.simulated_execution_service import get_simulated_execution_service
 from services.autonomy_learning_account_service import get_autonomy_learning_account_service
 from services.autonomy_activation_service import get_autonomy_activation_service
 from services.evaluation_export_service import get_evaluation_export_service
+from services.autonomy_technical_contribution_service import get_autonomy_technical_contribution_service
 
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
@@ -345,11 +346,35 @@ _candidate_price = candidate_price
 
 
 def _candidate_score(candidate: Mapping[str, Any], default: float = 0.0) -> float:
-    for key in ("investment_score", "score", "combined_score", "decision_score"):
+    """Original Autonomi score. Existing-position exits remain bound to this score."""
+    for key in ("autonomy_base_investment_score", "investment_score", "score", "combined_score", "decision_score"):
         value = _f(candidate.get(key), float("nan"))
         if math.isfinite(value):
             return value
     return default
+
+
+def _candidate_entry_score(candidate: Mapping[str, Any], default: float = 0.0) -> float:
+    """Entry-only score after the bounded v19.9.0 technical contribution."""
+    value = _f(candidate.get("autonomy_adjusted_investment_score"), float("nan"))
+    return value if math.isfinite(value) else _candidate_score(candidate, default)
+
+
+def _technical_contribution_metadata(candidate: Mapping[str, Any] | None) -> dict[str, Any]:
+    row = dict(candidate or {})
+    keys = (
+        "autonomy_base_investment_score", "autonomy_adjusted_investment_score",
+        "technical_contribution_points", "technical_contribution_applied",
+        "technical_contribution_reason", "technical_score_100",
+        "technical_signal_action", "technical_signal_raw_decision",
+        "technical_signal_confidence", "technical_timing", "technical_entry_wait",
+        "technical_entry_wait_reason", "technical_strategy_version_id",
+        "technical_strategy_version", "technical_model_version",
+        "technical_parameter_version", "technical_contribution_policy_version",
+        "technical_contribution_service_version", "technical_hard_gates_unchanged",
+        "technical_can_authorize_execution",
+    )
+    return {key: row.get(key) for key in keys if row.get(key) not in (None, "")}
 
 
 def _candidate_quality(candidate: Mapping[str, Any], default: float = 100.0) -> float:
@@ -734,6 +759,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
     market_snapshot_row: dict[str, Any] = {}
     parallel_strategy_run: dict[str, Any] = {}
+    technical_contribution: dict[str, Any] = {}
     try:
         snapshot_service = get_market_snapshot_service()
         market_snapshot = snapshot_service.build_market_snapshot(
@@ -781,6 +807,29 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
                 "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}"
             })
+        try:
+            contribution_result = get_autonomy_technical_contribution_service().apply(
+                candidates, parallel_strategy_run=parallel_strategy_run, run_id=run_id,
+                minimum_investment_score=float(params.minimum_investment_score),
+            )
+            candidates = list(contribution_result.get("candidates") or candidates)
+            technical_contribution = dict(contribution_result.get("summary") or {})
+            _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_COMPLETED", {
+                "run_id": run_id,
+                "applied": technical_contribution.get("applied_count", 0),
+                "wait": technical_contribution.get("wait_count", 0),
+                "threshold_crossings": technical_contribution.get("threshold_crossings", 0),
+                "hard_gates_unchanged": True,
+                "execution_authorized": False,
+            })
+        except Exception as technical_exc:
+            # Missing technical contribution must never stop the base Autonomi engine.
+            technical_contribution = {
+                "run_id": run_id, "status": "FAILED_OPEN",
+                "error": f"{type(technical_exc).__name__}: {str(technical_exc)[:500]}",
+                "hard_gates_unchanged": True, "execution_authorized": False,
+            }
+            _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_FAILED_OPEN", technical_contribution)
     except Exception as exc:
         _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
         candidates = original_candidates
@@ -836,17 +885,18 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     if portfolio.get("status") != "ACTIVE":
         pause_reason = str(portfolio.get("pause_reason") or f"Autonom portefølje er {portfolio.get('status') or 'PAUSED'}")
         held = set((portfolio.get("positions") or {}).keys())
-        for candidate in sorted(candidates, key=lambda c: _candidate_score(c), reverse=True):
+        for candidate in sorted(candidates, key=lambda c: _candidate_entry_score(c), reverse=True):
             ticker = str(candidate.get("ticker") or "").upper()
             if not ticker or ticker in held:
                 continue
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
-                              "reason": pause_reason, "score": _candidate_score(candidate),
+                              "reason": pause_reason, "score": _candidate_entry_score(candidate), "base_score": _candidate_score(candidate),
+                              **_technical_contribution_metadata(candidate),
                               "sent_to_autonomy": True, "portfolio_check_completed": True,
                               "order_intent_created": False, "order_executed": False,
                               "execution_stage": "PORTFOLIO_PAUSED"})
     if portfolio.get("status") == "ACTIVE":
-        ranked = sorted(candidates, key=lambda c: _candidate_score(c), reverse=True)
+        ranked = sorted(candidates, key=lambda c: _candidate_entry_score(c), reverse=True)
         for candidate in ranked:
             ticker = str(candidate.get("ticker") or "").upper()
             if not ticker:
@@ -854,7 +904,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             if ticker in exited_this_cycle:
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": "Ingen gjeninntreden i samme beslutningssyklus"})
                 continue
-            score = _candidate_score(candidate)
+            base_score = _candidate_score(candidate)
+            score = _candidate_entry_score(candidate)
             quality = _candidate_quality(candidate)
             risk = _candidate_risk(candidate)
             price = _candidate_price(candidate)
@@ -866,9 +917,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                                   "execution_stage": "PORTFOLIO_GATE_STOPPED"})
                 continue
             rejection = None
-            if score < params.minimum_investment_score:
-                rejection = f"Score {score:.1f} under terskel"
-            elif quality < params.minimum_data_quality:
+            execution_stage = "ENTRY_GATE_STOPPED"
+            if quality < params.minimum_data_quality:
                 rejection = f"Datakvalitet {quality:.1f} under terskel"
             elif risk > params.maximum_risk_score:
                 rejection = f"Risiko {risk:.1f} over grense"
@@ -876,8 +926,20 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 rejection = "Mangler gyldig markedspris"
             elif len(portfolio["positions"]) >= params.maximum_open_positions:
                 rejection = "Maks antall åpne posisjoner"
+            elif bool(candidate.get("technical_entry_wait")):
+                rejection = str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT")
+                execution_stage = "TECHNICAL_TIMING_WAIT"
+            elif score < params.minimum_investment_score:
+                rejection = f"Justert score {score:.1f} under terskel (base {base_score:.1f})"
             if rejection:
-                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": rejection, "score": score})
+                decisions.append({
+                    "timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT" if execution_stage == "TECHNICAL_TIMING_WAIT" else "SKIP",
+                    "reason": rejection, "score": score, "base_score": base_score,
+                    "sent_to_autonomy": True, "portfolio_check_completed": True,
+                    "order_intent_created": False, "order_executed": False,
+                    "execution_stage": execution_stage,
+                    **_technical_contribution_metadata(candidate),
+                })
                 continue
 
             equity = portfolio_equity(portfolio)
@@ -904,7 +966,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
                 "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
                 "opened_at": _now(), "strategy": _candidate_strategy(candidate),
-                "entry_score": score, "entry_risk_score": risk, "entry_data_quality": quality,
+                "entry_score": score, "entry_base_score": base_score, "entry_risk_score": risk, "entry_data_quality": quality,
+                **_technical_contribution_metadata(candidate),
                 "source_run_id": run_id,
                 **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 "entry_confidence": _f(candidate.get("confidence_score")),
@@ -920,9 +983,10 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             trade = {
                 "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
-                "value": round(value, 2), "pnl": 0.0, "reason": f"Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
+                "value": round(value, 2), "pnl": 0.0, "reason": f"Justert score {score:.1f} (base {base_score:.1f}), risiko {risk:.1f}, datakvalitet {quality:.1f}",
                 "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY",
                 **_candidate_snapshot_metadata(candidate, market_snapshot_row),
+                **_technical_contribution_metadata(candidate),
                 "entry_confidence": _f(candidate.get("confidence_score")),
                 "entry_components": {
                     "discovery": _f(candidate.get("discovery_score")),
@@ -935,7 +999,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             }
             _record_trade(trade)
             trades.append(trade)
-            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score})
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, **_technical_contribution_metadata(candidate)})
             if params.notify_trades:
                 _notification("TRADE", f"AUTONOMOUS BUY {ticker}", f"Teoretisk kjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade)
 
@@ -946,7 +1010,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         # it prevents a week of Autonomi runs from producing zero learning data.
         normal_buys_this_cycle = [t for t in trades if t.get("action") == "BUY" and not t.get("learning_probe")]
         if params.enable_learning_probe_buys and not normal_buys_this_cycle and candidates:
-            learning_ranked = sorted(candidates, key=lambda c: _candidate_score(c), reverse=True)
+            learning_ranked = sorted(candidates, key=lambda c: _candidate_entry_score(c), reverse=True)
             learning_count = 0
             for candidate in learning_ranked:
                 if learning_count >= params.learning_probe_max_buys:
@@ -954,9 +1018,13 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 ticker = str(candidate.get("ticker") or "").upper()
                 if not ticker or ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
                     continue
-                score = _candidate_score(candidate)
+                base_score = _candidate_score(candidate)
+                score = _candidate_entry_score(candidate)
+                if bool(candidate.get("technical_entry_wait")):
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT", "reason": str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT"), "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
+                    continue
                 if score < params.learning_probe_minimum_score:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Under læringsgrense {score:.1f} < {params.learning_probe_minimum_score:.1f}", "score": score})
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Under læringsgrense {score:.1f} < {params.learning_probe_minimum_score:.1f} (base {base_score:.1f})", "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
                     continue
                 price = _candidate_price(candidate)
                 if price <= 0:
@@ -977,8 +1045,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
                     "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
                     "opened_at": _now(), "strategy": _candidate_strategy(candidate),
-                    "entry_score": score, "entry_risk_score": risk, "entry_data_quality": quality,
-                    "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
+                    "entry_score": score, "entry_base_score": base_score, "entry_risk_score": risk, "entry_data_quality": quality,
+                    "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), **_technical_contribution_metadata(candidate), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
                     "observation_horizon_days": params.learning_probe_horizon_days,
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "entry_components": {
@@ -997,6 +1065,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
                     "strategy": _candidate_strategy(candidate), "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
                     **_candidate_snapshot_metadata(candidate, market_snapshot_row),
+                    **_technical_contribution_metadata(candidate),
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
@@ -1082,7 +1151,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -1150,7 +1219,7 @@ def build_activation_analysis(*, persist: bool = True) -> dict[str, Any]:
 
 
 def build_evaluation_bundle() -> bytes:
-    """Create the v19.8.0 sanitised ZIP for direct sharing and evaluation."""
+    """Create the v19.9.0 sanitised ZIP for direct sharing and evaluation."""
     analysis = build_activation_analysis(persist=True)
     errors = []
     for row in load_audit(1000):
@@ -1397,6 +1466,57 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         a5.metric("Ordreintensjoner", funnel.get("order_intents_created", 0))
         a6.metric("Utførte ordre", funnel.get("orders_executed", 0))
         st.info(str(analysis.get("recommendation") or "Ingen anbefaling tilgjengelig."))
+
+        technical_service = get_autonomy_technical_contribution_service()
+        technical_policy = technical_service.policy()
+        technical_rows = [dict(row) for row in (analysis.get("candidate_decisions") or []) if row.get("technical_contribution_applied") or row.get("technical_strategy_version_id")]
+        st.markdown("**Kontrollert teknisk bidrag til Autonomi**")
+        t1, t2, t3, t4, t5 = st.columns(5)
+        t1.metric("Status", "AKTIV" if technical_policy.get("enabled") else "AV")
+        t2.metric("Maks vekt", f"{float(technical_policy.get('weight_pct') or 0):.0f} %")
+        t3.metric("Teknisk VENT", sum(1 for row in technical_rows if row.get("technical_entry_wait") or row.get("execution_stage") == "TECHNICAL_TIMING_WAIT"))
+        t4.metric("Positive bidrag", sum(1 for row in technical_rows if _f(row.get("technical_contribution_points")) > 0))
+        t5.metric("Negative bidrag", sum(1 for row in technical_rows if _f(row.get("technical_contribution_points")) < 0))
+        st.caption(f"Kun teknisk produksjonsbenchmark fra samme snapshot brukes. Autonomi er eksplisitt bundet til {technical_policy.get('bound_technical_strategy_version_id') or '-'}. Bidraget gjelder nye innganger, kan ikke autorisere ordre og kan aldri omgå datakvalitet, risiko, kapital, sektor- eller posisjonsgrenser.")
+        if technical_rows:
+            technical_view = pd.DataFrame(technical_rows).rename(columns={
+                "ticker": "Ticker", "base_score": "Base score", "score": "Justert score",
+                "technical_contribution_points": "Teknisk bidrag", "technical_score_100": "Teknisk score",
+                "technical_signal_action": "Teknisk signal", "technical_signal_confidence": "Teknisk confidence",
+                "technical_timing": "Timing", "technical_strategy_version_id": "Teknisk versjon", "reason": "Beslutningsårsak",
+            })
+            keep = [col for col in ["Ticker", "Base score", "Justert score", "Teknisk bidrag", "Teknisk score", "Teknisk signal", "Teknisk confidence", "Timing", "Teknisk versjon", "Beslutningsårsak"] if col in technical_view.columns]
+            st.dataframe(technical_view[keep], use_container_width=True, hide_index=True)
+        else:
+            st.caption("Ingen kandidater med teknisk bidrag er lagret i siste aktiveringsanalyse ennå.")
+
+        with st.expander("Kontrollert teknisk bidragsprofil", expanded=False):
+            st.warning("Endringer påvirker bare paper-Autonomi og krever eksplisitt godkjenning. Harde porter kan ikke endres her.")
+            tc1, tc2, tc3 = st.columns(3)
+            technical_enabled = tc1.checkbox("Aktiver teknisk bidrag", bool(technical_policy.get("enabled", True)), key="v1990_technical_enabled")
+            technical_weight = tc2.slider("Maks teknisk vekt %", 0.0, 20.0, float(technical_policy.get("weight_pct") or 15.0), 1.0, key="v1990_technical_weight")
+            technical_floor = tc3.slider("Minimum base score for positivt løft", 70.0, 78.0, float(technical_policy.get("minimum_base_score_floor") or 74.0), 1.0, key="v1990_technical_floor")
+            tc4, tc5, tc6 = st.columns(3)
+            technical_positive = tc4.slider("Maks positivt bidrag", 0.0, 5.0, float(technical_policy.get("maximum_positive_points") or 4.0), 0.5, key="v1990_technical_positive")
+            technical_negative = tc5.slider("Maks negativt bidrag", 0.0, 8.0, float(technical_policy.get("maximum_negative_points") or 6.0), 0.5, key="v1990_technical_negative")
+            technical_wait = tc6.slider("VENT under teknisk score", 20.0, 45.0, float(technical_policy.get("wait_below_technical_score") or 35.0), 1.0, key="v1990_technical_wait")
+            technical_approval = st.text_input("Skriv GODKJENN for å lagre teknisk bidragsprofil", key="v1990_technical_approval")
+            technical_reason = st.text_input("Begrunnelse for endringen", key="v1990_technical_reason")
+            if st.button("Lagre godkjent teknisk bidragsprofil", use_container_width=True, key="v1990_save_technical_policy"):
+                if technical_approval.strip().upper() != "GODKJENN":
+                    st.error("Skriv GODKJENN før profilen lagres.")
+                elif not technical_reason.strip():
+                    st.error("Skriv en begrunnelse for endringen.")
+                else:
+                    technical_service.update_policy({
+                        "enabled": technical_enabled, "weight_pct": technical_weight,
+                        "minimum_base_score_floor": technical_floor,
+                        "maximum_positive_points": technical_positive,
+                        "maximum_negative_points": technical_negative,
+                        "wait_below_technical_score": technical_wait,
+                    }, approved_by="streamlit_user", reason=technical_reason)
+                    st.success("Teknisk bidragsprofil er lagret med rollback. Harde Autonomi-porter er uendret.")
+                    st.rerun()
 
         left, right = st.columns(2)
         blockers = list(analysis.get("top_blockers") or [])
