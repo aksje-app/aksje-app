@@ -188,7 +188,7 @@ def test_export_contains_diagnostics_and_attribution(tmp_path):
     payload = export.build_zip()
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         names = set(archive.namelist())
-        assert len(names) == 19
+        assert len(names) == 21
         assert "quality_diagnostics.csv" in names
         assert "result_attribution.csv" in names
         assert "strategy_outcomes.csv" in names

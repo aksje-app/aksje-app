@@ -23,7 +23,7 @@ def _service(tmp_path) -> StrategyRegistryService:
 
 
 def test_version_contract_exposes_strategy_registry():
-    assert APP_VERSION == "v19.11.0"
+    assert APP_VERSION == "v19.12.0"
     contract = get_version_contract()
     assert contract["strategy_registry_version"] == "1.0"
 
@@ -127,7 +127,7 @@ def test_autonomy_exposes_strategy_version_workspace():
     page = Path("pages/strategy_versions.py").read_text(encoding="utf-8")
     assert '"strategy_versions": "Strategiversjoner"' in source
     assert "render_strategy_versions(app_context)" in source
-    assert "Produksjonsbindingen er låst" in page
+    assert "Automatisk promotering er av" in page
 
 
 def test_paper_decision_is_stamped_with_technical_strategy(monkeypatch):

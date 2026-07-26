@@ -70,12 +70,12 @@ def _save_snapshots(snapshots, count=4):
 
 
 def test_version_contract_exposes_strategy_lab_and_quality_service():
-    assert APP_VERSION == "v19.11.0"
+    assert APP_VERSION == "v19.12.0"
     contract = get_version_contract()
     assert contract["technical_quality_service_version"] == "1.1"
-    assert contract["strategy_lab_service_version"] == "1.1"
+    assert contract["strategy_lab_service_version"] == "1.2"
     assert contract["parallel_strategy_service_version"] == "1.1"
-    assert contract["evaluation_export_service_version"] == "1.4"
+    assert contract["evaluation_export_service_version"] == "1.5"
 
 
 def test_default_quality_challenger_is_read_only(tmp_path):
@@ -206,7 +206,7 @@ def test_evaluation_zip_contains_strategy_lab_and_quality_results(tmp_path):
         assert "strategy_lab_approvals.csv" in names
         assert "quality_diagnostics.csv" in names
         assert "result_attribution.csv" in names
-        assert len(names) == 19
+        assert len(names) == 21
         manifest = archive.read("manifest.json").decode("utf-8")
         metadata = archive.read("run_metadata.json").decode("utf-8")
         assert '"contains_secrets": false' in manifest
