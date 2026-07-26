@@ -1,10 +1,11 @@
-"""Strategy Lab workspace for v19.11.0."""
+"""Strategy Lab, controlled promotion and rollback workspace for v19.12.0."""
 from __future__ import annotations
 
 from typing import Any
 import pandas as pd
 
 from services.strategy_lab_service import StrategyLabError
+from services.strategy_promotion_service import StrategyPromotionError
 
 
 def _actor(app_context: Any) -> str:
@@ -24,6 +25,8 @@ def render_strategy_lab(app_context: Any) -> None:
     experiments = lab.recent_experiments()
     runs = lab.recent_runs()
     approvals = lab.recent_approvals()
+    promotion_service = app_context.services.strategy_promotions
+    promotions = promotion_service.recent_promotions()
 
     st.markdown("### \U0001f9ea Strategy Lab")
     st.caption(
@@ -34,7 +37,7 @@ def render_strategy_lab(app_context: Any) -> None:
     c1.metric("Eksperimenter", len(experiments))
     c2.metric("Lab-kj\u00f8ringer", len(runs))
     c3.metric("Godkjenninger", sum(1 for row in approvals if str(row.get("status") or "").startswith("APPROVED")))
-    c4.metric("Automatisk promotering", "Av")
+    c4.metric("Produksjonsbinding", (registry.production_for_family("technical") or {}).get("version_id") or "Ukjent")
 
     versions = registry.list_versions()
     baselines = [row for row in versions if row.get("status") == "PRODUCTION"]
@@ -228,7 +231,64 @@ def render_strategy_lab(app_context: Any) -> None:
                 except StrategyLabError as exc:
                     st.error(str(exc))
 
+    st.markdown("#### Produksjonsgodkjenning og promotering")
+    active_approvals = [row for row in approvals if str(row.get("status") or "") == "APPROVED_FOR_MANUAL_PROMOTION_REVIEW"]
+    if not active_approvals:
+        st.info("Ingen aktive godkjenninger er klare for promoteringsvurdering.")
+    else:
+        approval_labels = {f"{row.get('approval_id')} | {row.get('experiment_id')}": row for row in active_approvals}
+        chosen_approval_label = st.selectbox("Godkjenning for pre-flight", list(approval_labels), key="strategy_promotion_approval_v19120")
+        chosen_approval = approval_labels[chosen_approval_label]
+        experiment = next((row for row in experiments if row.get("experiment_id") == chosen_approval.get("experiment_id")), {})
+        targets = [str(item) for item in experiment.get("challenger_version_ids") or []]
+        if targets:
+            chosen_target = st.selectbox("Challenger som skal vurderes", targets, key="strategy_promotion_target_v19120")
+            preflight = promotion_service.preflight(str(chosen_approval.get("approval_id") or ""), chosen_target)
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Pre-flight", "BESTÅTT" if preflight.get("eligible") else "STOPPET")
+            p2.metric("Observerte utfall", preflight.get("outcome_pairs", 0))
+            p3.metric("Utfallsdekning", f"{float(preflight.get('outcome_coverage_pct') or 0):.1f} %")
+            p4.metric("Evidensdekning", f"{float(preflight.get('sufficient_evidence_pct') or 0):.1f} %")
+            if preflight.get("blockers"):
+                st.error("Pre-flight stopper promotering: " + " | ".join(preflight.get("blockers") or []))
+            if preflight.get("warnings"):
+                st.warning(" | ".join(preflight.get("warnings") or []))
+            promote_reason = st.text_area("Promoteringsbegrunnelse", key="strategy_promotion_reason_v19120")
+            promote_confirmation = st.text_input("Skriv PROMOTER", key="strategy_promotion_confirm_v19120")
+            if st.button("Aktiver challenger i Paper Trading", disabled=not bool(preflight.get("eligible")), key="strategy_promote_v19120"):
+                try:
+                    promotion_service.promote(
+                        str(chosen_approval.get("approval_id") or ""), chosen_target, actor=actor,
+                        reason=promote_reason, confirmation=promote_confirmation,
+                    )
+                    st.success("Strategien er aktivert som ny Paper Trading-produksjonsstrategi. Forrige binding er lagret for rollback.")
+                    st.rerun()
+                except StrategyPromotionError as exc:
+                    st.error(str(exc))
+
+    st.markdown("#### Promoterings- og rollbackhistorikk")
+    if promotions:
+        st.dataframe(pd.DataFrame(promotions), use_container_width=True, hide_index=True)
+        active_promotions = [row for row in promotions if str(row.get("status") or "") == "ACTIVE"]
+        if active_promotions:
+            promotion_labels = {f"{row.get('target_version_id')} | {row.get('promotion_id')}": row for row in active_promotions}
+            chosen_promotion_label = st.selectbox("Aktiv promotering", list(promotion_labels), key="strategy_active_promotion_v19120")
+            rollback_reason = st.text_area("Rollback-begrunnelse", key="strategy_production_rollback_reason_v19120")
+            rollback_confirmation = st.text_input("Skriv RULL TILBAKE", key="strategy_production_rollback_confirm_v19120")
+            if st.button("Gjenopprett forrige produksjonsstrategi", key="strategy_production_rollback_v19120"):
+                try:
+                    promotion_service.rollback(
+                        str(promotion_labels[chosen_promotion_label].get("promotion_id") or ""),
+                        actor=actor, reason=rollback_reason, confirmation=rollback_confirmation,
+                    )
+                    st.success("Forrige produksjonsstrategi er gjenopprettet og rollback er auditert.")
+                    st.rerun()
+                except StrategyPromotionError as exc:
+                    st.error(str(exc))
+    else:
+        st.info("Ingen strategipromoteringer er gjennomført.")
+
     st.info(
-        "Technical Quality Challenger er skrivebeskyttet. Den rene tekniske produksjonsbenchmarken er fortsatt referanse, "
-        "og Strategy Lab kan ikke opprette ordre eller endre produksjonsbindinger."
+        "Automatisk promotering er av. En promotering endrer bare den kanoniske Paper Trading-bindingen; "
+        "Autonomis eksplisitte tekniske versjonsbinding og alle megler-/livegrenser forblir urørt."
     )

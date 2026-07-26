@@ -1,4 +1,4 @@
-"""Strategy registry, shared accounts and parallel evaluation for v19.10.0.
+"""Strategy registry, shared accounts and controlled production binding for v19.12.0.
 
 Shadow and challenger evaluation remains read-only. Production and learning
 paper accounts share one simulated order/portfolio contract while their cash,
@@ -60,7 +60,7 @@ def render_strategy_versions(app_context: Any) -> None:
     st.markdown("### 🧬 Strategiversjoner")
     st.caption(
         "Registeret gjør teknisk benchmark og Autonomi sporbare som versjonerte strategier. "
-        "v19.10.0 legger til Strategy Lab og en skrivebeskyttet Technical Quality Challenger uten å endre produksjonsbenchmarken."
+        "v19.12.0 legger til kontrollert godkjenning, eksplisitt promotering og sporbar rollback via Strategy Lab."
     )
 
     productions = [row for row in rows if row.get("status") == StrategyStatus.PRODUCTION.value]
@@ -74,8 +74,8 @@ def render_strategy_versions(app_context: Any) -> None:
 
     st.dataframe(pd.DataFrame(_display_rows(rows)), use_container_width=True, hide_index=True)
     st.info(
-        "Produksjonsbindingen er låst. En ny versjon kan opprettes og kjøres i shadow, "
-        "men kan ikke automatisk overta handler, bruke en annen kontos kapital eller endre autonomy_main."
+        "Automatisk promotering er av. En challenger kan bare overta Paper Trading etter godkjent Strategy Lab-resultat, "
+        "bestått pre-flight og eksplisitt PROMOTER-bekreftelse. Autonomi og separate strategikontoer endres ikke."
     )
 
     production_options = {
