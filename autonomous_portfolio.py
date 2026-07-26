@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from services.strategy_binding import stamp_strategy_metadata
 from services.market_snapshot_service import get_market_snapshot_service
+from services.parallel_strategy_service import get_parallel_strategy_service
 
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
@@ -726,6 +727,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
     market_snapshot_row: dict[str, Any] = {}
+    parallel_strategy_run: dict[str, Any] = {}
     try:
         snapshot_service = get_market_snapshot_service()
         market_snapshot = snapshot_service.build_market_snapshot(
@@ -744,6 +746,35 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     row.setdefault(key, value)
             enriched_candidates.append(row)
         candidates = enriched_candidates
+        try:
+            technical_portfolio = {}
+            try:
+                from paper_trading import load_portfolio as load_paper_portfolio
+                technical_portfolio = load_paper_portfolio() or {}
+            except Exception:
+                technical_portfolio = {}
+            parallel_strategy_run = get_parallel_strategy_service().evaluate_snapshot(
+                market_snapshot,
+                run_id=run_id,
+                source="autonomy_cycle_parallel",
+                purpose="AUTONOMY_CYCLE_PARALLEL",
+                portfolio_states={"autonomy": portfolio, "technical": technical_portfolio},
+                families=["technical", "autonomy"],
+                context_metadata={"autonomy_parameters": params},
+            )
+            _append_audit("PARALLEL_STRATEGY_CYCLE_COMPLETED", {
+                "run_id": run_id,
+                "strategy_run_id": parallel_strategy_run.get("strategy_run_id"),
+                "strategies": parallel_strategy_run.get("strategy_count"),
+                "decisions": parallel_strategy_run.get("decision_count"),
+                "errors": parallel_strategy_run.get("error_count"),
+                "execution_authorized": False,
+            })
+        except Exception as parallel_exc:
+            # A benchmark/challenger failure must never stop Autonomi production.
+            _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
+                "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}"
+            })
     except Exception as exc:
         _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
         candidates = original_candidates
@@ -1004,7 +1035,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions, "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions, "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:

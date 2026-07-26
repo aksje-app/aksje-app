@@ -45,6 +45,7 @@ from technical import calculate_rsi, calculate_macd, detect_trend
 from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_head_shoulders
 from signal_engine import build_trading_decision
 from services.market_snapshot_service import get_market_snapshot_service
+from services.parallel_strategy_service import get_parallel_strategy_service
 
 
 force_schema_migration()
@@ -411,6 +412,23 @@ def run_once(force=False):
             )
             save_result = snapshot_service.save(market_snapshot)
             print(f"Market snapshot {market_snapshot.snapshot_id}: saved={save_result.get('saved')} candidates={len(candidate_snapshots)}")
+            try:
+                parallel = get_parallel_strategy_service().evaluate_snapshot(
+                    market_snapshot,
+                    run_id=scan_run_id,
+                    source="paper_scanner_parallel",
+                    purpose="PAPER_SCANNER_PARALLEL",
+                    portfolio_states={"technical": load_portfolio()},
+                    families=["technical"],
+                )
+                print(
+                    f"Parallel strategies {parallel.get('strategy_run_id')}: "
+                    f"strategies={parallel.get('strategy_count')} decisions={parallel.get('decision_count')} "
+                    f"errors={parallel.get('error_count')}"
+                )
+            except Exception as parallel_exc:
+                # Parallel comparison is observability only and may never stop production Paper Trading.
+                print(f"Parallel strategikjøring feilet isolert: {type(parallel_exc).__name__}: {parallel_exc}")
         except Exception as exc:
             print(f"Market snapshot kunne ikke lagres: {exc}")
 
