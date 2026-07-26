@@ -5,6 +5,7 @@ from signal_engine import score_signal
 from notifier import notify_trade
 from trading_settings import load_rules
 from ui_trust import explain_blocked_action
+from services.strategy_binding import stamp_strategy_metadata, strategy_metadata
 try:
     from settings_store import load_settings
 except Exception:
@@ -78,7 +79,7 @@ def build_trading_decision(item, technical_context=None):
     Smart Core v2 wrapper.
     Beholder app13-kompatibelt output.
     """
-    return score_signal(item, technical_context or {})
+    return stamp_strategy_metadata(score_signal(item, technical_context or {}), "technical")
 
 
 
@@ -272,6 +273,14 @@ TRADE_CONTEXT_KEYS = (
     "rule_limit",
     "measured_value",
     "trade_explanation",
+    "strategy_family",
+    "strategy_id",
+    "strategy_version",
+    "parameter_version",
+    "strategy_version_id",
+    "strategy_implementation_version",
+    "strategy_config_checksum",
+    "strategy_binding_verified",
 )
 
 
@@ -303,6 +312,7 @@ def resolve_trade_security_context(ticker: Any, item: Mapping[str, Any] | None =
 def _merge_trade_context(ticker: Any, trade_context: Mapping[str, Any] | None = None, *, source: Mapping[str, Any] | None = None) -> dict:
     source_row = dict(source or {}) if isinstance(source, Mapping) else {}
     ctx = resolve_trade_security_context(ticker, source_row)
+    ctx.update(strategy_metadata("technical"))
     if isinstance(trade_context, Mapping):
         for key, value in trade_context.items():
             if value not in (None, ""):

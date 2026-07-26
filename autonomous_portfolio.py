@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from services.strategy_binding import stamp_strategy_metadata
 
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
@@ -428,6 +429,8 @@ def load_learning_equity_history(limit: int = 200) -> list[dict[str, Any]]:
 
 
 def _record_learning_trade(trade: dict[str, Any]) -> None:
+    trade = stamp_strategy_metadata(trade, "autonomy")
+    trade.setdefault("strategy_role", "LEARNING_PORTFOLIO")
     rows = _read(LEARNING_TRADES_PATH, [])
     if not isinstance(rows, list):
         rows = []
@@ -440,7 +443,12 @@ def _record_learning_decisions(rows: Sequence[Mapping[str, Any]]) -> None:
     current = _read(LEARNING_DECISIONS_PATH, [])
     if not isinstance(current, list):
         current = []
-    _write(LEARNING_DECISIONS_PATH, list(rows) + current[:5000])
+    normalized = []
+    for raw in rows:
+        row = stamp_strategy_metadata(raw, "autonomy")
+        row.setdefault("strategy_role", "LEARNING_PORTFOLIO")
+        normalized.append(row)
+    _write(LEARNING_DECISIONS_PATH, normalized + current[:5000])
 
 
 def _days_opened(value: Any) -> int:
@@ -590,6 +598,8 @@ def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any
 
 
 def _record_trade(trade: dict[str, Any]) -> None:
+    trade = stamp_strategy_metadata(trade, "autonomy")
+    trade.setdefault("strategy_role", "AUTONOMY_MAIN")
     trades = _read(TRADES_PATH, [])
     if not isinstance(trades, list):
         trades = []
@@ -604,7 +614,8 @@ def _record_decisions(rows: Sequence[Mapping[str, Any]]) -> None:
         current = []
     normalized = []
     for raw in rows:
-        row = dict(raw)
+        row = stamp_strategy_metadata(raw, "autonomy")
+        row.setdefault("strategy_role", "AUTONOMY_MAIN")
         action = str(row.get("action") or "").upper()
         row.setdefault("sent_to_autonomy", True)
         row.setdefault("portfolio_check_completed", True)
