@@ -46,6 +46,8 @@ from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_hea
 from signal_engine import build_trading_decision
 from services.market_snapshot_service import get_market_snapshot_service
 from services.parallel_strategy_service import get_parallel_strategy_service
+from services.strategy_account_service import get_strategy_account_service
+from services.simulated_execution_service import get_simulated_execution_service
 
 
 force_schema_migration()
@@ -433,6 +435,26 @@ def run_once(force=False):
             print(f"Market snapshot kunne ikke lagres: {exc}")
 
     portfolio = load_portfolio()
+    try:
+        account_service = get_strategy_account_service()
+        execution_service = get_simulated_execution_service()
+        technical_account = account_service.sync_legacy_account(
+            "technical_benchmark_main", portfolio,
+            strategy_family="technical", strategy_id="technical_benchmark",
+            strategy_version_id="technical_benchmark@legacy-1.0.0",
+            display_name="Teknisk benchmark", role="BENCHMARK",
+            status="ACTIVE", run_id=scan_run_id,
+            metadata={"source": "paper_scanner", "shared_engine_bridge": True},
+        )
+        mirrored = 0
+        for legacy_trade in list(portfolio.get("trades") or []):
+            result = execution_service.mirror_legacy_trade(
+                account_id="technical_benchmark_main", trade=legacy_trade, run_id=scan_run_id
+            )
+            mirrored += int(bool(result.get("mirrored")))
+        print(f"Shared strategy account synced: {technical_account.get('account_id')} mirrored_trades={mirrored}")
+    except Exception as account_exc:
+        print(f"Strategikonto-synk feilet isolert: {type(account_exc).__name__}: {account_exc}")
     value = portfolio_value(portfolio, latest_prices)
     print(f"Portfolio value: {value}")
     print(f"Cash: {portfolio.get('cash')}")

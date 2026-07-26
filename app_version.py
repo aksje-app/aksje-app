@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.7.0"
-APP_VERSION_NAME = "Felles strategigrensesnitt og parallelle tekniske versjoner"
+APP_VERSION = "v19.8.0"
+APP_VERSION_NAME = "Felles ordre-/porteføljemotor og separate strategikontoer"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.6.0"
+PREVIOUS_APP_VERSION = "v19.7.0"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -25,6 +25,11 @@ MARKET_SNAPSHOT_VERSION = "1.0"
 TECHNICAL_SIGNAL_SERVICE_VERSION = "1.1"
 STRATEGY_INTERFACE_VERSION = "1.0"
 PARALLEL_STRATEGY_SERVICE_VERSION = "1.0"
+STRATEGY_ACCOUNT_SERVICE_VERSION = "1.0"
+SIMULATED_EXECUTION_SERVICE_VERSION = "1.0"
+AUTONOMY_ACTIVATION_SERVICE_VERSION = "1.0"
+AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION = "1.0"
+EVALUATION_EXPORT_SERVICE_VERSION = "1.0"
 VERSION_CONTRACT_SCHEMA = "1.0"
 
 
@@ -47,6 +52,11 @@ class VersionContract:
     technical_signal_service_version: str = TECHNICAL_SIGNAL_SERVICE_VERSION
     strategy_interface_version: str = STRATEGY_INTERFACE_VERSION
     parallel_strategy_service_version: str = PARALLEL_STRATEGY_SERVICE_VERSION
+    strategy_account_service_version: str = STRATEGY_ACCOUNT_SERVICE_VERSION
+    simulated_execution_service_version: str = SIMULATED_EXECUTION_SERVICE_VERSION
+    autonomy_activation_service_version: str = AUTONOMY_ACTIVATION_SERVICE_VERSION
+    autonomy_learning_account_service_version: str = AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION
+    evaluation_export_service_version: str = EVALUATION_EXPORT_SERVICE_VERSION
     component_name: str = ""
     component_version: str = ""
 
@@ -71,6 +81,11 @@ def get_version_contract(*, component_name: str = "", component_version: str = "
         technical_signal_service_version=TECHNICAL_SIGNAL_SERVICE_VERSION,
         strategy_interface_version=STRATEGY_INTERFACE_VERSION,
         parallel_strategy_service_version=PARALLEL_STRATEGY_SERVICE_VERSION,
+        strategy_account_service_version=STRATEGY_ACCOUNT_SERVICE_VERSION,
+        simulated_execution_service_version=SIMULATED_EXECUTION_SERVICE_VERSION,
+        autonomy_activation_service_version=AUTONOMY_ACTIVATION_SERVICE_VERSION,
+        autonomy_learning_account_service_version=AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION,
+        evaluation_export_service_version=EVALUATION_EXPORT_SERVICE_VERSION,
         component_name=str(component_name or ""),
         component_version=str(component_version or APP_VERSION),
     ))
@@ -87,6 +102,9 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
         "strategy_registry_version",
         "market_snapshot_version", "technical_signal_service_version",
         "strategy_interface_version", "parallel_strategy_service_version",
+        "strategy_account_service_version", "simulated_execution_service_version",
+        "autonomy_activation_service_version", "autonomy_learning_account_service_version",
+        "evaluation_export_service_version",
     }
     missing = sorted(required - set(value or {}))
     if missing:
@@ -98,6 +116,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.8.0: Felles ordre-/porteføljemotor og separate strategikontoer: teknisk benchmark, autonomy_main og autonomy_learning får isolerte, persistente konti med felles ordreintensjon, simulert fill, posisjon og kontosnapshot. Eksisterende Paper Trading og Autonomi synkroniseres til samme ledger uten å endre produksjonsregler. En kontrollert læringskonto bruker små posisjoner og lavere, eksplisitt godkjent scoregrense, men kan ikke svekke datakvalitets- eller risikogrenser. Aktiveringsanalyse viser kandidatfunnel, blokkeringer og simulerte terskler direkte i appen. En sanitert ZIP-eksport samler sammendrag, kandidatbeslutninger, ordre, handler, porteføljemålinger, parametre og rensede feil.",
     "v19.7.0: Felles strategigrensesnitt og parallelle versjoner: teknisk benchmark, tekniske shadow/challengere og Autonomi evaluerer samme kontrollsummerte snapshot gjennom én read-only StrategyDecision-kontrakt. ParallelStrategyService isolerer feil per strategi og kandidat, lagrer sammenlignbare kjøringer og beslutninger, og setter alltid execution_authorized=false. Tekniske challengere kan teste avgrensede terskelprofiler uten å påvirke produksjonsmotor, portefølje eller handler. Eksisterende Paper Trading- og Autonomi-motorer er fortsatt eneste utførelsesmyndighet.",
     "v19.6.0: Felles markedssnapshot og TechnicalSignalService: markeds- og kandidatdata normaliseres til kontrollsummerte, JSON-serialiserbare snapshots med samme snapshot-ID for alle strategier i en kjøring. Dagens tekniske Paper Trading-regler er flyttet uendret til en ren TechnicalSignalService; signal_engine er nå kompatibilitetsfasade. Paper-scanner og Autonomi lagrer snapshot-ID på beslutningsgrunnlag, beslutninger, nye posisjoner og simulerte handler. Ingen scoreformler, kjøps-/salgsterskler, risiko-, kapital- eller porteføljeregler er endret.",
     "v19.5.0: Modulær applikasjon og strategiversjonering: store globale stilblokker flyttes ut av app.py med uendret injeksjonsrekkefølge, og utskilte sider får renderer-avgrenset ApplicationContext med eksplisitt service- og repositorytilgang i stedet for direkte globals(). Teknisk benchmark og Autonomi registreres som separate, persistente produksjonsstrategier med strategy_id, strategy_version, parameter_version, execution_mode og hendelseshistorikk. Nye challengere opprettes kun som SHADOW_READ_ONLY; produksjonsbindingen kan ikke promoteres eller endres i denne versjonen. Ingen signal-, kjøps-, salgs-, portefølje- eller risikoregler er endret.",

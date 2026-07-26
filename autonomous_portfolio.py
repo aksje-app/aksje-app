@@ -18,6 +18,11 @@ from typing import Any, Mapping, Sequence
 from services.strategy_binding import stamp_strategy_metadata
 from services.market_snapshot_service import get_market_snapshot_service
 from services.parallel_strategy_service import get_parallel_strategy_service
+from services.strategy_account_service import get_strategy_account_service
+from services.simulated_execution_service import get_simulated_execution_service
+from services.autonomy_learning_account_service import get_autonomy_learning_account_service
+from services.autonomy_activation_service import get_autonomy_activation_service
+from services.evaluation_export_service import get_evaluation_export_service
 
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
@@ -351,6 +356,7 @@ def _candidate_quality(candidate: Mapping[str, Any], default: float = 100.0) -> 
     raw = candidate.get("combined_data_quality") if isinstance(candidate.get("combined_data_quality"), Mapping) else {}
     evidence = candidate.get("evidence_coverage") if isinstance(candidate.get("evidence_coverage"), Mapping) else {}
     for value in (
+        candidate.get("data_quality_score"),
         candidate.get("data_quality"),
         raw.get("score"), raw.get("quality"),
         evidence.get("score"), evidence.get("coverage_pct"),
@@ -1028,14 +1034,55 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     learning_perf = learning_portfolio_performance(learning_portfolio)
     _write(PERFORMANCE_PATH, perf)
     _write(LEARNING_PERFORMANCE_PATH, learning_perf)
-    _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status")})
+
+    shared_account_sync: dict[str, Any] = {}
+    learning_account_result: dict[str, Any] = {}
+    activation_analysis: dict[str, Any] = {}
+    try:
+        account_service = get_strategy_account_service()
+        execution_service = get_simulated_execution_service()
+        main_account = account_service.sync_legacy_account(
+            "autonomy_main", portfolio, strategy_family="autonomy", strategy_id="autonomy_main",
+            strategy_version_id="autonomy_main@1.0.0", display_name="Autonomi hovedstrategi",
+            role="PRODUCTION", status=str(portfolio.get("status") or "PAUSED"), run_id=run_id,
+            metadata={"source": "autonomous_portfolio", "shared_engine_bridge": True},
+        )
+        mirrored = 0
+        for legacy_trade in trades:
+            mirror = execution_service.mirror_legacy_trade(account_id="autonomy_main", trade=legacy_trade, run_id=run_id)
+            mirrored += int(bool(mirror.get("mirrored")))
+        shared_account_sync = {"account_id": main_account.get("account_id"), "mirrored_trades": mirrored}
+
+        learning_account_result = get_autonomy_learning_account_service().run_cycle(
+            candidates, run_id=run_id, main_trades=trades,
+            market_snapshot_id=str(market_snapshot_row.get("snapshot_id") or ""),
+        )
+        analysis_rows = []
+        for decision in list(decisions):
+            ticker = str(decision.get("ticker") or "").upper()
+            analysis_rows.append({**dict(candidate_map.get(ticker) or {}), **dict(decision)})
+        activation_analysis = get_autonomy_activation_service().analyse(
+            analysis_rows, run_id=run_id, parameters=asdict(params),
+            account_metrics=account_service.comparison(), persist=True,
+        )
+        _append_audit("SHARED_STRATEGY_ACCOUNTS_UPDATED", {
+            "run_id": run_id, "main_account": shared_account_sync,
+            "learning_buys": learning_account_result.get("buy_count", 0),
+            "learning_sells": learning_account_result.get("sell_count", 0),
+            "activation_analysis_id": activation_analysis.get("analysis_id"),
+            "parameter_change_applied": False,
+        })
+    except Exception as shared_exc:
+        _append_audit("SHARED_STRATEGY_ACCOUNTS_FAILED", {"run_id": run_id, "error": f"{type(shared_exc).__name__}: {str(shared_exc)[:500]}"})
+
+    _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status"), "shared_learning_buys": learning_account_result.get("buy_count", 0), "activation_analysis_id": activation_analysis.get("analysis_id")})
     learning_result = None
     try:
         from controlled_parameter_learning import run_automatic_learning_if_due
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions, "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -1082,46 +1129,42 @@ def reset_portfolio(confirmation: str) -> dict[str, Any]:
     return portfolio
 
 
+def build_activation_analysis(*, persist: bool = True) -> dict[str, Any]:
+    """Build the latest understandable Autonomy activation funnel."""
+    decisions = _read(DECISIONS_PATH, [])
+    pipeline = _read(LATEST_PIPELINE_PATH, {})
+    candidates = pipeline.get("candidates") or pipeline.get("proposals") or []
+    candidate_map = {str(row.get("ticker") or "").upper(): dict(row) for row in candidates if isinstance(row, Mapping)}
+    enriched = []
+    for raw in decisions if isinstance(decisions, list) else []:
+        row = dict(raw) if isinstance(raw, Mapping) else {}
+        ticker = str(row.get("ticker") or "").upper()
+        enriched.append({**dict(candidate_map.get(ticker) or {}), **row})
+    latest_run_id = str(enriched[0].get("run_id") or pipeline.get("run_id") or "") if enriched else str(pipeline.get("run_id") or "")
+    accounts = get_strategy_account_service()
+    accounts.ensure_defaults()
+    return get_autonomy_activation_service().analyse(
+        enriched, run_id=latest_run_id, parameters=asdict(load_parameters()),
+        account_metrics=accounts.comparison(), persist=persist,
+    )
+
+
 def build_evaluation_bundle() -> bytes:
-    """Create a compact ZIP that can be uploaded to ChatGPT for evaluation."""
-    # Rehydrate durable event streams before building the backwards-compatible
-    # file bundle after a deploy/restart.
-    load_audit(5000)
-    try:
-        from autonomous_orchestrator import load_audit as load_orchestrator_audit, load_latest_chain
-        load_orchestrator_audit(5000); load_latest_chain()
-        from controlled_parameter_learning import load_audit as load_learning_audit
-        load_learning_audit(5000)
-    except Exception:
-        pass
-    manifest = {
-        "version": VERSION, "created_at": _now(), "purpose": "Module evaluation",
-        "contains": ["autonomous_portfolio", "learning_portfolio", "parameters", "ordinary_trades", "learning_trades", "ordinary_decisions", "learning_decisions", "performance", "equity_history", "learning_equity_history", "notifications", "audit", "latest_pipeline", "controlled_learning"],
-        "privacy_note": "Review before sharing. The bundle is intended to contain trading simulation data, not credentials.",
-    }
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        for name, path in (
-            ("portfolio.json", PORTFOLIO_PATH), ("learning_portfolio.json", LEARNING_PORTFOLIO_PATH), ("parameters.json", PARAMETERS_PATH), ("trades.json", TRADES_PATH), ("learning_trades.json", LEARNING_TRADES_PATH),
-            ("decisions.json", DECISIONS_PATH), ("learning_decisions.json", LEARNING_DECISIONS_PATH), ("performance.json", PERFORMANCE_PATH), ("learning_performance.json", LEARNING_PERFORMANCE_PATH), ("equity_history.json", EQUITY_HISTORY_PATH), ("learning_equity_history.json", LEARNING_EQUITY_HISTORY_PATH), ("notifications.json", NOTIFICATIONS_PATH),
-            ("audit.jsonl", AUDIT_PATH), ("equity_history_pre_separation.json", LEGACY_MIXED_EQUITY_HISTORY_PATH), ("latest_pipeline.json", LATEST_PIPELINE_PATH),
-        ):
-            if path.exists():
-                zf.writestr(name, path.read_bytes())
-        try:
-            from autonomous_orchestrator import LATEST_PATH as ORCHESTRATOR_LATEST_PATH, AUDIT_PATH as ORCHESTRATOR_AUDIT_PATH
-            for name, path in (("autonomous_orchestrator/latest_run.json", ORCHESTRATOR_LATEST_PATH), ("autonomous_orchestrator/audit.jsonl", ORCHESTRATOR_AUDIT_PATH)):
-                if path.exists(): zf.writestr(name, path.read_bytes())
-        except Exception:
-            pass
-        try:
-            from controlled_parameter_learning import STATE_PATH, HYPOTHESES_PATH, EXPERIMENTS_PATH, VERSIONS_PATH, AUDIT_PATH as LEARNING_AUDIT_PATH, REPORTS_PATH
-            for name, path in (("controlled_learning/state.json", STATE_PATH), ("controlled_learning/hypotheses.json", HYPOTHESES_PATH), ("controlled_learning/experiments.json", EXPERIMENTS_PATH), ("controlled_learning/parameter_versions.json", VERSIONS_PATH), ("controlled_learning/audit.jsonl", LEARNING_AUDIT_PATH), ("controlled_learning/management_reports.json", REPORTS_PATH)):
-                if path.exists(): zf.writestr(name, path.read_bytes())
-        except Exception:
-            pass
-    return buffer.getvalue()
+    """Create the v19.8.0 sanitised ZIP for direct sharing and evaluation."""
+    analysis = build_activation_analysis(persist=True)
+    errors = []
+    for row in load_audit(1000):
+        event = str(row.get("event") or "").upper()
+        if "FAILED" in event or "ERROR" in event:
+            errors.append(row)
+    return get_evaluation_export_service().build_zip(
+        analysis=analysis, errors=errors,
+        additional_metadata={
+            "legacy_observation_portfolio_present": True,
+            "canonical_learning_account": "autonomy_learning",
+            "export_source": "autonomous_portfolio_ui",
+        },
+    )
 
 
 def _navigate_autonomy_workspace(slug: str) -> None:
@@ -1340,6 +1383,88 @@ def _render_responsive_portfolio_css(st: Any) -> None:
     }
     </style>''', unsafe_allow_html=True)
 
+def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
+    st.markdown("##### 🧪 Aktiveringsanalyse og strategikontoer")
+    st.caption("Resultatene vises direkte her. Hovedstrategien endres ikke automatisk; læringskontoen bruker små, separate paper-posisjoner og samme harde data- og risikogrenser.")
+    try:
+        analysis = build_activation_analysis(persist=False)
+        funnel = dict(analysis.get("funnel") or {})
+        a1, a2, a3, a4, a5, a6 = st.columns(6)
+        a1.metric("Kandidater", funnel.get("candidates_received", 0))
+        a2.metric("Data bestått", funnel.get("passed_data_quality", 0))
+        a3.metric("Risiko bestått", funnel.get("passed_risk", 0))
+        a4.metric("Score bestått", funnel.get("passed_score", 0))
+        a5.metric("Ordreintensjoner", funnel.get("order_intents_created", 0))
+        a6.metric("Utførte ordre", funnel.get("orders_executed", 0))
+        st.info(str(analysis.get("recommendation") or "Ingen anbefaling tilgjengelig."))
+
+        left, right = st.columns(2)
+        blockers = list(analysis.get("top_blockers") or [])
+        with left:
+            st.markdown("**Vanligste blokkeringer**")
+            if blockers:
+                st.dataframe(pd.DataFrame(blockers).rename(columns={"label":"Årsak","count":"Antall","share_pct":"Andel %","code":"Kode"}), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen blokkeringer registrert.")
+        with right:
+            st.markdown("**Simulerte scoregrenser**")
+            simulations = list(analysis.get("threshold_simulations") or [])
+            if simulations:
+                st.dataframe(pd.DataFrame(simulations)[["minimum_score","eligible_candidates","tickers"]].rename(columns={"minimum_score":"Minimum score","eligible_candidates":"Mulige kandidater","tickers":"Toppkandidater"}), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Ingen kandidater å simulere.")
+
+        accounts = get_strategy_account_service()
+        accounts.ensure_defaults()
+        comparison = accounts.comparison()
+        st.markdown("**Separate strategikontoer**")
+        if comparison:
+            view = pd.DataFrame(comparison).rename(columns={
+                "display_name":"Konto", "role":"Rolle", "status":"Status", "equity":"Porteføljeverdi",
+                "return_pct":"Avkastning %", "drawdown_pct":"Drawdown %", "open_positions":"Posisjoner",
+                "cash":"Kontanter", "last_run_id":"Siste kjøring",
+            })
+            keep = [c for c in ["Konto","Rolle","Status","Porteføljeverdi","Avkastning %","Drawdown %","Posisjoner","Kontanter","Siste kjøring"] if c in view.columns]
+            st.dataframe(view[keep], use_container_width=True, hide_index=True)
+        st.caption("Teknisk benchmark, autonomy_main og autonomy_learning har separate kontanter, posisjoner og handler. Ingen konto kan bruke en annen kontos kapital.")
+
+        with st.expander("Kontrollert parameterprofil for autonomy_learning", expanded=False):
+            learning_service = get_autonomy_learning_account_service()
+            policy = learning_service.policy()
+            st.caption("Endringer gjelder bare læringskontoen. Hovedstrategien, minimum datakvalitet og maksimal risikogrense kan ikke svekkes gjennom denne kontrollen.")
+            p1, p2, p3 = st.columns(3)
+            learning_score = p1.slider("Minimum score – læringskonto", 65.0, 78.0, float(policy["minimum_score"]), 1.0, key="v1980_learning_score")
+            learning_pos = p2.slider("Maks posisjon % – læringskonto", 0.25, 2.0, float(policy["maximum_position_pct"]), 0.25, key="v1980_learning_position")
+            learning_buys = p3.number_input("Maks kjøp per syklus", 0, 5, int(policy["maximum_buys_per_cycle"]), 1, key="v1980_learning_buys")
+            p4, p5, p6 = st.columns(3)
+            learning_reserve = p4.slider("Kontantreserve %", 10.0, 50.0, float(policy["reserve_cash_pct"]), 1.0, key="v1980_learning_reserve")
+            learning_stop = p5.slider("Stop-loss %", 2.0, 12.0, float(policy["stop_loss_pct"]), 0.5, key="v1980_learning_stop")
+            learning_target = p6.slider("Gevinstmål %", 5.0, 30.0, float(policy["take_profit_pct"]), 0.5, key="v1980_learning_target")
+            approval = st.text_input("Skriv GODKJENN for å lagre læringsprofilen", key="v1980_learning_approval")
+            reason = st.text_input("Begrunnelse for endringen", key="v1980_learning_reason")
+            if st.button("Lagre godkjent læringsprofil", use_container_width=True, key="v1980_save_learning_policy"):
+                if approval.strip().upper() != "GODKJENN":
+                    st.error("Skriv GODKJENN før parameterprofilen lagres.")
+                else:
+                    learning_service.update_policy({
+                        "minimum_score": learning_score, "maximum_position_pct": learning_pos,
+                        "maximum_buys_per_cycle": int(learning_buys), "reserve_cash_pct": learning_reserve,
+                        "stop_loss_pct": learning_stop, "take_profit_pct": learning_target,
+                    }, approved_by="streamlit_user", reason=reason or "Eksplisitt godkjent i v19.8.0")
+                    st.success("Læringsprofilen er lagret. autonomy_main er uendret.")
+                    st.rerun()
+
+        zip_payload = build_evaluation_bundle()
+        st.download_button(
+            "📦 Eksporter testresultater (ZIP)", zip_payload,
+            file_name=f"autonomy_test_results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+            mime="application/zip", use_container_width=True, key="alp_test_export_v1980",
+            help="Inneholder sammendrag, aktiveringsfunnel, strategisammenligning, kandidatbeslutninger, ordre, handler, porteføljemålinger, parametre og rensede feil. Hemmeligheter filtreres bort.",
+        )
+    except Exception as exc:
+        st.error(f"Aktiveringsanalysen kunne ikke bygges: {type(exc).__name__}: {exc}")
+
+
 def render_autonomous_portfolio(view: str = "autonomous") -> None:
     import pandas as pd
     import streamlit as st
@@ -1462,7 +1587,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     except Exception:
         pass
 
-    c.download_button("Last ned evalueringspakke", build_evaluation_bundle(), file_name=f"autonomous_learning_evaluation_{datetime.now().strftime('%Y%m%d_%H%M')}.zip", mime="application/zip", use_container_width=True, key="alp_eval_bundle_v18688")
+    _render_activation_analysis_v1980(st, pd)
 
     with st.expander("Faste parametere", expanded=False):
         p1, p2, p3, p4 = st.columns(4)
