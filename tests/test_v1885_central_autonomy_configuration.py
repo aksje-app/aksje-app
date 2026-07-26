@@ -33,6 +33,9 @@ def test_versioned_update_approval_and_rollback(monkeypatch):
 
     fake = FakeStorage({registry.REGISTRY_KEY: _ready_document(registry)})
     monkeypatch.setattr(registry, "_storage", lambda: fake)
+    monkeypatch.setattr(registry, "_CACHE", None)
+    monkeypatch.setattr(registry, "_CACHE_AT", 0.0)
+    monkeypatch.setattr(registry, "_CACHE_STORAGE_ID", None)
     first = registry.update({"autonomy.theoretical_only": True, "discovery.minimum_data_quality": 55}, reason="test")
     assert first["config_version"] == "CFG-000001"
     approval = registry.update({"portfolio.parameters.maximum_risk_score": 60}, reason="risk")
@@ -51,6 +54,9 @@ def test_validation_export_and_import_requires_approval(monkeypatch):
 
     fake = FakeStorage({registry.REGISTRY_KEY: _ready_document(registry)})
     monkeypatch.setattr(registry, "_storage", lambda: fake)
+    monkeypatch.setattr(registry, "_CACHE", None)
+    monkeypatch.setattr(registry, "_CACHE_AT", 0.0)
+    monkeypatch.setattr(registry, "_CACHE_STORAGE_ID", None)
     try:
         registry.update({"discovery.minimum_data_quality": 120}, reason="invalid")
         assert False, "invalid value accepted"
