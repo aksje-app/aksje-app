@@ -25,7 +25,6 @@ def render_live_market_banner(_legacy_context):
     if not _heavy_update_allowed():
         banner_cards = st.session_state.get(_banner_key) or st.session_state.get("live_banner_cache_v16_latest") or []
         if not banner_cards:
-            st.caption("📡 Ticker-banner bruker manuell modus. Åpne Rediger ticker-banner og trykk Lagre og bruk banner for å hente bannerdata.")
             banner_cards = _banner_fallback_cards_v18614(banner_items)
     else:
         banner_cards = fetch_live_banner_snapshot(banner_items)
@@ -50,9 +49,11 @@ def render_live_market_banner(_legacy_context):
         market_label = html.escape(str(item.get("market", "")))
         title_label = html.escape(str(item.get("label", item.get("ticker", ""))))
         ticker_value = str(item.get("ticker", "")).upper()
-        price_txt = _banner_price_text_v18623(item.get("price"))
-        delta_txt = f"{delta:+.2f}"
-        pct_txt = f"{pct:+.2f}%"
+        raw_price = item.get("price")
+        price_missing = raw_price in (None, "", 0, 0.0) or str(raw_price).strip().lower() in {"nan", "none", "-"}
+        price_txt = "Data mangler" if price_missing else _banner_price_text_v18623(raw_price)
+        delta_txt = "" if price_missing else f"{delta:+.2f}"
+        pct_txt = "" if price_missing else f"{pct:+.2f}%"
         marker_html = _banner_marker_html_v18610(item.get("alert_marker"))
         marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
         href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
@@ -60,16 +61,18 @@ def render_live_market_banner(_legacy_context):
         if remember_token:
             href += f"&remember_token={quote(str(remember_token))}"
 
+        change_html = "" if price_missing else f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
+        spark_html = "" if price_missing else str(item.get("sparkline") or "")
         cards.append(
             f"<a class='ticker-tape-item' target='_self' href='{href}' title='{marker_title}'>"
             f"{marker_html}"
             "<div class='ticker-info'>"
             f"<div class='ticker-market'>{market_label}</div>"
             f"<div class='ticker-title'>{title_label}</div>"
-            f"<div class='ticker-price'>{price_txt}</div>"
-            f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
+            f"<div class='ticker-price {'missing' if price_missing else ''}'>{price_txt}</div>"
+            f"{change_html}"
             "</div>"
-            f"<div class='ticker-spark'>{item.get('sparkline', '')}</div>"
+            f"<div class='ticker-spark'>{spark_html}</div>"
             "</a>"
         )
 
@@ -187,6 +190,7 @@ def render_live_market_banner(_legacy_context):
         font-weight: 950;
         margin-top: 3px;
     }
+    .ticker-price.missing { color:#b45309; font-size:.74rem; }
     .ticker-change.pos { color: #059669; }
     .ticker-change.neg { color: #dc2626; }
     .ticker-spark {
