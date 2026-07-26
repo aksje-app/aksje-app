@@ -1,4 +1,4 @@
-"""Strategy registry workspace for v19.5.0.
+"""Strategy registry and shared snapshot workspace for v19.6.0.
 
 The page manages identity and lifecycle metadata only. It cannot promote a
 challenger to production or change strategy parameters, trading rules or risk
@@ -60,7 +60,7 @@ def render_strategy_versions(app_context: Any) -> None:
     st.markdown("### 🧬 Strategiversjoner")
     st.caption(
         "Registeret gjør teknisk benchmark og Autonomi sporbare som versjonerte strategier. "
-        "v19.5.0 endrer ingen signaler, terskler, handler eller risikoregler."
+        "v19.6.0 legger til felles markedssnapshot og teknisk signaltjeneste uten å endre terskler, handler eller risikoregler."
     )
 
     productions = [row for row in rows if row.get("status") == StrategyStatus.PRODUCTION.value]
@@ -74,7 +74,7 @@ def render_strategy_versions(app_context: Any) -> None:
 
     st.dataframe(pd.DataFrame(_display_rows(rows)), use_container_width=True, hide_index=True)
     st.info(
-        "Produksjonsbindingen er låst i v19.5.0. En ny versjon kan opprettes og kjøres i "
+        "Produksjonsbindingen er låst. En ny versjon kan opprettes og kjøres i "
         "shadow, men kan ikke automatisk overta handler eller endre Autonomis beslutninger."
     )
 
@@ -134,6 +134,33 @@ def render_strategy_versions(app_context: Any) -> None:
                         st.rerun()
                     except StrategyRegistryError as exc:
                         st.error(str(exc))
+
+
+    with st.expander("Felles markedssnapshot og teknisk motor", expanded=False):
+        contract = dict(getattr(app_context, "version_contract", {}) or {})
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Snapshot-kontrakt", contract.get("market_snapshot_version", "1.0"))
+        s2.metric("TechnicalSignalService", contract.get("technical_signal_service_version", "1.0"))
+        snapshot_rows = app_context.services.repositories.market_snapshots.list()[:50]
+        s3.metric("Lagrede snapshots", len(snapshot_rows))
+        st.caption(
+            "Paper-scanner og Autonomi kan nå knytte beslutninger til et kontrollsummert snapshot. "
+            "Snapshotet inneholder normaliserte beslutningsdata, ikke DataFrame- eller cacheobjekter."
+        )
+        if snapshot_rows:
+            display = []
+            for row in snapshot_rows[:20]:
+                display.append({
+                    "Snapshot-ID": row.get("snapshot_id"),
+                    "Kilde": row.get("source"),
+                    "Kjøring": row.get("run_id"),
+                    "Kandidater": len(row.get("candidates") or []),
+                    "Tidspunkt": row.get("captured_at"),
+                    "Kontrollsum": str(row.get("checksum") or "")[:16],
+                })
+            st.dataframe(pd.DataFrame(display), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Ingen snapshot er lagret ennå. De opprettes ved nye scanner- og autonomikjøringer.")
 
     with st.expander("Teknisk identitet og hendelser", expanded=False):
         st.caption("Disse feltene skal følge fremtidige beslutninger og handler.")
