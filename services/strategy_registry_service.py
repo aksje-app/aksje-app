@@ -99,6 +99,34 @@ class StrategyRegistryService:
                 metadata={"source": "paper_trading", "rule_changes": False},
             ),
             StrategyVersion(
+                strategy_id="technical_quality_challenger",
+                strategy_family="technical",
+                display_name="Technical Quality Challenger",
+                strategy_version="1.0.0",
+                parameter_version="technical-quality-1.0",
+                status=StrategyStatus.CHALLENGER.value,
+                execution_mode=ExecutionMode.SHADOW_READ_ONLY.value,
+                implementation_version=APP_VERSION,
+                parent_version_id=build_version_id("technical_benchmark", "legacy-1.0.0"),
+                description="Read-only technical challenger with bounded quality, liquidity, insider, analyst, earnings and regime evidence.",
+                metadata={
+                    "source": "strategy_lab",
+                    "strategy_kind": "technical_quality",
+                    "production_applied": False,
+                    "automatic_promotion": False,
+                    "quality_policy": {
+                        "minimum_data_quality": 55.0,
+                        "minimum_liquidity": 35.0,
+                        "minimum_source_consensus": 40.0,
+                        "minimum_evidence_components": 2,
+                        "maximum_positive_adjustment": 1.0,
+                        "maximum_negative_adjustment": 1.5,
+                        "critical_event_blocks_entry": True,
+                    },
+                    "technical_parameters": {},
+                },
+            ),
+            StrategyVersion(
                 strategy_id="autonomy_main",
                 strategy_family="autonomy",
                 display_name="Autonomi hovedstrategi",
@@ -116,7 +144,7 @@ class StrategyRegistryService:
         for default in defaults:
             version_id = build_version_id(default.strategy_id, default.strategy_version)
             existing = self.get(version_id)
-            rows.append(existing or self.register(default, reason="v19.5.0 bootstrap"))
+            rows.append(existing or self.register(default, reason="versioned strategy bootstrap"))
         return rows
 
     def create_challenger(

@@ -22,10 +22,11 @@ from repositories.application import RepositoryRegistry, get_repository_registry
 from services.strategy_registry_service import StrategyRegistryService, get_strategy_registry_service
 from services.market_snapshot_service import MarketSnapshotService
 from services.technical_signal_service import TechnicalSignalService, get_technical_signal_service
-from strategies import AutonomyStrategy, TechnicalBenchmarkStrategy
+from services.technical_quality_service import TechnicalQualityService
+from strategies import AutonomyStrategy, TechnicalBenchmarkStrategy, TechnicalQualityChallengerStrategy
 
 ACTIVE_PARALLEL_STATUSES = {"PRODUCTION", "SHADOW", "CHALLENGER"}
-PARALLEL_STRATEGY_SERVICE_VERSION = "1.0"
+PARALLEL_STRATEGY_SERVICE_VERSION = "1.1"
 
 
 def _now() -> str:
@@ -38,19 +39,24 @@ class ParallelStrategyService:
         repositories: RepositoryRegistry | None = None,
         registry: StrategyRegistryService | None = None,
         technical_service: TechnicalSignalService | None = None,
+        quality_service: TechnicalQualityService | None = None,
     ):
         self.repositories = repositories or get_repository_registry()
         self.registry = registry or StrategyRegistryService(self.repositories)
         self.technical_service = technical_service or TechnicalSignalService(MarketSnapshotService(self.repositories))
+        self.quality_service = quality_service or TechnicalQualityService(self.technical_service)
         self.decisions = self.repositories.strategy_decisions
         self.runs = self.repositories.strategy_runs
 
-    def eligible_versions(self, families: Sequence[str] | None = None) -> list[dict[str, Any]]:
+    def eligible_versions(self, families: Sequence[str] | None = None, version_ids: Sequence[str] | None = None) -> list[dict[str, Any]]:
         self.registry.ensure_defaults()
         allowed = {str(item).strip().lower() for item in (families or []) if str(item).strip()}
         rows = [row for row in self.registry.list_versions() if str(row.get("status") or "").upper() in ACTIVE_PARALLEL_STATUSES]
         if allowed:
             rows = [row for row in rows if str(row.get("strategy_family") or "").lower() in allowed]
+        selected_versions = {str(item).strip() for item in (version_ids or []) if str(item).strip()}
+        if selected_versions:
+            rows = [row for row in rows if str(row.get("version_id") or "") in selected_versions]
         return sorted(rows, key=lambda row: (
             str(row.get("strategy_family") or ""),
             0 if str(row.get("status") or "").upper() == "PRODUCTION" else 1,
@@ -60,6 +66,9 @@ class ParallelStrategyService:
     def _implementation(self, version: Mapping[str, Any]):
         family = str(version.get("strategy_family") or "").lower()
         if family == "technical":
+            metadata = dict(version.get("metadata") or {})
+            if str(version.get("strategy_id") or "") == "technical_quality_challenger" or metadata.get("strategy_kind") == "technical_quality":
+                return TechnicalQualityChallengerStrategy(version, self.quality_service)
             return TechnicalBenchmarkStrategy(version, self.technical_service)
         if family == "autonomy":
             return AutonomyStrategy(version)
@@ -112,6 +121,7 @@ class ParallelStrategyService:
         purpose: str = "PARALLEL_COMPARISON",
         portfolio_states: Mapping[str, Mapping[str, Any]] | None = None,
         families: Sequence[str] | None = None,
+        version_ids: Sequence[str] | None = None,
         context_metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         row = snapshot.to_dict() if isinstance(snapshot, MarketSnapshot) else dict(snapshot or {})
@@ -120,7 +130,7 @@ class ParallelStrategyService:
             raise ValueError("; ".join(validation["errors"]))
         run_id = str(run_id or row.get("run_id") or row.get("snapshot_id") or "PARALLEL")
         started_at = _now()
-        versions = self.eligible_versions(families)
+        versions = self.eligible_versions(families, version_ids)
         candidates = [CandidateSnapshot.from_mapping(item) for item in (row.get("candidates") or [])]
         results: list[dict[str, Any]] = []
         errors = 0

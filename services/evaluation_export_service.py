@@ -16,7 +16,7 @@ from services.autonomy_activation_service import AutonomyActivationService
 from services.strategy_account_service import StrategyAccountService
 from services.simulated_execution_service import SimulatedExecutionService
 
-EVALUATION_EXPORT_SERVICE_VERSION = "1.1"
+EVALUATION_EXPORT_SERVICE_VERSION = "1.2"
 _SECRET_KEY_RE = re.compile(r"(token|secret|password|api[_-]?key|user[_-]?key|authorization|database_url)", re.I)
 _SECRET_VALUE_RE = re.compile(r"(?i)(bearer\s+[a-z0-9._-]+|https?://[^\s:@]+:[^\s@]+@|(?:token|secret|password|api[_-]?key|user[_-]?key|authorization|database[_-]?url)\s*[:=]\s*\S+)")
 
@@ -116,6 +116,9 @@ class EvaluationExportService:
         fills = self.execution.recent_fills(5000)
         strategy_runs = self.repositories.strategy_runs.list()
         versions = self.repositories.strategy_versions.list()
+        lab_experiments = self.repositories.strategy_lab_experiments.list()
+        lab_runs = self.repositories.strategy_lab_runs.list()
+        lab_approvals = self.repositories.strategy_lab_approvals.list()
         created_at = _now()
         export_id = "EXP-" + hashlib.sha256(f"{created_at}|{analysis.get('analysis_id')}".encode("utf-8")).hexdigest()[:20]
         technical_policy = self.repositories.configurations.get("autonomy_technical_contribution_policy") or {}
@@ -123,6 +126,7 @@ class EvaluationExportService:
             "analysis_parameters": analysis.get("parameters") or {},
             "autonomy_technical_contribution_policy": technical_policy,
             "strategy_versions": versions,
+            "strategy_lab_experiments": lab_experiments,
             "strategy_accounts": [{k: v for k, v in row.items() if k != "positions"} for row in self.accounts.list_accounts()],
             "parameter_change_applied": False,
             "approval_required": True,
@@ -135,6 +139,7 @@ class EvaluationExportService:
             "analysis_id": analysis.get("analysis_id"),
             "run_id": analysis.get("run_id"),
             "strategy_runs": strategy_runs,
+            "strategy_lab_runs": [{k: v for k, v in row.items() if k != "decisions"} for row in lab_runs],
             "additional_metadata": dict(additional_metadata or {}),
             "privacy": "Sanitised export. Known credential fields and secret-like values are redacted.",
         }
@@ -164,6 +169,28 @@ class EvaluationExportService:
                     "execution_stage": row.get("execution_stage"),
                     "reason": row.get("reason"),
                 })
+        quality_rows = []
+        for row in self.repositories.strategy_decisions.list():
+            metadata = dict(row.get("metadata") or {})
+            quality = dict(metadata.get("technical_quality_result") or {})
+            if row.get("strategy_id") == "technical_quality_challenger" or quality:
+                quality_rows.append({
+                    "run_id": row.get("run_id"),
+                    "ticker": row.get("ticker"),
+                    "action": row.get("action"),
+                    "score": row.get("score"),
+                    "confidence": row.get("confidence"),
+                    "strategy_version_id": row.get("strategy_version_id"),
+                    "technical_base_score": metadata.get("technical_base_score", quality.get("technical_base_score")),
+                    "quality_adjustment": metadata.get("quality_adjustment", quality.get("quality_adjustment")),
+                    "quality_component_count": metadata.get("quality_component_count", quality.get("quality_component_count")),
+                    "quality_blockers": metadata.get("quality_blockers", quality.get("quality_blockers")),
+                    "quality_evidence": quality.get("quality_evidence"),
+                    "quality_policy_version": quality.get("quality_policy_version"),
+                    "market_snapshot_id": row.get("market_snapshot_id"),
+                    "candidate_snapshot_id": row.get("candidate_snapshot_id"),
+                    "execution_authorized": row.get("execution_authorized"),
+                })
         error_lines: list[str] = []
         for item in errors or []:
             if isinstance(item, Mapping):
@@ -179,6 +206,10 @@ class EvaluationExportService:
             "strategy_comparison.csv": _csv_bytes(accounts),
             "candidate_decisions.csv": _csv_bytes(decisions),
             "technical_contribution.csv": _csv_bytes(technical_rows),
+            "technical_quality_challenger.csv": _csv_bytes(quality_rows),
+            "strategy_lab_experiments.csv": _csv_bytes(lab_experiments),
+            "strategy_lab_runs.csv": _csv_bytes([{k: v for k, v in row.items() if k != "decisions"} for row in lab_runs]),
+            "strategy_lab_approvals.csv": _csv_bytes(lab_approvals),
             "orders.csv": _csv_bytes(orders),
             "trades.csv": _csv_bytes(trades),
             "portfolio_metrics.csv": _csv_bytes(accounts),
