@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.12.0 release archives."""
+"""Build clean, validated v19.13.0 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,8 +25,8 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.12.0"
-VERSION_FILE = "19_12_0"
+VERSION = "v19.13.0"
+VERSION_FILE = "19_13_0"
 
 UPDATE_FILES = {
     "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
@@ -38,9 +38,9 @@ UPDATE_FILES = {
     "market_intelligence.py", "report_contracts.py", "safety_audit.py",
     "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py",
     "ui/candidate_cards.py", "ui/live_market_banner.py", ".streamlit/config.toml",
-    "RELEASE_NOTES_v19.12.0.md", "DEPLOY_v19.12.0.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.12.0.md", "MIGRATION_v19.12.0.md",
-    "TEST_REPORT_v19.12.0.md", "ACCEPTANCE_v19.12.0.md",
+    "RELEASE_NOTES_v19.13.0.md", "DEPLOY_v19.13.0.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.13.0.md", "MIGRATION_v19.13.0.md",
+    "TEST_REPORT_v19.13.0.md", "ACCEPTANCE_v19.13.0.md",
     "tools/__init__.py", "tools/build_safe_distribution.py", "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
     "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
@@ -70,6 +70,7 @@ UPDATE_FILES = {
     "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
     "tests/test_v19100_strategy_lab_quality_challenger.py", "tests/test_v19110_strategy_comparison_attribution_quality_data.py",
     "tests/test_v19120_strategy_promotion_rollback.py",
+    "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py", "tests/test_v19130_paper_migration_foundation.py",
     "tests/test_v1918b_separate_portfolios.py", "tests/test_v1919a_safe_distribution.py",
     "tests/test_v1920_report_version_contracts.py", "tests/test_v1921_decision_report.py",
     "tests/test_v1950_modular_strategy_versioning.py", "tests/test_v1960_market_snapshot_technical_signal.py",
@@ -81,7 +82,7 @@ UPDATE_FILES = {
 
 
 MIGRATION_FILES = {
-    "app_version.py", "MIGRATION_v19.12.0.md", "DEPLOY_v19.12.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.12.0.md",
+    "app_version.py", "MIGRATION_v19.13.0.md", "DEPLOY_v19.13.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.13.0.md",
     "domain/__init__.py", "domain/persistence.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_account.py", "domain/strategy_promotion.py",
     "repositories/__init__.py", "repositories/base.py", "repositories/application.py",
     "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
@@ -97,6 +98,7 @@ MIGRATION_FILES = {
     "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
     "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
     "services/quality_evidence_normalizer.py", "services/strategy_outcome_service.py",
+    "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
 }
 
 
@@ -234,7 +236,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.12.0-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.13.0-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()
