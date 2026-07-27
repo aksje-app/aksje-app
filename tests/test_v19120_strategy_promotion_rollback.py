@@ -84,7 +84,7 @@ def _candidate(quality=20.0):
 
 
 def test_version_contract_exposes_promotion_and_router():
-    assert APP_VERSION == "v19.12.0"
+    assert APP_VERSION == "v19.13.0"
     contract = get_version_contract()
     assert contract["strategy_promotion_service_version"] == "1.0"
     assert contract["production_strategy_router_version"] == "1.0"
