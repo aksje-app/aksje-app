@@ -65,6 +65,18 @@ STATUS_LABELS: dict[str, str] = {
     "MISSING": "Mangler",
     "VALID": "Gyldig",
     "INVALID": "Ugyldig",
+    "SUCCESS_NO_RESULTS": "Vellykket – ingen resultater",
+    "SUCCESS_WITH_RESULTS": "Vellykket – resultater funnet",
+    "STRUCTURED_PROVIDER": "Strukturert dataleverandør",
+    "PUBLISHED_SOURCE": "Publisert kilde",
+    "SECONDARY_AGGREGATOR": "Sekundær aggregator",
+    "SECONDARY_SOURCE_DISCOVERY": "Sekundær kildeoppdagelse",
+    "PRIMARY_OR_DIRECT": "Primær eller direkte kilde",
+    "NOT_ATTEMPTED": "Ikke forsøkt",
+    "EVIDENCE_DATA_READY": "Evidens- og dataklar",
+    "FINAL_DECISION_READY": "Endelig beslutningsklar",
+    "AUTONOMY_THEORETICAL_BUY": "Teoretisk autonomt kjøp",
+    "AUTONOMY_LEARNING_BUY": "Autonomt læringskjøp",
 }
 
 MODEL_ROLE_LABELS: dict[str, str] = {
@@ -160,6 +172,10 @@ WORD_LABELS: dict[str, str] = {
     "HIGH": "Høy",
     "MEDIUM": "Middels",
     "LOW": "Lav",
+    "NORMAL": "Normal",
+    "YFINANCE / PUBLIC FILINGS": "yfinance / offentlige innsidermeldinger",
+    "YFINANCE COMPANY NEWS": "yfinance selskapsnyheter",
+    "SEC / PUBLIC FILINGS": "SEC / offentlige innsidermeldinger",
     "SENT": "Sendt",
     "PUSHOVER SENT": "Pushover sendt",
     "AND": "og",
@@ -171,6 +187,14 @@ WORD_LABELS: dict[str, str] = {
     "MODEL": "Modell",
     "GAVE": "ga",
     "PROOF": "Bevis",
+    "INSIDER MISSING": "Innsiderinformasjon mangler",
+    "PARTIAL SOURCE FAILURE": "Delvis kildefeil",
+    "SOURCE FAILURE": "Kildeinnhenting feilet",
+    "KILDE FAILURE": "Kildeinnhenting feilet",
+    "EARNINGS": "Resultater",
+    "DOCUMENT": "Dokumentasjon",
+    "DECISION READY": "Endelig beslutningsklar",
+    "EVIDENCE READY": "Evidens- og dataklar",
 }
 
 # Longer phrases first so "Event Recovery" is handled before "Recovery" etc.

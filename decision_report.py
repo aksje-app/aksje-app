@@ -14,7 +14,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 from local_time import DEFAULT_TIMEZONE, as_local, valid_timezone
 
-DECISION_REPORT_SCHEMA_VERSION = "1.1"
+DECISION_REPORT_SCHEMA_VERSION = "1.2"
 TASK_STATUSES = ("VENTER", "PÅGÅR", "UTFØRT", "FORTSATT_PROBLEM", "IKKE_LENGER_RELEVANT")
 CONSENSUS_LEVELS = ("STERK", "MODERAT", "SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT")
 
@@ -290,6 +290,7 @@ def candidate_confidence_profile(candidate: Mapping[str, Any], consensus: Mappin
     readiness = _mapping(candidate.get("decision_readiness"))
     validity = str(contract.get("validity") or "").upper()
     source = str(contract.get("source") or "").upper()
+
     completeness = _safe_float(candidate.get("data_completeness"), -1.0)
     if completeness < 0:
         completeness = _safe_float(contract.get("completeness"), -1.0)
@@ -297,29 +298,45 @@ def candidate_confidence_profile(candidate: Mapping[str, Any], consensus: Mappin
         completeness *= 100
     if completeness < 0:
         completeness = 100.0 if validity in {"VALID", "GYLDIG"} else 65.0 if validity else 50.0
-    data_coverage = max(0, min(100, round(completeness)))
+    documentation_coverage = max(0, min(100, round(completeness)))
     if validity and validity not in {"VALID", "GYLDIG"}:
-        data_coverage = min(data_coverage, 60)
+        documentation_coverage = min(documentation_coverage, 60)
     if source in {"CACHE", "FALLBACK"}:
-        data_coverage = min(data_coverage, 75)
+        documentation_coverage = min(documentation_coverage, 75)
+
+    market_data_coverage = _safe_float(candidate.get("data_quality"), -1.0)
+    if market_data_coverage < 0:
+        market_data_coverage = _safe_float(contract.get("quality_score"), -1.0)
+    if market_data_coverage < 0:
+        market_data_coverage = 100.0 if validity in {"VALID", "GYLDIG"} else 0.0
+    market_data_coverage = max(0, min(100, round(market_data_coverage)))
 
     source_confidence = _safe_int(consensus.get("score"), 20)
     model_confidence = max(0, min(100, round(_safe_float(candidate.get("confidence_score"), 0.0))))
-    decision_ready = bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision", True))
-    allowed = str(readiness.get("allowed_action") or candidate.get("portfolio_action") or "").upper()
-    if decision_ready:
-        decision_confidence = min(100, round((model_confidence * 0.55) + (data_coverage * 0.25) + (source_confidence * 0.20)))
+    evidence_data_ready = bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision", True))
+    final_action = str(candidate.get("portfolio_action") or readiness.get("final_action") or "").upper()
+    final_decision_ready = bool(evidence_data_ready and final_action in {"BUY", "KJØP"})
+    allowed = str(readiness.get("allowed_action") or final_action).upper()
+    combined_coverage = round((documentation_coverage + market_data_coverage) / 2)
+    if evidence_data_ready:
+        decision_confidence = min(100, round((model_confidence * 0.50) + (combined_coverage * 0.30) + (source_confidence * 0.20)))
     else:
-        decision_confidence = min(69, round((model_confidence * 0.45) + (data_coverage * 0.30) + (source_confidence * 0.25)))
+        decision_confidence = min(69, round((model_confidence * 0.42) + (combined_coverage * 0.33) + (source_confidence * 0.25)))
     if allowed in {"SKIP", "SELL"}:
         decision_confidence = min(decision_confidence, 65)
     return {
-        "data_coverage": data_coverage,
+        # Legacy alias kept for report-schema compatibility. It means analysis/
+        # documentation coverage, not market-price coverage.
+        "data_coverage": documentation_coverage,
+        "documentation_coverage": documentation_coverage,
+        "market_data_coverage": market_data_coverage,
         "source_confidence": source_confidence,
         "decision_confidence": max(0, min(100, decision_confidence)),
         "model_confidence": model_confidence,
-        "decision_ready": decision_ready,
-        "note": "Målene beskriver datagrunnlag og beslutningsklarhet, ikke sannsynlighet for gevinst.",
+        "evidence_data_ready": evidence_data_ready,
+        "final_decision_ready": final_decision_ready,
+        "decision_ready": final_decision_ready,
+        "note": "Målene beskriver markedsdata, dokumentasjon og beslutningsporter – ikke sannsynlighet for gevinst.",
     }
 
 
@@ -550,21 +567,27 @@ def build_event_calendar(run: Mapping[str, Any]) -> list[dict[str, Any]]:
 def build_report_confidence(run: Mapping[str, Any], candidate_contracts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     profiles = [_mapping(row.get("confidence")) for row in candidate_contracts]
     if profiles:
-        data = round(sum(_safe_float(row.get("data_coverage")) for row in profiles) / len(profiles))
+        documentation = round(sum(_safe_float(row.get("documentation_coverage", row.get("data_coverage"))) for row in profiles) / len(profiles))
+        market_data = round(sum(_safe_float(row.get("market_data_coverage")) for row in profiles) / len(profiles))
         sources = round(sum(_safe_float(row.get("source_confidence")) for row in profiles) / len(profiles))
         decision = round(sum(_safe_float(row.get("decision_confidence")) for row in profiles) / len(profiles))
     else:
         quality = _mapping(run.get("data_quality"))
-        data = round(_safe_float(quality.get("score"), 0))
+        documentation = 0
+        market_data = round(_safe_float(quality.get("score"), 0))
         sources = 0
         decision = 0
     return {
-        "data_coverage": max(0, min(100, data)),
+        # Legacy alias: documentation/analysis coverage, never price-data coverage.
+        "data_coverage": max(0, min(100, documentation)),
+        "documentation_coverage": max(0, min(100, documentation)),
+        "market_data_coverage": max(0, min(100, market_data)),
         "source_confidence": max(0, min(100, sources)),
         "decision_confidence": max(0, min(100, decision)),
         "candidate_count": len(profiles),
         "interpretation": {
-            "data_coverage": "Har rapporten nok ferske markeds- og analysedata?",
+            "documentation_coverage": "Er analyse- og kildedokumentasjonen tilstrekkelig?",
+            "market_data_coverage": "Er markedsdataene ferske og gyldige?",
             "source_confidence": "Er vesentlige påstander verifisert av gode og uavhengige kilder?",
             "decision_confidence": "Oppfyller kandidatene gjeldende handlings- og risikoregler?",
         },
@@ -688,8 +711,10 @@ def build_next_run_tasks(
             add("NEAR_THRESHOLD", ticker, f"Kandidaten er {gap:.1f} poeng under beslutningsterskelen", "Reevaluer kandidaten med ferske data ved neste kjøring", "HØY")
         if str(consensus.get("level")) in {"SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT"}:
             add("VERIFY_SOURCES", ticker, consensus.get("explanation") or "Svakt kildegrunnlag", "Finn en uavhengig eller primær kilde og oppdater kildekonsensus", "HØY")
-        if _safe_int(confidence.get("data_coverage"), 0) < 70:
-            add("REFRESH_DATA", ticker, f"Datadekning er {confidence.get('data_coverage', 0)}/100", "Hent ferske markeds- og analysedata", "HØY")
+        if _safe_int(confidence.get("market_data_coverage"), 0) < 70:
+            add("REFRESH_MARKET_DATA", ticker, f"Markedsdatakvalitet er {confidence.get('market_data_coverage', 0)}/100", "Hent ferske markedsdata", "HØY")
+        if _safe_int(confidence.get("documentation_coverage"), 0) < 70:
+            add("COMPLETE_DOCUMENTATION", ticker, f"Dokumentasjonsdekning er {confidence.get('documentation_coverage', 0)}/100", "Fullfør manglende analyse- og kildedokumentasjon", "HØY")
         if blockers and str(row.get("action") or "").upper() in {"REVIEW", "KREVER MANUELL VURDERING"}:
             add("MANUAL_REVIEW", ticker, "; ".join(blockers[:2]), "Kontroller blokkeringene og dokumenter manuell vurdering", "NORMAL")
     source_health = _mapping(run.get("source_health"))
@@ -701,9 +726,12 @@ def build_next_run_tasks(
     handoff = _mapping(run.get("autonomy_candidate_handoff"))
     if handoff.get("mismatch"):
         add("AUTONOMY_HANDOFF", "Autonomi", str(handoff.get("warning") or "Kandidatantall avviker"), "Sammenlign rapportkandidater med kandidater mottatt av Autonomi", "KRITISK")
-    ready_count = sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("decision_ready"))
-    if ready_count < 3:
-        add("TOP3_COVERAGE", "Beslutningsklar Top 3", f"Bare {ready_count} kandidat(er) er beslutningsklare", "Forsøk å fylle manglende plasser uten å senke produksjonstersklene", "NORMAL")
+    evidence_ready_count = sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("evidence_data_ready"))
+    final_ready_count = sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("final_decision_ready"))
+    if evidence_ready_count < 3:
+        add("EVIDENCE_SHORTLIST_COVERAGE", "Evidens- og dataklar kortliste", f"Bare {evidence_ready_count} kandidat(er) bestod data- og evidensporten", "Fullfør dokumentasjonen uten å senke produksjonstersklene", "NORMAL")
+    if evidence_ready_count and final_ready_count == 0:
+        add("FINAL_DECISION_GATE", "Endelig beslutningsport", "Ingen evidens- og dataklar kandidat er kjøpsgodkjent", "Behold manuell vurdering til portefølje- og risikoportene godkjenner Kjøp", "NORMAL")
     now = _created_at(run)
     for event in events[:5]:
         dt = _parse_datetime(event.get("event_at"))
@@ -735,7 +763,8 @@ def build_decision_overview(
         "focus": REPORT_FOCUS.get(str(identity.get("type") or ""), REPORT_FOCUS["MANUELL_RAPPORT"]),
         "actions": actions,
         "candidate_count": len(candidate_contracts),
-        "decision_ready_count": sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("decision_ready")),
+        "evidence_data_ready_count": sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("evidence_data_ready")),
+        "decision_ready_count": sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("final_decision_ready")),
         "top3_changed": bool(change_summary.get("top3_changed")),
         "urgent_task_count": urgent_tasks,
         "upcoming_event_count": len(events),

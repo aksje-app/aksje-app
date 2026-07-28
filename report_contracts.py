@@ -15,7 +15,7 @@ from app_version import APP_VERSION, REPORT_SCHEMA_VERSION, get_version_contract
 from local_time import DEFAULT_TIMEZONE, as_local, local_display, valid_timezone
 
 
-REPORT_CONTRACT_VERSION = "1.2"
+REPORT_CONTRACT_VERSION = "1.3"
 
 
 class ReportContractError(ValueError):
@@ -81,6 +81,8 @@ class CandidateDecision:
     score: float | None
     action: str
     status: str
+    evidence_data_ready: bool
+    final_decision_ready: bool
     decision_ready: bool
     blockers: Sequence[str] = field(default_factory=tuple)
     change_conditions: Sequence[str] = field(default_factory=tuple)
@@ -289,7 +291,9 @@ def _candidate_decisions(rows: Sequence[Mapping[str, Any]], contracts: Sequence[
             score=score,
             action=str(row.get("portfolio_action") or row.get("status") or "REVIEW"),
             status=str(row.get("status") or ""),
-            decision_ready=bool(confidence.get("decision_ready", row.get("valid_for_decision") and row.get("evidence_valid_for_decision", True))),
+            evidence_data_ready=bool(confidence.get("evidence_data_ready", row.get("valid_for_decision") and row.get("evidence_valid_for_decision", True))),
+            final_decision_ready=bool(confidence.get("final_decision_ready", confidence.get("decision_ready", False))),
+            decision_ready=bool(confidence.get("final_decision_ready", confidence.get("decision_ready", False))),
             blockers=tuple(contract.get("blockers") or ()),
             change_conditions=tuple(contract.get("change_conditions") or ()),
             validity=dict(contract.get("validity") or {}),

@@ -3,15 +3,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.13.1"
-APP_VERSION_NAME = "Report Integrity Release"
+APP_VERSION = "v19.13.2"
+APP_VERSION_NAME = "Report Semantics and Mobile Return Release"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.12.0"
+PREVIOUS_APP_VERSION = "v19.13.1"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
-REPORT_SCHEMA_VERSION = "1.2"
+REPORT_SCHEMA_VERSION = "1.3"
 DATABASE_SCHEMA_VERSION = "2.0"
 RANKING_MODEL_VERSION = "v19.0.17"
 AUTONOMY_POLICY_VERSION = "v19.3.0"
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.13.2: Report Semantics and Mobile Return Release: skiller evidens- og dataklare kandidater fra endelig kjøpsklare kandidater, fjerner medaljer fra ikke-godkjente kortlister, rydder feil/advarsler og unike hoppede kandidater, markerer foreløpige modellforslag, skiller læringskjøp fra produksjonskjøp, forbedrer norsk språk og tallformat, reduserer nestede råkopier, og gjør PDF-nedlasting mobilvennlig uten at appfanen erstattes.",
     "v19.13.1: Report Integrity Release: kanonisk rapportvisning synkroniserer sluttfelter mot rådetaljer, validerer score/trend/handling/evidens før PDF, beregner sammendrag fra faktisk kandidatliste, dedupliserer kildekjeder, skiller evidensport fra endelig beslutning, merker nøytrale modellbaseliner, viser rå rangering uten medaljer når ingen kandidat er beslutningsklar, og blokkerer ordinære testvarsler uten eksplisitt test-med-Pushover-valg.",
     "v19.13.0-kandidat (senere avvist som samlet leveranse): Ikke-destruktivt migreringsfundament for gammel Paper Trading-state med dry-run, eksplisitt MIGRER-bekreftelse, begrunnelse, backup, avstemming og idempotent speiling til strategikonto, ordre og fills. Aktiv Paper-runtime, produksjonsbinding og Autonomi er uendret.",
     "v19.13.0-kandidat (senere avvist som samlet leveranse): Kontrollert strategi-promotering med kanonisk produksjonsbinding, eksplisitt menneskelig bekreftelse, strenge pre-flight-porter, Paper Trading-ruting til valgt produksjonsstrategi og sporbar ett-stegs rollback. Ingen automatisk promotering eller meglerhandel.",

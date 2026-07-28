@@ -325,10 +325,67 @@ def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
     return not actual or any(token in actual for token in accepted)
 
 
+def _source_row_for_reanalysis(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Strip prior analysis wrappers before a new pipeline pass.
+
+    Discovery and cached report rows can already be ``CandidateAssessment``
+    objects. Feeding those objects back into ``score_candidate`` used to create
+    ``raw.raw.raw`` chains and allowed old analysis outputs to masquerade as
+    fresh source fields. Only the deepest source payload is carried forward;
+    the previous assessment is retained as a compact, explicitly non-authoritative
+    snapshot for traceability.
+    """
+    outer = dict(row or {})
+    current = outer
+    depth = 0
+    while depth < 8:
+        nested = current.get("raw")
+        looks_like_assessment = bool(
+            isinstance(nested, Mapping)
+            and (
+                current.get("candidate_id")
+                or current.get("investment_score") is not None
+                or current.get("quality_gates")
+                or current.get("analysis_ranking")
+            )
+        )
+        if not looks_like_assessment:
+            break
+        current = dict(nested)
+        depth += 1
+
+    if depth == 0:
+        return outer
+
+    source = dict(current)
+    for key in (
+        "ticker", "symbol", "name", "shortName", "longName", "market", "country",
+        "exchange", "sector", "industry", "source", "source_market",
+    ):
+        if outer.get(key) not in (None, ""):
+            source[key] = outer.get(key)
+    source["previous_analysis_snapshot"] = {
+        "authoritative": False,
+        "wrapper_depth_removed": depth,
+        "candidate_id": outer.get("candidate_id"),
+        "investment_score": outer.get("investment_score"),
+        "confidence_score": outer.get("confidence_score"),
+        "risk_score": outer.get("risk_score"),
+        "score_trend": outer.get("score_trend") or outer.get("trend"),
+        "score_delta": outer.get("score_delta"),
+        "status": outer.get("status"),
+        "portfolio_action": outer.get("portfolio_action"),
+        "rank": outer.get("rank"),
+    }
+    source["analysis_wrapper_depth_removed"] = depth
+    return source
+
+
 def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineConfig, progress_callback: Any | None = None, force_refresh: bool = False) -> list[dict[str, Any]]:
     normalized = []
     for raw in rows:
-        identity = normalize_candidate_identity(raw, config.market_scope)
+        source_row = _source_row_for_reanalysis(raw)
+        identity = normalize_candidate_identity(source_row, config.market_scope)
         clean, _missing = _sanitize_numeric_fields(identity)
         normalized.append(clean)
     filtered = [r for r in normalized if r.get("ticker") and (config.market_scope == "Alle" or r.get("market") == config.market_scope)]
@@ -445,6 +502,10 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "weighted_contributions": {k: round(parts[k] * effective_weights.get(k, 0.0), 2) for k in parts},
         "investment_score": round(investment, 2),
     }
+    raw["score_trend"] = trend_meta["trend"]
+    raw["score_trend_basis"] = "Kandidatscore sammenlignet med forrige analysekjøring"
+    raw["score_trend_observations"] = trend_meta.get("observations", 0)
+    raw["score_trend_average"] = trend_meta.get("average_score")
     return CandidateAssessment(
         candidate_id=_candidate_id(ticker, market), ticker=ticker, name=name, market=market,
         sector=sector, source=source, scanner_score=round(scanner_score, 2),

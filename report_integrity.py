@@ -1,16 +1,16 @@
-"""Canonical report view and integrity validation for v19.13.1.
+"""Canonical report view and integrity validation for v19.13.2.
 
 The analysis engines remain authoritative for ranking and portfolio decisions.
-This module only makes the completed result internally consistent before it is
-serialized or rendered.  It never recalculates a production score or changes a
-portfolio action.
+This module makes a completed result internally consistent before it is
+serialized or rendered. It does not recalculate a production score or relax a
+trading rule.
 """
 from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, Mapping, MutableMapping, Sequence
 
-REPORT_INTEGRITY_SCHEMA_VERSION = "1.0"
+REPORT_INTEGRITY_SCHEMA_VERSION = "1.1"
 
 _VERIFIED_EVIDENCE = {
     "AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS",
@@ -21,6 +21,11 @@ _COMPANY_ALIASES = {
     "BRK.A": "BERKSHIRE_HATHAWAY", "BRK.B": "BERKSHIRE_HATHAWAY",
     "FOX": "FOX_CORP", "FOXA": "FOX_CORP",
     "NWS": "NEWS_CORP", "NWSA": "NEWS_CORP",
+}
+
+_ANALYSIS_WRAPPER_KEYS = {
+    "candidate_id", "investment_score", "confidence_score", "risk_score",
+    "quality_gates", "analysis_ranking", "strategy_scores", "portfolio_action",
 }
 
 
@@ -81,13 +86,125 @@ def _evidence_status(candidate: Mapping[str, Any], area: str) -> str:
     return str(payload.get("coverage") or payload.get("status") or "NOT_SEARCHED").upper()
 
 
-def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
-    """Return a deep-copied report view with one declared field precedence.
+def _looks_like_analysis_wrapper(value: Mapping[str, Any]) -> bool:
+    return bool(value.get("raw") and any(key in value for key in _ANALYSIS_WRAPPER_KEYS))
 
-    Candidate top-level fields are the final analysis result.  Nested ``raw``
-    fields are supporting detail and are synchronized for rendering.  Any
-    repair is recorded so the report remains auditable.
+
+def _collapse_nested_raw(raw: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Remove repeated CandidateAssessment wrappers from a report payload.
+
+    A compact previous snapshot is kept, while the deepest source payload is
+    merged into the current raw object only for fields that are otherwise
+    missing. This prevents 20+ MB JSON files from carrying divergent raw chains.
     """
+    current = _mapping(raw)
+    snapshots: list[dict[str, Any]] = []
+    depth = 0
+    while depth < 8 and _looks_like_analysis_wrapper(current):
+        nested = current.get("raw")
+        if not isinstance(nested, Mapping):
+            break
+        snapshots.append({
+            "authoritative": False,
+            "candidate_id": current.get("candidate_id"),
+            "investment_score": current.get("investment_score"),
+            "confidence_score": current.get("confidence_score"),
+            "risk_score": current.get("risk_score"),
+            "score_trend": current.get("score_trend") or current.get("trend"),
+            "score_delta": current.get("score_delta"),
+            "status": current.get("status"),
+            "portfolio_action": current.get("portfolio_action"),
+            "rank": current.get("rank"),
+            "data_source": current.get("data_source"),
+            "latest_trade_date": current.get("latest_trade_date"),
+            "fetch_completed_at": current.get("fetch_completed_at"),
+        })
+        nested_copy = _mapping(nested)
+        current.pop("raw", None)
+        for key, value in nested_copy.items():
+            if key == "raw":
+                continue
+            current.setdefault(key, value)
+        # Continue only when another wrapper remains after the merge.
+        if isinstance(nested_copy.get("raw"), Mapping):
+            current["raw"] = deepcopy(nested_copy.get("raw"))
+        depth += 1
+    current.pop("raw", None)
+    if snapshots:
+        current["previous_analysis_snapshot"] = snapshots[0]
+        current["analysis_wrapper_depth_removed"] = len(snapshots)
+    return current, snapshots
+
+
+def _is_evidence_data_ready(candidate: Mapping[str, Any]) -> bool:
+    return bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision"))
+
+
+def _is_final_decision_ready(candidate: Mapping[str, Any]) -> bool:
+    action = str(candidate.get("portfolio_action") or "").upper()
+    return bool(_is_evidence_data_ready(candidate) and action in {"BUY", "KJØP"})
+
+
+def _diverse(rows: Sequence[Mapping[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen_companies: set[str] = set()
+    for row in rows:
+        company = _company_key(row)
+        if company in seen_companies:
+            continue
+        seen_companies.add(company)
+        selected.append(deepcopy(dict(row)))
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _normalise_market_diagnostics(result: MutableMapping[str, Any]) -> dict[str, int]:
+    event_count = 0
+    skipped_tickers: set[str] = set()
+    for item in result.get("market_diagnostics") or []:
+        if not isinstance(item, MutableMapping):
+            continue
+        candidate_errors = [row for row in item.get("candidate_errors") or [] if isinstance(row, Mapping)]
+        tickers = sorted({str(row.get("ticker") or "").strip().upper() for row in candidate_errors if row.get("ticker")})
+        event_count += len(candidate_errors)
+        skipped_tickers.update(tickers)
+        item["candidate_error_events"] = len(candidate_errors)
+        item["skipped_candidate_count"] = len(tickers)
+        item["skipped_tickers"] = tickers
+        item["errors"] = int(item.get("market_data_errors") or 0)
+        base_status = str(item.get("status") or "OK").split(" · ", 1)[0]
+        item["status"] = base_status + (f" · {len(tickers)} kandidat(er) hoppet over" if tickers else "")
+    return {
+        "candidate_error_events": event_count,
+        "skipped_candidate_count": len(skipped_tickers),
+        "skipped_tickers": sorted(skipped_tickers),
+    }
+
+
+def _learning_summary(result: Mapping[str, Any]) -> dict[str, Any]:
+    chain = result.get("autonomous_chain") if isinstance(result.get("autonomous_chain"), Mapping) else {}
+    portfolio_stage: Mapping[str, Any] = {}
+    for stage in chain.get("stages") or []:
+        if isinstance(stage, Mapping) and str(stage.get("name") or "").upper() == "AUTONOMOUS_PORTFOLIO":
+            portfolio_stage = stage.get("detail") if isinstance(stage.get("detail"), Mapping) else {}
+            break
+    ordinary_buys = portfolio_stage.get("ordinary_buys")
+    production_buys = int(ordinary_buys if ordinary_buys is not None else (portfolio_stage.get("buys") or 0))
+    learning_buys = int(portfolio_stage.get("learning_buys") or 0)
+    return {
+        "production_buys": production_buys,
+        "learning_buys": learning_buys,
+        "production_open_positions": int(portfolio_stage.get("open_positions") or 0),
+        "learning_open_positions": int(portfolio_stage.get("learning_open_positions") or 0),
+        "production_buy_tickers": list(portfolio_stage.get("buy_tickers") or []),
+        "learning_buy_tickers": list(portfolio_stage.get("learning_buy_tickers") or []),
+        "separate_accounts": bool(learning_buys or portfolio_stage.get("learning_open_positions")),
+    }
+
+
+def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a deep-copied report view with explicit semantic precedence."""
     result = deepcopy(dict(run or {}))
     corrections: list[dict[str, Any]] = []
     canonical_candidates: list[dict[str, Any]] = []
@@ -95,10 +212,21 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     for position, source_candidate in enumerate(_rows(result.get("candidates")), 1):
         candidate = source_candidate
         ticker = str(candidate.get("ticker") or f"#{position}")
-        raw = _mapping(candidate.get("raw"))
+        raw, snapshots = _collapse_nested_raw(_mapping(candidate.get("raw")))
+        if snapshots:
+            corrections.append({
+                "ticker": ticker,
+                "field": "raw.raw",
+                "from": f"{len(snapshots)} nestet(e) analysewrapper(e)",
+                "to": "previous_analysis_snapshot",
+                "reason": "Historiske analyseobjekter er ikke autoritative kildefelt",
+            })
 
+        # Top-level values are the completed assessment. Supporting raw values
+        # are synchronised for fields that have the same meaning. ``trend`` is
+        # explicitly a score trend, not a technical price trend.
         for field in (
-            "trend", "status", "portfolio_action", "investment_score",
+            "status", "portfolio_action", "investment_score",
             "confidence_score", "risk_score", "rank", "raw_rank",
         ):
             if candidate.get(field) is None:
@@ -112,25 +240,25 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
                 })
             raw[field] = deepcopy(candidate.get(field))
 
-        technical = _mapping(raw.get("technical"))
-        if candidate.get("trend") is not None:
-            old = technical.get("trend")
-            if old is not None and old != candidate.get("trend"):
-                corrections.append({
-                    "ticker": ticker, "field": "raw.technical.trend",
-                    "from": old, "to": candidate.get("trend"),
-                    "reason": "Teknisk tabell må bruke slutttrend",
-                })
-            technical["trend"] = candidate.get("trend")
-        if technical:
-            raw["technical"] = technical
+        score_trend = candidate.get("score_trend") or candidate.get("trend") or raw.get("score_trend") or "NY"
+        candidate["score_trend"] = score_trend
+        candidate["trend"] = score_trend  # compatibility alias
+        candidate["trend_basis"] = "Kandidatscore sammenlignet med forrige analysekjøring"
+        raw["score_trend"] = score_trend
+        raw["score_trend_basis"] = candidate["trend_basis"]
 
         readiness = _mapping(candidate.get("decision_readiness"))
         evidence_gate_action = str(readiness.get("allowed_action") or "REVIEW")
         final_action = str(candidate.get("portfolio_action") or "REVIEW")
+        evidence_data_ready = _is_evidence_data_ready(candidate)
+        final_decision_ready = _is_final_decision_ready(candidate)
         candidate["portfolio_action"] = final_action
+        candidate["evidence_data_ready"] = evidence_data_ready
+        candidate["final_decision_ready"] = final_decision_ready
         readiness["evidence_gate_action"] = evidence_gate_action
         readiness["final_action"] = final_action
+        readiness["evidence_data_ready"] = evidence_data_ready
+        readiness["final_decision_ready"] = final_decision_ready
         candidate["decision_readiness"] = readiness
 
         formula = _mapping(raw.get("score_formula"))
@@ -147,7 +275,7 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
                     "evidence_backed": backed,
                     "display_label": (
                         "Dokumentert evidensbidrag" if backed
-                        else "Nøytral modellbaseline - ikke dokumentert evidens"
+                        else "Nøytral modellbaseline – ikke dokumentert evidens"
                     ),
                     "contribution": contributions.get(area),
                 }
@@ -160,53 +288,62 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     result["candidates"] = canonical_candidates
     result["executive_intelligence"] = executive_intelligence_from_candidates(canonical_candidates)
 
-    def _diverse(rows: Sequence[Mapping[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
-        selected: list[dict[str, Any]] = []
-        seen_companies: set[str] = set()
-        for row in rows:
-            company = _company_key(row)
-            if company in seen_companies:
-                continue
-            seen_companies.add(company)
-            selected.append(deepcopy(dict(row)))
-            if len(selected) >= limit:
-                break
-        return selected
-
-    # Renderer input is derived from the same canonical candidate list.  This
-    # also upgrades older rows that did not persist decision_ready_top3.
     raw_top3 = _diverse(canonical_candidates, 3)
-    ready_rows = [
-        row for row in canonical_candidates
-        if bool(row.get("valid_for_decision")) and bool(row.get("evidence_valid_for_decision"))
-    ]
-    decision_ready_top3 = _diverse(ready_rows, 3)
+    evidence_ready_rows = [row for row in canonical_candidates if _is_evidence_data_ready(row)]
+    final_ready_rows = [row for row in canonical_candidates if _is_final_decision_ready(row)]
+    evidence_ready_top3 = _diverse(evidence_ready_rows, 3)
+    final_decision_top3 = _diverse(final_ready_rows, 3)
     result["raw_top3"] = raw_top3
     result["diverse_top3"] = raw_top3
-    result["decision_ready_top3"] = decision_ready_top3
+    result["evidence_ready_top3"] = evidence_ready_top3
+    result["decision_ready_top3"] = final_decision_top3
+    result["final_decision_top3"] = final_decision_top3
     result["top3_status"] = {
-        "decision_ready_count": len(decision_ready_top3),
         "raw_count": len(raw_top3),
-        "uses_raw_fallback": not bool(decision_ready_top3),
+        "evidence_data_ready_count": len(evidence_ready_top3),
+        "decision_ready_count": len(final_decision_top3),
+        "uses_raw_fallback": not bool(evidence_ready_top3),
+        "display_mode": "FINAL_DECISION" if final_decision_top3 else ("EVIDENCE_SHORTLIST" if evidence_ready_top3 else "RAW_RANKING"),
     }
 
     actions = _mapping(_mapping(result.get("portfolio_decisions")).get("actions"))
     manual_review = int(actions.get("REVIEW") or sum(
         1 for row in canonical_candidates if str(row.get("portfolio_action") or "").upper() == "REVIEW"
     ))
+    evidence_ready_count = len(evidence_ready_rows)
+    final_ready_count = len(final_ready_rows)
+    preliminary_count = int(_mapping(result.get("summary")).get("proposals") or len(result.get("proposals") or []))
+    for proposal in result.get("proposals") or []:
+        if isinstance(proposal, MutableMapping):
+            proposal["proposal_stage"] = "PRELIMINARY_MODEL_OUTPUT"
+            proposal["final_trade_proposal"] = False
+            proposal["display_label"] = "Foreløpig modellkandidat før evidens- og beslutningsport"
+    result["proposal_summary"] = {
+        "preliminary_model_candidates": preliminary_count,
+        "evidence_data_ready_candidates": evidence_ready_count,
+        "final_buy_candidates": final_ready_count,
+        "label": "Foreløpige modellkandidater – ikke handelsforslag",
+    }
+
+    diagnostics_summary = _normalise_market_diagnostics(result)
+    result["diagnostics_summary"] = diagnostics_summary
+    result["learning_portfolio_summary"] = _learning_summary(result)
     result["report_summary"] = {
         "scanned": int(_mapping(result.get("summary")).get("scanned") or 0),
         "deep_analyzed": len(canonical_candidates),
         "manual_review": manual_review,
-        "decision_ready": sum(1 for row in canonical_candidates if row.get("valid_for_decision") and row.get("evidence_valid_for_decision")),
+        "evidence_data_ready": evidence_ready_count,
+        "decision_ready": final_ready_count,
+        "preliminary_model_candidates": preliminary_count,
         **result["executive_intelligence"],
+        **diagnostics_summary,
     }
     result["report_integrity"] = {
         "schema_version": REPORT_INTEGRITY_SCHEMA_VERSION,
         "canonical_candidate_count": len(canonical_candidates),
         "correction_count": len(corrections),
         "corrections": corrections,
-        "field_precedence": "candidate top-level > raw supporting detail",
+        "field_precedence": "candidate top-level > raw supporting detail; score trend is not technical price trend",
     }
     validation = validate_report_integrity(result)
     result["report_integrity"].update(validation)
@@ -228,17 +365,18 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
             errors.append(f"Duplikat kandidat i kanonisk rapportmodell: {ticker}")
         seen.add(ticker)
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-        technical = raw.get("technical") if isinstance(raw.get("technical"), Mapping) else {}
-        for field in ("trend", "status", "portfolio_action", "investment_score", "confidence_score"):
+        if isinstance(raw.get("raw"), Mapping):
+            errors.append(f"{ticker}: nestet raw.raw finnes fortsatt i leveransemodellen")
+        for field in ("status", "portfolio_action", "investment_score", "confidence_score", "risk_score"):
             top = candidate.get(field)
             nested = raw.get(field)
             if top is not None and nested is not None and top != nested:
                 errors.append(f"{ticker}: {field} motsier raw.{field}")
-        if candidate.get("trend") is not None and technical.get("trend") is not None and candidate.get("trend") != technical.get("trend"):
-            errors.append(f"{ticker}: slutttrend motsier teknisk trend")
         readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
         if str(readiness.get("final_action") or candidate.get("portfolio_action") or "REVIEW") != str(candidate.get("portfolio_action") or "REVIEW"):
             errors.append(f"{ticker}: endelig handling er ikke entydig")
+        if bool(candidate.get("final_decision_ready")) and str(candidate.get("portfolio_action") or "").upper() not in {"BUY", "KJØP"}:
+            errors.append(f"{ticker}: endelig beslutningsklar uten kjøpshandling")
         formula = raw.get("score_formula") if isinstance(raw.get("score_formula"), Mapping) else {}
         if formula and candidate.get("investment_score") is not None:
             if abs(_float(formula.get("investment_score")) - _float(candidate.get("investment_score"))) > 0.01:
@@ -257,13 +395,17 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         if actual.get(key) != value:
             errors.append(f"Sammendraget {key} er ikke beregnet fra kanonisk kandidatliste")
 
+    report_summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    final_count = sum(1 for row in candidates if isinstance(row, Mapping) and _is_final_decision_ready(row))
+    evidence_count = sum(1 for row in candidates if isinstance(row, Mapping) and _is_evidence_data_ready(row))
+    if int(report_summary.get("decision_ready") or 0) != final_count:
+        errors.append("Sammendragets beslutningsklare antall er ikke endelig kjøpsklart antall")
+    if int(report_summary.get("evidence_data_ready") or 0) != evidence_count:
+        errors.append("Sammendragets evidens- og dataklare antall er feil")
+
     if not candidates:
         warnings.append("Rapporten har ingen kandidater")
-    return {
-        "ok": not errors,
-        "errors": errors,
-        "warnings": warnings,
-    }
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
 def apply_report_integrity(run: MutableMapping[str, Any]) -> dict[str, Any]:
