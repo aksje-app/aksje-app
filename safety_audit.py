@@ -96,7 +96,7 @@ def run_static_regression_checks(root: Optional[Path] = None) -> Dict[str, Any]:
         "Sporbar drift",
     ]
     missing = [anchor for anchor in required_app_anchors if anchor not in app]
-    version_ok = 'APP_VERSION = "v19.13.1"' in version
+    version_ok = 'APP_VERSION = "v19.14.0"' in version
     return {
         "ok": not missing and version_ok,
         "version_ok": version_ok,

@@ -230,7 +230,7 @@ class PipelineConfig:
         market = self.market_scope if self.market_scope in valid else "Alle"
         deep = max(1, min(int(self.deep_analysis_count), 100))
         scan = max(deep, min(int(self.scan_limit), 500))
-        proposals = max(1, min(int(self.proposal_count), deep))
+        proposals = max(0, min(int(self.proposal_count), deep))
         weights = {k: max(0.0, _f(v)) for k, v in self.weights.items()}
         total = sum(weights.values()) or 1.0
         weights = {k: v / total for k, v in weights.items()}
@@ -526,86 +526,180 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
     )
 
 
+def _prefilter_score(row: Mapping[str, Any]) -> float:
+    """Cheap stage-1 score based only on already fetched market/fundamental data."""
+    scanner = _f(row.get("scanner_score"), _f(row.get("score"), 50.0))
+    momentum = _f(row.get("momentum_score"), _f(row.get("trend_score"), 50.0))
+    liquidity = _f(row.get("liquidity_score"), 50.0)
+    data_quality = _f(row.get("data_quality"), 50.0)
+    risk = _f(row.get("risk_score"), 50.0)
+    return round(_clamp(scanner * 0.35 + momentum * 0.25 + liquidity * 0.18 + data_quality * 0.17 + (100.0 - risk) * 0.05), 2)
+
+
+def _mark_intelligence_not_searched(row: dict[str, Any], area: str, reason: str) -> None:
+    key = f"{area}_intelligence"
+    payload = dict(row.get(key) or {}) if isinstance(row.get(key), Mapping) else {}
+    payload.update({
+        "coverage": "NOT_SEARCHED",
+        "status": "NOT_SEARCHED",
+        "reason": reason,
+        "search_log": list(payload.get("search_log") or []),
+        "source_budget": {"planned": 0, "attempted": 0, "successful": 0, "with_facts": 0, "errors": 0},
+    })
+    row[key] = payload
+
+
 def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | None = None, progress_callback: Any | None = None, force_refresh: bool = False) -> dict[str, Any]:
+    """Run a staged scan: broad market data, extended analysis, then deep evidence.
+
+    ``scan_limit`` controls stage 1, ``deep_analysis_count`` controls stage 2,
+    and ``proposal_count`` is the maximum number receiving expensive insider
+    and news evidence collection in stage 3.
+    """
     cfg = (config or PipelineConfig()).normalized()
-    # Full analysis means fresh prices/fundamentals. Expensive public
-    # intelligence caches remain valid unless an operator explicitly requests
-    # strict source refresh, preventing 150 candidates from re-querying every
-    # slow provider during diagnostics.
     strict_source_refresh = os.getenv("STRICT_INTELLIGENCE_SOURCE_REFRESH", "0").strip().lower() in {"1", "true", "yes", "on"}
     intelligence_force_refresh = bool(force_refresh and strict_source_refresh)
     if progress_callback:
-        progress_callback({"phase": "PREPARE", "completed": 0, "total": max(1, min(len(rows), cfg.scan_limit)), "message": "Forbereder kandidater"})
+        progress_callback({"phase": "PREPARE", "completed": 0, "total": max(1, min(len(rows), cfg.scan_limit)), "message": "Trinn 1/3: forbereder rask markedsskanning"})
+
     def _enrich_progress(done: int, total: int, ticker: str) -> None:
         if progress_callback:
-            progress_callback({"phase": "MARKET_DATA", "completed": done, "total": total, "ticker": ticker, "message": f"Henter markedsdata {done}/{total}: {ticker}"})
+            progress_callback({"phase": "MARKET_DATA", "completed": done, "total": total, "ticker": ticker, "message": f"Trinn 1/3: henter markedsdata {done}/{total}: {ticker}"})
+
     prepared_rows = _prepare_candidate_rows(rows, cfg, progress_callback=_enrich_progress, force_refresh=force_refresh)
     for row in prepared_rows:
         row["mission_id"] = cfg.mission_id
         row["configuration_version"] = cfg.configuration_version
+
     candidate_errors: list[dict[str, Any]] = []
     sanitized_rows: list[dict[str, Any]] = []
     for row in prepared_rows:
         clean, missing = _sanitize_numeric_fields(row)
         if missing:
             clean["loader_diagnostics"] = {"missing_or_invalid_numeric_fields": missing}
+        clean["stage1_prefilter_score"] = _prefilter_score(clean)
+        clean["analysis_stage"] = "FAST_SCAN"
         sanitized_rows.append(clean)
-    prepared_rows = sanitized_rows
-    active_source_rows = [row for row in prepared_rows if not bool(row.get("analysis_quarantine"))]
-    quarantined_rows = [row for row in prepared_rows if bool(row.get("analysis_quarantine"))]
-    if cfg.use_insider_intelligence and active_source_rows:
-        from insider_intelligence import enrich_rows as enrich_insider_rows
-        if progress_callback:
-            progress_callback({"phase": "INSIDER", "completed": 0, "total": len(active_source_rows), "message": "Henter offentlige insidertransaksjoner"})
-        active_source_rows = enrich_insider_rows(
-            active_source_rows, force_refresh=intelligence_force_refresh,
-            progress_callback=(lambda done, total, ticker: progress_callback({"phase": "INSIDER", "completed": done, "total": total, "ticker": ticker, "message": f"Henter insiderdata {done}/{total}: {ticker}"})) if progress_callback else None,
-        )
-    if cfg.use_news_intelligence and active_source_rows:
-        from news_intelligence import enrich_rows as enrich_news_rows
-        if progress_callback:
-            progress_callback({"phase": "NEWS", "completed": 0, "total": len(active_source_rows), "message": "Analyserer nyheter og sentiment"})
-        active_source_rows = enrich_news_rows(
-            active_source_rows, force_refresh=intelligence_force_refresh,
-            progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
-        )
-    prepared_rows = active_source_rows + quarantined_rows
-    if cfg.use_portfolio_fit and prepared_rows:
+
+    # Stage 1 ends here. Only the strongest rows proceed to extended analysis.
+    sanitized_rows.sort(key=lambda row: (_f(row.get("stage1_prefilter_score")), _f(row.get("scanner_score"))), reverse=True)
+    extended_source_rows = sanitized_rows[: cfg.deep_analysis_count]
+    screened_out_rows = sanitized_rows[cfg.deep_analysis_count :]
+    for row in extended_source_rows:
+        row["analysis_stage"] = "EXTENDED_ANALYSIS"
+
+    if progress_callback:
+        progress_callback({
+            "phase": "EXTENDED_ANALYSIS", "completed": 0, "total": max(1, len(extended_source_rows)),
+            "message": f"Trinn 2/3: utvidet analyse av {len(extended_source_rows)} kandidater; {len(screened_out_rows)} avsluttet etter rask skanning",
+        })
+
+    # Portfolio fit is local and relatively cheap, but only useful for stage-2 rows.
+    if cfg.use_portfolio_fit and extended_source_rows:
         from advanced_investment_intelligence import calculate_portfolio_fit
-        for row in prepared_rows:
+        for row in extended_source_rows:
             ticker = str(row.get("ticker") or "")
             try:
-                fit, trace = calculate_portfolio_fit(row, prepared_rows)
+                fit, trace = calculate_portfolio_fit(row, extended_source_rows)
                 row["portfolio_fit_score"] = fit
                 row["portfolio_fit_trace"] = trace
             except Exception as exc:
                 row["portfolio_fit_score"] = 50.0
                 row["portfolio_fit_trace"] = {"status": "FALLBACK", "error": str(exc)}
                 candidate_errors.append({"ticker": ticker, "stage": "PORTFOLIO_FIT", "error": str(exc)})
-    assessments = []
-    for idx, row in enumerate(prepared_rows, start=1):
+
+    preliminary: list[CandidateAssessment] = []
+    source_by_ticker: dict[str, dict[str, Any]] = {}
+    for idx, row in enumerate(extended_source_rows, start=1):
         ticker = str(row.get("ticker") or "")
+        source_by_ticker[ticker.upper()] = row
         try:
-            assessments.append(score_candidate(row, cfg))
+            preliminary.append(score_candidate(row, cfg))
         except Exception as exc:
             candidate_errors.append({
-                "ticker": ticker,
-                "stage": "SCORING",
-                "error": str(exc),
+                "ticker": ticker, "stage": "PRELIMINARY_SCORING", "error": str(exc),
                 "missing_or_invalid_numeric_fields": list(row.get("numeric_fields_missing_or_invalid") or []),
             })
         if progress_callback:
-            progress_callback({"phase": "SCORING", "completed": idx, "total": max(1, len(prepared_rows)), "ticker": ticker, "message": f"Beregner score {idx}/{len(prepared_rows)}"})
-    assessments.sort(key=lambda x: (x.scanner_score, x.investment_score), reverse=True)
-    deep = assessments[: cfg.deep_analysis_count]
-    deep.sort(key=lambda x: (x.investment_score, x.scanner_score), reverse=True)
-    for idx, item in enumerate(deep, start=1):
+            progress_callback({"phase": "EXTENDED_ANALYSIS", "completed": idx, "total": max(1, len(extended_source_rows)), "ticker": ticker, "message": f"Trinn 2/3: beregner utvidet score {idx}/{len(extended_source_rows)}"})
+
+    preliminary.sort(key=lambda item: (item.investment_score, item.scanner_score), reverse=True)
+    evidence_order = [item.ticker.upper() for item in preliminary[: cfg.proposal_count]]
+    evidence_tickers = set(evidence_order)
+    evidence_rows = [
+        source_by_ticker[ticker]
+        for ticker in evidence_order
+        if ticker in source_by_ticker and not bool(source_by_ticker[ticker].get("analysis_quarantine"))
+    ]
+    for row in evidence_rows:
+        row["analysis_stage"] = "EVIDENCE_CONTROLLED"
+        row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.proposal_count, "strict_refresh": intelligence_force_refresh}
+    for row in extended_source_rows:
+        ticker = str(row.get("ticker") or "").upper()
+        quarantined = bool(row.get("analysis_quarantine"))
+        if ticker not in evidence_tickers or quarantined:
+            reason = (
+                "Kandidaten var prioritert, men automatisk evidenskontroll ble stoppet av datakarantene; "
+                "programmet forsøker igjen ved neste relevante kjøring."
+                if quarantined and ticker in evidence_tickers
+                else "Ikke prioritert til full evidenskontroll etter rask og utvidet rangering; programmet vurderer kandidaten på nytt senere."
+            )
+            if cfg.use_insider_intelligence:
+                _mark_intelligence_not_searched(row, "insider", reason)
+            if cfg.use_news_intelligence:
+                _mark_intelligence_not_searched(row, "news", reason)
+
+    if progress_callback:
+        progress_callback({
+            "phase": "EVIDENCE", "completed": 0, "total": max(1, len(evidence_rows)),
+            "message": f"Trinn 3/3: grundig evidenskontroll av {len(evidence_rows)} prioriterte kandidater",
+        })
+
+    enriched_by_ticker: dict[str, dict[str, Any]] = {str(row.get("ticker") or "").upper(): row for row in evidence_rows}
+    if cfg.use_insider_intelligence and evidence_rows:
+        from insider_intelligence import enrich_rows as enrich_insider_rows
+        evidence_rows = enrich_insider_rows(
+            evidence_rows, force_refresh=intelligence_force_refresh,
+            progress_callback=(lambda done, total, ticker: progress_callback({"phase": "INSIDER", "completed": done, "total": total, "ticker": ticker, "message": f"Trinn 3/3: henter insiderdata {done}/{total}: {ticker}"})) if progress_callback else None,
+        )
+    if cfg.use_news_intelligence and evidence_rows:
+        from news_intelligence import enrich_rows as enrich_news_rows
+        evidence_rows = enrich_news_rows(
+            evidence_rows, force_refresh=intelligence_force_refresh,
+            progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Trinn 3/3: analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
+        )
+    enriched_by_ticker = {str(row.get("ticker") or "").upper(): row for row in evidence_rows}
+    final_source_rows: list[dict[str, Any]] = []
+    for row in extended_source_rows:
+        ticker = str(row.get("ticker") or "").upper()
+        final_source_rows.append(enriched_by_ticker.get(ticker, row))
+
+    assessments: list[CandidateAssessment] = []
+    for idx, row in enumerate(final_source_rows, start=1):
+        ticker = str(row.get("ticker") or "")
+        try:
+            assessment = score_candidate(row, cfg)
+            assessment.raw["analysis_stage"] = str(row.get("analysis_stage") or "EXTENDED_ANALYSIS")
+            assessment.raw["stage1_prefilter_score"] = row.get("stage1_prefilter_score")
+            assessment.raw["evidence_budget"] = row.get("evidence_budget") or {}
+            assessments.append(assessment)
+        except Exception as exc:
+            candidate_errors.append({
+                "ticker": ticker, "stage": "FINAL_SCORING", "error": str(exc),
+                "missing_or_invalid_numeric_fields": list(row.get("numeric_fields_missing_or_invalid") or []),
+            })
+        if progress_callback:
+            progress_callback({"phase": "SCORING", "completed": idx, "total": max(1, len(final_source_rows)), "ticker": ticker, "message": f"Fullfører score {idx}/{len(final_source_rows)}"})
+
+    assessments.sort(key=lambda item: (item.investment_score, item.scanner_score), reverse=True)
+    for idx, item in enumerate(assessments, start=1):
         item.rank = idx
-    eligible = [x for x in deep if x.status in {STATUS_RECOMMENDED, STATUS_MANUAL, STATUS_WATCH}]
+    eligible = [item for item in assessments if item.status in {STATUS_RECOMMENDED, STATUS_MANUAL, STATUS_WATCH} and item.ticker.upper() in evidence_tickers]
     proposals = eligible[: cfg.proposal_count]
+
     previous_run = _read_json(LATEST_RUN_PATH, {})
     previous_by_ticker = {str(x.get("ticker") or "").upper(): x for x in (previous_run.get("candidates") or [])}
-    for item in deep:
+    for item in assessments:
         previous = previous_by_ticker.get(item.ticker.upper())
         if not previous:
             item.raw["score_change_explanation"] = {"status": "NEW", "previous_score": None, "current_score": item.investment_score, "delta": 0.0, "drivers": []}
@@ -626,11 +720,10 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         previous_score = _f(previous.get("investment_score"), item.investment_score)
         item.raw["score_change_explanation"] = {
             "status": "CHANGED" if abs(item.investment_score - previous_score) >= 0.01 else "UNCHANGED",
-            "previous_score": round(previous_score, 2),
-            "current_score": item.investment_score,
-            "delta": round(item.investment_score - previous_score, 2),
-            "drivers": drivers[:8],
+            "previous_score": round(previous_score, 2), "current_score": item.investment_score,
+            "delta": round(item.investment_score - previous_score, 2), "drivers": drivers[:8],
         }
+
     run_id = datetime.now().strftime("IP-%Y%m%d-%H%M%S")
     payload = {
         "version": VERSION,
@@ -638,27 +731,31 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "created_at": _now_iso(),
         "config": asdict(cfg),
         "market_expansion": expand_market_scope(cfg.market_scope),
-        "all_markets": list(BASE_MARKET_SCOPES) if cfg.market_scope == "Alle" else [],
+        "all_markets": list(BASE_MARKET_SCOPES) if cfg.market_scope in {"Alle markeder - full skanning"} else [],
         "summary": {
-            "scanned": len(assessments),
-            "deep_analyzed": len(deep),
-            "proposals": len(proposals),
-            "recommended": sum(1 for x in deep if x.status == STATUS_RECOMMENDED),
-            "rejected": sum(1 for x in deep if x.status == STATUS_REJECTED),
+            "scanned": len(sanitized_rows), "deep_analyzed": len(assessments), "proposals": len(proposals),
+            "recommended": sum(1 for x in assessments if x.status == STATUS_RECOMMENDED),
+            "rejected": sum(1 for x in assessments if x.status == STATUS_REJECTED),
+            "stage1_scanned": len(sanitized_rows), "stage1_screened_out": len(screened_out_rows),
+            "stage2_extended": len(assessments), "stage3_evidence_controlled": len(evidence_rows),
         },
-        "candidates": [asdict(x) for x in deep],
-        "proposals": [asdict(x) for x in proposals],
+        "analysis_stages": {
+            "stage1": {"label": "Rask markedsskanning", "input": len(sanitized_rows), "advanced": len(extended_source_rows)},
+            "stage2": {"label": "Utvidet analyse", "input": len(extended_source_rows), "advanced": len(evidence_rows)},
+            "stage3": {"label": "Grundig evidenskontroll", "input": len(evidence_rows), "completed": len(evidence_rows)},
+        },
+        "candidates": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EXTENDED_ANALYSIS")} for x in assessments],
+        "proposals": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EVIDENCE_CONTROLLED")} for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
         "data_refresh": {"force_refresh": bool(force_refresh), "cache_ttl_seconds": 21600,
                          "intelligence_source_cache_respected": not intelligence_force_refresh,
                          "strict_intelligence_source_refresh": intelligence_force_refresh},
         "candidate_errors": candidate_errors,
         "loader_diagnostics": {
-            "prepared_count": len(prepared_rows),
-            "scored_count": len(assessments),
-            "skipped_count": len(candidate_errors),
-            "analysis_quarantine_count": len(quarantined_rows),
-            "analysis_quarantine_effect": "Expensive insider/news refresh skipped; candidate remains visible and scoreable",
+            "prepared_count": len(sanitized_rows), "scored_count": len(assessments), "skipped_count": len(candidate_errors),
+            "analysis_quarantine_count": sum(bool(row.get("analysis_quarantine")) for row in extended_source_rows),
+            "analysis_quarantine_effect": "Dyr insider-/nyhetsinnhenting hoppes over; kandidaten kan fortsatt hurtigvurderes",
+            "stage1_screened_out": len(screened_out_rows),
         },
     }
     if progress_callback:
@@ -669,7 +766,6 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     _write_json(RUNS_DIR / f"{run_id}.json", payload)
     _write_json(PROPOSALS_DIR / f"{run_id}_proposals.json", payload["proposals"])
     return payload
-
 
 def add_to_review_queue(candidate: Mapping[str, Any], note: str = "") -> dict[str, Any]:
     queue = _read_json(REVIEW_QUEUE_PATH, [])

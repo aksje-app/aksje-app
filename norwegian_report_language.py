@@ -18,9 +18,13 @@ DECISION_LABELS: dict[str, str] = {
     "SELL": "Selg",
     "AVOID": "Unngå",
     "SKIP": "Ikke aktuell",
-    "REVIEW": "Krever manuell vurdering",
-    "MANUAL_REVIEW": "Krever manuell vurdering",
+    "REVIEW": "Undersøk manuelt",
+    "MANUAL_REVIEW": "Undersøk manuelt",
     "REVIEW_ONLY": "Kun vurdering",
+    "UNDERSØK_MANUELT": "Undersøk manuelt",
+    "OVERVÅKES_AUTOMATISK": "Overvåkes automatisk",
+    "AUTOMATISK_AVVIST": "Automatisk avvist",
+    "KJØPSKANDIDAT": "Kjøpskandidat",
     "APPROVE": "Godkjenn",
     "REJECT": "Avvis",
 }
@@ -77,6 +81,10 @@ STATUS_LABELS: dict[str, str] = {
     "FINAL_DECISION_READY": "Endelig beslutningsklar",
     "AUTONOMY_THEORETICAL_BUY": "Teoretisk autonomt kjøp",
     "AUTONOMY_LEARNING_BUY": "Autonomt læringskjøp",
+    "KREVER MANUELL VURDERING": "Undersøk manuelt",
+    "KREVER MANUELL VURDERING – DOKUMENTASJON": "Undersøk manuelt – manglende dokumentasjon",
+    "MANUELL VURDERING": "Undersøk manuelt",
+    "DELVIS – MANUELL VURDERING": "Delvis – undersøk manuelt",
 }
 
 MODEL_ROLE_LABELS: dict[str, str] = {
@@ -282,22 +290,22 @@ def translate_report_text(value: Any) -> str:
 
 def decision_color(value: Any) -> str:
     raw = _key(value)
-    if raw in {"BUY", "STRONG_BUY", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID"}:
+    if raw in {"BUY", "STRONG_BUY", "KJØPSKANDIDAT", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID"}:
         return "#D9FBE5"  # green tint
-    if raw in {"REVIEW", "MANUAL_REVIEW", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
+    if raw in {"REVIEW", "MANUAL_REVIEW", "UNDERSØK_MANUELT", "OVERVÅKES_AUTOMATISK", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
         return "#FFF5CC"  # yellow tint
-    if raw in {"SKIP", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
+    if raw in {"SKIP", "AUTOMATISK_AVVIST", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
         return "#FFE1E1"  # red tint
     return "#F5F8FA"
 
 
 def decision_text_color(value: Any) -> str:
     raw = _key(value)
-    if raw in {"BUY", "STRONG_BUY", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID"}:
+    if raw in {"BUY", "STRONG_BUY", "KJØPSKANDIDAT", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID"}:
         return "#166534"
-    if raw in {"REVIEW", "MANUAL_REVIEW", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
+    if raw in {"REVIEW", "MANUAL_REVIEW", "UNDERSØK_MANUELT", "OVERVÅKES_AUTOMATISK", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
         return "#92400E"
-    if raw in {"SKIP", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
+    if raw in {"SKIP", "AUTOMATISK_AVVIST", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
         return "#991B1B"
     return "#102A43"
 
@@ -333,7 +341,7 @@ def status_dot(value: Any) -> str:
         return "●"
     if raw in {"REVIEW", "MANUAL_REVIEW", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE", "WARNING", "NOT_SEARCHED"}:
         return "●"
-    if raw in {"SKIP", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
+    if raw in {"SKIP", "AUTOMATISK_AVVIST", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
         return "●"
     return "●"
 

@@ -62,7 +62,7 @@ def _sample_run():
 
 
 def test_translation_helpers():
-    assert decision_label("REVIEW") == "Krever manuell vurdering"
+    assert decision_label("REVIEW") == "Undersøk manuelt"
     assert sector_label("Industrials") == "Industri"
     assert model_role_label("CHALLENGER") == "Utfordrer"
     assert "Historisk test" in translate_report_text("Backtesting")
@@ -70,7 +70,7 @@ def test_translation_helpers():
 
 def test_text_report_uses_norwegian_decisions():
     text = build_text_report(_sample_run())
-    assert "Krever manuell vurdering" in text
+    assert "Undersøk manuelt" in text
     assert "REVIEW" not in text
 
 
@@ -78,7 +78,7 @@ def test_pdf_report_localizes_user_facing_terms():
     pdf_bytes = build_pdf(_sample_run())
     reader = PdfReader(io.BytesIO(pdf_bytes))
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    required = ["KREVER MANUELL VURDERING", "VERIFISERT", "Utfordrer", "Historisk test", "AI-funn", "Industri", "Vekst"]
+    required = ["UNDERSØK MANUELT", "VERIFISERT", "Utfordrer", "Historisk test", "AI-funn", "Industri", "Vekst"]
     for word in required:
         assert word in text, word
     forbidden = ["Portfolio & Decision Layer", "Shadow Mode", "Backtesting", "AI Discovery", "CHALLENGER", "PRODUCTION", "VERIFIED"]

@@ -1,4 +1,4 @@
-"""Canonical report view and integrity validation for v19.13.2.
+"""Canonical report view and integrity validation for v19.14.0.
 
 The analysis engines remain authoritative for ranking and portfolio decisions.
 This module makes a completed result internally consistent before it is
@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Mapping, MutableMapping, Sequence
 
-REPORT_INTEGRITY_SCHEMA_VERSION = "1.1"
+REPORT_INTEGRITY_SCHEMA_VERSION = "1.3"
 
 _VERIFIED_EVIDENCE = {
     "AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS",
@@ -285,7 +285,18 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         candidate["raw"] = raw
         canonical_candidates.append(candidate)
 
+    from autonomous_decision_reduction import apply_decision_reduction
+    portfolio_meta = _mapping(result.get("portfolio_decisions"))
+    threshold = _float(portfolio_meta.get("production_threshold"), 78.0)
+    maximum_risk = _float(portfolio_meta.get("maximum_risk_score"), 65.0)
+    canonical_candidates, reduction = apply_decision_reduction(
+        canonical_candidates, threshold=threshold, maximum_risk=maximum_risk,
+        near_threshold_gap=6.0, max_manual_tasks=2,
+    )
     result["candidates"] = canonical_candidates
+    result["autonomous_decision_reduction"] = reduction
+    result["manual_tasks"] = list(reduction.get("manual_tasks") or [])
+    result["priority_top3"] = list(reduction.get("priority_top3") or [])
     result["executive_intelligence"] = executive_intelligence_from_candidates(canonical_candidates)
 
     raw_top3 = _diverse(canonical_candidates, 3)
@@ -298,23 +309,32 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     result["evidence_ready_top3"] = evidence_ready_top3
     result["decision_ready_top3"] = final_decision_top3
     result["final_decision_top3"] = final_decision_top3
+    priority_top3 = list(reduction.get("priority_top3") or [])
     result["top3_status"] = {
+        "priority_count": len(priority_top3),
         "raw_count": len(raw_top3),
         "evidence_data_ready_count": len(evidence_ready_top3),
         "decision_ready_count": len(final_decision_top3),
-        "uses_raw_fallback": not bool(evidence_ready_top3),
-        "display_mode": "FINAL_DECISION" if final_decision_top3 else ("EVIDENCE_SHORTLIST" if evidence_ready_top3 else "RAW_RANKING"),
+        "uses_raw_fallback": not bool(priority_top3),
+        "display_mode": "PRIORITY_REVIEW" if priority_top3 else "NO_PRIORITY_CANDIDATES",
     }
 
     actions = _mapping(_mapping(result.get("portfolio_decisions")).get("actions"))
-    manual_review = int(actions.get("REVIEW") or sum(
-        1 for row in canonical_candidates if str(row.get("portfolio_action") or "").upper() == "REVIEW"
-    ))
+    manual_review = int(reduction.get("manual_candidates") or 0)
     evidence_ready_count = len(evidence_ready_rows)
     final_ready_count = len(final_ready_rows)
     preliminary_count = int(_mapping(result.get("summary")).get("proposals") or len(result.get("proposals") or []))
+    candidate_by_ticker = {str(row.get("ticker") or "").upper(): row for row in canonical_candidates}
     for proposal in result.get("proposals") or []:
         if isinstance(proposal, MutableMapping):
+            canonical = candidate_by_ticker.get(str(proposal.get("ticker") or "").upper(), {})
+            for field in (
+                "autonomy_outcome_code", "autonomy_outcome_label", "autonomy_outcome_reason",
+                "automatic_next_action", "manual_review_required", "manual_tasks", "manual_task_summary",
+                "analysis_stage",
+            ):
+                if field in canonical:
+                    proposal[field] = deepcopy(canonical.get(field))
             proposal["proposal_stage"] = "PRELIMINARY_MODEL_OUTPUT"
             proposal["final_trade_proposal"] = False
             proposal["display_label"] = "Foreløpig modellkandidat før evidens- og beslutningsport"
@@ -332,6 +352,10 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "scanned": int(_mapping(result.get("summary")).get("scanned") or 0),
         "deep_analyzed": len(canonical_candidates),
         "manual_review": manual_review,
+        "manual_task_count": int(reduction.get("manual_task_count") or 0),
+        "automatic_watch": int(reduction.get("automatic_watch") or 0),
+        "automatic_rejected": int(reduction.get("automatic_rejected") or 0),
+        "buy_candidates": int(reduction.get("buy_candidates") or 0),
         "evidence_data_ready": evidence_ready_count,
         "decision_ready": final_ready_count,
         "preliminary_model_candidates": preliminary_count,
@@ -402,6 +426,22 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         errors.append("Sammendragets beslutningsklare antall er ikke endelig kjøpsklart antall")
     if int(report_summary.get("evidence_data_ready") or 0) != evidence_count:
         errors.append("Sammendragets evidens- og dataklare antall er feil")
+
+    manual_candidates = [row for row in candidates if isinstance(row, Mapping) and row.get("manual_review_required")]
+    manual_tasks = list(run.get("manual_tasks") or [])
+    if len(manual_candidates) > 2:
+        errors.append("Flere enn to kandidater er sendt til manuell undersøkelse")
+    if len(manual_tasks) > 2:
+        errors.append("Flere enn to konkrete manuelle oppgaver er opprettet")
+    for row in manual_candidates:
+        tasks = list(row.get("manual_tasks") or [])
+        if not tasks:
+            errors.append(f"{row.get('ticker')}: manuell undersøkelse mangler konkret oppgave")
+        for task in tasks:
+            if not isinstance(task, Mapping) or not all(task.get(key) for key in ("title", "why", "program_attempts", "failure_reason", "suggested_source", "decision_impact")):
+                errors.append(f"{row.get('ticker')}: manuell oppgave er ufullstendig")
+    if len(manual_tasks) != sum(len(row.get("manual_tasks") or []) for row in manual_candidates):
+        errors.append("Sammendraget for manuelle oppgaver samsvarer ikke med kandidatene")
 
     if not candidates:
         warnings.append("Rapporten har ingen kandidater")

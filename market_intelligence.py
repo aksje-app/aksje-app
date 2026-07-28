@@ -1,4 +1,4 @@
-"""Scheduled Market Intelligence & PDF Reports v19.13.2.
+"""Scheduled Market Intelligence & PDF Reports v19.14.0.
 
 Job profiles combine multiple markets, schedules, pipeline modules and notification
 rules. Jobs can run manually, when the Streamlit app is active, or from cron via
@@ -284,11 +284,28 @@ def load_run(run_id: str) -> dict[str, Any]:
 
 
 def normalize_markets(markets: Sequence[str]) -> list[str]:
-    chosen = [str(x) for x in markets if str(x)]
-    if "Alle" in chosen:
-        return list(BASE_MARKET_SCOPES)
-    valid = set(BASE_MARKET_SCOPES)
-    return [x for x in chosen if x in valid] or ["Norge"]
+    """Expand market groups while keeping the default 'Alle' intentionally small.
+
+    v19.14.0 defines Alle/Kjernemarkeder as Norge, Sverige and USA.  The old
+    six-market behaviour is available only through 'Alle markeder - full skanning'.
+    """
+    chosen = [str(x).strip() for x in markets if str(x).strip()]
+    expanded: list[str] = []
+    for scope in chosen:
+        values = expand_market_scope(scope) or ([scope] if scope in BASE_MARKET_SCOPES else [])
+        for market in values:
+            if market not in expanded:
+                expanded.append(market)
+    return expanded or ["Norge"]
+
+
+def _allocated_market_budget(total: int, market_index: int, market_count: int, *, minimum: int = 1) -> int:
+    """Distribute a total analysis budget deterministically across markets."""
+    total = max(0, int(total))
+    market_count = max(1, int(market_count))
+    market_index = max(1, min(int(market_index), market_count))
+    base, remainder = divmod(total, market_count)
+    return max(minimum, base + (1 if market_index <= remainder else 0))
 
 
 def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
@@ -327,7 +344,7 @@ def job_fingerprint(job: "JobProfile") -> str:
 @dataclass
 class JobProfile:
     name: str
-    markets: list[str] = field(default_factory=lambda: ["Alle"])
+    markets: list[str] = field(default_factory=lambda: ["Alle kjernemarkeder"])
     schedules: list[str] = field(default_factory=lambda: ["08:30", "22:30"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     modules: list[str] = field(default_factory=lambda: list(MODULE_OPTIONS))
@@ -416,8 +433,8 @@ def load_draft_job() -> JobProfile:
         except Exception:
             pass
     return JobProfile(
-        name="Normalanalyse – Alle markeder",
-        markets=["Alle"],
+        name="Normalanalyse – Kjernemarkeder",
+        markets=["Alle kjernemarkeder"],
         schedules=[],
         enabled=False,
         job_id=DRAFT_JOB_ID,
@@ -578,7 +595,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
 
     action_labels = {
         "BUY": "Kjøp", "HOLD": "Behold", "SELL": "Selg",
-        "SKIP": "Ikke aktuell", "REVIEW": "Krever manuell vurdering",
+        "SKIP": "Ikke aktuell", "REVIEW": "Undersøk manuelt",
     }
     lines = [
         f"{metadata.get('report_label', 'Rapport')} – beslutningsrapport",
@@ -618,7 +635,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         if weak.get("ticker"):
             lines.append(f"- Største svekkelse: {weak.get('ticker')} {float(weak.get('delta') or 0):+.2f}")
         for item in changes.get("action_changes") or []:
-            lines.append(f"- Endret handling: {item.get('ticker')} {action_labels.get(str(item.get('from')).upper(), item.get('from'))} → {action_labels.get(str(item.get('to')).upper(), item.get('to'))}")
+            lines.append(f"- Endret handling: {item.get('ticker')} {decision_label(item.get('from'))} → {decision_label(item.get('to'))}")
 
     lines.extend(["", "DATA-, MODELL- OG BESLUTNINGSDIFF"])
     changed_diffs = [row for row in (decision_diffs.get("candidates") or []) if row.get("has_previous")]
@@ -635,7 +652,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     lines.extend(["", "KANDIDATBESLUTNINGER"])
     for candidate in list(candidates)[:10]:
         raw_action = str(candidate.get("action") or candidate.get("status") or "REVIEW")
-        action = action_labels.get(raw_action.upper(), raw_action)
+        action = decision_label(raw_action)
         consensus = candidate.get("source_consensus") if isinstance(candidate.get("source_consensus"), Mapping) else {}
         profile = candidate.get("confidence") if isinstance(candidate.get("confidence"), Mapping) else {}
         validity = candidate.get("validity") if isinstance(candidate.get("validity"), Mapping) else {}
@@ -762,9 +779,12 @@ def _candidate_blockers_v1917(candidate: Mapping[str, Any], *, threshold: float 
     if score < threshold:
         blockers.append(f"score {score:.1f} er under terskel {threshold:.1f}")
     readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
+    outcome = str(candidate.get("autonomy_outcome_code") or "").upper()
     allowed = str(readiness.get("allowed_action") or candidate.get("portfolio_action") or "").upper()
-    if allowed and allowed not in {"BUY", "KJØP"}:
-        blockers.append(f"handlingsporten sier {decision_label(allowed).lower()}")
+    if outcome and outcome != "KJØPSKANDIDAT":
+        blockers.append(f"Autonomiutfallet er {decision_label(outcome).lower()}")
+    elif allowed and allowed not in {"BUY", "KJØP"}:
+        blockers.append("porteføljelaget kjøpsgodkjenner ikke kandidaten")
     validity = str((candidate.get("data_contract") or {}).get("validity") or "").upper()
     if validity and validity not in {"VALID", "GYLDIG"}:
         blockers.append("datakontrakten er ikke fullt gyldig")
@@ -815,10 +835,10 @@ def build_ranking_explanation(run: Mapping[str, Any]) -> dict[str, Any]:
         "note": note,
         "blockers": blockers,
         "ranking_types": [
+            {"name": "Prioritert vurderingsrekkefølge 1-3", "description": "Kandidatene som bør vurderes først. Rangeringen er ikke en kjøpsanbefaling og viser Autonomis konkrete utfall."},
             {"name": "Dokumentert nyhetsrangering", "description": "Nyhetsbidrag basert på verifiserte hendelser; nøytral modellbaseline regnes ikke som nyhetsleder."},
             {"name": "Rå rangering", "description": "Samlet score før alle data-, evidens-, portefølje- og risikoporter."},
-            {"name": "Evidens- og dataklar kortliste", "description": "Kandidater som har bestått data- og evidensporten, men som fortsatt kan kreve manuell vurdering."},
-            {"name": "Endelig beslutningsliste", "description": "Kun kandidater som også er kjøpsgodkjent av portefølje- og risikoporten."},
+            {"name": "Kjøpsgodkjent liste", "description": "Kun kandidater som har bestått data-, evidens-, portefølje- og risikoporten."},
         ],
     }
 
@@ -838,7 +858,7 @@ def build_autonomy_candidate_handoff(run: Mapping[str, Any], autonomous_chain: M
     autonomous_stage = next((s for s in stages if s.get("name") == "AUTONOMOUS_PORTFOLIO"), {})
     autonomous_detail = autonomous_stage.get("detail") if isinstance(autonomous_stage.get("detail"), Mapping) else {}
     buy_candidates = [x for x in candidates if str(x.get("portfolio_action") or "").upper() == "BUY"]
-    review_candidates = [x for x in candidates if str(x.get("portfolio_action") or x.get("status") or "").upper() in {"REVIEW", "KREVER MANUELL VURDERING"}]
+    review_candidates = [x for x in candidates if str(x.get("autonomy_outcome_code") or "").upper() == "UNDERSØK_MANUELT"]
     received = int(market_detail.get("candidates") or 0)
     avvik = bool(candidates and received == 0)
     reason = str(autonomous_detail.get("reason") or "")
@@ -1698,21 +1718,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         return heading, f"{search}. {mission}. {objective}".strip()
 
     def _candidate_review_reasons(candidate: Mapping[str, Any]) -> list[str]:
-        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-        readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
-        reasons: list[str] = []
-        if str(readiness.get("news") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
-            reasons.append("Nyhetsgrunnlaget er ikke ferdig verifisert")
-        if str(readiness.get("insider") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
-            reasons.append("Insidergrunnlaget er ikke ferdig verifisert")
-        if int(readiness.get("conflicts") or 0):
-            reasons.append(f"{int(readiness.get('conflicts') or 0)} kildekonflikt(er) må avklares")
-        validity = str((candidate.get("data_contract") or {}).get("validity") or "").upper()
-        if validity and validity not in {"VALID", "GYLDIG"}:
-            reasons.append("Markedsdata oppfyller ikke full beslutningskvalitet")
-        if float(candidate.get("investment_score") or 0) < 78:
-            reasons.append("Samlet score er under kjøpsterskelen")
-        return reasons[:4] or ["Samlet risikokontroll krever menneskelig vurdering"]
+        outcome_reason = str(candidate.get("autonomy_outcome_reason") or "").strip()
+        tasks = [row for row in candidate.get("manual_tasks") or [] if isinstance(row, Mapping)]
+        reasons = [outcome_reason] if outcome_reason else []
+        reasons.extend(str(row.get("title") or "") for row in tasks if row.get("title"))
+        if candidate.get("automatic_next_action"):
+            reasons.append(str(candidate.get("automatic_next_action")))
+        return reasons[:4] or ["Ingen manuell handling nødvendig; programmet følger kandidaten automatisk."]
 
     def _quality_score() -> int:
         quality = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
@@ -1787,8 +1799,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         if str(news.get("coverage") or "") != "AVAILABLE":
             cautions.append("nyhetsdekning mangler")
         action = str(candidate.get("portfolio_action") or "REVIEW").upper()
-        if action != "BUY":
-            cautions.append(f"handling {_decision_label(action)}")
+        outcome_code = str(candidate.get("autonomy_outcome_code") or action).upper()
+        if outcome_code != "KJØPSKANDIDAT":
+            cautions.append(f"utfall {label_for(outcome_code).lower()}")
         validity = str((candidate.get("data_contract") or {}).get("validity") or "").upper()
         if validity and validity not in {"VALID", "GYLDIG"}:
             cautions.append(f"datagyldighet {_status_label(validity)}")
@@ -1798,7 +1811,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         return {
             "drivers": drivers,
             "cautions": ", ".join(cautions[:3]) or "Ingen kritiske forbehold registrert",
-            "action": _decision_label(action),
+            "action": str(candidate.get("autonomy_outcome_label") or _decision_label(action)),
             "gap": score_gap,
             "insider": (
                 f"{raw.get('insider_signal') or 'NØYTRAL'}; {int(insider.get('buy_count') or 0)} kjøp, "
@@ -2022,13 +2035,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     report_summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     intelligence = run.get("executive_intelligence") or executive_intelligence(run.get("candidates") or [])
     portfolio_actions = dict((run.get("portfolio_decisions") or {}).get("actions") or {})
-    manual_review_count = int(report_summary.get("manual_review") or portfolio_actions.get("REVIEW", 0) or 0)
+    reduction = run.get("autonomous_decision_reduction") if isinstance(run.get("autonomous_decision_reduction"), Mapping) else {}
+    reduction_counts = dict(reduction.get("counts") or {})
+    manual_review_count = int(report_summary.get("manual_review") or reduction.get("manual_candidates") or 0)
     proposal_summary = run.get("proposal_summary") if isinstance(run.get("proposal_summary"), Mapping) else {}
     learning_summary = run.get("learning_portfolio_summary") if isinstance(run.get("learning_portfolio_summary"), Mapping) else {}
     summary_items = [("Skannet", report_summary.get("scanned", summary.get("scanned", 0))),
                      ("Grundig analysert", report_summary.get("deep_analyzed", len(run.get("candidates") or []))),
                      ("Foreløpige modellkandidater", proposal_summary.get("preliminary_model_candidates", summary.get("proposals", 0))),
-                     ("Til manuell vurdering", manual_review_count),
+                     ("Undersøk manuelt", manual_review_count),
+                     ("Overvåkes automatisk", report_summary.get("automatic_watch", reduction.get("automatic_watch", 0))),
+                     ("Automatisk avvist", report_summary.get("automatic_rejected", reduction.get("automatic_rejected", 0))),
                      ("Evidens-/dataklare", report_summary.get("evidence_data_ready", 0)),
                      ("Kjøpsgodkjente", report_summary.get("decision_ready", 0)),
                      ("Unike selskaper", intelligence.get("unique_companies", 0)), ("Snittscore", intelligence.get("average_score", 0)),
@@ -2045,10 +2062,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     summary_table = Table(summary_grid, colWidths=[61.3*mm]*3)
     summary_table.setStyle(_table_style(7, header=False, padding=4))
     decision_conclusion = (
-        f"Beslutningskonklusjon: {int(portfolio_actions.get('BUY', 0) or 0)} {_decision_label('BUY').upper()}, "
-        f"{int(portfolio_actions.get('REVIEW', 0) or 0)} {_decision_label('REVIEW').upper()} og "
-        f"{int(portfolio_actions.get('SKIP', 0) or 0)} {_decision_label('SKIP').upper()}. "
-        + ("Ingen kandidat er kjøpsgodkjent i denne kjøringen." if not int(portfolio_actions.get("BUY", 0) or 0) else f"Kun {_decision_label('BUY')}-kandidater er klare for teoretisk posisjonering.")
+        f"Autonomiutfall: {int(reduction.get('buy_candidates') or 0)} kjøpskandidat(er), "
+        f"{int(reduction.get('automatic_watch') or 0)} overvåkes automatisk, "
+        f"{int(reduction.get('automatic_rejected') or 0)} automatisk avvist og "
+        f"{int(reduction.get('manual_candidates') or 0)} anbefalt undersøkt manuelt. "
+        f"Rapporten inneholder {int(reduction.get('manual_task_count') or 0)} konkret(e) manuell(e) oppgave(r)."
     )
     technical_report_ok = bool(integrity.get("ok"))
     technical_report_label = "Bestått" if technical_report_ok else "Feilet"
@@ -2061,7 +2079,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     quick_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (4,0), (4,-1), "Helvetica-Bold")]))
-    report_state_raw = "REVIEW" if report_status.get("state") == "PROVISIONAL" else "PASS"
+    report_state_raw = "OVERVÅKES_AUTOMATISK" if report_status.get("state") == "PROVISIONAL" else "PASS"
     quality_state_raw = "PASS" if technical_report_ok else "ERROR"
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
     notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
@@ -2071,7 +2089,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     source_raw = "PASS" if source_total and source_valid >= source_total else ("ERROR" if source_total and source_valid == 0 else "REVIEW")
     notification_text = _notification_status_explanation(notification)
     status_stripe = Table([[
-        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Foreløpig rapport' if report_state_raw == 'REVIEW' else 'Endelig rapport'}", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Foreløpig rapport – automatisk revalidering' if report_status.get('state') == 'PROVISIONAL' else 'Endelig rapport'}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>Teknisk rapportkontroll</b><br/>{technical_report_label}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kildekontroll</b><br/>{source_valid}/{source_total} kandidater gyldige" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover</b><br/>{escape(_loc(notification_text))}", styles["Small"]),
@@ -2099,6 +2117,24 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     story += [Paragraph("Sammendrag", styles["Section"]), status_stripe, Spacer(1, 1*mm), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"]),
               Paragraph(escape(learning_text), styles["Small"])]
+    critique: list[str] = []
+    if report_status.get("state") == "PROVISIONAL":
+        critique.append("Kildekontrollen er ikke fullført")
+    if int(reduction.get("manual_task_count") or 0):
+        critique.append("Én eller flere kandidater har en konkret manuell undersøkelsesoppgave")
+    if int((run.get("data_quality") or {}).get("errors") or 0):
+        critique.append("Datainnhentingen inneholdt tekniske feil")
+    if not critique:
+        critique.append("Ingen kritiske svakheter er registrert, men analysen er fortsatt beslutningsstøtte og ikke en garanti")
+    story += [KeepTogether([
+        Paragraph("Metode og ansvarsfraskrivelse / rapportens egenkritikk", styles["Subsection"]),
+        Paragraph(
+            "Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. "
+            "Programmet avslutter eller overvåker de fleste kandidater automatisk; bare uttrykkelig merkede oppgaver krever manuell kontroll. "
+            + escape(". ".join(critique)) + f". Rapportpålitelighet: {reliability_score}/100.",
+            styles["Small"],
+        ),
+    ])]
     if source_total and source_valid == 0:
         invalid_table = Table([[Paragraph(
             "<b>Ingen kandidat bestod samlet kildekontroll</b><br/>"
@@ -2113,7 +2149,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             for row in list(report_status.get("critical_gaps") or [])[:8]
         )
         warning_table = Table([[Paragraph(
-            "<b>Foreløpig rapport – krever oppfølging</b><br/>"
+            "<b>Foreløpig rapport – automatisk revalidering pågår</b><br/>"
             + escape(_loc(gaps or "Vesentlig dokumentasjon mangler"))
             + ". Kandidater med mangler kan ikke behandles som kjøpsklare. Rapporten revalideres automatisk, og denne revisjonen beholdes.",
             styles["BodyCompact"],
@@ -2215,7 +2251,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ["Verifiserte fakta", combined_quality.get("verified_evidence_facts", 0), "Kilder forsøkt", combined_quality.get("sources_attempted", 0)],
             ["Nyheter verifisert", combined_quality.get("news_verified", 0), "Insider verifisert", combined_quality.get("insider_verified", 0)],
             ["NewsAPI ratebegrenset", combined_quality.get("news_rate_limited", 0), "Samlet vurdering", combined_quality.get("status", "-")],
-            ["Manuell vurdering", combined_quality.get("manual_review_required", 0), "Grønn samlet status", "JA" if combined_quality.get("green") else "NEI"],
+            ["Evidensport krever oppfølging", combined_quality.get("manual_review_required", 0), "Grønn samlet status", "JA" if combined_quality.get("green") else "NEI"],
         ], colWidths=[31*mm, 61*mm, 37*mm, 39*mm])
         combined_table.setStyle(_table_style(6.5, header=False, padding=2.2))
         combined_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
@@ -2294,6 +2330,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     changes_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold")]))
     story += [Paragraph("Endringer siden forrige kjøring", styles["Subsection"]), changes_table]
     candidates = run.get("candidates") or []
+    candidate_by_ticker = {
+        str(row.get("ticker") or "").upper(): row
+        for row in candidates if isinstance(row, Mapping)
+    }
+
+    def _candidate_outcome_label(ticker: Any, fallback: Any = "-") -> str:
+        candidate = candidate_by_ticker.get(str(ticker or "").upper(), {})
+        return str(candidate.get("autonomy_outcome_label") or _decision_label(candidate.get("autonomy_outcome_code") or fallback))
+
+    def _clean_legacy_portfolio_reason(value: Any) -> str:
+        text = _loc(str(value or ""))
+        text = text.replace("Porteføljelaget ga Undersøk manuelt", "Porteføljelaget kjøpsgodkjente ikke kandidaten")
+        text = text.replace("Handlingsporten står i Undersøk manuelt", "Handlingsporten kjøpsgodkjenner ikke kandidaten")
+        return text
+
     insider_coverage = insider_coverage_by_market(candidates)
     if insider_coverage:
         coverage_data = [["Marked", "Kontrollert", "Verifisert", "Kilder funnet", "Ingen hendelser", "Ikke søkt", "Ikke konfig.", "Kildefeil", "Konfigurert primærkilde"]]
@@ -2345,26 +2396,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyCompact"])]
     elif candidates:
         final_candidates = list(run.get("final_decision_top3") or run.get("decision_ready_top3") or [])
-        evidence_candidates = list(run.get("evidence_ready_top3") or [])
         raw_candidates = list(run.get("raw_top3") or select_diverse_candidates(candidates, 3))
-        if final_candidates:
-            shortlist_mode = "FINAL_DECISION"
-            medal_candidates = final_candidates
-            shortlist_heading = f"Kjøpsgodkjent sluttliste ({len(medal_candidates)} kandidat(er))"
-            shortlist_labels = [f"KJØPSGODKJENT · PLASS {index}" for index in range(1, len(medal_candidates) + 1)]
-            shortlist_note = "Kandidatene har bestått data-, evidens-, portefølje- og risikoportene. Dette er fortsatt beslutningsstøtte, ikke automatisk ordre."
-        elif evidence_candidates:
-            shortlist_mode = "EVIDENCE_SHORTLIST"
-            medal_candidates = evidence_candidates
-            shortlist_heading = f"Evidens- og dataklar kortliste ({len(medal_candidates)} kandidat(er))"
-            shortlist_labels = [f"EVIDENSKORTLISTE · PLASS {index}" for index in range(1, len(medal_candidates) + 1)]
-            shortlist_note = "Kandidatene har bestått data- og evidensporten, men er ikke kjøpsgodkjent. Manuell vurdering og endelig portefølje-/risikoport gjenstår."
-        else:
-            shortlist_mode = "RAW_RANKING"
-            medal_candidates = raw_candidates
-            shortlist_heading = f"Rå rangering ({len(medal_candidates)} kandidat(er))"
-            shortlist_labels = [f"RÅ RANGERING · PLASS {index}" for index in range(1, len(medal_candidates) + 1)]
-            shortlist_note = "Ingen kandidat bestod data- og evidensporten. Rangeringen vises kun for sporbarhet og er ikke en anbefaling."
+        priority_candidates = list(run.get("priority_top3") or (run.get("autonomous_decision_reduction") or {}).get("priority_top3") or [])
+        shortlist_mode = "PRIORITY_REVIEW"
+        medal_candidates = priority_candidates or raw_candidates
+        shortlist_heading = f"Prioritert vurderingsrekkefølge 1-3 ({len(medal_candidates)} kandidat(er))"
+        shortlist_labels = [f"PRIORITET {index}" for index in range(1, len(medal_candidates) + 1)]
+        shortlist_note = (
+            "Rangeringen viser hvilke kandidater som bør vurderes først og nærmere. "
+            "Den er ikke en kjøpsanbefaling. Hver kandidat viser om programmet kjøpsgodkjenner, overvåker, avviser eller anbefaler en konkret manuell undersøkelse."
+        )
 
         story += [Paragraph(shortlist_note, styles["BodyCompact"])]
         medal_data = []
@@ -2384,7 +2425,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 f"<b>Handling:</b> {escape(evidence['action'])}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[168*mm / max(1, len(medal_data))]*len(medal_data))
         medal_styles = [("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]
-        card_color = "#E8F5E9" if shortlist_mode == "FINAL_DECISION" else "#EAF2F8"
+        card_color = "#EAF2F8"
         for card_index in range(len(medal_data)):
             medal_styles.append(("BACKGROUND", (card_index,0), (card_index,-1), colors.HexColor(card_color)))
         medal_table.setStyle(TableStyle(medal_styles))
@@ -2423,11 +2464,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
             evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
             story += [CondPageBreak(72*mm), Paragraph(
-                f"{shortlist_labels[idx]}: {escape(str(candidate.get('ticker') or '-'))} – fullstendig beslutningsgrunnlag",
+                f"{shortlist_labels[idx]}: {escape(str(candidate.get('ticker') or '-'))} – prioritert vurderingsgrunnlag",
                 styles["ReportTitle"],
             )]
-            decision = str(candidate.get("portfolio_action") or evidence["action"] or "REVIEW").upper()
-            decision_label_text = _status_label(decision)
+            decision = str(candidate.get("autonomy_outcome_code") or candidate.get("portfolio_action") or "REVIEW").upper()
+            decision_label_text = str(candidate.get("autonomy_outcome_label") or _status_label(decision))
             decision_badge = Table([[Paragraph(f"<b>{escape(decision_label_text)}</b>", styles["Small"])]], colWidths=[70*mm])
             decision_badge.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,-1), colors.HexColor(decision_color(decision))),
@@ -2438,18 +2479,32 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ]))
             review_reasons = _candidate_review_reasons(candidate)
             story += [decision_badge, Paragraph(
-                f"<b>AI-konklusjon:</b> Kandidaten er rangert som nummer {idx + 1} fordi {escape(_loc(evidence['drivers']))}. "
-                f"{escape(_loc(evidence['gap']))}. <b>Beslutning:</b> {escape(decision_label_text)}. "
+                f"<b>AI-konklusjon:</b> Kandidaten er prioritet {idx + 1} fordi {escape(_loc(evidence['drivers']))}. "
+                f"{escape(_loc(evidence['gap']))}. <b>Autonomiutfall:</b> {escape(decision_label_text)}. "
                 f"<b>Forbehold:</b> {escape(_loc(evidence['cautions']))}.",
                 styles["BodyCompact"],
-            ), Paragraph("<b>Hvorfor denne handlingen:</b> " + escape(_loc("; ".join(review_reasons))), styles["BodyCompact"])]
+            ), Paragraph("<b>Hvorfor dette utfallet:</b> " + escape(_loc("; ".join(review_reasons))), styles["BodyCompact"])]
+            manual_tasks = [row for row in candidate.get("manual_tasks") or [] if isinstance(row, Mapping)]
+            if manual_tasks:
+                task_rows = [["Hva bør undersøkes", "Hvorfor", "Programmet forsøkte", "Hvorfor det stoppet", "Foreslått kilde", "Beslutningseffekt"]]
+                for task in manual_tasks:
+                    task_rows.append([
+                        _p(task.get("title")), _p(task.get("why")), _p(task.get("program_attempts")),
+                        _p(task.get("failure_reason")), _p(task.get("suggested_source")), _p(task.get("decision_impact")),
+                    ])
+                task_table = Table(task_rows, repeatRows=1, colWidths=[31*mm, 31*mm, 31*mm, 31*mm, 24*mm, 30*mm])
+                task_table.setStyle(_table_style(5.7, padding=1.8))
+                story += [Paragraph("Konkret manuell undersøkelse", styles["Subsection"]), task_table]
+            else:
+                story += [Paragraph("Ingen manuell handling nødvendig", styles["Subsection"]),
+                          Paragraph(escape(str(candidate.get("automatic_next_action") or "Programmet følger kandidaten automatisk.")), styles["Small"])]
             readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
             readiness_table = Table([
                 ["Beslutningsgrunnlag", _status_label(readiness.get("status") or "-"), "Rå rangering", candidate.get("raw_rank") or candidate.get("rank") or "-"],
                 ["Markedsdata", _status_label(readiness.get("market_data") or "-"), "Evidens-/datarangering", candidate.get("evidence_ready_rank") or "-"],
                 ["Nyheter", _status_label(readiness.get("news") or "-"), "Innsider", _status_label(readiness.get("insider") or "-")],
                 ["Kildekonflikter", readiness.get("conflicts", 0), "Evidensport", _status_label(readiness.get("evidence_gate_action") or readiness.get("allowed_action") or "-")],
-                ["Endelig beslutning", _status_label(readiness.get("final_action") or decision), "Kandidatstatus", _p(candidate.get("status") or "-")],
+                ["Autonomiutfall", _p(candidate.get("autonomy_outcome_label") or decision_label_text), "Automatisk neste steg", _p(candidate.get("automatic_next_action") or "-")],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
             story += [Paragraph("Beslutningsstempel", styles["Section"]), readiness_table]
@@ -2662,7 +2717,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             data.append([
                 r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")),
                 _fmt(r.get("confidence_score")), _p(r.get("score_trend") or r.get("trend") or "NY"),
-                format_risk(r.get("risk_score")), _p(_loc(r.get("status", ""))),
+                format_risk(r.get("risk_score")), _p(r.get("autonomy_outcome_label") or _loc(r.get("status", ""))),
             ])
         table = Table(data, repeatRows=1, colWidths=[7*mm, 18*mm, 18*mm, 14*mm, 14*mm, 20*mm, 24*mm, 53*mm])
         table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
@@ -2694,16 +2749,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         score_table.setStyle(_table_style(6.5, padding=2))
         positives = " • ".join(str(x) for x in (p.get("positives") or [])) or "Ingen registrerte positive drivere."
         risks = " • ".join(str(x) for x in (p.get("risks") or [])) or "Ingen registrerte risikopunkter."
-        action = str(p.get("portfolio_action") or "REVIEW").upper()
+        action = str(p.get("autonomy_outcome_code") or p.get("portfolio_action") or "REVIEW").upper()
         proposal = [
             Paragraph(f"{escape(str(p.get('ticker') or '-'))} – foreløpig modellkandidat (ikke handelsforslag)", styles["Section"]),
-            Paragraph(f"<b>Status:</b> {escape(_loc(str(p.get('status') or '-')))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Konfidens:</b> {escape(str(_fmt(p.get('confidence_score', 0))))} / 100 &nbsp; | &nbsp; <b>Scoretrend:</b> {escape(str(p.get('score_trend') or p.get('trend', 'NY')))}", styles["BodyCompact"]),
+            Paragraph(f"<b>Status:</b> {escape(str(p.get('autonomy_outcome_label') or _loc(str(p.get('status') or '-'))))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Konfidens:</b> {escape(str(_fmt(p.get('confidence_score', 0))))} / 100 &nbsp; | &nbsp; <b>Scoretrend:</b> {escape(str(p.get('score_trend') or p.get('trend', 'NY')))}", styles["BodyCompact"]),
             score_table,
             Paragraph(f"<b>Innsider:</b> {escape(_loc(str(raw.get('insider_signal', 'INGEN DATA'))))} · score {escape(str(_fmt(raw.get('insider_score', 50))))} / 100 · nettoverdi {escape(format_whole_currency(insider.get('net_value', 0), market_currency(p.get('market'), p.get('ticker'), insider.get('currency'))))}", styles["Small"]),
             Paragraph(f"<b>Nyheter:</b> {escape(_loc(str(raw.get('news_sentiment', 'INGEN DATA'))))} · score {escape(str(_fmt(raw.get('news_score', 50))))} / 100 · {escape(_loc(str(news.get('summary') or 'Ingen oppsummering.')))}", styles["Small"]),
             Paragraph(f"<b>Positive drivere:</b> {escape(_loc(positives))}", styles["Small"]),
             Paragraph(f"<b>Risiko:</b> {escape(_loc(risks))}", styles["Small"]),
-            Paragraph(f"<b>Strategitreff:</b> {escape(translate_list(p.get('strategy_matches') or str(p.get('strategy_match') or '-')))} · <b>Beslutning:</b> {escape(_decision_label(action))}" + (f" · <b>teoretisk vekt:</b> {escape(str(p.get('proposed_position_pct', 0)))} %" if action == "BUY" else " · Ingen kjøpsvekt før godkjenning"), styles["Small"]),
+            Paragraph(f"<b>Strategitreff:</b> {escape(translate_list(p.get('strategy_matches') or str(p.get('strategy_match') or '-')))} · <b>Autonomiutfall:</b> {escape(str(p.get('autonomy_outcome_label') or _decision_label(action)))}" + (f" · <b>teoretisk vekt:</b> {escape(str(p.get('proposed_position_pct', 0)))} %" if action == "BUY" else " · Ingen kjøpsvekt før godkjenning"), styles["Small"]),
         ]
         story += proposal + [Spacer(1, 1.2*mm)]
     portfolio_proposal = run.get("portfolio_proposal") or {}
@@ -2712,8 +2767,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         context = portfolio_layer.get("portfolio_context") or {}; actions = portfolio_layer.get("actions") or {}
         decision_table = Table([
             [_p(_decision_label("BUY")), actions.get("BUY", 0), _p(_decision_label("HOLD")), actions.get("HOLD", 0), _p(_decision_label("SELL")), actions.get("SELL", 0), _p(_decision_label("SKIP")), actions.get("SKIP", 0)],
-            [_p(_decision_label("REVIEW")), actions.get("REVIEW", 0), _p("Posisjoner"), context.get("position_count", 0), _p("Kontant %"), context.get("cash_pct", 0), _p("HHI"), context.get("concentration_hhi", 0)],
-            [_p("Effektive posisjoner"), context.get("effective_positions", 0), _p("Porteføljevurdert"), "JA", "", "", "", ""],
+            [_p("Foreløpig viderebehandling i porteføljelaget"), actions.get("REVIEW", 0), _p("Konkrete manuelle oppgaver"), int(reduction.get("manual_task_count") or 0), _p("Overvåkes automatisk"), int(reduction.get("automatic_watch") or 0), _p("Automatisk avvist"), int(reduction.get("automatic_rejected") or 0)],
+            [_p("Posisjoner"), context.get("position_count", 0), _p("Kontant %"), context.get("cash_pct", 0), _p("Effektive posisjoner"), context.get("effective_positions", 0), _p("Porteføljevurdert"), "JA"],
         ], colWidths=[26*mm, 16*mm]*4)
         decision_table.setStyle(_table_style(6.5, header=False, padding=2))
         story += [Paragraph("Portefølje- og beslutningslag", styles["Section"]), decision_table,
@@ -2737,11 +2792,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         rejection_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in counts.items()) or "Ingen avvisninger"
         story += [Paragraph("Beslutningstrakt og kjøpsvurdering", styles["Section"]), funnel_summary,
                   Paragraph(escape(rejection_text), styles["Small"])]
-        near_rows = [["Ticker", "Score / terskel", "Datakvalitet", "Risiko", "Portefølje", "Resultat / hovedgrunn"]]
+        near_rows = [["Ticker", "Score / terskel", "Datakvalitet", "Risiko", "Autonomiutfall", "Resultat / hovedgrunn"]]
         for row in list(funnel.get("near_threshold") or [])[:10]:
+            reason_text = "; ".join(_clean_legacy_portfolio_reason(value) for value in (row.get("reasons") or []))
             near_rows.append([_p(row.get("ticker")), _p(f"{_fmt(row.get('score'))} / {_fmt(row.get('production_threshold'), 1)}"),
-                              _p(_fmt(row.get("data_quality"))), _p(_fmt(row.get("risk"))), _p(_decision_label(row.get("portfolio_action"))),
-                              _p(_short("; ".join(row.get("reasons") or []), 155))])
+                              _p(_fmt(row.get("data_quality"))), _p(_fmt(row.get("risk"))), _p(_candidate_outcome_label(row.get("ticker"), row.get("portfolio_action"))),
+                              _p(_short(reason_text, 155))])
         if len(near_rows) > 1:
             near_table = Table(near_rows, repeatRows=1, colWidths=[18*mm, 25*mm, 22*mm, 17*mm, 30*mm, 62*mm])
             near_table.setStyle(_table_style(6.3, padding=2))
@@ -2772,19 +2828,6 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [KeepTogether([Paragraph("Foreløpig modellportefølje før endelig beslutningsport", styles["Section"]),
                                Paragraph(f"Investert: {portfolio_proposal.get('invested_pct', 0)} % | Kontanter: {portfolio_proposal.get('cash_pct', 100)} %", styles["BodyCompact"]),
                                ptable])]
-    story += [KeepTogether([Paragraph("Metode og ansvarsfraskrivelse", styles["Section"]),
-                            Paragraph("Rapporten er automatisk beslutningsstøtte basert på tilgjengelige data. Den er ikke personlig investeringsrådgivning og utfører ingen handler. Alle forslag krever manuell kontroll.", styles["BodyCompact"])])]
-    critique: list[str] = []
-    if report_status.get("state") == "PROVISIONAL":
-        critique.append("Kildekontrollen er ikke fullført")
-    if int((run.get("combined_quality") or {}).get("manual_review_required") or 0):
-        critique.append("Én eller flere kandidater krever manuell vurdering")
-    if int((run.get("data_quality") or {}).get("errors") or 0):
-        critique.append("Datainnhentingen inneholdt tekniske feil")
-    if not critique:
-        critique.append("Ingen kritiske svakheter er registrert, men analysen er fortsatt beslutningsstøtte og ikke en garanti")
-    story += [Paragraph("Rapportens egenkritikk", styles["Section"]),
-              Paragraph(escape(". ".join(critique)) + f". Rapportpålitelighet: {reliability_score}/100.", styles["BodyCompact"])]
 
     technical_story = story
     has_technical_content = bool(
@@ -3084,8 +3127,13 @@ def _run_job_impl(
     warnings = []
     markets = normalize_markets(job.markets)
     for market_index, market in enumerate(markets, start=1):
-        cfg = PipelineConfig(market_scope=market, scan_limit=job.scan_limit, deep_analysis_count=job.deep_count,
-                             proposal_count=job.proposal_count, use_research="AI Research Assistant" in job.modules,
+        market_deep_budget = _allocated_market_budget(job.deep_count, market_index, len(markets), minimum=1)
+        market_evidence_budget = min(
+            market_deep_budget,
+            _allocated_market_budget(job.proposal_count, market_index, len(markets), minimum=0),
+        )
+        cfg = PipelineConfig(market_scope=market, scan_limit=job.scan_limit, deep_analysis_count=market_deep_budget,
+                             proposal_count=market_evidence_budget, use_research="AI Research Assistant" in job.modules,
                              use_backtest="Backtesting Validation" in job.modules,
                              use_portfolio_fit="Portfolio Optimizer" in job.modules,
                              use_learning_advisor="Learning Advisor" in job.modules,
@@ -3194,6 +3242,9 @@ def _run_job_impl(
             deduped[ticker] = candidate
     all_candidates = list(deduped.values())
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
+    # deep_count is a total cross-market budget in v19.14.0, not a per-market
+    # multiplier.  This keeps core-market runs around 10-15 extended candidates.
+    all_candidates = all_candidates[: max(1, int(job.deep_count))]
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
         row["raw_rank"] = idx
@@ -3218,6 +3269,16 @@ def _run_job_impl(
     portfolio_decisions = apply_portfolio_decisions(
         all_candidates, mission_id=str(investment_mission.get("mission_id") or ""),
         configuration_version=str(investment_mission.get("configuration_version") or ""),
+    )
+    from autonomous_portfolio import load_parameters
+    from autonomous_decision_reduction import apply_decision_reduction, MARKET_SOURCE_MATRIX
+    autonomy_parameters = load_parameters().normalized()
+    all_candidates, decision_reduction = apply_decision_reduction(
+        all_candidates,
+        threshold=float(autonomy_parameters.minimum_investment_score),
+        maximum_risk=float(autonomy_parameters.maximum_risk_score),
+        near_threshold_gap=6.0,
+        max_manual_tasks=2,
     )
     evidence_ready_candidates = [
         x for x in all_candidates
@@ -3265,7 +3326,12 @@ def _run_job_impl(
         ) if key in governed})
         proposal["mission_eligible"] = governed.get("mission_eligible", True)
         proposal["mission_fit"] = governed.get("mission_fit")
-        if proposal.get("valid_for_decision") and proposal.get("evidence_valid_for_decision") and proposal.get("mission_eligible", True) and proposal.get("portfolio_action") in {"BUY", "REVIEW"}:
+        proposal["autonomy_outcome_code"] = governed.get("autonomy_outcome_code")
+        proposal["autonomy_outcome_label"] = governed.get("autonomy_outcome_label")
+        if (proposal.get("valid_for_decision") and proposal.get("evidence_valid_for_decision")
+                and proposal.get("mission_eligible", True)
+                and proposal.get("portfolio_action") in {"BUY", "REVIEW"}
+                and governed.get("autonomy_outcome_code") != "AUTOMATISK_AVVIST"):
             valid_proposals.append(proposal)
     all_proposals = sorted(valid_proposals, key=lambda x: float(x.get("investment_score", 0)), reverse=True)[:job.proposal_count]
     totals["proposals"] = len(all_proposals)
@@ -3306,6 +3372,19 @@ def _run_job_impl(
            "integrity_preflight": integrity_preflight,
            "portfolio_need_preflight": portfolio_need_preflight,
            "portfolio_decisions": portfolio_decisions,
+           "autonomous_decision_reduction": decision_reduction,
+           "manual_tasks": list(decision_reduction.get("manual_tasks") or []),
+           "priority_top3": list(decision_reduction.get("priority_top3") or []),
+           "source_strategy": {
+               "version": "v19.14.0", "market_matrix": {market: MARKET_SOURCE_MATRIX.get(market, {}) for market in markets},
+               "policy": "Primærkilde -> reservekilde -> automatisk overvåking; manuell oppgave bare for nær-terskel kritiske mangler",
+           },
+           "analysis_stages": {
+               "stage1_scanned": sum(int((item.get("summary") or {}).get("stage1_scanned", 0)) for item in market_runs),
+               "stage1_screened_out": sum(int((item.get("summary") or {}).get("stage1_screened_out", 0)) for item in market_runs),
+               "stage2_extended": len(all_candidates),
+               "stage3_evidence_controlled": sum(int((item.get("summary") or {}).get("stage3_evidence_controlled", 0)) for item in market_runs),
+           },
            "discovery_data": {
                "version": "v18.8.7", "markets": [dict(item.get("discovery_data") or {}) for item in market_runs],
                "selected": sum(int((item.get("discovery_data") or {}).get("selected", 0)) for item in market_runs),
@@ -3328,6 +3407,7 @@ def _run_job_impl(
            "final_decision_top3": select_diverse_candidates(final_decision_candidates, 3),
            "diverse_top3": select_diverse_candidates(all_candidates, 3),
            "top3_status": {
+               "priority_count": min(3, len(decision_reduction.get("priority_top3") or [])),
                "raw_count": min(3, len(all_candidates)),
                "evidence_data_ready_count": min(3, len(evidence_ready_candidates)),
                "decision_ready_count": min(3, len(final_decision_candidates)),
@@ -3860,8 +3940,8 @@ def render_market_intelligence() -> None:
                 help="Klokkeslett tolkes i denne tidssonen. UTC lagres i databasen; sommer-/vintertid håndteres automatisk.",
             )
             st.caption(f"PC/nettleser oppdaget: {detected_timezone} · lokal tid nå: {local_display(_now_iso(), timezone_name)} · lagres som UTC")
-            market_choices = ["Alle"] + list(BASE_MARKET_SCOPES)
-            markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=current.markets if current else ["Alle"], key="mi_markets_v18687")
+            market_choices = ["Alle kjernemarkeder", "Utvidet Norden", "Brasil", "Alle markeder - full skanning"] + [x for x in BASE_MARKET_SCOPES if x not in {"Brasil"}]
+            markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=current.markets if current else ["Alle kjernemarkeder"], key="mi_markets_v18687", help="Alle kjernemarkeder = Norge, Sverige og USA. Danmark/Finland og Brasil kjøres separat ved behov. Full skanning er et avansert valg.")
             schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:30", "22:30"], key="mi_schedules_v18690")
             st.caption("Skanningsvinduer kjører gjentatte ganger innenfor valgte tidsrom.")
             windows = current.scan_windows if current and current.scan_windows else DEFAULT_SCAN_WINDOWS
@@ -3904,8 +3984,8 @@ def render_market_intelligence() -> None:
             st.caption(f"Planlagt maksimum: {int(scan_limit) * len(normalize_markets(markets or ['Norge']))} aksjer ({int(scan_limit)} per marked).")
             if int(scan_limit) == 250:
                 st.warning(f"Maksprofil: opptil {250 * len(normalize_markets(markets or ['Norge']))} aksjer. Dette kan gi lang kjøretid og høy API-bruk.")
-            deep = st.number_input("Grundig analyse av topp", 1, 100, current.deep_count if current else 20, 1, key="mi_deep_v18687")
-            proposals = st.number_input("Antall forslag", 1, 30, current.proposal_count if current else 5, 1, key="mi_prop_v18687")
+            deep = st.number_input("Utvidet analyse - totalt antall kandidater", 3, 100, current.deep_count if current else 15, 1, key="mi_deep_v18687")
+            proposals = st.number_input("Grundig evidenskontroll - totalt antall", 1, 15, min(current.proposal_count, current.deep_count) if current else 5, 1, key="mi_prop_v18687")
         n1, n2, n3 = st.columns(3)
         notify = n1.checkbox("Pushover", value=current.notify_pushover if current else True, key="mi_push_v18687")
         save_pdf = n2.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
@@ -3934,7 +4014,7 @@ def render_market_intelligence() -> None:
             st.rerun()
         if reset_all:
             defaults = load_draft_job()
-            defaults.name = "Morgenanalyse"; defaults.markets=["Alle"]; defaults.schedules=["08:30"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=20; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
+            defaults.name = "Morgenanalyse"; defaults.markets=["Alle"]; defaults.schedules=["08:30"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]
@@ -4123,24 +4203,14 @@ def render_market_intelligence() -> None:
                     st.warning("Beslutningsdelen er stoppet for: " + ", ".join(contract_summary.get("blocked") or []))
             candidates = [] if latest.get("analysis_aborted") else list(latest.get("candidates") or [])
             if candidates:
-                final_candidates = list(latest.get("final_decision_top3") or latest.get("decision_ready_top3") or [])
-                evidence_candidates = list(latest.get("evidence_ready_top3") or [])
-                raw_candidates = list(latest.get("raw_top3") or select_diverse_candidates(candidates, 3))
-                if final_candidates:
-                    displayed_candidates = final_candidates
-                    heading = f"#### Kjøpsgodkjent sluttliste ({len(displayed_candidates)})"
-                    labels = [f"KJØPSGODKJENT · PLASS {i}" for i in range(1, len(displayed_candidates) + 1)]
-                    st.success("Kandidatene har bestått alle porter. Rapporten utfører fortsatt ingen automatisk ordre.")
-                elif evidence_candidates:
-                    displayed_candidates = evidence_candidates
-                    heading = f"#### Evidens- og dataklar kortliste ({len(displayed_candidates)})"
-                    labels = [f"EVIDENSKORTLISTE · PLASS {i}" for i in range(1, len(displayed_candidates) + 1)]
-                    st.warning("Kandidatene er ikke kjøpsgodkjent. Manuell vurdering og endelig portefølje-/risikoport gjenstår.")
-                else:
-                    displayed_candidates = raw_candidates
-                    heading = f"#### Rå rangering ({len(displayed_candidates)})"
-                    labels = [f"RÅ RANGERING · PLASS {i}" for i in range(1, len(displayed_candidates) + 1)]
-                    st.error("Ingen kandidat bestod data- og evidensporten. Rå rangering vises kun for sporbarhet.")
+                displayed_candidates = list(latest.get("priority_top3") or (latest.get("autonomous_decision_reduction") or {}).get("priority_top3") or [])
+                if not displayed_candidates:
+                    displayed_candidates = list(latest.get("raw_top3") or select_diverse_candidates(candidates, 3))
+                heading = f"#### Prioritert vurderingsrekkefølge 1–3 ({len(displayed_candidates)})"
+                labels = [f"PRIORITET {i}" for i in range(1, len(displayed_candidates) + 1)]
+                st.info("Rangeringen viser hvilke kandidater som bør vurderes først og nærmere. Den er ikke en kjøpsanbefaling.")
+                if not latest.get("evidence_ready_top3"):
+                    st.caption("Ingen kandidat bestod data- og evidensporten; prioriteringen vises for å styre automatisk oppfølging og eventuell konkret manuell undersøkelse.")
                 st.markdown(heading)
                 cols = st.columns(min(3, len(displayed_candidates)))
                 for idx, candidate in enumerate(displayed_candidates):
@@ -4153,6 +4223,9 @@ def render_market_intelligence() -> None:
                         st.caption(f"{candidate.get('ticker','-')} · {candidate.get('market','-')}")
                         st.metric("Score", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}%")
                         st.caption(f"Risiko {float(candidate.get('risk_score',0)):.1f} · Vekt {float(candidate.get('proposed_position_pct',0)):.2f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
+                        st.caption(f"Autonomiutfall: {candidate.get('autonomy_outcome_label') or decision_label(candidate.get('autonomy_outcome_code') or candidate.get('portfolio_action'))}")
+                        if candidate.get("automatic_next_action"):
+                            st.caption(str(candidate.get("automatic_next_action")))
             if latest.get("errors"): st.warning(" | ".join(latest["errors"]))
             st.markdown("#### Top 10")
             table = []
@@ -4166,7 +4239,7 @@ def render_market_intelligence() -> None:
                     "Insider": (x.get("raw") or {}).get("insider_score", 50),
                 }
                 strongest = max(strengths, key=lambda key: float(strengths[key] or 0))
-                action = x.get("portfolio_action") or ("BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "REVIEW" if x.get("status") == "KREVER MANUELL VURDERING" else "SKIP")
+                action = x.get("autonomy_outcome_code") or x.get("portfolio_action") or ("BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "SKIP")
                 table.append({
                     "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
                     "Sektor": sector_label(x.get("sector")), "Score": x.get("investment_score"),
@@ -4176,7 +4249,7 @@ def render_market_intelligence() -> None:
                     "Datakilde": (x.get("data_contract") or {}).get("source", "UKJENT"),
                     "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"),
                     "Sterkeste faktor": f"{component_label(strongest)} {float(strengths[strongest] or 0):.1f}",
-                    "Handling": decision_label(action), "Status": translate_report_text(x.get("status")),
+                    "Handling": decision_label(action), "Status": x.get("autonomy_outcome_label") or decision_label(action),
                 })
             if table: st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
             handoff = latest.get("autonomy_candidate_handoff") if isinstance(latest.get("autonomy_candidate_handoff"), Mapping) else {}

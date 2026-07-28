@@ -14,18 +14,18 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 from local_time import DEFAULT_TIMEZONE, as_local, valid_timezone
 
-DECISION_REPORT_SCHEMA_VERSION = "1.2"
+DECISION_REPORT_SCHEMA_VERSION = "1.3"
 TASK_STATUSES = ("VENTER", "PÅGÅR", "UTFØRT", "FORTSATT_PROBLEM", "IKKE_LENGER_RELEVANT")
 CONSENSUS_LEVELS = ("STERK", "MODERAT", "SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT")
 
 ACTION_LABELS_NO = {
     "BUY": "Kjøp", "HOLD": "Behold", "SELL": "Selg",
-    "SKIP": "Ikke aktuell", "REVIEW": "Krever manuell vurdering",
+    "SKIP": "Ikke aktuell", "REVIEW": "Undersøk manuelt",
     "KJØP": "Kjøp",
 }
 
 def _action_label(value: Any) -> str:
-    text = str(value or "Krever manuell vurdering")
+    text = str(value or "Undersøk manuelt")
     return ACTION_LABELS_NO.get(text.upper(), text)
 
 REPORT_FOCUS: dict[str, list[str]] = {
@@ -374,9 +374,20 @@ def candidate_blockers_and_triggers(candidate: Mapping[str, Any], run: Mapping[s
     if conflicts:
         blockers.append(f"{conflicts} kildekonflikt(er) må avklares")
         triggers.append("Motstridende kilder må avklares med en sterkere eller primær kilde")
+    outcome = str(candidate.get("autonomy_outcome_code") or "").upper()
     if action not in {"BUY", "KJØP"} and not blockers:
-        blockers.append(f"Handlingsporten står i {_action_label(action)}")
-        triggers.append("Alle produksjonsporter må godkjenne Kjøp uten at risikoreglene endres")
+        if outcome == "OVERVÅKES_AUTOMATISK":
+            blockers.append("Kandidaten er satt til automatisk overvåking; ingen manuell handling er nødvendig nå")
+            triggers.append(str(candidate.get("automatic_next_action") or "Programmet prøver på nytt når nye data eller hendelser foreligger"))
+        elif outcome == "AUTOMATISK_AVVIST":
+            blockers.append("Kandidaten er automatisk avvist etter gjeldende score-, risiko- og dokumentasjonsregler")
+            triggers.append("Kandidaten vurderes på nytt automatisk dersom score, risiko eller dokumentasjon endres vesentlig")
+        elif outcome == "UNDERSØK_MANUELT":
+            blockers.append("Én konkret kritisk opplysning må undersøkes manuelt før kandidaten kan avklares")
+            triggers.append("Den beskrevne manuelle oppgaven må avklares uten at produksjonsreglene endres")
+        else:
+            blockers.append("Porteføljelaget kjøpsgodkjenner ikke kandidaten")
+            triggers.append("Alle produksjonsporter må godkjenne Kjøp uten at risikoreglene endres")
     if not blockers:
         blockers.append("Ingen eksplisitt blokkering; vurderingen er klar innenfor gjeldende regler")
     if not triggers:
@@ -426,15 +437,20 @@ def build_candidate_decision_contract(candidate: Mapping[str, Any], run: Mapping
     consensus = candidate_source_consensus(candidate)
     confidence = candidate_confidence_profile(candidate, consensus)
     blockers, triggers = candidate_blockers_and_triggers(candidate, run)
+    outcome_code = str(candidate.get("autonomy_outcome_code") or candidate.get("portfolio_action") or candidate.get("status") or "REVIEW")
     return {
         "ticker": str(candidate.get("ticker") or ""),
-        "action": str(candidate.get("portfolio_action") or candidate.get("status") or "REVIEW"),
+        "action": outcome_code,
+        "action_label": str(candidate.get("autonomy_outcome_label") or _action_label(outcome_code)),
         "score": candidate.get("investment_score"),
         "blockers": blockers,
         "change_conditions": triggers,
         "validity": candidate_validity(candidate, run, report_type),
         "source_consensus": consensus,
         "confidence": confidence,
+        "manual_review_required": bool(candidate.get("manual_review_required")),
+        "manual_tasks": deepcopy(list(candidate.get("manual_tasks") or [])),
+        "automatic_next_action": str(candidate.get("automatic_next_action") or ""),
     }
 
 
@@ -700,6 +716,19 @@ def build_next_run_tasks(
 
     for error in list(run.get("errors") or [])[:5]:
         add("RUN_ERROR", "Rapportkjøring", str(error), "Kjør berørt trinn på nytt og bekreft at feilen er borte", "KRITISK")
+    explicit_manual_tickers: set[str] = set()
+    for manual in list(run.get("manual_tasks") or [])[:2]:
+        if not isinstance(manual, Mapping):
+            continue
+        ticker = str(manual.get("ticker") or "Ukjent")
+        explicit_manual_tickers.add(ticker.upper())
+        reason = f"{manual.get('why') or ''} Programmet stoppet fordi: {manual.get('failure_reason') or '-'}"
+        action = (
+            f"{manual.get('title') or 'Undersøk konkret opplysning'}. "
+            f"Bruk foreslått kilde: {manual.get('suggested_source') or 'primærkilde'}. "
+            f"Beslutningseffekt: {manual.get('decision_impact') or '-'}"
+        )
+        add("MANUAL_INVESTIGATION", ticker, reason, action, "HØY")
     for row in candidate_contracts[:10]:
         ticker = str(row.get("ticker") or "Ukjent")
         confidence = _mapping(row.get("confidence"))
@@ -709,14 +738,12 @@ def build_next_run_tasks(
         gap = max(0.0, _decision_threshold(run) - score)
         if 0 < gap <= 3:
             add("NEAR_THRESHOLD", ticker, f"Kandidaten er {gap:.1f} poeng under beslutningsterskelen", "Reevaluer kandidaten med ferske data ved neste kjøring", "HØY")
-        if str(consensus.get("level")) in {"SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT"}:
-            add("VERIFY_SOURCES", ticker, consensus.get("explanation") or "Svakt kildegrunnlag", "Finn en uavhengig eller primær kilde og oppdater kildekonsensus", "HØY")
-        if _safe_int(confidence.get("market_data_coverage"), 0) < 70:
-            add("REFRESH_MARKET_DATA", ticker, f"Markedsdatakvalitet er {confidence.get('market_data_coverage', 0)}/100", "Hent ferske markedsdata", "HØY")
-        if _safe_int(confidence.get("documentation_coverage"), 0) < 70:
-            add("COMPLETE_DOCUMENTATION", ticker, f"Dokumentasjonsdekning er {confidence.get('documentation_coverage', 0)}/100", "Fullfør manglende analyse- og kildedokumentasjon", "HØY")
-        if blockers and str(row.get("action") or "").upper() in {"REVIEW", "KREVER MANUELL VURDERING"}:
-            add("MANUAL_REVIEW", ticker, "; ".join(blockers[:2]), "Kontroller blokkeringene og dokumenter manuell vurdering", "NORMAL")
+        if _safe_int(confidence.get("market_data_coverage"), 0) < 70 and ticker.upper() not in explicit_manual_tickers:
+            add("AUTO_REFRESH_MARKET_DATA", ticker, f"Markedsdatakvalitet er {confidence.get('market_data_coverage', 0)}/100", "Programmet henter ferske markedsdata automatisk ved neste kjøring", "NORMAL")
+        # Weak documentation is not automatically a user task.  It becomes
+        # manual only when decision reduction emitted a concrete task above.
+        if str(consensus.get("level")) in {"SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT"} and ticker.upper() not in explicit_manual_tickers:
+            add("AUTO_RETRY_SOURCES", ticker, consensus.get("explanation") or "Svakt kildegrunnlag", "Programmet prøver primær- og reservekilder på nytt automatisk", "NORMAL")
     source_health = _mapping(run.get("source_health"))
     for row in _rows(source_health.get("sources")):
         if _safe_int(row.get("errors"), 0) > 0 or row.get("fallback_used"):
@@ -729,9 +756,9 @@ def build_next_run_tasks(
     evidence_ready_count = sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("evidence_data_ready"))
     final_ready_count = sum(1 for row in candidate_contracts if _mapping(row.get("confidence")).get("final_decision_ready"))
     if evidence_ready_count < 3:
-        add("EVIDENCE_SHORTLIST_COVERAGE", "Evidens- og dataklar kortliste", f"Bare {evidence_ready_count} kandidat(er) bestod data- og evidensporten", "Fullfør dokumentasjonen uten å senke produksjonstersklene", "NORMAL")
+        add("AUTO_EVIDENCE_COVERAGE", "Evidensdekning", f"Bare {evidence_ready_count} kandidat(er) bestod data- og evidensporten", "Programmet prioriterer nye kildeforsøk for de høyest rangerte kandidatene ved neste kjøring", "NORMAL")
     if evidence_ready_count and final_ready_count == 0:
-        add("FINAL_DECISION_GATE", "Endelig beslutningsport", "Ingen evidens- og dataklar kandidat er kjøpsgodkjent", "Behold manuell vurdering til portefølje- og risikoportene godkjenner Kjøp", "NORMAL")
+        add("AUTO_FINAL_GATE", "Endelig beslutningsport", "Ingen evidens- og dataklar kandidat er kjøpsgodkjent", "Programmet overvåker portefølje- og risikokapasitet automatisk", "NORMAL")
     now = _created_at(run)
     for event in events[:5]:
         dt = _parse_datetime(event.get("event_at"))
@@ -771,9 +798,10 @@ def build_decision_overview(
         "confidence": dict(confidence),
         "reliability": dict(reliability),
         "conclusion": (
-            f"{sum(1 for row in candidate_contracts if str(row.get('action') or '').upper() in {'BUY', 'KJØP'})} kandidat(er) er merket Kjøp, "
-            f"{sum(1 for row in candidate_contracts if str(row.get('action') or '').upper() == 'REVIEW')} krever vurdering, "
-            f"og {urgent_tasks} oppfølgingspunkt(er) har høy eller kritisk prioritet."
+            f"{int(_mapping(run.get('autonomous_decision_reduction')).get('buy_candidates') or 0)} kjøpskandidat(er), "
+            f"{int(_mapping(run.get('autonomous_decision_reduction')).get('automatic_watch') or 0)} overvåkes automatisk, "
+            f"{int(_mapping(run.get('autonomous_decision_reduction')).get('automatic_rejected') or 0)} er automatisk avvist, "
+            f"og {int(_mapping(run.get('autonomous_decision_reduction')).get('manual_task_count') or 0)} konkret(e) manuell(e) oppgave(r) er opprettet."
         ),
     }
 

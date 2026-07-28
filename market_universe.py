@@ -11,8 +11,11 @@ from typing import Iterable, List
 
 
 BASE_MARKET_SCOPES: List[str] = ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
+CORE_MARKET_SCOPES: List[str] = ["Norge", "Sverige", "USA"]
+EXTENDED_NORDIC_MARKET_SCOPES: List[str] = ["Danmark", "Finland"]
 NORDIC_MARKET_SCOPES: List[str] = ["Norge", "Sverige", "Finland", "Danmark"]
-AGGREGATE_MARKET_SCOPES: List[str] = ["Norden", "Alle"]
+FULL_MARKET_SCOPE_LABEL = "Alle markeder - full skanning"
+AGGREGATE_MARKET_SCOPES: List[str] = ["Alle kjernemarkeder", "Alle", "Kjernemarkeder", "Utvidet Norden", "Norden", FULL_MARKET_SCOPE_LABEL]
 MARKET_SCOPE_OPTIONS: List[str] = BASE_MARKET_SCOPES + AGGREGATE_MARKET_SCOPES
 SOURCE_SCOPE_OPTIONS: List[str] = ["Top Picks", "Watchlist", "Paper trading", "Portefolje", "Portefølje", "Manuell liste", "Smart AI-utvalg"]
 NO_MARKET_SELECTION_LABEL = "Velg marked"
@@ -41,10 +44,14 @@ def is_market_scope(scope: object) -> bool:
 
 def expand_market_scope(scope: object) -> List[str]:
     value = str(scope or "").strip()
-    if value == "Alle":
-        return list(BASE_MARKET_SCOPES)
+    if value in {"Alle", "Kjernemarkeder", "Alle kjernemarkeder"}:
+        return list(CORE_MARKET_SCOPES)
+    if value == "Utvidet Norden":
+        return list(EXTENDED_NORDIC_MARKET_SCOPES)
     if value == "Norden":
         return list(NORDIC_MARKET_SCOPES)
+    if value == FULL_MARKET_SCOPE_LABEL:
+        return list(BASE_MARKET_SCOPES)
     if value in BASE_MARKET_SCOPES:
         return [value]
     return []
