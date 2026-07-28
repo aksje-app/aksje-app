@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.14.0 release archives."""
+"""Build clean, validated v19.14.1 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,8 +25,8 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.14.0"
-VERSION_FILE = "19_14_0"
+VERSION = "v19.14.1"
+VERSION_FILE = "19_14_1"
 
 UPDATE_FILES = {
     "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
@@ -38,9 +38,10 @@ UPDATE_FILES = {
     "market_intelligence.py", "report_contracts.py", "report_integrity.py", "safety_audit.py",
     "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py",
     "ui/candidate_cards.py", "ui/live_market_banner.py", ".streamlit/config.toml",
-    "RELEASE_NOTES_v19.14.0.md", "DEPLOY_v19.14.0.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.14.0.md", "MIGRATION_v19.14.0.md",
-    "TEST_REPORT_v19.14.0.md", "ACCEPTANCE_v19.14.0.md",
+    "RELEASE_NOTES_v19.14.1.md", "DEPLOY_v19.14.1.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md", "MIGRATION_v19.14.1.md",
+    "TEST_REPORT_v19.14.1.md", "ACCEPTANCE_v19.14.1.md",
+    "V19_14_1_IMPLEMENTATION_AND_VERIFICATION.md",
     "tools/__init__.py", "tools/build_safe_distribution.py", "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
     "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
@@ -81,13 +82,20 @@ UPDATE_FILES = {
     "tests/test_v1950_modular_strategy_versioning.py", "tests/test_v1960_market_snapshot_technical_signal.py",
     "tests/test_v1970_parallel_strategy_interface.py", "tests/test_v1980_shared_execution_accounts_export.py",
     "tests/test_v1990_controlled_technical_contribution.py",
+    "autonomy_modes.py", "autonomous_orchestrator.py", "insider_intelligence.py",
+    "official_insider_sources.py",
+    "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
+    "autonomi_core/portfolio_decisions/layer.py", "autonomi_core/portfolio_decisions/decision_funnel.py",
+    "autonomi_core/learning_reporting/top_picks.py",
+    "tests/test_v19141_decision_gate_runtime_consistency.py",
+    "tests/test_v1880_autonomy_core_foundation.py", "tests/test_v1905_decision_funnel.py",
 }
 
 
 
 
 MIGRATION_FILES = {
-    "app_version.py", "MIGRATION_v19.14.0.md", "DEPLOY_v19.14.0.md", "DISTRIBUTION_SECURITY_POLICY_v19.14.0.md",
+    "app_version.py", "MIGRATION_v19.14.1.md", "DEPLOY_v19.14.1.md", "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md",
     "domain/__init__.py", "domain/persistence.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_account.py", "domain/strategy_promotion.py",
     "repositories/__init__.py", "repositories/base.py", "repositories/application.py",
     "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
@@ -241,7 +249,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.0-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.1-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()
