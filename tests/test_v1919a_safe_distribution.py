@@ -11,7 +11,7 @@ from tools.validate_distribution import FileEntry, validate_entries, validate_pa
 
 
 def test_release_identity_is_safe_distribution_patch():
-    assert APP_VERSION == "v19.13.0"
+    assert APP_VERSION == "v19.13.1"
     assert PREVIOUS_APP_VERSION == "v19.12.0"
 
 
