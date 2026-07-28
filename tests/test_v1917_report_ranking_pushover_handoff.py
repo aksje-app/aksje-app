@@ -38,7 +38,7 @@ def test_ranking_explains_news_leader_outside_top3():
     }
     explanation = build_ranking_explanation(run)
     assert explanation["news_leader"]["ticker"] == "STB.OL"
-    assert "STB.OL hadde sterkest nyhetsscore" in explanation["note"]
+    assert "STB.OL hadde høyest dokumenterte nyhetsbidrag" in explanation["note"]
     assert "score" in explanation["note"]
 
 

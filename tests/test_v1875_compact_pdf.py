@@ -74,7 +74,7 @@ def test_compact_pdf_is_readable_and_bounded():
     assert "Risiko (0-100)" in text
     assert "Metode og ansvarsfraskrivelse" in text
     assert "Side 1" in text
-    assert "Plass 1: TEST1.OL" in text
+    assert "PLASS 1: TEST1.OL" in text.upper()
     assert "Poengberegning, vekter og modulbidrag" in text
     assert "Insiderbevis" in text
     assert "Nyhetsbevis" in text

@@ -48,7 +48,7 @@ def _snapshot(snapshots):
 
 
 def test_version_contract_exposes_shared_strategy_interface():
-    assert APP_VERSION == "v19.13.1"
+    assert APP_VERSION == "v19.13.2"
     contract = get_version_contract()
     assert contract["strategy_interface_version"] == "1.0"
     assert contract["parallel_strategy_service_version"] == "1.1"

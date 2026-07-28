@@ -116,7 +116,7 @@ def _run(candidates: list[dict]) -> dict:
     }
 
 
-def test_canonical_view_recomputes_stale_summary_and_synchronizes_nested_trend():
+def test_canonical_view_recomputes_stale_summary_and_keeps_score_trend_separate_from_technical_trend():
     run = _run([
         _candidate("STB.OL", 77.06),
         _candidate("WWI.OL", 72.86, action="SKIP"),
@@ -133,9 +133,10 @@ def test_canonical_view_recomputes_stale_summary_and_synchronizes_nested_trend()
     }
     assert result["report_summary"]["manual_review"] == 2
     fro = result["candidates"][2]
-    assert fro["raw"]["trend"] == "FALLENDE"
-    assert fro["raw"]["technical"]["trend"] == "FALLENDE"
-    assert result["report_integrity"]["correction_count"] >= 2
+    assert fro["score_trend"] == "FALLENDE"
+    assert fro["trend_basis"] == "Kandidatscore sammenlignet med forrige analysekjøring"
+    assert fro["raw"]["trend"] == "STIGENDE"
+    assert fro["raw"]["technical"]["trend"] == "STIGENDE"
     assert validate_report_integrity(result)["ok"] is True
 
 

@@ -109,7 +109,7 @@ class EvidenceReliabilityTests(unittest.TestCase):
         self.assertIn('"raw_top3"', source)
         self.assertIn('"decision_ready_top3"', source)
         self.assertIn("Beslutningsstempel", source)
-        self.assertIn("Ingen kandidat bestod evidensporten", source)
+        self.assertIn("Ingen kandidat bestod data- og evidensporten", source)
 
 
 if __name__ == "__main__":

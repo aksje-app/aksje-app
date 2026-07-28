@@ -51,7 +51,7 @@ class LiveProgressPerformanceDecisionEvidenceTests(unittest.TestCase):
 
     def test_pdf_has_decision_evidence_and_clear_source_name(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        for text in ("Kursdatakilde", "Konkret beslutningsbevis for plasseringene", "Insiderbevis", "Nyhetsbevis", "Ingen kjøpsvekt"):
+        for text in ("Kursdatakilde", "Konkret beslutningsbevis for den viste listen", "Insiderbevis", "Nyhetsbevis", "Ingen kjøpsvekt"):
             self.assertIn(text, source)
         self.assertNotIn('– investeringsforslag", styles["Section"]', source)
 
