@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.13.0"
-APP_VERSION_NAME = "Paper Migration Foundation"
+APP_VERSION = "v19.13.1"
+APP_VERSION_NAME = "Report Integrity Release"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.12.0"
@@ -143,8 +143,9 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
-    "v19.13.0: Ikke-destruktivt migreringsfundament for gammel Paper Trading-state med dry-run, eksplisitt MIGRER-bekreftelse, begrunnelse, backup, avstemming og idempotent speiling til strategikonto, ordre og fills. Aktiv Paper-runtime, produksjonsbinding og Autonomi er uendret.",
-    "v19.13.0: Kontrollert strategi-promotering med kanonisk produksjonsbinding, eksplisitt menneskelig bekreftelse, strenge pre-flight-porter, Paper Trading-ruting til valgt produksjonsstrategi og sporbar ett-stegs rollback. Ingen automatisk promotering eller meglerhandel.",
+    "v19.13.1: Report Integrity Release: kanonisk rapportvisning synkroniserer sluttfelter mot rådetaljer, validerer score/trend/handling/evidens før PDF, beregner sammendrag fra faktisk kandidatliste, dedupliserer kildekjeder, skiller evidensport fra endelig beslutning, merker nøytrale modellbaseliner, viser rå rangering uten medaljer når ingen kandidat er beslutningsklar, og blokkerer ordinære testvarsler uten eksplisitt test-med-Pushover-valg.",
+    "v19.13.0-kandidat (senere avvist som samlet leveranse): Ikke-destruktivt migreringsfundament for gammel Paper Trading-state med dry-run, eksplisitt MIGRER-bekreftelse, begrunnelse, backup, avstemming og idempotent speiling til strategikonto, ordre og fills. Aktiv Paper-runtime, produksjonsbinding og Autonomi er uendret.",
+    "v19.13.0-kandidat (senere avvist som samlet leveranse): Kontrollert strategi-promotering med kanonisk produksjonsbinding, eksplisitt menneskelig bekreftelse, strenge pre-flight-porter, Paper Trading-ruting til valgt produksjonsstrategi og sporbar ett-stegs rollback. Ingen automatisk promotering eller meglerhandel.",
     "v19.11.0: Strategisammenligning og resultatattribusjon: Paper-snapshots berikes med normalisert kvalitetsevidens uten å endre produksjonsscore. Strategy Lab skiller MANGLER, UGYLDIG og UNDER TERSKEL, viser aggregert evidensdekning og blokkårsaker, og lagrer observerte 1-, 5- og 20-handelsdagers utfall i et separat, uforanderlig utfallsregister. Resultatattribusjonen viser blant annet unngåtte tap, tapte gevinster og utfallsdekning uten look-ahead, ordreutførelse eller automatisk promotering.",
     "v19.10.0: Strategy Lab og Technical Quality Challenger: produksjonsbenchmarken forblir uendret, mens en skrivebeskyttet kvalitetschallenger bruker avgrenset datakvalitet, kildekonsensus, likviditet, insider, analytiker, resultater, regime og nyhetskontekst fra samme snapshot. Strategy Lab lagrer hypoteser, snapshot-replay, tidsordnet walk-forward-splitt, sammenligningsmal, manuell godkjenning og rollback uten automatisk promotering eller ordreutførelse. Evaluerings-ZIP inkluderer lab- og challengerresultater.",
     "v19.9.0: Kontrollert teknisk bidrag inn i Autonomi: teknisk produksjonsbenchmark fra samme snapshot gir et begrenset entry-only scorebidrag og kan gi VENT ved tydelig negativ timing. Positivt bidrag krever et minimumsnivå på Autonomis egen base score. Datakvalitet, risiko, kapital, sektor, posisjonsgrenser og harde exits kan ikke overstyres. Alle bidrag lagres med teknisk versjon, modell, parametre, policy og score-diff og eksporteres i technical_contribution.csv.",

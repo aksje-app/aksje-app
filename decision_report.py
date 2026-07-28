@@ -144,34 +144,58 @@ def _risk_limit(run: Mapping[str, Any]) -> float:
     return 65.0
 
 
+def _canonical_source_name(row: Mapping[str, Any]) -> str:
+    """Return the root publisher in a publication chain, not its aggregator."""
+    for key in ("original_publisher", "publisher", "source", "provider"):
+        value = str(row.get(key) or "").strip()
+        if value and value.casefold() not in {
+            "unavailable", "ikke oppgitt", "none", "kontrollerte offentlige kilder"
+        }:
+            return value
+    return ""
+
+
 def _source_names(payload: Mapping[str, Any], evidence_rows: Sequence[Mapping[str, Any]]) -> set[str]:
+    """Count independent supporting roots only.
+
+    Attempted sources, sources without results, configured-but-unchecked primary
+    sources and aggregator hops are not independent evidence.
+    """
     names: set[str] = set()
-    for key in ("source", "official_source", "publisher", "original_publisher"):
-        value = str(payload.get(key) or "").strip()
-        if value and value.casefold() not in {"unavailable", "ikke oppgitt", "none"}:
-            for part in value.replace(";", ",").split(","):
-                if part.strip():
-                    names.add(part.strip())
+    evidence_has_root = False
     for row in evidence_rows:
-        for key in ("source", "publisher", "original_publisher", "provider"):
-            value = str(row.get(key) or "").strip()
-            if value:
-                names.add(value)
-                break
+        value = _canonical_source_name(row)
+        if value:
+            names.add(value)
+            evidence_has_root = True
     for row in _rows(payload.get("search_log")):
-        if _safe_int(row.get("results"), 0) <= 0:
+        status = str(row.get("status") or "").upper()
+        if not row.get("attempted") or _safe_int(row.get("results"), 0) <= 0:
             continue
-        value = str(row.get("source") or row.get("publisher") or "").strip()
+        if not status.startswith("SUCCESS"):
+            continue
+        source_type = str(row.get("source_type") or "").upper()
+        # Aggregators distribute evidence; they are not an additional source
+        # when the published item already identifies its root publisher.
+        if evidence_has_root and any(token in source_type for token in ("AGGREGATOR", "DISCOVERY")):
+            continue
+        value = _canonical_source_name(row)
         if value:
             names.add(value)
     return names
 
 
 def _primary_source_present(payload: Mapping[str, Any], evidence_rows: Sequence[Mapping[str, Any]]) -> bool:
-    if payload.get("official_source"):
-        return True
-    primary_tokens = {"OFFICIAL", "EXCHANGE", "REGULATOR", "COMPANY_IR", "PRIMARY_SOURCE", "SEC_FILING", "BØRSMELDING"}
-    for row in [*_rows(payload.get("search_log")), *evidence_rows]:
+    primary_tokens = {"OFFICIAL", "EXCHANGE", "REGULATOR", "COMPANY_IR", "PRIMARY_SOURCE", "SEC_FILING", "BØRSMELDING", "PRIMARY_OR_DIRECT"}
+    for row in evidence_rows:
+        source_type = str(row.get("source_type") or row.get("type") or "").upper()
+        role = str(row.get("source_role") or "").upper()
+        if any(token in source_type or token in role for token in primary_tokens):
+            return True
+    for row in _rows(payload.get("search_log")):
+        status = str(row.get("status") or "").upper()
+        if not row.get("attempted") or _safe_int(row.get("results"), 0) <= 0 or not status.startswith("SUCCESS"):
+            continue
         source_type = str(row.get("source_type") or row.get("type") or "").upper()
         role = str(row.get("source_role") or "").upper()
         if any(token in source_type or token in role for token in primary_tokens):

@@ -349,6 +349,8 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
     sections = (
         _section("executive_summary", "Sammendrag", {
             "summary": dict(run.get("summary") or {}),
+            "report_summary": dict(run.get("report_summary") or {}),
+            "executive_intelligence": dict(run.get("executive_intelligence") or {}),
             "markets": list(run.get("markets") or []),
             "completion_status": run.get("completion_status") or "",
             "data_quality": dict(run.get("data_quality") or {}),
@@ -373,6 +375,7 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
             "warnings": list(run.get("warnings") or []),
             "source_health": dict(run.get("source_health") or {}),
             "integrity_preflight": dict(run.get("integrity_preflight") or {}),
+            "report_integrity": dict(run.get("report_integrity") or {}),
             "report_status": dict(status),
             "report_revision": dict(revision),
         }, 900, technical=True),

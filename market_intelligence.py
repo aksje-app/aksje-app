@@ -30,6 +30,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
+from report_integrity import apply_report_integrity, canonical_report_view
 from report_contracts import (
     build_report_identity as build_report_identity_contract,
     ensure_report_document,
@@ -60,6 +61,19 @@ DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 RECENT_DRAFT_REUSE_MINUTES = 30
 _ARCHIVE_LOCK = threading.RLock()
+
+
+def should_suppress_notifications(trigger: str, send_notifications: bool) -> bool:
+    """Fail closed for test runs unless a test notification is explicit.
+
+    A trigger containing TEST is silent by default.  Only the dedicated
+    TEST_NOTIFICATION trigger may send, and only when send_notifications is
+    also true.  Normal production/manual triggers keep their existing policy.
+    """
+    trigger_name = str(trigger or "").upper()
+    is_test = "TEST" in trigger_name
+    explicit_test_notification = "TEST_NOTIFICATION" in trigger_name
+    return (not bool(send_notifications)) or (is_test and not explicit_test_notification)
 
 MODULE_OPTIONS = [
     "Market Scanner", "AI Discovery", "AI Research Assistant", "Strategy Match",
@@ -1339,25 +1353,46 @@ def format_risk(value: Any) -> str:
 
 
 def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate actual insider attempts without treating NOT_SEARCHED as checked."""
     grouped: dict[str, dict[str, Any]] = {}
+    error_statuses = {
+        "ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
+        "DAILY_QUOTA_EXCEEDED", "UNAVAILABLE", "STALE",
+    }
     for candidate in candidates or []:
         market = str(candidate.get("market") or "Ukjent")
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
         insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
-        row = grouped.setdefault(market, {"market": market, "checked": 0, "verified": 0, "discovery": 0,
-                                         "missing": 0, "not_configured": 0, "source_errors": 0, "source": ""})
-        row["checked"] += 1
-        coverage = str(insider.get("coverage") or "MISSING")
-        if coverage == "AVAILABLE":
+        readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
+        search_log = [row for row in (insider.get("search_log") or []) if isinstance(row, Mapping)]
+        attempted = any(bool(row.get("attempted")) for row in search_log)
+        status = str(readiness.get("insider") or insider.get("coverage") or insider.get("status") or "NOT_SEARCHED").upper()
+        row = grouped.setdefault(market, {
+            "market": market, "checked": 0, "verified": 0, "discovery": 0,
+            "no_events": 0, "missing": 0, "not_searched": 0, "not_configured": 0,
+            "source_errors": 0, "source": "",
+        })
+        if attempted or status in {"AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "MISSING", "DISCOVERY_ONLY"} | error_statuses:
+            row["checked"] += 1
+        if status in {"AVAILABLE", "VERIFIED_FACTS_FOUND"}:
             row["verified"] += 1
-        elif coverage == "DISCOVERY_ONLY":
+        elif status == "DISCOVERY_ONLY":
             row["discovery"] += 1
-        elif coverage == "NOT_CONFIGURED":
+        elif status == "CHECKED_NO_EVENTS" and attempted:
+            row["no_events"] += 1
+            row["missing"] += 1
+        elif status == "MISSING":
+            row["missing"] += 1
+            if attempted:
+                row["no_events"] += 1
+        elif status in {"NOT_CONFIGURED"}:
             row["not_configured"] += 1
-        elif coverage == "ERROR":
+        elif status in error_statuses:
             row["source_errors"] += 1
         else:
-            row["missing"] += 1
+            row["not_searched"] += 1
+        # A configured primary source is descriptive only; it is not evidence
+        # that the primary source was directly checked.
         if insider.get("official_source"):
             row["source"] = str(insider.get("official_source"))
     return [grouped[key] for key in sorted(grouped)]
@@ -1518,6 +1553,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     """
     from html import escape
 
+    run = canonical_report_view(run)
+    integrity = run.get("report_integrity") if isinstance(run.get("report_integrity"), Mapping) else {}
+    if not integrity.get("ok", False):
+        raise ValueError("Rapportintegritet feilet før PDF: " + "; ".join(integrity.get("errors") or []))
+
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.lib.pagesizes import A4
@@ -1580,6 +1620,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             return text
         clipped = text[: max(1, limit - 1)].rsplit(" ", 1)[0]
         return (clipped or text[: max(1, limit - 1)]) + "…"
+
+    def _breakable(value: Any, limit: int = 180) -> str:
+        text = _short(value, limit)
+        for token in ("/", "?", "&", "=", "_", "-"):
+            text = text.replace(token, token + " ")
+        return " ".join(text.split())
 
     def _status_label(value: Any) -> str:
         return translate_report_text(label_for(value)).upper()
@@ -1675,7 +1721,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                     _p("Ja" if item.get("attempted") else "Nei"),
                     _p(_status_label(status)), _p(item.get("results", 0)),
                     _p(_short_datetime(item.get("checked_at") or item.get("retrieved_at") or "-")),
-                    _p(_short(detail, 180)),
+                    _p(_breakable(detail, 180)),
                 ])
         if len(rows) == 1:
             rows.append(["Begge", "Ingen registrert søkelogg", "Nei", "NOT_SEARCHED", 0, "-", "-"])
@@ -1802,7 +1848,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     decision_state = "PASS" if int(decision_overview.get("decision_ready_count") or 0) else "REVIEW"
     decision_status = Table([[
         Paragraph(f"<b>Pålitelighet</b><br/><font size='11'>{reliability_score}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Datadekning</b><br/><font size='11'>{int(decision_confidence.get('data_coverage') or 0)}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Markedsdatadekning</b><br/><font size='11'>{int(decision_confidence.get('data_coverage') or 0)}/100</font>", styles["MetricCard"]),
         Paragraph(f"<b>Kildesikkerhet</b><br/><font size='11'>{int(decision_confidence.get('source_confidence') or 0)}/100</font>", styles["MetricCard"]),
         Paragraph(f"<b>Beslutning</b><br/><font size='11'>{int(decision_confidence.get('decision_confidence') or 0)}/100</font>", styles["MetricCard"]),
     ]], colWidths=[46*mm]*4)
@@ -1904,11 +1950,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     task_lines = []
     for task in list(decision_tasks)[:3]:
         task_lines.append(f"{task.get('priority') or 'NORMAL'} {task.get('subject') or '-'}: {_short(task.get('action') or '-', 75)}")
+    task_count_note = (
+        f" Viser {len(task_lines)} av {len(decision_tasks)} oppgaver."
+        if len(decision_tasks) > len(task_lines) else ""
+    )
     decision_story += [
         Paragraph("Kritiske hendelser", styles["Subsection"]),
         Paragraph(escape(" | ".join(event_lines) or "Ingen kandidatrelaterte hendelser registrert."), styles["Small"]),
         Paragraph("Oppgaver til neste kjøring", styles["Subsection"]),
-        Paragraph(escape(" | ".join(task_lines) or "Ingen automatiske oppfølgingsoppgaver registrert."), styles["Small"]),
+        Paragraph(escape((" | ".join(task_lines) or "Ingen automatiske oppfølgingsoppgaver registrert.") + task_count_note), styles["Small"]),
     ]
 
     if decision_historical:
@@ -1934,13 +1984,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
 
     story = [Paragraph("AI Aksje Analyzer Pro", styles["ReportTitle"]), Paragraph(escape(report_type), styles["Section"]), meta, Spacer(1, 2*mm)]
     summary = run.get("summary") or {}
+    report_summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     intelligence = run.get("executive_intelligence") or executive_intelligence(run.get("candidates") or [])
     portfolio_actions = dict((run.get("portfolio_decisions") or {}).get("actions") or {})
-    summary_items = [("Skannet", summary.get("scanned", 0)), ("Grundig analysert", summary.get("deep_analyzed", 0)),
-                     ("Forslag", summary.get("proposals", 0)), ("Til vurdering", summary.get("recommended", 0)),
+    manual_review_count = int(report_summary.get("manual_review") or portfolio_actions.get("REVIEW", 0) or 0)
+    summary_items = [("Skannet", report_summary.get("scanned", summary.get("scanned", 0))),
+                     ("Grundig analysert", report_summary.get("deep_analyzed", len(run.get("candidates") or []))),
+                     ("Forslag", summary.get("proposals", 0)), ("Til manuell vurdering", manual_review_count),
                      ("Unike selskaper", intelligence.get("unique_companies", 0)), ("Snittscore", intelligence.get("average_score", 0)),
                      ("Høyeste score", intelligence.get("highest_score", 0)), ("Markeder i Top 10", intelligence.get("markets_in_top10", 0)),
-                     ("Sterke insidersignaler", sum(1 for x in (run.get("candidates") or []) if float((x.get("raw") or {}).get("insider_score", 50) or 50) >= 78))]
+                     ("Beslutningsklare", report_summary.get("decision_ready", 0))]
     summary_grid = []
     for index in range(0, len(summary_items), 3):
         cells = []
@@ -1956,18 +2009,19 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         f"{int(portfolio_actions.get('SKIP', 0) or 0)} {_decision_label('SKIP').upper()}. "
         + ("Ingen kandidat er kjøpsgodkjent i denne kjøringen." if not int(portfolio_actions.get("BUY", 0) or 0) else f"Kun {_decision_label('BUY')}-kandidater er klare for teoretisk posisjonering.")
     )
-    report_quality = _quality_score()
-    quality_label = "Høy" if report_quality >= 85 else "Middels" if report_quality >= 65 else "Lav"
+    technical_report_ok = bool(integrity.get("ok"))
+    technical_report_label = "Bestått" if technical_report_ok else "Feilet"
+    decision_confidence_value = int(decision_confidence.get("decision_confidence") or 0)
     quick_table = Table([
-        ["Rapportkvalitet", f"{report_quality} %", "AI-sikkerhet", quality_label,
+        ["Teknisk rapportkontroll", technical_report_label, "Beslutningskonfidens", f"{decision_confidence_value}/100",
          "Rapportstatus", "Foreløpig" if report_status.get("state") == "PROVISIONAL" else "Endelig"],
-    ], colWidths=[26*mm, 20*mm, 23*mm, 23*mm, 28*mm, 48*mm])
+    ], colWidths=[34*mm, 24*mm, 34*mm, 24*mm, 26*mm, 42*mm])
     quick_table.setStyle(_table_style(6.8, header=False, padding=2.5))
     quick_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (4,0), (4,-1), "Helvetica-Bold")]))
     report_state_raw = "REVIEW" if report_status.get("state") == "PROVISIONAL" else "PASS"
-    quality_state_raw = quality_status(report_quality)
+    quality_state_raw = "PASS" if technical_report_ok else "ERROR"
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
     notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
     combined_quality = run.get("combined_quality") if isinstance(run.get("combined_quality"), Mapping) else (run.get("combined_data_quality") if isinstance(run.get("combined_data_quality"), Mapping) else {})
@@ -1977,7 +2031,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     notification_text = _notification_status_explanation(notification)
     status_stripe = Table([[
         Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Foreløpig rapport' if report_state_raw == 'REVIEW' else 'Endelig rapport'}", styles["Small"]),
-        Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>{_status_label(quality_state_raw)}</b><br/>Rapportkvalitet {report_quality} %", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>Teknisk rapportkontroll</b><br/>{technical_report_label}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kildekontroll</b><br/>{source_valid}/{source_total} kandidater gyldige" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover</b><br/>{escape(_loc(notification_text))}", styles["Small"]),
     ]], colWidths=[42*mm, 42*mm, 42*mm, 42*mm])
@@ -2047,15 +2101,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     if user_mission:
         report_goal, report_search = _report_mission_labels()
         mission_table = Table([
-            ["Mål", report_goal, "Tidshorisont", user_mission.get("horizon", "-")],
-            ["Leter etter", report_search, "Strategi", user_mission.get("strategy", "-")],
-            ["Risiko", user_mission.get("risk", "-"), "Risikogrense", mission_summary.get("risk_ceiling", "-")],
-            ["Porteføljebehov", user_mission.get("portfolio_need", "-"), "Minimum datakvalitet", user_mission.get("minimum_data_quality", "-")],
-            ["Bransjer", ", ".join(user_mission.get("sectors") or []) or "Alle", "Innenfor oppdrag", mission_summary.get("eligible", 0)],
-            ["Eksklusjoner", ", ".join(user_mission.get("exclusions") or []) or "Ingen", "Kandidatantall", user_mission.get("candidate_count", "-")],
-            ["Utenfor oppdrag", mission_summary.get("excluded", 0), "Oppdrags-ID", user_mission.get("mission_id", "-")],
-            ["Konfigurasjon", user_mission.get("configuration_version", "-"), "", ""],
-        ], colWidths=[28*mm, 64*mm, 30*mm, 62*mm])
+            [_p("Mål"), _p(report_goal), _p("Tidshorisont"), _p(user_mission.get("horizon", "-"))],
+            [_p("Leter etter"), _p(report_search), _p("Strategi"), _p(user_mission.get("strategy", "-"))],
+            [_p("Risiko"), _p(user_mission.get("risk", "-")), _p("Risikogrense"), _p(mission_summary.get("risk_ceiling", "-"))],
+            [_p("Porteføljebehov"), _p(user_mission.get("portfolio_need", "-")), _p("Minimum datakvalitet"), _p(user_mission.get("minimum_data_quality", "-"))],
+            [_p("Bransjer"), _p(", ".join(user_mission.get("sectors") or []) or "Alle"), _p("Innenfor oppdrag"), _p(mission_summary.get("eligible", 0))],
+            [_p("Eksklusjoner"), _p(", ".join(user_mission.get("exclusions") or []) or "Ingen"), _p("Kandidatantall"), _p(user_mission.get("candidate_count", "-"))],
+            [_p("Utenfor oppdrag"), _p(mission_summary.get("excluded", 0)), _p("Oppdrags-ID"), _p(user_mission.get("mission_id", "-"))],
+            [_p("Konfigurasjon"), _p(user_mission.get("configuration_version", "-")), "", ""],
+        ], colWidths=[27*mm, 67*mm, 29*mm, 61*mm])
         mission_table.setStyle(_table_style(7, header=False, padding=2.5))
         mission_table.setStyle(TableStyle([("SPAN", (1, 7), (3, 7))]))
         story += [Paragraph("Autonomi-oppdrag", styles["Subsection"]), mission_table,
@@ -2141,8 +2195,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             f"Cachetreff {budget.get('cache_hits', 0)}. "
             + (f"Planen har oppgitt {budget.get('developer_delay_hours')} timers forsinkelse." if budget.get("developer_delay_hours") else "")
         )
-        story += [Paragraph("Kildehelse og API-budsjett", styles["Subsection"]), source_table,
-                  Paragraph(escape(budget_text), styles["Small"])]
+        story += [Paragraph("Global kildehelse og API-budsjett", styles["Subsection"]),
+                  Paragraph("Tabellen viser global systemhelse og kan inneholde kilder som ikke ble brukt i denne kjøringen. Kandidatbevis og søkelogger nedenfor er autoritative for denne rapporten.", styles["Small"]),
+                  source_table, Paragraph(escape(budget_text), styles["Small"])]
     discovery = run.get("discovery_data") or {}
     if discovery:
         discovery_rows = [["Marked", "Valgt", "Dokumentert", "Nye", "Eksperimentelle", "Karantene", "Rotert"]]
@@ -2189,17 +2244,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     candidates = run.get("candidates") or []
     insider_coverage = insider_coverage_by_market(candidates)
     if insider_coverage:
-        coverage_data = [["Marked", "Kontrollert", "Verifisert", "Kilder funnet", "Ingen treff", "Ikke konfig.", "Kildefeil", "Primærkilde"]]
+        coverage_data = [["Marked", "Kontrollert", "Verifisert", "Kilder funnet", "Ingen hendelser", "Ikke søkt", "Ikke konfig.", "Kildefeil", "Konfigurert primærkilde"]]
         for item in insider_coverage:
             coverage_data.append([
                 item.get("market"), item.get("checked", 0), item.get("verified", 0),
-                item.get("discovery", 0), item.get("missing", 0), item.get("not_configured", 0),
-                item.get("source_errors", 0), _p(item.get("source") or "Ikke tilgjengelig"),
+                item.get("discovery", 0), item.get("no_events", 0), item.get("not_searched", 0),
+                item.get("not_configured", 0), item.get("source_errors", 0),
+                _p(item.get("source") or "Ikke tilgjengelig"),
             ])
-        coverage_table = Table(coverage_data, repeatRows=1, colWidths=[18*mm, 18*mm, 17*mm, 19*mm, 18*mm, 19*mm, 16*mm, 48*mm])
+        coverage_table = Table(coverage_data, repeatRows=1, colWidths=[17*mm, 17*mm, 16*mm, 17*mm, 20*mm, 16*mm, 17*mm, 15*mm, 43*mm])
         coverage_table.setStyle(_table_style(6.3, padding=1.8))
         story += [Paragraph("Insiderdekning per marked", styles["Section"]),
-                  Paragraph("Status skiller mellom verifiserte transaksjoner, ustrukturerte kildetreff, ingen treff, manglende NewsAPI-konfigurasjon og kildefeil. Bare verifiserte transaksjoner påvirker score.", styles["Small"]),
+                  Paragraph("Status skiller mellom verifiserte transaksjoner, kildetreff, kontroll uten hendelser, ikke søkt, manglende konfigurasjon og kildefeil. En konfigurert primærkilde regnes ikke som kontrollert før den faktisk er forsøkt. Bare verifiserte transaksjoner er dokumentert evidens.", styles["Small"]),
                   coverage_table]
     insider_rows = []
     for candidate in candidates:
@@ -2255,6 +2311,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 styles["BodyCompact"],
             )]
         if raw_fallback:
+            medal_labels = ["RÅ RANGERING · PLASS 1", "RÅ RANGERING · PLASS 2", "RÅ RANGERING · PLASS 3"]
             story += [Paragraph(
                 "Ingen kandidat bestod evidensporten. Kandidatene under er rå rangering for sporbarhet og er ikke beslutningsklare.",
                 styles["BodyCompact"],
@@ -2273,7 +2330,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 f"<b>Handling:</b> {escape(evidence['action'])}", styles["Small"])])
         medal_table = Table([medal_data], colWidths=[55*mm]*len(medal_data))
         medal_styles = [("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]
-        medal_colors = ["#FFF4C2", "#EEF1F5", "#F6E1D3"]
+        medal_colors = (["#EAF2F8"] * len(medal_data)) if raw_fallback else ["#FFF4C2", "#EEF1F5", "#F6E1D3"]
         for medal_index in range(len(medal_data)):
             medal_styles.append(("BACKGROUND", (medal_index,0), (medal_index,-1), colors.HexColor(medal_colors[medal_index])))
         medal_table.setStyle(TableStyle(medal_styles))
@@ -2291,7 +2348,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ranking_table = Table(ranking_rows, repeatRows=1, colWidths=[42*mm, 124*mm])
         ranking_table.setStyle(_table_style(6.4, padding=2))
         ranking_note = ranking_explanation.get("note") or "Top 3 bygger på beslutningsklar rangering, ikke nyhetsscore alene."
-        story += [Paragraph("Topp 3", styles["Section"]), medal_table,
+        story += [Paragraph("Rå rangering 1-3" if raw_fallback else "Topp 3", styles["Section"]), medal_table,
                   Paragraph("Slik leses rangeringene", styles["Subsection"]), ranking_table,
                   Paragraph(escape(_loc(ranking_note)), styles["BodyCompact"]),
                   Paragraph("Konkret beslutningsbevis for plasseringene", styles["Subsection"]), evidence_table]
@@ -2337,7 +2394,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 ["Beslutningsgrunnlag", _status_label(readiness.get("status") or "-"), "Rå rangering", candidate.get("raw_rank") or candidate.get("rank") or "-"],
                 ["Markedsdata", _status_label(readiness.get("market_data") or "-"), "Beslutningsklar rangering", candidate.get("decision_ready_rank") or "-"],
                 ["Nyheter", _status_label(readiness.get("news") or "-"), "Innsider", _status_label(readiness.get("insider") or "-")],
-                ["Kildekonflikter", readiness.get("conflicts", 0), "Tillatt handling", _status_label(readiness.get("allowed_action") or "-")],
+                ["Kildekonflikter", readiness.get("conflicts", 0), "Evidensport", _status_label(readiness.get("evidence_gate_action") or readiness.get("allowed_action") or "-")],
+                ["Endelig beslutning", _status_label(readiness.get("final_action") or decision), "Kandidatstatus", _p(candidate.get("status") or "-")],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
             story += [Paragraph("Beslutningsstempel", styles["Section"]), readiness_table]
@@ -2355,7 +2413,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             if not change_conditions:
                 change_conditions.append("risiko- og porteføljeporten godkjenner kandidaten")
             insight_table = Table([
-                ["AI-sikkerhet", f"{confidence:.1f} %", "Neste forventede hendelse", _p(_short(next_event, 120))],
+                ["Beslutningskonfidens", f"{confidence:.1f} %", "Neste forventede hendelse", _p(_short(next_event, 120))],
                 ["Hva kan endre beslutningen?", _p("; ".join(change_conditions)), "Endring siden forrige", _p(candidate.get("score_change_reason") or candidate.get("change_reason") or "Ingen dokumentert vesentlig endring")],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             insight_table.setStyle(_table_style(6.3, header=False, padding=2.2))
@@ -2364,6 +2422,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             weights = formula.get("weights") if isinstance(formula.get("weights"), Mapping) else {}
             contributions = formula.get("weighted_contributions") if isinstance(formula.get("weighted_contributions"), Mapping) else {}
             score_parts = formula.get("parts") if isinstance(formula.get("parts"), Mapping) else {}
+            contribution_semantics = formula.get("contribution_semantics") if isinstance(formula.get("contribution_semantics"), Mapping) else {}
             component_rows = [["Analysemodul", "Råscore", "Vekt", "Bidrag"]]
             component_defaults = {
                 "discovery": candidate.get("discovery_score"), "fundamental": candidate.get("fundamental_score"),
@@ -2372,9 +2431,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 "news": raw.get("news_score"), "risk": candidate.get("risk_score"),
             }
             for key in sorted(set(component_defaults) | set(score_parts) | set(weights) | set(contributions)):
+                module_label = component_label(key.replace("_", " ").title())
+                contribution_value: Any = _fmt(contributions.get(key))
+                semantic = contribution_semantics.get(key) if isinstance(contribution_semantics.get(key), Mapping) else {}
+                if key in {"insider", "news"} and semantic.get("evidence_backed") is False:
+                    module_label += " (modellbaseline)"
+                    contribution_value = _p(f"{_fmt(contributions.get(key))} - ikke dokumentert evidens")
                 component_rows.append([
-                    component_label(key.replace("_", " ").title()), _fmt(score_parts.get(key, component_defaults.get(key))),
-                    _fmt(weights.get(key)), _fmt(contributions.get(key)),
+                    _p(module_label), _fmt(score_parts.get(key, component_defaults.get(key))),
+                    _fmt(weights.get(key)), contribution_value,
                 ])
             component_table = Table(component_rows, repeatRows=1, colWidths=[58*mm, 36*mm, 36*mm, 36*mm])
             component_table.setStyle(_table_style(6.8, padding=2.2))
@@ -2466,7 +2531,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             confidence_table.setStyle(_table_style(6.2, padding=2))
             profile = candidate.get("confidence_profile") if isinstance(candidate.get("confidence_profile"), Mapping) else {}
             profile_table = Table([
-                ["Modellkonfidens", "Datadekning", "Kalibrert", "Beslutningskonfidens", "Endrer handelsregler"],
+                ["Modellkonfidens", "Markedsdatadekning", "Kildesikkerhet", "Beslutningskonfidens", "Endrer handelsregler"],
                 [
                     _fmt(profile.get("model_confidence")), _fmt(profile.get("data_coverage")),
                     _fmt(profile.get("calibrated_confidence")), _fmt(profile.get("decision_confidence")),
@@ -2476,11 +2541,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             profile_table.setStyle(_table_style(6.2, padding=2))
             passport = candidate.get("evidence_passport") if isinstance(candidate.get("evidence_passport"), Mapping) else {}
             passport_rows = [["Område", "Status", "Fakta", "Kilder", "Påvirket rangering", "Bidrag"]]
+            verified_passport_statuses = {"AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}
             for area, area_data in (passport.get("areas") or {}).items():
+                area_status = str(area_data.get("status") or "-").upper()
+                contribution = area_data.get("ranking_contribution")
+                evidence_backed = area_status in verified_passport_statuses
+                affected_text = "Ja" if area_data.get("affected_ranking") and evidence_backed else ("Modellbaseline" if contribution and not evidence_backed else "Nei")
+                contribution_text: Any = _fmt(contribution)
+                if contribution and not evidence_backed:
+                    contribution_text = _p(f"{_fmt(contribution)} - ikke evidens")
                 passport_rows.append([
-                    _loc(str(area).title()), _status_label(area_data.get("status") or "-"), area_data.get("fact_count", 0),
-                    area_data.get("source_count", 0), "Ja" if area_data.get("affected_ranking") else "Nei",
-                    _fmt(area_data.get("ranking_contribution")),
+                    _p(_loc(str(area).title())), _p(_status_label(area_status)), area_data.get("fact_count", 0),
+                    area_data.get("source_count", 0), _p(affected_text), contribution_text,
                 ])
             passport_table = Table(passport_rows, repeatRows=1, colWidths=[29*mm, 46*mm, 20*mm, 20*mm, 34*mm, 19*mm])
             passport_table.setStyle(_table_style(6.1, padding=1.8))
@@ -2535,11 +2607,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             analysis_layer = candidate.get("analysis_ranking") or {}
             matches = candidate.get("strategy_matches") or analysis_layer.get("matches") or []
             strategy_data.append([
-                candidate.get("ticker"), sector_label(analysis_layer.get("sector") or candidate.get("sector")),
-                translate_list(matches) if matches else "Ingen over terskel",
-                "Separate scorer; ingen ny universalscore" if analysis_layer else "Eldre kandidatformat",
+                _p(candidate.get("ticker")), _p(sector_label(analysis_layer.get("sector") or candidate.get("sector"))),
+                _p(translate_list(matches) if matches else "Ingen over terskel"),
+                _p("Separate scorer; ingen ny universalscore" if analysis_layer else "Eldre kandidatformat"),
             ])
-        strategy_table = Table(strategy_data, repeatRows=1, colWidths=[24*mm, 35*mm, 70*mm, 45*mm])
+        strategy_table = Table(strategy_data, repeatRows=1, colWidths=[22*mm, 34*mm, 68*mm, 50*mm])
         strategy_table.setStyle(_table_style(6.3, padding=2))
         story += [Paragraph("Parallelle strategier", styles["Subsection"]),
                   Paragraph("Kandidaten kan passe flere strategier samtidig. Hver score bruker bransjereferanser, råfelt, komponentbidrag og egen datadekning.", styles["Small"]),
@@ -2571,9 +2643,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     if portfolio_layer:
         context = portfolio_layer.get("portfolio_context") or {}; actions = portfolio_layer.get("actions") or {}
         decision_table = Table([
-            [_decision_label("BUY"), actions.get("BUY", 0), _decision_label("HOLD"), actions.get("HOLD", 0), _decision_label("SELL"), actions.get("SELL", 0), _decision_label("SKIP"), actions.get("SKIP", 0), _decision_label("REVIEW"), actions.get("REVIEW", 0)],
-            ["Posisjoner", context.get("position_count", 0), "Kontant %", context.get("cash_pct", 0), "HHI", context.get("concentration_hhi", 0), "Effektive pos.", context.get("effective_positions", 0), "Porteføljevurdert", "JA"],
-        ], colWidths=[17*mm, 16*mm]*5)
+            [_p(_decision_label("BUY")), actions.get("BUY", 0), _p(_decision_label("HOLD")), actions.get("HOLD", 0), _p(_decision_label("SELL")), actions.get("SELL", 0), _p(_decision_label("SKIP")), actions.get("SKIP", 0)],
+            [_p(_decision_label("REVIEW")), actions.get("REVIEW", 0), _p("Posisjoner"), context.get("position_count", 0), _p("Kontant %"), context.get("cash_pct", 0), _p("HHI"), context.get("concentration_hhi", 0)],
+            [_p("Effektive posisjoner"), context.get("effective_positions", 0), _p("Porteføljevurdert"), "JA", "", "", "", ""],
+        ], colWidths=[26*mm, 16*mm]*4)
         decision_table.setStyle(_table_style(6.5, header=False, padding=2))
         story += [Paragraph("Portefølje- og beslutningslag", styles["Section"]), decision_table,
                   Paragraph(escape(_loc(str(portfolio_layer.get("approval_rule") or "Ingen kjøpskandidat vurderes isolert fra eksisterende portefølje"))), styles["Small"])]
@@ -2598,11 +2671,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                   Paragraph(escape(rejection_text), styles["Small"])]
         near_rows = [["Ticker", "Score / terskel", "Datakvalitet", "Risiko", "Portefølje", "Resultat / hovedgrunn"]]
         for row in list(funnel.get("near_threshold") or [])[:10]:
-            near_rows.append([row.get("ticker"), f"{_fmt(row.get('score'))} / {_fmt(row.get('production_threshold'), 1)}",
-                              _fmt(row.get("data_quality")), _fmt(row.get("risk")), _decision_label(row.get("portfolio_action")),
-                              _p(_short("; ".join(row.get("reasons") or []), 130))])
+            near_rows.append([_p(row.get("ticker")), _p(f"{_fmt(row.get('score'))} / {_fmt(row.get('production_threshold'), 1)}"),
+                              _p(_fmt(row.get("data_quality"))), _p(_fmt(row.get("risk"))), _p(_decision_label(row.get("portfolio_action"))),
+                              _p(_short("; ".join(row.get("reasons") or []), 155))])
         if len(near_rows) > 1:
-            near_table = Table(near_rows, repeatRows=1, colWidths=[20*mm, 26*mm, 23*mm, 18*mm, 22*mm, 65*mm])
+            near_table = Table(near_rows, repeatRows=1, colWidths=[18*mm, 25*mm, 22*mm, 17*mm, 30*mm, 62*mm])
             near_table.setStyle(_table_style(6.3, padding=2))
             story += [Paragraph("Nærmest kjøpskravene", styles["Subsection"]), near_table]
         shadow_rows = [["Terskel", "Rolle", "Score bestått", "Alle porter bestått", "Kandidater", "Prod. endret"]]
@@ -2643,7 +2716,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     if not critique:
         critique.append("Ingen kritiske svakheter er registrert, men analysen er fortsatt beslutningsstøtte og ikke en garanti")
     story += [Paragraph("Rapportens egenkritikk", styles["Section"]),
-              Paragraph(escape(". ".join(critique)) + f". Estimert rapportkvalitet: {report_quality} %.", styles["BodyCompact"])]
+              Paragraph(escape(". ".join(critique)) + f". Rapportpålitelighet: {reliability_score}/100.", styles["BodyCompact"])]
 
     technical_story = story
     has_technical_content = bool(
@@ -3134,7 +3207,7 @@ def _run_job_impl(
            "timezone_name": valid_timezone(job.timezone_name),
            "trigger": trigger, "scheduled_for": scheduled_for or "",
            "test_run": "TEST" in str(trigger or "").upper(),
-           "suppress_notifications": not bool(send_notifications),
+           "suppress_notifications": should_suppress_notifications(trigger, send_notifications),
            "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
@@ -3159,7 +3232,7 @@ def _run_job_impl(
            "analysis_aborted": analysis_aborted,
            "partial_market_failure": partial_market_failure,
            "completion_status": "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("AVBRUTT" if analysis_aborted else "FULLFØRT"),
-           "executive_intelligence": executive_intelligence(decision_candidates),
+           "executive_intelligence": executive_intelligence(all_candidates),
            "raw_top3": select_diverse_candidates(all_candidates, 3),
            "decision_ready_top3": select_diverse_candidates(decision_candidates, 3),
            "diverse_top3": select_diverse_candidates(decision_candidates, 3),
@@ -3217,6 +3290,7 @@ def _run_job_impl(
         run["changes"] = compare_runs(run, previous)
         _update_history(run)
     from evidence_integrity import finalize_run_integrity
+    apply_report_integrity(run)
     finalize_run_integrity(run, previous)
     ensure_report_document(run, previous)
     # Stable identity is known before Controlled Learning runs. The immutable
