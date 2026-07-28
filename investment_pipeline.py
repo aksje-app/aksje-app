@@ -669,6 +669,34 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Trinn 3/3: analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
         )
     enriched_by_ticker = {str(row.get("ticker") or "").upper(): row for row in evidence_rows}
+
+    def _evidence_area_completed(row: Mapping[str, Any], area: str, enabled: bool) -> bool:
+        if not enabled:
+            return True
+        payload = row.get(f"{area}_intelligence") if isinstance(row.get(f"{area}_intelligence"), Mapping) else {}
+        status = str(payload.get("coverage") or payload.get("status") or "NOT_SEARCHED").upper()
+        terminal = {
+            "AVAILABLE", "CHECKED_NO_EVENTS", "VERIFIED_FACTS_FOUND", "VERIFIED_FACTS_NONE",
+            "DISCOVERY_ONLY", "NOT_CONFIGURED", "NOT_SUPPORTED", "SOURCE_ERROR", "ERROR",
+            "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED",
+        }
+        attempted = any(
+            isinstance(item, Mapping) and bool(item.get("attempted"))
+            for item in (payload.get("search_log") or [])
+        )
+        return attempted or status in terminal
+
+    stage3_completed_tickers: set[str] = set()
+    for row in evidence_rows:
+        ticker_key = str(row.get("ticker") or "").upper()
+        complete = (
+            _evidence_area_completed(row, "insider", cfg.use_insider_intelligence)
+            and _evidence_area_completed(row, "news", cfg.use_news_intelligence)
+        )
+        row["evidence_control_completed"] = complete
+        if complete and ticker_key:
+            stage3_completed_tickers.add(ticker_key)
+
     final_source_rows: list[dict[str, Any]] = []
     for row in extended_source_rows:
         ticker = str(row.get("ticker") or "").upper()
@@ -737,12 +765,18 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             "recommended": sum(1 for x in assessments if x.status == STATUS_RECOMMENDED),
             "rejected": sum(1 for x in assessments if x.status == STATUS_REJECTED),
             "stage1_scanned": len(sanitized_rows), "stage1_screened_out": len(screened_out_rows),
-            "stage2_extended": len(assessments), "stage3_evidence_controlled": len(evidence_rows),
+            "stage2_extended": len(assessments),
+            "stage3_evidence_prioritized": len(evidence_rows),
+            "stage3_evidence_controlled": len(stage3_completed_tickers),
         },
         "analysis_stages": {
             "stage1": {"label": "Rask markedsskanning", "input": len(sanitized_rows), "advanced": len(extended_source_rows)},
             "stage2": {"label": "Utvidet analyse", "input": len(extended_source_rows), "advanced": len(evidence_rows)},
-            "stage3": {"label": "Grundig evidenskontroll", "input": len(evidence_rows), "completed": len(evidence_rows)},
+            "stage3": {
+                "label": "Grundig evidenskontroll", "input": len(evidence_rows),
+                "prioritized": len(evidence_rows), "completed": len(stage3_completed_tickers),
+                "completion_rule": "Faktisk kildeforsøk eller eksplisitt terminal kilde-/støttestatus for alle aktiverte evidensområder",
+            },
         },
         "candidates": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EXTENDED_ANALYSIS")} for x in assessments],
         "proposals": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EVIDENCE_CONTROLLED")} for x in proposals],

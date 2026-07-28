@@ -1,4 +1,4 @@
-"""Autonomous decision reduction for AI Aksje Analyzer Pro v19.14.0.
+"""Autonomous decision reduction for AI Aksje Analyzer Pro v19.14.1.
 
 The module converts internal engine actions into a small set of user-facing
 Norwegian outcomes.  It deliberately avoids turning every missing data point
@@ -10,7 +10,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Mapping, MutableMapping, Sequence
 
-VERSION = "v19.14.0"
+from app_version import APP_VERSION
+
+VERSION = APP_VERSION
 
 OUTCOME_BUY = "KJØPSKANDIDAT"
 OUTCOME_WATCH = "OVERVÅKES_AUTOMATISK"
@@ -29,9 +31,9 @@ OUTCOME_LABELS = {
 # explicit and market-specific.
 MARKET_SOURCE_MATRIX: dict[str, dict[str, tuple[str, ...]]] = {
     "Norge": {
-        "news": ("Oslo Børs NewsWeb", "Selskapets investorrelasjoner", "E24/EFN", "Yahoo Finance"),
-        "insider": ("Oslo Børs NewsWeb", "Finanstilsynet", "Selskapets investorrelasjoner", "Yahoo Finance"),
-        "financials": ("Selskapets kvartalsrapport", "Oslo Børs NewsWeb", "Selskapets investorrelasjoner"),
+        "news": ("Euronext Oslo Børs – offisielle selskapsmeldinger", "Selskapets investorrelasjoner", "E24/EFN", "Yahoo Finance"),
+        "insider": ("Euronext Oslo Børs – offisielle primærinnsidermeldinger", "Finanstilsynet", "Selskapets investorrelasjoner"),
+        "financials": ("Selskapets kvartalsrapport", "Euronext Oslo Børs – offisielle selskapsmeldinger", "Selskapets investorrelasjoner"),
     },
     "Sverige": {
         "news": ("Nasdaq Nordic selskapsmeldinger", "Selskapets investorrelasjoner", "EFN", "Yahoo Finance"),
@@ -44,14 +46,14 @@ MARKET_SOURCE_MATRIX: dict[str, dict[str, tuple[str, ...]]] = {
         "financials": ("SEC 10-Q/10-K", "Selskapets investorrelasjoner", "SEC EDGAR"),
     },
     "Danmark": {
-        "news": ("Nasdaq Copenhagen selskapsmeldinger", "Selskapets investorrelasjoner", "Yahoo Finance"),
-        "insider": ("Finanstilsynet Danmark", "Nasdaq Copenhagen", "Selskapets investorrelasjoner"),
-        "financials": ("Selskapets kvartalsrapport", "Nasdaq Copenhagen", "Selskapets investorrelasjoner"),
+        "news": ("Nasdaq Copenhagen – offisielle selskapsmeldinger", "Selskapets investorrelasjoner", "Yahoo Finance"),
+        "insider": ("Nasdaq Copenhagen – offisielle ledertransaksjoner", "Finanstilsynet Danmark", "Selskapets investorrelasjoner"),
+        "financials": ("Selskapets kvartalsrapport", "Nasdaq Copenhagen – offisielle selskapsmeldinger", "Selskapets investorrelasjoner"),
     },
     "Finland": {
-        "news": ("Nasdaq Helsinki selskapsmeldinger", "Selskapets investorrelasjoner", "Yahoo Finance"),
-        "insider": ("Finanssivalvonta", "Nasdaq Helsinki", "Selskapets investorrelasjoner"),
-        "financials": ("Selskapets kvartalsrapport", "Nasdaq Helsinki", "Selskapets investorrelasjoner"),
+        "news": ("Nasdaq Helsinki – offisielle selskapsmeldinger", "Selskapets investorrelasjoner", "Yahoo Finance"),
+        "insider": ("Nasdaq Helsinki – offisielle ledertransaksjoner", "Finanssivalvonta", "Selskapets investorrelasjoner"),
+        "financials": ("Selskapets kvartalsrapport", "Nasdaq Helsinki – offisielle selskapsmeldinger", "Selskapets investorrelasjoner"),
     },
     "Brasil": {
         "news": ("CVM", "B3 selskapsmeldinger", "Selskapets investorrelasjoner", "Yahoo Finance"),
@@ -169,7 +171,7 @@ def _manual_task(candidate: Mapping[str, Any], area: str, *, threshold: float) -
         "decision_impact": (
             f"Bekreftet positiv informasjon kan løfte dokumentasjonsgrunnlaget. "
             f"Negativ eller fortsatt ubekreftet informasjon vil normalt gi overvåking eller avvisning. "
-            f"Kandidatens score er {score:.1f} mot terskel {threshold:.1f}."
+            f"Kandidatens score er {score:.1f} mot produksjonsterskel {threshold:.1f}."
         ),
         "status": status,
     }
@@ -207,7 +209,7 @@ def classify_candidate(candidate: Mapping[str, Any], *, threshold: float = 78.0,
         elif risk > maximum_risk:
             reason = f"Risiko {risk:.1f} er over maksimalgrensen {maximum_risk:.1f}."
         else:
-            reason = f"Score {score:.1f} er mer enn {near_threshold_gap:.1f} poeng under terskelen {threshold:.1f}."
+            reason = f"Score {score:.1f} er mer enn {near_threshold_gap:.1f} poeng under produksjonsterskelen {threshold:.1f}."
         automatic_next = "Avsluttes automatisk for denne kjøringen; ingen brukerhandling nødvendig."
     else:
         # Only near-threshold candidates can create manual work.  NOT_SEARCHED
@@ -264,6 +266,20 @@ def classify_candidate(candidate: Mapping[str, Any], *, threshold: float = 78.0,
     return row
 
 
+def _priority_candidate_view(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Compact user-facing priority row without duplicated raw source payloads."""
+    fields = (
+        "ticker", "name", "market", "sector", "investment_score", "confidence_score",
+        "risk_score", "data_quality", "portfolio_action", "autonomy_outcome_code",
+        "autonomy_outcome_label", "autonomy_outcome_reason", "automatic_next_action",
+        "manual_review_required", "manual_tasks", "manual_task_summary", "analysis_stage",
+        "valid_for_decision", "evidence_valid_for_decision", "evidence_data_ready",
+        "final_decision_ready", "decision_readiness", "evidence_coverage", "rank", "raw_rank",
+        "strategy_matches", "score_trend", "trend",
+    )
+    return {key: deepcopy(row.get(key)) for key in fields if key in row}
+
+
 def apply_decision_reduction(candidates: Sequence[Mapping[str, Any]], *, threshold: float = 78.0,
                              near_threshold_gap: float = 6.0, maximum_risk: float = 65.0,
                              max_manual_tasks: int = 2) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -305,7 +321,7 @@ def apply_decision_reduction(candidates: Sequence[Mapping[str, Any]], *, thresho
     # actionable. Rejected fallback rows are clearly labelled and do not create
     # manual work or become buy proposals.
     priority_pool = eligible_priority + rejected_fallback
-    priority_top3 = [deepcopy(row) for row in priority_pool[:3]]
+    priority_top3 = [_priority_candidate_view(row) for row in priority_pool[:3]]
     for index, row in enumerate(priority_top3, 1):
         row["priority_rank"] = index
     manual_tasks = [deepcopy(task) for row in rows for task in row.get("manual_tasks") or [] if row.get("manual_review_required")]
@@ -320,8 +336,14 @@ def apply_decision_reduction(candidates: Sequence[Mapping[str, Any]], *, thresho
         "manual_task_count": len(manual_tasks),
         "priority_top3": priority_top3,
         "target": "Normalt 0-2 konkrete manuelle oppgaver; øvrige kandidater avsluttes eller overvåkes automatisk.",
+        "production_buy_threshold": threshold,
+        "manual_review_window_points": near_threshold_gap,
         "threshold": threshold,
         "near_threshold_gap": near_threshold_gap,
+        "threshold_explanation": (
+            f"Produksjonsterskel {threshold:.1f}. Bare kandidater innen {near_threshold_gap:.1f} poeng "
+            "kan bli vurdert for en konkret manuell oppgave; dette er ikke en egen kjøpsterskel."
+        ),
         "maximum_risk": maximum_risk,
     }
     return rows, summary

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+from copy import deepcopy
 import math
 import zipfile
 from dataclasses import asdict, dataclass
@@ -30,7 +31,9 @@ from persistent_config_store import read_persistent_json, write_persistent_json,
 from configuration_framework import export_bundle, import_bundle, status as configuration_status
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
-VERSION = "v19.0.18b"
+from app_version import APP_VERSION
+
+VERSION = APP_VERSION
 ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
@@ -111,6 +114,62 @@ def _f(value: Any, default: float = 0.0) -> float:
         return number if math.isfinite(number) else default
     except Exception:
         return default
+
+
+def production_buy_authorization(candidate: Mapping[str, Any]) -> tuple[bool, list[str]]:
+    """Hard execution gate for ordinary Autonomi buys.
+
+    A score can never authorize an order by itself. The completed candidate must
+    explicitly be a Kjøpskandidat, have BUY as final portfolio action, and have
+    both valid market data and decision-valid evidence.
+    """
+    reasons: list[str] = []
+    outcome = str(candidate.get("autonomy_outcome_code") or "").upper()
+    action = str(candidate.get("portfolio_action") or "").upper()
+    if outcome != "KJØPSKANDIDAT":
+        reasons.append("Autonomiutfallet er ikke Kjøpskandidat")
+    if action not in {"BUY", "KJØP"}:
+        reasons.append("Endelig porteføljehandling er ikke KJØP")
+    if candidate.get("valid_for_decision") is not True:
+        reasons.append("Markedsdata er ikke beslutningsgyldige")
+    if candidate.get("evidence_valid_for_decision") is not True:
+        reasons.append("Evidensgrunnlaget er ikke beslutningsgyldig")
+    if candidate.get("final_decision_ready") is False:
+        reasons.append("Kandidaten er ikke endelig kjøpsklar")
+    return not reasons, reasons
+
+
+def _validate_execution_integrity(
+    trades: Sequence[Mapping[str, Any]], candidates: Mapping[str, Mapping[str, Any]],
+    portfolio: Mapping[str, Any],
+) -> dict[str, Any]:
+    errors: list[str] = []
+    actions_by_ticker: dict[str, set[str]] = {}
+    for trade in trades:
+        ticker = str(trade.get("ticker") or "").upper()
+        action = str(trade.get("action") or "").upper()
+        if not ticker or action not in {"BUY", "SELL"}:
+            continue
+        actions_by_ticker.setdefault(ticker, set()).add(action)
+        if action == "BUY":
+            allowed, reasons = production_buy_authorization(candidates.get(ticker, {}))
+            if not allowed:
+                errors.append(f"{ticker}: kjøp uten godkjent beslutningsport ({'; '.join(reasons)})")
+            if ticker not in dict(portfolio.get("positions") or {}):
+                errors.append(f"{ticker}: kjøp finnes ikke i sluttporteføljen")
+        elif ticker in dict(portfolio.get("positions") or {}):
+            errors.append(f"{ticker}: salg er registrert, men posisjonen står fortsatt åpen")
+    for ticker, actions in actions_by_ticker.items():
+        if {"BUY", "SELL"} <= actions:
+            errors.append(f"{ticker}: både kjøp og salg i samme kjøring")
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "ordinary_trade_count": len([row for row in trades if str(row.get("action") or "").upper() in {"BUY", "SELL"}]),
+        "buy_tickers": sorted(t for t, actions in actions_by_ticker.items() if "BUY" in actions),
+        "sell_tickers": sorted(t for t, actions in actions_by_ticker.items() if "SELL" in actions),
+        "gate": "KJØPSKANDIDAT + KJØP + gyldige data + gyldig evidens",
+    }
 
 
 @dataclass
@@ -721,7 +780,8 @@ def recover_missing_position_history(portfolio: Mapping[str, Any] | None = None)
     return len(recovered_trades)
 
 
-def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str, params: AutonomousParameters) -> dict[str, Any] | None:
+def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str,
+          params: AutonomousParameters, *, commit: bool = True) -> dict[str, Any] | None:
     pos = (portfolio.get("positions") or {}).get(ticker)
     if not pos or price <= 0:
         return None
@@ -739,9 +799,10 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
         "reason": reason, "strategy": pos.get("strategy"), "mode": "THEORETICAL_ONLY",
         **_candidate_snapshot_metadata(pos),
     }
-    _record_trade(trade)
-    if params.notify_trades:
-        _notification("TRADE", f"AUTONOMOUS SELL {ticker}", f"{reason}. Teoretisk resultat {trade['pnl_pct']:+.2f}% ({pnl:+.2f}).", trade)
+    if commit:
+        _record_trade(trade)
+        if params.notify_trades:
+            _notification("TRADE", f"AUTONOMOUS SELL {ticker}", f"{reason}. Teoretisk resultat {trade['pnl_pct']:+.2f}% ({pnl:+.2f}).", trade)
     return trade
 
 
@@ -749,12 +810,14 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     params = load_parameters().normalized()
     portfolio = load_portfolio()
     learning_portfolio = load_learning_portfolio()
+    starting_portfolio = deepcopy(portfolio)
     run_id = run_id or f"ALP-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     decisions: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
     learning_decisions: list[dict[str, Any]] = []
     learning_trades: list[dict[str, Any]] = []
     exited_this_cycle: set[str] = set()
+    entry_tickers_seen: set[str] = set()
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
     market_snapshot_row: dict[str, Any] = {}
@@ -862,7 +925,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         elif candidate and score < params.score_exit_threshold:
             reason = f"Investment Score falt til {score:.1f}"
         if reason:
-            trade = _sell(portfolio, ticker, price, reason, run_id, params)
+            trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False)
             if trade:
                 trades.append(trade)
                 exited_this_cycle.add(ticker)
@@ -900,6 +963,23 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         for candidate in ranked:
             ticker = str(candidate.get("ticker") or "").upper()
             if not ticker:
+                continue
+            if ticker in entry_tickers_seen:
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
+                                  "reason": "Duplikat kandidat i samme beslutningssyklus", "order_intent_created": False,
+                                  "order_executed": False, "execution_stage": "DUPLICATE_CANDIDATE_BLOCKED"})
+                continue
+            entry_tickers_seen.add(ticker)
+            authorized, authorization_reasons = production_buy_authorization(candidate)
+            if not authorized:
+                decisions.append({
+                    "timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
+                    "reason": "; ".join(authorization_reasons), "score": _candidate_entry_score(candidate),
+                    "base_score": _candidate_score(candidate), "sent_to_autonomy": True,
+                    "portfolio_check_completed": True, "order_intent_created": False,
+                    "order_executed": False, "execution_stage": "DECISION_GATE_BLOCKED",
+                    "required_outcome": "Kjøpskandidat",
+                })
                 continue
             if ticker in exited_this_cycle:
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": "Ingen gjeninntreden i samme beslutningssyklus"})
@@ -997,11 +1077,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     "risk_adjustment": 100.0 - risk,
                 },
             }
-            _record_trade(trade)
             trades.append(trade)
-            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, **_technical_contribution_metadata(candidate)})
-            if params.notify_trades:
-                _notification("TRADE", f"AUTONOMOUS BUY {ticker}", f"Teoretisk kjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade)
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, "execution_stage": "EXECUTED_AFTER_DECISION_GATE", **_technical_contribution_metadata(candidate)})
 
         # v19.0.18: Learning guarantee. If an active theoretical portfolio
         # received candidates but the ordinary production gates created no BUY,
@@ -1084,6 +1161,29 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 if params.notify_trades:
                     _notification("TRADE", f"AUTONOMY LEARNING BUY {ticker}", f"Teoretisk læringskjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade)
 
+    execution_integrity = _validate_execution_integrity(trades, candidate_map, portfolio)
+    if not execution_integrity["ok"]:
+        # Atomic safety fallback: no ordinary portfolio mutation or order ledger is
+        # committed when the completed cycle is internally inconsistent.
+        portfolio = starting_portfolio
+        for decision in decisions:
+            if str(decision.get("action") or "").upper() in {"BUY", "SELL"}:
+                decision["action"] = "BLOCKED"
+                decision["order_executed"] = False
+                decision["execution_stage"] = "EXECUTION_INTEGRITY_BLOCKED"
+                decision["reason"] = "Handelen ble tilbakeført: " + "; ".join(execution_integrity["errors"])
+        trades = []
+        _append_audit("AUTONOMOUS_EXECUTION_BLOCKED", {"run_id": run_id, "errors": execution_integrity["errors"]})
+    else:
+        for trade in trades:
+            _record_trade(dict(trade))
+            if params.notify_trades:
+                ticker = str(trade.get("ticker") or "")
+                if str(trade.get("action") or "").upper() == "BUY":
+                    _notification("TRADE", f"AUTONOMOUS BUY {ticker}", f"Teoretisk kjøp {trade.get('quantity', 0):g} @ {trade.get('price', 0):.2f}. {trade.get('reason', '')}", trade)
+                else:
+                    _notification("TRADE", f"AUTONOMOUS SELL {ticker}", f"{trade.get('reason', '')}. Teoretisk resultat {float(trade.get('pnl_pct') or 0):+.2f}% ({float(trade.get('pnl') or 0):+.2f}).", trade)
+
     equity = portfolio_equity(portfolio)
     portfolio["updated_at"] = _now()
     portfolio["last_run_id"] = run_id
@@ -1144,14 +1244,14 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     except Exception as shared_exc:
         _append_audit("SHARED_STRATEGY_ACCOUNTS_FAILED", {"run_id": run_id, "error": f"{type(shared_exc).__name__}: {str(shared_exc)[:500]}"})
 
-    _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status"), "shared_learning_buys": learning_account_result.get("buy_count", 0), "activation_analysis_id": activation_analysis.get("analysis_id")})
+    _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status"), "execution_integrity": execution_integrity, "shared_learning_buys": learning_account_result.get("buy_count", 0), "activation_analysis_id": activation_analysis.get("analysis_id")})
     learning_result = None
     try:
         from controlled_parameter_learning import run_automatic_learning_if_due
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:

@@ -17,7 +17,11 @@ from autonomous_orchestrator import load_audit as load_orchestrator_audit
 from autonomous_portfolio import load_parameters, load_portfolio
 from controlled_parameter_learning import load_audit as load_learning_audit, load_state
 from manual_job_background import get_active_status, is_running, start_manual_job
-from market_intelligence import BASE_MARKET_SCOPES, _load_report_archive, load_draft_job, load_jobs, load_run
+from market_intelligence import _load_report_archive, load_draft_job, load_jobs, load_run
+from market_universe import (
+    BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
+    FULL_MARKET_SCOPE_LABEL, expand_market_scope,
+)
 from persistent_config_store import read_persistent_json, write_persistent_json
 from scheduler_background import scheduler_audit, scheduler_status
 from services.storage_service import get_storage_service
@@ -69,6 +73,38 @@ EXPERT = "Ekspertmodus"
 GOALS = ["Kapitalvekst", "Stabilitet", "Utbytte", "Finne nye kandidater"]
 HORIZONS = ["1–3 måneder", "3–12 måneder", "1–3 år", "3 år eller mer"]
 RISKS = ["Forsiktig", "Balansert", "Offensiv"]
+
+SIMPLE_MARKET_PROFILE_KEY = "autonomi_core/simple_market_profile.json"
+CORE_PROFILE = "Alle kjernemarkeder"
+EXTENDED_PROFILE = "Utvidet Norden"
+BRAZIL_PROFILE = "Brasil"
+CUSTOM_PROFILE = "Egendefinert"
+SIMPLE_MARKET_PROFILES = [CORE_PROFILE, EXTENDED_PROFILE, BRAZIL_PROFILE, FULL_MARKET_SCOPE_LABEL, CUSTOM_PROFILE]
+
+
+def load_simple_market_profile() -> dict[str, Any]:
+    value = read_persistent_json(SIMPLE_MARKET_PROFILE_KEY, default={})
+    row = dict(value) if isinstance(value, Mapping) else {}
+    profile = str(row.get("profile") or CORE_PROFILE)
+    if profile not in SIMPLE_MARKET_PROFILES:
+        profile = CORE_PROFILE
+    custom = [item for item in row.get("custom_markets") or [] if item in BASE_MARKET_SCOPES]
+    return {"profile": profile, "custom_markets": custom}
+
+
+def resolve_simple_markets(profile: str, custom_markets: list[str] | None = None) -> list[str]:
+    if profile == CUSTOM_PROFILE:
+        selected = [item for item in custom_markets or [] if item in BASE_MARKET_SCOPES]
+        return selected or list(CORE_MARKET_SCOPES)
+    return expand_market_scope(profile) or list(CORE_MARKET_SCOPES)
+
+
+def save_simple_market_profile(profile: str, custom_markets: list[str] | None = None) -> None:
+    write_persistent_json(SIMPLE_MARKET_PROFILE_KEY, {
+        "profile": profile if profile in SIMPLE_MARKET_PROFILES else CORE_PROFILE,
+        "custom_markets": [item for item in custom_markets or [] if item in BASE_MARKET_SCOPES],
+    })
+
 SECTORS = [
     "Teknologi", "Finans", "Energi", "Industri", "Helse", "Forbruksvarer",
     "Kommunikasjon", "Eiendom", "Materialer", "Forsyning",
@@ -138,10 +174,20 @@ def render_simple_mode() -> None:
         goal = c1.selectbox("Mål", GOALS, index=_index(GOALS, mission.get("goal"), 0))
         horizon = c2.selectbox("Tidshorisont", HORIZONS, index=_index(HORIZONS, mission.get("horizon"), 1))
         risk = c3.selectbox("Risiko", RISKS, index=_index(RISKS, mission.get("risk"), 1))
-        markets = st.multiselect(
-            "Markeder", list(BASE_MARKET_SCOPES),
-            default=[item for item in mission.get("markets", []) if item in BASE_MARKET_SCOPES] or list(BASE_MARKET_SCOPES),
+        market_profile_state = load_simple_market_profile()
+        market_profile = st.selectbox(
+            "Markedsvalg", SIMPLE_MARKET_PROFILES,
+            index=_index(SIMPLE_MARKET_PROFILES, market_profile_state.get("profile"), 0),
+            help=("Alle kjernemarkeder betyr Norge, Sverige og USA. Utvidet Norden og Brasil "
+                  "kjøres separat. Full skanning er et eksplisitt avansert valg."),
         )
+        custom_markets = []
+        if market_profile == CUSTOM_PROFILE:
+            custom_markets = st.multiselect(
+                "Egendefinerte markeder", list(BASE_MARKET_SCOPES),
+                default=list(market_profile_state.get("custom_markets") or CORE_MARKET_SCOPES),
+            )
+        markets = resolve_simple_markets(market_profile, custom_markets)
         sectors = st.multiselect(
             "Eventuelle bransjer", SECTORS,
             default=[item for item in mission.get("sectors", []) if item in SECTORS],
@@ -161,6 +207,14 @@ def render_simple_mode() -> None:
                 "Ekskluderinger (tickere, kommaseparert)",
                 value=", ".join(mission.get("exclusions") or []),
             )
+        active_parameters = load_parameters().normalized()
+        st.markdown("##### Dette brukes i kjøringen")
+        st.info(
+            f"Markeder: {', '.join(markets)}  ·  Strategi: {strategy}  ·  "
+            f"Minimum datakvalitet: {minimum_data_quality}  ·  Kandidater til utvidet analyse: {candidate_count}  ·  "
+            f"Produksjonsterskel: {active_parameters.minimum_investment_score:.1f}  ·  "
+            "Globale ekspertregler: aktive og synliggjort her"
+        )
         submitted = st.form_submit_button(
             "▶ Start Autonomi", type="primary", use_container_width=True,
             disabled=is_running(status),
@@ -168,6 +222,7 @@ def render_simple_mode() -> None:
     if submitted:
         try:
             exclusions = [item.strip().upper() for item in exclusions_text.split(",") if item.strip()]
+            save_simple_market_profile(market_profile, custom_markets)
             # Persist the backwards-compatible user profile first.  That write
             # is mirrored into the central registry and may legitimately bump
             # its version.  The immutable Investment Mission must therefore be

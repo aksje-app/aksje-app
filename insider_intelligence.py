@@ -14,6 +14,7 @@ import json, math, time, threading
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 from international_insider_sources import discover_with_newsapi, source_for_market
+from official_insider_sources import fetch_official_insider_sources
 
 VERSION = "v18.7.12"
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
@@ -178,13 +179,16 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     cache = _load_cache(); cached = cache.get(ticker)
     cached_logs = (cached.get("result") or {}).get("search_log") if cached else []
     brazil_primary_cached = any("CVM" in str(row.get("source") or "") for row in cached_logs or [])
-    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and cached_logs and (market != "Brasil" or brazil_primary_cached):
+    direct_primary_cached = any(bool(row.get("direct_primary_source_checked")) for row in cached_logs or [])
+    requires_direct_primary = str(market or "") in {"Norge", "Sverige", "Finland", "Danmark"}
+    cache_has_required_primary = (market != "Brasil" or brazil_primary_cached) and (not requires_direct_primary or direct_primary_cached)
+    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and cached_logs and cache_has_required_primary:
         result = dict(cached.get("result") or {})
         source = source_for_market(market)
         result.setdefault("currency", source.get("currency", ""))
         result.setdefault("official_source", source.get("name", ""))
         result.setdefault("official_search_url", source.get("search_url", ""))
-        if result.get("coverage") != "AVAILABLE" and market and "source_discovery" not in result:
+        if result.get("coverage") not in {"AVAILABLE", "CHECKED_NO_EVENTS"} and market and "source_discovery" not in result:
             discovery = discover_with_newsapi(ticker, company, market)
             result["source_discovery"] = discovery
             if discovery.get("articles"):
@@ -204,7 +208,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 })
             elif discovery.get("status") == "DISCOVERY_ERROR":
                 result.update({"signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
-                               "reason": "Sekundær kildeoppdagelse feilet; primærkilden ble ikke kontrollert direkte."})
+                               "reason": "Sekundær kildeoppdagelse feilet etter direkte primærkildeforsøk."})
             result.setdefault("search_log", []).append({
                 "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
                 "source_type": "SECONDARY_SOURCE_DISCOVERY",
@@ -224,116 +228,179 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             _store_cached_result(ticker, result)
         return result
     search_log: list[dict[str, Any]] = []
+    verified_rows: list[dict[str, Any]] = []
+    official_result: dict[str, Any] = {"status": "NOT_SUPPORTED", "attempts": [], "transactions": []}
+
+    # Direct official sources are always attempted before secondary aggregators. A
+    # provider failure must never prevent a direct primary-source check.
+    try:
+        official_result = dict(fetch_official_insider_sources(
+            ticker, company, str(market or ""), lookback_days=lookback_days
+        ) or {})
+    except Exception as exc:
+        official_result = {
+            "status": "SOURCE_ERROR", "attempts": [{
+                "source": source_for_market(market).get("name", "Offisiell primærkilde"),
+                "source_type": "OFFICIAL_PRIMARY", "attempted": True,
+                "status": "SOURCE_ERROR", "results": 0,
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": source_for_market(market).get("search_url", ""),
+                "direct_primary_source_checked": True, "error": str(exc)[:500],
+            }], "transactions": [],
+        }
+    for attempt in official_result.get("attempts") or []:
+        if not isinstance(attempt, Mapping):
+            continue
+        search_log.append({key: attempt.get(key) for key in (
+            "source", "source_type", "attempted", "status", "results", "announcements_found",
+            "checked_at", "url", "direct_primary_source_checked", "error"
+        )})
+    verified_rows.extend(
+        dict(row) for row in (official_result.get("transactions") or []) if isinstance(row, Mapping)
+    )
+
+    # Secondary structured provider. Errors are recorded, not raised, so direct
+    # official results remain authoritative and usable.
+    provider_rows: list[dict[str, Any]] = []
+    provider_error = ""
+    value: Any = None
     try:
         import yfinance as yf
         obj = yf.Ticker(ticker)
-        value = None
-        provider_error = ""
         for attr in ("insider_transactions", "get_insider_transactions"):
             try:
                 candidate = getattr(obj, attr)
                 value = candidate() if callable(candidate) else candidate
-                if value is not None: break
+                if value is not None:
+                    break
             except Exception as exc:
                 provider_error = str(exc)
-                continue
         provider_rows = _records(value)
-        search_log.append({
-            "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
-            "attempted": True, "status": "SUCCESS_WITH_RESULTS" if provider_rows else ("ERROR" if provider_error and value is None else "SUCCESS_NO_RESULTS"),
-            "results": len(provider_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "error": provider_error[:500] if value is None else "",
-        })
-        verified_rows = list(provider_rows)
-        if str(market or "") == "USA":
-            from sec_form4_source import fetch_sec_form4
-            sec = fetch_sec_form4(ticker, lookback_days=lookback_days)
-            search_log.append({key: sec.get(key) for key in (
-                "source", "source_type", "attempted", "status", "results", "filings_found", "checked_at", "error"
-            )})
-            verified_rows.extend(sec.get("transactions") or [])
-        if str(market or "") == "Brasil":
-            from cvm_insider_source import fetch_cvm_transactions
-            cvm = fetch_cvm_transactions(ticker, company, lookback_days=lookback_days)
-            search_log.append({key: cvm.get(key) for key in (
-                "source", "source_type", "attempted", "status", "results", "checked_at", "url", "error"
-            )})
-            verified_rows.extend(cvm.get("transactions") or [])
-        result = score_transactions(ticker, verified_rows, lookback_days=lookback_days)
-        result["source"] = ", ".join(
-            row["source"] for row in search_log if row.get("status") == "SUCCESS_WITH_RESULTS"
-        ) or "Kontrollerte offentlige kilder"
-        result["fetched_at"] = datetime.now(timezone.utc).isoformat()
-        source = source_for_market(market)
-        result["currency"] = source.get("currency", "")
-        result["official_source"] = source.get("name", "")
-        result["official_search_url"] = source.get("search_url", "")
-        if str(market or "") == "Brasil":
-            result["official_source"] = "CVM – Valores Mobiliários Negociados e Detidos"
-            result["official_search_url"] = "https://dados.cvm.gov.br/dataset/cia_aberta-doc-vlmo"
-        if result.get("coverage") != "AVAILABLE" and market:
-            discovery = discover_with_newsapi(ticker, company, market)
-            search_log.append({
-                "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
-                "source_type": "SECONDARY_SOURCE_DISCOVERY",
-                "attempted": discovery.get("status") not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"},
-                "status": {
-                    "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
-                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR",
-                    "RATE_LIMITED": "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED": "DAILY_QUOTA_EXCEEDED",
-                }.get(str(discovery.get("status") or ""), "NOT_SEARCHED"),
-                "results": len(discovery.get("articles") or []),
-                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "url": "",
-                "requested_primary_source": discovery.get("official_source") or "",
-                "direct_primary_source_checked": False,
-                "error": str(discovery.get("error") or "")[:240],
-            })
-            result["source_discovery"] = discovery
-            if discovery.get("articles"):
-                result.update({
-                    "score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
-                    "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; transaksjonen må struktureres og verifiseres før scoring.",
-                })
-            elif discovery.get("status") == "NEWSAPI_NOT_CONFIGURED":
-                result.update({"signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
-                               "reason": "NEWSAPI_KEY mangler; ingen sekundær kildeoppdagelse ble utført."})
-            elif discovery.get("status") in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED"}:
-                result.update({
-                    "signal": "KILDEKONTROLL DELVIS",
-                    "coverage": "PARTIAL_SOURCE_FAILURE",
-                    "reason": (
-                        "Sekundær NewsAPI-kildeoppdagelse var begrenset. "
-                        "Den navngitte primærkilden ble ikke kontrollert direkte."
-                    ),
-                })
-            elif discovery.get("status") == "DISCOVERY_ERROR":
-                result.update({"signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
-                               "reason": "Sekundær kildeoppdagelse feilet; primærkilden ble ikke kontrollert direkte."})
     except Exception as exc:
-        source = source_for_market(market)
-        discovery = discover_with_newsapi(ticker, company, market) if market else {}
-        found = list(discovery.get("articles") or [])
-        discovery_status = str(discovery.get("status") or "")
-        partial = discovery_status in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "DISCOVERY_ERROR"}
-        result = {
-            "ticker": ticker, "score": 50.0,
-            "signal": "KILDER FUNNET" if found else ("KILDEKONTROLL DELVIS" if partial else "KILDEFEIL"),
-            "coverage": "DISCOVERY_ONLY" if found else ("PARTIAL_SOURCE_FAILURE" if partial else "ERROR"),
-            "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [],
-            "reason": (f"{len(found)} mulig(e) kildemelding(er) funnet; avventer strukturert verifikasjon."
-                       if found else ("Sekundær kildeoppdagelse var ufullstendig; primærkilden ble ikke kontrollert direkte." if partial else str(exc))),
-            "source": "NewsAPI discovery" if found else "unavailable",
-            "source_discovery": discovery, "currency": source.get("currency", ""),
-            "official_source": source.get("name", ""),
-            "official_search_url": source.get("search_url", ""),
-        }
-        search_log.append({
-            "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
-            "attempted": True, "status": "ERROR", "results": 0,
-            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "error": str(exc)[:500],
+        provider_error = str(exc)
+    search_log.append({
+        "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
+        "attempted": True,
+        "status": "SUCCESS_WITH_RESULTS" if provider_rows else ("SOURCE_ERROR" if provider_error else "SUCCESS_NO_RESULTS"),
+        "results": len(provider_rows),
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "error": provider_error[:500],
+    })
+    verified_rows.extend(provider_rows)
+
+    if str(market or "") == "USA":
+        try:
+            from sec_form4_source import fetch_sec_form4
+            sec = dict(fetch_sec_form4(ticker, lookback_days=lookback_days) or {})
+        except Exception as exc:
+            sec = {
+                "source": "SEC Form 4", "source_type": "OFFICIAL_PRIMARY", "attempted": True,
+                "status": "SOURCE_ERROR", "results": 0, "filings_found": 0,
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "error": str(exc)[:500], "transactions": [],
+            }
+        search_log.append({key: sec.get(key) for key in (
+            "source", "source_type", "attempted", "status", "results", "filings_found", "checked_at", "error"
+        )})
+        verified_rows.extend(
+            dict(row) for row in (sec.get("transactions") or []) if isinstance(row, Mapping)
+        )
+
+    if str(market or "") == "Brasil":
+        try:
+            from cvm_insider_source import fetch_cvm_transactions
+            cvm = dict(fetch_cvm_transactions(ticker, company, lookback_days=lookback_days) or {})
+        except Exception as exc:
+            cvm = {
+                "source": "CVM – Valores Mobiliários Negociados e Detidos",
+                "source_type": "OFFICIAL_PRIMARY", "attempted": True,
+                "status": "SOURCE_ERROR", "results": 0,
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "url": "https://dados.cvm.gov.br/dataset/cia_aberta-doc-vlmo",
+                "error": str(exc)[:500], "transactions": [],
+            }
+        search_log.append({key: cvm.get(key) for key in (
+            "source", "source_type", "attempted", "status", "results", "checked_at", "url", "error"
+        )})
+        verified_rows.extend(
+            dict(row) for row in (cvm.get("transactions") or []) if isinstance(row, Mapping)
+        )
+
+    result = score_transactions(ticker, verified_rows, lookback_days=lookback_days)
+    official_status = str(official_result.get("status") or "NOT_SUPPORTED")
+    if not result.get("evidence") and official_status == "SUCCESS_NO_RESULTS":
+        result.update({
+            "score": 50.0, "signal": "KONTROLLERT – INGEN HENDELSER",
+            "coverage": "CHECKED_NO_EVENTS", "buy_count": 0, "sell_count": 0,
+            "net_value": 0.0, "evidence": [],
+            "reason": "Offisiell primærkilde ble kontrollert direkte uten relevante innsidetransaksjoner i perioden.",
         })
+    elif not result.get("evidence") and official_status == "DISCOVERY_ONLY":
+        result.update({
+            "score": 50.0, "signal": "OFFISIELL MELDING FUNNET",
+            "coverage": "DISCOVERY_ONLY",
+            "reason": "Offisiell børsmelding ble funnet, men transaksjonsfeltene kunne ikke struktureres sikkert.",
+        })
+
+    result["source"] = ", ".join(
+        str(row.get("source") or "") for row in search_log
+        if row.get("status") == "SUCCESS_WITH_RESULTS" and row.get("source")
+    ) or (", ".join(
+        str(row.get("source") or "") for row in search_log
+        if row.get("direct_primary_source_checked") and row.get("source")
+    ) or "Kontrollerte offentlige kilder")
+    result["fetched_at"] = datetime.now(timezone.utc).isoformat()
+    source = source_for_market(market)
+    result["currency"] = source.get("currency", "")
+    direct_attempts = [row for row in search_log if row.get("direct_primary_source_checked")]
+    result["official_source"] = str((direct_attempts[0] if direct_attempts else {}).get("source") or source.get("name", ""))
+    result["official_search_url"] = str((direct_attempts[0] if direct_attempts else {}).get("url") or source.get("search_url", ""))
+    result["direct_primary_source_checked"] = bool(direct_attempts)
+    if str(market or "") == "Brasil":
+        result["official_source"] = "CVM – Valores Mobiliários Negociados e Detidos"
+        result["official_search_url"] = "https://dados.cvm.gov.br/dataset/cia_aberta-doc-vlmo"
+
+    # NewsAPI is only source discovery after a direct or structured attempt. It is
+    # never presented as an official insider register.
+    if result.get("coverage") not in {"AVAILABLE", "CHECKED_NO_EVENTS"} and market:
+        discovery = discover_with_newsapi(ticker, company, market)
+        discovery_status = str(discovery.get("status") or "")
+        search_log.append({
+            "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
+            "source_type": "SECONDARY_SOURCE_DISCOVERY",
+            "attempted": discovery_status not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"},
+            "status": {
+                "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
+                "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR",
+                "RATE_LIMITED": "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED": "DAILY_QUOTA_EXCEEDED",
+            }.get(discovery_status, "NOT_SEARCHED"),
+            "results": len(discovery.get("articles") or []),
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "url": "", "requested_primary_source": discovery.get("official_source") or "",
+            "direct_primary_source_checked": False,
+            "error": str(discovery.get("error") or "")[:240],
+        })
+        result["source_discovery"] = discovery
+        if discovery.get("articles"):
+            result.update({
+                "score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
+                "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; transaksjonen må struktureres og verifiseres før scoring.",
+            })
+        elif discovery_status == "NEWSAPI_NOT_CONFIGURED":
+            result.update({
+                "signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
+                "reason": "NEWSAPI_KEY mangler; sekundær kildeoppdagelse ble ikke utført etter primærkildeforsøket.",
+            })
+        elif discovery_status in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED"}:
+            result.update({
+                "signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
+                "reason": "Sekundær NewsAPI-kildeoppdagelse var begrenset etter direkte primærkildeforsøk.",
+            })
+        elif discovery_status == "DISCOVERY_ERROR":
+            result.update({
+                "signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
+                "reason": "Sekundær kildeoppdagelse feilet etter direkte primærkildeforsøk.",
+            })
     result["search_log"] = search_log
     result["sources_checked"] = sum(1 for row in search_log if row.get("attempted"))
     result["verified_fact_count"] = len(result.get("evidence") or [])

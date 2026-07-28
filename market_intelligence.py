@@ -1,4 +1,4 @@
-"""Scheduled Market Intelligence & PDF Reports v19.14.0.
+"""Scheduled Market Intelligence & PDF Reports v19.14.1.
 
 Job profiles combine multiple markets, schedules, pipeline modules and notification
 rules. Jobs can run manually, when the Streamlit app is active, or from cron via
@@ -31,7 +31,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
-from report_integrity import apply_report_integrity, canonical_report_view
+from report_integrity import apply_report_integrity, canonical_report_view, compact_candidate_reference
 from report_contracts import (
     build_report_identity as build_report_identity_contract,
     ensure_report_document,
@@ -865,7 +865,7 @@ def build_autonomy_candidate_handoff(run: Mapping[str, Any], autonomous_chain: M
     learning_buys = int(autonomous_detail.get("learning_buys") or 0)
     theoretical_buys = int(autonomous_detail.get("buys") or 0)
     return {
-        "version": "v19.0.18b",
+        "version": APP_VERSION,
         "report_candidates": len(candidates),
         "report_proposals": len(proposals),
         "decision_ready_candidates": len(decision_ready),
@@ -900,8 +900,8 @@ def _candidate_map(run: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 
 def compare_runs(current: Mapping[str, Any], previous: Mapping[str, Any] | None) -> dict[str, Any]:
     cur, prev = _candidate_map(current), _candidate_map(previous or {})
-    new = [cur[t] for t in cur.keys() - prev.keys()]
-    dropped = [prev[t] for t in prev.keys() - cur.keys()]
+    new = [compact_candidate_reference(cur[t]) for t in cur.keys() - prev.keys()]
+    dropped = [compact_candidate_reference(prev[t]) for t in prev.keys() - cur.keys()]
     improved, weakened, unchanged = [], [], []
     for ticker in cur.keys() & prev.keys():
         delta = round(float(cur[ticker].get("investment_score", 0)) - float(prev[ticker].get("investment_score", 0)), 2)
@@ -916,7 +916,7 @@ def compare_runs(current: Mapping[str, Any], previous: Mapping[str, Any] | None)
             if abs(change) >= 0.5:
                 drivers.append({"component": label, "delta": change})
         drivers.sort(key=lambda x: abs(float(x["delta"])), reverse=True)
-        row = {**cur[ticker], "score_delta": delta, "previous_rank": prev[ticker].get("rank"), "change_drivers": drivers[:4]}
+        row = {**compact_candidate_reference(cur[ticker]), "score_delta": delta, "previous_rank": prev[ticker].get("rank"), "change_drivers": drivers[:4]}
         if delta >= 2:
             improved.append(row)
         elif delta <= -2:
@@ -1771,7 +1771,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                     _rawp(_breakable(detail, 180)),
                 ])
         if len(rows) == 1:
-            rows.append(["Begge", "Ingen registrert søkelogg", "Nei", "NOT_SEARCHED", 0, "-", "-"])
+            rows.append(["Begge", "Ingen registrert søkelogg", "Nei", _status_label("NOT_SEARCHED"), 0, "-", "-"])
         return rows
 
     def _candidate_evidence(candidate: Mapping[str, Any], next_candidate: Mapping[str, Any] | None = None) -> dict[str, str]:
@@ -1793,7 +1793,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         cautions: list[str] = []
         coverage = str(insider.get("coverage") or "MISSING")
         if coverage != "AVAILABLE":
-            cautions.append(f"insider {coverage.lower().replace('_', ' ')}")
+            cautions.append(f"innsiderdata: {_status_label(coverage).lower()}")
         elif float(insider.get("net_value") or 0) < 0:
             cautions.append("negativ netto insiderverdi")
         if str(news.get("coverage") or "") != "AVAILABLE":
@@ -2114,9 +2114,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         f"{int(learning_summary.get('production_open_positions', 0) or 0)} produksjonsposisjoner / "
         f"{int(learning_summary.get('learning_open_positions', 0) or 0)} læringsposisjoner."
     )
+    threshold_explanation = str(reduction.get("threshold_explanation") or "").strip()
     story += [Paragraph("Sammendrag", styles["Section"]), status_stripe, Spacer(1, 1*mm), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"]),
               Paragraph(escape(learning_text), styles["Small"])]
+    if threshold_explanation:
+        story += [Paragraph(escape(threshold_explanation), styles["Small"])]
     critique: list[str] = []
     if report_status.get("state") == "PROVISIONAL":
         critique.append("Kildekontrollen er ikke fullført")
@@ -2251,7 +2254,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ["Verifiserte fakta", combined_quality.get("verified_evidence_facts", 0), "Kilder forsøkt", combined_quality.get("sources_attempted", 0)],
             ["Nyheter verifisert", combined_quality.get("news_verified", 0), "Insider verifisert", combined_quality.get("insider_verified", 0)],
             ["NewsAPI ratebegrenset", combined_quality.get("news_rate_limited", 0), "Samlet vurdering", combined_quality.get("status", "-")],
-            ["Evidensport krever oppfølging", combined_quality.get("manual_review_required", 0), "Grønn samlet status", "JA" if combined_quality.get("green") else "NEI"],
+            ["Tekniske evidensavvik", combined_quality.get("manual_review_required", 0), "Konkrete manuelle oppgaver", int(reduction.get("manual_task_count") or 0)],
+            ["Grønn samlet status", "JA" if combined_quality.get("green") else "NEI", "Automatisk oppfølging", int(reduction.get("automatic_watch") or 0)],
         ], colWidths=[31*mm, 61*mm, 37*mm, 39*mm])
         combined_table.setStyle(_table_style(6.5, header=False, padding=2.2))
         combined_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
@@ -2398,6 +2402,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         final_candidates = list(run.get("final_decision_top3") or run.get("decision_ready_top3") or [])
         raw_candidates = list(run.get("raw_top3") or select_diverse_candidates(candidates, 3))
         priority_candidates = list(run.get("priority_top3") or (run.get("autonomous_decision_reduction") or {}).get("priority_top3") or [])
+        # Priority rows are compact in persisted JSON. Hydrate them from the one
+        # canonical full candidate list for evidence pages without reintroducing
+        # duplicate raw payloads in the report model.
+        full_by_ticker = {
+            str(row.get("ticker") or "").upper(): row
+            for row in candidates if isinstance(row, Mapping)
+        }
+        hydrated_priority: list[dict[str, Any]] = []
+        for priority in priority_candidates:
+            if not isinstance(priority, Mapping):
+                continue
+            ticker_key = str(priority.get("ticker") or "").upper()
+            full = dict(full_by_ticker.get(ticker_key) or {})
+            full.update(dict(priority))
+            hydrated_priority.append(full)
+        priority_candidates = hydrated_priority
         shortlist_mode = "PRIORITY_REVIEW"
         medal_candidates = priority_candidates or raw_candidates
         shortlist_heading = f"Prioritert vurderingsrekkefølge 1-3 ({len(medal_candidates)} kandidat(er))"
@@ -2434,7 +2454,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
             evidence_rows.append([
                 candidate.get("ticker"), _p(evidence["insider"]), _p(evidence["news"]),
-                _p("; ".join(x for x in [evidence["drivers"], evidence["gap"], evidence["cautions"]] if x)),
+                _p(_loc("; ".join(x for x in [evidence["drivers"], evidence["gap"], evidence["cautions"]] if x))),
             ])
         evidence_table = Table(evidence_rows, repeatRows=1, colWidths=[18*mm, 51*mm, 51*mm, 54*mm])
         evidence_table.setStyle(_table_style(6.2, padding=2))
@@ -2779,9 +2799,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     funnel = run.get("decision_funnel") or {}
     if funnel:
         rejection_names = {
-            "portfolio_active": "Portefølje ikke aktiv", "portfolio_layer_buy": "Porteføljelag",
+            "portfolio_active": "Portefølje ikke aktiv",
+            "autonomy_outcome_buy": "Ikke godkjent som kjøpskandidat av Autonomi",
+            "portfolio_layer_buy": "Porteføljelaget ga ikke kjøpshandling",
+            "valid_for_decision": "Markedsdata ikke beslutningsgyldige",
+            "evidence_valid_for_decision": "Evidens ikke beslutningsgyldig",
+            "final_decision_ready": "Ikke endelig kjøpsklar",
+            "technical_timing": "Teknisk timing gir vent",
             "score": "Kjøpsscore", "data_quality": "Datakvalitet", "risk": "Risiko",
             "price": "Markedspris", "position_capacity": "Posisjonsgrense",
+            "addition_policy": "Tilleggskjøp ikke tillatt",
         }
         counts = dict(funnel.get("rejection_counts") or {})
         funnel_summary = Table([
@@ -3376,7 +3403,7 @@ def _run_job_impl(
            "manual_tasks": list(decision_reduction.get("manual_tasks") or []),
            "priority_top3": list(decision_reduction.get("priority_top3") or []),
            "source_strategy": {
-               "version": "v19.14.0", "market_matrix": {market: MARKET_SOURCE_MATRIX.get(market, {}) for market in markets},
+               "version": APP_VERSION, "market_matrix": {market: MARKET_SOURCE_MATRIX.get(market, {}) for market in markets},
                "policy": "Primærkilde -> reservekilde -> automatisk overvåking; manuell oppgave bare for nær-terskel kritiske mangler",
            },
            "analysis_stages": {
@@ -3501,7 +3528,7 @@ def _run_job_impl(
             all_candidates, parameters=load_parameters().normalized(), portfolio=load_portfolio(), trades=trades,
         )
     except Exception as exc:
-        run["decision_funnel"] = {"version": "v19.0.6", "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
+        run["decision_funnel"] = {"version": APP_VERSION, "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
     # Rebuild the canonical report after Autonomi so production and learning
     # activity is separated in the same document that is persisted and rendered.
     apply_report_integrity(run)
