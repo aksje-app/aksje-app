@@ -9,9 +9,11 @@ from typing import Any, Mapping
 
 from durable_runtime import read_json, write_json
 from services.storage_service import get_storage_service
+from app_version import APP_VERSION
+from report_integrity import compact_candidate_reference
 
 
-VERSION = "v18.9.1"
+VERSION = APP_VERSION
 ROOT = Path(__file__).resolve().parents[2] / ".app_runtime" / "data" / "autonomi_core"
 LATEST_KEY = "autonomi_core/canonical_top_picks/latest_valid.json"
 LATEST_PATH = ROOT / "canonical_top_picks" / "latest_valid.json"
@@ -72,9 +74,9 @@ def build_canonical_top_picks(record: Mapping[str, Any], previous: Mapping[str, 
     if not ok:
         return {"published": False, "reason": reason, "preserved_result_id": (previous or {}).get("result_id")}
     previous = dict(previous or {})
-    previous_rows = {_ticker(x): dict(x) for x in previous.get("full_ranking") or [] if isinstance(x, Mapping) and _ticker(x)}
+    previous_rows = {_ticker(x): compact_candidate_reference(x) for x in previous.get("full_ranking") or [] if isinstance(x, Mapping) and _ticker(x)}
     ranked = sorted(
-        [deepcopy(dict(x)) for x in payload.get("candidates") or [] if isinstance(x, Mapping) and _ticker(x)],
+        [compact_candidate_reference(x) for x in payload.get("candidates") or [] if isinstance(x, Mapping) and _ticker(x)],
         key=lambda x: float(x.get("investment_score") or 0), reverse=True,
     )
     current_tickers = {_ticker(x) for x in ranked}
@@ -96,7 +98,7 @@ def build_canonical_top_picks(record: Mapping[str, Any], previous: Mapping[str, 
         enriched.append(row)
     top = [x for x in enriched if bool(x.get("valid_for_decision", True)) and str(x.get("portfolio_action") or "").upper() not in {"SKIP", "SELL"}][:max(1, int(limit))]
     buy_now = [x for x in top if str(x.get("portfolio_action") or "").upper() == "BUY"]
-    dropped = [{**previous_rows[t], "candidate_state": "FALT UT", "dropped_at": payload.get("created_at_local") or payload.get("created_at")} for t in sorted(previous_tickers - current_tickers)]
+    dropped = [{**compact_candidate_reference(previous_rows[t]), "candidate_state": "FALT UT", "dropped_at": payload.get("created_at_local") or payload.get("created_at")} for t in sorted(previous_tickers - current_tickers)]
     return {
         "published": True, "version": VERSION, "result_id": record.get("result_id"),
         "run_id": record.get("run_id"), "mission_id": payload.get("mission_id"),
