@@ -1,11 +1,13 @@
-"""Verification contract for one self-contained Autonomy execution (v18.9.2)."""
+"""Verification contract for one self-contained Autonomy execution (v19.14.1)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
 
-VERSION = "v18.9.2"
+from app_version import APP_VERSION
+
+VERSION = APP_VERSION
 STAGES = (
     (1, "PORTFOLIO_NEEDS", "Leser porteføljebehov"),
     (2, "MISSION", "Oppretter oppdrag"),

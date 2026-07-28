@@ -9,7 +9,9 @@ from autonomi_core.missions.market_mission import build_market_mission
 
 # Runtime contract remains in the v18.8 compatibility series; v18.9.0 is the
 # independent Learning & Reporting layer version.
-CORE_VERSION = "v19.0.18b"
+from app_version import APP_VERSION
+
+CORE_VERSION = APP_VERSION
 
 
 def execute_market_mission(
