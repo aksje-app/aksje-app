@@ -17,9 +17,13 @@ class DecisionFunnelTests(unittest.TestCase):
     def test_production_threshold_is_unchanged_and_shadow_is_read_only(self):
         rows = [
             {"ticker": "PASS.OL", "market": "Norge", "investment_score": 79, "data_quality": 80,
-             "risk_score": 20, "price": 100, "portfolio_action": "BUY"},
+             "risk_score": 20, "price": 100, "portfolio_action": "BUY",
+             "autonomy_outcome_code": "KJØPSKANDIDAT", "valid_for_decision": True,
+             "evidence_valid_for_decision": True, "final_decision_ready": True},
             {"ticker": "NEAR.OL", "market": "Norge", "investment_score": 76, "data_quality": 80,
-             "risk_score": 20, "price": 100, "portfolio_action": "BUY"},
+             "risk_score": 20, "price": 100, "portfolio_action": "BUY",
+             "autonomy_outcome_code": "KJØPSKANDIDAT", "valid_for_decision": True,
+             "evidence_valid_for_decision": True, "final_decision_ready": True},
         ]
         result = build_decision_funnel(rows, parameters=self.params, portfolio=self.portfolio)
         self.assertEqual(result["production_threshold"], 78)

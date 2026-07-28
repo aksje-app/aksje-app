@@ -139,7 +139,7 @@ def test_existing_position_and_paused_portfolio_get_explicit_ledger_rows(tmp_pat
     monkeypatch.setattr(ap, "_record_decisions", lambda rows: setattr(ap, "_captured_decisions", list(rows)))
 
     monkeypatch.setattr(ap, "load_portfolio", lambda: {"cash": 50000, "positions": {"AIZ": {"ticker": "AIZ", "quantity": 1, "average_price": 100, "last_price": 100, "highest_price": 100}}, "status": "ACTIVE", "high_watermark": 50100})
-    ap.run_autonomous_cycle([{"ticker": "AIZ", "investment_score": 90, "data_quality_score": 100, "risk_score": 10, "price": 100}], "R-EXIST")
+    ap.run_autonomous_cycle([{"ticker": "AIZ", "investment_score": 90, "data_quality_score": 100, "data_quality": 100, "risk_score": 10, "price": 100, "portfolio_action": "BUY", "autonomy_outcome_code": "KJØPSKANDIDAT", "valid_for_decision": True, "evidence_valid_for_decision": True, "final_decision_ready": True}], "R-EXIST")
     assert any("allerede i porteføljen" in str(row.get("reason", "")) for row in ap._captured_decisions)
 
     monkeypatch.setattr(ap, "load_portfolio", lambda: {"cash": 50000, "positions": {}, "status": "PAUSED", "pause_reason": "Manuell pause", "high_watermark": 100000})

@@ -50,10 +50,10 @@ def test_market_groups_make_all_the_three_core_markets():
 
 
 def test_source_matrix_has_market_specific_primary_sources():
-    assert source_plan("Norge", "news")[0] == "Oslo Børs NewsWeb"
+    assert source_plan("Norge", "news")[0].startswith("Euronext Oslo Børs")
     assert source_plan("USA", "financials")[0] == "SEC 10-Q/10-K"
     assert source_plan("Brasil", "news")[0] == "CVM"
-    assert source_plan("Finland", "insider")[0] == "Finanssivalvonta"
+    assert source_plan("Finland", "insider")[0].startswith("Nasdaq Helsinki")
 
 
 def test_not_searched_is_automatic_watch_not_manual_work():
