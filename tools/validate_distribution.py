@@ -17,9 +17,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.13.2"
+EXPECTED_VERSION = "v19.14.0"
 
 FORBIDDEN_ROOT_DIRS = {
+    ".git",
     ".app_runtime",
     ".pytest_cache",
     ".render",
@@ -109,9 +110,9 @@ PROFILE_REQUIRED_FILES = {
         "strategies/technical_benchmark.py", "strategies/autonomy_strategy.py", "strategies/technical_quality_challenger.py", "signal_engine.py", "scanner_worker.py",
         "migrations/migrate_legacy_storage.py", "tools/export_persistent_storage_v1920.py",
         "tools/import_persistent_storage_v1920.py", "operational_telemetry.py", "report_contracts.py", "report_integrity.py",
-        "decision_report.py", "decision_intelligence.py", "controlled_parameter_learning.py",
-        "autonomy_overview.py", "RELEASE_NOTES_v19.13.2.md", "DEPLOY_v19.13.2.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.13.2.md", "MIGRATION_v19.13.2.md", "ACCEPTANCE_v19.13.2.md",
+        "decision_report.py", "decision_intelligence.py", "controlled_parameter_learning.py", "market_universe.py", "investment_pipeline.py", "autonomous_decision_reduction.py", "norwegian_report_language.py",
+        "autonomy_overview.py", "RELEASE_NOTES_v19.14.0.md", "DEPLOY_v19.14.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.14.0.md", "MIGRATION_v19.14.0.md", "ACCEPTANCE_v19.14.0.md",
         "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
         "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
         "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
@@ -122,7 +123,7 @@ PROFILE_REQUIRED_FILES = {
     "update": {
         "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
         "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
-        "market_intelligence.py", "report_contracts.py", "report_integrity.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "safety_audit.py",
+        "market_intelligence.py", "market_universe.py", "investment_pipeline.py", "autonomous_decision_reduction.py", "norwegian_report_language.py", "report_contracts.py", "report_integrity.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "safety_audit.py",
         "app_core/context.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_contract.py", "domain/strategy_account.py", "repositories/application.py",
         "services/service_registry.py", "services/strategy_registry_service.py", "services/strategy_binding.py",
         "services/market_snapshot_service.py", "services/technical_signal_service.py", "services/parallel_strategy_service.py",
@@ -135,8 +136,8 @@ PROFILE_REQUIRED_FILES = {
         "strategies/technical_benchmark.py", "strategies/autonomy_strategy.py", "strategies/technical_quality_challenger.py", "signal_engine.py", "scanner_worker.py",
         "pages/autonomy.py", "pages/strategy_versions.py", "pages/strategy_lab.py", "ui/global_styles.py", "trading_engine.py",
         "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py", ".streamlit/config.toml",
-        "RELEASE_NOTES_v19.13.2.md", "DEPLOY_v19.13.2.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.13.2.md", "MIGRATION_v19.13.2.md", "ACCEPTANCE_v19.13.2.md",
+        "RELEASE_NOTES_v19.14.0.md", "DEPLOY_v19.14.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.14.0.md", "MIGRATION_v19.14.0.md", "ACCEPTANCE_v19.14.0.md",
         "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
         "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
         "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
@@ -158,8 +159,8 @@ PROFILE_REQUIRED_FILES = {
         "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
         "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
         "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
-        "MIGRATION_v19.13.2.md", "DEPLOY_v19.13.2.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.13.2.md", "tools/prepare_safe_upgrade.py",
+        "MIGRATION_v19.14.0.md", "DEPLOY_v19.14.0.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.14.0.md", "tools/prepare_safe_upgrade.py",
         "tools/restore_safe_upgrade_backup.py", "tools/validate_distribution.py", "DISTRIBUTION_MANIFEST.json",
     },
 }
