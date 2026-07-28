@@ -1,4 +1,4 @@
-"""Canonical purchase-gate evidence for Autonomy v19.0.6.
+"""Canonical purchase-gate evidence for Autonomy v19.14.1.
 
 The module is diagnostic only.  It mirrors the production Autonomous Learning
 Portfolio gates and evaluates lower score thresholds as non-authoritative
@@ -10,7 +10,9 @@ from collections import Counter
 from typing import Any, Mapping, Sequence
 
 
-VERSION = "v19.0.6"
+from app_version import APP_VERSION
+
+VERSION = APP_VERSION
 SHADOW_THRESHOLDS = (78.0, 76.0, 74.0, 72.0)
 
 
@@ -71,22 +73,37 @@ def build_decision_funnel(candidates: Sequence[Mapping[str, Any]], *, parameters
         risk = _num(candidate.get("risk_score"), 100.0)
         price = candidate_price(candidate, open_positions.get(ticker))
         portfolio_action = str(candidate.get("portfolio_action") or "UNASSESSED").upper()
+        outcome = str(candidate.get("autonomy_outcome_code") or "").upper()
+        allow_additions = bool(getattr(parameters, "allow_additions", False))
         gates = {
             "portfolio_active": active,
-            "portfolio_layer_buy": portfolio_action == "BUY",
+            "autonomy_outcome_buy": outcome == "KJØPSKANDIDAT",
+            "portfolio_layer_buy": portfolio_action in {"BUY", "KJØP"},
+            "valid_for_decision": candidate.get("valid_for_decision") is True,
+            "evidence_valid_for_decision": candidate.get("evidence_valid_for_decision") is True,
+            "final_decision_ready": candidate.get("final_decision_ready") is not False,
+            "technical_timing": not bool(candidate.get("technical_entry_wait")),
             "score": score >= production_threshold,
             "data_quality": quality >= min_quality,
             "risk": risk <= max_risk,
             "price": price > 0,
-            "position_capacity": ticker in open_positions or len(open_positions) < max_positions,
+            "position_capacity": len(open_positions) < max_positions or ticker in open_positions,
+            "addition_policy": ticker not in open_positions or allow_additions,
         }
         reasons = []
         labels = {
-            "portfolio_active": "Porteføljen er ikke ACTIVE", "portfolio_layer_buy": f"Porteføljelaget ga {portfolio_action}",
+            "portfolio_active": "Porteføljen er ikke aktiv",
+            "autonomy_outcome_buy": f"Autonomiutfallet er {outcome or 'ikke satt'}, ikke Kjøpskandidat",
+            "portfolio_layer_buy": f"Porteføljelaget ga {portfolio_action}",
+            "valid_for_decision": "Markedsdata er ikke beslutningsgyldige",
+            "evidence_valid_for_decision": "Evidensgrunnlaget er ikke beslutningsgyldig",
+            "final_decision_ready": "Kandidaten er ikke endelig kjøpsklar",
+            "technical_timing": str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir Vent"),
             "score": f"Score {score:.1f} er under {production_threshold:.1f}",
             "data_quality": f"Datakvalitet {quality:.1f} er under {min_quality:.1f}",
             "risk": f"Risiko {risk:.1f} er over {max_risk:.1f}", "price": "Mangler gyldig markedspris",
             "position_capacity": f"Maks {max_positions} åpne posisjoner er nådd",
+            "addition_policy": "Finnes allerede i porteføljen; tilleggskjøp er deaktivert",
         }
         for gate, passed in gates.items():
             if not passed:

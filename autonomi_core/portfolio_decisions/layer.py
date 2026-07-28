@@ -1,4 +1,4 @@
-"""Portfolio-aware decision gateway for Autonomy v18.8.9."""
+"""Portfolio-aware decision gateway for Autonomy v19.14.1."""
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +9,9 @@ from typing import Any, Mapping, MutableMapping, Sequence
 from persistent_config_store import read_persistent_json, write_persistent_json
 from portfolio_optimizer import PortfolioLimits, load_settings, normalise_positions, position_size
 
-LAYER_VERSION = "v18.8.9"
+from app_version import APP_VERSION
+
+LAYER_VERSION = APP_VERSION
 DISCOVERY_QUEUE_KEY = "autonomi_core/portfolio_decisions/discovery_requests.json"
 MARKET_META = {
     "USA": ("USA", "USD"), "Norge": ("Norge", "NOK"), "Sverige": ("Sverige", "SEK"),
