@@ -23,7 +23,7 @@ def _service(tmp_path) -> StrategyRegistryService:
 
 
 def test_version_contract_exposes_strategy_registry():
-    assert APP_VERSION == "v19.13.2"
+    assert APP_VERSION == "v19.14.0"
     contract = get_version_contract()
     assert contract["strategy_registry_version"] == "1.0"
 

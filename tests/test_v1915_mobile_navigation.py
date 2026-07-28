@@ -6,7 +6,7 @@ VERSION = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
 
 def test_version_is_v1915():
-    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.13.2"' in VERSION
+    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.14.0"' in VERSION
     assert 'Mobil høyremeny og navigasjonshotfix' in VERSION
 
 

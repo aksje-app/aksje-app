@@ -98,17 +98,18 @@ def test_review_candidates_are_evidence_ready_but_not_final_decision_ready():
     result = canonical_report_view(run([candidate("MO", 76.3), candidate("CASY", 75.1)]))
     assert result["report_summary"]["evidence_data_ready"] == 2
     assert result["report_summary"]["decision_ready"] == 0
-    assert result["top3_status"]["display_mode"] == "EVIDENCE_SHORTLIST"
+    assert result["top3_status"]["display_mode"] == "PRIORITY_REVIEW"
     assert [x["ticker"] for x in result["evidence_ready_top3"]] == ["MO", "CASY"]
     assert result["decision_ready_top3"] == []
 
 
 def test_pdf_has_no_medals_for_review_shortlist_and_uses_full_status_and_formatted_numbers():
     text = pdf_text(run([candidate("MO", 76.3), candidate("CASY", 75.1)]))
-    assert "Evidens- og dataklar kortliste (2 kandidat(er))" in text
-    assert "EVIDENSKORTLISTE · PLASS 1" in text
+    assert "Prioritert vurderingsrekkefølge 1-3" in text
+    assert "PRIORITET 1" in text
     assert all(word not in text for word in ("GULL", "SØLV", "BRONSE"))
-    assert "KREVER MANUELL VURDERING –\nDOKUMENTASJON" in text or "KREVER MANUELL VURDERING – DOKUMENTASJON" in text
+    assert "Undersøk manuelt – manglende" not in text
+    assert "Overvåkes automatisk" in text
     assert "19.153000000000002" not in text
     assert "19.153" in text
     assert "Scoretrend" in text

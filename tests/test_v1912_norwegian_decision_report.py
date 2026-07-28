@@ -23,7 +23,7 @@ def test_evening_report_uses_evening_mission_and_norwegian_actions():
     assert "Kveldsrapport – Markedsanalyse" in text
     assert "Kveldsanalyse" in text
     assert "Kandidater til neste handelsdag" in text
-    assert "KREVER MANUELL VURDERING" in text
+    assert "REVIEW" not in text
     assert "Executive Summary" not in text
 
 

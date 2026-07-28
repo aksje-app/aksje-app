@@ -131,7 +131,8 @@ def test_canonical_view_recomputes_stale_summary_and_keeps_score_trend_separate_
         "unique_companies": 3,
         "markets_in_top10": 1,
     }
-    assert result["report_summary"]["manual_review"] == 2
+    assert result["report_summary"]["manual_review"] == 0
+    assert result["report_summary"]["automatic_watch"] >= 1
     fro = result["candidates"][2]
     assert fro["score_trend"] == "FALLENDE"
     assert fro["trend_basis"] == "Kandidatscore sammenlignet med forrige analysekjøring"
@@ -225,12 +226,13 @@ def test_pdf_uses_raw_ranking_and_canonical_summary_when_none_are_decision_ready
     pdf = mi.build_pdf(run)
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
 
-    assert "RÅ RANGERING · PLASS 1" in text
+    assert "PRIORITET 1" in text
+    assert "Rangeringen viser hvilke kandidater som bør vurderes først" in text
     assert "GULL - BESTE KANDIDAT" not in text
-    assert "Til manuell vurdering" in text
+    assert "Undersøk manuelt" in text
     assert "72.14" in text
     assert "Evidensport" in text
-    assert "Endelig beslutning" in text
+    assert "Beslutningsstempel" in text
     assert "modellbaseline" in text.casefold()
 
 
