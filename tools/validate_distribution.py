@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.14.3"
+EXPECTED_VERSION = "v19.14.4"
 
 FORBIDDEN_ROOT_DIRS = {
     ".git",
@@ -92,8 +92,9 @@ TEXT_SUFFIXES = {
 
 PROFILE_REQUIRED_FILES = {
     "full": {
-        "RELEASE_NOTES_v19.14.3.md", "ACCEPTANCE_v19.14.3.md", "DEPLOY_v19.14.3.md",
+        "RELEASE_NOTES_v19.14.4.md", "ACCEPTANCE_v19.14.4.md", "DEPLOY_v19.14.4.md",
         "app.py", "app_version.py", "requirements.txt", ".env.example",
+        "auth.py", "auth_persistence.py", "user_store.py", "navigation_state.py", "drift_recovery.py",
         "services/storage_service.py", "services/persistence_service.py",
         "repositories/base.py", "repositories/application.py", "domain/persistence.py",
         "pages/overview.py", "pages/analysis.py", "pages/ranking.py", "pages/paper_trading.py",
@@ -130,8 +131,9 @@ PROFILE_REQUIRED_FILES = {
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
-        "RELEASE_NOTES_v19.14.3.md", "ACCEPTANCE_v19.14.3.md", "DEPLOY_v19.14.3.md",
+        "RELEASE_NOTES_v19.14.4.md", "ACCEPTANCE_v19.14.4.md", "DEPLOY_v19.14.4.md",
         "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
+        "auth.py", "auth_persistence.py", "user_store.py", "navigation_state.py", "drift_recovery.py", "tests/test_v19144_drift_recovery.py",
         "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
         "market_intelligence.py", "market_universe.py", "investment_pipeline.py", "autonomous_decision_reduction.py", "norwegian_report_language.py", "report_contracts.py", "report_integrity.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "safety_audit.py",
         "autonomy_modes.py", "autonomous_orchestrator.py", "autonomous_portfolio.py", "insider_intelligence.py", "official_insider_sources.py",
