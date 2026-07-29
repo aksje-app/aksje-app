@@ -68,7 +68,7 @@ def test_orchestrator_polling_never_reruns_whole_app():
 def test_login_uses_cookie_without_secret_url_roundtrip_and_one_submit():
     source = Path("auth.py").read_text(encoding="utf-8")
     assert "st.context" in source
-    assert "ai_aksje_remember_token" in source
+    assert "_remember_cookie_name_v19144" in source
     assert "SameSite=Lax" in source
     assert "_remember_storage_bridge(token, reload_after_store=True)" in source
     assert 'parentUrl.searchParams.set("remember_token"' not in source
@@ -99,7 +99,7 @@ def test_disabled_paper_buy_does_not_mutate_persistent_portfolio(monkeypatch, tm
     import trading_engine
     before = trading_engine.load_portfolio()
     before_json = json.dumps(before, sort_keys=True, default=str)
-    ok, message = trading_engine.paper_buy("STB.OL", 200.0, 90, "v19.14.3 blocked persistence test", amount_override=10000)
+    ok, message = trading_engine.paper_buy("STB.OL", 200.0, 90, "v19.14.4 blocked persistence test", amount_override=10000)
     after = trading_engine.load_portfolio()
     assert ok is False
     assert "deaktivert" in message.lower() or "blokkert" in message.lower()

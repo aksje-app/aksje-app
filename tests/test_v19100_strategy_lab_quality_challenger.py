@@ -70,7 +70,7 @@ def _save_snapshots(snapshots, count=4):
 
 
 def test_version_contract_exposes_strategy_lab_and_quality_service():
-    assert APP_VERSION == "v19.14.3"
+    assert APP_VERSION == "v19.14.4"
     contract = get_version_contract()
     assert contract["technical_quality_service_version"] == "1.1"
     assert contract["strategy_lab_service_version"] == "1.2"

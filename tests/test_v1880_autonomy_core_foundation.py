@@ -36,7 +36,7 @@ def test_core_gateway_preserves_legacy_execution(monkeypatch):
         run_autonomous=True, run_learning=False, require_active_portfolio=True,
     )
     assert result["status"] == "OK"
-    assert result["autonomy_core"]["version"] == "v19.14.3"
+    assert result["autonomy_core"]["version"] == "v19.14.4"
     assert result["autonomy_core"]["theoretical_only"] is True
     assert captured["run_learning"] is False
 
