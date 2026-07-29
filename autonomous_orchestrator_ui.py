@@ -119,6 +119,20 @@ def _background_status_panel_body_v19144() -> None:
                 st.warning("Stoppforespørsel er sendt.")
     elif state == "FAILED":
         st.error(f"Bakgrunnskjøringen feilet: {status.get('error') or 'ukjent feil'}")
+        details = [
+            ("Steg", status.get("error_stage")),
+            ("Feiltype", status.get("error_type")),
+            ("Rapportbane", status.get("report_path")),
+            ("Diagnosefil", status.get("diagnostic_path")),
+            ("Runtime-rot", status.get("app_runtime_root")),
+            ("Lagringsmodus", status.get("storage_mode")),
+        ]
+        with st.expander("Tekniske feildetaljer", expanded=True):
+            for label, value in details:
+                if value:
+                    st.write(f"**{label}:** `{value}`")
+            if status.get("error_trace"):
+                st.code(str(status.get("error_trace")), language="text")
     elif state == "COMPLETED":
         chain = status.get("chain") or {}
         if status.get("partial_market_failure"):

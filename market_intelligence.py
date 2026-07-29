@@ -1,4 +1,4 @@
-"""Scheduled Market Intelligence & PDF Reports v19.14.2.
+"""Scheduled Market Intelligence & PDF Reports v19.14.5.
 
 Job profiles combine multiple markets, schedules, pipeline modules and notification
 rules. Jobs can run manually, when the Streamlit app is active, or from cron via
@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import logging
 import os
+import traceback
 import threading
 import uuid
 import time as time_module
@@ -25,7 +27,7 @@ from market_universe import (
     BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
     FULL_MARKET_SCOPE_LABEL, expand_market_scope,
 )
-from storage_architecture import runtime_data_path
+from storage_architecture import runtime_data_path, runtime_log_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 from execution_control import ExecutionCancelled
@@ -65,6 +67,95 @@ DRAFT_STORAGE_KEY = "market_intelligence/draft_job.json"
 DRAFT_JOB_ID = "MI-DRAFT-AUTOSAVE"
 RECENT_DRAFT_REUSE_MINUTES = 30
 _ARCHIVE_LOCK = threading.RLock()
+REPORT_FAILURES_DIR = runtime_log_path("report_failures")
+_REPORT_LOGGER = logging.getLogger("ai_aksje_analyzer.report")
+
+
+class ReportStageError(RuntimeError):
+    """REPORT-stage failure with user-visible and machine-readable context."""
+
+    def __init__(self, message: str, *, context: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.context = dict(context or {})
+
+
+def report_storage_preflight(run_id: str, report_path: Path | None = None) -> dict[str, Any]:
+    """Create and verify every local directory required by REPORT.
+
+    The probe runs before PDF generation. A mounted disk with wrong permissions
+    therefore fails immediately with the exact path instead of after another
+    long run with an opaque 93 percent failure.
+    """
+    directories = [ROOT, RUNS_DIR, SUMMARIES_DIR]
+    if report_path is not None:
+        directories.append(Path(report_path).parent)
+    checks: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    safe_id = "".join(ch for ch in str(run_id or "unknown") if ch.isalnum() or ch in "-_")[:80] or "unknown"
+    for directory in directories:
+        directory = Path(directory)
+        key = str(directory.resolve(strict=False))
+        if key in seen:
+            continue
+        seen.add(key)
+        probe = directory / f".report_write_probe_{safe_id}_{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            payload = f"report-write-check:{safe_id}"
+            with probe.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if probe.read_text(encoding="utf-8") != payload:
+                raise OSError("skrivekontrollen kunne ikke leses tilbake")
+            checks.append({"path": str(directory), "writable": True})
+        except Exception as exc:
+            raise PermissionError(f"REPORT-lagring er ikke skrivbar: {directory} ({type(exc).__name__}: {exc})") from exc
+        finally:
+            try:
+                probe.unlink(missing_ok=True)
+            except Exception:
+                pass
+    return {
+        "ok": True,
+        "run_id": str(run_id or ""),
+        "app_runtime_root": str(os.getenv("APP_RUNTIME_ROOT", ".app_runtime") or ".app_runtime"),
+        "storage_mode": str(os.getenv("STORAGE_MODE", "auto") or "auto"),
+        "report_path": str(report_path or ""),
+        "checks": checks,
+    }
+
+
+def record_report_failure(run_id: str, report_path: Path | None, exc: BaseException, *, stage: str = "REPORT") -> dict[str, Any]:
+    """Log and persist a complete REPORT failure without masking the original error."""
+    trace = traceback.format_exc()
+    payload: dict[str, Any] = {
+        "at": _now_iso(),
+        "app_version": APP_VERSION,
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "run_id": str(run_id or ""),
+        "stage": str(stage or "REPORT"),
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+        "report_path": str(report_path or ""),
+        "app_runtime_root": str(os.getenv("APP_RUNTIME_ROOT", ".app_runtime") or ".app_runtime"),
+        "storage_mode": str(os.getenv("STORAGE_MODE", "auto") or "auto"),
+        "database_url_configured": bool(str(os.getenv("DATABASE_URL", "") or "").strip()),
+        "traceback": trace,
+    }
+    _REPORT_LOGGER.error("REPORT_STAGE_FAILED %s", json.dumps(payload, ensure_ascii=False, default=str), exc_info=True)
+    diagnostic_path = REPORT_FAILURES_DIR / f"{str(run_id or 'unknown')}_report_failure.json"
+    try:
+        diagnostic_path.parent.mkdir(parents=True, exist_ok=True)
+        diagnostic_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        payload["diagnostic_path"] = str(diagnostic_path)
+    except Exception as diagnostic_exc:
+        payload["diagnostic_write_error"] = f"{type(diagnostic_exc).__name__}: {diagnostic_exc}"
+    try:
+        _audit("REPORT_STAGE_FAILED", {key: value for key, value in payload.items() if key != "traceback"})
+    except Exception:
+        pass
+    return payload
 
 
 def should_suppress_notifications(trigger: str, send_notifications: bool) -> bool:
@@ -3591,81 +3682,101 @@ def _run_job_impl(
     # Persist the domain result exactly once. Every downstream consumer receives
     # a view of this immutable record, not a separately assembled copy.
     from autonomi_core.learning_reporting import canonical_payload, publish_canonical_top_picks, save_canonical_result
-    ensure_report_document(run, previous)
-    canonical_record = save_canonical_result(run)
-    canonical_run = canonical_payload(canonical_record)
-    run["canonical_result"] = dict(canonical_run["canonical_result"])
-    emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
-    if job.save_pdf:
-        pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
-        pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_bytes = build_pdf(canonical_run)
-        pdf_path.write_bytes(pdf_bytes)
-        run["pdf_path"] = str(pdf_path)
-        publish_pdf(run, pdf_bytes)
-        run["report_url"] = report_public_url(run)
-        run["pdf_delivery"] = {
-            "required": True, "generated": True,
-            "validated": _valid_pdf_bytes(pdf_bytes),
-            "published": bool(run.get("public_pdf_name")),
-            "report_url_available": bool(run.get("report_url")),
-        }
-    else:
-        run["pdf_delivery"] = {
-            "required": False, "generated": False, "validated": False,
-            "published": False, "report_url_available": False,
-        }
-    emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
-    _write(RUNS_DIR / f"{run_id}.json", run)
-    _write(LATEST_PATH, run)
-    _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
-    archive_view = dict(canonical_run)
-    archive_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
-    archive_report(archive_view)
-    persistence = verify_report_persistence(run_id)
-    if not persistence.get("ok"):
-        raise RuntimeError(str(persistence.get("error") or "Rapportarkivet kunne ikke bekreftes"))
-    run["persistence"] = persistence
+    report_path_hint = (SUMMARIES_DIR / safe_report_filename(run, "pdf")) if job.save_pdf else (RUNS_DIR / f"{run_id}.json")
+    emit("REPORT", 0, 3, "Kontrollerer rapportlagring og filbaner")
     try:
-        from historical_learning import register_run
-        run["historical_learning"] = {"snapshots_created": register_run(canonical_run), "mode": "DESCRIPTIVE_ONLY", "result_id": canonical_record["result_id"]}
-        _write(RUNS_DIR / f"{run_id}.json", run)
-    except Exception as exc:
-        run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
-    emit("REPORT", 2, 3, "Rapport, arkiv og historikk er lagret; kontrollerer varsling")
-    notification_view = dict(canonical_run)
-    notification_view.update({key: run.get(key) for key in (
-        "pdf_path", "public_pdf_name", "report_url", "trigger", "test_run",
-        "suppress_notifications", "scheduled_for",
-    )})
-    notify_ok, notify_detail = _notification(job, notification_view)
-    notify_attempted = bool(job.notify_pushover and not run.get("suppress_notifications"))
-    status_label = "Sendt" if notify_ok else ("Ikke sendt" if not notify_attempted else "Feilet")
-    run["notification"] = {
-        "sent": notify_ok, "attempted": notify_attempted, "detail": notify_detail,
-        "status_label": status_label, "report_url": report_public_url(run),
-        "required": bool(job.notify_pushover and not run.get("suppress_notifications")),
-        "test_run": bool(run.get("test_run")),
-    }
-    # v19.0.17: the first PDF is generated before the notification step so the
-    # public URL can be included in Pushover. Regenerate once after the
-    # notification decision so the PDF itself explains whether Pushover was sent,
-    # skipped or failed.
-    if job.save_pdf and run.get("pdf_path"):
-        try:
-            pdf_bytes = build_pdf(run)
-            Path(str(run["pdf_path"])).write_bytes(pdf_bytes)
+        run["report_storage_preflight"] = report_storage_preflight(run_id, report_path_hint)
+        ensure_report_document(run, previous)
+        canonical_record = save_canonical_result(run)
+        canonical_run = canonical_payload(canonical_record)
+        run["canonical_result"] = dict(canonical_run["canonical_result"])
+        emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
+        if job.save_pdf:
+            pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
+            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            pdf_bytes = build_pdf(canonical_run)
+            pdf_path.write_bytes(pdf_bytes)
+            run["pdf_path"] = str(pdf_path)
             publish_pdf(run, pdf_bytes)
             run["report_url"] = report_public_url(run)
             run["pdf_delivery"] = {
-                "required": True, "generated": True, "validated": _valid_pdf_bytes(pdf_bytes),
+                "required": True, "generated": True,
+                "validated": _valid_pdf_bytes(pdf_bytes),
                 "published": bool(run.get("public_pdf_name")),
                 "report_url_available": bool(run.get("report_url")),
-                "regenerated_after_notification": True,
             }
+        else:
+            run["pdf_delivery"] = {
+                "required": False, "generated": False, "validated": False,
+                "published": False, "report_url_available": False,
+            }
+        emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
+        _write(RUNS_DIR / f"{run_id}.json", run)
+        _write(LATEST_PATH, run)
+        _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
+        archive_view = dict(canonical_run)
+        archive_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
+        archive_report(archive_view)
+        persistence = verify_report_persistence(run_id)
+        if not persistence.get("ok"):
+            raise RuntimeError(str(persistence.get("error") or "Rapportarkivet kunne ikke bekreftes"))
+        run["persistence"] = persistence
+        try:
+            from historical_learning import register_run
+            run["historical_learning"] = {"snapshots_created": register_run(canonical_run), "mode": "DESCRIPTIVE_ONLY", "result_id": canonical_record["result_id"]}
+            _write(RUNS_DIR / f"{run_id}.json", run)
         except Exception as exc:
-            errors.append(f"PDF etter Pushover-status kunne ikke regenereres: {exc}")
-    notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert", "Duplikat blokkert", "Test uten varsling"))
+            run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}
+        emit("REPORT", 2, 3, "Rapport, arkiv og historikk er lagret; kontrollerer varsling")
+        notification_view = dict(canonical_run)
+        notification_view.update({key: run.get(key) for key in (
+            "pdf_path", "public_pdf_name", "report_url", "trigger", "test_run",
+            "suppress_notifications", "scheduled_for",
+        )})
+        notify_ok, notify_detail = _notification(job, notification_view)
+        notify_attempted = bool(job.notify_pushover and not run.get("suppress_notifications"))
+        status_label = "Sendt" if notify_ok else ("Ikke sendt" if not notify_attempted else "Feilet")
+        run["notification"] = {
+            "sent": notify_ok, "attempted": notify_attempted, "detail": notify_detail,
+            "status_label": status_label, "report_url": report_public_url(run),
+            "required": bool(job.notify_pushover and not run.get("suppress_notifications")),
+            "test_run": bool(run.get("test_run")),
+        }
+        # v19.0.17: the first PDF is generated before the notification step so the
+        # public URL can be included in Pushover. Regenerate once after the
+        # notification decision so the PDF itself explains whether Pushover was sent,
+        # skipped or failed.
+        if job.save_pdf and run.get("pdf_path"):
+            try:
+                pdf_bytes = build_pdf(run)
+                Path(str(run["pdf_path"])).write_bytes(pdf_bytes)
+                publish_pdf(run, pdf_bytes)
+                run["report_url"] = report_public_url(run)
+                run["pdf_delivery"] = {
+                    "required": True, "generated": True, "validated": _valid_pdf_bytes(pdf_bytes),
+                    "published": bool(run.get("public_pdf_name")),
+                    "report_url_available": bool(run.get("report_url")),
+                    "regenerated_after_notification": True,
+                }
+            except Exception as exc:
+                errors.append(f"PDF etter Pushover-status kunne ikke regenereres: {exc}")
+        notification_is_policy_skip = any(token in str(notify_detail or "") for token in ("Ingen feil", "Ingen kvalifiserende", "deaktivert", "Duplikat blokkert", "Test uten varsling"))
+    except Exception as exc:
+        context = record_report_failure(run_id, report_path_hint, exc, stage="REPORT")
+        try:
+            emit(
+                "REPORT", 0, 3,
+                f"Rapportfeil: {context.get('error_type')}: {context.get('error')}",
+                error_type=context.get("error_type"), error=context.get("error"),
+                report_path=context.get("report_path"), diagnostic_path=context.get("diagnostic_path"),
+            )
+        except Exception:
+            pass
+        message = (
+            f"REPORT feilet [{context.get('error_type')}]: {context.get('error')}"
+            f" · bane: {context.get('report_path') or '-'}"
+        )
+        raise ReportStageError(message, context=context) from exc
     from autonomi_core.runtime.full_execution import build_full_execution_receipt, prepublication_gate
     prerequisite_gate = prepublication_gate(run)
     downstream_ok = prerequisite_gate.get("ok") and not bool(run.get("historical_learning", {}).get("error")) and (notify_ok or not job.notify_pushover or notification_is_policy_skip)

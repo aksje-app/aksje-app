@@ -10,8 +10,6 @@ services:
         value: 3.11.9
       - key: STREAMLIT_SERVER_HEADLESS
         value: "true"
-      - key: STREAMLIT_SERVER_USE_STARLETTE
-        value: "false"
       - key: APP_ENVIRONMENT
         value: "production"
       - key: AUTH_STORAGE_MODE

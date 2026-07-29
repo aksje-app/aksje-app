@@ -3,18 +3,18 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.14.4"
-APP_VERSION_NAME = "Driftgjenoppretting"
+APP_VERSION = "v19.14.5"
+APP_VERSION_NAME = "REPORT og lokal lagring"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.14.3"
+PREVIOUS_APP_VERSION = "v19.14.4"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
 REPORT_SCHEMA_VERSION = "1.5"
 DATABASE_SCHEMA_VERSION = "2.1"
-RANKING_MODEL_VERSION = "v19.14.4"
-AUTONOMY_POLICY_VERSION = "v19.14.4"
+RANKING_MODEL_VERSION = "v19.14.5"
+AUTONOMY_POLICY_VERSION = "v19.14.5"
 SOURCE_CLASSIFIER_VERSION = "v19.0.19"
 OPERATIONS_TELEMETRY_VERSION = "v19.1.0"
 STORAGE_REPOSITORY_VERSION = "v19.2.1"
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.14.5: REPORT og lokal lagring: trading_rules respekterer STORAGE_MODE og forsøker aldri PostgreSQL i lokal modus eller uten DATABASE_URL; REPORT utfører eksplisitt skrivekontroll av runtime-, run- og summary-mapper før PDF-bygging; alle rapportfeil logges med full traceback, kjørings-ID, rapportbane og varig diagnosefil; Autonomi-panelet viser konkrete tekniske feildetaljer; ugyldig Streamlit useStarlette-konfigurasjon er fjernet.",
     "v19.14.4: Driftgjenoppretting: separat og varig autentiseringslager, miljøavgrenset Husk meg-cookie, automatisk innlogging etter første admin, sesjonsinvalidering ved passordendring, fail-closed vern mot flyktige Render-brukere, brukeravgrenset navigasjon og fragmentlås som hindrer Autonomi-status i å overta aktiv meny, samt synlig beredskap for normal rapportdrift og kontrollert Paper Buy-test.",
     "v19.14.3: Stabil innlogging, navigasjon og rapportintegritet: én innlogging med robust Husk meg-bootstrap, navigasjonslås mot Autonomi-polling, kanonisk kandidatutfall i JSON/PDF/UI, full rangering, sann porteføljebegrunnelse, registrerte autonome beslutninger og integritetskontroll som stopper kryss-seksjonsavvik.",
     "v19.14.2: Sikker drift og sann status: én fail-closed Paper Trading-hovedbryter i ordrelaget og lagringslaget, samme sannhet i brukergrensesnittet, testmiljøsperrer for database, scheduler, bakgrunn og varsling, synlig gren/commit, trygg Streamlit-konfigurasjon, importkontroll ved ren oppstart og fjerning av remember-token fra delbar URL.",
