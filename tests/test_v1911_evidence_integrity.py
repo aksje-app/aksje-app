@@ -229,13 +229,13 @@ class EvidenceIntegrityTests(unittest.TestCase):
         self.assertIn("revalidate_provisional_reports", source)
         self.assertIn("report_revalidation", source)
 
-    def test_version_and_release_notes_are_updated(self):
+    def test_version_and_current_release_notes_are_available_in_source_repository(self):
         version = Path("app_version.py").read_text(encoding="utf-8")
-        notes = Path("RELEASE_NOTES_v19.0.11.md").read_text(encoding="utf-8")
+        notes = Path("RELEASE_NOTES_v19.14.1.md").read_text(encoding="utf-8")
         self.assertIn('v19.0.11:', version)
         self.assertIn('APP_VERSION = "v19.14.1"', version)
-        self.assertIn("Evidence Integrity", notes)
-        self.assertIn("Ingen handelsregler", notes)
+        self.assertIn("v19.14.1", notes)
+        self.assertIn("kjøpssperre", notes.lower())
 
 
 if __name__ == "__main__":

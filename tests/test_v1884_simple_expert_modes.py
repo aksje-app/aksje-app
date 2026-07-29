@@ -78,5 +78,4 @@ def test_simple_mode_has_only_one_start_action():
 
 def test_release_metadata_v1884():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.8.4"' in version
-    assert 'APP_VERSION_NAME = "Enkel modus og ekspertmodus"' in version
+    assert '"v18.8.4: Enkel modus og ekspertmodus:' in version
