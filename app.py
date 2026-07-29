@@ -53,7 +53,7 @@ from ui.candidate_cards import build_candidate_card
 from ui.global_styles import inject_foundation_styles_v1950, inject_final_density_styles_v1950
 # Compatibility audit anchor; implemented in ui/global_styles.py: [data-testid="stSidebarNav"] { display:none !important; }
 from market_hours import open_markets, market_status_lines, market_statuses
-from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, market_scope_options
+from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, expand_market_scope, market_scope_options
 from background_guard import market_guard_summary
 from trading_settings import load_rules, save_rules, DEFAULT_RULES
 import pandas as pd
@@ -8226,7 +8226,7 @@ def _render_paper_manual_override_control_v18674a() -> str:
         st.warning(f"{label}: {detail}")
     else:
         st.success(f"{label}: {detail}")
-    st.caption("v18.6.75: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
+    st.caption("Undersøk manuelt lagrer kandidaten i vurderingskøen. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
     return state
 
 
@@ -11840,7 +11840,7 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
     st.subheader("Fond Fond / ETF-analyse")
-    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. Rente- og kredittfond vurderes separat fra vanlige aksjefond.")
 
     from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options
     col_src, col_market, col_a, col_b, col_c, col_d = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
@@ -18562,7 +18562,7 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
 
     scan_market = st.radio("Velg marked for Top Picks", market_scope_options(include_aggregate=True), horizontal=True)
 
-    _market_labels_v1863j = {market: ("Alle markeder" if market == "Alle" else market) for market in market_scope_options(include_aggregate=True)}
+    _market_labels_v1863j = {market: ("Alle kjernemarkeder" if market == "Alle" else market) for market in market_scope_options(include_aggregate=True)}
     source_tickers = resolve_universe_tickers([scan_market], max_count=int(max_count or 30))
 
     def _latest_market_rows_v1863j(market_name):
@@ -18577,7 +18577,7 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
 
     def _top_picks_from_cached_markets_v1863j(market_name):
         if market_name == "Alle":
-            markets = [m for m in market_scope_options(include_aggregate=False)]
+            markets = expand_market_scope("Alle")
         elif market_name == "Norden":
             markets = ["Norge", "Sverige", "Finland", "Danmark"]
         else:

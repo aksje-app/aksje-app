@@ -51,7 +51,7 @@ def render_long_engine_control_center_v18653(_legacy_context):
             st.caption(f"Aktiv standard: 🟢 ≥ {green_t}% · 🟡 {yellow_t}-{green_t-1}% · 🔴 < {yellow_t}%")
 
     if market != "USA":
-        st.info("v18.6.53 støtter USA først. Norge/Sverige legges inn etter at Alpha er verifisert.")
+        st.info("Long Engine støtter foreløpig USA. Norge og Sverige aktiveres først etter separat verifikasjon.")
         return
 
     try:

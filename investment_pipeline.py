@@ -309,9 +309,12 @@ def _extract_rows(value: Any) -> list[dict[str, Any]]:
 
 
 def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
-    if scope == "Alle":
-        return True
-    wanted = str(scope or "").strip().lower()
+    expanded = expand_market_scope(scope)
+    if len(expanded) > 1:
+        return any(_market_matches(row, market) for market in expanded)
+    if len(expanded) == 1 and expanded[0] != str(scope or "").strip():
+        return _market_matches(row, expanded[0])
+    wanted = str((expanded[0] if expanded else scope) or "").strip().lower()
     actual = str(row.get("market") or row.get("country") or row.get("exchange") or "").strip().lower()
     aliases = {
         "norge": ("norge", "norway", "oslo", "osl"),
@@ -388,7 +391,7 @@ def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineC
         identity = normalize_candidate_identity(source_row, config.market_scope)
         clean, _missing = _sanitize_numeric_fields(identity)
         normalized.append(clean)
-    filtered = [r for r in normalized if r.get("ticker") and (config.market_scope == "Alle" or r.get("market") == config.market_scope)]
+    filtered = [r for r in normalized if r.get("ticker") and _market_matches(r, config.market_scope)]
     unique, seen = [], set()
     for row in filtered:
         ticker = row["ticker"]
@@ -959,7 +962,7 @@ def render_investment_pipeline() -> None:
         st.markdown("#### 🚀 Orkestrering – Investment Pipeline")
         st.caption(
             "Skanner valgt marked, rangerer toppkandidater og kjører en kontrollert analyseflyt frem til investeringsforslag. "
-            "Alternativet **Alle** inkluderer USA, Norge, Sverige, Finland, Danmark og Brasil. Ingen handler utføres automatisk."
+            "Alternativet **Alle** betyr kjernemarkedene Norge, Sverige og USA. Full seksmarkedsskanning er et eget eksplisitt valg. Ingen handler utføres automatisk."
         )
 
         c1, c2, c3, c4 = st.columns(4)
@@ -986,7 +989,7 @@ def render_investment_pipeline() -> None:
 
         force_refresh = st.checkbox("Tving full ny analyse (ignorer cache)", value=False, key="ip_force_refresh_v18692e", help="Henter nye data for alle kandidater. Brukes ved kontroll og feilsøking; kjøringen kan ta lengre tid.")
         if market == "Alle":
-            st.info("Alle markeder: " + ", ".join(expand_market_scope("Alle")))
+            st.info("Alle kjernemarkeder: " + ", ".join(expand_market_scope("Alle")))
 
         if st.button("Kjør automatisk investeringspipeline", type="primary", use_container_width=True, key="ip_run_v18686"):
             with st.spinner("Skanner og rangerer kandidater..."):

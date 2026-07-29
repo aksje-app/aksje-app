@@ -17,7 +17,14 @@ import market_intelligence as mi
 from autonomi_core.portfolio_decisions import decision_funnel, layer
 from autonomi_core.runtime import full_execution, orchestrator
 from autonomous_decision_reduction import apply_decision_reduction
+from autonomous_orchestrator_ui import (
+    ORCHESTRATOR_MARKET_CHOICES, USE_JOB_MARKETS, orchestrator_market_summary,
+    resolve_orchestrator_run_job,
+)
 from official_insider_sources import fetch_nasdaq_nordic, fetch_sweden_fi
+from investment_pipeline import _market_matches
+from market_universe import FULL_MARKET_SCOPE_LABEL
+from universe_engine import resolve_universe_tickers
 from report_integrity import canonical_report_view, validate_report_integrity
 
 
@@ -253,3 +260,111 @@ def test_user_facing_report_source_has_no_legacy_followup_label_or_raw_english_f
     assert "Evidensport krever oppfølging" not in source
     assert 'rows.append(["Begge", "Ingen registrert søkelogg", "Nei", "NOT_SEARCHED"' not in source
     assert "Konkrete manuelle oppgaver" in source
+
+
+def test_orchestrator_allows_explicit_single_market_and_group_override_without_mutating_saved_job():
+    saved = mi.JobProfile(name="Morgenanalyse", markets=["Alle markeder - full skanning"])
+    norway = resolve_orchestrator_run_job(saved, "Norge")
+    core = resolve_orchestrator_run_job(saved, "Alle kjernemarkeder")
+    unchanged = resolve_orchestrator_run_job(saved, USE_JOB_MARKETS)
+
+    assert "Norge" in ORCHESTRATOR_MARKET_CHOICES
+    assert "Sverige" in ORCHESTRATOR_MARKET_CHOICES
+    assert "USA" in ORCHESTRATOR_MARKET_CHOICES
+    assert "Danmark" in ORCHESTRATOR_MARKET_CHOICES
+    assert "Finland" in ORCHESTRATOR_MARKET_CHOICES
+    assert "Brasil" in ORCHESTRATOR_MARKET_CHOICES
+    assert norway is not saved
+    assert norway.markets == ["Norge"]
+    assert orchestrator_market_summary(norway) == "Norge"
+    assert orchestrator_market_summary(core) == "Norge, Sverige, USA"
+    assert unchanged is saved
+    assert saved.markets == ["Alle markeder - full skanning"]
+
+
+def test_orchestrator_uses_priority_labels_without_medals():
+    source = Path(resolve_orchestrator_run_job.__module__.replace(".", "/") + ".py")
+    if not source.exists():
+        source = Path("autonomous_orchestrator_ui.py")
+    text = source.read_text(encoding="utf-8")
+    assert "Prioritert vurderingsrekkefølge" in text
+    assert "Prioritet {idx}" in text
+    assert "🥇" not in text
+    assert "🥈" not in text
+    assert "🥉" not in text
+
+
+def test_alle_means_core_markets_across_universe_and_pipeline(monkeypatch):
+    calls = []
+
+    def getter(market):
+        def _get(limit=0, **kwargs):
+            calls.append((market, limit))
+            suffix = {"Norge": ".OL", "Sverige": ".ST", "Finland": ".HE", "Danmark": ".CO", "Brasil": ".SA"}.get(market, "")
+            return [f"{market[:2].upper()}{suffix}"]
+        return _get
+
+    fake_stocks = types.SimpleNamespace(
+        get_all_tickers=lambda **kwargs: pytest.fail("generic all-market getter must not bypass the market profile"),
+        get_sp500_tickers=getter("USA"),
+        get_norwegian_tickers=getter("Norge"),
+        get_swedish_tickers=getter("Sverige"),
+        get_finnish_tickers=getter("Finland"),
+        get_danish_tickers=getter("Danmark"),
+        get_brazilian_tickers=getter("Brasil"),
+    )
+    monkeypatch.setitem(sys.modules, "stocks", fake_stocks)
+
+    core = resolve_universe_tickers(["Alle"], max_count=30)
+    assert {market for market, _ in calls} == {"Norge", "Sverige", "USA"}
+    assert len(core) == 3
+    assert _market_matches({"ticker": "NOKIA.HE", "market": "Finland"}, "Alle") is False
+    assert _market_matches({"ticker": "AAPL", "market": "USA"}, "Alle") is True
+
+    calls.clear()
+    full = resolve_universe_tickers([FULL_MARKET_SCOPE_LABEL], max_count=60)
+    assert {market for market, _ in calls} == {"Norge", "Sverige", "USA", "Finland", "Danmark", "Brasil"}
+    assert len(full) == 6
+    assert _market_matches({"ticker": "NOKIA.HE", "market": "Finland"}, FULL_MARKET_SCOPE_LABEL) is True
+
+
+def test_user_facing_alle_labels_do_not_claim_six_markets():
+    app_source = Path("app.py").read_text(encoding="utf-8")
+    pipeline_source = Path("investment_pipeline.py").read_text(encoding="utf-8")
+    scheduler_source = Path("market_intelligence.py").read_text(encoding="utf-8")
+    assert '("Alle markeder" if market == "Alle"' not in app_source
+    assert "Alternativet **Alle** inkluderer USA, Norge, Sverige, Finland, Danmark og Brasil" not in pipeline_source
+    assert 'defaults.markets=["Alle"]' not in scheduler_source
+    assert 'defaults.markets=["Alle kjernemarkeder"]' in scheduler_source
+
+
+def test_saved_scheduler_market_values_are_canonicalised_without_ambiguity():
+    assert mi.canonical_market_profile_selections(["Alle"]) == ["Alle kjernemarkeder"]
+    assert mi.canonical_market_profile_selections(["Norge", "Sverige", "USA"]) == ["Alle kjernemarkeder"]
+    assert mi.canonical_market_profile_selections(["Danmark", "Finland"]) == ["Utvidet Norden"]
+    assert mi.canonical_market_profile_selections(["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]) == [FULL_MARKET_SCOPE_LABEL]
+    assert mi.canonical_market_profile_selections(["Norge", "Finland"]) == ["Norge", "Finland"]
+
+
+def test_job_profile_load_migrates_legacy_market_values_to_visible_profiles():
+    legacy_core = mi.JobProfile.from_dict({"name": "Gammel kjernejobb", "markets": ["Alle"]})
+    legacy_full = mi.JobProfile.from_dict({
+        "name": "Gammel fulljobb",
+        "markets": ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"],
+    })
+    assert legacy_core.markets == ["Alle kjernemarkeder"]
+    assert legacy_full.markets == [FULL_MARKET_SCOPE_LABEL]
+
+
+def test_active_user_interface_does_not_display_obsolete_release_badges():
+    files = [
+        Path("app.py"), Path("pages/long_engine.py"), Path("pages/paper_trading.py"),
+        Path("ai_strategy_optimization.py"), Path("streamlit_patch_snippet.py"),
+    ]
+    visible_calls = ("st.caption(", "st.info(", "st.warning(", "st.success(", "st.markdown(", "st.write(")
+    obsolete = []
+    for path in files:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if any(call in line for call in visible_calls) and ("v18." in line or "v19.0." in line):
+                obsolete.append(f"{path}:{number}:{line.strip()}")
+    assert obsolete == []

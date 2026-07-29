@@ -82,7 +82,7 @@ class CanonicalTopPicksTests(unittest.TestCase):
 
     def test_publication_occurs_after_persistence_gate(self):
         source = (Path(__file__).resolve().parents[1] / "market_intelligence.py").read_text(encoding="utf-8")
-        self.assertLess(source.index('if not persistence.get("ok")'), source.index('run["canonical_top_picks"] = publish_canonical_top_picks'))
+        self.assertLess(source.index('if not persistence.get("ok")'), source.index('run["canonical_top_picks"] = (publish_canonical_top_picks'))
 
     @patch("autonomi_core.learning_reporting.top_picks.get_storage_service")
     @patch("autonomi_core.learning_reporting.top_picks.write_json")

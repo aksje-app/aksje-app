@@ -12,7 +12,7 @@ _PRESERVE = {'render_paper_trading_dashboard'}
 def render_paper_trading_dashboard(_legacy_context):
     bind_legacy_context(globals(), _legacy_context, preserve=_PRESERVE)
     st.subheader("💼 Handel – Paper Trading")
-    st.caption("v18.6.76: Paper Trading profileres med render-tider. Kjøp/salg lagrer forklaringsgrunnlag for audit og replay.")
+    st.caption("Paper Trading profileres med render-tider. Kjøp og salg lagrer forklaringsgrunnlag for revisjon og replay.")
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
@@ -362,7 +362,7 @@ def render_paper_trading_dashboard(_legacy_context):
     if active_paper_tab_slug == "regler":
         st.markdown("### ⚙ Trading-regler")
         _render_paper_rule_badges_v1871(_paper_rules)
-        st.caption("Hold/cooldown-regler er synlige her. v18.6.74e skiller hardvalidering, myke regler, manuell overstyring, review_queue og per-posisjon trailing stop.")
+        st.caption("Hold- og cooldown-regler er synlige her. Systemet skiller hardvalidering, myke regler, manuell overstyring, vurderingskø og trailing stop per posisjon.")
         _render_paper_manual_override_control_v18674a()
         _render_paper_trading_control_toolbar_v1864p()
         render_auto_trading_workspace()
