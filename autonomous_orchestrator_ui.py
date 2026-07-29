@@ -2,16 +2,50 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain
-from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence
+from market_intelligence import _load_report_archive, load_draft_job, load_jobs, normalize_markets, render_market_intelligence
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
 from local_time import local_display
+from market_universe import FULL_MARKET_SCOPE_LABEL
+
+
+USE_JOB_MARKETS = "Bruk markedene i jobbprofilen"
+ORCHESTRATOR_MARKET_CHOICES = [
+    USE_JOB_MARKETS,
+    "Alle kjernemarkeder",
+    "Norge",
+    "Sverige",
+    "USA",
+    "Utvidet Norden",
+    "Danmark",
+    "Finland",
+    "Brasil",
+    FULL_MARKET_SCOPE_LABEL,
+]
+
+
+def resolve_orchestrator_run_job(selected_job: Any, market_choice: str) -> Any:
+    """Return a non-persistent per-run market override for the selected job.
+
+    The saved scheduler profile remains unchanged.  This keeps one-click runs
+    explicit and prevents an old six-market profile from being reused silently.
+    """
+    choice = str(market_choice or USE_JOB_MARKETS).strip()
+    if choice == USE_JOB_MARKETS:
+        return selected_job
+    return replace(selected_job, markets=[choice])
+
+
+def orchestrator_market_summary(job: Any) -> str:
+    markets = normalize_markets(list(getattr(job, "markets", []) or []))
+    return ", ".join(markets) or "Ingen gyldige markeder"
 
 
 def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -137,6 +171,18 @@ def render_autonomous_orchestrator_control_center() -> None:
     labels.update({f"📅 {job.name} · {', '.join(job.markets)}": job for job in active_jobs})
     selected = st.selectbox("Velg oppsett", list(labels), key="orchestrator_ui_job_v18692a")
     selected_job = labels[selected]
+    market_choice = st.selectbox(
+        "Marked for denne kjøringen",
+        ORCHESTRATOR_MARKET_CHOICES,
+        index=0,
+        key="orchestrator_ui_market_override_v19141",
+        help=(
+            "Valget gjelder bare denne kjøringen og endrer ikke den lagrede jobbprofilen. "
+            "Alle kjernemarkeder betyr Norge, Sverige og USA."
+        ),
+    )
+    run_job = resolve_orchestrator_run_job(selected_job, market_choice)
+    st.info(f"Denne kjøringen bruker: {orchestrator_market_summary(run_job)}")
     is_draft = selected_job.job_id == "MI-DRAFT-AUTOSAVE"
     if is_draft:
         st.info("Dette er det automatisk lagrede utkastet. Du kan teste hele kjeden før du lagrer eller aktiverer en tidsplan.")
@@ -148,7 +194,7 @@ def render_autonomous_orchestrator_control_center() -> None:
     background_running = is_running(background_status)
     if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692d", disabled=background_running):
         trigger = "MANUAL_DRAFT_TEST" if is_draft else "MANUAL_FULL_CHAIN"
-        background_status = start_manual_job(selected_job, trigger=trigger, force_refresh=force_refresh)
+        background_status = start_manual_job(run_job, trigger=trigger, force_refresh=force_refresh)
         st.session_state["orchestrator_background_execution_v1878"] = background_status.get("execution_id")
         st.rerun()
 
@@ -173,10 +219,14 @@ def render_autonomous_orchestrator_control_center() -> None:
         latest_run = st.session_state.get("mi_latest_v18687") or {}
         top = list((background_status.get("top_candidates") if background_status else None) or latest_run.get("candidates") or [])[:3]
         if top:
-            medals = ["🥇", "🥈", "🥉"]
+            st.caption("Prioritert vurderingsrekkefølge – undersøkelsesprioritet, ikke kjøpsanbefaling.")
             cols = st.columns(len(top))
-            for idx, candidate in enumerate(top):
-                cols[idx].metric(f"{medals[idx]} {candidate.get('ticker','-')}", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}%")
+            for idx, candidate in enumerate(top, start=1):
+                cols[idx - 1].metric(
+                    f"Prioritet {idx} · {candidate.get('ticker','-')}",
+                    f"{float(candidate.get('investment_score',0)):.2f}",
+                    f"Konf. {float(candidate.get('confidence_score',0)):.1f}%",
+                )
         if chain.get("errors"):
             st.error(" | ".join(chain.get("errors") or []))
         with st.expander("Rå kjøringsdata", expanded=False):

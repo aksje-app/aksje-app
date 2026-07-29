@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from app_version import get_app_version
-from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, NO_MARKET_SELECTION_LABEL, picker_scope_options
+from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, NO_MARKET_SELECTION_LABEL, expand_market_scope, picker_scope_options
 from security_metadata import resolve_security_metadata, display_label, infer_security_listing
 
 from services.service_registry import build_service_registry
@@ -383,6 +383,7 @@ def filter_universe_candidates(
 ) -> List[UniverseCandidate]:
     """Transparent preview filters. Not the final AI-selection engine."""
     selected_scopes = {str(x) for x in scopes if x}
+    selected_markets = {market for scope in selected_scopes for market in expand_market_scope(scope)}
     selected_sectors = {str(x) for x in sectors if x and x != "Alle sektorer"}
     risk_order = {"Lav": 1, "Middels": 2, "Høy": 3, "Ukjent": 4}
     max_risk_value = risk_order.get(max_risk, 4)
@@ -391,16 +392,16 @@ def filter_universe_candidates(
     for c in candidates:
         source = str(c.source)
         source_is_top_pick = source.startswith("TopPicks") or "Top Picks" in source
-        if selected_scopes and "Alle" not in selected_scopes:
+        if selected_scopes:
             allowed = False
             listing = infer_security_listing(c.ticker, {"ticker": c.ticker, "source": source})
             market = str(listing.get("market") or "")
+            if selected_markets and market in selected_markets:
+                allowed = True
             for market_scope in MARKET_SCOPE_OPTIONS:
-                if market_scope not in selected_scopes:
+                if market_scope not in selected_scopes or expand_market_scope(market_scope):
                     continue
-                if market_scope == "Norden" and market in set(NORDIC_MARKET_SCOPES):
-                    allowed = True
-                elif market_scope not in {"Norden", "Alle"} and (source == market_scope or market == market_scope):
+                if source == market_scope:
                     allowed = True
             if "Top Picks" in selected_scopes and source_is_top_pick:
                 allowed = True
