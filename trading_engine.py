@@ -15,6 +15,7 @@ from paper_store import load_portfolio, save_portfolio, add_trade
 from paper_trading_valuation import normalize_paper_position, paper_reason_label
 from explainability import explain_buy_decision, explain_sell_decision
 from paper_trading_professional import exit_priority_decision
+from paper_trading_guard import check_paper_trade, record_paper_trade
 
 try:
     from state_audit import build_paper_state_snapshot, validate_buy_order, audit_state_transition
@@ -408,6 +409,15 @@ def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
 
 
 def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF", target_price=None, initial_risk_amount=None):
+    gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
+    gate = check_paper_trade(
+        "BUY", ticker=ticker, source=gate_context.get("source") or "trading_engine.paper_buy",
+        run_id=gate_context.get("run_id") or gate_context.get("execution_id") or "",
+        candidate=gate_context.get("candidate") if isinstance(gate_context.get("candidate"), Mapping) else None,
+        automatic=bool(gate_context.get("automatic")),
+    )
+    if not gate.allowed:
+        return False, explain_blocked_action([gate.message], action="Kjøp")
     rules = load_rules()
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
     max_trades_per_day = int(rules.get("max_trades_per_day", 3))
@@ -543,11 +553,21 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     })
     after = build_paper_state_snapshot(portfolio, rules=rules)
     audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason, "manual_override": manual_override_state, "add_to_existing": is_add_to_position})
+    record_paper_trade("BUY", ticker=ticker, run_id=gate.run_id)
     notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
     return True, f"{result_label} {ticker} @ {price:.2f}"
 
 
 def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct=100.0, sell_shares=None):
+    gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
+    gate = check_paper_trade(
+        "SELL", ticker=ticker, source=gate_context.get("source") or "trading_engine.paper_sell",
+        run_id=gate_context.get("run_id") or gate_context.get("execution_id") or "",
+        candidate=gate_context.get("candidate") if isinstance(gate_context.get("candidate"), Mapping) else None,
+        automatic=bool(gate_context.get("automatic")),
+    )
+    if not gate.allowed:
+        return False, explain_blocked_action([gate.message], action="Salg")
     portfolio = load_portfolio()
     before = build_paper_state_snapshot(portfolio)
     ticker = str(ticker).upper()
@@ -598,6 +618,7 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
+    record_paper_trade("SELL", ticker=ticker, run_id=gate.run_id)
     notify_executed_trade("SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason)
     return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)" + (f" - {shares:.4f} solgt, {remaining_shares:.4f} gjenstår" if is_partial else "")
 
@@ -621,7 +642,17 @@ def _auto_sell_hold_guard_v18675(pos, rules, reason_kind="signal"):
     return age_hours >= minimum_hours, age_hours, minimum_hours
 
 
-def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
+def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, trade_context=None):
+    auto_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
+    auto_context.setdefault("source", "trading_engine.auto_trade")
+    auto_context["automatic"] = True
+    gate = check_paper_trade(
+        "TRADE", ticker=ticker, source=auto_context.get("source"),
+        run_id=auto_context.get("run_id") or auto_context.get("execution_id") or "",
+        automatic=True,
+    )
+    if not gate.allowed:
+        return False, gate.message
     portfolio = load_portfolio()
     rules = load_rules()
     ticker = str(ticker).upper()
@@ -643,14 +674,14 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
         rsi_must_fall = bool(rules.get("rsi_must_fall", True))
 
         if price <= sl:
-            return paper_sell(ticker, price, f"Stop loss {pnl_pct:.2f}%", {
+            return paper_sell(ticker, price, f"Stop loss {pnl_pct:.2f}%", {**auto_context,
                 "rule_used": "Stop-loss",
                 "rule_limit": _format_pct(-stop_loss_pct),
                 "measured_value": _format_pct(pnl_pct),
                 "trade_explanation": f"Solgt fordi tapet var {pnl_pct:.2f}%, som er lik eller under stop-loss {stop_loss_pct:.2f}%.",
             })
         if price >= tp:
-            return paper_sell(ticker, price, f"Take profit {pnl_pct:.2f}%", {
+            return paper_sell(ticker, price, f"Take profit {pnl_pct:.2f}%", {**auto_context,
                 "rule_used": "Take-profit",
                 "rule_limit": _format_pct(take_profit_pct),
                 "measured_value": _format_pct(pnl_pct),
@@ -658,7 +689,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
             })
         if high > entry and price <= tr:
             drop_from_high = ((price - high) / high * 100) if high else 0
-            return paper_sell(ticker, price, f"Trailing stop {pnl_pct:.2f}%", {
+            return paper_sell(ticker, price, f"Trailing stop {pnl_pct:.2f}%", {**auto_context,
                 "rule_used": "Trailing stop",
                 "rule_limit": _format_pct(-trailing_stop_pct),
                 "measured_value": _format_pct(drop_from_high),
@@ -666,7 +697,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
             })
         target_price = float(pos.get("target_price", 0) or 0)
         if target_price > 0 and price >= target_price:
-            return paper_sell(ticker, price, f"Target price {pnl_pct:.2f}%", {
+            return paper_sell(ticker, price, f"Target price {pnl_pct:.2f}%", {**auto_context,
                 "rule_used": "Target price",
                 "rule_limit": f"{target_price:.2f}",
                 "measured_value": f"{price:.2f}",
@@ -680,7 +711,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
                 allowed_exit, age_hours, min_hours = _auto_sell_hold_guard_v18675(pos, rules, "rsi")
                 if not allowed_exit:
                     return False, f"HOLD {ticker}: RSI-exit blokkert av minimum holdetid ({age_hours:.1f}/{min_hours:.1f} timer)"
-                return paper_sell(ticker, price, f"RSI sell {current_rsi:.1f}", {
+                return paper_sell(ticker, price, f"RSI sell {current_rsi:.1f}", {**auto_context,
                     "rule_used": "RSI exit",
                     "rule_limit": f"{rsi_exit_level:.1f}",
                     "measured_value": f"{current_rsi:.1f}",
@@ -696,7 +727,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
             if not allowed_exit:
                 audit_state_transition("paper_auto_sell_hold_blocked", build_paper_state_snapshot(portfolio, rules=rules), detail={"ticker": ticker, "signal": sig, "age_hours": round(age_hours, 2), "minimum_hold_hours": min_hours})
                 return False, f"HOLD {ticker}: SELL/AVOID blokkert av minimum holdetid ({age_hours:.1f}/{min_hours:.1f} timer)"
-            return paper_sell(ticker, price, "SELL signal", {
+            return paper_sell(ticker, price, "SELL signal", {**auto_context,
                 "rule_used": "SELL/AVOID signal",
                 "rule_limit": "signal",
                 "measured_value": sig,
@@ -704,7 +735,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None):
             })
         return False, f"HOLD {ticker}"
     if "BUY" in sig:
-        return paper_buy(ticker, price, confidence, "BUY signal", {
+        return paper_buy(ticker, price, confidence, "BUY signal", {**auto_context,
             "rule_used": "BUY signal",
             "measured_value": f"confidence {int(confidence or 0)}",
         })
@@ -754,6 +785,7 @@ def paper_buy_instrument(
     nav_date="",
     purchase_mode="Engangskjøp",
     manual_override="OFF",
+    trade_context=None,
 ):
     """Buy a paper-trading instrument by amount.
 
@@ -761,6 +793,15 @@ def paper_buy_instrument(
     paper_buy(), this function can add to an existing fund/ETF position and uses
     a user-selected amount instead of position-size rules.
     """
+    gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
+    gate = check_paper_trade(
+        "BUY", ticker=symbol, source=gate_context.get("source") or "trading_engine.paper_buy_instrument",
+        run_id=gate_context.get("run_id") or gate_context.get("execution_id") or "",
+        candidate=gate_context.get("candidate") if isinstance(gate_context.get("candidate"), Mapping) else None,
+        automatic=bool(gate_context.get("automatic")),
+    )
+    if not gate.allowed:
+        return False, explain_blocked_action([gate.message], action="Kjøp")
     symbol = _normalize_paper_symbol(symbol)
     asset_type = _normalize_asset_type(asset_type)
     currency = str(currency or "NOK").upper()
@@ -878,16 +919,26 @@ def paper_buy_instrument(
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_instrument_buy_executed", before, after, {"symbol": symbol, "asset_type": asset_type, "amount": round(amount, 2), "price": round(price, 6), "currency": currency, "purchase_mode": purchase_mode})
+    record_paper_trade("BUY", ticker=symbol, run_id=gate.run_id)
     notify_executed_trade("BUY", symbol, price, shares=units, amount=amount, confidence=confidence, reason=reason)
     return True, f"KJØP {asset_type} {symbol}: {amount:.2f} {currency} @ {price:.4f}"
 
 
-def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper-salg", currency="NOK", nav_date=""):
+def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper-salg", currency="NOK", nav_date="", trade_context=None):
     """Sell all or part of a paper-trading instrument by amount.
 
     If sell_amount is None, the whole position is sold. If sell_amount is lower
     than current value, only a proportional number of units is sold.
     """
+    gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
+    gate = check_paper_trade(
+        "SELL", ticker=symbol, source=gate_context.get("source") or "trading_engine.paper_sell_instrument",
+        run_id=gate_context.get("run_id") or gate_context.get("execution_id") or "",
+        candidate=gate_context.get("candidate") if isinstance(gate_context.get("candidate"), Mapping) else None,
+        automatic=bool(gate_context.get("automatic")),
+    )
+    if not gate.allowed:
+        return False, explain_blocked_action([gate.message], action="Salg")
     symbol = _normalize_paper_symbol(symbol)
     try:
         price = float(price)
@@ -945,6 +996,7 @@ def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_instrument_sell_executed", before, after, {"symbol": symbol, "amount": round(amount, 2), "price": round(price, 6), "pnl_pct": round(pnl_pct, 2), "close_all": close_all})
+    record_paper_trade("SELL", ticker=symbol, run_id=gate.run_id)
     notify_executed_trade("SELL", symbol, price, shares=units_to_sell, amount=amount, confidence=pos.get("confidence"), reason=reason)
     suffix = "alt" if close_all else f"{amount:.2f} {currency}"
     return True, f"SALG {symbol}: {suffix} @ {price:.4f} ({pnl_pct:.2f}%)"

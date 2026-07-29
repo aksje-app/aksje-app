@@ -10,6 +10,14 @@ services:
         value: 3.11.9
       - key: STREAMLIT_SERVER_HEADLESS
         value: "true"
+      - key: STREAMLIT_SERVER_USE_STARLETTE
+        value: "false"
+      - key: APP_ENVIRONMENT
+        value: "production"
+      - key: RUNTIME_BACKGROUND_ENABLED
+        value: "true"
+      - key: REPORT_SCHEDULER_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: FINNHUB_API_KEY
@@ -52,6 +60,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: APP_ENVIRONMENT
+        value: "production"
+      - key: RUNTIME_BACKGROUND_ENABLED
+        value: "false"
+      - key: REPORT_SCHEDULER_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: FINNHUB_API_KEY

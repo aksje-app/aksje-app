@@ -1,4 +1,4 @@
-"""Autonomous decision reduction for AI Aksje Analyzer Pro v19.14.1.
+"""Autonomous decision reduction for AI Aksje Analyzer Pro v19.14.2.
 
 The module converts internal engine actions into a small set of user-facing
 Norwegian outcomes.  It deliberately avoids turning every missing data point

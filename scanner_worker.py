@@ -50,11 +50,23 @@ from services.production_strategy_service import get_production_strategy_service
 from services.strategy_account_service import get_strategy_account_service
 from services.simulated_execution_service import get_simulated_execution_service
 from services.paper_quality_enrichment_service import get_paper_quality_enrichment_service
+from runtime_safety import paper_trading_decision
+
+
+def _paper_candidate_context(result):
+    """Build the minimum auditable order-gate context from one scanner result."""
+    result = result or {}
+    candidate = dict(result.get("candidate_snapshot") or {})
+    decision = dict(result.get("decision") or {})
+    candidate["portfolio_action"] = str(decision.get("decision") or result.get("signal") or "").upper()
+    candidate["valid_for_decision"] = bool(result.get("price") is not None and result.get("candidate_snapshot"))
+    candidate["evidence_valid_for_decision"] = bool(result.get("candidate_snapshot"))
+    candidate["decision_source"] = "technical_production_strategy"
+    return candidate
 
 
 force_schema_migration()
 
-PAPER_TRADING_ENABLED = os.getenv("PAPER_TRADING_ENABLED", "true").lower() == "true"
 SCANNER_MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
 SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
 
@@ -348,7 +360,8 @@ def run_once(force=False):
                 f"price={result['price']:.2f}"
             )
 
-            if PAPER_TRADING_ENABLED and auto_trading_enabled:
+            paper_gate = paper_trading_decision()
+            if paper_gate.allowed and auto_trading_enabled:
                 signal_text = str(result["signal"]).upper()
                 allow_trade = True
                 open_positions = (load_portfolio() or {}).get("positions", {}) or {}
@@ -362,6 +375,7 @@ def run_once(force=False):
                         confidence=result["confidence"],
                         rsi=result.get("rsi"),
                         prev_rsi=result.get("prev_rsi"),
+                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "candidate": _paper_candidate_context(result)},
                     )
                     print(f"Auto risk check {ticker}: {msg}")
 
@@ -384,7 +398,13 @@ def run_once(force=False):
                             result["ticker"],
                             result["price"],
                             result["confidence"],
-                            "AUTO BUY via Cron/Kjøp nå"
+                            "AUTO BUY via Cron/Kjøp nå",
+                            trade_context={
+                                "source": "scanner_worker",
+                                "automatic": True,
+                                "run_id": scan_run_id,
+                                "candidate": _paper_candidate_context(result),
+                            },
                         )
                         print(f"Auto BUY {ticker}: {msg}")
 
@@ -402,6 +422,7 @@ def run_once(force=False):
                         confidence=result["confidence"],
                         rsi=result.get("rsi"),
                         prev_rsi=result.get("prev_rsi"),
+                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "candidate": _paper_candidate_context(result)},
                     )
                     print(f"Auto trade {ticker}: {msg}")
 
@@ -409,8 +430,8 @@ def run_once(force=False):
                         trades_executed += 1
                         print("Trade-varsling håndteres av trading_engine")
 
-            elif not PAPER_TRADING_ENABLED:
-                print("⏸ PAPER_TRADING_ENABLED=false i Render env")
+            elif not paper_gate.allowed:
+                print(f"⏸ {paper_gate.reason}")
 
             time.sleep(SCAN_SLEEP_SECONDS)
 

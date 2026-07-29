@@ -1,4 +1,4 @@
-"""Direct official insider/manager-transaction sources for v19.14.1.
+"""Direct official insider/manager-transaction sources for v19.14.2.
 
 The functions are intentionally fail-closed. A successful source check with no
 matching disclosure is represented as SUCCESS_NO_RESULTS. Network, parsing or

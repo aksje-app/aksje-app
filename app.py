@@ -91,14 +91,6 @@ try:
 except Exception:
     pass
 
-# Starts once per Render Python process. The worker is independent of the
-# selected Streamlit panel and checks FX alerts even when markets are closed.
-try:
-    from runtime_background import ensure_runtime_background_services
-    ensure_runtime_background_services()
-except Exception as _runtime_background_exc:
-    logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
-
 try:
     import yfinance as yf
 except Exception:
@@ -167,8 +159,19 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, normalize_navigation_values
+from runtime_safety import paper_trading_decision, runtime_safety_snapshot
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+
+_runtime_safety_v19142 = runtime_safety_snapshot()
+if _runtime_safety_v19142.get("blocking_violations"):
+    st.error("Sikker oppstart blokkert: " + " ".join(_runtime_safety_v19142["blocking_violations"]))
+    st.stop()
+try:
+    from runtime_background import ensure_runtime_background_services
+    ensure_runtime_background_services()
+except Exception as _runtime_background_exc:
+    logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
 
 # v19.5.0: Global style layers live outside the application shell.
 inject_foundation_styles_v1950()
@@ -477,6 +480,33 @@ html body div[data-testid="stAppViewContainer"]::after {
 
 
 current_user = require_login()
+
+
+def _render_runtime_safety_banner_v19142() -> None:
+    snapshot = runtime_safety_snapshot()
+    if not snapshot.get("is_test_environment"):
+        return
+    paper = snapshot.get("paper_trading") or {}
+    db = "TILKOBLET" if snapshot.get("database_configured") else "AV"
+    notifications = "AKTIV" if snapshot.get("notifications_allowed") else "AV"
+    scheduler = "AKTIV" if snapshot.get("scheduler_enabled") else "AV"
+    background = "AKTIV" if snapshot.get("background_enabled") else "AV"
+    st.markdown(
+        f"""
+        <div style='border:2px solid #f59e0b;background:rgba(120,53,15,.30);padding:.55rem .75rem;border-radius:12px;margin:.25rem 0 .65rem 0;color:#fef3c7;'>
+          <b>🧪 TESTMILJØ – ingen produksjonshandel</b><br/>
+          Tjeneste: <b>{html.escape(str(snapshot.get('service') or '-'))}</b> ·
+          Gren: <b>{html.escape(str(snapshot.get('branch') or '-'))}</b> ·
+          Commit: <b>{html.escape(str(snapshot.get('commit_short') or '-'))}</b><br/>
+          Database: <b>{db}</b> · Pushover: <b>{notifications}</b> · Scheduler: <b>{scheduler}</b> ·
+          Bakgrunn: <b>{background}</b> · Paper Trading: <b>{html.escape(str(paper.get('label') or 'AV'))}</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_render_runtime_safety_banner_v19142()
 
 
 def get_page_context_v1950(renderer):
@@ -816,7 +846,10 @@ def _full_stop_active():
 
 
 def _auto_state(settings=None):
-    """Returnerer samlet Auto trading-status. Full stopp/ferie overstyrer alltid AKTIV."""
+    """Returner samlet Auto-status; paper-hovedbryteren overstyrer alltid UI-innstillinger."""
+    paper_gate = paper_trading_decision()
+    if not paper_gate.allowed:
+        return "BLOKKERT", "red"
     _s = settings or load_settings()
     if _full_stop_active():
         return "BLOKKERT", "red"
@@ -830,14 +863,22 @@ def _auto_state(settings=None):
 
 
 def _paper_state(full_stop=None):
-    """Paper-porteføljen kan vises når Full stopp er aktiv, men nye auto-paper-kjøp skal ikke fremstå som aktive."""
+    """Show the exact state of the shared fail-closed Paper Trading gate."""
+    decision = paper_trading_decision()
+    if not decision.allowed:
+        return decision.label, decision.color
     if bool(_full_stop_active() if full_stop is None else full_stop):
         return "VISNING", "yellow"
-    return "AKTIV", "green"
+    return decision.label, decision.color
 
 
 def _set_auto_state(state):
     state = str(state).upper()
+    paper_gate = paper_trading_decision()
+    if state == "START" and not paper_gate.allowed:
+        st.session_state["auto_control_notice_v153"] = paper_gate.reason
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        return
     # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
     _full_stop_is_on = _full_stop_active()
     if state == "START" and _full_stop_is_on:
@@ -919,6 +960,7 @@ def _render_paper_trading_control_toolbar_v1864p() -> None:
     full_stop = _full_stop_active()
     emergency_stop = bool(settings.get("auto_trading_emergency_stop", False))
     auto_label, auto_color = _auto_state(settings)
+    paper_gate = paper_trading_decision()
     paper_label, paper_color = _paper_state(full_stop)
     st.markdown(
         f"""
@@ -943,7 +985,7 @@ def _render_paper_trading_control_toolbar_v1864p() -> None:
         if st.button("Gjør klar", key="paper_context_ready_v1864p", use_container_width=False, disabled=ready_disabled):
             _clear_stops_ready_v158()
     with c_start:
-        if st.button("Start", key="paper_context_start_v1864p", use_container_width=False, disabled=bool(full_stop or emergency_stop)):
+        if st.button("Start", key="paper_context_start_v1864p", use_container_width=False, disabled=bool(full_stop or emergency_stop or not paper_gate.allowed)):
             _set_auto_state("START")
     with c_pause:
         if st.button("Pause", key="paper_context_pause_v1864p", use_container_width=False):
@@ -5132,9 +5174,6 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         delta = float(card.get("delta") or 0.0)
         pct_class = "pos" if pct >= 0 else "neg"
         href = f"?banner_ticker={quote(ticker)}&banner_market={quote(str(card.get('market') or ''))}"
-        remember_token = st.session_state.get("remember_token") or _banner_query_value_v18610("remember_token")
-        if remember_token:
-            href += f"&remember_token={quote(str(remember_token))}"
         marker_html = _banner_marker_html_v18610(card.get("alert_marker"))
         cards_html.append(
             f"<a class='ticker-tape-item' target='_self' href='{href}' title='Åpne oppfølging for {html.escape(ticker)}'>"
@@ -9487,7 +9526,7 @@ st.markdown(
     <div class='v18532-header-status v18647-top-status'>
         <div class='v18532-status-row'>
             <span class='mini-status-chip {_top_auto_color}'>🔵 Auto Trading: <b>{_top_auto_state}</b></span>
-            <span class='mini-status-chip {_top_paper_color}'>🟢 Paper Trading: <b>{_top_paper_label}</b></span>
+            <span class='mini-status-chip {_top_paper_color}'>🧪 Paper Trading: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
             <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
         </div>

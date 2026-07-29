@@ -35,7 +35,12 @@ ADMIN_RESET_ENV_NAMES = ("ADMIN_RESET_KEY", "AKSE_ADMIN_RESET_KEY", "APP_ADMIN_R
 
 
 def _remember_storage_bridge(token=None, clear=False):
-    """Best-effort browser storage for mobile refreshes that drop query params."""
+    """Store the remember token locally and use URL query only as a transient bootstrap.
+
+    The token is removed with ``history.replaceState`` immediately after login or
+    restore.  A new browser session may add it for one bootstrap request, but it
+    is never deliberately kept in a shareable navigation URL.
+    """
     try:
         safe_token = json.dumps(str(token or ""))
         clear_flag = "true" if clear else "false"
@@ -45,6 +50,7 @@ def _remember_storage_bridge(token=None, clear=False):
             (function() {{
               try {{
                 var key = "ai_aksje_remember_token";
+                var bootKey = "ai_aksje_remember_bootstrap_done";
                 var clear = {clear_flag};
                 var token = {safe_token};
                 var parentUrl = new URL(window.parent.location.href);
@@ -64,24 +70,38 @@ def _remember_storage_bridge(token=None, clear=False):
                 }}
                 function clearStored() {{
                   try {{ window.localStorage.removeItem(key); }} catch (err) {{}}
+                  try {{ window.sessionStorage.removeItem(bootKey); }} catch (err) {{}}
                   try {{ if (parentStorage) parentStorage.removeItem(key); }} catch (err) {{}}
+                }}
+                function removeSensitiveQuery() {{
+                  parentUrl.searchParams.delete("remember_token");
+                  parentUrl.searchParams.delete("remember_bootstrap");
+                  window.parent.history.replaceState(null, "", parentUrl.toString());
                 }}
                 if (clear) {{
                   clearStored();
-                  parentUrl.searchParams.delete("remember_token");
-                  window.parent.history.replaceState(null, "", parentUrl.toString());
+                  removeSensitiveQuery();
                   return;
                 }}
                 if (token) {{
                   setStored(token);
-                  parentUrl.searchParams.set("remember_token", token);
-                  window.parent.history.replaceState(null, "", parentUrl.toString());
+                  try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
+                  removeSensitiveQuery();
                   return;
                 }}
-                if (!parentUrl.searchParams.get("remember_token")) {{
+                if (parentUrl.searchParams.get("remember_token")) {{
+                  try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
+                  removeSensitiveQuery();
+                  return;
+                }}
+                var alreadyBootstrapped = "";
+                try {{ alreadyBootstrapped = window.sessionStorage.getItem(bootKey) || ""; }} catch (err) {{}}
+                if (!alreadyBootstrapped) {{
                   var stored = getStored();
                   if (stored) {{
+                    try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
                     parentUrl.searchParams.set("remember_token", stored);
+                    parentUrl.searchParams.set("remember_bootstrap", "1");
                     window.parent.location.replace(parentUrl.toString());
                   }}
                 }}
@@ -335,6 +355,13 @@ def _restore_from_remember_token():
                     _save_remember_tokens(tokens)
                 st.session_state["remember_token"] = str(token)
                 _set_logged_in(user, remember=True)
+                for query_key in ("remember_token", "remember_bootstrap"):
+                    try:
+                        if query_key in st.query_params:
+                            del st.query_params[query_key]
+                    except Exception:
+                        pass
+                _remember_storage_bridge(str(token))
                 return user
     except Exception:
         return None
@@ -343,7 +370,7 @@ def _restore_from_remember_token():
 
 def _clear_remember_token():
     try:
-        token = st.query_params.get("remember_token", None)
+        token = st.session_state.get("remember_token") or st.query_params.get("remember_token", None)
         if isinstance(token, list):
             token = token[0] if token else None
         if token:
@@ -351,10 +378,12 @@ def _clear_remember_token():
             tokens = _load_remember_tokens()
             tokens.pop(str(token), None)
             _save_remember_tokens(tokens)
-            try:
-                del st.query_params["remember_token"]
-            except Exception as e:
-                logging.warning("Silenced exception restored in v18.6.3: %s", e)
+            for query_key in ("remember_token", "remember_bootstrap"):
+                try:
+                    if query_key in st.query_params:
+                        del st.query_params[query_key]
+                except Exception as e:
+                    logging.warning("Kunne ikke rydde sensitiv query-parameter: %s", e)
         _remember_storage_bridge(clear=True)
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
@@ -494,7 +523,7 @@ def require_login():
         render_first_admin_setup()
 
     if _session_is_valid():
-        # Hold remember-token synlig i URL når mulig, så refresh/mobil-nettleser ikke mister login.
+        # Oppbevar remember-token lokalt, men fjern det fra delbar URL.
         try:
             tok = st.session_state.get("remember_token")
             if tok:
