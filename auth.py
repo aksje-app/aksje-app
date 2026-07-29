@@ -4,8 +4,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import hmac
+import hashlib
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,6 +22,7 @@ from user_store import (
     create_user,
     delete_user,
     init_user_store,
+    get_user,
     list_users,
     update_user,
     user_count,
@@ -27,11 +30,31 @@ from user_store import (
 )
 
 
-REMEMBER_FILE = Path("remember_tokens.json")
+from auth_persistence import (
+    atomic_write_json,
+    auth_database_url,
+    auth_environment_id,
+    auth_json_path,
+    auth_storage_status,
+    auth_using_postgres,
+    read_json,
+)
+
+REMEMBER_FILE = auth_json_path("remember_sessions.json")
 REMEMBER_DAYS = 30
 SESSION_HOURS = 24
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+AUTH_SESSION_RECHECK_SECONDS = max(15, min(300, int(os.getenv("AUTH_SESSION_RECHECK_SECONDS", "60") or 60)))
 ADMIN_RESET_ENV_NAMES = ("ADMIN_RESET_KEY", "AKSE_ADMIN_RESET_KEY", "APP_ADMIN_RESET_KEY")
+
+
+def _remember_cookie_name_v19144() -> str:
+    namespace = auth_environment_id()
+    digest = hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:12]
+    return f"ai_aksje_remember_{digest}"
+
+
+def _remember_token_hash_v19144(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
 
 
 def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload_after_store=False):
@@ -43,6 +66,7 @@ def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload
     """
     try:
         safe_token = json.dumps(str(token or ""))
+        safe_cookie_name = json.dumps(_remember_cookie_name_v19144())
         clear_flag = "true" if clear else "false"
         bootstrap_flag = "true" if bootstrap else "false"
         reload_flag = "true" if reload_after_store else "false"
@@ -51,9 +75,9 @@ def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload
             <script>
             (function() {{
               try {{
-                var storageKey = "ai_aksje_remember_token";
-                var cookieName = "ai_aksje_remember_token";
-                var migrationKey = "ai_aksje_cookie_migration_v19143";
+                var cookieName = {safe_cookie_name};
+                var storageKey = cookieName + "_storage";
+                var migrationKey = cookieName + "_migration_v19144";
                 var clear = {clear_flag};
                 var bootstrap = {bootstrap_flag};
                 var reloadAfterStore = {reload_flag};
@@ -137,7 +161,7 @@ def _remember_cookie_token_v19143():
         context = getattr(st, "context", None)
         cookies = getattr(context, "cookies", None) if context is not None else None
         if cookies is not None:
-            token = cookies.get("ai_aksje_remember_token")
+            token = cookies.get(_remember_cookie_name_v19144())
             if token:
                 return str(token)
     except Exception as exc:
@@ -147,27 +171,32 @@ def _remember_cookie_token_v19143():
 
 
 def _remember_db_available():
-    return bool(DATABASE_URL) and psycopg2 is not None
+    return auth_using_postgres() and psycopg2 is not None
 
 
 def _init_remember_db():
     if not _remember_db_available():
         return False
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(auth_database_url(), connect_timeout=5)
         cur = conn.cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS app_remember_tokens (
-                token TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS app_auth_sessions (
+                token_hash TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
+                session_version INTEGER NOT NULL DEFAULT 1,
                 expires TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                revoked BOOLEAN NOT NULL DEFAULT FALSE
             );
         """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_app_auth_sessions_username ON app_auth_sessions(username);")
         conn.commit()
         conn.close()
         return True
-    except Exception:
+    except Exception as exc:
+        logging.warning("Kunne ikke initialisere auth sessions: %s", exc)
         return False
 
 
@@ -175,32 +204,42 @@ def _db_get_remember_item(token):
     if not token or not _init_remember_db():
         return None
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(auth_database_url(), connect_timeout=5)
         cur = conn.cursor()
-        cur.execute("SELECT username, expires FROM app_remember_tokens WHERE token=%s", (str(token),))
+        cur.execute(
+            "SELECT username, session_version, expires, revoked FROM app_auth_sessions WHERE token_hash=%s",
+            (_remember_token_hash_v19144(str(token)),),
+        )
         row = cur.fetchone()
         conn.close()
-        if not row:
+        if not row or bool(row[3]):
             return None
-        return {"username": row[0], "expires": row[1]}
+        return {"username": row[0], "session_version": int(row[1] or 1), "expires": row[2]}
     except Exception:
         return None
 
 
-def _db_upsert_remember_item(token, username, expires):
+def _db_upsert_remember_item(token, username, expires, session_version=1):
     if not token or not username or not _init_remember_db():
         return False
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        now = datetime.now().isoformat(timespec="seconds")
+        conn = psycopg2.connect(auth_database_url(), connect_timeout=5)
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO app_remember_tokens (token, username, expires, updated_at)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (token) DO UPDATE SET
+            INSERT INTO app_auth_sessions
+                (token_hash, username, session_version, expires, created_at, updated_at, revoked)
+            VALUES (%s, %s, %s, %s, %s, %s, FALSE)
+            ON CONFLICT (token_hash) DO UPDATE SET
                 username=EXCLUDED.username,
+                session_version=EXCLUDED.session_version,
                 expires=EXCLUDED.expires,
-                updated_at=EXCLUDED.updated_at
-        """, (str(token), str(username), str(expires), datetime.now().isoformat(timespec="seconds")))
+                updated_at=EXCLUDED.updated_at,
+                revoked=FALSE
+        """, (
+            _remember_token_hash_v19144(str(token)), str(username), int(session_version or 1),
+            str(expires), now, now,
+        ))
         conn.commit()
         conn.close()
         return True
@@ -212,9 +251,9 @@ def _db_delete_remember_item(token):
     if not token or not _init_remember_db():
         return False
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(auth_database_url(), connect_timeout=5)
         cur = conn.cursor()
-        cur.execute("DELETE FROM app_remember_tokens WHERE token=%s", (str(token),))
+        cur.execute("DELETE FROM app_auth_sessions WHERE token_hash=%s", (_remember_token_hash_v19144(str(token)),))
         conn.commit()
         conn.close()
         return True
@@ -223,22 +262,15 @@ def _db_delete_remember_item(token):
 
 
 def _load_remember_tokens():
-    try:
-        if REMEMBER_FILE.exists():
-            with open(REMEMBER_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-    except Exception as e:
-        logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    return {}
+    data = read_json(REMEMBER_FILE, {})
+    return data if isinstance(data, dict) else {}
 
 
 def _save_remember_tokens(tokens):
     try:
-        with open(REMEMBER_FILE, "w", encoding="utf-8") as f:
-            json.dump(tokens, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+        atomic_write_json(REMEMBER_FILE, tokens if isinstance(tokens, dict) else {})
+    except Exception as exc:
+        logging.warning("Kunne ikke lagre remember sessions: %s", exc)
 
 
 def _env_value_v1868(name: str, default: str = "") -> str:
@@ -275,9 +307,9 @@ def _clear_remember_tokens_for_username_v1868(username: str) -> None:
         logging.warning("Silenced exception restored in v18.6.8: %s", e)
     if _init_remember_db():
         try:
-            conn = psycopg2.connect(DATABASE_URL)
+            conn = psycopg2.connect(auth_database_url(), connect_timeout=5)
             cur = conn.cursor()
-            cur.execute("DELETE FROM app_remember_tokens WHERE username=%s", (username,))
+            cur.execute("DELETE FROM app_auth_sessions WHERE username=%s", (username,))
             conn.commit()
             conn.close()
         except Exception as e:
@@ -303,9 +335,12 @@ def _create_remember_token(user):
     token = uuid.uuid4().hex + uuid.uuid4().hex
     expires = (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
     username = user.get("username")
-    if not _db_upsert_remember_item(token, username, expires):
+    session_version = int(user.get("session_version", 1) or 1)
+    if not _db_upsert_remember_item(token, username, expires, session_version):
         tokens = _load_remember_tokens()
-        tokens[token] = {"username": username, "expires": expires}
+        tokens[_remember_token_hash_v19144(token)] = {
+            "username": username, "session_version": session_version, "expires": expires
+        }
         _save_remember_tokens(tokens)
     return token
 
@@ -321,33 +356,78 @@ def _set_logged_in(user, remember=False):
     st.session_state["auth_expires_at"] = expires_at.isoformat(timespec="seconds")
 
 
+def _clear_auth_session_v19144():
+    for key in (
+        "auth_user", "auth_expires_at", "auth_logged_in_at",
+        "auth_last_activity_at", "auth_remember_me", "remember_token",
+        "auth_user_version_checked_at_v19144", "auth_backend_warning_v19144",
+    ):
+        st.session_state.pop(key, None)
+
+
 def _session_is_valid():
+    """Validate the local session without logging users out on transient storage errors.
+
+    Expiry is always enforced locally. The server-side user/session version is
+    rechecked periodically, so password changes and deactivation invalidate the
+    session, while a short database restart does not create a false logout loop.
+    """
     user = st.session_state.get("auth_user")
     if not user:
         return False
+
+    now = datetime.now()
     raw = st.session_state.get("auth_expires_at")
     if not raw:
         # Eldre session fra tidligere versjon: gi den standard levetid i stedet for å kaste bruker ut.
-        st.session_state["auth_expires_at"] = (datetime.now() + timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
-        return True
+        st.session_state["auth_expires_at"] = (now + timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
+    else:
+        try:
+            expires = datetime.fromisoformat(str(raw))
+        except Exception as exc:
+            logging.warning("Ugyldig lokal session-utløpstid: %s", exc)
+            _clear_auth_session_v19144()
+            return False
+        if expires < now:
+            _clear_auth_session_v19144()
+            return False
+
+    st.session_state["auth_last_activity_at"] = now.isoformat(timespec="seconds")
+    if bool(st.session_state.get("auth_remember_me", False)):
+        st.session_state["auth_expires_at"] = (now + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
+
+    checked_raw = st.session_state.get("auth_user_version_checked_at_v19144")
+    if checked_raw:
+        try:
+            checked_at = datetime.fromisoformat(str(checked_raw))
+            if (now - checked_at).total_seconds() < AUTH_SESSION_RECHECK_SECONDS:
+                return True
+        except Exception:
+            st.session_state.pop("auth_user_version_checked_at_v19144", None)
+
     try:
-        expires = datetime.fromisoformat(str(raw))
-        now = datetime.now()
-        if expires >= now:
-            st.session_state["auth_last_activity_at"] = now.isoformat(timespec="seconds")
-            # Husk meg skal oppleves stabilt på mobil: forny session-vindu ved aktiv bruk.
-            if bool(st.session_state.get("auth_remember_me", False)):
-                st.session_state["auth_expires_at"] = (now + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
-            return True
-    except Exception as e:
-        logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    st.session_state.pop("auth_user", None)
-    st.session_state.pop("auth_expires_at", None)
-    st.session_state.pop("auth_logged_in_at", None)
-    st.session_state.pop("auth_last_activity_at", None)
-    st.session_state.pop("auth_remember_me", None)
-    st.session_state.pop("remember_token", None)
-    return False
+        stored = get_user(user.get("username"))
+    except Exception as exc:
+        # Fail stable for an already-authenticated, locally unexpired session.
+        # A temporary database restart must not force a new login on every rerun.
+        st.session_state["auth_user_version_checked_at_v19144"] = now.isoformat(timespec="seconds")
+        st.session_state["auth_backend_warning_v19144"] = (
+            "Brukerlageret svarte ikke midlertidig. Eksisterende innlogging beholdes og kontrolleres på nytt."
+        )
+        logging.warning("Midlertidig autentiseringslagerfeil; beholder gyldig lokal session: %s", exc)
+        return True
+
+    if (
+        not stored
+        or not stored.get("active", True)
+        or int(stored.get("session_version", 1) or 1) != int(user.get("session_version", 1) or 1)
+    ):
+        _clear_auth_session_v19144()
+        return False
+
+    st.session_state["auth_user_version_checked_at_v19144"] = now.isoformat(timespec="seconds")
+    st.session_state.pop("auth_backend_warning_v19144", None)
+    return True
 
 
 def _restore_from_remember_token():
@@ -363,7 +443,7 @@ def _restore_from_remember_token():
         tokens = None
         if not item:
             tokens = _load_remember_tokens()
-            item = tokens.get(str(token))
+            item = tokens.get(_remember_token_hash_v19144(str(token))) or tokens.get(str(token))
         if not item:
             return None
         expires = datetime.fromisoformat(str(item.get("expires")))
@@ -371,21 +451,30 @@ def _restore_from_remember_token():
             _db_delete_remember_item(str(token))
             if tokens is None:
                 tokens = _load_remember_tokens()
+            tokens.pop(_remember_token_hash_v19144(str(token)), None)
             tokens.pop(str(token), None)
             _save_remember_tokens(tokens)
             return None
-        username = item.get("username")
-        for user in list_users():
-            if user.get("username") == username and user.get("active", True):
+        username = str(item.get("username") or "").strip().lower()
+        user = get_user(username)
+        token_version = int(item.get("session_version", 1) or 1)
+        current_version = int((user or {}).get("session_version", 1) or 1)
+        if user and user.get("active", True) and token_version == current_version:
                 # Forny tokenet ved bruk, slik at Husk meg faktisk holder lenge på PC og mobil.
                 new_expires = (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
-                if not _db_upsert_remember_item(str(token), username, new_expires):
+                if not _db_upsert_remember_item(str(token), username, new_expires, current_version):
                     if tokens is None:
                         tokens = _load_remember_tokens()
-                    tokens[str(token)] = {"username": username, "expires": new_expires}
+                    tokens[_remember_token_hash_v19144(str(token))] = {
+                        "username": username, "session_version": current_version, "expires": new_expires
+                    }
                     _save_remember_tokens(tokens)
+                safe_user = {
+                    "username": user.get("username"), "role": user.get("role", "user"),
+                    "active": bool(user.get("active", True)), "session_version": current_version,
+                }
                 st.session_state["remember_token"] = str(token)
-                _set_logged_in(user, remember=True)
+                _set_logged_in(safe_user, remember=True)
                 for query_key in ("remember_token", "remember_bootstrap"):
                     try:
                         if query_key in st.query_params:
@@ -393,7 +482,14 @@ def _restore_from_remember_token():
                     except Exception:
                         pass
                 _remember_storage_bridge(str(token))
-                return user
+                return safe_user
+        # Tokenet peker til en deaktivert bruker eller en gammel passordversjon.
+        _db_delete_remember_item(str(token))
+        if tokens is None:
+            tokens = _load_remember_tokens()
+        tokens.pop(_remember_token_hash_v19144(str(token)), None)
+        tokens.pop(str(token), None)
+        _save_remember_tokens(tokens)
     except Exception:
         return None
     return None
@@ -407,6 +503,7 @@ def _clear_remember_token():
         if token:
             _db_delete_remember_item(str(token))
             tokens = _load_remember_tokens()
+            tokens.pop(_remember_token_hash_v19144(str(token)), None)
             tokens.pop(str(token), None)
             _save_remember_tokens(tokens)
             for query_key in ("remember_token", "remember_bootstrap"):
@@ -448,6 +545,15 @@ def render_first_admin_setup():
 
         ok, msg = create_user(username, password, role="admin", active=True)
         if ok:
+            authenticated, user, _ = authenticate(username, password)
+            if authenticated and user:
+                _set_logged_in(user, remember=True)
+                token = _create_remember_token(user)
+                st.session_state["remember_token"] = token
+                st.session_state["auth_restore_attempted_v18621"] = True
+                _remember_storage_bridge(token, reload_after_store=True)
+                st.success("Admin opprettet og innlogget. Innloggingen lagres på denne enheten …")
+                st.stop()
             st.success("Admin opprettet. Logg inn.")
             st.rerun()
         else:
@@ -545,7 +651,25 @@ def render_login():
 
     st.stop()
 
+def _render_auth_storage_blocker_v19144(status):
+    st.error("Autentiseringslageret er ikke varig konfigurert. Programmet stopper før brukerdata kan gå tapt.")
+    st.markdown(
+        "**Raskeste løsning i Render:** bruk en separat testdatabase i `AUTH_DATABASE_URL`, "
+        "eller monter en persistent disk og sett `AUTH_STORAGE_ROOT` til diskbanen."
+    )
+    st.code(
+        "AUTH_STORAGE_MODE=postgres\nAUTH_DATABASE_URL=<separat testdatabase>\nAUTH_REQUIRE_PERSISTENT=true",
+        language="text",
+    )
+    st.caption(str((status or {}).get("message") or ""))
+    st.stop()
+
+
 def require_login():
+    storage_status = auth_storage_status()
+    st.session_state["auth_storage_status_v19144"] = storage_status
+    if not storage_status.get("ready"):
+        _render_auth_storage_blocker_v19144(storage_status)
     try:
         init_user_store()
     except DatabaseStarting:
@@ -592,12 +716,15 @@ def render_user_admin(current_user):
     remember_on = bool(st.session_state.get("auth_remember_me"))
     remember_cls = "on" if remember_on else "off"
     remember_txt = "På" if remember_on else "Av"
+    auth_status = st.session_state.get("auth_storage_status_v19144") or auth_storage_status()
+    auth_backend = "Varig" if auth_status.get("persistent") else "Flyktig"
     st.sidebar.markdown(
         f"""
         <div class="auth-sidebar-card auth-sidebar-card-v18639">
             <div class="auth-sidebar-title">👤 Bruker</div>
             <div class="auth-sidebar-user"><b>{username}</b><br/><span>Rolle: {role}</span></div>
             <div class="auth-remember-chip {remember_cls}">● Husk: <b>{remember_txt}</b></div>
+            <div class="auth-remember-chip {'on' if auth_status.get('persistent') else 'off'}">● Brukerlager: <b>{auth_backend}</b></div>
         </div>
         """,
         unsafe_allow_html=True,

@@ -3,21 +3,21 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.14.3"
-APP_VERSION_NAME = "Stabil innlogging, navigasjon og rapportintegritet"
+APP_VERSION = "v19.14.4"
+APP_VERSION_NAME = "Driftgjenoppretting"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.14.2"
+PREVIOUS_APP_VERSION = "v19.14.3"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
 REPORT_SCHEMA_VERSION = "1.5"
-DATABASE_SCHEMA_VERSION = "2.0"
-RANKING_MODEL_VERSION = "v19.14.3"
-AUTONOMY_POLICY_VERSION = "v19.14.3"
+DATABASE_SCHEMA_VERSION = "2.1"
+RANKING_MODEL_VERSION = "v19.14.4"
+AUTONOMY_POLICY_VERSION = "v19.14.4"
 SOURCE_CLASSIFIER_VERSION = "v19.0.19"
 OPERATIONS_TELEMETRY_VERSION = "v19.1.0"
-STORAGE_REPOSITORY_VERSION = "v19.2.0"
+STORAGE_REPOSITORY_VERSION = "v19.2.1"
 DECISION_INTELLIGENCE_VERSION = "v19.3.0"
 CONTROLLED_LEARNING_POLICY_VERSION = "v19.3.0"
 STRATEGY_REGISTRY_VERSION = "1.0"
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.14.4: Driftgjenoppretting: separat og varig autentiseringslager, miljøavgrenset Husk meg-cookie, automatisk innlogging etter første admin, sesjonsinvalidering ved passordendring, fail-closed vern mot flyktige Render-brukere, brukeravgrenset navigasjon og fragmentlås som hindrer Autonomi-status i å overta aktiv meny, samt synlig beredskap for normal rapportdrift og kontrollert Paper Buy-test.",
     "v19.14.3: Stabil innlogging, navigasjon og rapportintegritet: én innlogging med robust Husk meg-bootstrap, navigasjonslås mot Autonomi-polling, kanonisk kandidatutfall i JSON/PDF/UI, full rangering, sann porteføljebegrunnelse, registrerte autonome beslutninger og integritetskontroll som stopper kryss-seksjonsavvik.",
     "v19.14.2: Sikker drift og sann status: én fail-closed Paper Trading-hovedbryter i ordrelaget og lagringslaget, samme sannhet i brukergrensesnittet, testmiljøsperrer for database, scheduler, bakgrunn og varsling, synlig gren/commit, trygg Streamlit-konfigurasjon, importkontroll ved ren oppstart og fjerning av remember-token fra delbar URL.",
     "v19.14.1: Decision Gate & Runtime Consistency Release: hard kjøpssperre i ordrelaget, atomisk avstemming av teoretiske handler, sperre mot kjøp og salg av samme ticker i samme kjøring, synkroniserte delversjoner, kjernemarkeder som eksplisitt standard i Enkel-modus, synlig konfigurasjon før start, direkte offisielle nordiske insiderkilder, full norsk rapporttekst, entydige terskler og streng PDF/JSON-handelsintegritet.",

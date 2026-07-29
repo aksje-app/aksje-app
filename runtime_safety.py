@@ -151,6 +151,11 @@ def runtime_safety_snapshot() -> dict[str, Any]:
     scheduler, scheduler_reason = scheduler_allowed()
     background, background_reason = runtime_background_allowed()
     database_configured = bool(_raw("DATABASE_URL"))
+    try:
+        from auth_persistence import auth_storage_status
+        auth_storage = auth_storage_status()
+    except Exception as exc:
+        auth_storage = {"ready": False, "persistent": False, "backend": "unknown", "message": str(exc)}
     test_env = is_test_environment()
     violations: list[str] = []
     if test_env and database_configured and not _allow_in_test("ALLOW_DATABASE_IN_TEST"):
@@ -164,6 +169,7 @@ def runtime_safety_snapshot() -> dict[str, Any]:
         "paper_trading": asdict(paper),
         "database_configured": database_configured,
         "database_allowed": not violations,
+        "auth_storage": auth_storage,
         "notifications_allowed": notifications,
         "notification_reason": notification_reason,
         "scheduler_enabled": scheduler,

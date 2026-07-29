@@ -1,4 +1,4 @@
-"""Canonical report view and integrity validation for v19.14.3.
+"""Canonical report view and integrity validation for v19.14.4.
 
 The analysis engines remain authoritative for ranking and portfolio decisions.
 This module makes a completed result internally consistent before it is

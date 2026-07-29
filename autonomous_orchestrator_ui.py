@@ -14,6 +14,7 @@ from manual_job_background import get_active_status, is_running, request_cancel,
 from services.storage_service import get_storage_service
 from local_time import local_display
 from market_universe import FULL_MARKET_SCOPE_LABEL
+from navigation_state import capture_navigation_checkpoint_v19144, restore_navigation_checkpoint_v19144
 
 
 USE_JOB_MARKETS = "Bruk markedene i jobbprofilen"
@@ -61,7 +62,7 @@ def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _background_status_panel() -> None:
+def _background_status_panel_body_v19144() -> None:
     """Render only the live status block; safe to rerun as a Streamlit fragment."""
     status = get_active_status()
     if not status:
@@ -69,7 +70,7 @@ def _background_status_panel() -> None:
     state = str(status.get("state") or "UKJENT")
     execution_id = str(status.get("execution_id") or "")
     if state in {"COMPLETED", "FAILED", "CANCELLED"} and execution_id:
-        # v19.14.3: terminal polling must never rerun the full application.
+        # v19.14.4: terminal polling must never rerun the full application.
         # A full rerun re-applied an old Autonomi route and moved users away
         # from Rapport, Analyse or Portefølje. The fragment may update its own
         # status, while the active navigation remains entirely user-owned.
@@ -132,8 +133,21 @@ def _background_status_panel() -> None:
         p3.metric("Rapportarkiv", "BEKREFTET" if status.get("archive_saved") else "IKKE BEKREFTET")
     elif state == "CANCELLED":
         st.warning("Kjøringen ble kontrollert avbrutt. Ingen ufullstendig sluttrapport eller Pushover-melding ble publisert.")
-    if st.button("↻ Oppdater hele statusvisningen", key="orchestrator_background_manual_refresh_v1879"):
-        st.rerun()
+    if st.button("↻ Oppdater status", key="orchestrator_background_manual_refresh_v1879"):
+        try:
+            st.rerun(scope="fragment")
+        except Exception:
+            # På eldre Streamlit-versjoner oppdateres status ved neste ordinære render.
+            st.session_state["orchestrator_manual_refresh_requested_v19144"] = True
+
+
+def _background_status_panel() -> None:
+    """Refresh status without taking ownership of the user's active menu."""
+    checkpoint = capture_navigation_checkpoint_v19144(st)
+    try:
+        _background_status_panel_body_v19144()
+    finally:
+        restore_navigation_checkpoint_v19144(st, checkpoint)
 
 
 def _render_live_background_status() -> None:

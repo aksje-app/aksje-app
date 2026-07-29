@@ -58,7 +58,7 @@ def _sidebar_persist_nav_v18658(st, nav: str) -> None:
             "group": str(st.session_state.get("ai_control_center_group_v1863aj") or ""),
             "panel": str(st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
             "tab": str(st.session_state.get("autonomy_core_workspace_slug_v1882") or st.session_state.get("paper_trading_active_tab_slug_v18674c") or ""),
-            "version": "v19.14.3",
+            "version": "v19.14.4",
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:

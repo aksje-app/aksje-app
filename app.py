@@ -216,24 +216,6 @@ except Exception as _workspace_error:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 st.markdown("""
 <style>
 /* v18.2: tydelig global oppdateringsknapp */
@@ -484,6 +466,11 @@ current_user = require_login()
 
 def _render_runtime_safety_banner_v19142() -> None:
     snapshot = runtime_safety_snapshot()
+    try:
+        from drift_recovery import drift_recovery_snapshot
+        recovery = drift_recovery_snapshot()
+    except Exception:
+        recovery = {}
     if not snapshot.get("is_test_environment"):
         return
     paper = snapshot.get("paper_trading") or {}
@@ -491,6 +478,10 @@ def _render_runtime_safety_banner_v19142() -> None:
     notifications = "AKTIV" if snapshot.get("notifications_allowed") else "AV"
     scheduler = "AKTIV" if snapshot.get("scheduler_enabled") else "AV"
     background = "AKTIV" if snapshot.get("background_enabled") else "AV"
+    auth_status = snapshot.get("auth_storage") or {}
+    auth_label = "VARIG" if auth_status.get("persistent") else "IKKE VARIG"
+    paper_store_label = "VARIG" if recovery.get("paper_storage_persistent") else "IKKE VARIG"
+    normal_label = recovery.get("normal_operation_label") or "UKJENT"
     st.markdown(
         f"""
         <div style='border:2px solid #f59e0b;background:rgba(120,53,15,.30);padding:.55rem .75rem;border-radius:12px;margin:.25rem 0 .65rem 0;color:#fef3c7;'>
@@ -498,8 +489,9 @@ def _render_runtime_safety_banner_v19142() -> None:
           Tjeneste: <b>{html.escape(str(snapshot.get('service') or '-'))}</b> ·
           Gren: <b>{html.escape(str(snapshot.get('branch') or '-'))}</b> ·
           Commit: <b>{html.escape(str(snapshot.get('commit_short') or '-'))}</b><br/>
-          Database: <b>{db}</b> · Pushover: <b>{notifications}</b> · Scheduler: <b>{scheduler}</b> ·
-          Bakgrunn: <b>{background}</b> · Paper Trading: <b>{html.escape(str(paper.get('label') or 'AV'))}</b>
+          Database: <b>{db}</b> · Brukerlager: <b>{auth_label}</b> · Paperlager: <b>{paper_store_label}</b><br/>
+          Pushover: <b>{notifications}</b> · Scheduler: <b>{scheduler}</b> · Bakgrunn: <b>{background}</b> ·
+          Paper Trading: <b>{html.escape(str(paper.get('label') or 'AV'))}</b> · Normal drift: <b>{normal_label}</b>
         </div>
         """,
         unsafe_allow_html=True,
@@ -8812,7 +8804,14 @@ def _mobile_nav_href_v18646(nav: str) -> str:
 
 
 def _ui_state_path_v18658() -> Path:
-    return Path("data/ui_state_v18658.json")
+    """User-scoped runtime navigation state; never a shared Git-tracked file."""
+    try:
+        from storage_architecture import runtime_data_path
+        user = st.session_state.get("auth_user") or {}
+        username = re.sub(r"[^A-Za-z0-9._-]+", "_", str(user.get("username") or "anonymous")).strip("._") or "anonymous"
+        return runtime_data_path("ui_state", f"{username}.json")
+    except Exception:
+        return Path(".app_runtime/data/ui_state/anonymous.json")
 
 
 def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", tab: str = "", subtab: str = "") -> None:

@@ -151,3 +151,51 @@ def slugify_state_value(value: Any) -> str:
     while "__" in slug:
         slug = slug.replace("__", "_")
     return slug.strip("_")
+
+# v19.14.4: keys that background status refreshes are never allowed to change.
+NAVIGATION_GUARD_KEYS_V19144 = (
+    "active_nav_target_v18674c",
+    "ai_control_center_group_v1863m",
+    "ai_control_center_group_v1863aj",
+    "ai_control_center_active_panel_v1863m",
+    "ai_control_center_active_panel_v1863aj",
+    "ai_control_center_active_real_panel_v18598",
+    "ai_control_center_group_radio_v1863aj",
+    "autonomy_core_workspace_slug_v1882",
+    "paper_trading_active_tab_slug_v18674c",
+    "paper_trading_active_subtab_slug_v18674c",
+    "ai_discovery_active_tab_slug_v18674c",
+    "mobile_nav_last_choice_v19015",
+)
+
+
+def capture_navigation_checkpoint_v19144(st) -> dict[str, Any]:
+    """Capture user-owned navigation before a background-only fragment refresh."""
+    values = {key: st.session_state.get(key) for key in NAVIGATION_GUARD_KEYS_V19144}
+    for key in list(st.session_state.keys()):
+        if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+            values[str(key)] = st.session_state.get(key)
+    return {
+        "revision": int(st.session_state.get("navigation_user_revision_v19143", 0) or 0),
+        "values": values,
+    }
+
+
+def restore_navigation_checkpoint_v19144(st, checkpoint: dict[str, Any] | None) -> bool:
+    """Restore navigation only when no user click occurred during the refresh."""
+    if not isinstance(checkpoint, dict):
+        return False
+    before_revision = int(checkpoint.get("revision", 0) or 0)
+    current_revision = int(st.session_state.get("navigation_user_revision_v19143", 0) or 0)
+    if current_revision != before_revision:
+        return False
+    values = checkpoint.get("values") or {}
+    if not isinstance(values, dict):
+        return False
+    for key, value in values.items():
+        if value is None:
+            st.session_state.pop(key, None)
+        else:
+            st.session_state[key] = value
+    st.session_state["navigation_last_source_v19143"] = "BACKGROUND_PRESERVED"
+    return True
