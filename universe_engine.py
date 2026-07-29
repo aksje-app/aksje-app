@@ -23,7 +23,7 @@ import math
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_version import get_app_version
-from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, SOURCE_SCOPE_OPTIONS, normalize_market_scopes
+from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, SOURCE_SCOPE_OPTIONS, expand_market_scope, normalize_market_scopes
 from security_metadata import resolve_security_metadata
 
 
@@ -402,32 +402,24 @@ def resolve_universe_tickers(
     except Exception:
         get_sp500_tickers = get_norwegian_tickers = get_swedish_tickers = get_finnish_tickers = get_danish_tickers = get_brazilian_tickers = get_all_tickers = None  # type: ignore
 
+    market_getters = {
+        "USA": get_sp500_tickers,
+        "Norge": get_norwegian_tickers,
+        "Sverige": get_swedish_tickers,
+        "Finland": get_finnish_tickers,
+        "Danmark": get_danish_tickers,
+        "Brasil": get_brazilian_tickers,
+    }
+
     for scope in selected:
-        if scope == "Alle":
-            if all([get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_finnish_tickers, get_danish_tickers, get_brazilian_tickers]):
-                per_market = max(5, math.ceil(max_count / max(1, len(BASE_MARKET_SCOPES))))
-                source_lists.extend([
-                    list(get_sp500_tickers(limit=per_market) or []),
-                    list(get_norwegian_tickers(limit=per_market) or []),
-                    list(get_swedish_tickers(limit=per_market) or []),
-                    list(get_finnish_tickers(limit=per_market) or []),
-                    list(get_danish_tickers(limit=per_market) or []),
-                    list(get_brazilian_tickers(limit=per_market) or []),
-                ])
-            elif get_all_tickers:
-                source_lists.append(list(get_all_tickers(limit_per_market=max(5, math.ceil(max_count / max(1, len(BASE_MARKET_SCOPES))))) or []))
-        elif scope == "USA" and get_sp500_tickers:
-            source_lists.append(list(get_sp500_tickers(limit=max_count) or []))
-        elif scope == "Norge" and get_norwegian_tickers:
-            source_lists.append(list(get_norwegian_tickers(limit=max_count) or []))
-        elif scope == "Sverige" and get_swedish_tickers:
-            source_lists.append(list(get_swedish_tickers(limit=max_count) or []))
-        elif scope == "Finland" and get_finnish_tickers:
-            source_lists.append(list(get_finnish_tickers(limit=max_count) or []))
-        elif scope == "Danmark" and get_danish_tickers:
-            source_lists.append(list(get_danish_tickers(limit=max_count) or []))
-        elif scope == "Brasil" and get_brazilian_tickers:
-            source_lists.append(list(get_brazilian_tickers(limit=max_count) or []))
+        expanded_markets = expand_market_scope(scope)
+        if expanded_markets:
+            per_market = max_count if len(expanded_markets) == 1 else max(5, math.ceil(max_count / len(expanded_markets)))
+            for market in expanded_markets:
+                getter = market_getters.get(market)
+                if getter:
+                    source_lists.append(list(getter(limit=per_market) or []))
+            continue
         elif scope == "Norden":
             if get_norwegian_tickers:
                 source_lists.append(list(get_norwegian_tickers(limit=max_count) or []))
