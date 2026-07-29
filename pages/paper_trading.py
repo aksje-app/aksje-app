@@ -17,6 +17,9 @@ def render_paper_trading_dashboard(_legacy_context):
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
     _paper_rules = load_rules()
+    paper_gate_v19143 = paper_trading_decision()
+    if not paper_gate_v19143.allowed:
+        st.error(f"Paper Trading er AV: {paper_gate_v19143.reason}")
 
     status_cols = st.columns([1.0, 1.3, 1.7])
     with status_cols[0]:
@@ -101,13 +104,17 @@ def render_paper_trading_dashboard(_legacy_context):
                         stock_risk_amount = st.number_input("Planlagt risiko, kr (0 = beregn)", min_value=0.0, max_value=10_000_000.0, value=float(st.session_state.get("paper_stock_risk_amount_v18678", 0.0) or 0.0), step=100.0, key="paper_stock_risk_amount_v18678")
                     estimated_stock_shares = (float(stock_amount or 0) / float(stock_price or 0)) if float(stock_price or 0) > 0 else 0.0
                     stock_confidence = int(st.session_state.get("paper_stock_confidence_v1863y", 0) or 0)
-                    recommendation = "BUY / OK" if stock_confidence >= 70 else ("HOLD / WAIT" if stock_confidence >= 50 else "SVAK / VENT")
+                    model_signal_v19143 = str(st.session_state.get("paper_stock_model_signal_v19143", "IKKE BEREGNET") or "IKKE BEREGNET")
+                    trade_permission_v19143 = "TILLATT" if paper_gate_v19143.allowed else "BLOKKERT"
+                    final_action_v19143 = model_signal_v19143 if paper_gate_v19143.allowed else "INGEN HANDEL"
                     st.markdown(
                         f"""
                         <div class="paper-compact-info-row">
                             <span class="paper-info-badge">📦 Antall: <b>{estimated_stock_shares:,.4f}</b></span>
                             <span class="paper-info-badge">🎯 Confidence: <b>{stock_confidence}%</b></span>
-                            <span class="paper-info-badge">🧭 System: <b>{recommendation}</b></span>
+                            <span class="paper-info-badge">🧠 Modellsignal: <b>{model_signal_v19143}</b></span>
+                            <span class="paper-info-badge">🔐 Handelstillatelse: <b>{trade_permission_v19143}</b></span>
+                            <span class="paper-info-badge">✅ Endelig handling: <b>{final_action_v19143}</b></span>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -140,7 +147,18 @@ def render_paper_trading_dashboard(_legacy_context):
                             buy_stock_label_v18674c = "🟢 ØK BEHOLDNING"
                         else:
                             buy_stock_label_v18674c = "🟢 PAPER-KJØP"
-                        buy_stock_clicked = st.button(buy_stock_label_v18674c, key="paper_stock_buy_v1871", type="primary", use_container_width=True)
+                        review_only_v19143 = _paper_manual_override_state_v18674a() == "REVIEW_ONLY"
+                        buy_stock_disabled_v19143 = (not paper_gate_v19143.allowed) and not review_only_v19143
+                        buy_stock_clicked = st.button(
+                            buy_stock_label_v18674c,
+                            key="paper_stock_buy_v1871",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=buy_stock_disabled_v19143,
+                            help=paper_gate_v19143.reason if buy_stock_disabled_v19143 else None,
+                        )
+                        if buy_stock_disabled_v19143:
+                            st.caption(f"Ingen handel: {paper_gate_v19143.reason}")
                     _render_paper_fetch_status_v1863z("paper_stock_fetch_status_v1863z")
                     if buy_stock_clicked:
                         if not stock_symbol:
@@ -202,7 +220,14 @@ def render_paper_trading_dashboard(_legacy_context):
                     else:
                         st.markdown("<div class='paper-compact-info-row'><span class='paper-info-badge'>Ingen aksjeposisjon valgt</span></div>", unsafe_allow_html=True)
                     sell_stock_pct = st.select_slider("Andel som skal selges", options=[25, 50, 75, 100], value=100, key="paper_stock_sell_pct_v18678", format_func=lambda x: f"{x}%")
-                    sell_stock_clicked = st.button(f"🔴 PAPER-SELG {sell_stock_pct}%", key="paper_stock_sell_v1871", use_container_width=True, disabled=(sell_stock_symbol == "Ingen"))
+                    sell_stock_disabled_v19143 = (sell_stock_symbol == "Ingen") or (not paper_gate_v19143.allowed)
+                    sell_stock_clicked = st.button(
+                        f"🔴 PAPER-SELG {sell_stock_pct}%",
+                        key="paper_stock_sell_v1871",
+                        use_container_width=True,
+                        disabled=sell_stock_disabled_v19143,
+                        help=paper_gate_v19143.reason if not paper_gate_v19143.allowed else None,
+                    )
                     if sell_stock_clicked:
                         price_to_use = float(sell_stock_price or (stock_positions.get(sell_stock_symbol, {}) or {}).get("last_price", 0.0) or (stock_positions.get(sell_stock_symbol, {}) or {}).get("avg_price", 0.0) or 0.0)
                         if price_to_use <= 0:
@@ -242,7 +267,16 @@ def render_paper_trading_dashboard(_legacy_context):
                     st.button("🔎 Hent pris/NAV", key="paper_fund_fetch_price_v1871", use_container_width=True, on_click=_paper_fetch_fund_price_v1863z)
                 with h2:
                     buy_fund_label_v18674c = "🟡 LEGG TIL VURDERING" if _paper_manual_override_state_v18674a() == "REVIEW_ONLY" else "🟢 PAPER-KJØP FOND/ETF"
-                    buy_fund_clicked = st.button(buy_fund_label_v18674c, key="paper_fund_buy_v1871", type="primary", use_container_width=True)
+                    fund_review_only_v19143 = _paper_manual_override_state_v18674a() == "REVIEW_ONLY"
+                    buy_fund_disabled_v19143 = (not paper_gate_v19143.allowed) and not fund_review_only_v19143
+                    buy_fund_clicked = st.button(
+                        buy_fund_label_v18674c,
+                        key="paper_fund_buy_v1871",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=buy_fund_disabled_v19143,
+                        help=paper_gate_v19143.reason if buy_fund_disabled_v19143 else None,
+                    )
                 _render_paper_fetch_status_v1863z("paper_fund_fetch_status_v1863z")
                 if buy_fund_clicked:
                     price_to_use = float(fund_price or st.session_state.get("paper_fund_price_v18545", 0.0) or 0.0)
