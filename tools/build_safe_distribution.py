@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.14.2 release archives."""
+"""Build clean, validated v19.14.3 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,11 +25,14 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.14.2"
-VERSION_FILE = "19_14_2"
-SOURCE_BASE_COMMIT = "c4d3934"
+VERSION = "v19.14.3"
+VERSION_FILE = "19_14_3"
+SOURCE_BASE_COMMIT = "d638f0ef"
 
 UPDATE_FILES = {
+    "RELEASE_NOTES_v19.14.3.md", "ACCEPTANCE_v19.14.3.md", "DEPLOY_v19.14.3.md",
+    "tests/test_v19143_login_navigation_report_integrity.py",
+    "autonomous_orchestrator_ui.py", "ui_sidebar_stable.py", "pages/paper_trading.py", "pages/ranking.py",
     "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
     "app_core/__init__.py", "app_core/context.py", "domain/__init__.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_contract.py",
     "repositories/application.py", "services/service_registry.py", "services/strategy_registry_service.py", "services/market_snapshot_service.py", "services/technical_signal_service.py",
@@ -259,7 +262,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.2-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.3-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()

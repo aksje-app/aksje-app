@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.14.2"
+EXPECTED_VERSION = "v19.14.3"
 
 FORBIDDEN_ROOT_DIRS = {
     ".git",
@@ -92,6 +92,7 @@ TEXT_SUFFIXES = {
 
 PROFILE_REQUIRED_FILES = {
     "full": {
+        "RELEASE_NOTES_v19.14.3.md", "ACCEPTANCE_v19.14.3.md", "DEPLOY_v19.14.3.md",
         "app.py", "app_version.py", "requirements.txt", ".env.example",
         "services/storage_service.py", "services/persistence_service.py",
         "repositories/base.py", "repositories/application.py", "domain/persistence.py",
@@ -129,6 +130,7 @@ PROFILE_REQUIRED_FILES = {
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
+        "RELEASE_NOTES_v19.14.3.md", "ACCEPTANCE_v19.14.3.md", "DEPLOY_v19.14.3.md",
         "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
         "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
         "market_intelligence.py", "market_universe.py", "investment_pipeline.py", "autonomous_decision_reduction.py", "norwegian_report_language.py", "report_contracts.py", "report_integrity.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "safety_audit.py",

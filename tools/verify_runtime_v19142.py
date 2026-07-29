@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline verification for v19.14.2 without importing Streamlit."""
+"""Offline runtime verification without importing Streamlit."""
 from __future__ import annotations
 
 import ast
@@ -109,7 +109,7 @@ def main() -> int:
 
     result = {
         "ok": not failures,
-        "version": "v19.14.2",
+        "version": __import__("app_version").APP_VERSION,
         "compiled_python_files": compiled,
         "runtime_modules_in_closure": len(visited),
         "failures": failures,
