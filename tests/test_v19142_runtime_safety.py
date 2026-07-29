@@ -39,8 +39,8 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_version_contract_is_v19143() -> None:
-    assert app_version.APP_VERSION == "v19.14.4"
-    assert app_version.APP_VERSION_NAME == "Driftgjenoppretting"
+    assert app_version.APP_VERSION == "v19.14.5"
+    assert app_version.APP_VERSION_NAME == "REPORT og lokal lagring"
     assert app_version.RANKING_MODEL_VERSION == app_version.APP_VERSION
     assert app_version.AUTONOMY_POLICY_VERSION == app_version.APP_VERSION
 
@@ -199,6 +199,6 @@ def test_render_and_streamlit_configuration_lock_working_server_mode() -> None:
     config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
     render = (ROOT / "render.yaml").read_text(encoding="utf-8")
     assert "streamlit==1.57.0" in requirements
-    assert "useStarlette = false" in config
-    assert "STREAMLIT_SERVER_USE_STARLETTE" in render
+    assert "useStarlette" not in config
+    assert "STREAMLIT_SERVER_USE_STARLETTE" not in render
     assert 'value: "false"' in render
