@@ -38,9 +38,9 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def test_version_contract_is_v19142() -> None:
-    assert app_version.APP_VERSION == "v19.14.2"
-    assert app_version.APP_VERSION_NAME == "Sikker drift og sann status"
+def test_version_contract_is_v19143() -> None:
+    assert app_version.APP_VERSION == "v19.14.3"
+    assert app_version.APP_VERSION_NAME == "Stabil innlogging, navigasjon og rapportintegritet"
     assert app_version.RANKING_MODEL_VERSION == app_version.APP_VERSION
     assert app_version.AUTONOMY_POLICY_VERSION == app_version.APP_VERSION
 
@@ -186,9 +186,10 @@ def test_remember_token_is_removed_from_shareable_url_and_banner_links() -> None
     banner_source = (ROOT / "ui" / "live_market_banner.py").read_text(encoding="utf-8")
     assert 'searchParams.delete("remember_token")' in auth_source
     assert "history.replaceState" in auth_source
-    assert 'if (parentUrl.searchParams.get("remember_token"))' in auth_source
-    assert "removeSensitiveQuery();" in auth_source
-    assert 'searchParams.set("remember_token", token)' not in auth_source
+    assert "st.context" in auth_source
+    assert "SameSite=Lax" in auth_source
+    assert "clearLegacyQuery();" in auth_source
+    assert 'searchParams.set("remember_token"' not in auth_source
     assert 'remember_token=' not in app_source
     assert 'remember_token=' not in banner_source
 
