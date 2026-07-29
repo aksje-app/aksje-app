@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.14.1"
+EXPECTED_VERSION = "v19.14.2"
 
 FORBIDDEN_ROOT_DIRS = {
     ".git",
@@ -114,13 +114,18 @@ PROFILE_REQUIRED_FILES = {
         "autonomy_modes.py", "autonomous_orchestrator.py", "autonomous_portfolio.py", "insider_intelligence.py", "official_insider_sources.py",
         "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
         "autonomi_core/portfolio_decisions/layer.py", "autonomi_core/portfolio_decisions/decision_funnel.py", "autonomi_core/learning_reporting/top_picks.py",
-        "autonomy_overview.py", "RELEASE_NOTES_v19.14.1.md", "DEPLOY_v19.14.1.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md", "MIGRATION_v19.14.1.md", "ACCEPTANCE_v19.14.1.md",
+        "autonomy_overview.py", "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
         "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
         "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
         "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
         "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
         "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
+        "runtime_safety.py", "paper_trading_guard.py", "paper_store.py", "trading_engine.py",
+        "runtime_background.py", "notifier.py", "auth.py", "render.yaml", "pytest.ini",
+        "tests/test_v19142_runtime_safety.py", "tests/test_clean_startup_imports_v19142.py",
+        "tools/smoke_start_app_v19142.py", "tools/verify_runtime_v19142.py",
+        "TEST_REPORT_v19.14.2.md", "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
@@ -142,13 +147,18 @@ PROFILE_REQUIRED_FILES = {
         "strategies/technical_benchmark.py", "strategies/autonomy_strategy.py", "strategies/technical_quality_challenger.py", "signal_engine.py", "scanner_worker.py",
         "pages/autonomy.py", "pages/strategy_versions.py", "pages/strategy_lab.py", "ui/global_styles.py", "trading_engine.py",
         "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py", ".streamlit/config.toml",
-        "RELEASE_NOTES_v19.14.1.md", "DEPLOY_v19.14.1.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md", "MIGRATION_v19.14.1.md", "ACCEPTANCE_v19.14.1.md",
+        "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
         "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
         "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
         "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
         "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
         "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
+        "runtime_safety.py", "paper_trading_guard.py", "paper_store.py", "trading_engine.py",
+        "runtime_background.py", "notifier.py", "auth.py", "render.yaml", "pytest.ini",
+        "tests/test_v19142_runtime_safety.py", "tests/test_clean_startup_imports_v19142.py",
+        "tools/smoke_start_app_v19142.py", "tools/verify_runtime_v19142.py",
+        "TEST_REPORT_v19.14.2.md", "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "migration": {
@@ -165,8 +175,8 @@ PROFILE_REQUIRED_FILES = {
         "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
         "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
         "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
-        "MIGRATION_v19.14.1.md", "DEPLOY_v19.14.1.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md", "tools/prepare_safe_upgrade.py",
+        "MIGRATION_v19.14.2.md", "DEPLOY_v19.14.2.md",
+        "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "tools/prepare_safe_upgrade.py",
         "tools/restore_safe_upgrade_backup.py", "tools/validate_distribution.py", "DISTRIBUTION_MANIFEST.json",
     },
 }

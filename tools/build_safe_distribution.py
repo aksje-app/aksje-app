@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.14.1 release archives."""
+"""Build clean, validated v19.14.2 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,8 +25,9 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.14.1"
-VERSION_FILE = "19_14_1"
+VERSION = "v19.14.2"
+VERSION_FILE = "19_14_2"
+SOURCE_BASE_COMMIT = "c4d3934"
 
 UPDATE_FILES = {
     "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
@@ -38,10 +39,10 @@ UPDATE_FILES = {
     "market_intelligence.py", "report_contracts.py", "report_integrity.py", "safety_audit.py",
     "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py",
     "ui/candidate_cards.py", "ui/live_market_banner.py", ".streamlit/config.toml",
-    "RELEASE_NOTES_v19.14.1.md", "DEPLOY_v19.14.1.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md", "MIGRATION_v19.14.1.md",
-    "TEST_REPORT_v19.14.1.md", "ACCEPTANCE_v19.14.1.md",
-    "V19_14_1_IMPLEMENTATION_AND_VERIFICATION.md",
+    "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md",
+    "TEST_REPORT_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
+    "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
     "tools/__init__.py", "tools/build_safe_distribution.py", "tools/validate_distribution.py",
     "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
     "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
@@ -89,13 +90,21 @@ UPDATE_FILES = {
     "autonomi_core/learning_reporting/top_picks.py",
     "tests/test_v19141_decision_gate_runtime_consistency.py",
     "tests/test_v1880_autonomy_core_foundation.py", "tests/test_v1905_decision_funnel.py",
+    "runtime_safety.py", "paper_trading_guard.py", "paper_store.py", "runtime_background.py",
+    "notifier.py", "auth.py", "render.yaml", "requirements.txt", "pytest.ini", ".env.example",
+    "tests/conftest.py", "tests/test_v19142_runtime_safety.py", "tests/test_clean_startup_imports_v19142.py",
+    "tests/test_clean_startup_imports_v19141.py", "tools/smoke_start_app_v19142.py",
+    "tools/verify_runtime_v19142.py", "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
+    "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md",
+    "TEST_REPORT_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
+    "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
 }
 
 
 
 
 MIGRATION_FILES = {
-    "app_version.py", "MIGRATION_v19.14.1.md", "DEPLOY_v19.14.1.md", "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md",
+    "app_version.py", "MIGRATION_v19.14.2.md", "DEPLOY_v19.14.2.md", "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md",
     "domain/__init__.py", "domain/persistence.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_account.py", "domain/strategy_promotion.py",
     "repositories/__init__.py", "repositories/base.py", "repositories/application.py",
     "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
@@ -187,6 +196,7 @@ def write_manifest(stage: Path, profile: str) -> Path:
         "version": VERSION,
         "profile": profile,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_base_commit": SOURCE_BASE_COMMIT,
         "mutable_runtime_included": False,
         "files": files,
     }
@@ -249,7 +259,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.1-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.2-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()
