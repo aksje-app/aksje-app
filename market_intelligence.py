@@ -21,7 +21,10 @@ from html import escape as html_escape
 from typing import Any, Mapping, Sequence, Callable
 
 from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, infer_market_from_ticker, normalize_candidate_identity, run_pipeline
-from market_universe import BASE_MARKET_SCOPES, expand_market_scope
+from market_universe import (
+    BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
+    FULL_MARKET_SCOPE_LABEL, expand_market_scope,
+)
 from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
@@ -299,6 +302,33 @@ def normalize_markets(markets: Sequence[str]) -> list[str]:
     return expanded or ["Norge"]
 
 
+def canonical_market_profile_selections(markets: Sequence[str] | None) -> list[str]:
+    """Return stable scheduler/UI selections for legacy and current market values.
+
+    Older saved jobs used ``Alle`` for the six-market scan, while v19.14.x gives
+    that label the safer core-market meaning.  Persisted explicit market lists are
+    therefore canonicalised by their actual set: exact core, extended Nordic and
+    full-market sets become one unambiguous profile label; mixed sets remain
+    explicit single-market selections.
+    """
+    raw = [str(x).strip() for x in (markets or []) if str(x).strip()]
+    if not raw:
+        return ["Alle kjernemarkeder"]
+
+    expanded = normalize_markets(raw)
+    expanded_set = set(expanded)
+    if expanded_set == set(BASE_MARKET_SCOPES):
+        return [FULL_MARKET_SCOPE_LABEL]
+    if expanded_set == set(CORE_MARKET_SCOPES):
+        return ["Alle kjernemarkeder"]
+    if expanded_set == set(EXTENDED_NORDIC_MARKET_SCOPES):
+        return ["Utvidet Norden"]
+
+    # Return only valid individual markets, in deterministic product order.
+    ordered = [market for market in BASE_MARKET_SCOPES if market in expanded_set]
+    return ordered or ["Alle kjernemarkeder"]
+
+
 def _allocated_market_budget(total: int, market_index: int, market_count: int, *, minimum: int = 1) -> int:
     """Distribute a total analysis budget deterministically across markets."""
     total = max(0, int(total))
@@ -388,6 +418,7 @@ class JobProfile:
         if "News & Sentiment Intelligence" not in modules:
             modules.append("News & Sentiment Intelligence")
         data["modules"] = modules
+        data["markets"] = canonical_market_profile_selections(data.get("markets"))
         data["timezone_name"] = valid_timezone(data.get("timezone_name"))
         return cls(**data)
 
@@ -3968,7 +3999,8 @@ def render_market_intelligence() -> None:
             )
             st.caption(f"PC/nettleser oppdaget: {detected_timezone} · lokal tid nå: {local_display(_now_iso(), timezone_name)} · lagres som UTC")
             market_choices = ["Alle kjernemarkeder", "Utvidet Norden", "Brasil", "Alle markeder - full skanning"] + [x for x in BASE_MARKET_SCOPES if x not in {"Brasil"}]
-            markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=current.markets if current else ["Alle kjernemarkeder"], key="mi_markets_v18687", help="Alle kjernemarkeder = Norge, Sverige og USA. Danmark/Finland og Brasil kjøres separat ved behov. Full skanning er et avansert valg.")
+            market_defaults = canonical_market_profile_selections(current.markets if current else None)
+            markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=market_defaults, key="mi_markets_v18687", help="Alle kjernemarkeder = Norge, Sverige og USA. Danmark/Finland og Brasil kjøres separat ved behov. Full skanning er et avansert valg.")
             schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:30", "22:30"], key="mi_schedules_v18690")
             st.caption("Skanningsvinduer kjører gjentatte ganger innenfor valgte tidsrom.")
             windows = current.scan_windows if current and current.scan_windows else DEFAULT_SCAN_WINDOWS
@@ -4041,7 +4073,7 @@ def render_market_intelligence() -> None:
             st.rerun()
         if reset_all:
             defaults = load_draft_job()
-            defaults.name = "Morgenanalyse"; defaults.markets=["Alle"]; defaults.schedules=["08:30"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
+            defaults.name = "Morgenanalyse"; defaults.markets=["Alle kjernemarkeder"]; defaults.schedules=["08:30"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]
