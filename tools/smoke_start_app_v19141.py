@@ -48,7 +48,6 @@ def main() -> int:
                 "ALLOW_LOCAL_STORAGE_FALLBACK": "true",
                 "PAPER_TRADING_ENABLED": "false",
                 "STREAMLIT_SERVER_HEADLESS": "true",
-                "STREAMLIT_SERVER_USE_STARLETTE": "false",
             }
         )
         command = [

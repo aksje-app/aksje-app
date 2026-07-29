@@ -51,7 +51,6 @@ def main() -> int:
                 "RUNTIME_BACKGROUND_ENABLED": "false",
                 "REPORT_SCHEDULER_ENABLED": "false",
                 "STREAMLIT_SERVER_HEADLESS": "true",
-                "STREAMLIT_SERVER_USE_STARLETTE": "false",
             }
         )
         command = [
