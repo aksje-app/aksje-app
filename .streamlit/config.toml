@@ -1,5 +1,4 @@
 [server]
-useStarlette = false
 enableStaticServing = true
 
 [client]
