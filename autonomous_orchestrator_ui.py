@@ -69,14 +69,12 @@ def _background_status_panel() -> None:
     state = str(status.get("state") or "UKJENT")
     execution_id = str(status.get("execution_id") or "")
     if state in {"COMPLETED", "FAILED", "CANCELLED"} and execution_id:
-        refresh_key = "orchestrator_terminal_app_refresh_v18712"
-        if st.session_state.get(refresh_key) != execution_id:
-            st.session_state[refresh_key] = execution_id
-            try:
-                st.rerun(scope="app")
-            except TypeError:
-                st.rerun()
-            return
+        # v19.14.3: terminal polling must never rerun the full application.
+        # A full rerun re-applied an old Autonomi route and moved users away
+        # from Rapport, Analyse or Portefølje. The fragment may update its own
+        # status, while the active navigation remains entirely user-owned.
+        refresh_key = "orchestrator_terminal_fragment_seen_v19143"
+        st.session_state[refresh_key] = execution_id
     pct = int(status.get("percent") or 0)
     message = str(status.get("message") or state)
     st.progress(min(100, max(0, pct)), text=f"{pct} % · {message}")

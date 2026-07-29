@@ -1,4 +1,4 @@
-"""Canonical report view and integrity validation for v19.14.2.
+"""Canonical report view and integrity validation for v19.14.3.
 
 The analysis engines remain authoritative for ranking and portfolio decisions.
 This module makes a completed result internally consistent before it is
@@ -10,7 +10,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Mapping, MutableMapping, Sequence
 
-REPORT_INTEGRITY_SCHEMA_VERSION = "1.4"
+from app_version import APP_VERSION, REPORT_SCHEMA_VERSION, get_version_contract
+
+REPORT_INTEGRITY_SCHEMA_VERSION = "1.5"
 
 _VERIFIED_EVIDENCE = {
     "AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS",
@@ -142,6 +144,87 @@ def compact_candidate_reference(row: Mapping[str, Any]) -> dict[str, Any]:
     )
     return {key: deepcopy(row.get(key)) for key in fields if key in row}
 
+
+_OUTCOME_ACTION = {
+    "KJØPSKANDIDAT": "BUY",
+    "OVERVÅKES_AUTOMATISK": "HOLD",
+    "AUTOMATISK_AVVIST": "SKIP",
+    "UNDERSØK_MANUELT": "REVIEW",
+}
+_OUTCOME_LABEL = {
+    "KJØPSKANDIDAT": "Kjøpskandidat",
+    "OVERVÅKES_AUTOMATISK": "Overvåkes automatisk",
+    "AUTOMATISK_AVVIST": "Automatisk avvist",
+    "UNDERSØK_MANUELT": "Manuell vurdering kreves",
+}
+
+
+def _synchronise_final_outcome(candidate: MutableMapping[str, Any]) -> None:
+    """Make outcome, action, evidence gate and manual-work fields one truth."""
+    code = str(candidate.get("autonomy_outcome_code") or "AUTOMATISK_AVVIST").upper()
+    label = _OUTCOME_LABEL.get(code, str(candidate.get("autonomy_outcome_label") or code))
+    manual = code == "UNDERSØK_MANUELT"
+    evidence_ready = bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision"))
+    candidate["autonomy_outcome_label"] = label
+    candidate["status"] = label
+    candidate["portfolio_action"] = _OUTCOME_ACTION.get(code, "SKIP")
+    candidate["manual_review_required"] = manual
+    candidate["evidence_review_required"] = manual
+    candidate["manual_task_summary"] = (
+        str(candidate.get("manual_task_summary") or "Konkret manuell vurdering kreves")
+        if manual else "Ingen manuell handling nødvendig"
+    )
+    candidate["evidence_gate_status"] = (
+        "MANUAL_REVIEW" if manual else ("PASS" if evidence_ready else "AUTO_CLOSED")
+    )
+    readiness = _mapping(candidate.get("decision_readiness"))
+    readiness.update({
+        "allowed_action": candidate["portfolio_action"],
+        "evidence_gate_action": "MANUAL_REVIEW" if manual else candidate["portfolio_action"],
+        "final_action": candidate["portfolio_action"],
+        "evidence_data_ready": evidence_ready,
+        "final_decision_ready": code == "KJØPSKANDIDAT" and evidence_ready,
+        "status": {
+            "KJØPSKANDIDAT": "KJØPSKLAR",
+            "OVERVÅKES_AUTOMATISK": "OVERVÅKES_AUTOMATISK",
+            "AUTOMATISK_AVVIST": "AVSLUTTET_AUTOMATISK",
+            "UNDERSØK_MANUELT": "MANUELL_VURDERING_KREVES",
+        }.get(code, "AVSLUTTET_AUTOMATISK"),
+    })
+    candidate["evidence_data_ready"] = evidence_ready
+    candidate["final_decision_ready"] = bool(readiness["final_decision_ready"])
+    candidate["decision_readiness"] = readiness
+    raw = _mapping(candidate.get("raw"))
+    # Evidence display fields are derived from the complete source payload.
+    insider = _mapping(raw.get("insider_intelligence"))
+    news = _mapping(raw.get("news_intelligence"))
+    insider_facts = int(insider.get("verified_fact_count") or len(insider.get("evidence") or []))
+    news_facts = int(news.get("verified_fact_count") or news.get("article_count") or len(news.get("events") or []))
+    if insider_facts and str(raw.get("insider_signal") or "").upper() in {"", "INGEN DATA", "MISSING", "NOT_SEARCHED"}:
+        raw["insider_signal"] = str(insider.get("signal") or "DOKUMENTERT")
+    if news_facts and str(raw.get("news_sentiment") or "").upper() in {"", "INGEN DATA", "MISSING", "NOT_SEARCHED"}:
+        raw["news_sentiment"] = str(news.get("sentiment") or "DOKUMENTERT")
+    raw.update({
+        "status": candidate["status"],
+        "portfolio_action": candidate["portfolio_action"],
+        "evidence_gate_status": candidate["evidence_gate_status"],
+        "evidence_review_required": manual,
+    })
+    candidate["raw"] = raw
+
+
+def _canonical_decisions(candidates: Sequence[Mapping[str, Any]], created_at: Any = "") -> list[dict[str, Any]]:
+    return [{
+        "timestamp": str(created_at or ""),
+        "ticker": str(row.get("ticker") or ""),
+        "market": str(row.get("market") or ""),
+        "decision": str(row.get("autonomy_outcome_label") or row.get("status") or ""),
+        "decision_code": str(row.get("autonomy_outcome_code") or ""),
+        "action": str(row.get("portfolio_action") or ""),
+        "score": _float(row.get("investment_score")),
+        "reason": str(row.get("autonomy_outcome_reason") or ""),
+        "manual_review_required": bool(row.get("manual_review_required")),
+    } for row in candidates]
 
 def _is_evidence_data_ready(candidate: Mapping[str, Any]) -> bool:
     return bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision"))
@@ -322,6 +405,74 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     """Return a deep-copied report view with explicit semantic precedence."""
     result = deepcopy(dict(run or {}))
     corrections: list[dict[str, Any]] = []
+
+    # A report rendered or persisted by this release must carry the current
+    # renderer/schema contract in every format. Preserve the source contract as
+    # provenance when an older run is reprocessed, but never let stale version
+    # metadata survive as the authoritative JSON contract while the PDF shows
+    # the current release.
+    source_contract = _mapping(result.get("version_contract"))
+    current_contract = get_version_contract(
+        component_name="report_integrity",
+        component_version=APP_VERSION,
+    )
+    if source_contract and (
+        str(source_contract.get("app_version") or "") != APP_VERSION
+        or str(source_contract.get("report_schema_version") or "") != REPORT_SCHEMA_VERSION
+    ):
+        result["source_version_contract"] = source_contract
+        corrections.append({
+            "ticker": "REPORT",
+            "field": "version_contract",
+            "from": {
+                "app_version": source_contract.get("app_version"),
+                "report_schema_version": source_contract.get("report_schema_version"),
+            },
+            "to": {
+                "app_version": APP_VERSION,
+                "report_schema_version": REPORT_SCHEMA_VERSION,
+            },
+            "reason": "JSON og PDF må bruke samme gjeldende rapportkontrakt",
+        })
+    result["version"] = APP_VERSION
+    result["app_version"] = APP_VERSION
+    result["report_schema_version"] = REPORT_SCHEMA_VERSION
+    result["version_contract"] = current_contract
+    # Existing report documents may contain stale metadata and sections. They
+    # are rebuilt from the canonical result at the end of this function.
+    result.pop("report_document", None)
+    result.pop("report_contract_validation", None)
+
+    # Report type and completion state are different concepts. A draft can be a
+    # completed run, but it must never be labelled FINAL/ENDELIG in the report.
+    identity = _mapping(result.get("report_identity"))
+    identity_type = str(identity.get("type") or "").upper()
+    identity_label = str(identity.get("label") or "")
+    draft_job = str(result.get("job_id") or "").upper() == "MI-DRAFT-AUTOSAVE"
+    is_draft = draft_job or identity_type == "UTKAST" or identity_label.casefold().startswith("utkast")
+    if draft_job and identity_type != "UTKAST":
+        base_label = identity_label or "Rapport"
+        if not base_label.casefold().startswith("utkast"):
+            base_label = f"Utkast – {base_label}"
+        identity.update({"type": "UTKAST", "label": base_label, "slug": "UTKAST_" + str(identity.get("slug") or "Rapport")})
+    if identity:
+        result["report_identity"] = identity
+    if is_draft:
+        old_status = _mapping(result.get("report_status"))
+        result["report_status"] = {
+            **old_status,
+            "state": "DRAFT",
+            "label": "UTKAST – IKKE ENDELIG",
+            "revalidation_required": bool(old_status.get("revalidation_required")),
+            "completion_state": "COMPLETED_DRAFT",
+        }
+        corrections.append({
+            "ticker": "REPORT",
+            "field": "report_status",
+            "from": old_status.get("label") or old_status.get("state") or "",
+            "to": "UTKAST – IKKE ENDELIG",
+            "reason": "Rapporttype UTKAST kan ikke merkes ENDELIG",
+        })
     canonical_candidates: list[dict[str, Any]] = []
 
     for position, source_candidate in enumerate(_rows(result.get("candidates")), 1):
@@ -417,6 +568,18 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         canonical_candidates, threshold=threshold, maximum_risk=maximum_risk,
         near_threshold_gap=6.0, max_manual_tasks=2,
     )
+    for candidate in canonical_candidates:
+        _synchronise_final_outcome(candidate)
+    # Rebuild reduction counts after canonical outcome/action synchronisation.
+    counts = {code: sum(1 for row in canonical_candidates if row.get("autonomy_outcome_code") == code)
+              for code in _OUTCOME_ACTION}
+    reduction.update({
+        "counts": counts,
+        "buy_candidates": counts["KJØPSKANDIDAT"],
+        "automatic_watch": counts["OVERVÅKES_AUTOMATISK"],
+        "automatic_rejected": counts["AUTOMATISK_AVVIST"],
+        "manual_candidates": counts["UNDERSØK_MANUELT"],
+    })
     result["candidates"] = canonical_candidates
     result["autonomous_decision_reduction"] = reduction
     result["manual_tasks"] = list(reduction.get("manual_tasks") or [])
@@ -487,6 +650,60 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     diagnostics_summary = _normalise_market_diagnostics(result)
     result["diagnostics_summary"] = diagnostics_summary
     result["learning_portfolio_summary"] = _learning_summary(result)
+    # Canonical portfolio reason: do not claim capacity shortage when the
+    # portfolio is inactive or has documented room/cash.
+    portfolio_decisions = _mapping(result.get("portfolio_decisions"))
+    portfolio_context = _mapping(portfolio_decisions.get("portfolio_context"))
+    portfolio_active = bool(portfolio_context.get("active") or portfolio_context.get("portfolio_active"))
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in canonical_candidates}
+    canonical_portfolio_rows = []
+    for decision in _rows(portfolio_decisions.get("decisions")):
+        ticker = str(decision.get("ticker") or "").upper()
+        candidate = by_ticker.get(ticker, {})
+        if not portfolio_active:
+            reason = "Porteføljen er ikke aktiv; ingen handel kan gjennomføres."
+        elif candidate.get("autonomy_outcome_code") != "KJØPSKANDIDAT":
+            reason = str(candidate.get("autonomy_outcome_reason") or "Kandidaten er ikke kjøpsgodkjent.")
+        else:
+            reason = str(decision.get("reason") or "Porteføljeporten vurderte kandidaten.")
+        decision["reason"] = reason
+        decision["blockers"] = [reason]
+        decision["action"] = str(candidate.get("portfolio_action") or decision.get("action") or "SKIP")
+        canonical_portfolio_rows.append(decision)
+    if portfolio_decisions:
+        portfolio_decisions["decisions"] = canonical_portfolio_rows
+        portfolio_decisions["actions"] = {
+            action: sum(1 for row in canonical_portfolio_rows if str(row.get("action") or "").upper() == action)
+            for action in ("BUY", "HOLD", "SELL", "SKIP", "REVIEW")
+        }
+        result["portfolio_decisions"] = portfolio_decisions
+
+    result["autonomous_decisions"] = _canonical_decisions(canonical_candidates, result.get("created_at"))
+    result["autonomous_decision_summary"] = {
+        "registered": len(result["autonomous_decisions"]),
+        "counts": dict(reduction.get("counts") or {}),
+    }
+    combined_quality = _mapping(result.get("combined_data_quality"))
+    evaluated_quality = int(combined_quality.get("evaluated") or len(canonical_candidates) or 0)
+    market_valid_quality = int(combined_quality.get("market_data_valid") or 0)
+    if combined_quality.get("coverage_pct") is not None:
+        data_coverage_pct = _float(combined_quality.get("coverage_pct"))
+    elif evaluated_quality:
+        data_coverage_pct = round(market_valid_quality / evaluated_quality * 100.0, 2)
+    else:
+        data_coverage_pct = _float(_mapping(result.get("data_quality")).get("score"))
+    result["quality_metrics"] = {
+        "overall_report_quality": _float(_mapping(result.get("data_quality")).get("score")),
+        "data_coverage": data_coverage_pct,
+        "candidate_evidence_coverage_average": round(
+            sum(_float(row.get("data_quality")) for row in canonical_candidates) / len(canonical_candidates), 2
+        ) if canonical_candidates else 0.0,
+        "labels": {
+            "overall_report_quality": "Overordnet rapportkvalitet",
+            "data_coverage": "Datadekning",
+            "candidate_evidence_coverage_average": "Gjennomsnittlig kandidat-/evidensdekning",
+        },
+    }
     result["report_summary"] = {
         "scanned": int(_mapping(result.get("summary")).get("scanned") or 0),
         "deep_analyzed": len(canonical_candidates),
@@ -503,6 +720,15 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         **result["executive_intelligence"],
         **diagnostics_summary,
     }
+    result["summary"] = {
+        "scanned": int(result["report_summary"].get("scanned") or 0),
+        "deep_analyzed": int(result["report_summary"].get("deep_analyzed") or 0),
+        "proposals": int(result["report_summary"].get("preliminary_model_candidates") or 0),
+        "recommended": int(result["report_summary"].get("buy_candidates") or 0),
+        "rejected": int(result["report_summary"].get("automatic_rejected") or 0),
+        "automatic_watch": int(result["report_summary"].get("automatic_watch") or 0),
+        "manual_review": int(result["report_summary"].get("manual_review") or 0),
+    }
     result["report_integrity"] = {
         "schema_version": REPORT_INTEGRITY_SCHEMA_VERSION,
         "canonical_candidate_count": len(canonical_candidates),
@@ -512,6 +738,13 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     }
     validation = validate_report_integrity(result)
     result["report_integrity"].update(validation)
+
+    # Rebuild the renderer-independent document after all canonical fields and
+    # integrity results are final. This makes archived JSON and rendered PDF
+    # share the same app/schema version and candidate sections.
+    if result.get("run_id") or result.get("report_id"):
+        from report_contracts import ensure_report_document
+        ensure_report_document(result)
     return result
 
 
@@ -560,6 +793,29 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         if actual.get(key) != value:
             errors.append(f"Sammendraget {key} er ikke beregnet fra kanonisk kandidatliste")
 
+    # One final outcome per candidate; manual status may not coexist with automatic closure.
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        ticker = str(candidate.get("ticker") or "-")
+        code = str(candidate.get("autonomy_outcome_code") or "").upper()
+        expected_action = _OUTCOME_ACTION.get(code)
+        if expected_action and str(candidate.get("portfolio_action") or "").upper() != expected_action:
+            errors.append(f"{ticker}: sluttutfall og slutthandling motsier hverandre")
+        manual = code == "UNDERSØK_MANUELT"
+        if bool(candidate.get("manual_review_required")) != manual or bool(candidate.get("evidence_review_required")) != manual:
+            errors.append(f"{ticker}: manuell vurderingsstatus er ikke entydig")
+        if not manual and str(candidate.get("evidence_gate_status") or "").upper() == "MANUAL_REVIEW":
+            errors.append(f"{ticker}: automatisk utfall viser fortsatt manuell evidensport")
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        for area in ("insider", "news"):
+            payload = raw.get(f"{area}_intelligence") if isinstance(raw.get(f"{area}_intelligence"), Mapping) else {}
+            facts = int(payload.get("verified_fact_count") or payload.get("article_count") or len(payload.get("evidence") or payload.get("events") or []))
+            display = str(raw.get(f"{area}_signal") if area == "insider" else raw.get("news_sentiment") or "").upper()
+            if facts > 0 and display in {"", "INGEN DATA", "NOT_SEARCHED", "MISSING"}:
+                errors.append(f"{ticker}: {area} har verifiserte fakta, men vises som ingen data")
+
+    summary = run.get("summary") if isinstance(run.get("summary"), Mapping) else {}
     report_summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     final_count = sum(1 for row in candidates if isinstance(row, Mapping) and _is_final_decision_ready(row))
     evidence_count = sum(1 for row in candidates if isinstance(row, Mapping) and _is_evidence_data_ready(row))
@@ -567,6 +823,14 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         errors.append("Sammendragets beslutningsklare antall er ikke endelig kjøpsklart antall")
     if int(report_summary.get("evidence_data_ready") or 0) != evidence_count:
         errors.append("Sammendragets evidens- og dataklare antall er feil")
+    reduction = run.get("autonomous_decision_reduction") if isinstance(run.get("autonomous_decision_reduction"), Mapping) else {}
+    if int(summary.get("rejected") or 0) != int(report_summary.get("automatic_rejected") or 0):
+        errors.append("summary.rejected og report_summary.automatic_rejected er ulike")
+    if int(report_summary.get("automatic_rejected") or 0) != int(reduction.get("automatic_rejected") or 0):
+        errors.append("Avvisningstall er ikke kanoniske på tvers av rapporten")
+    autonomous_decisions = list(run.get("autonomous_decisions") or [])
+    if candidates and len(autonomous_decisions) != len(candidates):
+        errors.append("Alle kandidatutfall er ikke registrert som autonome beslutninger")
 
     manual_candidates = [row for row in candidates if isinstance(row, Mapping) and row.get("manual_review_required")]
     manual_tasks = list(run.get("manual_tasks") or [])
@@ -623,8 +887,96 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         if execution_integrity and execution_integrity.get("ok") is False:
             errors.append("Autonom handel ble blokkert av ordrelagets integritetskontroll: " + "; ".join(execution_integrity.get("errors") or []))
 
+    identity = run.get("report_identity") if isinstance(run.get("report_identity"), Mapping) else {}
+    status = run.get("report_status") if isinstance(run.get("report_status"), Mapping) else {}
+    is_draft = str(identity.get("type") or "").upper() == "UTKAST" or str(identity.get("label") or "").casefold().startswith("utkast")
+    if is_draft and str(status.get("state") or "").upper() in {"FINAL", "ENDELIG"}:
+        errors.append("Rapporttype UTKAST er feilaktig merket som endelig")
+    if is_draft and "ENDELIG" in str(status.get("label") or "").upper() and "IKKE ENDELIG" not in str(status.get("label") or "").upper():
+        errors.append("Utkastrapportens statusetikett motsier rapporttypen")
+    version_contract = run.get("version_contract") if isinstance(run.get("version_contract"), Mapping) else {}
+    if str(version_contract.get("app_version") or "") != APP_VERSION:
+        errors.append("JSON-rapportens appversjon samsvarer ikke med gjeldende rapportgenerator")
+    if str(version_contract.get("report_schema_version") or "") != REPORT_SCHEMA_VERSION:
+        errors.append("JSON-rapportens skjemaversjon samsvarer ikke med gjeldende rapportgenerator")
+    if str(run.get("version") or run.get("app_version") or "") != APP_VERSION:
+        errors.append("Rapportens toppnivåversjon samsvarer ikke med versjonskontrakten")
+
+    quality_metrics = run.get("quality_metrics") if isinstance(run.get("quality_metrics"), Mapping) else {}
+    for key in ("overall_report_quality", "data_coverage", "candidate_evidence_coverage_average"):
+        value = _float(quality_metrics.get(key), -1.0)
+        if value < 0 or value > 100:
+            errors.append(f"Kvalitetsmålet {key} er utenfor 0–100")
+
     if not candidates:
         warnings.append("Rapporten har ingen kandidater")
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+def validate_pdf_semantics(pdf_bytes: bytes, run: Mapping[str, Any]) -> dict[str, Any]:
+    """Compare load-bearing PDF text with the canonical JSON report model.
+
+    This is deliberately narrower than a visual layout test. It verifies the
+    semantic stamp, complete ranking count, report state, priority outcomes and
+    evidence labels that previously diverged between PDF sections and JSON.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    try:
+        from io import BytesIO
+        from pypdf import PdfReader
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_bytes)).pages)
+    except Exception as exc:
+        return {"ok": False, "errors": [f"PDF kunne ikke leses for semantisk kontroll: {exc}"], "warnings": []}
+    normalized = " ".join(text.split())
+    candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
+    version_stamp = f"VERSION={APP_VERSION};SCHEMA={REPORT_SCHEMA_VERSION}"
+    if candidates and version_stamp not in normalized:
+        errors.append("PDF-versjon og rapportskjema samsvarer ikke med kanonisk JSON")
+    summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    stamp = (
+        f"INTEGRITY-CANDIDATES={len(candidates)};WATCH={int(summary.get('automatic_watch') or 0)};"
+        f"REJECTED={int(summary.get('automatic_rejected') or 0)};BUY={int(summary.get('buy_candidates') or 0)}"
+    )
+    if candidates and stamp not in normalized:
+        errors.append("PDF mangler eller motsier kanonisk integritetsstempel")
+    ranking_stamp = f"Rangering omfatter {len(candidates)} av {len(candidates)} kandidater."
+    if candidates and not bool(run.get("analysis_aborted")) and ranking_stamp not in normalized:
+        errors.append("PDF dokumenterer ikke full kandidatrangering")
+    identity = run.get("report_identity") if isinstance(run.get("report_identity"), Mapping) else {}
+    if str(identity.get("type") or "").upper() == "UTKAST" or str(run.get("job_id") or "").upper() == "MI-DRAFT-AUTOSAVE":
+        if "UTKAST – IKKE ENDELIG" not in normalized.upper():
+            errors.append("PDF viser ikke at utkastet er ikke-endelig")
+        if "RAPPORTSTATUS ENDELIG" in normalized.upper():
+            errors.append("PDF merker utkast som ENDELIG")
+    priorities = list(run.get("priority_top3") or [])[:3]
+    proposal_tickers = {str(row.get("ticker") or "").upper() for row in (run.get("proposals") or []) if isinstance(row, Mapping)}
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in candidates}
+    for item in priorities:
+        ticker = str(item.get("ticker") or "").upper()
+        row = by_ticker.get(ticker, {})
+        if not ticker or not row:
+            continue
+        if ticker not in normalized:
+            errors.append(f"PDF mangler kanonisk prioritet for {ticker}")
+        # Detailed proposal sections were the source of the AIZ/SSAB mismatch.
+        # Validate outcome and evidence there; decision-only shortlists need only
+        # appear in the canonical decision table.
+        if ticker not in proposal_tickers:
+            continue
+        label = str(row.get("autonomy_outcome_label") or "")
+        if label and label not in normalized:
+            errors.append(f"PDF mangler kanonisk status for {ticker}")
+        raw = row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+        for area, signal_key, info_key in (
+            ("insider", "insider_signal", "insider_intelligence"),
+            ("news", "news_sentiment", "news_intelligence"),
+        ):
+            info = raw.get(info_key) if isinstance(raw.get(info_key), Mapping) else {}
+            facts = int(info.get("verified_fact_count") or info.get("article_count") or 0)
+            signal = str(raw.get(signal_key) or "")
+            if facts > 0 and signal and signal not in normalized:
+                errors.append(f"PDF mangler dokumentert {area}-signal for {ticker}")
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -641,5 +993,5 @@ def apply_report_integrity(run: MutableMapping[str, Any]) -> dict[str, Any]:
 __all__ = [
     "REPORT_INTEGRITY_SCHEMA_VERSION", "apply_report_integrity",
     "canonical_report_view", "compact_candidate_reference", "executive_intelligence_from_candidates",
-    "validate_report_integrity",
+    "validate_pdf_semantics", "validate_report_integrity",
 ]

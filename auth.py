@@ -34,75 +34,92 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 ADMIN_RESET_ENV_NAMES = ("ADMIN_RESET_KEY", "AKSE_ADMIN_RESET_KEY", "APP_ADMIN_RESET_KEY")
 
 
-def _remember_storage_bridge(token=None, clear=False):
-    """Store the remember token locally and use URL query only as a transient bootstrap.
+def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload_after_store=False):
+    """Persist the remember token in a secure same-site browser cookie.
 
-    The token is removed with ``history.replaceState`` immediately after login or
-    restore.  A new browser session may add it for one bootstrap request, but it
-    is never deliberately kept in a shareable navigation URL.
+    Streamlit 1.57 exposes request cookies through ``st.context.cookies``. The
+    small browser bridge sets/clears the cookie and migrates any legacy
+    localStorage token without ever placing the token in the visible URL.
     """
     try:
         safe_token = json.dumps(str(token or ""))
         clear_flag = "true" if clear else "false"
+        bootstrap_flag = "true" if bootstrap else "false"
+        reload_flag = "true" if reload_after_store else "false"
         components.html(
             f"""
             <script>
             (function() {{
               try {{
-                var key = "ai_aksje_remember_token";
-                var bootKey = "ai_aksje_remember_bootstrap_done";
+                var storageKey = "ai_aksje_remember_token";
+                var cookieName = "ai_aksje_remember_token";
+                var migrationKey = "ai_aksje_cookie_migration_v19143";
                 var clear = {clear_flag};
+                var bootstrap = {bootstrap_flag};
+                var reloadAfterStore = {reload_flag};
                 var token = {safe_token};
                 var parentUrl = new URL(window.parent.location.href);
                 var parentStorage = null;
                 try {{ parentStorage = window.parent.localStorage; }} catch (err) {{ parentStorage = null; }}
+                function cookieSuffix(maxAge) {{
+                  var secure = parentUrl.protocol === "https:" ? "; Secure" : "";
+                  return "; Path=/; Max-Age=" + maxAge + "; SameSite=Lax" + secure;
+                }}
+                function setCookie(value) {{
+                  window.parent.document.cookie = cookieName + "=" + encodeURIComponent(value) + cookieSuffix(2592000);
+                }}
+                function clearCookie() {{
+                  window.parent.document.cookie = cookieName + "=; Path=/; Max-Age=0; SameSite=Lax" + (parentUrl.protocol === "https:" ? "; Secure" : "");
+                }}
                 function setStored(value) {{
-                  try {{ window.localStorage.setItem(key, value); }} catch (err) {{}}
-                  try {{ if (parentStorage) parentStorage.setItem(key, value); }} catch (err) {{}}
+                  try {{ window.localStorage.setItem(storageKey, value); }} catch (err) {{}}
+                  try {{ if (parentStorage) parentStorage.setItem(storageKey, value); }} catch (err) {{}}
                 }}
                 function getStored() {{
                   try {{ if (parentStorage) {{
-                    var parentValue = parentStorage.getItem(key);
+                    var parentValue = parentStorage.getItem(storageKey);
                     if (parentValue) return parentValue;
                   }} }} catch (err) {{}}
-                  try {{ return window.localStorage.getItem(key); }} catch (err) {{}}
+                  try {{ return window.localStorage.getItem(storageKey) || ""; }} catch (err) {{}}
                   return "";
                 }}
                 function clearStored() {{
-                  try {{ window.localStorage.removeItem(key); }} catch (err) {{}}
-                  try {{ window.sessionStorage.removeItem(bootKey); }} catch (err) {{}}
-                  try {{ if (parentStorage) parentStorage.removeItem(key); }} catch (err) {{}}
+                  try {{ window.localStorage.removeItem(storageKey); }} catch (err) {{}}
+                  try {{ if (parentStorage) parentStorage.removeItem(storageKey); }} catch (err) {{}}
+                  try {{ window.sessionStorage.removeItem(migrationKey); }} catch (err) {{}}
                 }}
-                function removeSensitiveQuery() {{
+                function clearLegacyQuery() {{
+                  var changed = parentUrl.searchParams.has("remember_token") || parentUrl.searchParams.has("remember_bootstrap");
                   parentUrl.searchParams.delete("remember_token");
                   parentUrl.searchParams.delete("remember_bootstrap");
-                  window.parent.history.replaceState(null, "", parentUrl.toString());
+                  if (changed) window.parent.history.replaceState(null, "", parentUrl.toString());
                 }}
                 if (clear) {{
                   clearStored();
-                  removeSensitiveQuery();
+                  clearCookie();
+                  clearLegacyQuery();
                   return;
                 }}
                 if (token) {{
                   setStored(token);
-                  try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
-                  removeSensitiveQuery();
+                  setCookie(token);
+                  clearLegacyQuery();
+                  if (reloadAfterStore) {{
+                    window.setTimeout(function() {{ window.parent.location.reload(); }}, 80);
+                  }}
                   return;
                 }}
-                if (parentUrl.searchParams.get("remember_token")) {{
-                  try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
-                  removeSensitiveQuery();
-                  return;
-                }}
-                var alreadyBootstrapped = "";
-                try {{ alreadyBootstrapped = window.sessionStorage.getItem(bootKey) || ""; }} catch (err) {{}}
-                if (!alreadyBootstrapped) {{
-                  var stored = getStored();
-                  if (stored) {{
-                    try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
-                    parentUrl.searchParams.set("remember_token", stored);
-                    parentUrl.searchParams.set("remember_bootstrap", "1");
-                    window.parent.location.replace(parentUrl.toString());
+                clearLegacyQuery();
+                if (bootstrap) {{
+                  var migrated = "";
+                  try {{ migrated = window.sessionStorage.getItem(migrationKey) || ""; }} catch (err) {{}}
+                  if (!migrated) {{
+                    var stored = getStored();
+                    try {{ window.sessionStorage.setItem(migrationKey, "1"); }} catch (err) {{}}
+                    if (stored) {{
+                      setCookie(stored);
+                      window.setTimeout(function() {{ window.parent.location.reload(); }}, 80);
+                    }}
                   }}
                 }}
               }} catch (err) {{}}
@@ -112,8 +129,20 @@ def _remember_storage_bridge(token=None, clear=False):
             height=0,
         )
     except Exception as e:
-        logging.warning("Remember storage bridge failed: %s", e)
+        logging.warning("Remember cookie bridge failed: %s", e)
 
+
+def _remember_cookie_token_v19143():
+    try:
+        context = getattr(st, "context", None)
+        cookies = getattr(context, "cookies", None) if context is not None else None
+        if cookies is not None:
+            token = cookies.get("ai_aksje_remember_token")
+            if token:
+                return str(token)
+    except Exception as exc:
+        logging.debug("Remember cookie unavailable: %s", exc)
+    return None
 
 
 
@@ -323,9 +352,11 @@ def _session_is_valid():
 
 def _restore_from_remember_token():
     try:
-        token = st.query_params.get("remember_token", None)
-        if isinstance(token, list):
-            token = token[0] if token else None
+        token = _remember_cookie_token_v19143()
+        if not token:
+            token = st.query_params.get("remember_token", None)
+            if isinstance(token, list):
+                token = token[0] if token else None
         if not token:
             return None
         item = _db_get_remember_item(str(token))
@@ -370,7 +401,7 @@ def _restore_from_remember_token():
 
 def _clear_remember_token():
     try:
-        token = st.session_state.get("remember_token") or st.query_params.get("remember_token", None)
+        token = st.session_state.get("remember_token") or _remember_cookie_token_v19143() or st.query_params.get("remember_token", None)
         if isinstance(token, list):
             token = token[0] if token else None
         if token:
@@ -426,7 +457,8 @@ def render_first_admin_setup():
 
 
 def render_login():
-    _remember_storage_bridge()
+    # Bootstrap is completed by require_login before the form is shown.
+    _remember_storage_bridge(bootstrap=True)
     # V13 / Oppgave 33: hele login-formen skal være kort og sentrert, ikke bare headeren.
     st.markdown(
         """
@@ -480,9 +512,12 @@ def render_login():
                 try:
                     token = _create_remember_token(user)
                     st.session_state["remember_token"] = token
-                    _remember_storage_bridge(token)
+                    st.session_state["auth_restore_attempted_v18621"] = True
+                    _remember_storage_bridge(token, reload_after_store=True)
+                    st.success("Innlogget. Husk meg lagres på denne enheten …")
+                    st.stop()
                 except Exception as e:
-                    logging.warning("Silenced exception restored in v18.6.3: %s", e)
+                    logging.warning("Kunne ikke lagre Husk meg: %s", e)
             st.success("Innlogget")
             st.rerun()
         else:
@@ -533,14 +568,15 @@ def require_login():
         return st.session_state.get("auth_user")
 
     user = _restore_from_remember_token()
-    if not user:
-        if not st.session_state.get("auth_restore_attempted_v18621"):
-            st.session_state["auth_restore_attempted_v18621"] = True
-            _remember_storage_bridge()
-            st.info("Forsøker å gjenopprette innlogging på denne enheten. Hvis dette ikke skjer automatisk, vises innloggingen under.")
-        render_login()
+    if user:
+        return user
 
-    return user
+    # The login renderer migrates any legacy localStorage token directly into a
+    # cookie. It does not stop the first render, so users never need to submit
+    # credentials twice when no remembered session exists.
+    st.session_state["auth_restore_attempted_v18621"] = True
+    render_login()
+    return None
 
 
 def render_user_admin(current_user):

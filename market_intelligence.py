@@ -34,7 +34,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
-from report_integrity import apply_report_integrity, canonical_report_view, compact_candidate_reference
+from report_integrity import apply_report_integrity, canonical_report_view, compact_candidate_reference, validate_pdf_semantics
 from report_contracts import (
     build_report_identity as build_report_identity_contract,
     ensure_report_document,
@@ -2102,15 +2102,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     technical_report_ok = bool(integrity.get("ok"))
     technical_report_label = "Bestått" if technical_report_ok else "Feilet"
     decision_confidence_value = int(decision_confidence.get("decision_confidence") or 0)
+    is_draft_report = str(identity.get("type") or "").upper() == "UTKAST"
+    quick_report_status_v19143 = "Utkast – ikke endelig" if is_draft_report else ("Foreløpig" if report_status.get("state") == "PROVISIONAL" else "Endelig")
     quick_table = Table([
         ["Teknisk rapportkontroll", technical_report_label, "Beslutningskonfidens", f"{decision_confidence_value}/100",
-         "Rapportstatus", "Foreløpig" if report_status.get("state") == "PROVISIONAL" else "Endelig"],
+         "Rapportstatus", quick_report_status_v19143],
     ], colWidths=[34*mm, 24*mm, 34*mm, 24*mm, 26*mm, 42*mm])
     quick_table.setStyle(_table_style(6.8, header=False, padding=2.5))
     quick_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (4,0), (4,-1), "Helvetica-Bold")]))
-    report_state_raw = "OVERVÅKES_AUTOMATISK" if report_status.get("state") == "PROVISIONAL" else "PASS"
+    report_state_raw = "OVERVÅKES_AUTOMATISK" if (report_status.get("state") == "PROVISIONAL" or is_draft_report) else "PASS"
     quality_state_raw = "PASS" if technical_report_ok else "ERROR"
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
     notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
@@ -2120,9 +2122,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     source_raw = "PASS" if source_total and source_valid >= source_total else ("ERROR" if source_total and source_valid == 0 else "REVIEW")
     notification_text = _notification_status_explanation(notification)
     status_stripe = Table([[
-        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Foreløpig rapport – automatisk revalidering' if report_status.get('state') == 'PROVISIONAL' else 'Endelig rapport'}", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Utkast – ikke endelig' if is_draft_report else ('Foreløpig rapport – automatisk revalidering' if report_status.get('state') == 'PROVISIONAL' else 'Endelig rapport')}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>Teknisk rapportkontroll</b><br/>{technical_report_label}", styles["Small"]),
-        Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kildekontroll</b><br/>{source_valid}/{source_total} kandidater gyldige" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kilde-/evidenskontroll</b><br/>{source_valid}/{source_total} kandidater evidensklare" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover</b><br/>{escape(_loc(notification_text))}", styles["Small"]),
     ]], colWidths=[42*mm, 42*mm, 42*mm, 42*mm])
     status_stripe.setStyle(TableStyle([
@@ -2260,7 +2262,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         quality_table = Table([["Markedsdata", f"{quality.get('score', 0)} %", "Vurdering", _loc(quality.get("label", "-")), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
         quality_table.setStyle(_table_style(6.8, header=False, padding=2))
         quality_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold"), ("FONTNAME", (8,0), (8,0), "Helvetica-Bold")]))
-        story += [Paragraph("Datakvalitet", styles["Subsection"]), quality_table,
+        story += [Paragraph("Overordnet rapportkvalitet", styles["Subsection"]), quality_table,
                   Paragraph("Poengsummen over gjelder kurs- og markedsdata. Innsider-, nyhets-, analyse- og historisk test-dekning vurderes separat og kan redusere beslutningskonfidensen.", styles["Small"])]
         if quality.get("failed_markets"):
             story += [Paragraph("Datakvaliteten er redusert fordi valgte markeder feilet eller ga null kandidater: " +
@@ -2693,7 +2695,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 ["Konfidens før evidens", "Straff", "Tak", "Endelig", "Evidensport", "Manuell kontroll"],
                 [_fmt(candidate.get("confidence_before_evidence_policy")), _fmt(candidate.get("evidence_confidence_penalty")),
                  _fmt(candidate.get("evidence_confidence_cap")), _fmt(candidate.get("confidence_score")),
-                 _status_label(candidate.get("evidence_gate_status") or "-"), "Ja" if candidate.get("evidence_review_required") else "Nei"],
+                 _status_label("MANUAL_REVIEW" if candidate.get("manual_review_required") else ("PASS" if candidate.get("evidence_data_ready") else "AUTO_CLOSED")), "Ja" if candidate.get("evidence_review_required") else "Nei"],
             ], colWidths=[29*mm, 22*mm, 22*mm, 22*mm, 39*mm, 34*mm])
             confidence_table.setStyle(_table_style(6.2, padding=2))
             profile = candidate.get("confidence_profile") if isinstance(candidate.get("confidence_profile"), Mapping) else {}
@@ -2764,7 +2766,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 Paragraph(f"<b>Risikofaktorer og manglende data:</b> {escape(_loc(risks))}; {escape(_loc(evidence['cautions']))}", styles["Small"]),
             ]
         data = [["#", "Ticker", "Marked", "Score", "Konf.", "Scoretrend", "Risiko (0-100)", "Status"]]
-        for r in candidates[:10]:
+        for r in candidates:
             data.append([
                 r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")),
                 _fmt(r.get("confidence_score")), _p(r.get("score_trend") or r.get("trend") or "NY"),
@@ -2773,11 +2775,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         table = Table(data, repeatRows=1, colWidths=[7*mm, 18*mm, 18*mm, 14*mm, 14*mm, 20*mm, 24*mm, 53*mm])
         table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
                                    ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("Rå Top 10 – scoretrend", styles["Section"]),
-                  Paragraph("Risiko vises på en referanseskala fra 0 til 100; lavere verdi er bedre.", styles["Small"]),
+        story += [Paragraph("Full rangering – scoretrend", styles["Section"]),
+                  Paragraph(f"Rangering omfatter {len(candidates)} av {len(candidates)} kandidater. Risiko vises på en referanseskala fra 0 til 100; lavere verdi er bedre.", styles["Small"]),
                   table]
         strategy_data = [["Ticker", "Bransje", "Parallelle strategitreff", "Forklaring"]]
-        for candidate in candidates[:10]:
+        for candidate in candidates:
             analysis_layer = candidate.get("analysis_ranking") or {}
             matches = candidate.get("strategy_matches") or analysis_layer.get("matches") or []
             strategy_data.append([
@@ -2790,7 +2792,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [Paragraph("Parallelle strategier", styles["Subsection"]),
                   Paragraph("Kandidaten kan passe flere strategier samtidig. Hver score bruker bransjereferanser, råfelt, komponentbidrag og egen datadekning.", styles["Small"]),
                   strategy_table]
-    for p in run.get("proposals") or []:
+    candidate_lookup = {str(row.get("ticker") or "").upper(): row for row in candidates}
+    proposal_rows = [candidate_lookup.get(str(row.get("ticker") or "").upper(), row)
+                     for row in (run.get("proposals") or []) if isinstance(row, Mapping)]
+    for p in proposal_rows:
         raw = p.get("raw") or {}; insider = raw.get("insider_intelligence") or {}; news = raw.get("news_intelligence") or {}
         score_data = [
             ["AI-funn", "Fundamentalt", "Analyse", "Historisk test", "Portefølje", "Innsider", "Nyheter", "Risiko (0-100)"],
@@ -2887,6 +2892,20 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                                Paragraph(f"Investert: {portfolio_proposal.get('invested_pct', 0)} % | Kontanter: {portfolio_proposal.get('cash_pct', 100)} %", styles["BodyCompact"]),
                                ptable])]
 
+    report_summary_v19143 = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    story += [
+        Paragraph(
+            f"Integritetsstempel: {len(candidates)} kandidater | {int(report_summary_v19143.get('automatic_watch') or 0)} overvåkes | "
+            f"{int(report_summary_v19143.get('automatic_rejected') or 0)} avvist | {int(report_summary_v19143.get('buy_candidates') or 0)} kjøp",
+            styles["Footer"],
+        ),
+        Paragraph(
+            f"INTEGRITY-CANDIDATES={len(candidates)};WATCH={int(report_summary_v19143.get('automatic_watch') or 0)};"
+            f"REJECTED={int(report_summary_v19143.get('automatic_rejected') or 0)};BUY={int(report_summary_v19143.get('buy_candidates') or 0)};"
+            f"VERSION={APP_VERSION};SCHEMA={REPORT_SCHEMA_VERSION}",
+            styles["Footer"],
+        ),
+    ]
     technical_story = story
     has_technical_content = bool(
         run.get("candidates") or run.get("errors") or run.get("warnings")
@@ -2925,6 +2944,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         pdf_bytes = out.getvalue()
     except Exception:
         pass
+    pdf_semantics = validate_pdf_semantics(pdf_bytes, run)
+    if not pdf_semantics.get("ok"):
+        raise ValueError("PDF/JSON-integritet feilet: " + "; ".join(pdf_semantics.get("errors") or []))
     return pdf_bytes
 
 

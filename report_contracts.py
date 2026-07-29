@@ -15,7 +15,7 @@ from app_version import APP_VERSION, REPORT_SCHEMA_VERSION, get_version_contract
 from local_time import DEFAULT_TIMEZONE, as_local, local_display, valid_timezone
 
 
-REPORT_CONTRACT_VERSION = "1.3"
+REPORT_CONTRACT_VERSION = "1.4"
 
 
 class ReportContractError(ValueError):

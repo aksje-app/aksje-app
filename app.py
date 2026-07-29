@@ -7728,9 +7728,11 @@ def _paper_fetch_stock_price_v1863z():
             conf = int(decision.get("confidence", item.get("confidence", 0)) or 0)
             st.session_state["paper_stock_confidence_v1863y"] = max(0, min(100, conf))
             label = str(decision.get("decision") or decision.get("action") or "").strip()
+            st.session_state["paper_stock_model_signal_v19143"] = label or "IKKE BEREGNET"
             confidence_msg = f" System-confidence: {conf}%{(' · ' + label) if label else ''}."
         except Exception as exc:
             st.session_state["paper_stock_confidence_v1863y"] = 0
+            st.session_state["paper_stock_model_signal_v19143"] = "IKKE BEREGNET"
             confidence_msg = f" System-confidence mangler: {str(exc)[:90]}."
         st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
         st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.{confidence_msg}")
@@ -7860,6 +7862,7 @@ def _paper_stock_symbol_changed_v1863ac():
     if previous and symbol != previous:
         st.session_state["paper_stock_price_input_v1863y"] = 0.0
         st.session_state["paper_stock_confidence_v1863y"] = 0
+        st.session_state["paper_stock_model_signal_v19143"] = "IKKE BEREGNET"
         st.session_state["paper_stock_fetch_status_v1863z"] = ("info", "Ticker er endret. Hent ny aksjekurs før paper-kjøp.")
     st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
 
@@ -18687,7 +18690,13 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
         if buy_now_picks:
             _saved_candidates = save_latest_buy_now_candidates(buy_now_picks, scan_market)
             st.info(f"Disse er kandidater med grønt teknisk signal akkurat nå. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjøp skjer via Cron, eller knappen 'Kjør auto-kjøp nå'.")
-            if st.button(f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
+            _market_bulk_gate_v19143 = paper_trading_decision()
+            if st.button(
+                f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})",
+                key=f"paper_buy_all_{scan_market}",
+                disabled=not _market_bulk_gate_v19143.allowed,
+                help=_market_bulk_gate_v19143.reason if not _market_bulk_gate_v19143.allowed else None,
+            ):
                 _messages = []
                 for _item in buy_now_picks:
                     _ticker = _item.get("ticker")

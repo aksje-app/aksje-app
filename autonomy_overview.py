@@ -116,6 +116,8 @@ def collect_autonomy_overview() -> dict[str, Any]:
     params = load_parameters()
     positions = list((portfolio.get("positions") or {}).values())
     decisions = _rows("autonomous_portfolio/decisions.json", DECISIONS_PATH)
+    if not decisions:
+        decisions = [dict(row) for row in latest_run.get("autonomous_decisions") or [] if isinstance(row, Mapping)]
     notifications = _rows("autonomous_portfolio/notifications.json", NOTIFICATIONS_PATH)
     performance = read_json("autonomous_portfolio/performance.json", PERFORMANCE_PATH, {})
     performance = dict(performance) if isinstance(performance, Mapping) else {}

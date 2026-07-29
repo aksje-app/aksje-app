@@ -53,7 +53,14 @@ def _sidebar_persist_nav_v18658(st, nav: str) -> None:
         from pathlib import Path
         path = Path("data/ui_state_v18658.json")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"nav": str(nav or ""), "version": "v18.6.61"}, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {
+            "nav": str(nav or ""),
+            "group": str(st.session_state.get("ai_control_center_group_v1863aj") or ""),
+            "panel": str(st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
+            "tab": str(st.session_state.get("autonomy_core_workspace_slug_v1882") or st.session_state.get("paper_trading_active_tab_slug_v18674c") or ""),
+            "version": "v19.14.3",
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -160,6 +167,8 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
     nav = str(nav or "").strip().lower()
     _clear_control_center_nav_state_v18663(st)
     st.session_state["ai_control_center_force_nav_v18663"] = nav
+    st.session_state["navigation_user_revision_v19143"] = int(st.session_state.get("navigation_user_revision_v19143", 0) or 0) + 1
+    st.session_state["navigation_last_source_v19143"] = "USER"
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
     elif nav == "analysis":
