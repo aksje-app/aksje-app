@@ -153,7 +153,6 @@ def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload
             "data:text/html;charset=utf-8," + quote(bridge_html),
             height=1,
             width=1,
-            scrolling=False,
         )
     except Exception as e:
         logging.warning("Remember cookie bridge failed: %s", e)

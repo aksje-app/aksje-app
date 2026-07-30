@@ -81,6 +81,6 @@ def install_browser_timezone_bootstrap() -> None:
         })();
         </script>
         """
-        st.iframe("data:text/html;charset=utf-8," + quote(html), height=1, width=1, scrolling=False)
+        st.iframe("data:text/html;charset=utf-8," + quote(html), height=1, width=1)
     except Exception:
         pass
