@@ -39,8 +39,8 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_version_contract_is_v19143() -> None:
-    assert app_version.APP_VERSION == "v19.14.6"
-    assert app_version.APP_VERSION_NAME == "PDF-avhengighet og ren oppstart"
+    assert app_version.APP_VERSION == "v19.15.0"
+    assert app_version.APP_VERSION_NAME == "Full systemstabilisering"
     assert app_version.RANKING_MODEL_VERSION == app_version.APP_VERSION
     assert app_version.AUTONOMY_POLICY_VERSION == app_version.APP_VERSION
 

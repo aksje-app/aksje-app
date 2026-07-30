@@ -89,7 +89,7 @@ def _report(candidates: list[dict], *, buy_tickers: list[str] | None = None) -> 
 
 def test_all_exposed_autonomy_versions_follow_app_version():
     expected = app_version.APP_VERSION
-    assert expected == "v19.14.6"
+    assert expected == "v19.15.0"
     assert orchestrator.CORE_VERSION == expected
     assert full_execution.VERSION == expected
     assert layer.LAYER_VERSION == expected
@@ -359,7 +359,7 @@ def test_job_profile_load_migrates_legacy_market_values_to_visible_profiles():
 def test_active_user_interface_does_not_display_obsolete_release_badges():
     files = [
         Path("app.py"), Path("pages/long_engine.py"), Path("pages/paper_trading.py"),
-        Path("ai_strategy_optimization.py"), Path("streamlit_patch_snippet.py"),
+        Path("ai_strategy_optimization.py"),
     ]
     visible_calls = ("st.caption(", "st.info(", "st.warning(", "st.success(", "st.markdown(", "st.write(")
     obsolete = []

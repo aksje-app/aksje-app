@@ -231,10 +231,10 @@ class EvidenceIntegrityTests(unittest.TestCase):
 
     def test_version_and_current_release_notes_are_available_in_source_repository(self):
         version = Path("app_version.py").read_text(encoding="utf-8")
-        notes = Path("RELEASE_NOTES_v19.14.6.md").read_text(encoding="utf-8")
+        notes = Path("RELEASE_NOTES_v19.15.0.md").read_text(encoding="utf-8")
         self.assertIn('v19.0.11:', version)
-        self.assertIn('APP_VERSION = "v19.14.6"', version)
-        self.assertIn("v19.14.6", notes)
+        self.assertIn('APP_VERSION = "v19.15.0"', version)
+        self.assertIn("v19.15.0", notes)
         self.assertIn("rapportintegritet", notes.lower())
 
 

@@ -14,10 +14,10 @@ import trading_settings
 
 
 def test_version_contract_is_v19145():
-    assert app_version.APP_VERSION == "v19.14.6"
-    assert app_version.PREVIOUS_APP_VERSION == "v19.14.5"
-    assert app_version.RANKING_MODEL_VERSION == "v19.14.6"
-    assert app_version.AUTONOMY_POLICY_VERSION == "v19.14.6"
+    assert app_version.APP_VERSION == "v19.15.0"
+    assert app_version.PREVIOUS_APP_VERSION == "v19.14.6"
+    assert app_version.RANKING_MODEL_VERSION == "v19.15.0"
+    assert app_version.AUTONOMY_POLICY_VERSION == "v19.15.0"
 
 
 def test_trading_rules_never_open_database_in_local_mode(monkeypatch):
