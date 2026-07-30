@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Validate AI Aksje Analyzer release directories and ZIP archives.
-
-The validator is intentionally dependency-free so it can run before deploy.
-It rejects mutable runtime state, generated reports, local secrets, databases,
-unsafe archive paths and common credential formats.
-"""
+"""Validate clean AI Aksje Analyzer source and delta distributions."""
 from __future__ import annotations
 
 import argparse
@@ -17,178 +12,62 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.14.6"
+EXPECTED_VERSION = "v19.15.0"
 
 FORBIDDEN_ROOT_DIRS = {
-    ".git",
-    ".app_runtime",
-    ".pytest_cache",
-    ".render",
-    "build",
-    "cache",
-    "data",
-    "dist",
-    "htmlcov",
-    "logs",
-    "local_runtime",
-    "old_work_d",
-    "runtime",
-    "runtime_data",
-    "storage",
+    ".git", ".app_runtime", ".pytest_cache", ".render", "build", "cache",
+    "data", "dist", "htmlcov", "logs", "local_runtime", "old_work_d",
+    "runtime", "runtime_data", "storage", "__pycache__",
 }
-
 FORBIDDEN_EXACT_PATHS = {
-    ".env",
-    ".streamlit/secrets.toml",
-    "paper_portfolio.json",
-    "app_users.json",
-    "remember_tokens.json",
-    "app_settings.json",
-    "alert_state.json",
-    "trading_rules.json",
-    "strategy_test_logs.json",
-    "strategy_profiles.json",
-    "runtime_audit_log.jsonl",
-    "runtime_manifest.json",
+    ".env", ".streamlit/secrets.toml", "paper_portfolio.json", "app_users.json",
+    "remember_tokens.json", "app_settings.json", "alert_state.json",
+    "trading_rules.json", "strategy_test_logs.json", "strategy_profiles.json",
+    "runtime_audit_log.jsonl", "runtime_manifest.json",
 }
-
 FORBIDDEN_SUFFIXES = {
-    ".db",
-    ".dump",
-    ".log",
-    ".pyo",
-    ".pyc",
-    ".sqlite",
-    ".sqlite3",
-    ".tmp",
-    ".zip",
-    ".tar",
-    ".gz",
+    ".db", ".dump", ".log", ".pyo", ".pyc", ".sqlite", ".sqlite3",
+    ".tmp", ".tar", ".gz",
 }
-
 GENERATED_REPORT_PREFIX = "static/reports/"
 ALLOWED_GENERATED_REPORT_PLACEHOLDERS = {
-    "static/reports/.gitkeep",
-    "static/reports/README.md",
+    "static/reports/.gitkeep", "static/reports/README.md",
+    "COPY_TO_REPOSITORY/static/reports/.gitkeep",
+    "COPY_TO_REPOSITORY/static/reports/README.md",
 }
-
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("PRIVATE_KEY", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
     ("OPENAI_KEY", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("GITHUB_TOKEN", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
     ("SLACK_TOKEN", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
     ("AWS_ACCESS_KEY", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
-    (
-        "DATABASE_PASSWORD",
-        re.compile(r"\bpostgres(?:ql)?://[^\s:/]+:[^\s@/]+@[^\s]+", re.IGNORECASE),
-    ),
+    ("DATABASE_PASSWORD", re.compile(r"\bpostgres(?:ql)?://[^\s:/]+:[^\s@/]+@[^\s]+", re.I)),
 )
-
 TEXT_SUFFIXES = {
     ".bat", ".cfg", ".css", ".csv", ".env", ".example", ".html",
     ".ini", ".js", ".json", ".md", ".py", ".sh", ".toml", ".txt",
     ".yaml", ".yml",
 }
-
 PROFILE_REQUIRED_FILES = {
     "full": {
-        "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
-        "runtime_dependencies.py", "tools/check_runtime_dependencies.py", "tests/test_v19146_pdf_dependency_hotfix.py",
-        "app.py", "app_version.py", "requirements.txt", ".env.example",
-        "auth.py", "auth_persistence.py", "user_store.py", "navigation_state.py", "drift_recovery.py",
-        "services/storage_service.py", "services/persistence_service.py",
-        "repositories/base.py", "repositories/application.py", "domain/persistence.py",
-        "pages/overview.py", "pages/analysis.py", "pages/ranking.py", "pages/paper_trading.py",
-        "pages/top_picks.py", "pages/long_engine.py", "pages/autonomy.py", "pages/trading.py",
-        "pages/strategy_versions.py", "pages/strategy_lab.py", "ui/candidate_cards.py", "ui/live_market_banner.py",
-        "ui/legacy_context.py", "ui/global_styles.py", "app_core/context.py",
-        "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_contract.py", "domain/strategy_account.py", "services/strategy_registry_service.py", "services/strategy_binding.py",
-        "services/market_snapshot_service.py", "services/technical_signal_service.py", "services/parallel_strategy_service.py",
-        "services/strategy_account_service.py", "services/simulated_execution_service.py",
-        "services/autonomy_activation_service.py", "services/autonomy_learning_account_service.py", "services/evaluation_export_service.py", "services/autonomy_technical_contribution_service.py",
-        "services/strategy_outcome_service.py",
-        "domain/strategy_lab.py", "domain/strategy_promotion.py", "services/technical_quality_service.py", "services/strategy_lab_service.py",
-        "services/strategy_promotion_service.py", "services/production_strategy_service.py",
-        "services/quality_evidence_normalizer.py", "services/paper_quality_enrichment_service.py", "services/strategy_outcome_service.py",
-        "strategies/technical_benchmark.py", "strategies/autonomy_strategy.py", "strategies/technical_quality_challenger.py", "signal_engine.py", "scanner_worker.py",
-        "migrations/migrate_legacy_storage.py", "tools/export_persistent_storage_v1920.py",
-        "tools/import_persistent_storage_v1920.py", "operational_telemetry.py", "report_contracts.py", "report_integrity.py",
-        "decision_report.py", "decision_intelligence.py", "controlled_parameter_learning.py", "market_universe.py", "investment_pipeline.py", "autonomous_decision_reduction.py", "norwegian_report_language.py",
-        "autonomy_modes.py", "autonomous_orchestrator.py", "autonomous_portfolio.py", "insider_intelligence.py", "official_insider_sources.py",
+        "app.py", "app_version.py", "requirements.txt", "requirements-dev.txt",
+        "render.yaml", ".env.example", "market_intelligence.py", "market_universe.py",
+        "report_integrity.py", "decision_report.py", "evidence_contract.py",
+        "news_intelligence.py", "insider_intelligence.py", "notifier.py",
+        "RELEASE_NOTES_v19.15.0.md", "ACCEPTANCE_v19.15.0.md", "DEPLOY_v19.15.0.md",
+        "tests/test_v19150_full_system_stabilization.py",
+        "tools/audit_full_system_v19150.py", "tools/validate_distribution.py",
+        "tools/build_safe_distribution.py", "DISTRIBUTION_MANIFEST.json",
         "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
-        "autonomi_core/portfolio_decisions/layer.py", "autonomi_core/portfolio_decisions/decision_funnel.py", "autonomi_core/learning_reporting/top_picks.py",
-        "autonomy_overview.py", "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
-        "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
-        "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
-        "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
-        "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
-        "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
-        "runtime_safety.py", "paper_trading_guard.py", "paper_store.py", "trading_engine.py",
-        "runtime_background.py", "notifier.py", "auth.py", "render.yaml", "pytest.ini",
-        "tests/test_v19142_runtime_safety.py", "tests/test_clean_startup_imports_v19142.py",
-        "tools/smoke_start_app_v19142.py", "tools/verify_runtime_v19142.py",
-        "TEST_REPORT_v19.14.2.md", "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
-        "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
-        "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
-        "runtime_dependencies.py", "tools/check_runtime_dependencies.py", "tests/test_v19146_pdf_dependency_hotfix.py",
-        "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
-        "auth.py", "auth_persistence.py", "user_store.py", "navigation_state.py", "drift_recovery.py", "tests/test_v19144_drift_recovery.py",
-        "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
-        "market_intelligence.py", "market_universe.py", "investment_pipeline.py", "autonomous_decision_reduction.py", "norwegian_report_language.py", "report_contracts.py", "report_integrity.py", "ui/candidate_cards.py", "ui/live_market_banner.py", "safety_audit.py",
-        "autonomy_modes.py", "autonomous_orchestrator.py", "autonomous_portfolio.py", "insider_intelligence.py", "official_insider_sources.py",
-        "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
-        "autonomi_core/portfolio_decisions/layer.py", "autonomi_core/portfolio_decisions/decision_funnel.py", "autonomi_core/learning_reporting/top_picks.py",
-        "app_core/context.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_contract.py", "domain/strategy_account.py", "repositories/application.py",
-        "services/service_registry.py", "services/strategy_registry_service.py", "services/strategy_binding.py",
-        "services/market_snapshot_service.py", "services/technical_signal_service.py", "services/parallel_strategy_service.py",
-        "services/strategy_account_service.py", "services/simulated_execution_service.py",
-        "services/autonomy_activation_service.py", "services/autonomy_learning_account_service.py", "services/evaluation_export_service.py", "services/autonomy_technical_contribution_service.py",
-        "services/strategy_outcome_service.py",
-        "domain/strategy_lab.py", "domain/strategy_promotion.py", "services/technical_quality_service.py", "services/strategy_lab_service.py",
-        "services/strategy_promotion_service.py", "services/production_strategy_service.py",
-        "services/quality_evidence_normalizer.py", "services/paper_quality_enrichment_service.py", "services/strategy_outcome_service.py",
-        "strategies/technical_benchmark.py", "strategies/autonomy_strategy.py", "strategies/technical_quality_challenger.py", "signal_engine.py", "scanner_worker.py",
-        "pages/autonomy.py", "pages/strategy_versions.py", "pages/strategy_lab.py", "ui/global_styles.py", "trading_engine.py",
-        "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py", ".streamlit/config.toml",
-        "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
-        "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
-        "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
-        "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
-        "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
-        "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
-        "runtime_safety.py", "paper_trading_guard.py", "paper_store.py", "trading_engine.py",
-        "runtime_background.py", "notifier.py", "auth.py", "render.yaml", "pytest.ini",
-        "tests/test_v19142_runtime_safety.py", "tests/test_clean_startup_imports_v19142.py",
-        "tools/smoke_start_app_v19142.py", "tools/verify_runtime_v19142.py",
-        "TEST_REPORT_v19.14.2.md", "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
-        "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
+        "README_APPLY_DELTA.md", "CHANGE_INVENTORY_v19.15.0.json", "DELETE_FILES.txt",
+        "COPY_TO_REPOSITORY/app_version.py",
+        "COPY_TO_REPOSITORY/RELEASE_NOTES_v19.15.0.md",
+        "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py",
     },
-    "migration": {
-        "app_version.py", "migrations/migrate_legacy_storage.py", "services/__init__.py", "services/storage_service.py",
-        "services/persistence_service.py", "services/strategy_registry_service.py", "services/strategy_binding.py", "services/strategy_promotion_service.py",
-        "storage_architecture.py", "utils.py", "repositories/base.py", "repositories/application.py",
-        "domain/persistence.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_account.py", "domain/strategy_lab.py", "domain/strategy_promotion.py",
-        "services/strategy_account_service.py", "services/simulated_execution_service.py",
-        "services/autonomy_activation_service.py", "services/autonomy_learning_account_service.py", "services/evaluation_export_service.py", "services/autonomy_technical_contribution_service.py",
-        "services/strategy_outcome_service.py",
-        "tools/export_persistent_storage_v1920.py",
-        "tools/import_persistent_storage_v1920.py", "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
-        "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
-        "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
-        "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
-        "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
-        "MIGRATION_v19.14.2.md", "DEPLOY_v19.14.2.md",
-        "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "tools/prepare_safe_upgrade.py",
-        "tools/restore_safe_upgrade_backup.py", "tools/validate_distribution.py", "DISTRIBUTION_MANIFEST.json",
-    },
+    "migration": {"app_version.py", "DEPLOY_v19.15.0.md"},
 }
-
-
-
 
 
 @dataclass(frozen=True)
@@ -219,18 +98,19 @@ def _unsafe_archive_path(raw: str) -> bool:
     return path.is_absolute() or any(part == ".." for part in path.parts)
 
 
+def _is_text_candidate(name: str) -> bool:
+    path = Path(name)
+    return path.name in {".env", ".env.example", ".gitignore"} or path.suffix.lower() in TEXT_SUFFIXES
+
+
 def _iter_directory(root: Path) -> Iterator[FileEntry]:
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
-            yield FileEntry(name=path.relative_to(root).as_posix(), size=-1)
-            continue
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root).as_posix()
-        content = None
-        if path.stat().st_size <= 2_000_000 and _is_text_candidate(relative):
-            content = path.read_bytes()
-        yield FileEntry(name=relative, size=path.stat().st_size, content=content)
+            yield FileEntry(path.relative_to(root).as_posix(), -1)
+        elif path.is_file():
+            rel = path.relative_to(root).as_posix()
+            content = path.read_bytes() if path.stat().st_size <= 2_000_000 and _is_text_candidate(rel) else None
+            yield FileEntry(rel, path.stat().st_size, content)
 
 
 def _iter_zip(archive_path: Path) -> Iterator[FileEntry]:
@@ -238,22 +118,12 @@ def _iter_zip(archive_path: Path) -> Iterator[FileEntry]:
         for info in sorted(archive.infolist(), key=lambda item: item.filename):
             if info.is_dir():
                 continue
-            raw_name = info.filename
-            if _unsafe_archive_path(raw_name):
-                yield FileEntry(name=f"__UNSAFE__:{raw_name}", size=info.file_size)
+            if _unsafe_archive_path(info.filename):
+                yield FileEntry(f"__UNSAFE__:{info.filename}", info.file_size)
                 continue
-            name = _normalise_name(raw_name)
-            content = None
-            if info.file_size <= 2_000_000 and _is_text_candidate(name):
-                content = archive.read(info)
-            yield FileEntry(name=name, size=info.file_size, content=content)
-
-
-def _is_text_candidate(name: str) -> bool:
-    path = Path(name)
-    if path.name in {".env", ".env.example", ".gitignore"}:
-        return True
-    return path.suffix.lower() in TEXT_SUFFIXES
+            name = _normalise_name(info.filename)
+            content = archive.read(info) if info.file_size <= 2_000_000 and _is_text_candidate(name) else None
+            yield FileEntry(name, info.file_size, content)
 
 
 def _scan_secret_content(name: str, content: bytes | None) -> list[ValidationIssue]:
@@ -263,52 +133,43 @@ def _scan_secret_content(name: str, content: bytes | None) -> list[ValidationIss
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return []
-    issues: list[ValidationIssue] = []
-    for code, pattern in SECRET_PATTERNS:
-        if pattern.search(text):
-            issues.append(
-                ValidationIssue(
-                    code=f"SECRET_{code}",
-                    path=name,
-                    message="Filen ser ut til å inneholde en virkelig hemmelighet eller legitimasjon.",
-                )
-            )
-    return issues
+    return [
+        ValidationIssue(f"SECRET_{code}", name, "Filen ser ut til å inneholde en virkelig hemmelighet eller legitimasjon.")
+        for code, pattern in SECRET_PATTERNS if pattern.search(text)
+    ]
+
+
+def _is_forbidden_runtime_path(name: str) -> bool:
+    parts = PurePosixPath(name).parts
+    # Delta wrapper itself is safe; inspect everything below it.
+    inspected = parts[1:] if parts and parts[0] == "COPY_TO_REPOSITORY" else parts
+    return bool(inspected and inspected[0] in FORBIDDEN_ROOT_DIRS) or "__pycache__" in inspected
 
 
 def validate_entries(entries: Iterable[FileEntry], profile: str = "full") -> dict:
     issues: list[ValidationIssue] = []
     names: set[str] = set()
-    total_size = 0
     text_by_name: dict[str, str] = {}
+    total_size = 0
 
     for entry in entries:
         name = _normalise_name(entry.name)
         names.add(name)
         total_size += max(0, entry.size)
-
-        if entry.name.startswith("__UNSAFE__:"):
-            issues.append(
-                ValidationIssue("UNSAFE_ARCHIVE_PATH", entry.name.split(":", 1)[1], "Arkivstien kan skrive utenfor målmappen.")
-            )
+        if name.startswith("__UNSAFE__:"):
+            issues.append(ValidationIssue("UNSAFE_ARCHIVE_PATH", name.split(":", 1)[1], "Arkivstien kan skrive utenfor målmappen."))
             continue
-
-        parts = PurePosixPath(name).parts
-        root = parts[0] if parts else ""
-
         if entry.size == -1:
-            issues.append(ValidationIssue("SYMLINK", name, "Symbolske lenker er ikke tillatt i distribusjonen."))
-        if root in FORBIDDEN_ROOT_DIRS:
-            issues.append(ValidationIssue("MUTABLE_RUNTIME", name, f"Rotmappen '{root}' inneholder eller kan inneholde mutable produksjonsdata."))
-        if name in FORBIDDEN_EXACT_PATHS:
-            issues.append(ValidationIssue("FORBIDDEN_FILE", name, "Filen er lokal, sensitiv eller runtime-generert og skal ikke distribueres."))
+            issues.append(ValidationIssue("SYMLINK", name, "Symbolske lenker er ikke tillatt."))
+        if _is_forbidden_runtime_path(name):
+            issues.append(ValidationIssue("MUTABLE_RUNTIME", name, "Mutable runtime-data skal ikke distribueres."))
+        inspected = name.removeprefix("COPY_TO_REPOSITORY/")
+        if inspected in FORBIDDEN_EXACT_PATHS:
+            issues.append(ValidationIssue("FORBIDDEN_FILE", name, "Lokal eller sensitiv fil skal ikke distribueres."))
         if Path(name).suffix.lower() in FORBIDDEN_SUFFIXES:
-            issues.append(ValidationIssue("GENERATED_FILE", name, "Genererte logger, databaser, midlertidige filer eller bytekode er ikke tillatt."))
-        if GENERATED_REPORT_PREFIX in name and name not in ALLOWED_GENERATED_REPORT_PLACEHOLDERS:
+            issues.append(ValidationIssue("GENERATED_FILE", name, "Generert logg, database, tempfil eller arkiv er ikke tillatt."))
+        if GENERATED_REPORT_PREFIX in inspected and name not in ALLOWED_GENERATED_REPORT_PLACEHOLDERS:
             issues.append(ValidationIssue("GENERATED_REPORT", name, "Genererte rapporter skal ikke ligge i installasjonspakken."))
-        if "__pycache__" in parts:
-            issues.append(ValidationIssue("PYTHON_CACHE", name, "Python-cache skal ikke distribueres."))
-
         issues.extend(_scan_secret_content(name, entry.content))
         if entry.content is not None:
             try:
@@ -316,49 +177,38 @@ def validate_entries(entries: Iterable[FileEntry], profile: str = "full") -> dic
             except UnicodeDecodeError:
                 pass
 
-    required = PROFILE_REQUIRED_FILES.get(profile, set())
-    for required_name in sorted(required - names):
+    for required_name in sorted(PROFILE_REQUIRED_FILES.get(profile, set()) - names):
         issues.append(ValidationIssue("MISSING_REQUIRED_FILE", required_name, f"Påkrevd fil mangler for profil '{profile}'."))
 
-    version_text = text_by_name.get("app_version.py", "")
-    if profile in {"full", "update"} and version_text and f'APP_VERSION = "{EXPECTED_VERSION}"' not in version_text:
-        issues.append(ValidationIssue("VERSION_MISMATCH", "app_version.py", f"Forventet {EXPECTED_VERSION}."))
+    version_name = "COPY_TO_REPOSITORY/app_version.py" if profile == "update" else "app_version.py"
+    version_text = text_by_name.get(version_name, "")
+    if profile in {"full", "update"} and f'APP_VERSION = "{EXPECTED_VERSION}"' not in version_text:
+        issues.append(ValidationIssue("VERSION_MISMATCH", version_name, f"Forventet {EXPECTED_VERSION}."))
 
-    if profile in {"full", "update"}:
-        requirements_text = text_by_name.get("requirements.txt", "")
-        requirement_lines = {line.strip() for line in requirements_text.splitlines() if line.strip() and not line.lstrip().startswith("#")}
-        if "pypdf==5.9.0" not in requirement_lines:
-            issues.append(ValidationIssue(
-                "MISSING_PDF_DEPENDENCY",
-                "requirements.txt",
-                "pypdf==5.9.0 må være eksplisitt deklarert for semantisk PDF/JSON-integritet.",
-            ))
+    req_name = "COPY_TO_REPOSITORY/requirements.txt" if profile == "update" else "requirements.txt"
+    requirements_text = text_by_name.get(req_name, "")
+    if requirements_text:
+        lines = {line.strip() for line in requirements_text.splitlines() if line.strip() and not line.lstrip().startswith("#")}
+        if "pypdf==5.9.0" not in lines:
+            issues.append(ValidationIssue("MISSING_PDF_DEPENDENCY", req_name, "pypdf==5.9.0 må være eksplisitt deklarert."))
 
-    unique = {(issue.code, issue.path, issue.message): issue for issue in issues}
+    unique = {(item.code, item.path, item.message): item for item in issues}
     ordered = sorted(unique.values(), key=lambda item: (item.code, item.path))
     return {
-        "ok": not ordered,
-        "profile": profile,
-        "expected_version": EXPECTED_VERSION,
-        "file_count": len(names),
-        "total_size_bytes": total_size,
-        "issues": [asdict(issue) for issue in ordered],
+        "ok": not ordered, "profile": profile, "expected_version": EXPECTED_VERSION,
+        "file_count": len(names), "total_size_bytes": total_size,
+        "issues": [asdict(item) for item in ordered],
     }
 
 
 def validate_path(path: str | Path, profile: str = "full") -> dict:
     target = Path(path).expanduser().resolve()
     if not target.exists():
-        return {
-            "ok": False,
-            "profile": profile,
-            "expected_version": EXPECTED_VERSION,
-            "file_count": 0,
-            "total_size_bytes": 0,
-            "issues": [asdict(ValidationIssue("NOT_FOUND", str(target), "Distribusjonen finnes ikke."))],
-        }
+        return {"ok": False, "profile": profile, "expected_version": EXPECTED_VERSION,
+                "file_count": 0, "total_size_bytes": 0,
+                "issues": [asdict(ValidationIssue("NOT_FOUND", str(target), "Distribusjonen finnes ikke."))]}
     entries = list(_iter_directory(target) if target.is_dir() else _iter_zip(target))
-    return validate_entries(entries, profile=profile)
+    return validate_entries(entries, profile)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -370,29 +220,18 @@ def sha256_file(path: str | Path) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Valider en trygg AI Aksje Analyzer-distribusjon.")
-    parser.add_argument("path", help="Mappe eller ZIP-fil som skal kontrolleres.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("path")
     parser.add_argument("--profile", choices=sorted(PROFILE_REQUIRED_FILES), default="full")
-    parser.add_argument("--json", action="store_true", dest="as_json", help="Skriv maskinlesbart JSON-resultat.")
+    parser.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args()
-
-    result = validate_path(args.path, profile=args.profile)
-    target = Path(args.path)
-    if target.is_file():
-        result["sha256"] = sha256_file(target)
-
-    if args.as_json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        state = "BESTÅTT" if result["ok"] else "FEILET"
-        print(f"Distribusjonskontroll: {state}")
-        print(f"Profil: {result['profile']}")
-        print(f"Filer: {result['file_count']}")
-        print(f"Størrelse: {result['total_size_bytes']} byte")
-        if result.get("sha256"):
-            print(f"SHA-256: {result['sha256']}")
+    result = validate_path(args.path, args.profile)
+    if Path(args.path).is_file():
+        result["sha256"] = sha256_file(args.path)
+    print(json.dumps(result, ensure_ascii=False, indent=2) if args.as_json else ("BESTÅTT" if result["ok"] else "FEILET"))
+    if not args.as_json:
         for issue in result["issues"]:
-            print(f"- {issue['code']}: {issue['path']} – {issue['message']}")
+            print(f"- {issue['code']}: {issue['path']} - {issue['message']}")
     return 0 if result["ok"] else 1
 
 

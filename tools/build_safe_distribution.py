@@ -1,279 +1,158 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.14.6 release archives."""
+"""Build deterministic full and delta archives for v19.15.0."""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import shutil
-import sys
-import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from tools.validate_distribution import (  # noqa: E402
-    ALLOWED_GENERATED_REPORT_PLACEHOLDERS,
-    FORBIDDEN_EXACT_PATHS,
-    FORBIDDEN_ROOT_DIRS,
-    FORBIDDEN_SUFFIXES,
-    validate_path,
-)
-
-VERSION = "v19.14.6"
-VERSION_FILE = "19_14_6"
-SOURCE_BASE_COMMIT = "v19.14.5-test-candidate"
-
-UPDATE_FILES = {
-    "runtime_dependencies.py", "tools/check_runtime_dependencies.py", "tests/test_v19146_pdf_dependency_hotfix.py", "requirements.txt", "render.yaml", "app.py", "scheduled_runner.py",
-    "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
-    "trading_settings.py", "market_intelligence.py", "manual_job_background.py", "autonomous_orchestrator_ui.py",
-    "tests/test_v19145_report_local_storage.py",
-    "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
-    "tests/test_v19143_login_navigation_report_integrity.py",
-    "tests/test_v19144_drift_recovery.py", "auth_persistence.py", "drift_recovery.py", "user_store.py", "navigation_state.py",
-    "autonomous_orchestrator_ui.py", "ui_sidebar_stable.py", "pages/paper_trading.py", "pages/ranking.py",
-    "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
-    "app_core/__init__.py", "app_core/context.py", "domain/__init__.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_contract.py",
-    "repositories/application.py", "services/service_registry.py", "services/strategy_registry_service.py", "services/market_snapshot_service.py", "services/technical_signal_service.py",
-    "services/strategy_binding.py", "services/parallel_strategy_service.py", "strategies/__init__.py", "strategies/technical_benchmark.py", "strategies/autonomy_strategy.py", "pages/autonomy.py", "pages/strategy_versions.py", "ui/global_styles.py",
-    "trading_engine.py", "signal_engine.py", "scanner_worker.py",
-    "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
-    "market_intelligence.py", "report_contracts.py", "report_integrity.py", "safety_audit.py",
-    "autonomous_portfolio.py", "operations_ui.py", "scheduler_background.py", "scheduled_runner.py",
-    "ui/candidate_cards.py", "ui/live_market_banner.py", ".streamlit/config.toml",
-    "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md",
-    "TEST_REPORT_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
-    "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
-    "tools/__init__.py", "tools/build_safe_distribution.py", "tools/validate_distribution.py",
-    "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
-    "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
-    "tests/test_v1930_decision_intelligence_and_learning.py",
-    "tests/test_v1920_report_version_contracts.py", "tests/test_v1921_decision_report.py",
-    "tests/test_v1922_daily_user_experience.py", "tests/test_v1915_mobile_navigation.py",
-    "tests/test_v1911_evidence_integrity.py", "tests/test_v19131_report_integrity.py", "tests/test_v1918b_separate_portfolios.py",
-    "tests/test_v1919a_safe_distribution.py", "tests/test_v1940_operational_repairs.py",
-    "tests/test_v1882_autonomy_main_navigation.py", "tests/test_v1904_report_notification_control.py",
-    "tests/test_v1913_approval_governance_mobile.py",
-    "tests/test_v1950_modular_strategy_versioning.py",
-    "tests/test_v1960_market_snapshot_technical_signal.py",
-    "tests/test_v1970_parallel_strategy_interface.py",
-    "domain/strategy_account.py",
-    "services/strategy_account_service.py", "services/simulated_execution_service.py",
-    "services/autonomy_activation_service.py", "services/autonomy_learning_account_service.py",
-    "services/evaluation_export_service.py", "services/autonomy_technical_contribution_service.py",
-    "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
-    "tests/test_v1980_shared_execution_accounts_export.py", "tests/test_v1990_controlled_technical_contribution.py",
-    "tests/test_v1885_central_autonomy_configuration.py",
-    "domain/strategy_lab.py", "domain/strategy_promotion.py", "services/technical_quality_service.py", "services/strategy_lab_service.py",
-    "services/strategy_promotion_service.py", "services/production_strategy_service.py",
-    "services/quality_evidence_normalizer.py", "services/paper_quality_enrichment_service.py", "services/strategy_outcome_service.py",
-    "strategies/technical_quality_challenger.py", "pages/strategy_lab.py",
-    "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
-    "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
-    "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
-    "tests/test_v19100_strategy_lab_quality_challenger.py", "tests/test_v19110_strategy_comparison_attribution_quality_data.py",
-    "tests/test_v19120_strategy_promotion_rollback.py",
-    "investment_pipeline.py", "market_universe.py", "autonomous_decision_reduction.py", "norwegian_report_language.py",
-    "test_v19016_norwegian_report.py", "tests/test_v1912_norwegian_decision_report.py",
-    "tests/test_v1875_compact_pdf.py", "tests/test_v1902_live_progress_performance_decision_evidence.py",
-    "tests/test_v1910_evidence_reliability.py", "tests/test_v1917_report_ranking_pushover_handoff.py",
-    "tests/test_v19132_report_semantics_mobile.py", "tests/test_v19140_autonomous_decision_reduction.py",
-    "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py", "tests/test_v19130_paper_migration_foundation.py",
-    "tests/test_v1918b_separate_portfolios.py", "tests/test_v1919a_safe_distribution.py",
-    "tests/test_v1920_report_version_contracts.py", "tests/test_v1921_decision_report.py",
-    "tests/test_v1950_modular_strategy_versioning.py", "tests/test_v1960_market_snapshot_technical_signal.py",
-    "tests/test_v1970_parallel_strategy_interface.py", "tests/test_v1980_shared_execution_accounts_export.py",
-    "tests/test_v1990_controlled_technical_contribution.py",
-    "autonomy_modes.py", "autonomous_orchestrator.py", "insider_intelligence.py",
-    "official_insider_sources.py",
-    "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
-    "autonomi_core/portfolio_decisions/layer.py", "autonomi_core/portfolio_decisions/decision_funnel.py",
-    "autonomi_core/learning_reporting/top_picks.py",
-    "tests/test_v19141_decision_gate_runtime_consistency.py",
-    "tests/test_v1880_autonomy_core_foundation.py", "tests/test_v1905_decision_funnel.py",
-    "runtime_safety.py", "paper_trading_guard.py", "paper_store.py", "runtime_background.py",
-    "notifier.py", "auth.py", "render.yaml", "requirements.txt", "pytest.ini", ".env.example",
-    "tests/conftest.py", "tests/test_v19142_runtime_safety.py", "tests/test_clean_startup_imports_v19142.py",
-    "tests/test_clean_startup_imports_v19141.py", "tools/smoke_start_app_v19142.py",
-    "tools/verify_runtime_v19142.py", "RELEASE_NOTES_v19.14.2.md", "DEPLOY_v19.14.2.md",
-    "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md", "MIGRATION_v19.14.2.md",
-    "TEST_REPORT_v19.14.2.md", "ACCEPTANCE_v19.14.2.md",
-    "V19_14_2_IMPLEMENTATION_AND_VERIFICATION.md",
+VERSION = "v19.15.0"
+MUTABLE_PARTS = {
+    ".git", ".app_runtime", ".pytest_cache", ".render", "__pycache__", "build",
+    "cache", "data", "dist", "htmlcov", "logs", "local_runtime", "runtime",
+    "runtime_data", "storage", ".venv", "venv", "env",
 }
-
-
-
-
-MIGRATION_FILES = {
-    "app_version.py", "MIGRATION_v19.14.2.md", "DEPLOY_v19.14.2.md", "DISTRIBUTION_SECURITY_POLICY_v19.14.2.md",
-    "domain/__init__.py", "domain/persistence.py", "domain/strategy_versioning.py", "domain/market_snapshot.py", "domain/strategy_account.py", "domain/strategy_promotion.py",
-    "repositories/__init__.py", "repositories/base.py", "repositories/application.py",
-    "services/__init__.py", "services/storage_service.py", "services/persistence_service.py",
-    "services/strategy_registry_service.py", "services/strategy_binding.py", "services/strategy_promotion_service.py",
-    "services/strategy_account_service.py", "services/simulated_execution_service.py",
-    "services/autonomy_activation_service.py", "services/autonomy_learning_account_service.py",
-    "services/evaluation_export_service.py", "services/autonomy_technical_contribution_service.py",
-    "storage_architecture.py", "utils.py", "migrations/__init__.py", "migrations/migrate_legacy_storage.py", "tools/__init__.py",
-    "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "tools/restore_safe_upgrade_backup.py",
-    "tools/export_persistent_storage_v1920.py", "tools/import_persistent_storage_v1920.py",
-    "tools/migrate_strategy_accounts_v1980.py", "tools/export_strategy_evaluation_v1980.py", "tools/export_strategy_evaluation_v1990.py",
-    "domain/strategy_lab.py", "tools/migrate_strategy_lab_v19100.py", "tools/export_strategy_evaluation_v19100.py",
-    "tools/migrate_strategy_comparison_v19110.py", "tools/export_strategy_evaluation_v19110.py",
-    "tools/migrate_strategy_promotion_v19120.py", "tools/export_strategy_evaluation_v19120.py",
-    "services/quality_evidence_normalizer.py", "services/strategy_outcome_service.py",
-    "services/paper_migration_service.py", "tools/migrate_paper_foundation_v19130.py",
-}
-
-
-
-
+FORBIDDEN_NAMES = {".env", "secrets.toml", "paper_portfolio.json", "app_users.json", "remember_tokens.json"}
+FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz"}
 
 
 def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
+    h = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+            h.update(block)
+    return h.hexdigest()
 
 
 def excluded(relative: Path) -> bool:
-    posix = relative.as_posix()
     parts = relative.parts
-    if not parts:
-        return False
-    if parts[0] in FORBIDDEN_ROOT_DIRS:
+    if (parts and parts[0] in MUTABLE_PARTS) or "__pycache__" in parts:
         return True
-    if posix in FORBIDDEN_EXACT_PATHS:
+    if relative.name in FORBIDDEN_NAMES or relative.suffix.lower() in FORBIDDEN_SUFFIXES:
         return True
-    if relative.suffix.lower() in FORBIDDEN_SUFFIXES:
-        return True
-    if "__pycache__" in parts:
-        return True
-    if posix.startswith("static/reports/") and posix not in ALLOWED_GENERATED_REPORT_PLACEHOLDERS:
-        return True
-    if relative.name in {".coverage", "coverage.xml"}:
+    if relative.as_posix().startswith("static/reports/") and relative.name not in {".gitkeep", "README.md"}:
         return True
     return False
 
 
-def copy_full_source(source: Path, stage: Path) -> None:
-    for item in sorted(source.rglob("*")):
-        relative = item.relative_to(source)
-        if excluded(relative) or item.is_symlink():
-            continue
-        destination = stage / relative
-        if item.is_dir():
-            destination.mkdir(parents=True, exist_ok=True)
-        elif item.is_file():
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, destination)
-
-
-def copy_selected(source: Path, stage: Path, selected: set[str]) -> None:
-    for relative_name in sorted(selected):
-        source_file = source / relative_name
-        if not source_file.is_file():
-            raise FileNotFoundError(f"Påkrevd releasefil mangler: {relative_name}")
-        destination = stage / relative_name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_file, destination)
-
-
-def write_manifest(stage: Path, profile: str) -> Path:
-    files = []
-    for path in sorted(stage.rglob("*")):
-        if not path.is_file() or path.name == "DISTRIBUTION_MANIFEST.json":
-            continue
-        files.append(
-            {
-                "path": path.relative_to(stage).as_posix(),
-                "size_bytes": path.stat().st_size,
-                "sha256": sha256(path),
-            }
-        )
-    manifest = {
-        "format": "ai-aksje-analyzer-distribution-manifest-v1",
-        "version": VERSION,
-        "profile": profile,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source_base_commit": SOURCE_BASE_COMMIT,
-        "mutable_runtime_included": False,
-        "files": files,
+def safe_files(root: Path) -> dict[str, Path]:
+    return {
+        path.relative_to(root).as_posix(): path
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and not path.is_symlink() and not excluded(path.relative_to(root))
     }
-    target = stage / "DISTRIBUTION_MANIFEST.json"
-    target.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return target
 
 
-def create_zip(stage: Path, destination: Path) -> None:
+def mutable_cleanup_files(root: Path) -> list[str]:
+    rows = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if (rel.parts and rel.parts[0] in MUTABLE_PARTS) or "__pycache__" in rel.parts or rel.name in FORBIDDEN_NAMES:
+            rows.append(rel.as_posix())
+    return rows
+
+
+def make_manifest(files: dict[str, Path], *, package: str) -> dict:
+    return {
+        "version": VERSION,
+        "package": package,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "file_count": len(files),
+        "files": [{"path": rel, "size": path.stat().st_size, "sha256": sha256(path)} for rel, path in sorted(files.items())],
+    }
+
+
+def write_deterministic_zip(source_dir: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for path in sorted(stage.rglob("*")):
-            if path.is_file():
-                archive.write(path, path.relative_to(stage).as_posix())
+        for path in sorted(source_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(source_dir).as_posix()
+            info = zipfile.ZipInfo(rel, date_time=(2026, 7, 30, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            archive.writestr(info, path.read_bytes())
 
 
-def require_valid(path: Path, profile: str) -> dict:
-    result = validate_path(path, profile=profile)
-    if not result["ok"]:
-        formatted = "\n".join(f"{item['code']}: {item['path']} – {item['message']}" for item in result["issues"])
-        raise RuntimeError(f"Distribusjonskontroll feilet for {path}:\n{formatted}")
+def build(source: Path, baseline: Path, output: Path) -> dict:
+    source = source.resolve(); baseline = baseline.resolve(); output = output.resolve()
+    stage = output / "stage"
+    if stage.exists(): shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+
+    source_files = safe_files(source)
+    baseline_files = safe_files(baseline)
+
+    # Refresh the source manifest before package comparison.
+    manifest_path = source / "DISTRIBUTION_MANIFEST.json"
+    pre_manifest = make_manifest({k: v for k, v in source_files.items() if k != "DISTRIBUTION_MANIFEST.json"}, package="source")
+    manifest_path.write_text(json.dumps(pre_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    source_files = safe_files(source)
+
+    changed = []
+    new = []
+    for rel, path in source_files.items():
+        old = baseline_files.get(rel)
+        if old is None:
+            new.append(rel)
+        elif sha256(path) != sha256(old):
+            changed.append(rel)
+    deleted = sorted(set(baseline_files) - set(source_files))
+    cleanup = mutable_cleanup_files(baseline)
+    delete_files = sorted(set(deleted + cleanup))
+
+    full_stage = stage / "full"
+    full_stage.mkdir()
+    for rel, path in source_files.items():
+        dest = full_stage / rel; dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(path, dest)
+
+    delta_stage = stage / "delta"
+    copy_root = delta_stage / "COPY_TO_REPOSITORY"
+    copy_root.mkdir(parents=True)
+    for rel in sorted(new + changed):
+        path = source_files[rel]; dest = copy_root / rel; dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(path, dest)
+    inventory = {
+        "version": VERSION, "baseline": baseline.name,
+        "new": sorted(new), "changed": sorted(changed), "deleted": delete_files,
+        "copy_file_count": len(new) + len(changed), "delete_file_count": len(delete_files),
+    }
+    (delta_stage / "CHANGE_INVENTORY_v19.15.0.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (delta_stage / "DELETE_FILES.txt").write_text("\n".join(delete_files) + ("\n" if delete_files else ""), encoding="utf-8")
+    (delta_stage / "README_APPLY_DELTA.md").write_text(
+        "# Bruk av v19.15.0-delta\n\n"
+        "1. Bruk den eksisterende stabiliseringsgrenen basert på den opplastede v19.14.6-kilden.\n"
+        "2. Kopier alt under `COPY_TO_REPOSITORY` til repositoryroten og erstatt eksisterende filer.\n"
+        "3. Slett hver bane i `DELETE_FILES.txt`. Baner under `.app_runtime` er mutable testdata og skal fjernes fra GitHub, ikke fra Render-disken.\n"
+        "4. Kontroller endringene, commit og push. Ikke merge til `main` før Render-akseptansen er bestått.\n",
+        encoding="utf-8",
+    )
+
+    full_zip = output / "AI_Aksje_Analyzer_v19_15_0_FULL_SYSTEM_STABILIZATION_FULL.zip"
+    delta_zip = output / "AI_Aksje_Analyzer_v19_15_0_GITHUB_DELTA_FROM_DEPLOYED_V19_14_6.zip"
+    write_deterministic_zip(full_stage, full_zip)
+    write_deterministic_zip(delta_stage, delta_zip)
+    result = {
+        "version": VERSION, "full_zip": str(full_zip), "delta_zip": str(delta_zip),
+        "full_sha256": sha256(full_zip), "delta_sha256": sha256(delta_zip), **inventory,
+    }
+    (output / "BUILD_RESULT_v19_15_0.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return result
 
 
-def build(source: Path, output: Path) -> list[Path]:
-    source = source.resolve()
-    output = output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-
-    specs = (
-        ("full", f"AI_Aksje_Analyzer_v{VERSION_FILE}_Safe_Distribution_FULL.zip", None),
-        ("update", f"AI_Aksje_Analyzer_v{VERSION_FILE}_ONLY_CHANGED_FILES.zip", UPDATE_FILES),
-        ("migration", f"AI_Aksje_Analyzer_v{VERSION_FILE}_MIGRATION_TOOLS.zip", MIGRATION_FILES),
-    )
-    built: list[Path] = []
-
-    with tempfile.TemporaryDirectory(prefix="aa_dist_build_") as temp_dir:
-        temp_root = Path(temp_dir)
-        for profile, filename, selected in specs:
-            stage = temp_root / profile
-            stage.mkdir(parents=True)
-            if selected is None:
-                copy_full_source(source, stage)
-            else:
-                copy_selected(source, stage, selected)
-            write_manifest(stage, profile)
-            require_valid(stage, profile)
-            archive = output / filename
-            create_zip(stage, archive)
-            require_valid(archive, profile)
-            built.append(archive)
-
-    checksum_file = output / f"SHA256SUMS_v{VERSION_FILE}.txt"
-    checksum_file.write_text(
-        "".join(f"{sha256(path)}  {path.name}\n" for path in built),
-        encoding="utf-8",
-    )
-    built.append(checksum_file)
-    return built
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.6-distribusjonspakker.")
-    parser.add_argument("--source", default=str(PROJECT_ROOT))
-    parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--baseline", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    built = build(Path(args.source), Path(args.output))
-    for path in built:
-        print(f"{path.name}: {path.stat().st_size} byte")
+    print(json.dumps(build(args.source, args.baseline, args.output), ensure_ascii=False, indent=2))
     return 0
 
 
