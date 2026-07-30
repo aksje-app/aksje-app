@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "v19.15.0"
-MUTABLE_ROOTS = (".app_runtime", "data", "cache", "logs", "runtime", "storage")
+MUTABLE_ROOTS = ("data", "cache", "logs", "runtime", "storage")
 REQUIRED_REQUIREMENTS = {
     "streamlit==1.57.0",
     "pandas",
@@ -68,6 +68,8 @@ def audit(root: Path = ROOT) -> dict:
     _check(not tuple_truthiness_hits, "NOTIFICATION_RESULT", f"Utrygg varslingsresultatkontroll: {tuple_truthiness_hits}", errors)
     _check(not (root / "streamlit_patch_snippet.py").exists(), "DEAD_SNIPPET", "Ufullstendig legacy-snutt ligger i aktiv rot", errors)
 
+    # .app_runtime is an explicitly ignored local runtime root. Tests may create
+    # it during the same process; distribution builders must exclude it.
     mutable_files: list[str] = []
     for folder in MUTABLE_ROOTS:
         base = root / folder
