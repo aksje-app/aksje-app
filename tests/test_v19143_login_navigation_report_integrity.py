@@ -99,7 +99,7 @@ def test_disabled_paper_buy_does_not_mutate_persistent_portfolio(monkeypatch, tm
     import trading_engine
     before = trading_engine.load_portfolio()
     before_json = json.dumps(before, sort_keys=True, default=str)
-    ok, message = trading_engine.paper_buy("STB.OL", 200.0, 90, "v19.14.5 blocked persistence test", amount_override=10000)
+    ok, message = trading_engine.paper_buy("STB.OL", 200.0, 90, "v19.14.6 blocked persistence test", amount_override=10000)
     after = trading_engine.load_portfolio()
     assert ok is False
     assert "deaktivert" in message.lower() or "blokkert" in message.lower()
