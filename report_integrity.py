@@ -1247,7 +1247,17 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
             source_url = event.get("original_url") or event.get("source_url") or event.get("url") or event.get("link")
             explicit_source_field = any(key in event for key in ("original_url", "source_url", "url", "link"))
             if event.get("company_relevant") is True and explicit_source_field and not _valid_web_url(source_url):
-                errors.append(f"{ticker}: verifisert nyhet mangler gyldig http/https-kilde")
+                warnings.append(
+                    f"{ticker}: nyhet uten gyldig http/https-kilde ble ekskludert fra verifisert evidens"
+                )
+                # En mangelfull enkeltkilde skal redusere dokumentasjonen, ikke
+                # stoppe hele rapportkjeden. Bevar hendelsen for sporbarhet,
+                # men gjør det eksplisitt at den ikke kan brukes som verifisert
+                # beslutningsevidens.
+                if isinstance(event, dict):
+                    event["source_validation_status"] = "INVALID_URL"
+                    event["source_usable"] = False
+                    event["evidence_verified"] = False
                 break
 
     quality_metrics = run.get("quality_metrics") if isinstance(run.get("quality_metrics"), Mapping) else {}
