@@ -11,7 +11,7 @@ import threading
 import traceback
 import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from durable_runtime import read_json, write_json
@@ -70,11 +70,67 @@ def get_status(execution_id: str) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    """Parse persisted UTC timestamps without letting corrupt telemetry break the UI."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _thread_is_alive(execution_id: str) -> bool:
+    thread = _THREADS.get(str(execution_id or ""))
+    return bool(thread and thread.is_alive())
+
+
+def reconcile_orphaned_status(status: Mapping[str, Any], *, stale_seconds: int = 90, force: bool = False) -> dict[str, Any]:
+    """Close a persisted non-terminal job when its worker no longer exists.
+
+    Render restarts terminate daemon threads, while PostgreSQL/persistent storage
+    retains RUNNING or STOP_REQUESTED.  With one web worker, the in-process
+    thread registry is authoritative for manually started jobs.  A short grace
+    period avoids touching a job during its initial hand-off.
+    """
+    current = dict(status or {})
+    execution_id = str(current.get("execution_id") or "")
+    state = str(current.get("state") or "").upper()
+    if not execution_id or state not in {"QUEUED", "RUNNING", "STOP_REQUESTED"}:
+        return current
+    if _thread_is_alive(execution_id):
+        return current
+
+    updated = _parse_timestamp(current.get("updated_at") or current.get("accepted_at"))
+    if not force and updated is not None and datetime.now(timezone.utc) - updated < timedelta(seconds=max(15, int(stale_seconds))):
+        return current
+
+    now = _now()
+    current.update({
+        "state": "CANCELLED",
+        "message": "Kjøringen ble avsluttet etter serverrestart; foreldet kjørelås er frigitt",
+        "updated_at": now,
+        "completed_at": now,
+        "error": "",
+        "cancel_requested": True,
+        "cancel_reason": "Worker-prosessen finnes ikke lenger etter serverrestart",
+        "partial_results_published": False,
+        "recovered_orphan": True,
+        "recovered_at": now,
+    })
+    return _write_status(current)
+
+
 def get_active_status() -> dict[str, Any]:
     active = read_json(ACTIVE_KEY, ACTIVE_PATH, {})
     if not isinstance(active, Mapping) or not active.get("execution_id"):
         return {}
-    return get_status(str(active["execution_id"]))
+    status = get_status(str(active["execution_id"]))
+    return reconcile_orphaned_status(status)
 
 
 def progress_percent(event: Mapping[str, Any]) -> int:
@@ -118,7 +174,13 @@ def request_cancel(execution_id: str, requested_by: str = "UI") -> dict[str, Any
                        "cancel_requested_at": _now(), "cancel_requested_by": requested_by,
                        "message": "Stopp er forespurt; avslutter ved neste sikre kontrollpunkt",
                        "updated_at": _now()})
-        return _write_status(status)
+        written = _write_status(status)
+        # If the web service was restarted, no worker remains to reach another
+        # checkpoint.  Finalise immediately instead of leaving STOP_REQUESTED
+        # persisted forever.
+        if not _thread_is_alive(execution_id):
+            return reconcile_orphaned_status(written, stale_seconds=15, force=True)
+        return written
 
 
 def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, force_refresh: bool) -> None:
