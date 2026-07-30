@@ -212,12 +212,19 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
         failed = get_status(execution_id) or status
         last_percent = max(0, min(99, int(failed.get("percent") or 0)))
         last_phase = str(failed.get("phase") or "START")
+        report_context = dict(getattr(exc, "context", {}) or {})
         failed.update({
             "state": "FAILED", "percent": last_percent,
             "message": f"Kjøringen stoppet med feil ved {display_stage(last_phase)}",
             "updated_at": _now(), "completed_at": _now(), "error": str(exc),
-            "error_type": type(exc).__name__, "error_stage": display_stage(last_phase),
-            "error_trace": traceback.format_exc(limit=8)[-5000:],
+            "error_type": report_context.get("error_type") or type(exc).__name__,
+            "error_stage": report_context.get("stage") or display_stage(last_phase),
+            "error_trace": report_context.get("traceback") or traceback.format_exc(limit=12)[-12000:],
+            "error_code": report_context.get("error_code") or "",
+            "report_path": report_context.get("report_path") or "",
+            "diagnostic_path": report_context.get("diagnostic_path") or "",
+            "app_runtime_root": report_context.get("app_runtime_root") or "",
+            "storage_mode": report_context.get("storage_mode") or "",
         })
         _write_status(failed)
     finally:

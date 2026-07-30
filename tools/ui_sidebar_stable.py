@@ -62,7 +62,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
 
 
 def _sidebar_nav_button_v18650(st, label: str, nav: str, key: str) -> None:
-    if st.sidebar.button(label, key=key, use_container_width=True):
+    if st.sidebar.button(label, key=key, width="stretch"):
         _sidebar_nav_set_v18650(st, nav)
 
 

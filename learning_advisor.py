@@ -350,7 +350,7 @@ def render_learning_advisor() -> None:
         st.caption("Køen er en arbeidsliste. Den starter ingen backtest og endrer ingen strategi automatisk.")
         if rows:
             display = [{"ID": r.get("advice_id"), "Kategori": r.get("category"), "Test": r.get("proposed_test"), "Kølagt": r.get("queued_at"), "Utførelse": r.get("execution")} for r in rows]
-            st.dataframe(pd.DataFrame(display) if pd is not None else display, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(display) if pd is not None else display, width="stretch", hide_index=True)
         else:
             st.info("Ingen hypoteser er godkjent for test ennå.")
 

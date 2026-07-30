@@ -4,6 +4,7 @@ from utils import using_postgres  # v18.6.3 centralized helpers
 import json, os
 from pathlib import Path
 from datetime import datetime
+from paper_trading_guard import require_paper_trade
 try:
     import psycopg2
 except Exception:
@@ -415,6 +416,12 @@ def save_portfolio(portfolio):
         return False
 
 def add_trade(portfolio, trade):
+    require_paper_trade(
+        str((trade or {}).get("type") or "TRADE"),
+        ticker=str((trade or {}).get("ticker") or ""),
+        source="paper_store.add_trade",
+        run_id=str((trade or {}).get("run_id") or (trade or {}).get("execution_id") or ""),
+    )
     trade["time"] = datetime.now().isoformat(timespec="seconds")
     portfolio["trades"].insert(0, trade)
 

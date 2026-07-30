@@ -159,7 +159,7 @@ def _render_decision_pipeline_bar_v1863bw() -> None:
         label = "Ingen input/output aa sende til Test 9"
         action = ""
         disabled = True
-    if st.button(label, key="decision_pipeline_next_v1863bw", use_container_width=True, disabled=disabled, type="primary" if action == "bypass" else "secondary"):
+    if st.button(label, key="decision_pipeline_next_v1863bw", width="stretch", disabled=disabled, type="primary" if action == "bypass" else "secondary"):
         if action == "bypass":
             if not _send_decision_input_bypass_to_portfolio(pipeline, inp):
                 return
@@ -217,25 +217,25 @@ def render_decision_support_panel() -> None:
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         latest = _latest_radar_result_from_state()
-        if st.button("Hent siste radarfunn", key="decision_support_import_latest_v1863ba", use_container_width=True, disabled=latest is None):
+        if st.button("Hent siste radarfunn", key="decision_support_import_latest_v1863ba", width="stretch", disabled=latest is None):
             rows = decision_source_rows_from_radar_result(latest or {})
             queue = add_decision_rows(queue, rows)
             st.session_state[DECISION_QUEUE_KEY] = queue
             st.success(f"Hentet {len(rows)} radarfunn til beslutningsgrunnlag.")
     with c2:
         pipeline_rows = _decision_rows_from_pipeline()
-        if st.button("Hent fra analyseflyt", key="decision_support_import_pipeline_v1863bv", use_container_width=True, disabled=not pipeline_rows):
+        if st.button("Hent fra analyseflyt", key="decision_support_import_pipeline_v1863bv", width="stretch", disabled=not pipeline_rows):
             queue = add_decision_rows(queue, pipeline_rows)
             st.session_state[DECISION_QUEUE_KEY] = queue
             st.success(f"Hentet {len(pipeline_rows)} kandidater fra analyseflyt.")
     with c3:
-        if st.button("Vurder hele køen", key="decision_support_run_v1863ba", use_container_width=True, disabled=not queue):
+        if st.button("Vurder hele køen", key="decision_support_run_v1863ba", width="stretch", disabled=not queue):
             cases = build_decision_cases(queue)
             st.session_state[DECISION_CASES_KEY] = cases
             _save_decision_cases_to_pipeline(cases, mode="hele_koen", queue_size=len(queue))
             st.success(f"Vurdert {len(queue)} kandidater.")
     with c4:
-        if st.button("Tøm kø", key="decision_support_clear_v1863ba", use_container_width=True, disabled=not queue):
+        if st.button("Tøm kø", key="decision_support_clear_v1863ba", width="stretch", disabled=not queue):
             queue = []
             st.session_state[DECISION_QUEUE_KEY] = []
             st.session_state[DECISION_CASES_KEY] = []
@@ -257,13 +257,13 @@ def render_decision_support_panel() -> None:
 
     a1, a2 = st.columns(2)
     with a1:
-        if st.button("Vurder valgte", key="decision_support_run_selected_v1863ba", use_container_width=True, disabled=not selected_rows):
+        if st.button("Vurder valgte", key="decision_support_run_selected_v1863ba", width="stretch", disabled=not selected_rows):
             cases = build_decision_cases(selected_rows)
             st.session_state[DECISION_CASES_KEY] = cases
             _save_decision_cases_to_pipeline(cases, mode="valgte", queue_size=len(queue))
             st.success(f"Vurdert {len(selected_rows)} valgte kandidater.")
     with a2:
-        if st.button("Fjern valgte", key="decision_support_remove_selected_v1863ba", use_container_width=True, disabled=not selected_rows):
+        if st.button("Fjern valgte", key="decision_support_remove_selected_v1863ba", width="stretch", disabled=not selected_rows):
             queue = remove_decision_rows(queue, selected_tickers)
             st.session_state[DECISION_QUEUE_KEY] = queue
             st.session_state[DECISION_CASES_KEY] = build_decision_cases(queue) if queue else []

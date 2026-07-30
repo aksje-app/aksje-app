@@ -14,7 +14,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 from local_time import DEFAULT_TIMEZONE, as_local, valid_timezone
 
-DECISION_REPORT_SCHEMA_VERSION = "1.3"
+DECISION_REPORT_SCHEMA_VERSION = "1.4"
 TASK_STATUSES = ("VENTER", "PÅGÅR", "UTFØRT", "FORTSATT_PROBLEM", "IKKE_LENGER_RELEVANT")
 CONSENSUS_LEVELS = ("STERK", "MODERAT", "SVAK", "MOTSTRIDENDE", "IKKE_VERIFISERT")
 
@@ -312,16 +312,27 @@ def candidate_confidence_profile(candidate: Mapping[str, Any], consensus: Mappin
     market_data_coverage = max(0, min(100, round(market_data_coverage)))
 
     source_confidence = _safe_int(consensus.get("score"), 20)
-    model_confidence = max(0, min(100, round(_safe_float(candidate.get("confidence_score"), 0.0))))
+    legacy_profile = _mapping(candidate.get("confidence_profile"))
+    raw_model_confidence = max(0, min(100, round(_safe_float(
+        legacy_profile.get("model_confidence"), candidate.get("confidence_before_evidence_policy", candidate.get("confidence_score", 0.0))
+    ))))
+    evidence_adjusted_confidence = max(0, min(100, round(_safe_float(
+        legacy_profile.get("evidence_adjusted_model_confidence", legacy_profile.get("calibrated_confidence")),
+        candidate.get("evidence_adjusted_model_confidence", candidate.get("confidence_score", raw_model_confidence)),
+    ))))
+    evidence_coverage = max(0, min(100, round(_safe_float(
+        legacy_profile.get("evidence_coverage", legacy_profile.get("data_coverage")),
+        100.0 if candidate.get("evidence_valid_for_decision") else 0.0,
+    ))))
     evidence_data_ready = bool(candidate.get("valid_for_decision") and candidate.get("evidence_valid_for_decision", True))
     final_action = str(candidate.get("portfolio_action") or readiness.get("final_action") or "").upper()
     final_decision_ready = bool(evidence_data_ready and final_action in {"BUY", "KJØP"})
     allowed = str(readiness.get("allowed_action") or final_action).upper()
     combined_coverage = round((documentation_coverage + market_data_coverage) / 2)
     if evidence_data_ready:
-        decision_confidence = min(100, round((model_confidence * 0.50) + (combined_coverage * 0.30) + (source_confidence * 0.20)))
+        decision_confidence = min(100, round((evidence_adjusted_confidence * 0.50) + (combined_coverage * 0.30) + (source_confidence * 0.20)))
     else:
-        decision_confidence = min(69, round((model_confidence * 0.42) + (combined_coverage * 0.33) + (source_confidence * 0.25)))
+        decision_confidence = min(69, round((evidence_adjusted_confidence * 0.42) + (combined_coverage * 0.33) + (source_confidence * 0.25)))
     if allowed in {"SKIP", "SELL"}:
         decision_confidence = min(decision_confidence, 65)
     return {
@@ -332,7 +343,9 @@ def candidate_confidence_profile(candidate: Mapping[str, Any], consensus: Mappin
         "market_data_coverage": market_data_coverage,
         "source_confidence": source_confidence,
         "decision_confidence": max(0, min(100, decision_confidence)),
-        "model_confidence": model_confidence,
+        "model_confidence": raw_model_confidence,
+        "evidence_adjusted_model_confidence": evidence_adjusted_confidence,
+        "evidence_coverage": evidence_coverage,
         "evidence_data_ready": evidence_data_ready,
         "final_decision_ready": final_decision_ready,
         "decision_ready": final_decision_ready,

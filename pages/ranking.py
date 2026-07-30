@@ -177,10 +177,17 @@ def render_ranking(_legacy_context, results, title):
                     _conf = int(card_decision.get("confidence", 0) or 0)
                     _btn_key_base = safe_widget_key(f"{title}_{ticker}_{idx}")
 
+                    _paper_gate_v19143 = paper_trading_decision()
                     if latest_price is not None and _action_now == "KJØP NÅ":
                         if _owns:
                             st.caption("📌 Allerede i paper-porteføljen")
-                        elif st.button(f"Paper-kjøp {ticker}", key=f"paper_buy_{_btn_key_base}", use_container_width=False):
+                        elif st.button(
+                            f"Paper-kjøp {ticker}",
+                            key=f"paper_buy_{_btn_key_base}",
+                            width="content",
+                            disabled=not _paper_gate_v19143.allowed,
+                            help=_paper_gate_v19143.reason if not _paper_gate_v19143.allowed else None,
+                        ):
                             _ok, _msg = paper_buy(ticker, latest_price, _conf, f"UI Kjøp nå: {title}")
                             if _ok:
                                 st.success(_msg)
@@ -189,7 +196,13 @@ def render_ranking(_legacy_context, results, title):
                                 st.warning(_msg)
 
                     elif latest_price is not None and ("UNNGÅ" in _action_now or "SELL" in _action_now):
-                        if _owns and st.button(f"Paper-selg {ticker}", key=f"paper_sell_{_btn_key_base}", use_container_width=False):
+                        if _owns and st.button(
+                            f"Paper-selg {ticker}",
+                            key=f"paper_sell_{_btn_key_base}",
+                            width="content",
+                            disabled=not _paper_gate_v19143.allowed,
+                            help=_paper_gate_v19143.reason if not _paper_gate_v19143.allowed else None,
+                        ):
                             _ok, _msg = paper_sell(ticker, latest_price, f"UI teknisk signal: {_action_now}")
                             if _ok:
                                 st.success(_msg)

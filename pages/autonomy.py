@@ -112,6 +112,6 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
         for candidate in list(latest.get("candidates") or [])[:100]:
             raw = candidate.get("raw") if isinstance(candidate.get("raw"), dict) else {}
             rows.append({"Ticker": candidate.get("ticker"), "News": raw.get("news_score"), "Insider": raw.get("insider_score"), "Research": candidate.get("research_score"), "Datakvalitet": candidate.get("data_quality_score")})
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True) if rows else st.info("Ingen siste motorresultater.")
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True) if rows else st.info("Ingen siste motorresultater.")
     else:
         render_expert_console()

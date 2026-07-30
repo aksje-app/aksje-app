@@ -115,7 +115,7 @@ def render_backtest_learning_panel() -> None:
         with c2:
             max_eval = st.number_input("Maks evalueringer", min_value=1, max_value=500, value=100, step=10, key="backtest_learning_max_v1842")
 
-        if st.button("Kjør backtest-læring nå", key="run_backtest_learning_v1842", use_container_width=True):
+        if st.button("Kjør backtest-læring nå", key="run_backtest_learning_v1842", width="stretch"):
             if not selected:
                 st.warning("Ingen tickere valgt.")
                 return
@@ -152,7 +152,7 @@ def render_backtest_learning_panel() -> None:
                         "Retning traff": "Ja" if e.get("direction_hit") else "Nei",
                         "Innen bull/bear": "Ja" if e.get("inside_bull_bear_range") else "Nei",
                     })
-                st.dataframe(rows, use_container_width=True, hide_index=True)
+                st.dataframe(rows, width="stretch", hide_index=True)
 
             if result["errors"]:
                 st.warning("Noen evalueringer feilet.")
@@ -190,7 +190,7 @@ def render_backtest_learning_panel() -> None:
                     "Innen bånd": f"{data.get('inside_band_accuracy', 0)}%",
                     "Snittfeil": f"{data.get('avg_abs_error_pct', 0)}%",
                 })
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
 
         if summary.get("best_tickers"):
             st.markdown("### Beste tickere historisk")
@@ -202,4 +202,4 @@ def render_backtest_learning_panel() -> None:
                     "Retning accuracy": f"{r.get('direction_accuracy', 0)}%",
                     "Snittfeil": f"{r.get('avg_abs_error_pct', 0)}%",
                 })
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)

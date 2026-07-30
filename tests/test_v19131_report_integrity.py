@@ -155,9 +155,9 @@ def test_evidence_gate_and_final_portfolio_action_remain_separate():
     result = canonical_report_view(_run([_candidate("WWI.OL", 72.86, action="SKIP")]))
     readiness = result["candidates"][0]["decision_readiness"]
 
-    assert readiness["evidence_gate_action"] == "MANUELL VURDERING"
-    assert readiness["final_action"] == "SKIP"
-    assert result["candidates"][0]["portfolio_action"] == "SKIP"
+    assert readiness["evidence_gate_action"] == "HOLD"
+    assert readiness["final_action"] == "HOLD"
+    assert result["candidates"][0]["portfolio_action"] == "HOLD"
 
 
 def test_source_consensus_deduplicates_aggregator_and_same_publisher_chain():

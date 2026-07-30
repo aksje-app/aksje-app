@@ -1,4 +1,4 @@
-"""Portfolio-aware decision gateway for Autonomy v19.14.1."""
+"""Portfolio-aware decision gateway for Autonomy v19.14.2."""
 from __future__ import annotations
 
 import hashlib

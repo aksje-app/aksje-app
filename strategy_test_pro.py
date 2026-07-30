@@ -1290,13 +1290,13 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             run_btn = st.button(
                 "🧪 Kjør Strategi-test Pro for " + (", ".join(tickers_preview[:3]) if tickers_preview else "valgte tickere"),
                 type="primary",
-                use_container_width=False,
+                width="content",
                 key=f"{key_prefix}_run",
                 on_click=set_global_busy,
                 kwargs={"label": "Kjører Strategi-test Pro", "detail": "Forbereder historikk", "step": 1, "total": 4},
             )
         with cancel_col:
-            if st.button("⏹️ Avbryt test", use_container_width=False, key=f"{key_prefix}_cancel_btn"):
+            if st.button("⏹️ Avbryt test", width="content", key=f"{key_prefix}_cancel_btn"):
                 st.session_state[cancel_key] = True
                 st.warning("Avbryt er bedt om. Pågående test stopper ved neste mulige kontrollpunkt.")
         pending_run_key = f"{key_prefix}_run_pending_v18524"
@@ -1320,7 +1320,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                         "Avkastning %": round(float(best.get("total_return_pct", 0)), 2),
                         "Mot B&H %": round(float(best.get("vs_buy_hold_pct", 0)), 2),
                     })
-                st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(log_rows), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen strategi-tester er lagret ennå.")
 
@@ -1429,7 +1429,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
 
         if not opt.empty:
             st.markdown("#### Beste kombinasjoner")
-            st.dataframe(opt.head(MAX_DISPLAY_ROWS), use_container_width=True, hide_index=True)
+            st.dataframe(opt.head(MAX_DISPLAY_ROWS), width="stretch", hide_index=True)
             best = opt.iloc[0]
             rules = _rules_from_opt_row(best, base)
             st.success("Beste regelsett brukes i grafen under: " + rules.as_label())
@@ -1450,7 +1450,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 _summary_row(validation_payload.get("in_sample_summary", {}), "In-sample"),
                 _summary_row(validation_payload.get("out_of_sample_summary", {}), "Out-of-sample"),
             ]
-            st.dataframe(pd.DataFrame(val_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(val_rows), width="stretch", hide_index=True)
             risk = validation_payload.get("overfit_risk", "Ukjent")
             if risk == "Høy":
                 st.error("Overfit-risiko: Høy - strategien ser mye svakere ut utenfor treningsperioden.")
@@ -1460,7 +1460,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 st.success(f"Overfit-risiko: {risk} - out-of-sample er relativt stabil mot in-sample.")
             if validation_payload.get("fold_rows"):
                 with st.expander("Walk-forward detaljer", expanded=False):
-                    st.dataframe(pd.DataFrame(validation_payload.get("fold_rows", [])), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(validation_payload.get("fold_rows", [])), width="stretch", hide_index=True)
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total avkastning", f"{float(summary.get('total_return_pct', 0)):.2f}%")
@@ -1486,7 +1486,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 hovermode="x unified",
                 hoverlabel=dict(bgcolor="rgba(15,23,42,0.96)", bordercolor="rgba(148,163,184,0.45)", font=dict(color="#f8fafc")),
             )
-            st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True, "displaylogo": False})
+            st.plotly_chart(fig, width="stretch", config={"scrollZoom": True, "displaylogo": False})
 
         if isinstance(per_ticker, pd.DataFrame) and not per_ticker.empty:
             show = per_ticker.copy()
@@ -1503,7 +1503,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             show = show.rename(columns=rename)
             wanted = [c for c in ["Ticker", "Avkastning %", "Buy&hold %", "Max DD %", "Trades", "Kjøp", "Win rate %", "Sluttverdi"] if c in show.columns]
             st.markdown("#### Resultat per ticker")
-            st.dataframe(show[wanted].round(2), use_container_width=True, hide_index=True)
+            st.dataframe(show[wanted].round(2), width="stretch", hide_index=True)
 
         top_rows = opt.head(50).to_dict(orient="records") if not opt.empty else []
         test_id = save_strategy_log({
@@ -1595,7 +1595,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
             data=make_simple_pdf(pdf_lines),
             file_name=f"strategi_test_{test_id}.pdf",
             mime="application/pdf",
-            use_container_width=False,
+            width="content",
             key=f"{key_prefix}_pdf",
         )
 
@@ -1605,7 +1605,7 @@ def render_strategy_test_pro(default_ticker: str, default_tickers: Iterable[str]
                 data=opt.head(200).to_csv(index=False).encode("utf-8"),
                 file_name=f"strategi_test_{test_id}_kombinasjoner.csv",
                 mime="text/csv",
-                use_container_width=False,
+                width="content",
                 key=f"{key_prefix}_csv",
             )
 

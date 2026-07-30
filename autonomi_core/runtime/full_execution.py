@@ -1,4 +1,4 @@
-"""Verification contract for one self-contained Autonomy execution (v19.14.1)."""
+"""Verification contract for one self-contained Autonomy execution (v19.14.2)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

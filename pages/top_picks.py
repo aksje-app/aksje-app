@@ -85,7 +85,7 @@ def render_top_picks_control_center_v1863s(_legacy_context):
         f"Kjør Top Picks for {scope}",
         key="cc_top_picks_run_v1863s",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=not bool(source_tickers),
     )
     if run_clicked and source_tickers:
@@ -147,7 +147,7 @@ def render_top_picks_control_center_v1863s(_legacy_context):
                 "Hvorfor valgt": x.get("selection_reason"),
                 "Endring": x.get("score_delta_since_previous"), "Status": ux_status_label_v19022(x.get("candidate_state"), str(x.get("candidate_state") or "")),
             } for x in top_picks]
-            st.dataframe(pd.DataFrame(metadata_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(metadata_rows), width="stretch", hide_index=True)
 
     if view == "Top Picks":
         render_ranking(top_picks, f"Top Picks Top Picks {scope}")

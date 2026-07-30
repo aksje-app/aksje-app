@@ -109,7 +109,7 @@ def _nbim_report_html(changes: Sequence[Mapping[str, Any]]) -> bytes:
 def _render_change_table(rows: Sequence[Mapping[str, Any]]) -> None:
     display_rows = nbim_changes_to_display_rows(rows)
     if display_rows:
-        st.dataframe(display_rows, use_container_width=True, hide_index=True)
+        st.dataframe(display_rows, width="stretch", hide_index=True)
     else:
         st.info("Ingen rader i denne visningen.")
 
@@ -236,9 +236,9 @@ def render_nbim_radar_panel() -> None:
         with tab:
             if name == "Land/sektor":
                 st.markdown("**Land**")
-                st.dataframe(nbim_group_summary(annotated_changes, "country")[:25], use_container_width=True, hide_index=True)
+                st.dataframe(nbim_group_summary(annotated_changes, "country")[:25], width="stretch", hide_index=True)
                 st.markdown("**Sektor**")
-                st.dataframe(nbim_group_summary(annotated_changes, "sector")[:25], use_container_width=True, hide_index=True)
+                st.dataframe(nbim_group_summary(annotated_changes, "sector")[:25], width="stretch", hide_index=True)
             else:
                 _render_change_table(views.get(name, []))
 
@@ -254,7 +254,7 @@ def render_nbim_radar_panel() -> None:
 
     b1, b2, b3, b4 = st.columns(4)
     with b1:
-        if st.button("Lagre NBIM-overlay", key="nbim_save_overlay_v1863bd", type="primary", use_container_width=True, disabled=not overlay):
+        if st.button("Lagre NBIM-overlay", key="nbim_save_overlay_v1863bd", type="primary", width="stretch", disabled=not overlay):
             saved = save_nbim_overlay(overlay, source_as_of=source_as_of, source_file=current_file.name if current_file else "")
             st.success(f"Lagret NBIM-overlay for {saved} tickere.")
     with b2:
@@ -263,7 +263,7 @@ def render_nbim_radar_panel() -> None:
             data=_changes_to_csv(annotated_changes),
             file_name="olje-fond-radar-endringer.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
     with b3:
         st.download_button(
@@ -271,7 +271,7 @@ def render_nbim_radar_panel() -> None:
             data=nbim_changes_to_json(annotated_changes),
             file_name="olje-fond-radar-endringer.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
         )
     with b4:
         st.download_button(
@@ -279,7 +279,7 @@ def render_nbim_radar_panel() -> None:
             data=_nbim_report_html(annotated_changes),
             file_name="olje-fond-radar-rapport.html",
             mime="text/html",
-            use_container_width=True,
+            width="stretch",
         )
 
     matched_tickers = list(dict.fromkeys(
@@ -289,11 +289,11 @@ def render_nbim_radar_panel() -> None:
     ))
     a1, a2 = st.columns(2)
     with a1:
-        if st.button("Send alle matchede til AI Kandidattest", key="nbim_send_all_ai_candidate_v1864o", use_container_width=True, disabled=not matched_tickers):
+        if st.button("Send alle matchede til AI Kandidattest", key="nbim_send_all_ai_candidate_v1864o", width="stretch", disabled=not matched_tickers):
             open_ai_candidate_test(tickers=matched_tickers, market="Alle")
             st.rerun()
     with a2:
-        if st.button("Åpne AI Kandidattest med Oljefond/NBIM", key="nbim_open_ai_candidate_source_v1864o", use_container_width=True, disabled=not matched_tickers):
+        if st.button("Åpne AI Kandidattest med Oljefond/NBIM", key="nbim_open_ai_candidate_source_v1864o", width="stretch", disabled=not matched_tickers):
             open_ai_candidate_test(source="Oljefond/NBIM", market="Alle")
             st.rerun()
 

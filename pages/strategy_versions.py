@@ -72,7 +72,7 @@ def render_strategy_versions(app_context: Any) -> None:
     c3.metric("Shadow/challenger", len(shadows))
     c4.metric("Pauset", len(paused))
 
-    st.dataframe(pd.DataFrame(_display_rows(rows)), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_display_rows(rows)), width="stretch", hide_index=True)
     st.info(
         "Automatisk promotering er av. En challenger kan bare overta Paper Trading etter godkjent Strategy Lab-resultat, "
         "bestått pre-flight og eksplisitt PROMOTER-bekreftelse. Autonomi og separate strategikontoer endres ikke."
@@ -199,7 +199,7 @@ def render_strategy_versions(app_context: Any) -> None:
                     "Tidspunkt": row.get("captured_at"),
                     "Kontrollsum": str(row.get("checksum") or "")[:16],
                 })
-            st.dataframe(pd.DataFrame(display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(display), width="stretch", hide_index=True)
         else:
             st.caption("Ingen snapshot er lagret ennå. De opprettes ved nye scanner- og autonomikjøringer.")
 
@@ -227,7 +227,7 @@ def render_strategy_versions(app_context: Any) -> None:
                 "Feil": row.get("error_count"),
                 "Fullført": row.get("completed_at"),
             } for row in runs]
-            st.dataframe(pd.DataFrame(run_display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(run_display), width="stretch", hide_index=True)
         if decisions:
             decision_display = [{
                 "Ticker": row.get("ticker"),
@@ -240,7 +240,7 @@ def render_strategy_versions(app_context: Any) -> None:
                 "Utførelse": "Nei" if row.get("execution_authorized") is False else "FEIL",
                 "Tid": row.get("evaluated_at"),
             } for row in decisions[:200]]
-            st.dataframe(pd.DataFrame(decision_display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(decision_display), width="stretch", hide_index=True)
         else:
             st.caption("Ingen parallelle strategibeslutninger er lagret ennå.")
 
@@ -258,7 +258,7 @@ def render_strategy_versions(app_context: Any) -> None:
         a4.metric("Utførelsesmodus", "Kun paper")
         st.caption("technical_benchmark_main, autonomy_main og autonomy_learning har separate kontanter og posisjoner, men bruker samme kanoniske ordre-, fill- og kontosnapshot-format.")
         if account_rows:
-            st.dataframe(pd.DataFrame(account_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(account_rows), width="stretch", hide_index=True)
         if orders:
             order_display = [{
                 "Tid": row.get("created_at"), "Konto": row.get("account_id"), "Ticker": row.get("ticker"),
@@ -266,7 +266,7 @@ def render_strategy_versions(app_context: Any) -> None:
                 "Pris": row.get("fill_price", row.get("reference_price")), "Avvisningskode": row.get("rejection_code"),
                 "Kjøring": row.get("run_id"),
             } for row in orders[:200]]
-            st.dataframe(pd.DataFrame(order_display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(order_display), width="stretch", hide_index=True)
         st.info("Shadow- og challengerbeslutninger har fortsatt execution_authorized=false. Bare aktive PAPER-kontoer kan utføre ordre gjennom den felles motoren.")
 
     with st.expander("Teknisk identitet og hendelser", expanded=False):
@@ -275,6 +275,6 @@ def render_strategy_versions(app_context: Any) -> None:
             st.json(service.decision_binding(family), expanded=False)
         events = service.events.list(limit=100)
         if events:
-            st.dataframe(pd.DataFrame(events), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(events), width="stretch", hide_index=True)
         else:
             st.caption("Ingen strategihendelser registrert.")

@@ -307,7 +307,7 @@ def _render_quick_candidates_panel(limit: int = 12) -> Optional[str]:
     for i, ticker in enumerate(candidates[:limit]):
         label = _candidate_source_label(ticker)
         with cols[i % 4]:
-            if st.button(f"{ticker}", key=f"forecast_quick_{ticker}_{i}_v1834", use_container_width=True, help=f"Kilde: {label}"):
+            if st.button(f"{ticker}", key=f"forecast_quick_{ticker}_{i}_v1834", width="stretch", help=f"Kilde: {label}"):
                 selected = ticker
 
     return selected
@@ -491,7 +491,7 @@ def _render_forecast_vs_actual_chart(series: Dict[str, Any]) -> None:
         margin=dict(l=10, r=10, t=55, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.markdown(
         """
@@ -551,7 +551,7 @@ def _render_plotly_chart(result) -> None:
         import plotly.graph_objects as go  # type: ignore
     except Exception:
         st.warning("Plotly er ikke tilgjengelig. Viser tabell i stedet.")
-        st.dataframe(result.to_dict()["points"], use_container_width=True)
+        st.dataframe(result.to_dict()["points"], width="stretch")
         return
 
     points = result.points
@@ -597,7 +597,7 @@ def _render_plotly_chart(result) -> None:
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 
@@ -646,7 +646,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
             holdings = [{"ticker": t.strip().upper()} for t in manual.split(",") if t.strip()]
             st.caption("Bruker manuelle tickere med lik vekting." if holdings else "Ingen portefolje funnet og ingen manuelle tickere valgt.")
 
-        run_pf = st.button("Lag porteføljeprognose", key=f"portfolio_forecast_run_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}", use_container_width=True)
+        run_pf = st.button("Lag porteføljeprognose", key=f"portfolio_forecast_run_v1838_{st.session_state.get('forecast_render_context_v1849', 'normal')}", width="stretch")
         if not run_pf:
             return
 
@@ -694,7 +694,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
                 "Strength": f"{h.strength}/100",
                 "Risiko": h.risk,
             })
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
 
         try:
             import plotly.graph_objects as go  # type: ignore
@@ -708,7 +708,7 @@ def _render_portfolio_forecast_panel(default_horizon: str = "1m") -> None:
                 height=360,
                 margin=dict(l=10, r=10, t=50, b=10),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
@@ -790,7 +790,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
             )
 
         st.caption(f"Valgt prognose: {ticker or 'ingen ticker'} · horisont {horizon} · historikk {period} · regime {market_regime} · nyheter i risiko: {'på' if include_news_risk else 'av'}")
-        run = st.button("Lag prognosegraf", key="forecast_run_v1831", use_container_width=True)
+        run = st.button("Lag prognosegraf", key="forecast_run_v1831", width="stretch")
 
         if not run:
             st.info("Velg ticker og trykk «Lag prognosegraf».")
@@ -992,7 +992,7 @@ def render_forecast_section(default_ticker: str = "AAPL") -> None:
                     "Risiko": s2["risk"],
                 })
 
-            st.dataframe(horizon_rows, use_container_width=True, hide_index=True)
+            st.dataframe(horizon_rows, width="stretch", hide_index=True)
         except Exception as _forecast_compare_error:
             st.warning(f"Kunne ikke bygge horisont-tabell: {_forecast_compare_error}")
 

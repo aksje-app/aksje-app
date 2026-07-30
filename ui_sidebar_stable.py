@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
+from app_version import APP_VERSION
+
 # Compatibility anchors retained for older route-integrity checks while v19.0.22
 # renders navigation from daily_user_experience.py.
 LEGACY_ROUTE_ANCHORS_V19022 = (
@@ -53,7 +55,14 @@ def _sidebar_persist_nav_v18658(st, nav: str) -> None:
         from pathlib import Path
         path = Path("data/ui_state_v18658.json")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"nav": str(nav or ""), "version": "v18.6.61"}, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {
+            "nav": str(nav or ""),
+            "group": str(st.session_state.get("ai_control_center_group_v1863aj") or ""),
+            "panel": str(st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
+            "tab": str(st.session_state.get("autonomy_core_workspace_slug_v1882") or st.session_state.get("paper_trading_active_tab_slug_v18674c") or ""),
+            "version": APP_VERSION,
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -160,6 +169,8 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
     nav = str(nav or "").strip().lower()
     _clear_control_center_nav_state_v18663(st)
     st.session_state["ai_control_center_force_nav_v18663"] = nav
+    st.session_state["navigation_user_revision_v19143"] = int(st.session_state.get("navigation_user_revision_v19143", 0) or 0) + 1
+    st.session_state["navigation_last_source_v19143"] = "USER"
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
     elif nav == "analysis":
@@ -262,7 +273,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         pass
 
 def _sidebar_nav_button_v18650(st, label: str, nav: str, key: str) -> None:
-    if st.sidebar.button(label, key=key, use_container_width=True):
+    if st.sidebar.button(label, key=key, width="stretch"):
         _sidebar_nav_set_v18650(st, nav)
 
 
@@ -314,7 +325,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     if more_items:
         with st.sidebar.expander("☰ Mer", expanded=False):
             for _icon, _label, _nav in more_items:
-                if st.button(f"{_icon} {_label}", key=f"sidebar_more_v19022_{_nav}_{_label}", use_container_width=True):
+                if st.button(f"{_icon} {_label}", key=f"sidebar_more_v19022_{_nav}_{_label}", width="stretch"):
                     _sidebar_nav_set_v18650(st, _nav)
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)

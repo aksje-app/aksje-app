@@ -63,7 +63,8 @@ def test_full_analysis_respects_intelligence_source_cache(monkeypatch):
     assert result["data_refresh"]["intelligence_source_cache_respected"] is True
 
 
-def test_ui_has_one_shot_terminal_full_refresh():
+def test_ui_terminal_polling_preserves_user_navigation():
     source = Path("autonomous_orchestrator_ui.py").read_text(encoding="utf-8")
-    assert "orchestrator_terminal_app_refresh_v18712" in source
-    assert 'st.rerun(scope="app")' in source
+    terminal = source.split('if state in {"COMPLETED", "FAILED", "CANCELLED"}', 1)[1].split('pct =', 1)[0]
+    assert "orchestrator_terminal_fragment_seen_v19143" in terminal
+    assert 'st.rerun(scope="app")' not in terminal

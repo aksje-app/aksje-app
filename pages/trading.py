@@ -140,9 +140,9 @@ def render_auto_trading_workspace(_legacy_context):
                 st.caption("Full stopp / ferie og nødstopp har alltid høyest prioritet.")
             b1, b2 = st.columns(2)
             with b1:
-                save_auto_btn = st.form_submit_button("💾 Lagre auto-innstillinger som ventende", use_container_width=True)
+                save_auto_btn = st.form_submit_button("💾 Lagre auto-innstillinger som ventende", width="stretch")
             with b2:
-                reset_auto_btn = st.form_submit_button("Standard Standard auto-innstillinger", use_container_width=True)
+                reset_auto_btn = st.form_submit_button("Standard Standard auto-innstillinger", width="stretch")
         if save_auto_btn:
             _mark_pending_manual_change("Auto trading-innstillinger endret")
             _current = load_settings()
@@ -318,7 +318,7 @@ def render_watchlist_alerts_workspace(_legacy_context, dynamic_watchlist, pushov
                     save_settings(_merged)
                     st.success("Varselkontroll oppdatert via Global oppdatering ✅")
             with b2:
-                if st.button("Verifiser Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, use_container_width=True):
+                if st.button("Verifiser Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, width="stretch"):
                     verify_info = verify_pushover_credentials_v18585()
                     st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
                     if verify_info.get("ok"):
@@ -326,7 +326,7 @@ def render_watchlist_alerts_workspace(_legacy_context, dynamic_watchlist, pushov
                     else:
                         st.error(f"Pushover-verifisering feilet Feil {verify_info.get('response_text')}")
             with b3:
-                if st.button("📣 Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=True):
+                if st.button("📣 Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, width="stretch"):
                     ok, err = _send_pushover_safe_v1863af("✅ Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
                     st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
                     if ok:
@@ -334,7 +334,7 @@ def render_watchlist_alerts_workspace(_legacy_context, dynamic_watchlist, pushov
                     else:
                         st.error(f"Feil: {err}")
             with b4:
-                if st.button("Nullstill", key="main_alert_reset_antispam_v156", use_container_width=True):
+                if st.button("Nullstill", key="main_alert_reset_antispam_v156", width="stretch"):
                     reset_alert_state()
                     st.success("Signalhistorikk nullstilt ✅")
             with st.expander("Varselinfo / Pushover-status", expanded=False):

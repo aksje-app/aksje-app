@@ -3,13 +3,31 @@ services:
     name: aksje-app
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: STREAMLIT_SERVER_HEADLESS
         value: "true"
+      - key: APP_ENVIRONMENT
+        value: "production"
+      - key: AUTH_STORAGE_MODE
+        value: "auto"
+      - key: AUTH_DATABASE_URL
+        sync: false
+      - key: AUTH_REQUIRE_PERSISTENT
+        value: "true"
+      - key: AUTH_SESSION_RECHECK_SECONDS
+        value: "60"
+      - key: STORAGE_MODE
+        value: "auto"
+      - key: ALLOW_LOCAL_STORAGE_FALLBACK
+        value: "false"
+      - key: RUNTIME_BACKGROUND_ENABLED
+        value: "false"
+      - key: REPORT_SCHEDULER_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: FINNHUB_API_KEY
@@ -37,7 +55,7 @@ services:
       - key: REPORT_SCHEDULER_POLL_SECONDS
         value: "60"
       - key: PAPER_TRADING_ENABLED
-        value: "true"
+        value: "false"
       - key: SCANNER_MAX_TICKERS
         value: "30"
       - key: SCAN_SLEEP_SECONDS
@@ -47,11 +65,29 @@ services:
     runtime: python
     plan: starter
     schedule: "*/5 * * * *"
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
     startCommand: python scheduled_runner.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: APP_ENVIRONMENT
+        value: "production"
+      - key: AUTH_STORAGE_MODE
+        value: "auto"
+      - key: AUTH_DATABASE_URL
+        sync: false
+      - key: AUTH_REQUIRE_PERSISTENT
+        value: "true"
+      - key: AUTH_SESSION_RECHECK_SECONDS
+        value: "60"
+      - key: STORAGE_MODE
+        value: "auto"
+      - key: ALLOW_LOCAL_STORAGE_FALLBACK
+        value: "false"
+      - key: RUNTIME_BACKGROUND_ENABLED
+        value: "false"
+      - key: REPORT_SCHEDULER_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: FINNHUB_API_KEY
@@ -77,7 +113,7 @@ services:
       - key: REPORT_PUBLIC_BASE_URL
         sync: false
       - key: PAPER_TRADING_ENABLED
-        value: "true"
+        value: "false"
       - key: SCANNER_MAX_TICKERS
         value: "30"
       - key: SCAN_SLEEP_SECONDS

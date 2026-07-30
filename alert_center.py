@@ -253,7 +253,7 @@ def render_common_alert_center(location: str = "top") -> None:
             })
 
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             markets: Dict[str, int] = {}
             sources: Dict[str, int] = {}

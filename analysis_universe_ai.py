@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from app_version import get_app_version
-from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, NO_MARKET_SELECTION_LABEL, picker_scope_options
+from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, NO_MARKET_SELECTION_LABEL, expand_market_scope, picker_scope_options
 from security_metadata import resolve_security_metadata, display_label, infer_security_listing
 
 from services.service_registry import build_service_registry
@@ -383,6 +383,7 @@ def filter_universe_candidates(
 ) -> List[UniverseCandidate]:
     """Transparent preview filters. Not the final AI-selection engine."""
     selected_scopes = {str(x) for x in scopes if x}
+    selected_markets = {market for scope in selected_scopes for market in expand_market_scope(scope)}
     selected_sectors = {str(x) for x in sectors if x and x != "Alle sektorer"}
     risk_order = {"Lav": 1, "Middels": 2, "Høy": 3, "Ukjent": 4}
     max_risk_value = risk_order.get(max_risk, 4)
@@ -391,16 +392,16 @@ def filter_universe_candidates(
     for c in candidates:
         source = str(c.source)
         source_is_top_pick = source.startswith("TopPicks") or "Top Picks" in source
-        if selected_scopes and "Alle" not in selected_scopes:
+        if selected_scopes:
             allowed = False
             listing = infer_security_listing(c.ticker, {"ticker": c.ticker, "source": source})
             market = str(listing.get("market") or "")
+            if selected_markets and market in selected_markets:
+                allowed = True
             for market_scope in MARKET_SCOPE_OPTIONS:
-                if market_scope not in selected_scopes:
+                if market_scope not in selected_scopes or expand_market_scope(market_scope):
                     continue
-                if market_scope == "Norden" and market in set(NORDIC_MARKET_SCOPES):
-                    allowed = True
-                elif market_scope not in {"Norden", "Alle"} and (source == market_scope or market == market_scope):
+                if source == market_scope:
                     allowed = True
             if "Top Picks" in selected_scopes and source_is_top_pick:
                 allowed = True
@@ -1630,7 +1631,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         nav_prev_col, nav_status_col = st.columns([1.0, 1.05])
         with nav_prev_col:
-            if st.button("Forrige: Test 2 Marked/rangering", key="smart_ai_pipeline_prev_v1864b", use_container_width=True):
+            if st.button("Forrige: Test 2 Marked/rangering", key="smart_ai_pipeline_prev_v1864b", width="stretch"):
                 previous = stage_wizard_info("market_ranking")
                 st.session_state[PIPELINE_PENDING_NAV_KEY] = {
                     "stage_id": "market_ranking",
@@ -1663,7 +1664,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             if st.button(
                 f"Send {out_count} Smart AI-funn til Test 4 og aapne Top Picks",
                 key="smart_ai_pipeline_send_findings_to_top_picks_v1864k",
-                use_container_width=True,
+                width="stretch",
                 type="primary",
             ):
                 result = pipeline.handoff_latest_output_to_next("smart_ai")
@@ -1676,7 +1677,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             if st.button(
                 f"Fortsett med raa input fra Test 2 ({inp_count}) til Test 4",
                 key="smart_ai_pipeline_send_raw_input_to_top_picks_v1864k",
-                use_container_width=True,
+                width="stretch",
                 type="primary",
                 help="Bruk dette hvis Smart AI-filteret gir 0 treff, eller hvis du vil sende hele inputpakken videre ufiltrert.",
             ):
@@ -1698,7 +1699,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 else:
                     _open_top_picks_stage_v1864g()
         else:
-            st.button("Ingen input/output aa sende videre", key="smart_ai_pipeline_no_input_v1864k", use_container_width=True, disabled=True)
+            st.button("Ingen input/output aa sende videre", key="smart_ai_pipeline_no_input_v1864k", width="stretch", disabled=True)
     except Exception as exc:
         st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
 
@@ -1863,7 +1864,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     key="ai_universe_use_signal_intelligence_draft_v1853",
                 )
 
-            submitted = st.form_submit_button("💾 Lagre Analyseunivers AI-oppsett som ventende", use_container_width=True)
+            submitted = st.form_submit_button("💾 Lagre Analyseunivers AI-oppsett som ventende", width="stretch")
 
         config = {
             "mode": mode,
@@ -1938,17 +1939,17 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
 
         picker_a, picker_b, picker_c = st.columns(3)
         with picker_a:
-            if st.button("🎯 Bruk som aktivt aksjeunivers", key="use_smart_universe_picker_active_v18517", use_container_width=True):
+            if st.button("🎯 Bruk som aktivt aksjeunivers", key="use_smart_universe_picker_active_v18517", width="stretch"):
                 service_result = services.universe.save_active_universe(config)
                 _set_pending_change("Smart Universe Picker satt som aktivt aksjeunivers")
                 st.success(service_result.message or "Smart Universe Picker er satt som aktivt aksjeunivers.")
         with picker_b:
-            if st.button("🔔 Send aktivt valg til watchlist", key="smart_universe_picker_to_watchlist_v18517", use_container_width=True):
+            if st.button("🔔 Send aktivt valg til watchlist", key="smart_universe_picker_to_watchlist_v18517", width="stretch"):
                 service_result = services.watchlist.set_from_candidates(picker_result, limit=int(max_count or len(picker_result.get("candidates") or []) or 30))
                 _set_pending_change("Smart Universe Picker sendt til watchlist")
                 st.success(service_result.message or "Picker-resultatet er lagt inn som watchlist.")
         with picker_c:
-            if st.button("⭐ Send aktivt valg til Top Picks", key="smart_universe_picker_to_top_picks_v18517", use_container_width=True):
+            if st.button("⭐ Send aktivt valg til Top Picks", key="smart_universe_picker_to_top_picks_v18517", width="stretch"):
                 service_result = services.top_picks.save_from_universe_result(picker_result, limit=int(max_count or len(picker_result.get("candidates") or []) or 10), list_name="TopPicks_Picker")
                 _set_pending_change("Smart Universe Picker sendt til Top Picks")
                 st.success(service_result.message or "Picker-resultatet er lagret som TopPicks_Picker.")
@@ -1970,7 +1971,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             run_smart = st.button(
                 "🚀 Kjør Smart AI-utvalg nå",
                 key="run_smart_ai_universe_v1859",
-                use_container_width=True,
+                width="stretch",
                 disabled=not bool(picker_result.get("tickers") or picker_result.get("candidates")),
                 on_click=set_global_busy,
                 kwargs={"label": "Kjører Smart AI-utvalg", "detail": "Forbereder valgt ticker-univers", "step": 1, "total": 4},
@@ -2051,13 +2052,13 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
             st.caption(f"Viser {smart_choice.lower()} av {len(smart_df.index)} scorede kandidater. Visningsvalg endrer ikke pakken.")
             action_a, action_b = st.columns(2)
             with action_a:
-                if st.button("⭐ Bruk Smart AI-resultat som Top Picks", key="smart_ai_to_top_picks_v1859", use_container_width=True):
+                if st.button("⭐ Bruk Smart AI-resultat som Top Picks", key="smart_ai_to_top_picks_v1859", width="stretch"):
                     services = build_service_registry(st.session_state)
                     service_result = services.top_picks.save_from_universe_result(smart_result, limit=int(max_count or len(smart_result.get("candidates") or []) or 10), list_name="TopPicks_SmartAI")
                     _set_pending_change("Smart AI-resultat sendt til Top Picks")
                     st.success(service_result.message or "Smart AI-resultatet er lagt inn som TopPicks_SmartAI.")
             with action_b:
-                if st.button("🔔 Bruk Smart AI-resultat som watchlist", key="smart_ai_to_watchlist_v1859", use_container_width=True):
+                if st.button("🔔 Bruk Smart AI-resultat som watchlist", key="smart_ai_to_watchlist_v1859", width="stretch"):
                     services = build_service_registry(st.session_state)
                     service_result = services.watchlist.set_from_candidates(smart_result, limit=int(max_count or len(smart_result.get("candidates") or []) or 30))
                     _set_pending_change("Smart AI-resultat sendt til watchlist")

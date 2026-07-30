@@ -42,7 +42,7 @@ class V18715ReleaseTests(unittest.TestCase):
         self.assertIn("action_test, action_diag = st.columns(2)", source)
         self.assertIn('"Test hele varselkjeden"', source)
         block = source[source.index('"Test hele varselkjeden"'):source.index('"Test hele varselkjeden"') + 500]
-        self.assertIn("use_container_width=True", block)
+        self.assertIn('width="stretch"', block)
 
     def test_morning_jobs_default_to_always_notify(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")

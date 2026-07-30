@@ -309,9 +309,12 @@ def _extract_rows(value: Any) -> list[dict[str, Any]]:
 
 
 def _market_matches(row: Mapping[str, Any], scope: str) -> bool:
-    if scope == "Alle":
-        return True
-    wanted = str(scope or "").strip().lower()
+    expanded = expand_market_scope(scope)
+    if len(expanded) > 1:
+        return any(_market_matches(row, market) for market in expanded)
+    if len(expanded) == 1 and expanded[0] != str(scope or "").strip():
+        return _market_matches(row, expanded[0])
+    wanted = str((expanded[0] if expanded else scope) or "").strip().lower()
     actual = str(row.get("market") or row.get("country") or row.get("exchange") or "").strip().lower()
     aliases = {
         "norge": ("norge", "norway", "oslo", "osl"),
@@ -388,7 +391,7 @@ def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineC
         identity = normalize_candidate_identity(source_row, config.market_scope)
         clean, _missing = _sanitize_numeric_fields(identity)
         normalized.append(clean)
-    filtered = [r for r in normalized if r.get("ticker") and (config.market_scope == "Alle" or r.get("market") == config.market_scope)]
+    filtered = [r for r in normalized if r.get("ticker") and _market_matches(r, config.market_scope)]
     unique, seen = [], set()
     for row in filtered:
         ticker = row["ticker"]
@@ -959,7 +962,7 @@ def render_investment_pipeline() -> None:
         st.markdown("#### 🚀 Orkestrering – Investment Pipeline")
         st.caption(
             "Skanner valgt marked, rangerer toppkandidater og kjører en kontrollert analyseflyt frem til investeringsforslag. "
-            "Alternativet **Alle** inkluderer USA, Norge, Sverige, Finland, Danmark og Brasil. Ingen handler utføres automatisk."
+            "Alternativet **Alle** betyr kjernemarkedene Norge, Sverige og USA. Full seksmarkedsskanning er et eget eksplisitt valg. Ingen handler utføres automatisk."
         )
 
         c1, c2, c3, c4 = st.columns(4)
@@ -986,9 +989,9 @@ def render_investment_pipeline() -> None:
 
         force_refresh = st.checkbox("Tving full ny analyse (ignorer cache)", value=False, key="ip_force_refresh_v18692e", help="Henter nye data for alle kandidater. Brukes ved kontroll og feilsøking; kjøringen kan ta lengre tid.")
         if market == "Alle":
-            st.info("Alle markeder: " + ", ".join(expand_market_scope("Alle")))
+            st.info("Alle kjernemarkeder: " + ", ".join(expand_market_scope("Alle")))
 
-        if st.button("Kjør automatisk investeringspipeline", type="primary", use_container_width=True, key="ip_run_v18686"):
+        if st.button("Kjør automatisk investeringspipeline", type="primary", width="stretch", key="ip_run_v18686"):
             with st.spinner("Skanner og rangerer kandidater..."):
                 rows, source = _load_candidate_rows_from_app(cfg)
                 if not rows:
@@ -1023,7 +1026,7 @@ def render_investment_pipeline() -> None:
                 "Parallelle treff": ", ".join(r.get("strategy_matches") or []),
             } for r in rows]
             st.markdown("##### Rangert kandidatliste")
-            st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
             st.markdown("##### 🔎 Analysebevis per kandidat")
             selected_ticker = st.selectbox("Velg kandidat for sporbar analyse", [str(r.get("ticker")) for r in rows], key="ip_trace_ticker_v18692b")
             selected = next((r for r in rows if str(r.get("ticker")) == selected_ticker), {})
@@ -1041,7 +1044,7 @@ def render_investment_pipeline() -> None:
             ins3.metric("Kjøp / salg", f"{insider.get('buy_count',0)} / {insider.get('sell_count',0)}")
             ins4.metric("Nettoverdi", insider.get("net_value", 0))
             if insider.get("evidence"):
-                st.dataframe(pd.DataFrame(insider.get("evidence")), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(insider.get("evidence")), width="stretch", hide_index=True)
             else:
                 st.caption(insider.get("reason") or "Ingen dokumenterte insidertransaksjoner i tilgjengelig datakilde.")
             if raw.get("data_fetch_error"):
@@ -1059,7 +1062,7 @@ def render_investment_pipeline() -> None:
                 d2.metric("Ny score", f"{float(change.get('current_score') or selected.get('investment_score') or 0):.2f}")
                 d3.metric("Endring", f"{float(change.get('delta') or 0):+.2f}")
                 if change.get("drivers"):
-                    st.dataframe(pd.DataFrame(change.get("drivers")), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(change.get("drivers")), width="stretch", hide_index=True)
                 elif change.get("status") == "UNCHANGED":
                     st.caption("Ingen målbar scoreendring. Kontroller cache-alder og datakilde over.")
                 else:
@@ -1067,7 +1070,7 @@ def render_investment_pipeline() -> None:
             trace = raw.get("analysis_trace") or []
             if trace:
                 st.markdown("###### Datainnhenting")
-                st.dataframe(pd.DataFrame(trace), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(trace), width="stretch", hide_index=True)
             component_trace = raw.get("component_trace") or {}
             if component_trace:
                 st.markdown("###### Beregning av delscorer")
@@ -1082,12 +1085,12 @@ def render_investment_pipeline() -> None:
                         "Dekning": item.get("coverage", item.get("group_coverage", "")),
                         "Detaljer": item.get("note", ""),
                     })
-                st.dataframe(pd.DataFrame(component_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(component_rows), width="stretch", hide_index=True)
                 for key, item in component_trace.items():
                     inputs = item.get("inputs") if isinstance(item, Mapping) else None
                     if inputs:
                         with st.expander(f"Sporing: {item.get('component', key)}", expanded=False):
-                            st.dataframe(pd.DataFrame(inputs), use_container_width=True, hide_index=True)
+                            st.dataframe(pd.DataFrame(inputs), width="stretch", hide_index=True)
             portfolio_trace = raw.get("portfolio_fit_trace") or {}
             if portfolio_trace:
                 with st.expander("Sporing: Porteføljetilpasning", expanded=False):
@@ -1123,7 +1126,7 @@ def render_investment_pipeline() -> None:
         with st.expander("Manuell vurderingskø", expanded=False):
             queue = load_review_queue()
             if queue:
-                st.dataframe(pd.DataFrame(queue), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(queue), width="stretch", hide_index=True)
             else:
                 st.caption("Køen er tom.")
 
@@ -1132,6 +1135,6 @@ def render_investment_pipeline() -> None:
             data=json.dumps(payload, ensure_ascii=False, indent=2, default=str),
             file_name=f"investment_pipeline_{payload.get('run_id', 'latest')}.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
             key="ip_export_v18686",
         )

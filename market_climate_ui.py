@@ -147,7 +147,7 @@ def _render_graph_source_links() -> None:
     st.markdown("**Hurtiglenker for manuelle/importerte grafer**")
     st.caption("Skjermbildene er bare referanser. Her åpner du stedet der underlaget bør hentes, og importerer CSV/XLSX eller legger inn siste verdi manuelt.")
     rows = market_climate_graph_source_rows()
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     link_lines: list[str] = []
     for item in MARKET_CLIMATE_GRAPH_SOURCES:
         links = [link for link in item.get("links") or [] if isinstance(link, Mapping)]
@@ -196,7 +196,7 @@ def _render_graph_import_controls() -> dict[str, Any]:
             for source_id, payload in imports.items()
             if isinstance(payload, Mapping)
         ]
-        st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(summary), width="stretch", hide_index=True)
         if st.button("Tøm importerte grafdata", key="market_climate_clear_graph_imports_v1867"):
             imports = {}
             st.session_state["market_climate_graph_imports_v1867"] = {}
@@ -382,9 +382,9 @@ def _render_factor_chart(snapshot: Mapping[str, Any]) -> None:
             template="plotly_white",
             showlegend=False,
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     except Exception:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_market_chart(snapshot: Mapping[str, Any]) -> None:
@@ -413,7 +413,7 @@ def _render_market_chart(snapshot: Mapping[str, Any]) -> None:
             template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     except Exception:
         st.caption("Graf kunne ikke vises, men dataene finnes i tabellen og eksporten.")
 
@@ -444,7 +444,7 @@ def _render_indicator_chart(snapshot: Mapping[str, Any]) -> None:
             template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     except Exception:
         st.caption("Indikatorgraf kunne ikke vises, men dataene finnes i tabellen og eksporten.")
 
@@ -455,7 +455,7 @@ def _render_imported_graph(entry: Mapping[str, Any]) -> None:
         st.caption("Ingen importert eller manuell tabell for denne grafen ennå.")
         return
     df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
     try:
         import plotly.graph_objects as go
 
@@ -486,7 +486,7 @@ def _render_imported_graph(entry: Mapping[str, Any]) -> None:
             template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     except Exception:
         st.caption("Graf kunne ikke tegnes automatisk, men tabellen er importert og blir med i rapporten.")
 
@@ -509,7 +509,7 @@ def _render_graph_archive(snapshot: Mapping[str, Any]) -> None:
                 "Høyt nivå": item.get("Høyt nivå"),
             }
         )
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     source_map = {str(item.get("id")): item for item in archive if isinstance(item, Mapping)}
     source_id = st.selectbox(
         "Vis graf/tabell",
@@ -600,17 +600,17 @@ def render_market_climate_panel() -> None:
         _render_level_table([row for row in snapshot.get("manual_indicator_rows") or [] if isinstance(row, Mapping)], "Manuelle/importerte indikatorer i snapshot")
     with tab2:
         _render_factor_chart(snapshot)
-        st.dataframe(pd.DataFrame(snapshot.get("factor_rows") or []), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(snapshot.get("factor_rows") or []), width="stretch", hide_index=True)
     with tab3:
         _render_market_chart(snapshot)
         _render_indicator_chart(snapshot)
-        st.dataframe(pd.DataFrame(snapshot.get("market_rows") or []), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(snapshot.get("market_rows") or []), width="stretch", hide_index=True)
     with tab4:
         _render_graph_archive(snapshot)
     with tab5:
         status_rows = snapshot.get("source_status") or []
         if status_rows:
-            st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(status_rows), width="stretch", hide_index=True)
         if snapshot.get("missing_factors"):
             st.warning("Mangler: " + ", ".join(str(x) for x in snapshot.get("missing_factors") or []))
         st.json(snapshot.get("manual_inputs") or {})

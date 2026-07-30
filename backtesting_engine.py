@@ -394,7 +394,7 @@ def render_backtesting_engine() -> None:
         position_pct = st.slider("Kapital per posisjon %", 10, 100, 100, 5, key="bt_position_v18681")
         st.text_input("Utførelsesmodell", value="Signal ved close → handel neste open", disabled=True, key="bt_exec_label_v18681")
 
-    if st.button("Kjør profesjonell backtest", type="primary", use_container_width=True, key="bt_run_v18681"):
+    if st.button("Kjør profesjonell backtest", type="primary", width="stretch", key="bt_run_v18681"):
         try:
             import yfinance as yf  # type: ignore
             with st.spinner(f"Henter {ticker} og simulerer {strategy_name} …"):
@@ -442,17 +442,17 @@ def render_backtesting_engine() -> None:
             if not bm.empty:
                 bm["date"] = pd.to_datetime(bm["date"])
                 chart = chart.join(bm.set_index("date")[["value"]].rename(columns={"value": "Kjøp og hold"}), how="outer")
-            st.line_chart(chart, use_container_width=True)
+            st.line_chart(chart, width="stretch")
     with tab_trades:
         trades = pd.DataFrame(report.get("trades") or [])
-        st.dataframe(trades, use_container_width=True, hide_index=True)
+        st.dataframe(trades, width="stretch", hide_index=True)
         if not trades.empty:
             st.download_button("Last ned handler CSV", trades.to_csv(index=False).encode("utf-8-sig"), f"backtest_trades_{ticker}.csv", "text/csv")
     with tab_risk:
         monthly = pd.DataFrame(report.get("monthly_returns") or [])
         if not monthly.empty:
-            st.dataframe(monthly, use_container_width=True, hide_index=True)
-            st.bar_chart(monthly.set_index("month")["return_pct"], use_container_width=True)
+            st.dataframe(monthly, width="stretch", hide_index=True)
+            st.bar_chart(monthly.set_index("month")["return_pct"], width="stretch")
         st.json({k: metrics.get(k) for k in ("volatility_pct", "best_r_multiple", "worst_r_multiple", "avg_holding_days", "total_costs", "ending_value", "trades")})
     with tab_audit:
         st.success(f"Datakvalitet: {quality.get('quality_score', 0)}/100")

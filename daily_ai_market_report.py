@@ -331,7 +331,7 @@ def render_daily_ai_market_report() -> None:
             key="daily_report_manual_v1862",
             placeholder="Valgfritt: EQNR.OL, VOLV-B.ST, NOKIA.HE",
         )
-        run = st.button("Oppdater AI Market Briefing", key="daily_ai_report_refresh_v1862", use_container_width=True, type="primary")
+        run = st.button("Oppdater AI Market Briefing", key="daily_ai_report_refresh_v1862", width="stretch", type="primary")
 
     params = (focus, market, int(top_n), tuple(horizons), bool(unique), manual)
     report_key = f"daily_ai_market_report::{_today_key()}::{hash(params)}"
@@ -356,7 +356,7 @@ def render_daily_ai_market_report() -> None:
     st.markdown("### Kandidatgrunnlag")
     candidates = report.get("candidates", [])
     if candidates:
-        st.dataframe(_candidate_rows(candidates), use_container_width=True, hide_index=True)
+        st.dataframe(_candidate_rows(candidates), width="stretch", hide_index=True)
     else:
         st.error("Ingen kandidater funnet for valgt fokus/marked. Kjør rangering/global oppdatering, velg Watchlist/Portefølje, eller bruk manuelle tickere.")
         with st.expander("Diagnostikk kandidatkilder", expanded=False):
@@ -374,14 +374,14 @@ def render_daily_ai_market_report() -> None:
     st.markdown("### Topp bullish / sterkeste prognoser")
     strongest = _rows_for_display(report.get("forecasts", {}).get("strongest", []))
     if strongest:
-        st.dataframe(strongest, use_container_width=True, hide_index=True)
+        st.dataframe(strongest, width="stretch", hide_index=True)
     else:
         st.info("Ingen prognoser for valgte kandidater/horisonter. Rapporten viser likevel kandidatgrunnlaget over.")
 
     st.markdown("### Topp risiko / svakeste prognoser")
     weakest = _rows_for_display(report.get("forecasts", {}).get("weakest", []))
     if weakest:
-        st.dataframe(weakest, use_container_width=True, hide_index=True)
+        st.dataframe(weakest, width="stretch", hide_index=True)
     else:
         st.caption("Ingen filtrerte risikoprognoser tilgjengelig.")
 
@@ -389,7 +389,7 @@ def render_daily_ai_market_report() -> None:
     top_alerts = report.get("alerts", {}).get("top", [])
     if top_alerts:
         rows = [{"Nivå": a.get("level", "").upper(), "Kilde": a.get("source", ""), "Ticker": a.get("ticker", ""), "Horisont": a.get("horizon", ""), "Kategori": a.get("category", ""), "Melding": a.get("message", "")} for a in top_alerts]
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
         if st.button("✓ Marker viste varsler som gjennomgått", key="daily_report_mark_alerts_reviewed_v1862"):
             _mark_alerts_reviewed(top_alerts)
             st.rerun()

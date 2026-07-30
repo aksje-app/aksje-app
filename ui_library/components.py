@@ -107,7 +107,7 @@ def action_row(st_module, actions: Sequence[Mapping[str, Any]], columns: int | N
                     key=str(action.get("key") or action_id),
                     type=str(action.get("type") or "secondary"),
                     disabled=bool(action.get("disabled", False)),
-                    use_container_width=bool(action.get("use_container_width", True)),
+                    width="stretch" if bool(action.get("use_container_width", True)) else "content",
                     help=action.get("help"),
                 )
             )

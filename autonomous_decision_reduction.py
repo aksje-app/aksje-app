@@ -1,4 +1,4 @@
-"""Autonomous decision reduction for AI Aksje Analyzer Pro v19.14.1.
+"""Autonomous decision reduction for AI Aksje Analyzer Pro v19.14.2.
 
 The module converts internal engine actions into a small set of user-facing
 Norwegian outcomes.  It deliberately avoids turning every missing data point
@@ -63,7 +63,7 @@ MARKET_SOURCE_MATRIX: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 TERMINAL_EVIDENCE = {"AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VERIFIED_FACTS_NONE"}
-TEMPORARY_SOURCE_FAILURES = {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR", "ERROR", "PARTIAL_SOURCE_FAILURE"}
+TEMPORARY_SOURCE_FAILURES = {"SECONDARY_FACTS_FOUND", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR", "ERROR", "PARTIAL_SOURCE_FAILURE"}
 UNSUPPORTED_SOURCE_STATES = {"NOT_CONFIGURED", "UNAVAILABLE", "NOT_SUPPORTED"}
 
 
@@ -270,7 +270,9 @@ def _priority_candidate_view(row: Mapping[str, Any]) -> dict[str, Any]:
     """Compact user-facing priority row without duplicated raw source payloads."""
     fields = (
         "ticker", "name", "market", "sector", "investment_score", "confidence_score",
-        "risk_score", "data_quality", "portfolio_action", "autonomy_outcome_code",
+        "model_confidence", "evidence_adjusted_model_confidence", "decision_confidence",
+        "confidence_profile", "confidence_semantics", "risk_score", "data_quality",
+        "portfolio_action", "autonomy_outcome_code",
         "autonomy_outcome_label", "autonomy_outcome_reason", "automatic_next_action",
         "manual_review_required", "manual_tasks", "manual_task_summary", "analysis_stage",
         "valid_for_decision", "evidence_valid_for_decision", "evidence_data_ready",

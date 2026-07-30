@@ -703,11 +703,15 @@ def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any
             "triggered_by": str(payload.get("triggered_by") or "AUTONOMY"), "status": "PENDING", "delivery": "LOCAL_QUEUE"}
     rows.insert(0, item); _write(NOTIFICATIONS_PATH, rows[:1000])
     try:
-        from notification_service import send_pushover_notification
-        item["attempted_at"] = _now(); ok = send_pushover_notification(title, message)
-        item["status"] = "SENT" if ok is not False else "FAILED"; item["delivery"] = "PUSHOVER_SENT" if ok is not False else "PUSHOVER_FAILED"
-        if ok is not False: item["sent_at"] = _now()
-        else: item["error"] = "Pushover-sender returnerte False"
+        from notifier import normalize_notification_result, send_pushover_alert
+        item["attempted_at"] = _now()
+        ok, detail = normalize_notification_result(send_pushover_alert(message, title=title))
+        item["status"] = "SENT" if ok else "FAILED"
+        item["delivery"] = "PUSHOVER_SENT" if ok else "PUSHOVER_FAILED"
+        if ok:
+            item["sent_at"] = _now()
+        else:
+            item["error"] = str(detail or "Pushover-sender returnerte False")[:500]
     except Exception as exc:
         item["attempted_at"] = _now(); item["status"] = "FAILED"; item["delivery"] = "PUSHOVER_FAILED"; item["error"] = str(exc)[:500]
     _write(NOTIFICATIONS_PATH, rows[:1000])
@@ -1352,9 +1356,9 @@ def render_learning_portfolio() -> None:
     st.markdown("#### 🧪 Læringsportefølje")
     st.caption("Separate skyggeposisjoner for å måle hva som skjer med kandidater som ikke ble ordinært kjøpt. Disse posisjonene påvirker ikke Autonom portefølje, kontanter, risiko, sektorgrenser eller ekte handel.")
     b1, b2 = st.columns(2)
-    if b1.button("📈 Åpne autonom portefølje", use_container_width=True, key="learning_to_autonomous_v19018b"):
+    if b1.button("📈 Åpne autonom portefølje", width="stretch", key="learning_to_autonomous_v19018b"):
         _navigate_autonomy_workspace("autonomous_portfolio")
-    if b2.button("🧭 Til Autonomi Oversikt", use_container_width=True, key="learning_to_overview_v19018b"):
+    if b2.button("🧭 Til Autonomi Oversikt", width="stretch", key="learning_to_overview_v19018b"):
         _navigate_autonomy_workspace("overview")
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -1371,8 +1375,8 @@ def render_learning_portfolio() -> None:
         hist_df = pd.DataFrame(history).sort_values("timestamp")
         chart_cols = [c for c in ("total_pnl", "return_pct") if c in hist_df.columns]
         if chart_cols:
-            st.line_chart(hist_df.set_index("timestamp")[chart_cols], use_container_width=True)
-        st.dataframe(hist_df.sort_values("timestamp", ascending=False).head(25), use_container_width=True, hide_index=True)
+            st.line_chart(hist_df.set_index("timestamp")[chart_cols], width="stretch")
+        st.dataframe(hist_df.sort_values("timestamp", ascending=False).head(25), width="stretch", hide_index=True)
     else:
         st.info("Ingen læringshistorikk ennå. Historikk opprettes etter neste autonome beslutningssyklus.")
 
@@ -1390,7 +1394,7 @@ def render_learning_portfolio() -> None:
                 "Sist vurdert": pos.get("last_evaluated_at"), "Horisont dager": pos.get("observation_horizon_days", params.learning_probe_horizon_days),
                 "Opprinnelse": "Autonomi læringsobservasjon",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     else:
         st.info("Ingen åpne læringsposisjoner.")
 
@@ -1399,11 +1403,11 @@ def render_learning_portfolio() -> None:
     closed = portfolio.get("closed_positions") or []
     t1, t2, t3 = st.tabs(["Læringshandler", "Observasjonsbeslutninger", "Lukkede observasjoner"])
     with t1:
-        st.dataframe(pd.DataFrame(learning_trades[:500]), use_container_width=True, hide_index=True) if learning_trades else st.caption("Ingen læringshandler registrert.")
+        st.dataframe(pd.DataFrame(learning_trades[:500]), width="stretch", hide_index=True) if learning_trades else st.caption("Ingen læringshandler registrert.")
     with t2:
-        st.dataframe(pd.DataFrame(learning_decisions[:1000]), use_container_width=True, hide_index=True) if learning_decisions else st.caption("Ingen observasjonsbeslutninger registrert.")
+        st.dataframe(pd.DataFrame(learning_decisions[:1000]), width="stretch", hide_index=True) if learning_decisions else st.caption("Ingen observasjonsbeslutninger registrert.")
     with t3:
-        st.dataframe(pd.DataFrame(closed[:500]), use_container_width=True, hide_index=True) if closed else st.caption("Ingen lukkede læringsobservasjoner.")
+        st.dataframe(pd.DataFrame(closed[:500]), width="stretch", hide_index=True) if closed else st.caption("Ingen lukkede læringsobservasjoner.")
 
 
 
@@ -1586,7 +1590,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
                 "technical_timing": "Timing", "technical_strategy_version_id": "Teknisk versjon", "reason": "Beslutningsårsak",
             })
             keep = [col for col in ["Ticker", "Base score", "Justert score", "Teknisk bidrag", "Teknisk score", "Teknisk signal", "Teknisk confidence", "Timing", "Teknisk versjon", "Beslutningsårsak"] if col in technical_view.columns]
-            st.dataframe(technical_view[keep], use_container_width=True, hide_index=True)
+            st.dataframe(technical_view[keep], width="stretch", hide_index=True)
         else:
             st.caption("Ingen kandidater med teknisk bidrag er lagret i siste aktiveringsanalyse ennå.")
 
@@ -1602,7 +1606,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
             technical_wait = tc6.slider("VENT under teknisk score", 20.0, 45.0, float(technical_policy.get("wait_below_technical_score") or 35.0), 1.0, key="v1990_technical_wait")
             technical_approval = st.text_input("Skriv GODKJENN for å lagre teknisk bidragsprofil", key="v1990_technical_approval")
             technical_reason = st.text_input("Begrunnelse for endringen", key="v1990_technical_reason")
-            if st.button("Lagre godkjent teknisk bidragsprofil", use_container_width=True, key="v1990_save_technical_policy"):
+            if st.button("Lagre godkjent teknisk bidragsprofil", width="stretch", key="v1990_save_technical_policy"):
                 if technical_approval.strip().upper() != "GODKJENN":
                     st.error("Skriv GODKJENN før profilen lagres.")
                 elif not technical_reason.strip():
@@ -1623,14 +1627,14 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         with left:
             st.markdown("**Vanligste blokkeringer**")
             if blockers:
-                st.dataframe(pd.DataFrame(blockers).rename(columns={"label":"Årsak","count":"Antall","share_pct":"Andel %","code":"Kode"}), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(blockers).rename(columns={"label":"Årsak","count":"Antall","share_pct":"Andel %","code":"Kode"}), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen blokkeringer registrert.")
         with right:
             st.markdown("**Simulerte scoregrenser**")
             simulations = list(analysis.get("threshold_simulations") or [])
             if simulations:
-                st.dataframe(pd.DataFrame(simulations)[["minimum_score","eligible_candidates","tickers"]].rename(columns={"minimum_score":"Minimum score","eligible_candidates":"Mulige kandidater","tickers":"Toppkandidater"}), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(simulations)[["minimum_score","eligible_candidates","tickers"]].rename(columns={"minimum_score":"Minimum score","eligible_candidates":"Mulige kandidater","tickers":"Toppkandidater"}), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen kandidater å simulere.")
 
@@ -1645,7 +1649,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
                 "cash":"Kontanter", "last_run_id":"Siste kjøring",
             })
             keep = [c for c in ["Konto","Rolle","Status","Porteføljeverdi","Avkastning %","Drawdown %","Posisjoner","Kontanter","Siste kjøring"] if c in view.columns]
-            st.dataframe(view[keep], use_container_width=True, hide_index=True)
+            st.dataframe(view[keep], width="stretch", hide_index=True)
         st.caption("Teknisk benchmark, autonomy_main og autonomy_learning har separate kontanter, posisjoner og handler. Ingen konto kan bruke en annen kontos kapital.")
 
         with st.expander("Kontrollert parameterprofil for autonomy_learning", expanded=False):
@@ -1662,7 +1666,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
             learning_target = p6.slider("Gevinstmål %", 5.0, 30.0, float(policy["take_profit_pct"]), 0.5, key="v1980_learning_target")
             approval = st.text_input("Skriv GODKJENN for å lagre læringsprofilen", key="v1980_learning_approval")
             reason = st.text_input("Begrunnelse for endringen", key="v1980_learning_reason")
-            if st.button("Lagre godkjent læringsprofil", use_container_width=True, key="v1980_save_learning_policy"):
+            if st.button("Lagre godkjent læringsprofil", width="stretch", key="v1980_save_learning_policy"):
                 if approval.strip().upper() != "GODKJENN":
                     st.error("Skriv GODKJENN før parameterprofilen lagres.")
                 else:
@@ -1678,7 +1682,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         st.download_button(
             "📦 Eksporter testresultater (ZIP)", zip_payload,
             file_name=f"autonomy_test_results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-            mime="application/zip", use_container_width=True, key="alp_test_export_v1980",
+            mime="application/zip", width="stretch", key="alp_test_export_v1980",
             help="Inneholder sammendrag, aktiveringsfunnel, strategisammenligning, kandidatbeslutninger, ordre, handler, porteføljemålinger, parametre og rensede feil. Hemmeligheter filtreres bort.",
         )
     except Exception as exc:
@@ -1697,9 +1701,9 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     st.markdown("#### 📈 Autonom portefølje")
     st.caption("Den ordinære, teoretiske porteføljen som styres av Autonomi. Bare kandidater som består ordinære kjøpsporter påvirker beholdning, kontanter, risiko og porteføljeavkastning. Læringsobservasjoner føres separat.")
     nav1, nav2 = st.columns(2)
-    if nav1.button("🧪 Vis læringsportefølje", use_container_width=True, key="autonomous_to_learning_v19018b"):
+    if nav1.button("🧪 Vis læringsportefølje", width="stretch", key="autonomous_to_learning_v19018b"):
         _navigate_autonomy_workspace("learning_portfolio")
-    if nav2.button("🧭 Til Autonomi Oversikt", use_container_width=True, key="autonomous_to_overview_v19018b"):
+    if nav2.button("🧭 Til Autonomi Oversikt", width="stretch", key="autonomous_to_overview_v19018b"):
         _navigate_autonomy_workspace("overview")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
@@ -1754,12 +1758,12 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
 
     a, b, c = st.columns(3)
     if portfolio.get("status") == "ACTIVE":
-        if a.button("Pause autonom portefølje", use_container_width=True, key="alp_pause_v18688"):
+        if a.button("Pause autonom portefølje", width="stretch", key="alp_pause_v18688"):
             set_status(False, "Pauset av bruker"); st.rerun()
     else:
-        if a.button("Aktiver autonom simulering", type="primary", use_container_width=True, key="alp_activate_v18688"):
+        if a.button("Aktiver autonom simulering", type="primary", width="stretch", key="alp_activate_v18688"):
             set_status(True, "Aktivert av bruker"); st.rerun()
-    if b.button("Kjør én teoretisk beslutningssyklus", use_container_width=True, key="alp_cycle_v18690", help="Bruker siste lagrede kandidatliste. Starter ikke en ny markedsskanning."):
+    if b.button("Kjør én teoretisk beslutningssyklus", width="stretch", key="alp_cycle_v18690", help="Bruker siste lagrede kandidatliste. Starter ikke en ny markedsskanning."):
         pipeline = _read(LATEST_PIPELINE_PATH, {})
         candidates = pipeline.get("candidates") or pipeline.get("proposals") or []
         if portfolio.get("status") != "ACTIVE":
@@ -1781,7 +1785,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         if active_jobs:
             labels = {f"{j.name} ({', '.join(j.markets)})": j for j in active_jobs}
             chosen = st.selectbox("Jobbprofil for full kjøring", list(labels), key="alp_orchestrator_job_v18690")
-            if st.button("▶ Kjør hele autonome kjeden nå", type="primary", use_container_width=True, key="alp_run_full_chain_v18690"):
+            if st.button("▶ Kjør hele autonome kjeden nå", type="primary", width="stretch", key="alp_run_full_chain_v18690"):
                 with st.spinner("Skanner markeder og kjører den autonome kjeden..."):
                     full = run_job(labels[chosen], trigger="MANUAL_FULL_CHAIN")
                 chain = full.get("autonomous_chain") or {}
@@ -1801,7 +1805,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         if chain:
             with st.expander("Siste kjøring – diagnostikk", expanded=False):
                 st.write({"Kjede-ID": chain.get("chain_id"), "Status": chain.get("status"), "Start": chain.get("created_at"), "Kilde": chain.get("source_run_id")})
-                st.dataframe(pd.DataFrame(chain.get("stages") or []), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(chain.get("stages") or []), width="stretch", hide_index=True)
                 if chain.get("errors"):
                     st.error(" | ".join(chain.get("errors") or []))
     except Exception:
@@ -1852,7 +1856,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
             export_bundle(),
             file_name=f"ai_aksje_analyzer_config_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
             key="cfg_export_v18691",
         )
         uploaded = right.file_uploader("Importer konfigurasjon", type=["json"], key="cfg_import_file_v18691")
@@ -1887,16 +1891,16 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     if history and len(history) >= 3:
         hist_df = pd.DataFrame(history).sort_values("timestamp")
         hist_df["Dato"] = hist_df["timestamp"].map(_short_local_time)
-        st.line_chart(hist_df.set_index("Dato")[["equity"]], use_container_width=True, height=280)
+        st.line_chart(hist_df.set_index("Dato")[["equity"]], width="stretch", height=280)
         with st.expander("Vis historikkdetaljer", expanded=False):
             view = hist_df.sort_values("timestamp", ascending=False).head(25).copy()
             view = view.rename(columns={"equity":"Porteføljeverdi", "total_return_pct":"Avkastning %", "open_positions":"Posisjoner", "trades":"Handler", "decisions":"Beslutninger", "run_id":"Kjørings-ID"})
-            st.dataframe(view[["Dato", "Kjørings-ID", "Porteføljeverdi", "Avkastning %", "Posisjoner", "Handler", "Beslutninger"]], use_container_width=True, hide_index=True)
+            st.dataframe(view[["Dato", "Kjørings-ID", "Porteføljeverdi", "Avkastning %", "Posisjoner", "Handler", "Beslutninger"]], width="stretch", hide_index=True)
     elif history:
         st.info("For få historikkpunkter til en meningsfull graf. Neste autonome kjøringer bygger utviklingskurven.")
         hist_df = pd.DataFrame(history).sort_values("timestamp", ascending=False)
         hist_df["Dato"] = hist_df["timestamp"].map(_short_local_time)
-        st.dataframe(hist_df[["Dato", "run_id", "equity", "total_return_pct"]].rename(columns={"run_id":"Kjørings-ID", "equity":"Porteføljeverdi", "total_return_pct":"Avkastning %"}), use_container_width=True, hide_index=True)
+        st.dataframe(hist_df[["Dato", "run_id", "equity", "total_return_pct"]].rename(columns={"run_id":"Kjørings-ID", "equity":"Porteføljeverdi", "total_return_pct":"Avkastning %"}), width="stretch", hide_index=True)
     else:
         st.info("Ingen porteføljehistorikk ennå. Historikk opprettes etter neste autonome beslutningssyklus.")
 
@@ -1906,7 +1910,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         _render_position_cards_mobile(position_rows, st)
         desktop_rows = [{k:v for k,v in row.items() if k not in {"Selskap"}} for row in position_rows]
         with st.container(key="autonomous-desktop-positions-v1940"):
-            st.dataframe(pd.DataFrame(desktop_rows), use_container_width=True, hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Snittkurs": st.column_config.NumberColumn(format="%.2f"), "Siste kurs": st.column_config.NumberColumn(format="%.2f"), "Markedsverdi": st.column_config.NumberColumn(format="%.0f kr"), "Avkastning kr": st.column_config.NumberColumn(format="%+.0f kr"), "Avkastning %": st.column_config.NumberColumn(format="%+.2f%%")})
+            st.dataframe(pd.DataFrame(desktop_rows), width="stretch", hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Snittkurs": st.column_config.NumberColumn(format="%.2f"), "Siste kurs": st.column_config.NumberColumn(format="%.2f"), "Markedsverdi": st.column_config.NumberColumn(format="%.0f kr"), "Avkastning kr": st.column_config.NumberColumn(format="%+.0f kr"), "Avkastning %": st.column_config.NumberColumn(format="%+.2f%%")})
     else:
         st.info("Ingen åpne teoretiske posisjoner.")
 
@@ -1922,9 +1926,9 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
             trade_rows = autonomous_trade_display_rows(trades, limit=500)
             _render_trade_cards_mobile(trade_rows, st)
             with st.container(key="autonomous-desktop-trades-v1940"):
-                st.dataframe(pd.DataFrame([{k:v for k,v in row.items() if k != "Teknisk ID"} for row in trade_rows]), use_container_width=True, hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Kurs": st.column_config.NumberColumn(format="%.2f"), "Beløp": st.column_config.NumberColumn(format="%.0f kr")})
+                st.dataframe(pd.DataFrame([{k:v for k,v in row.items() if k != "Teknisk ID"} for row in trade_rows]), width="stretch", hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Kurs": st.column_config.NumberColumn(format="%.2f"), "Beløp": st.column_config.NumberColumn(format="%.0f kr")})
             with st.expander("Tekniske handelsdetaljer", expanded=False):
-                st.dataframe(pd.DataFrame(trade_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(trade_rows), width="stretch", hide_index=True)
             st.download_button("Eksporter handler JSON", json.dumps(trades, ensure_ascii=False, indent=2), "autonomous_trades.json", "application/json", key="alp_trades_json_v18688")
         else:
             st.caption("Ingen handler registrert.")
@@ -1934,7 +1938,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
             ledger_rows = autonomous_decision_ledger_rows(decisions)
             _render_decision_cards_mobile(ledger_rows, st)
             with st.container(key="autonomous-desktop-decisions-v1940"):
-                st.dataframe(pd.DataFrame(ledger_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(ledger_rows), width="stretch", hide_index=True)
         else:
             st.caption("Ingen beslutninger registrert.")
     with t3:
@@ -1962,7 +1966,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         l1.metric("Porteføljeaudit", len(audit_rows)); l2.metric("Orchestratoraudit", len(orchestrator_audit)); l3.metric("Læringsaudit", len(learning_audit)); l4.metric("Varsler", len(notifications) if isinstance(notifications, list) else 0); l5.metric("Pushover", len(push_audit))
         log_name = st.selectbox("Vis logg", ["Porteføljeaudit", "Orchestratoraudit", "Læringsaudit", "Varsler", "Pushover"], key="alp_audit_source_v1877")
         selected_log = {"Porteføljeaudit": audit_rows, "Orchestratoraudit": orchestrator_audit, "Læringsaudit": learning_audit, "Varsler": notifications if isinstance(notifications, list) else [], "Pushover": push_audit}[log_name]
-        if selected_log: st.dataframe(pd.DataFrame(selected_log[-500:][::-1]), use_container_width=True, hide_index=True)
+        if selected_log: st.dataframe(pd.DataFrame(selected_log[-500:][::-1]), width="stretch", hide_index=True)
         else: st.caption("Ingen hendelser er registrert i valgt logg ennå.")
         st.info("For evaluering: last ned evalueringspakken og last den opp i ChatGPT. Den inneholder parametere, portefølje, handler, beslutninger, ytelse, varslingslogg, audit og siste pipeline-kjøring.")
         st.warning("Kontroller pakken før deling. Ikke legg API-nøkler, Pushover-token eller andre hemmeligheter i runtime-filene.")

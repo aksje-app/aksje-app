@@ -6,6 +6,7 @@ import requests
 from datetime import datetime, timezone
 from storage_architecture import runtime_log_path
 from durable_runtime import append_event, read_events
+from runtime_safety import notifications_allowed
 
 try:
     from runtime_env import load_app_env
@@ -32,10 +33,25 @@ def pushover_audit(limit=500):
 
 
 def pushover_enabled():
-    return bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    allowed, _reason = notifications_allowed()
+    return bool(allowed)
+
+
+def normalize_notification_result(response):
+    """Return one canonical ``(ok, detail)`` pair for legacy/new notifier shapes."""
+    if isinstance(response, tuple):
+        ok = bool(response[0]) if response else False
+        detail = response[1] if len(response) > 1 else ""
+        return ok, str(detail or "")
+    return bool(response), ""
 
 
 def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None):
+    allowed, safety_reason = notifications_allowed()
+    if not allowed:
+        print(f"Pushover blokkert: {safety_reason}")
+        _log_delivery(title, False, safety_reason, has_url=bool(url))
+        return False, safety_reason
     try:
         if not bool(load_settings().get("pushover_enabled", True)):
             print("Pushover disabled by settings")
