@@ -1,4 +1,4 @@
-"""Scheduled Market Intelligence & PDF Reports v19.14.5.
+"""Scheduled Market Intelligence & PDF Reports v19.14.6.
 
 Job profiles combine multiple markets, schedules, pipeline modules and notification
 rules. Jobs can run manually, when the Streamlit app is active, or from cron via

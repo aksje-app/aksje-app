@@ -3,7 +3,7 @@ services:
     name: aksje-app
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     envVars:
       - key: PYTHON_VERSION
@@ -61,7 +61,7 @@ services:
     runtime: python
     plan: starter
     schedule: "*/5 * * * *"
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
     startCommand: python scheduled_runner.py
     envVars:
       - key: PYTHON_VERSION

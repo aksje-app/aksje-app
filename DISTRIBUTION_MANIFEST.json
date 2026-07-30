@@ -1,9 +1,9 @@
 {
   "format": "ai-aksje-analyzer-distribution-manifest-v1",
-  "version": "v19.14.5",
+  "version": "v19.14.6",
   "profile": "full",
-  "created_at_utc": "2026-07-29T20:13:21.057804+00:00",
-  "source_base_commit": "v19.14.4-test-candidate",
+  "created_at_utc": "2026-07-29T20:39:59+00:00",
+  "source_base_commit": "v19.14.5-test-candidate",
   "mutable_runtime_included": false,
   "files": [
     {
@@ -47,6 +47,11 @@
       "sha256": "068d8433cae9282366efa9b820b03a7d004252ab5700f6824f31ace293793120"
     },
     {
+      "path": "ACCEPTANCE_v19.14.6.md",
+      "size_bytes": 747,
+      "sha256": "e9a3782d597d3859f006333c65467d70ec7a9dee41d7fafaf8140ebfcebdd048"
+    },
+    {
       "path": "DEPLOY_v19.14.1.md",
       "size_bytes": 1367,
       "sha256": "542d6500677de7963b2c5157fd2930875966aa77f082a224958886b5a0a231cb"
@@ -70,6 +75,11 @@
       "path": "DEPLOY_v19.14.5.md",
       "size_bytes": 568,
       "sha256": "e17ab9749fd5327b5f177c880902d00a2a24fe58c789f9a6e9dea57e30b0cabf"
+    },
+    {
+      "path": "DEPLOY_v19.14.6.md",
+      "size_bytes": 630,
+      "sha256": "aad74ad22c4952a388eb41d6ba1f68b25674d3d6ad7411b4c7c0e85912749bab"
     },
     {
       "path": "DISTRIBUTION_SECURITY_POLICY_v19.14.1.md",
@@ -115,6 +125,11 @@
       "path": "RELEASE_NOTES_v19.14.5.md",
       "size_bytes": 886,
       "sha256": "76525f22fcfdacb64d285b3dc86d8ef386315807ecc1623b2f58aefeed55b56e"
+    },
+    {
+      "path": "RELEASE_NOTES_v19.14.6.md",
+      "size_bytes": 1075,
+      "sha256": "2de11fdd8fb5ade7221f6cb780d42eb159345bafc4e89c014f7d547e5dce82bc"
     },
     {
       "path": "TEST_REPORT_v19.14.1.md",
@@ -253,8 +268,8 @@
     },
     {
       "path": "app.py",
-      "size_bytes": 878289,
-      "sha256": "07d147e6c78e738bcca6dad722f0fb351339bcdd11631dadbcc1553764e669f4"
+      "size_bytes": 878575,
+      "sha256": "9ef2d411d9536ae9d9f14f6daca11de53cc0956ff33ad8acc4a848aae5f5fd61"
     },
     {
       "path": "app_core/__init__.py",
@@ -268,8 +283,8 @@
     },
     {
       "path": "app_version.py",
-      "size_bytes": 64901,
-      "sha256": "c50568eb48889d3199801d27593e043ff1b843a6ffac441035430bd742463bc6"
+      "size_bytes": 65265,
+      "sha256": "bd7d1f107e2c7ae87beec1532e89364f12328b3272da6311a9c0b2cfe1bcf041"
     },
     {
       "path": "approval_governance_ui.py",
@@ -849,7 +864,7 @@
     {
       "path": "market_intelligence.py",
       "size_bytes": 295392,
-      "sha256": "7c00c6ff5e795fc101a7884346b81464ae3473c0082192b795ae58baa4d83cfa"
+      "sha256": "12a4dc37f23b71fb7142e297c5a17e5c5e6ba8e2dca22b33267fac739b6063b1"
     },
     {
       "path": "market_intelligence_center.py",
@@ -1098,8 +1113,8 @@
     },
     {
       "path": "render.yaml",
-      "size_bytes": 3075,
-      "sha256": "d64fdd2a3271a9dff54032ef798272e22f5b995cda4cd54fa19ecd4c7a2a6cc1"
+      "size_bytes": 3167,
+      "sha256": "ba86ab455c5083e4d4ae6e5089f3b06e7c329f2ce160e0fc0b4e06e0ab748dff"
     },
     {
       "path": "report_contracts.py",
@@ -1133,8 +1148,8 @@
     },
     {
       "path": "requirements.txt",
-      "size_bytes": 190,
-      "sha256": "fc0258063cf1a52d712d8349626a69c46bd63e688d770bc9b49779df00af0934"
+      "size_bytes": 203,
+      "sha256": "9fcdbaa3930a5f49ec8f7807862445bfd85b550887df2d62d4be3dabf0faf6d1"
     },
     {
       "path": "research_assistant.py",
@@ -1152,6 +1167,11 @@
       "sha256": "e440e85dfdb23772de85ee93c5f6f17aba828c05fd90e675c58bf363e05964af"
     },
     {
+      "path": "runtime_dependencies.py",
+      "size_bytes": 2220,
+      "sha256": "226a5a1d9165813f6fa55b4abbc62a449c5bc1fd53612ebb891802a5feece8c7"
+    },
+    {
       "path": "runtime_env.py",
       "size_bytes": 3736,
       "sha256": "947bf3bc018df4798d7965f94e150f123c67c3b4f2cfb130f6739d4e03d2cd88"
@@ -1164,7 +1184,7 @@
     {
       "path": "safety_audit.py",
       "size_bytes": 4987,
-      "sha256": "9e8a1dc37d53ddc170babf5af1fadb940b377f9dcef14c0fcb3cfb92c00ee3c5"
+      "sha256": "13ebea9e18256df12876ad5ca277d7685f19f5f87189978e6432a98f7f5cd93c"
     },
     {
       "path": "scanner_worker.py",
@@ -1173,8 +1193,8 @@
     },
     {
       "path": "scheduled_runner.py",
-      "size_bytes": 4178,
-      "sha256": "1b521407c3e0a2daf9320a1074305b03e277e304e4bfa21832bc1f4e07fdb638"
+      "size_bytes": 4542,
+      "sha256": "feb3f117ee39b255878e5624bcc7566e781c843cf56a28bb4da42ce8934f686a"
     },
     {
       "path": "scheduler_background.py",
@@ -1609,7 +1629,7 @@
     {
       "path": "tests/test_v1880_autonomy_core_foundation.py",
       "size_bytes": 2633,
-      "sha256": "fa5856b33ce257349dfddccb5e28e1b878965c5420256eab33623645319e189a"
+      "sha256": "a406bc4b053590f28b337647a30e0d8e9ccb6bd5a96ef99ae6984a0b5f46c512"
     },
     {
       "path": "tests/test_v1881_freshness_data_contract.py",
@@ -1744,7 +1764,7 @@
     {
       "path": "tests/test_v19100_strategy_lab_quality_challenger.py",
       "size_bytes": 10328,
-      "sha256": "57e69ddca1aaebe795a2664d1e71ee9cb5a66d94980946b8925db58d09320484"
+      "sha256": "0a29aa50ee5727c585550cd51f73e9f4ef26aa2c8286aedd464029001e0a2e17"
     },
     {
       "path": "tests/test_v1910_evidence_reliability.py",
@@ -1764,12 +1784,12 @@
     {
       "path": "tests/test_v1911_evidence_integrity.py",
       "size_bytes": 11995,
-      "sha256": "675a13ed224fa4cd03450654aa3ffaf16b86b2b75f2c288ddbce4a89551bd3f2"
+      "sha256": "1547ecff61f1a67c145e115dac865862a10942c5d46f0bedefe786119d67174e"
     },
     {
       "path": "tests/test_v19120_strategy_promotion_rollback.py",
       "size_bytes": 10805,
-      "sha256": "27173b0aca988b69af3614b28eb149a7bcaf3757cfe3cd7fc24212a1c937199d"
+      "sha256": "4ea8ad3c879adbeab1eed4e25f337cd1e6b5b05f9acde1b9cf673c0753cd6307"
     },
     {
       "path": "tests/test_v1912_norwegian_decision_report.py",
@@ -1804,17 +1824,17 @@
     {
       "path": "tests/test_v19141_decision_gate_runtime_consistency.py",
       "size_bytes": 17305,
-      "sha256": "cfaefb63db291904baa4c7fb7ad970e0522097e6fc2736e709ad163b92e2b301"
+      "sha256": "e464bed44dd62b8e0df27f51ce1611e5f74e41b20dd22df7ac30ead7d7dd993d"
     },
     {
       "path": "tests/test_v19142_runtime_safety.py",
-      "size_bytes": 8959,
-      "sha256": "41179d34006b69b6c17357abcc79ab6c5bf40c65b96c7dcd70109723fcc615fb"
+      "size_bytes": 8967,
+      "sha256": "225fa74edeea969038258fa8f35d759cc95c0aa9f7f102bcdcc713eccb1defa9"
     },
     {
       "path": "tests/test_v19143_login_navigation_report_integrity.py",
       "size_bytes": 8311,
-      "sha256": "a38108282766f4505b50f46776aa66fdfe81d803aae31ae78b91dd70f7bba0d4"
+      "sha256": "cad6472011a31a3991a16da87bf1195ae55263e67acfb1adc18274406cee4bd8"
     },
     {
       "path": "tests/test_v19144_drift_recovery.py",
@@ -1824,7 +1844,12 @@
     {
       "path": "tests/test_v19145_report_local_storage.py",
       "size_bytes": 4676,
-      "sha256": "93eefd3a18b304a20e193a961fa62403fab5c8963ea7359df723994f209ac609"
+      "sha256": "6433d01cca5f026d77b680940273913819907104bd83d8d47e1cb16aeeb1b7a0"
+    },
+    {
+      "path": "tests/test_v19146_pdf_dependency_hotfix.py",
+      "size_bytes": 2397,
+      "sha256": "d23db24521eda502031532ab51cf548eb2b568b556692d018388389ed4f8e4ad"
     },
     {
       "path": "tests/test_v1914_scheduler_progress_exports.py",
@@ -1834,7 +1859,7 @@
     {
       "path": "tests/test_v1915_mobile_navigation.py",
       "size_bytes": 1953,
-      "sha256": "5625597a8d76c2703b9217bc5ececc07bad39c822a7ee9273fd1683e609c9742"
+      "sha256": "73ee419114173292c19dd97b76de41ddbc6e733fce418300671f2a92638c83b1"
     },
     {
       "path": "tests/test_v1917_report_ranking_pushover_handoff.py",
@@ -1854,7 +1879,7 @@
     {
       "path": "tests/test_v1918b_separate_portfolios.py",
       "size_bytes": 2587,
-      "sha256": "70e5bfb30bbf0114605c79b89dc02f6568038260dcfff6dadb9561c7e09879de"
+      "sha256": "49d9a6d9ae7a941bac0073c5d7120179544522497e6f6dad4ab5f05b6242eeed"
     },
     {
       "path": "tests/test_v1919_financial_media_sources.py",
@@ -1864,7 +1889,7 @@
     {
       "path": "tests/test_v1919a_safe_distribution.py",
       "size_bytes": 4258,
-      "sha256": "1a6fb0588e865ef3ad5f802cecae2fcc86f4b2694d29901da4640babec5c884a"
+      "sha256": "c5a9d37ac2247cc5418b210dbb69811604b339a707d8ca6d7ba664fb4cec3b33"
     },
     {
       "path": "tests/test_v1920_modular_persistence.py",
@@ -1874,17 +1899,17 @@
     {
       "path": "tests/test_v1920_report_version_contracts.py",
       "size_bytes": 5667,
-      "sha256": "d950f97649a558c69c1baa2fbf6cce194dbeba0f2a4285aacfa39326a614e165"
+      "sha256": "4efd41bf6468cbc22e3b960d951b664e48360baf546034d9160ab1dc0c16f9b2"
     },
     {
       "path": "tests/test_v1921_decision_report.py",
       "size_bytes": 10823,
-      "sha256": "8ccd2e443c642d0ba904127d0f8f07e4ff3971469bd547e70aa0b7756302c986"
+      "sha256": "4653a47f4ecead2c70e60b5ef546a085d6cf4055c99d23f0763985ab296c49be"
     },
     {
       "path": "tests/test_v1922_daily_user_experience.py",
       "size_bytes": 4309,
-      "sha256": "87feea766c8fa0218489788070482cf6b57b98015fb3231c15f224fe8ced93a8"
+      "sha256": "0be76c1598a8a1da23935db54e291d7eb1472ac8e3f6d0a26c204882d2ceee2c"
     },
     {
       "path": "tests/test_v1930_decision_intelligence_and_learning.py",
@@ -1899,27 +1924,27 @@
     {
       "path": "tests/test_v1950_modular_strategy_versioning.py",
       "size_bytes": 6400,
-      "sha256": "7d15257f6ac3620915cd4ffe94cec7d8f09af977444c2c603c138755ff59ee38"
+      "sha256": "ca9d40406ab9340b2cf9753fde6ef979c9bafb6037f27ce0e40717f83f29d55a"
     },
     {
       "path": "tests/test_v1960_market_snapshot_technical_signal.py",
       "size_bytes": 6578,
-      "sha256": "8eaf55b68267359970f9fdc83eb31203b86754aea81b854ffda66dd621732cda"
+      "sha256": "3b9f1e482edc30bb617f81c113754e82b137b896c128c95bdec2c3191fbdc190"
     },
     {
       "path": "tests/test_v1970_parallel_strategy_interface.py",
       "size_bytes": 9413,
-      "sha256": "d4928f643b5c8be0cf6bfa7ea899ae67cabf434f79d9c85dccdbc4e2bfc7cc14"
+      "sha256": "de70ee98fa1597d6e8a16a189c18f4ea60547fb66cde28ee969c8dc3f6ad274c"
     },
     {
       "path": "tests/test_v1980_shared_execution_accounts_export.py",
       "size_bytes": 12324,
-      "sha256": "1db29dacb86a2d53fa966141b300d8cf2e206c3d6b42e6db4f0593d66ef63a37"
+      "sha256": "ec435e4c35a1b0af007005d51b4a89c7dcb53df055bbabcfbaad0309e1d62829"
     },
     {
       "path": "tests/test_v1990_controlled_technical_contribution.py",
       "size_bytes": 10335,
-      "sha256": "4158c365b0a6f36fe13079aa5ba869889ebe249de3c738fd13da7d76f0e7b2a4"
+      "sha256": "992e13eefe359a0773f1e74f6a79b82a438f27297b3526d7eda7f40f906dff98"
     },
     {
       "path": "tools/__init__.py",
@@ -1928,8 +1953,13 @@
     },
     {
       "path": "tools/build_safe_distribution.py",
-      "size_bytes": 14698,
-      "sha256": "7e9c0c2174f5cd4b04d43383352f5342b424d844b3482cf0699f6adb795a004f"
+      "size_bytes": 14882,
+      "sha256": "46c4d725745243fe1b3d59cd2f41d04d063e6273aab7a7fd8bad7d0ced283901"
+    },
+    {
+      "path": "tools/check_runtime_dependencies.py",
+      "size_bytes": 1548,
+      "sha256": "75be073850cc2dbeb38e55b547512757c2a118dfeec075028378b8572845319c"
     },
     {
       "path": "tools/export_persistent_storage_v1920.py",
@@ -2023,8 +2053,8 @@
     },
     {
       "path": "tools/validate_distribution.py",
-      "size_bytes": 19722,
-      "sha256": "e1f3ffcce190f1d9f325a0086c8a55446eee746d206901c74b84544b162a6992"
+      "size_bytes": 20519,
+      "sha256": "115d58dbaf1bef77f604eeadabe8a1b3ca690330a7116b2df1116d9457f52ba3"
     },
     {
       "path": "tools/verify_runtime_v19142.py",

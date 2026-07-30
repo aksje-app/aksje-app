@@ -160,8 +160,14 @@ from global_busy import mark_choice_update, set_global_busy, update_global_busy,
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, normalize_navigation_values
 from runtime_safety import paper_trading_decision, runtime_safety_snapshot
+from runtime_dependencies import check_runtime_dependencies
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+
+_runtime_dependencies_v19146 = check_runtime_dependencies()
+if not _runtime_dependencies_v19146.get("ok"):
+    st.error("Sikker oppstart blokkert: " + " ".join(_runtime_dependencies_v19146.get("errors") or []))
+    st.stop()
 
 _runtime_safety_v19142 = runtime_safety_snapshot()
 if _runtime_safety_v19142.get("blocking_violations"):
