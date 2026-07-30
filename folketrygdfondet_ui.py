@@ -82,7 +82,7 @@ def _render_exports(rows: Sequence[Mapping[str, Any]]) -> None:
             data=folketrygdfondet_rows_to_csv(rows),
             file_name="folketrygdfondet-import.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
     with e2:
         st.download_button(
@@ -90,7 +90,7 @@ def _render_exports(rows: Sequence[Mapping[str, Any]]) -> None:
             data=folketrygdfondet_rows_to_json(rows),
             file_name="folketrygdfondet-import.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
         )
     with e3:
         st.download_button(
@@ -98,7 +98,7 @@ def _render_exports(rows: Sequence[Mapping[str, Any]]) -> None:
             data=build_folketrygdfondet_report_html(rows),
             file_name="folketrygdfondet-rapport.html",
             mime="text/html",
-            use_container_width=True,
+            width="stretch",
         )
     with e4:
         st.download_button(
@@ -106,7 +106,7 @@ def _render_exports(rows: Sequence[Mapping[str, Any]]) -> None:
             data=build_folketrygdfondet_report_pdf(rows),
             file_name="folketrygdfondet-rapport.pdf",
             mime="application/pdf",
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -130,7 +130,7 @@ def _render_ai_candidate_actions(rows: Sequence[Mapping[str, Any]]) -> None:
             "Send valgte til AI Kandidattest",
             key="folketrygdfondet_send_selected_ai_candidate_v1864p",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not selected,
         ):
             open_ai_candidate_test(tickers=selected, market="Alle")
@@ -139,7 +139,7 @@ def _render_ai_candidate_actions(rows: Sequence[Mapping[str, Any]]) -> None:
         if st.button(
             "Send alle matchede til AI Kandidattest",
             key="folketrygdfondet_send_all_ai_candidate_v1864p",
-            use_container_width=True,
+            width="stretch",
             disabled=not tickers,
         ):
             open_ai_candidate_test(tickers=tickers, market="Alle")
@@ -148,7 +148,7 @@ def _render_ai_candidate_actions(rows: Sequence[Mapping[str, Any]]) -> None:
         if st.button(
             "Åpne AI Kandidattest med Folketrygdfondet",
             key="folketrygdfondet_open_ai_candidate_source_v1864p",
-            use_container_width=True,
+            width="stretch",
             disabled=not tickers,
         ):
             open_ai_candidate_test(source="Folketrygdfondet", market="Alle")
@@ -177,7 +177,7 @@ def _render_saved_rows(rows: Sequence[Mapping[str, Any]], *, label: str) -> list
     c2.metric("Tickere med match", len(tickers))
     c3.metric("Umatchede", sum(1 for row in visible_rows if not (row.get("matched_ticker") or row.get("ticker"))))
     if visible_rows:
-        st.dataframe(folketrygdfondet_display_rows(visible_rows), use_container_width=True, hide_index=True)
+        st.dataframe(folketrygdfondet_display_rows(visible_rows), width="stretch", hide_index=True)
     else:
         st.info("Ingen rader matcher filteret.")
     return visible_rows
@@ -227,14 +227,14 @@ def render_folketrygdfondet_panel() -> None:
             placeholder="2025-12-31",
             help="Bruk datoen beholdningsfilen gjelder for. AI Kandidattest bruker denne til ferskhetsvurdering.",
         )
-        st.dataframe(folketrygdfondet_display_rows(parsed_rows), use_container_width=True, hide_index=True)
+        st.dataframe(folketrygdfondet_display_rows(parsed_rows), width="stretch", hide_index=True)
         if not overlay:
             st.warning("Importen har 0 ticker-match. Du kan likevel lagre radene, søke i dem og bruke dem som kildegrunnlag senere.")
         if st.button(
             "Importer og lagre Folketrygdfondet",
             key="folketrygdfondet_save_overlay_v1864p",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not parsed_rows,
         ):
             saved = save_folketrygdfondet_overlay(overlay, parsed_rows, source_as_of=source_as_of, source_file=uploaded.name)

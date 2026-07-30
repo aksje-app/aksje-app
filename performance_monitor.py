@@ -123,7 +123,7 @@ def render_performance_dashboard() -> None:
     c3.metric('Cache hit-rate', f"{data.get('cache_hit_rate', 0):.1f}%")
     c4.metric('Tregeste panel', slowest.get('Panel', '-'), f"{slowest.get('Snitt ms', 0)} ms" if slowest else None)
     if rows:
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
     else:
         st.info('Ingen render-målinger ennå. Åpne noen paneler og kom tilbake.')
     api_rows = []
@@ -132,6 +132,6 @@ def render_performance_dashboard() -> None:
         api_rows.append({'Kilde': source, 'Kall': count, 'Feil': row.get('errors', 0), 'Snitt ms': round(float(row.get('total_ms', 0) or 0) / max(1, count), 1)})
     if api_rows:
         st.markdown('#### API-kall')
-        st.dataframe(api_rows, use_container_width=True, hide_index=True)
+        st.dataframe(api_rows, width="stretch", hide_index=True)
     with st.expander('Siste render-målinger', expanded=False):
-        st.dataframe(list(reversed((data.get('render_times') or [])[-100:])), use_container_width=True, hide_index=True)
+        st.dataframe(list(reversed((data.get('render_times') or [])[-100:])), width="stretch", hide_index=True)

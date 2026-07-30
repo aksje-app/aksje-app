@@ -597,7 +597,7 @@ def render_ai_discovery_foundation_panel() -> None:
                     "Status": s.get("status"),
                     "Definisjon": json.dumps(s.get("definition") or {}, ensure_ascii=False),
                 })
-            st.dataframe(_df(display), use_container_width=True, hide_index=True)
+            st.dataframe(_df(display), width="stretch", hide_index=True)
         with st.expander("Legg til / oppdater signal", expanded=False):
             c1, c2, c3 = st.columns([1.2, 1.2, 0.8])
             with c1:
@@ -648,7 +648,7 @@ def render_ai_discovery_foundation_panel() -> None:
                 except Exception as exc:
                     st.error(f"Kunne ikke lagre observasjon: {exc}")
         if observations:
-            st.dataframe(_df(observations), use_container_width=True, hide_index=True)
+            st.dataframe(_df(observations), width="stretch", hide_index=True)
             st.download_button("Last ned observasjoner CSV", data=csv_from_rows(observations), file_name="ai_discovery_observations.csv", mime="text/csv")
         else:
             st.info("Ingen observasjoner ennå.")
@@ -679,7 +679,7 @@ def render_ai_discovery_foundation_panel() -> None:
                 except Exception as exc:
                     st.error(f"Kunne ikke lagre resultat: {exc}")
         if results:
-            st.dataframe(_df(results), use_container_width=True, hide_index=True)
+            st.dataframe(_df(results), width="stretch", hide_index=True)
             st.download_button("Last ned resultater CSV", data=csv_from_rows(results), file_name="ai_discovery_results.csv", mime="text/csv")
         else:
             st.info("Ingen målte resultater ennå.")
@@ -688,7 +688,7 @@ def render_ai_discovery_foundation_panel() -> None:
         st.markdown("#### Historikk")
         hist = list_history(500)
         if hist:
-            st.dataframe(_df(hist), use_container_width=True, hide_index=True)
+            st.dataframe(_df(hist), width="stretch", hide_index=True)
             st.download_button("Last ned historikk CSV", data=csv_from_rows(hist), file_name="ai_discovery_history.csv", mime="text/csv")
         else:
             st.info("Ingen historikk ennå.")

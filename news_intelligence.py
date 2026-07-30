@@ -38,7 +38,7 @@ from newsapi_budget import (
     fetch_articles as fetch_newsapi_articles,
 )
 
-COMPONENT_VERSION = "v19.1.0"
+COMPONENT_VERSION = APP_VERSION
 VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("news_intelligence") / "cache.json"
 _CACHE_LOCK = RLock()
@@ -137,6 +137,71 @@ def _canonical_title(title: str) -> str:
     return source_canonical_title(title)
 
 
+_COMPANY_SUFFIXES = {
+    "inc", "incorporated", "corp", "corporation", "company", "co", "ltd",
+    "limited", "plc", "asa", "as", "ab", "oyj", "sa", "group", "holding",
+    "holdings", "class", "ordinary", "common", "stock",
+}
+
+
+def _company_aliases(ticker: str, company_name: str = "") -> list[str]:
+    raw_ticker = str(ticker or "").upper().strip()
+    base_ticker = re.split(r"[.:-]", raw_ticker)[0]
+    resolved_name = str(company_name or "").strip()
+    if not resolved_name or resolved_name.upper() in {raw_ticker, base_ticker}:
+        try:
+            from security_metadata import resolve_security_metadata
+            resolved_name = str(resolve_security_metadata(raw_ticker).get("name") or resolved_name).strip()
+        except Exception:
+            pass
+    aliases: list[str] = []
+    for value in (raw_ticker, base_ticker):
+        if len(value) >= 3 and value not in aliases:
+            aliases.append(value.casefold())
+    cleaned = re.sub(r"[^0-9A-Za-zÀ-ÖØ-öø-ÿ ]+", " ", resolved_name).strip()
+    words = [word for word in cleaned.split() if len(word) >= 3 and word.casefold() not in _COMPANY_SUFFIXES]
+    if words:
+        full = " ".join(words).casefold()
+        if len(full) >= 3 and full not in aliases:
+            aliases.append(full)
+        # Distinctive company tokens are accepted, but common corporate suffixes
+        # and one/two-letter noise are never relevance evidence.
+        for word in words:
+            token = word.casefold()
+            if token not in aliases:
+                aliases.append(token)
+    return aliases
+
+
+def article_company_relevance(
+    row: Mapping[str, Any], ticker: str, company_name: str = "",
+) -> dict[str, Any]:
+    role = str(row.get("source_role") or "").upper()
+    url = str(row.get("url") or row.get("link") or "")
+    if role == "PRIMARY_COMPANY" or "investor" in _domain(url):
+        return {
+            "company_relevant": True, "relevance_score": 1.0,
+            "relevance_basis": "PRIMARY_COMPANY_SOURCE", "matched_aliases": [],
+        }
+    # Secondary aggregators are noisy: a company mentioned only in the body of
+    # an article about another issuer is not sufficient evidence. Require an
+    # explicit company/ticker match in the headline. Primary company sources
+    # were accepted above without this restriction.
+    haystack = str(row.get("title") or "").casefold()
+    aliases = _company_aliases(ticker, company_name)
+    matched = []
+    for alias in aliases:
+        pattern = r"(?<![0-9a-z])" + re.escape(alias) + r"(?![0-9a-z])"
+        if re.search(pattern, haystack, flags=re.IGNORECASE):
+            matched.append(alias)
+    score = 1.0 if matched else 0.0
+    return {
+        "company_relevant": bool(matched),
+        "relevance_score": score,
+        "relevance_basis": "EXPLICIT_COMPANY_OR_TICKER_MATCH" if matched else "NO_COMPANY_OR_TICKER_MATCH",
+        "matched_aliases": matched,
+    }
+
 
 def _item_from_yfinance(raw: Mapping[str, Any]) -> dict[str, Any]:
     content = raw.get("content") if isinstance(raw.get("content"), Mapping) else raw
@@ -218,6 +283,10 @@ def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = D
                 raw.get("source_quality_override"),
             ), 2),
             "verification": str(raw.get("verification") or "PUBLISHED_SOURCE"),
+            "company_relevant": raw.get("company_relevant") is True,
+            "relevance_score": round(_f(raw.get("relevance_score")), 3),
+            "relevance_basis": str(raw.get("relevance_basis") or ""),
+            "matched_aliases": list(raw.get("matched_aliases") or []),
         }
         previous = unique.get(key)
         if not previous or item["source_quality"] > previous["source_quality"]:
@@ -226,8 +295,35 @@ def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = D
 
 
 
-def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, Any]:
+def score_articles(
+    ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    company_name: str = "",
+) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
+    relevant_rows: list[dict[str, Any]] = []
+    rejected_irrelevant: list[dict[str, Any]] = []
+    for source_row in rows:
+        if not isinstance(source_row, Mapping):
+            continue
+        annotated = dict(source_row)
+        relevance = (
+            article_company_relevance(annotated, ticker, company_name)
+            if str(company_name or "").strip()
+            else {
+                "company_relevant": True, "relevance_score": 1.0,
+                "relevance_basis": "UNSCOPED_SCORING_INPUT", "matched_aliases": [],
+            }
+        )
+        annotated.update(relevance)
+        if relevance["company_relevant"]:
+            relevant_rows.append(annotated)
+        else:
+            rejected_irrelevant.append({
+                "title": str(annotated.get("title") or ""),
+                "publisher": str(annotated.get("publisher") or annotated.get("source") or ""),
+                "url": str(annotated.get("url") or annotated.get("link") or ""),
+                "reason": relevance["relevance_basis"],
+            })
     filtered_sponsored_count = sum(
         1 for row in rows
         if str(row.get("article_type") or classify_article(
@@ -240,13 +336,16 @@ def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days
             str(row.get("title") or ""), str(row.get("summary") or row.get("description") or ""), row.get("categories") or []
         )).casefold() == "recommendation"
     )
-    articles = normalize_articles(rows, lookback_days)
+    articles = normalize_articles(relevant_rows, lookback_days)
     if not articles:
         return {
             "ticker": ticker, "score": 50.0, "sentiment": "INGEN DATA", "coverage": "MISSING",
             "article_count": 0, "positive_count": 0, "negative_count": 0, "high_impact_count": 0,
             "filtered_sponsored_count": filtered_sponsored_count, "recommendation_count": recommendation_count,
-            "events": [], "summary": "Ingen relevante nyheter funnet i tilgjengelige kilder.",
+            "fetched_article_count": len(rows), "relevant_article_count": 0,
+            "rejected_irrelevant_count": len(rejected_irrelevant),
+            "rejected_irrelevant_articles": rejected_irrelevant[:20],
+            "events": [], "summary": "Ingen selskapsrelevante nyheter funnet i tilgjengelige kilder.",
         }
     weighted_total = 0.0
     total_weight = 0.0
@@ -295,6 +394,10 @@ def score_articles(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days
         "article_count": len(articles), "positive_count": positive_count, "negative_count": negative_count,
         "high_impact_count": high_impact_count, "filtered_sponsored_count": filtered_sponsored_count,
         "recommendation_count": recommendation_count, "topics": top_topics, "events": enriched[:10], "summary": summary,
+        "fetched_article_count": len(rows), "relevant_article_count": len(articles),
+        "rejected_irrelevant_count": len(rejected_irrelevant),
+        "rejected_irrelevant_articles": rejected_irrelevant[:20],
+        "relevance_policy": "EXPLICIT_COMPANY_OR_TICKER_MATCH_OR_PRIMARY_COMPANY_SOURCE",
     }
 
 
@@ -317,7 +420,10 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             source_id="yahoo_finance", market=str(market or "Globalt"), publisher="Yahoo Finance",
             url="https://finance.yahoo.com", success=True,
             response_ms=(time.perf_counter() - _yf_started) * 1000.0, article_count=len(yf_rows),
-            relevant_count=len(yf_rows), cache_status="DIRECT", parser_status="OK", volume_check=False,
+            relevant_count=sum(
+                article_company_relevance(row, ticker, company_name).get("company_relevant") is True
+                for row in yf_rows
+            ), cache_status="DIRECT", parser_status="OK", volume_check=False,
         )
         rows.extend(yf_rows)
         if yf_rows: sources.append("Yahoo Finance / yfinance")
@@ -445,7 +551,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
                 "url": feed_url,
                 "error": str(exc)[:500],
             })
-    result = score_articles(ticker, rows, lookback_days)
+    result = score_articles(ticker, rows, lookback_days, company_name=company_name)
     unique_sources = list(dict.fromkeys(source for source in sources if source))
     result["source"] = ", ".join(unique_sources) if unique_sources else "unavailable"
     result["configured_market_sources"] = [str(spec.get("label") or spec.get("publisher") or "") for spec in feed_specs]
@@ -477,7 +583,7 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
         row = dict(raw)
         result = fetch_news_intelligence(
             str(row.get("ticker") or row.get("symbol") or ""),
-            str(row.get("name") or row.get("longName") or row.get("shortName") or ""),
+            str(row.get("longName") or row.get("shortName") or row.get("name") or ""),
             force_refresh=force_refresh,
             market=str(row.get("market") or ""),
             ir_feed_url=str(row.get("ir_feed_url") or row.get("investor_relations_feed") or ""),

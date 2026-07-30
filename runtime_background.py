@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from operational_telemetry import record_event, stable_error_code, begin_run_trace, complete_run_trace, mark_run_stage
+from runtime_safety import runtime_background_allowed, scheduler_allowed
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
@@ -67,18 +68,24 @@ def _scheduler_worker() -> None:
 
 
 def ensure_runtime_background_services() -> dict[str, Any]:
-    """Idempotently start services once per Python process."""
+    """Idempotently start only the services allowed by the shared safety policy."""
     global _THREAD, _SCHEDULER_THREAD
+    background_ok, background_reason = runtime_background_allowed()
+    scheduler_ok, scheduler_reason = scheduler_allowed()
     with _LOCK:
-        if _THREAD is None or not _THREAD.is_alive():
+        if background_ok and (_THREAD is None or not _THREAD.is_alive()):
             _STOP.clear()
             _THREAD = threading.Thread(target=_worker, name="fx-alert-runtime", daemon=True)
             _THREAD.start()
-        if _SCHEDULER_THREAD is None or not _SCHEDULER_THREAD.is_alive():
+        if scheduler_ok and (_SCHEDULER_THREAD is None or not _SCHEDULER_THREAD.is_alive()):
             _SCHEDULER_THREAD = threading.Thread(
                 target=_scheduler_worker, name="report-scheduler-runtime", daemon=True
             )
             _SCHEDULER_THREAD.start()
+        if not background_ok and not scheduler_ok:
+            _STATUS.update({"state": "DISABLED", "last_error": "", "background_reason": background_reason, "scheduler_reason": scheduler_reason})
+        else:
+            _STATUS.update({"background_enabled": background_ok, "scheduler_enabled": scheduler_ok, "background_reason": background_reason, "scheduler_reason": scheduler_reason})
         return dict(_STATUS)
 
 

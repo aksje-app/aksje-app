@@ -49,7 +49,7 @@ def render_operations_trace_panel() -> None:
                 "Siste feil": row.get("last_error") or "",
             })
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.info("Ingen kildehelse er registrert ennå.")
 
@@ -74,7 +74,7 @@ def render_operations_trace_panel() -> None:
                     "Pushover": job.last_notification_status or "-",
                 })
             if job_rows:
-                st.dataframe(job_rows, use_container_width=True, hide_index=True)
+                st.dataframe(job_rows, width="stretch", hide_index=True)
             else:
                 st.info("Ingen planlagte rapportjobber er konfigurert.")
             try:
@@ -108,7 +108,7 @@ def render_operations_trace_panel() -> None:
                     })
             if receipt_rows:
                 st.markdown("##### Siste Pushover-leveranser")
-                st.dataframe(receipt_rows, use_container_width=True, hide_index=True)
+                st.dataframe(receipt_rows, width="stretch", hide_index=True)
             else:
                 st.caption("Ingen rapportvarsler er registrert ennå.")
         except Exception as exc:
@@ -129,7 +129,7 @@ def render_operations_trace_panel() -> None:
             "Feil": row.get("error") or "",
         } for row in traces]
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.info("Ingen strukturerte kjøringsspor er registrert ennå.")
 
@@ -146,6 +146,6 @@ def render_operations_trace_panel() -> None:
             "Feil": row.get("error") or "",
         } for row in reversed(errors)]
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.success("Ingen strukturerte feil er registrert.")

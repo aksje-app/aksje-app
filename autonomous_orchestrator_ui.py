@@ -2,16 +2,51 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain
-from market_intelligence import _load_report_archive, load_draft_job, load_jobs, render_market_intelligence
+from market_intelligence import _load_report_archive, load_draft_job, load_jobs, normalize_markets, render_market_intelligence
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
 from local_time import local_display
+from market_universe import FULL_MARKET_SCOPE_LABEL
+from navigation_state import capture_navigation_checkpoint_v19144, restore_navigation_checkpoint_v19144
+
+
+USE_JOB_MARKETS = "Bruk markedene i jobbprofilen"
+ORCHESTRATOR_MARKET_CHOICES = [
+    USE_JOB_MARKETS,
+    "Alle kjernemarkeder",
+    "Norge",
+    "Sverige",
+    "USA",
+    "Utvidet Norden",
+    "Danmark",
+    "Finland",
+    "Brasil",
+    FULL_MARKET_SCOPE_LABEL,
+]
+
+
+def resolve_orchestrator_run_job(selected_job: Any, market_choice: str) -> Any:
+    """Return a non-persistent per-run market override for the selected job.
+
+    The saved scheduler profile remains unchanged.  This keeps one-click runs
+    explicit and prevents an old six-market profile from being reused silently.
+    """
+    choice = str(market_choice or USE_JOB_MARKETS).strip()
+    if choice == USE_JOB_MARKETS:
+        return selected_job
+    return replace(selected_job, markets=[choice])
+
+
+def orchestrator_market_summary(job: Any) -> str:
+    markets = normalize_markets(list(getattr(job, "markets", []) or []))
+    return ", ".join(markets) or "Ingen gyldige markeder"
 
 
 def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -27,7 +62,7 @@ def _stage_rows(chain: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _background_status_panel() -> None:
+def _background_status_panel_body_v19144() -> None:
     """Render only the live status block; safe to rerun as a Streamlit fragment."""
     status = get_active_status()
     if not status:
@@ -35,14 +70,12 @@ def _background_status_panel() -> None:
     state = str(status.get("state") or "UKJENT")
     execution_id = str(status.get("execution_id") or "")
     if state in {"COMPLETED", "FAILED", "CANCELLED"} and execution_id:
-        refresh_key = "orchestrator_terminal_app_refresh_v18712"
-        if st.session_state.get(refresh_key) != execution_id:
-            st.session_state[refresh_key] = execution_id
-            try:
-                st.rerun(scope="app")
-            except TypeError:
-                st.rerun()
-            return
+        # v19.14.4: terminal polling must never rerun the full application.
+        # A full rerun re-applied an old Autonomi route and moved users away
+        # from Rapport, Analyse or Portefølje. The fragment may update its own
+        # status, while the active navigation remains entirely user-owned.
+        refresh_key = "orchestrator_terminal_fragment_seen_v19143"
+        st.session_state[refresh_key] = execution_id
     pct = int(status.get("percent") or 0)
     message = str(status.get("message") or state)
     st.progress(min(100, max(0, pct)), text=f"{pct} % · {message}")
@@ -86,6 +119,20 @@ def _background_status_panel() -> None:
                 st.warning("Stoppforespørsel er sendt.")
     elif state == "FAILED":
         st.error(f"Bakgrunnskjøringen feilet: {status.get('error') or 'ukjent feil'}")
+        details = [
+            ("Steg", status.get("error_stage")),
+            ("Feiltype", status.get("error_type")),
+            ("Rapportbane", status.get("report_path")),
+            ("Diagnosefil", status.get("diagnostic_path")),
+            ("Runtime-rot", status.get("app_runtime_root")),
+            ("Lagringsmodus", status.get("storage_mode")),
+        ]
+        with st.expander("Tekniske feildetaljer", expanded=True):
+            for label, value in details:
+                if value:
+                    st.write(f"**{label}:** `{value}`")
+            if status.get("error_trace"):
+                st.code(str(status.get("error_trace")), language="text")
     elif state == "COMPLETED":
         chain = status.get("chain") or {}
         if status.get("partial_market_failure"):
@@ -100,8 +147,21 @@ def _background_status_panel() -> None:
         p3.metric("Rapportarkiv", "BEKREFTET" if status.get("archive_saved") else "IKKE BEKREFTET")
     elif state == "CANCELLED":
         st.warning("Kjøringen ble kontrollert avbrutt. Ingen ufullstendig sluttrapport eller Pushover-melding ble publisert.")
-    if st.button("↻ Oppdater hele statusvisningen", key="orchestrator_background_manual_refresh_v1879"):
-        st.rerun()
+    if st.button("↻ Oppdater status", key="orchestrator_background_manual_refresh_v1879"):
+        try:
+            st.rerun(scope="fragment")
+        except Exception:
+            # På eldre Streamlit-versjoner oppdateres status ved neste ordinære render.
+            st.session_state["orchestrator_manual_refresh_requested_v19144"] = True
+
+
+def _background_status_panel() -> None:
+    """Refresh status without taking ownership of the user's active menu."""
+    checkpoint = capture_navigation_checkpoint_v19144(st)
+    try:
+        _background_status_panel_body_v19144()
+    finally:
+        restore_navigation_checkpoint_v19144(st, checkpoint)
 
 
 def _render_live_background_status() -> None:
@@ -137,6 +197,18 @@ def render_autonomous_orchestrator_control_center() -> None:
     labels.update({f"📅 {job.name} · {', '.join(job.markets)}": job for job in active_jobs})
     selected = st.selectbox("Velg oppsett", list(labels), key="orchestrator_ui_job_v18692a")
     selected_job = labels[selected]
+    market_choice = st.selectbox(
+        "Marked for denne kjøringen",
+        ORCHESTRATOR_MARKET_CHOICES,
+        index=0,
+        key="orchestrator_ui_market_override_v19141",
+        help=(
+            "Valget gjelder bare denne kjøringen og endrer ikke den lagrede jobbprofilen. "
+            "Alle kjernemarkeder betyr Norge, Sverige og USA."
+        ),
+    )
+    run_job = resolve_orchestrator_run_job(selected_job, market_choice)
+    st.info(f"Denne kjøringen bruker: {orchestrator_market_summary(run_job)}")
     is_draft = selected_job.job_id == "MI-DRAFT-AUTOSAVE"
     if is_draft:
         st.info("Dette er det automatisk lagrede utkastet. Du kan teste hele kjeden før du lagrer eller aktiverer en tidsplan.")
@@ -146,9 +218,9 @@ def render_autonomous_orchestrator_control_center() -> None:
     run_label = "🧪 Test hele kjeden fra utkast" if is_draft else "▶ Kjør valgt lagret jobb nå"
     background_status = get_active_status()
     background_running = is_running(background_status)
-    if st.button(run_label, type="primary", use_container_width=True, key="orchestrator_ui_run_v18692d", disabled=background_running):
+    if st.button(run_label, type="primary", width="stretch", key="orchestrator_ui_run_v18692d", disabled=background_running):
         trigger = "MANUAL_DRAFT_TEST" if is_draft else "MANUAL_FULL_CHAIN"
-        background_status = start_manual_job(selected_job, trigger=trigger, force_refresh=force_refresh)
+        background_status = start_manual_job(run_job, trigger=trigger, force_refresh=force_refresh)
         st.session_state["orchestrator_background_execution_v1878"] = background_status.get("execution_id")
         st.rerun()
 
@@ -169,14 +241,18 @@ def render_autonomous_orchestrator_control_center() -> None:
         d4.metric("Kilde", chain.get("trigger") or "-")
         rows = _stage_rows(chain)
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         latest_run = st.session_state.get("mi_latest_v18687") or {}
         top = list((background_status.get("top_candidates") if background_status else None) or latest_run.get("candidates") or [])[:3]
         if top:
-            medals = ["🥇", "🥈", "🥉"]
+            st.caption("Prioritert vurderingsrekkefølge – undersøkelsesprioritet, ikke kjøpsanbefaling.")
             cols = st.columns(len(top))
-            for idx, candidate in enumerate(top):
-                cols[idx].metric(f"{medals[idx]} {candidate.get('ticker','-')}", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}%")
+            for idx, candidate in enumerate(top, start=1):
+                cols[idx - 1].metric(
+                    f"Prioritet {idx} · {candidate.get('ticker','-')}",
+                    f"{float(candidate.get('investment_score',0)):.2f}",
+                    f"Konf. {float(candidate.get('confidence_score',0)):.1f}%",
+                )
         if chain.get("errors"):
             st.error(" | ".join(chain.get("errors") or []))
         with st.expander("Rå kjøringsdata", expanded=False):
@@ -198,7 +274,7 @@ def render_autonomous_orchestrator_control_center() -> None:
         r2.metric("Orchestratorhendelser", len(audit_rows))
         r3.metric("Rapporter", len(_load_report_archive()))
         if audit_rows:
-            st.dataframe(pd.DataFrame(audit_rows[-200:][::-1]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(audit_rows[-200:][::-1]), width="stretch", hide_index=True)
         else:
             st.caption("Ingen orchestratorhendelser er registrert ennå.")
         st.code(

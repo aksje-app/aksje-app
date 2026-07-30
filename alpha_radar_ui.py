@@ -401,14 +401,14 @@ def _render_data_source_status(
             "og tilsvarende datoperiode for nyheter der kilden stoetter det. Nokler vises aldri her."
         )
         try:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         except Exception:
             st.write(rows)
 
         if st.button(
             "Test datakilder per marked",
             key=f"alpha_radar_probe_sources_{RADAR_UI_STATE_VERSION}_{horizon}",
-            use_container_width=True,
+            width="stretch",
             help="Kjorer en liten manuell API-sjekk for USA, Norge, Sverige, Danmark og Finland.",
         ):
             st.session_state[f"alpha_radar_source_probe_{RADAR_UI_STATE_VERSION}"] = probe_market_data_sources(
@@ -420,7 +420,7 @@ def _render_data_source_status(
         probe = st.session_state.get(f"alpha_radar_source_probe_{RADAR_UI_STATE_VERSION}")
         if probe:
             try:
-                st.dataframe(probe, use_container_width=True, hide_index=True)
+                st.dataframe(probe, width="stretch", hide_index=True)
             except Exception:
                 st.write(probe)
 
@@ -625,7 +625,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             file_name=f"{basename}.csv",
             mime="text/csv",
             disabled=disabled,
-            use_container_width=True,
+            width="stretch",
             key=f"alpha_radar_csv_v1863au_{basename}",
         )
     with d2:
@@ -635,7 +635,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             file_name=f"{basename}_rapport.html",
             mime="text/html",
             disabled=disabled,
-            use_container_width=True,
+            width="stretch",
             key=f"alpha_radar_html_v1863au_{basename}",
         )
     with d3:
@@ -645,7 +645,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             file_name=f"{basename}.json",
             mime="application/json",
             disabled=disabled,
-            use_container_width=True,
+            width="stretch",
             key=f"alpha_radar_json_v1863au_{basename}",
         )
     with d4:
@@ -655,7 +655,7 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             file_name=f"{basename}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             disabled=disabled,
-            use_container_width=True,
+            width="stretch",
             key=f"alpha_radar_xlsx_v1863au_{basename}",
         )
     with d5:
@@ -665,21 +665,21 @@ def _render_result_actions(result: Mapping[str, Any], *, disabled: bool) -> None
             file_name=f"{basename}_tickers.txt",
             mime="text/plain",
             disabled=disabled,
-            use_container_width=True,
+            width="stretch",
             key=f"alpha_radar_tickers_v1863au_{basename}",
         )
 
     a1, a2, a3, a4 = st.columns(4)
     with a1:
-        if st.button("Lagre snapshot", key="alpha_radar_save_snapshot_v1863au", disabled=disabled, use_container_width=True):
+        if st.button("Lagre snapshot", key="alpha_radar_save_snapshot_v1863au", disabled=disabled, width="stretch"):
             saved = save_alpha_radar_snapshot(result)
             st.success(f"Snapshot lagret med {saved} tickere.")
     with a2:
-        if st.button("Send til observasjonsliste", key="alpha_radar_observation_list_v1863au", disabled=disabled, use_container_width=True):
+        if st.button("Send til observasjonsliste", key="alpha_radar_observation_list_v1863au", disabled=disabled, width="stretch"):
             saved = save_alpha_radar_observation_list(result)
             st.success(f"Observasjonsliste oppdatert med {saved} tickere.")
     with a3:
-        if st.button("Bruk som aktivt Analyseunivers", key="alpha_radar_active_universe_v1863au", disabled=disabled, use_container_width=True):
+        if st.button("Bruk som aktivt Analyseunivers", key="alpha_radar_active_universe_v1863au", disabled=disabled, width="stretch"):
             saved = _persist_active_universe_from_alpha(result)
             st.success(f"Alpha Radar-resultatet er satt som aktivt analyseunivers med {saved} tickere.")
     with a4:
@@ -1119,7 +1119,7 @@ def render_alpha_radar_panel(
         signal_key = f"alpha_radar_signal_lupe_optional_{RADAR_UI_STATE_VERSION}_{analysis_engine}_{mode}_{precision_level}"
         default_optional_signals = _optional_signal_defaults(analysis_engine, mode, precision_level)[:optional_limit]
         reset_key = f"alpha_radar_signal_reset_{RADAR_UI_STATE_VERSION}_{analysis_engine}_{mode}_{precision_level}"
-        if st.button("Bruk modusprofil", key=reset_key, use_container_width=True, help="Nullstiller ekstra signaler til det valgt sokemotor og radar-modus krever."):
+        if st.button("Bruk modusprofil", key=reset_key, width="stretch", help="Nullstiller ekstra signaler til det valgt sokemotor og radar-modus krever."):
             st.session_state[signal_key] = list(default_optional_signals)
         stored_signals = st.session_state.get(signal_key)
         if signal_key not in st.session_state:
@@ -1367,7 +1367,7 @@ def render_alpha_radar_panel(
     refresh_universe = st.button(
         "Oppdater univers-preview",
         key="alpha_radar_refresh_universe_v1863au",
-        use_container_width=True,
+        width="stretch",
         disabled=(scope == no_selection_label or (scope == "Manuell liste" and not manual_text.strip())),
         help="Henter tickerlisten for valgte marked. Dette er eneste univershenting foer Kjor.",
     )
@@ -1443,7 +1443,7 @@ def render_alpha_radar_panel(
         "Kjor Early Warning V1" if analysis_engine == "Early Warning V1" else "Kjor Alpha Radar V2",
         key="alpha_radar_run_v1863au",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=(scope == no_selection_label or (scope == "Manuell liste" and not manual_text.strip())),
     )
 

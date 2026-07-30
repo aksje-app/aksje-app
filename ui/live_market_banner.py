@@ -57,9 +57,6 @@ def render_live_market_banner(_legacy_context):
         marker_html = _banner_marker_html_v18610(item.get("alert_marker"))
         marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
         href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
-        remember_token = st.session_state.get("remember_token") or _banner_query_value_v18610("remember_token")
-        if remember_token:
-            href += f"&remember_token={quote(str(remember_token))}"
 
         change_html = "" if price_missing else f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
         spark_html = "" if price_missing else str(item.get("sparkline") or "")

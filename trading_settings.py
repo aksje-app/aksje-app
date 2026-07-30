@@ -37,6 +37,19 @@ LOCAL_RULES_FILE = "trading_rules.json"  # legacy fallback only
 STORAGE_KEY = "settings/trading_rules.json"
 
 
+def _database_backend_enabled() -> bool:
+    """Return True only when a real PostgreSQL backend is explicitly usable.
+
+    Local/test mode must never call ``paper_store.get_conn()`` because psycopg2
+    interprets an empty DSN as a request for a local Unix-socket PostgreSQL
+    server. On Render that produced repeated ``/var/run/postgresql`` warnings
+    even though STORAGE_MODE=local was selected.
+    """
+    mode = str(os.getenv("STORAGE_MODE", "auto") or "auto").strip().lower()
+    database_url = str(os.getenv("DATABASE_URL", "") or "").strip()
+    return mode != "local" and bool(database_url)
+
+
 def _storage():
     try:
         from services.storage_service import get_storage_service
@@ -46,6 +59,8 @@ def _storage():
 
 
 def _load_from_db():
+    if not _database_backend_enabled():
+        return None
     try:
         from paper_store import init_store, get_conn, using_postgres
         init_store()
@@ -65,11 +80,13 @@ def _load_from_db():
         raw = row[0] if using_postgres() else row["rules"]
         return json.loads(raw)
     except Exception as e:
-        print(f"trading_rules load DB failed: {e}")
+        logging.warning("trading_rules load DB failed: %s", e)
         return None
 
 
 def _save_to_db(rules):
+    if not _database_backend_enabled():
+        return False
     try:
         from paper_store import init_store, get_conn, using_postgres
         init_store()
@@ -93,7 +110,7 @@ def _save_to_db(rules):
         conn.close()
         return True
     except Exception as e:
-        print(f"trading_rules save DB failed: {e}")
+        logging.warning("trading_rules save DB failed: %s", e)
         return False
 
 

@@ -37,7 +37,7 @@ def render_central_configuration() -> None:
         a.metric("Versjon", health["config_version"]); b.metric("Revisjon", health["revision"])
         c.metric("Lagring", health["backend"]); d.metric("Godkjenninger", health["pending_approvals"])
         st.caption("Autoritative navnerom: autonomy.*, discovery.*, analysis.*, portfolio.*, learning.*, runtime.*, notifications.*, reporting.*")
-        st.download_button("Eksporter konfigurasjon", export_bundle(), "autonomy_configuration.json", "application/json", use_container_width=True)
+        st.download_button("Eksporter konfigurasjon", export_bundle(), "autonomy_configuration.json", "application/json", width="stretch")
         uploaded = st.file_uploader("Importer konfigurasjon", type=["json"], key="central_config_import_v1885")
         if uploaded and st.button("Valider og legg import i godkjenningskø", key="central_config_import_btn_v1885"):
             try:
@@ -51,9 +51,9 @@ def render_central_configuration() -> None:
         for item in pending:
             st.warning(f"{item.get('approval_id')} · {item.get('reason')} · base {item.get('base_config_version')}")
             yes, no = st.columns(2)
-            if yes.button("Godkjenn", key=f"central_yes_{item['approval_id']}", use_container_width=True):
+            if yes.button("Godkjenn", key=f"central_yes_{item['approval_id']}", width="stretch"):
                 resolve_approval(item["approval_id"], True); st.rerun()
-            if no.button("Avvis", key=f"central_no_{item['approval_id']}", use_container_width=True):
+            if no.button("Avvis", key=f"central_no_{item['approval_id']}", width="stretch"):
                 resolve_approval(item["approval_id"], False); st.rerun()
         versions = [row.get("config_version") for row in registry.get("versions", []) if row.get("config_version")]
         if versions:
@@ -64,7 +64,7 @@ def render_central_configuration() -> None:
         with st.expander("Register og endringshistorikk", expanded=False):
             st.json(registry.get("values", {}), expanded=False)
             if registry.get("history"):
-                st.dataframe(pd.DataFrame(registry["history"][:200]), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(registry["history"][:200]), width="stretch", hide_index=True)
 
 
 MODE_KEY = "autonomi_core/interface_mode.json"
@@ -156,16 +156,16 @@ def render_simple_mode() -> None:
     report_actions = st.columns(2)
     if report_url.startswith(("https://", "http://")):
         report_actions[0].link_button(
-            "📄 Åpne siste rapport", report_url, use_container_width=True,
+            "📄 Åpne siste rapport", report_url, width="stretch",
             help="Åpner siste tilgjengelige PDF-rapport i en ny fane.",
         )
     else:
         report_actions[0].button(
-            "📄 Ingen offentlig rapportlenke", disabled=True, use_container_width=True,
+            "📄 Ingen offentlig rapportlenke", disabled=True, width="stretch",
             key="autonomy_simple_no_report_v1904",
         )
     if report_actions[1].button(
-        "📚 Rapportarkiv", use_container_width=True, key="autonomy_simple_reports_v1904",
+        "📚 Rapportarkiv", width="stretch", key="autonomy_simple_reports_v1904",
     ):
         st.session_state["autonomy_core_workspace_slug_v1882"] = "reports"
         st.rerun()
@@ -216,7 +216,7 @@ def render_simple_mode() -> None:
             "Globale ekspertregler: aktive og synliggjort her"
         )
         submitted = st.form_submit_button(
-            "▶ Start Autonomi", type="primary", use_container_width=True,
+            "▶ Start Autonomi", type="primary", width="stretch",
             disabled=is_running(status),
         )
     if submitted:
@@ -282,7 +282,7 @@ def render_expert_console() -> None:
             {"Motor/domene": name, "Type": "Autonomy Core"} for name in manifest.get("domains", [])
         ] + [
             {"Motor/domene": name, "Type": "Kompatibilitetsmotor"} for name in manifest.get("compatibility", [])
-        ]), use_container_width=True, hide_index=True)
+        ]), width="stretch", hide_index=True)
     with thresholds:
         st.markdown("**Datapolicy**")
         st.json(policy.to_dict(), expanded=False)
@@ -298,13 +298,13 @@ def render_expert_console() -> None:
                 "Kvalitet": contract.get("quality_score"), "Gyldighet": contract.get("validity"),
             })
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         else:
             st.info("Ingen siste kjøring med datakildekontrakter.")
         source_proposals = read_persistent_json("autonomi_core/discovery_data/source_proposals.json", default=[])
         if source_proposals:
             st.markdown("##### Foreslåtte nye kilder – krever godkjenning")
-            st.dataframe(pd.DataFrame(list(source_proposals)[:100]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(source_proposals)[:100]), width="stretch", hide_index=True)
     with strategies:
         portfolio = load_portfolio()
         active = sorted({str(row.get("strategy")) for row in (portfolio.get("positions") or {}).values() if row.get("strategy")})
@@ -320,21 +320,21 @@ def render_expert_console() -> None:
         st.dataframe(pd.DataFrame([
             {"Faktor": name, "Kandidatfelt": ", ".join(fields), "Aktiv vekt": (active_model or {}).get("weights", {}).get(name)}
             for name, fields in COMPONENT_FIELDS.items()
-        ]), use_container_width=True, hide_index=True)
+        ]), width="stretch", hide_index=True)
     with scheduler:
         jobs = load_jobs()
         st.json(scheduler_status(), expanded=False)
         st.dataframe(pd.DataFrame([{
             "Jobb": job.name, "Aktiv": job.enabled, "Tid": ", ".join(job.schedules),
             "Markeder": ", ".join(job.markets), "Tidssone": job.timezone_name,
-        } for job in jobs]), use_container_width=True, hide_index=True)
+        } for job in jobs]), width="stretch", hide_index=True)
     with shadow:
         proposals = read_persistent_json("adaptive_ranking/model_proposals.json", default=[])
         st.markdown("**Produksjonsgodkjenning:** Alltid eksplisitt  \n"
                     "**Automatisk modellgodkjenning:** Av  \n"
                     f"**Kontrollert læringsmodus:** {learning.get('mode') or 'OBSERVER'}")
         if proposals:
-            st.dataframe(pd.DataFrame(list(proposals)[:100]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(proposals)[:100]), width="stretch", hide_index=True)
         else:
             st.info("Ingen Shadow Mode-forslag er lagret.")
         from autonomi_core.configuration.application_centered import application_centered_enabled, request_activation, shadow_readiness
@@ -357,4 +357,4 @@ def render_expert_console() -> None:
         st.json({"scheduler": scheduler_status(), "storage": vars(health)}, expanded=False)
         audits = scheduler_audit(100)
         if audits:
-            st.dataframe(pd.DataFrame(audits[::-1]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(audits[::-1]), width="stretch", hide_index=True)

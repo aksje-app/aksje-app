@@ -74,7 +74,7 @@ def render_market_regime_widget() -> None:
         with c3:
             vix_ticker = st.text_input("Volatilitet", value=default_vix, key=f"regime_vix_v1863ae_{market_scope}", help="Tomt felt betyr at regime beregnes uten volatilitetsproxy.")
 
-        run = st.button("Oppdater markedsregime", key="regime_run_v1840", use_container_width=True)
+        run = st.button("Oppdater markedsregime", key="regime_run_v1840", width="stretch")
         if not run:
             existing = st.session_state.get("market_regime_result_v1840")
             if existing:

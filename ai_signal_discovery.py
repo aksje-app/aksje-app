@@ -347,7 +347,7 @@ def render_signal_discovery_tab() -> None:
             "Score": c.get("score"),
             "Regel": json.dumps(c.get("rule") or {}, ensure_ascii=False),
         })
-    st.dataframe(_df(display_rows), use_container_width=True, hide_index=True)
+    st.dataframe(_df(display_rows), width="stretch", hide_index=True)
 
     with st.expander("Promoter kandidat til Signal Library", expanded=False):
         labels = [f"{c['candidate_key']} · {c.get('name')}" for c in candidates]

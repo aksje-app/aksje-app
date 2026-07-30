@@ -51,7 +51,7 @@ def render_service_migration_status() -> None:
         ("StateService", reg.state is not None),
     ]
     rows = [{"Service": name, "Status": "✅ Aktiv" if ok else "❌ Mangler"} for name, ok in checks]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def render_smart_universe_picker() -> None:
@@ -116,7 +116,7 @@ def render_smart_universe_picker() -> None:
         }
         for c in candidates
     ]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
     st.session_state["smart_universe_candidates_v18515"] = [c.ticker for c in candidates]
 
     st.caption("Valgt univers er nå tilgjengelig for moduler som henter `smart_universe_candidates_v18515`.")

@@ -75,4 +75,4 @@ def render_explanation(title: str, explanation: Mapping[str, Any]) -> None:
         st.info(str(explanation.get('summary')))
     rows = explanation.get('factors') or explanation.get('checks') or []
     if rows:
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)

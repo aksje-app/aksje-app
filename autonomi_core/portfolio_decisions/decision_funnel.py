@@ -1,4 +1,4 @@
-"""Canonical purchase-gate evidence for Autonomy v19.14.1.
+"""Canonical purchase-gate evidence for Autonomy v19.14.2.
 
 The module is diagnostic only.  It mirrors the production Autonomous Learning
 Portfolio gates and evaluates lower score thresholds as non-authoritative

@@ -94,7 +94,7 @@ def render_approval_card(item: Mapping[str, Any], *, key_prefix: str, compact: b
     with st.expander("Se endring, test, effekt og risiko", expanded=not compact):
         st.markdown("##### Foreslått endring")
         if details["changes"]:
-            st.dataframe(details["changes"], use_container_width=True, hide_index=True)
+            st.dataframe(details["changes"], width="stretch", hide_index=True)
         else:
             st.info("Ingen detaljert parameterdifferanse er registrert. Godkjenning bør avventes.")
         st.markdown("##### Testresultat")
@@ -108,9 +108,9 @@ def render_approval_card(item: Mapping[str, Any], *, key_prefix: str, compact: b
     confirm_key = f"{key_prefix}_confirm_{approval_id}"
     st.text_input("Beslutningskommentar", key=note_key, placeholder="Kort begrunnelse for beslutningen")
     approve, reject = st.columns(2)
-    if approve.button("Godkjenn forslag", type="primary", use_container_width=True, key=f"{choice_key}_approve"):
+    if approve.button("Godkjenn forslag", type="primary", width="stretch", key=f"{choice_key}_approve"):
         st.session_state[confirm_key] = "APPROVE"
-    if reject.button("Avvis forslag", use_container_width=True, key=f"{choice_key}_reject"):
+    if reject.button("Avvis forslag", width="stretch", key=f"{choice_key}_reject"):
         st.session_state[confirm_key] = "REJECT"
 
     pending_choice = st.session_state.get(confirm_key)
@@ -118,7 +118,7 @@ def render_approval_card(item: Mapping[str, Any], *, key_prefix: str, compact: b
         verb = "godkjenne" if pending_choice == "APPROVE" else "avvise"
         st.warning(f"Bekreft at du vil {verb} {approval_id}. Ingen endring aktiveres før bekreftelsen.")
         yes, cancel = st.columns(2)
-        if yes.button("Bekreft beslutning", type="primary", use_container_width=True, key=f"{confirm_key}_yes"):
+        if yes.button("Bekreft beslutning", type="primary", width="stretch", key=f"{confirm_key}_yes"):
             note = str(st.session_state.get(note_key) or "").strip()
             if not note:
                 st.error("Skriv en kort beslutningskommentar før du bekrefter.")
@@ -133,7 +133,7 @@ def render_approval_card(item: Mapping[str, Any], *, key_prefix: str, compact: b
                 st.session_state.pop(confirm_key, None)
                 st.success("Beslutningen er registrert og lagt i revisjonsloggen.")
                 st.rerun()
-        if cancel.button("Avbryt", use_container_width=True, key=f"{confirm_key}_cancel"):
+        if cancel.button("Avbryt", width="stretch", key=f"{confirm_key}_cancel"):
             st.session_state.pop(confirm_key, None)
             st.rerun()
 

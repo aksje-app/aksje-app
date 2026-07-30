@@ -53,7 +53,7 @@ from ui.candidate_cards import build_candidate_card
 from ui.global_styles import inject_foundation_styles_v1950, inject_final_density_styles_v1950
 # Compatibility audit anchor; implemented in ui/global_styles.py: [data-testid="stSidebarNav"] { display:none !important; }
 from market_hours import open_markets, market_status_lines, market_statuses
-from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, market_scope_options
+from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, expand_market_scope, market_scope_options
 from background_guard import market_guard_summary
 from trading_settings import load_rules, save_rules, DEFAULT_RULES
 import pandas as pd
@@ -90,14 +90,6 @@ try:
     load_app_env()
 except Exception:
     pass
-
-# Starts once per Render Python process. The worker is independent of the
-# selected Streamlit panel and checks FX alerts even when markets are closed.
-try:
-    from runtime_background import ensure_runtime_background_services
-    ensure_runtime_background_services()
-except Exception as _runtime_background_exc:
-    logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
 
 try:
     import yfinance as yf
@@ -167,8 +159,25 @@ from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_da
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, normalize_navigation_values
+from runtime_safety import paper_trading_decision, runtime_safety_snapshot
+from runtime_dependencies import check_runtime_dependencies
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+
+_runtime_dependencies_v19146 = check_runtime_dependencies()
+if not _runtime_dependencies_v19146.get("ok"):
+    st.error("Sikker oppstart blokkert: " + " ".join(_runtime_dependencies_v19146.get("errors") or []))
+    st.stop()
+
+_runtime_safety_v19142 = runtime_safety_snapshot()
+if _runtime_safety_v19142.get("blocking_violations"):
+    st.error("Sikker oppstart blokkert: " + " ".join(_runtime_safety_v19142["blocking_violations"]))
+    st.stop()
+try:
+    from runtime_background import ensure_runtime_background_services
+    ensure_runtime_background_services()
+except Exception as _runtime_background_exc:
+    logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
 
 # v19.5.0: Global style layers live outside the application shell.
 inject_foundation_styles_v1950()
@@ -207,24 +216,6 @@ try:
     render_sticky_topbar()
 except Exception as _workspace_error:
     st.caption(f"Professional Trading Workspace kunne ikke vises: {_workspace_error}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -477,6 +468,43 @@ html body div[data-testid="stAppViewContainer"]::after {
 
 
 current_user = require_login()
+
+
+def _render_runtime_safety_banner_v19142() -> None:
+    snapshot = runtime_safety_snapshot()
+    try:
+        from drift_recovery import drift_recovery_snapshot
+        recovery = drift_recovery_snapshot()
+    except Exception:
+        recovery = {}
+    if not snapshot.get("is_test_environment"):
+        return
+    paper = snapshot.get("paper_trading") or {}
+    db = "TILKOBLET" if snapshot.get("database_configured") else "AV"
+    notifications = "AKTIV" if snapshot.get("notifications_allowed") else "AV"
+    scheduler = "AKTIV" if snapshot.get("scheduler_enabled") else "AV"
+    background = "AKTIV" if snapshot.get("background_enabled") else "AV"
+    auth_status = snapshot.get("auth_storage") or {}
+    auth_label = "VARIG" if auth_status.get("persistent") else "IKKE VARIG"
+    paper_store_label = "VARIG" if recovery.get("paper_storage_persistent") else "IKKE VARIG"
+    normal_label = recovery.get("normal_operation_label") or "UKJENT"
+    st.markdown(
+        f"""
+        <div style='border:2px solid #f59e0b;background:rgba(120,53,15,.30);padding:.55rem .75rem;border-radius:12px;margin:.25rem 0 .65rem 0;color:#fef3c7;'>
+          <b>🧪 TESTMILJØ – ingen produksjonshandel</b><br/>
+          Tjeneste: <b>{html.escape(str(snapshot.get('service') or '-'))}</b> ·
+          Gren: <b>{html.escape(str(snapshot.get('branch') or '-'))}</b> ·
+          Commit: <b>{html.escape(str(snapshot.get('commit_short') or '-'))}</b><br/>
+          Database: <b>{db}</b> · Brukerlager: <b>{auth_label}</b> · Paperlager: <b>{paper_store_label}</b><br/>
+          Pushover: <b>{notifications}</b> · Scheduler: <b>{scheduler}</b> · Bakgrunn: <b>{background}</b> ·
+          Paper Trading: <b>{html.escape(str(paper.get('label') or 'AV'))}</b> · Normal drift: <b>{normal_label}</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_render_runtime_safety_banner_v19142()
 
 
 def get_page_context_v1950(renderer):
@@ -816,7 +844,10 @@ def _full_stop_active():
 
 
 def _auto_state(settings=None):
-    """Returnerer samlet Auto trading-status. Full stopp/ferie overstyrer alltid AKTIV."""
+    """Returner samlet Auto-status; paper-hovedbryteren overstyrer alltid UI-innstillinger."""
+    paper_gate = paper_trading_decision()
+    if not paper_gate.allowed:
+        return "BLOKKERT", "red"
     _s = settings or load_settings()
     if _full_stop_active():
         return "BLOKKERT", "red"
@@ -830,14 +861,22 @@ def _auto_state(settings=None):
 
 
 def _paper_state(full_stop=None):
-    """Paper-porteføljen kan vises når Full stopp er aktiv, men nye auto-paper-kjøp skal ikke fremstå som aktive."""
+    """Show the exact state of the shared fail-closed Paper Trading gate."""
+    decision = paper_trading_decision()
+    if not decision.allowed:
+        return decision.label, decision.color
     if bool(_full_stop_active() if full_stop is None else full_stop):
         return "VISNING", "yellow"
-    return "AKTIV", "green"
+    return decision.label, decision.color
 
 
 def _set_auto_state(state):
     state = str(state).upper()
+    paper_gate = paper_trading_decision()
+    if state == "START" and not paper_gate.allowed:
+        st.session_state["auto_control_notice_v153"] = paper_gate.reason
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        return
     # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
     _full_stop_is_on = _full_stop_active()
     if state == "START" and _full_stop_is_on:
@@ -919,6 +958,7 @@ def _render_paper_trading_control_toolbar_v1864p() -> None:
     full_stop = _full_stop_active()
     emergency_stop = bool(settings.get("auto_trading_emergency_stop", False))
     auto_label, auto_color = _auto_state(settings)
+    paper_gate = paper_trading_decision()
     paper_label, paper_color = _paper_state(full_stop)
     st.markdown(
         f"""
@@ -940,23 +980,23 @@ def _render_paper_trading_control_toolbar_v1864p() -> None:
     c_ready, c_start, c_pause, c_stop, c_emergency, c_reset = st.columns([1, 1, 0.8, 0.9, 1.0, 1.1], gap="small")
     ready_disabled = not (bool(full_stop) or bool(settings.get("auto_trading_paused", False)))
     with c_ready:
-        if st.button("Gjør klar", key="paper_context_ready_v1864p", use_container_width=False, disabled=ready_disabled):
+        if st.button("Gjør klar", key="paper_context_ready_v1864p", width="content", disabled=ready_disabled):
             _clear_stops_ready_v158()
     with c_start:
-        if st.button("Start", key="paper_context_start_v1864p", use_container_width=False, disabled=bool(full_stop or emergency_stop)):
+        if st.button("Start", key="paper_context_start_v1864p", width="content", disabled=bool(full_stop or emergency_stop or not paper_gate.allowed)):
             _set_auto_state("START")
     with c_pause:
-        if st.button("Pause", key="paper_context_pause_v1864p", use_container_width=False):
+        if st.button("Pause", key="paper_context_pause_v1864p", width="content"):
             _set_auto_state("PAUSE")
     with c_stop:
-        if st.button("Stopp", key="paper_context_stop_v1864p", use_container_width=False):
+        if st.button("Stopp", key="paper_context_stop_v1864p", width="content"):
             _set_auto_state("STOPP")
     with c_emergency:
-        if st.button("Nødstopp", key="paper_context_emergency_v1864p", use_container_width=False):
+        if st.button("Nødstopp", key="paper_context_emergency_v1864p", width="content"):
             _set_auto_state("NØDSTOPP")
     with c_reset:
         if emergency_stop:
-            if st.button("Tilbakestill", key="paper_context_reset_emergency_v1864p", use_container_width=False):
+            if st.button("Tilbakestill", key="paper_context_reset_emergency_v1864p", width="content"):
                 _reset_emergency_stop_v157()
         else:
             st.caption("Nødstopp av")
@@ -1240,7 +1280,7 @@ def render_global_update_action_panel_v1863g() -> None:
     with st.form("global_update_action_form_v1863g", clear_on_submit=False):
         _global_run_clicked = st.form_submit_button(
             "Kjør oppdatering",
-            use_container_width=False,
+            width="content",
             type="secondary",
         )
     if _global_run_clicked:
@@ -1770,12 +1810,12 @@ def _dashboard2026_render_kpi_debug_v18645(snap: dict) -> None:
             st.code(json.dumps({"snapshot": snap, "sources": meta}, ensure_ascii=False, indent=2), language="json")
             if rows:
                 debug_records = [_dashboard2026_debug_row_record_v18645(x) for x in rows]
-                st.dataframe(pd.DataFrame(debug_records), use_container_width=True, height=min(520, 120 + 36 * len(debug_records)))
+                st.dataframe(pd.DataFrame(debug_records), width="stretch", height=min(520, 120 + 36 * len(debug_records)))
             else:
                 st.warning("Ingen kandidatrader funnet i session/cache akkurat nå.")
             if buy_now_rows:
                 st.markdown("**buy_now_rows_v18638**")
-                st.dataframe(pd.DataFrame([_dashboard2026_debug_row_record_v18645(x) for x in buy_now_rows[:20]]), use_container_width=True)
+                st.dataframe(pd.DataFrame([_dashboard2026_debug_row_record_v18645(x) for x in buy_now_rows[:20]]), width="stretch")
     except Exception as e:
         st.warning(f"KPI debug-panelet feilet: {e}")
 
@@ -4894,7 +4934,7 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
             title_text=f"{ticker} - {label}",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
 
         if "Volume" in hist and not hist["Volume"].dropna().empty:
             volume = hist["Volume"].dropna()
@@ -4912,7 +4952,7 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
                 title_text=f"{ticker} volum mot 20/50-dagers snitt",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             )
-            st.plotly_chart(vfig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+            st.plotly_chart(vfig, width="stretch", config={"displayModeBar": False, "responsive": True})
 
     config = _load_banner_alert_config_v18610()
     individual = dict(config.get("individual") or {})
@@ -4963,15 +5003,15 @@ def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: st
         st.caption("Bruk dette som manuelt ordregrunnlag ved siden av Nordnet. Ingen ekte ordre sendes fra appen.")
         n1, n2, n3, n4 = st.columns(4)
         with n1:
-            st.link_button("Åpne Nordnet", "https://www.nordnet.no/", use_container_width=True)
+            st.link_button("Åpne Nordnet", "https://www.nordnet.no/", width="stretch")
         with n2:
-            st.download_button("Kopier ordregrunnlag", data=order_text, file_name=f"{ticker}_ordregrunnlag.txt", mime="text/plain", use_container_width=True)
+            st.download_button("Kopier ordregrunnlag", data=order_text, file_name=f"{ticker}_ordregrunnlag.txt", mime="text/plain", width="stretch")
         with n3:
-            if st.button("Marker kjøpt manuelt", key=f"manual_broker_bought_v18612_{ticker}", use_container_width=True):
+            if st.button("Marker kjøpt manuelt", key=f"manual_broker_bought_v18612_{ticker}", width="stretch"):
                 st.session_state.setdefault("manual_broker_marks_v18612", {})[ticker] = {"status": "kjøpt", "tid": _now_short()}
                 st.success(f"{ticker} markert som manuelt kjøpt.")
         with n4:
-            if st.button("Marker solgt manuelt", key=f"manual_broker_sold_v18612_{ticker}", use_container_width=True):
+            if st.button("Marker solgt manuelt", key=f"manual_broker_sold_v18612_{ticker}", width="stretch"):
                 st.session_state.setdefault("manual_broker_marks_v18612", {})[ticker] = {"status": "solgt", "tid": _now_short()}
                 st.success(f"{ticker} markert som manuelt solgt.")
         st.text_area("Ordregrunnlag", value=order_text, height=145, key=f"manual_broker_order_text_v18612_{ticker}")
@@ -5014,18 +5054,18 @@ def _render_banner_alert_settings_v18610():
         log = settings.get(BANNER_ALERT_LOG_KEY_V18610, [])
         if isinstance(log, list) and log:
             st.markdown("**Siste bannervarsler**")
-            st.dataframe(pd.DataFrame(log[:50]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(log[:50]), width="stretch", hide_index=True)
             l1, l2, l3 = st.columns([0.8, 0.8, 2.0])
             with l1:
                 keep_n = st.number_input("Behold siste", min_value=25, max_value=1000, value=min(200, max(25, len(log))), step=25, key="banner_alert_keep_n_v18621")
             with l2:
-                if st.button("Kapp logg", key="banner_alert_trim_log_v18621", use_container_width=False):
+                if st.button("Kapp logg", key="banner_alert_trim_log_v18621", width="content"):
                     settings[BANNER_ALERT_LOG_KEY_V18610] = list(log)[: int(keep_n)]
                     save_settings(settings)
                     st.success("Bannerloggen er kappet.")
                     st.rerun()
             with l3:
-                if st.button("Tøm bannervarsler", key="banner_alert_clear_log_v18621", use_container_width=False):
+                if st.button("Tøm bannervarsler", key="banner_alert_clear_log_v18621", width="content"):
                     settings[BANNER_ALERT_LOG_KEY_V18610] = []
                     save_settings(settings)
                     st.success("Bannerloggen er tømt.")
@@ -5046,14 +5086,14 @@ def _render_special_watch_admin_v18618() -> None:
         remove_ticker = st.selectbox("Ticker", watched, key="special_watch_remove_ticker_v18618")
         c_remove, c_clear = st.columns([0.6, 0.8])
         with c_remove:
-            if st.button("Fjern ticker", key="special_watch_remove_one_v18618", use_container_width=False):
+            if st.button("Fjern ticker", key="special_watch_remove_one_v18618", width="content"):
                 individual.pop(remove_ticker, None)
                 config["individual"] = individual
                 _save_banner_alert_config_v18610(config)
                 st.success(f"{remove_ticker} er fjernet fra særskilt overvåking.")
                 st.rerun()
         with c_clear:
-            if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18618", use_container_width=False):
+            if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18618", width="content"):
                 for ticker in watched:
                     individual.pop(ticker, None)
                 config["individual"] = individual
@@ -5132,9 +5172,6 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
         delta = float(card.get("delta") or 0.0)
         pct_class = "pos" if pct >= 0 else "neg"
         href = f"?banner_ticker={quote(ticker)}&banner_market={quote(str(card.get('market') or ''))}"
-        remember_token = st.session_state.get("remember_token") or _banner_query_value_v18610("remember_token")
-        if remember_token:
-            href += f"&remember_token={quote(str(remember_token))}"
         marker_html = _banner_marker_html_v18610(card.get("alert_marker"))
         cards_html.append(
             f"<a class='ticker-tape-item' target='_self' href='{href}' title='Åpne oppfølging for {html.escape(ticker)}'>"
@@ -5333,7 +5370,7 @@ def render_special_watch_menu_v18619(*, embedded: bool = False) -> None:
             with a5:
                 add_pct_down = st.number_input("Dagsendring ned %", min_value=-100.0, max_value=0.0, value=0.0, step=0.5, key="special_watch_add_pct_down_v18619")
 
-            saved = st.form_submit_button("Lagre varselgrenser", use_container_width=False)
+            saved = st.form_submit_button("Lagre varselgrenser", width="content")
 
         if saved:
             settings["special_watch_banner_enabled_v18615"] = bool(st.session_state.get("special_watch_enabled_v18619", True))
@@ -5370,18 +5407,18 @@ def render_special_watch_menu_v18619(*, embedded: bool = False) -> None:
         watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
         if watched:
             st.markdown("**Tickere i særskilt overvåking**")
-            st.dataframe(pd.DataFrame([{"ticker": t, **(individual.get(t) or {})} for t in watched]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame([{"ticker": t, **(individual.get(t) or {})} for t in watched]), width="stretch", hide_index=True)
             r1, r2 = st.columns([0.8, 1.0])
             with r1:
                 remove_ticker = st.selectbox("Fjern ticker", watched, key="special_watch_remove_ticker_v18619")
-                if st.button("Fjern valgt ticker", key="special_watch_remove_one_v18619", use_container_width=False):
+                if st.button("Fjern valgt ticker", key="special_watch_remove_one_v18619", width="content"):
                     individual.pop(remove_ticker, None)
                     config["individual"] = individual
                     _save_banner_alert_config_v18610(config)
                     st.success(f"{remove_ticker} er fjernet fra særskilt overvåking.")
                     st.rerun()
             with r2:
-                if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18619", use_container_width=False):
+                if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18619", width="content"):
                     for ticker in watched:
                         individual.pop(ticker, None)
                     config["individual"] = individual
@@ -5394,18 +5431,18 @@ def render_special_watch_menu_v18619(*, embedded: bool = False) -> None:
         special_log = settings.get(SPECIAL_WATCH_ALERT_LOG_KEY_V18621, [])
         st.markdown("**Signalhistorikk for særskilt overvåking**")
         if isinstance(special_log, list) and special_log:
-            st.dataframe(pd.DataFrame(special_log[:50]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(special_log[:50]), width="stretch", hide_index=True)
             s1, s2, s3 = st.columns([0.8, 0.8, 2.0])
             with s1:
                 keep_special = st.number_input("Behold siste signaler", min_value=25, max_value=1000, value=min(200, max(25, len(special_log))), step=25, key="special_watch_keep_log_v18621")
             with s2:
-                if st.button("Kapp særskilt logg", key="special_watch_trim_log_v18621", use_container_width=False):
+                if st.button("Kapp særskilt logg", key="special_watch_trim_log_v18621", width="content"):
                     settings[SPECIAL_WATCH_ALERT_LOG_KEY_V18621] = list(special_log)[: int(keep_special)]
                     save_settings(settings)
                     st.success("Loggen for særskilt overvåking er kappet.")
                     st.rerun()
             with s3:
-                if st.button("Tøm særskilt logg", key="special_watch_clear_log_v18621", use_container_width=False):
+                if st.button("Tøm særskilt logg", key="special_watch_clear_log_v18621", width="content"):
                     settings[SPECIAL_WATCH_ALERT_LOG_KEY_V18621] = []
                     save_settings(settings)
                     st.success("Loggen for særskilt overvåking er tømt.")
@@ -5422,7 +5459,7 @@ def _render_nordnet_datatest_v18610():
             {"Punkt": "NORDNET_API_URL", "Status": "Satt" if os.getenv("NORDNET_API_URL") else "Mangler", "Forklaring": "Kun teknisk miljøsjekk. Ingen innlogging gjøres her."},
             {"Punkt": "Passordlagring", "Status": "Av", "Forklaring": "Programmet lagrer ikke Nordnet-passord i denne runden."},
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_nordnet_manual_workspace_v18613():
@@ -5471,21 +5508,21 @@ def _render_nordnet_manual_workspace_v18613():
         )
         b1, b2, b3, b4 = st.columns(4)
         with b1:
-            st.link_button("Åpne Nordnet innlogging", "https://www.nordnet.no/", use_container_width=True)
+            st.link_button("Åpne Nordnet innlogging", "https://www.nordnet.no/", width="stretch")
         with b2:
             st.download_button(
                 "Kopier ordregrunnlag",
                 data=order_text,
                 file_name=f"{nordnet_ticker or 'nordnet'}_ordregrunnlag.txt",
                 mime="text/plain",
-                use_container_width=True,
+                width="stretch",
             )
         with b3:
-            if st.button("Marker kjøpt manuelt", key="nordnet_manual_mark_bought_v18613", use_container_width=True):
+            if st.button("Marker kjøpt manuelt", key="nordnet_manual_mark_bought_v18613", width="stretch"):
                 st.session_state.setdefault("manual_broker_marks_v18612", {})[nordnet_ticker or selected_ticker] = {"status": "kjøpt", "tid": _now_short()}
                 st.success("Markert som manuelt kjøpt.")
         with b4:
-            if st.button("Marker solgt manuelt", key="nordnet_manual_mark_sold_v18613", use_container_width=True):
+            if st.button("Marker solgt manuelt", key="nordnet_manual_mark_sold_v18613", width="stretch"):
                 st.session_state.setdefault("manual_broker_marks_v18612", {})[nordnet_ticker or selected_ticker] = {"status": "solgt", "tid": _now_short()}
                 st.success("Markert som manuelt solgt.")
 
@@ -5568,7 +5605,7 @@ def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v15
                     help="Kommaseparert liste. Bruk markedsindekser eller egne tickere.",
                 )
 
-        submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)
+        submitted = st.form_submit_button("Lagre og bruk banner", width="stretch")
 
     if submitted:
         new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
@@ -5659,7 +5696,7 @@ def render_banner_main_controls():
                             key=f"banner_v1582_{market.lower()}_tickers",
                         )
 
-                submitted = st.form_submit_button("Lagre og bruk banner", use_container_width=True)
+                submitted = st.form_submit_button("Lagre og bruk banner", width="stretch")
 
             if submitted:
                 new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
@@ -5715,7 +5752,7 @@ def render_banner_main_controls():
                 imported = parse_banner_csv_text(imported_text, default_market=import_market) if imported_text.strip() else {}
                 if imported:
                     preview_rows = [{"marked": market, "tickere": ", ".join(tickers), "antall": len(tickers)} for market, tickers in imported.items()]
-                    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
                 apply_import = st.button("Importer til tickerfeltene", key="banner_import_apply_v18615", disabled=not bool(imported))
                 if apply_import:
                     current = settings.get("live_banner_tickers", {}) if isinstance(settings.get("live_banner_tickers", {}), dict) else {}
@@ -5761,7 +5798,7 @@ def render_system_admin_workspace(expanded=False):
                 _cron_interval = st.number_input("Søkintervall minutter", min_value=1, max_value=1440, value=int(_cron_settings.get("scan_interval_minutes", 15)), step=1, key="main_cron_scan_interval_v157")
             with c3:
                 _pause_choice = st.selectbox("Pause søk", ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"], key="main_cron_pause_choice_v157")
-            _save_cron = st.form_submit_button("💾 Lagre søk/cron som ventende", use_container_width=True)
+            _save_cron = st.form_submit_button("💾 Lagre søk/cron som ventende", width="stretch")
         if _save_cron:
             _mark_pending_manual_change("Søk/cron endret")
             _new_settings = load_settings()
@@ -5783,21 +5820,21 @@ def render_system_admin_workspace(expanded=False):
         s1, s2, s3, s4 = st.columns([1, 1, 1, 2.2])
         with s1:
             if _is_full_stop:
-                if st.button("🔓 Slå av Full stopp", key="main_disable_full_stop_v157", use_container_width=True):
+                if st.button("🔓 Slå av Full stopp", key="main_disable_full_stop_v157", width="stretch"):
                     _deactivate_full_stop_v157()
             else:
-                if st.button("⛔ Full stopp / ferie", key="main_activate_full_stop_v157", use_container_width=True):
+                if st.button("⛔ Full stopp / ferie", key="main_activate_full_stop_v157", width="stretch"):
                     activate_full_stop()
                     st.rerun()
         with s2:
             if _cron_status.get("pause_until"):
-                if st.button("Start Gjenoppta nå", key="main_resume_pause_v157", use_container_width=True):
+                if st.button("Start Gjenoppta nå", key="main_resume_pause_v157", width="stretch"):
                     clear_pause()
                     st.rerun()
             else:
                 st.caption("Ingen aktiv pause")
         with s3:
-            if st.button("⚡ Kjør auto-kjøp nå", key="main_force_auto_buy_now_v157", use_container_width=True, disabled=_is_full_stop):
+            if st.button("⚡ Kjør auto-kjøp nå", key="main_force_auto_buy_now_v157", width="stretch", disabled=_is_full_stop):
                 try:
                     from scanner_worker import run_once
                     with st.spinner("Kjører auto-kjøp-motor..."):
@@ -6602,23 +6639,23 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
     st.markdown("**Handlinger**")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        if st.button("📈 Analyse", key=f"{base}_analysis", use_container_width=True):
+        if st.button("📈 Analyse", key=f"{base}_analysis", width="stretch"):
             st.session_state["search_main_v157"] = ticker
             st.session_state["ai_candidate_single_ticker_v1864t"] = ticker
             st.session_state["cc_interactive_ticker_v18535"] = ticker
             _apply_nav_target_v18658("analysis")
             st.rerun()
     with c2:
-        if st.button("👁 Overvåk", key=f"{base}_watch", use_container_width=True):
+        if st.button("👁 Overvåk", key=f"{base}_watch", width="stretch"):
             ok, message = _add_candidate_to_watchlist_v19022(ticker)
             (st.success if ok else st.warning)(message)
     with c3:
-        if st.button("🧾 Paper", key=f"{base}_paper", use_container_width=True):
+        if st.button("🧾 Paper", key=f"{base}_paper", width="stretch"):
             st.session_state["paper_selected_ticker_v19022"] = ticker
             _apply_nav_target_v18658("paper_trading")
             st.rerun()
     with c4:
-        if st.button("↻ Oppdater", key=f"{base}_refresh", use_container_width=True):
+        if st.button("↻ Oppdater", key=f"{base}_refresh", width="stretch"):
             with st.spinner(f"Oppdaterer data for {ticker}..."):
                 refreshed = cached_score_stock_manual(ticker, use_news=True, force=True)
             if refreshed:
@@ -6657,9 +6694,9 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
                 model_rows = list(diff.get("model_diff") or [])
                 rule_rows = list(diff.get("decision_diff") or [])
                 if model_rows:
-                    st.dataframe(pd.DataFrame(model_rows[:8]), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(model_rows[:8]), width="stretch", hide_index=True)
                 if rule_rows:
-                    st.dataframe(pd.DataFrame(rule_rows[:8]), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rule_rows[:8]), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen sammenlignbar tidligere vurdering er tilgjengelig.")
             st.markdown("**Sterkeste motargument**")
@@ -6673,26 +6710,26 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
             if assumptions:
                 held = sum(1 for item in assumptions if isinstance(item, Mapping) and item.get("holds"))
                 st.markdown(f"**Kritiske antakelser:** {held}/{len(assumptions)} holder")
-                st.dataframe(pd.DataFrame([dict(item) for item in assumptions if isinstance(item, Mapping)]), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame([dict(item) for item in assumptions if isinstance(item, Mapping)]), width="stretch", hide_index=True)
         with tabs[2]:
             sources = payload.get("sources") or []
             if sources:
                 normalized = [dict(x) if isinstance(x, dict) else {"Kilde": str(x)} for x in sources[:20]]
-                st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(normalized), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen kandidatspesifikke kilder er lagret i denne visningen.")
         with tabs[3]:
             events = payload.get("events") or []
             if events:
                 normalized = [dict(x) if isinstance(x, dict) else {"Hendelse": str(x)} for x in events[:20]]
-                st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(normalized), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen kommende kandidatspesifikke hendelser er lagret.")
         with tabs[4]:
             history = payload.get("history") or []
             if history:
                 normalized = [dict(x) if isinstance(x, dict) else {"Historikk": str(x)} for x in history[:30]]
-                st.dataframe(pd.DataFrame(normalized), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(normalized), width="stretch", hide_index=True)
             else:
                 previous = payload.get("previous_score")
                 if previous is not None:
@@ -6706,7 +6743,7 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
                 file_name=f"{ticker.replace('.', '_')}_kandidatanalyse.json",
                 mime="application/json",
                 key=f"{base}_download",
-                use_container_width=True,
+                width="stretch",
             )
 
 
@@ -6856,7 +6893,7 @@ def render_latest_insider_transactions(insider):
             "Insider": tx.get("name", "")[:26],
         })
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def render_intelligence_cards(insider, analyst, earnings):
@@ -7145,7 +7182,7 @@ def render_trading_rules_workspace():
         _render_trading_strategy_summary_v1863z(_rules)
         p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
         with p1:
-            if st.button("Standard Standard trading-regler", key="main_rules_preset_standard_v156", use_container_width=True):
+            if st.button("Standard Standard trading-regler", key="main_rules_preset_standard_v156", width="stretch"):
                 _apply_trading_rule_preset_v159("Standard trading-regler", {
                     "min_buy_score": 7.5,
                     "min_buy_confidence": 70,
@@ -7161,7 +7198,7 @@ def render_trading_rules_workspace():
                     "rsi_must_fall": True,
                 })
         with p2:
-            if st.button("Sikkerhet Konservativ", key="main_rules_preset_conservative_v156", use_container_width=True):
+            if st.button("Sikkerhet Konservativ", key="main_rules_preset_conservative_v156", width="stretch"):
                 _apply_trading_rule_preset_v159("Konservativt preset", {
                     "min_buy_score": 8.0,
                     "min_buy_confidence": 80,
@@ -7177,7 +7214,7 @@ def render_trading_rules_workspace():
                     "ignore_small_moves_pct": 1.0,
                 })
         with p3:
-            if st.button("⚡ Aggressiv", key="main_rules_preset_aggressive_v156", use_container_width=True):
+            if st.button("⚡ Aggressiv", key="main_rules_preset_aggressive_v156", width="stretch"):
                 _apply_trading_rule_preset_v159("Aggressivt preset", {
                     "min_buy_score": 7.0,
                     "min_buy_confidence": 60,
@@ -7234,7 +7271,7 @@ def render_trading_rules_workspace():
                     key="main_rules_ignore_small_v156",
                 )
                 st.caption("Anbefalt: Av som standard. Hvis aktivert: 0.5–1.0 %. Stop-loss og andre risikoutganger har alltid prioritet.")
-            save_rules_btn = st.form_submit_button("💾 Lagre trading-regler som ventende", use_container_width=True)
+            save_rules_btn = st.form_submit_button("💾 Lagre trading-regler som ventende", width="stretch")
         if save_rules_btn:
             _mark_pending_manual_change("Trading-regler endret")
             saved_db = save_rules(_rules)
@@ -7348,7 +7385,7 @@ def _render_pushover_test_panel_v18595() -> None:
         )
         _pushover_run_clicked = st.form_submit_button(
             "Kjør valgt Pushover-handling",
-            use_container_width=True,
+            width="stretch",
             type="primary",
         )
     if _last_pushover_check:
@@ -7463,7 +7500,7 @@ def render_paper_alert_control_workspace_v18611(pushover_enabled_runtime=False):
 
     b1, b2, b3 = st.columns([0.25, 0.25, 0.18])
     with b1:
-        if st.button("Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, use_container_width=False):
+        if st.button("Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, width="content"):
             verify_info = verify_pushover_credentials_v18585()
             st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
             if verify_info.get("ok"):
@@ -7471,7 +7508,7 @@ def render_paper_alert_control_workspace_v18611(pushover_enabled_runtime=False):
             else:
                 st.error(f"Pushover-verifisering feilet: {verify_info.get('response_text')}")
     with b2:
-        if st.button("Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, use_container_width=False):
+        if st.button("Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, width="content"):
             ok, err = _send_pushover_safe_v1863af("Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
             st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
             if ok:
@@ -7479,7 +7516,7 @@ def render_paper_alert_control_workspace_v18611(pushover_enabled_runtime=False):
             else:
                 st.error(f"Feil: {err}")
     with b3:
-        if st.button("Nullstill antispam", key="main_alert_reset_antispam_v156", use_container_width=False):
+        if st.button("Nullstill antispam", key="main_alert_reset_antispam_v156", width="content"):
             reset_alert_state()
             st.success("Signalhistorikk nullstilt.")
 
@@ -7525,7 +7562,7 @@ def _render_paper_positions_overview_v18581(portfolio):
                 })
             except Exception:
                 rows.append({"Ticker": ticker, "Type": (pos or {}).get("asset_type", "Aksje") if isinstance(pos, dict) else "Aksje"})
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     else:
         st.info("Ingen åpne paper trading-posisjoner.")
 
@@ -7535,7 +7572,7 @@ def _render_paper_positions_overview_v18581(portfolio):
         trades = []
     st.markdown("<div class='v18581-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
     if trades:
-        st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=20)), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=20)), width="stretch", hide_index=True)
     else:
         st.info("Ingen handler ennå.")
 
@@ -7632,7 +7669,7 @@ def _render_paper_trailing_stop_alerts_v18674d(portfolio: dict | None = None, la
         st.error(f"{len(triggered)} posisjon(er) har STOP UTLØST. Kontroller salg manuelt eller via paper-salg.")
     if near:
         st.warning(f"{len(near)} posisjon(er) er NÆR STOP og bør følges tett.")
-    st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(alerts), width="stretch", hide_index=True)
 
 
 def _paper_stop_action_v18674d(row: dict, fallback: str = "Hold / overvåk") -> str:
@@ -7689,9 +7726,11 @@ def _paper_fetch_stock_price_v1863z():
             conf = int(decision.get("confidence", item.get("confidence", 0)) or 0)
             st.session_state["paper_stock_confidence_v1863y"] = max(0, min(100, conf))
             label = str(decision.get("decision") or decision.get("action") or "").strip()
+            st.session_state["paper_stock_model_signal_v19143"] = label or "IKKE BEREGNET"
             confidence_msg = f" System-confidence: {conf}%{(' · ' + label) if label else ''}."
         except Exception as exc:
             st.session_state["paper_stock_confidence_v1863y"] = 0
+            st.session_state["paper_stock_model_signal_v19143"] = "IKKE BEREGNET"
             confidence_msg = f" System-confidence mangler: {str(exc)[:90]}."
         st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
         st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.{confidence_msg}")
@@ -7821,6 +7860,7 @@ def _paper_stock_symbol_changed_v1863ac():
     if previous and symbol != previous:
         st.session_state["paper_stock_price_input_v1863y"] = 0.0
         st.session_state["paper_stock_confidence_v1863y"] = 0
+        st.session_state["paper_stock_model_signal_v19143"] = "IKKE BEREGNET"
         st.session_state["paper_stock_fetch_status_v1863z"] = ("info", "Ticker er endret. Hent ny aksjekurs før paper-kjøp.")
     st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
 
@@ -7952,7 +7992,7 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_row
             st.button(
                 "Selg",
                 key=f"paper_position_select_sell_v1863by_{key_base}",
-                use_container_width=False,
+                width="content",
                 on_click=_select_paper_position_for_trade_v1863by,
                 args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "sell", str(row.get("type") or "Aksje")),
             )
@@ -7960,7 +8000,7 @@ def _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_row
             st.button(
                 "Øk",
                 key=f"paper_position_select_buy_v1863by_{key_base}",
-                use_container_width=False,
+                width="content",
                 on_click=_select_paper_position_for_trade_v1863by,
                 args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "buy", str(row.get("type") or "Aksje")),
             )
@@ -8004,7 +8044,7 @@ def _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio=None):
                 }
                 for row in rows[:25]
             ]),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -8051,12 +8091,12 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
                 "Forslag": action,
                 "Oppdatert": row.get("updated") or "Lagret kurs",
             })
-        st.dataframe(pd.DataFrame(control_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(control_rows), width="stretch", hide_index=True)
         with st.expander("Detaljert Paper-portefølje kontroll", expanded=True):
             st.caption("Samme feltfamilie som handelsloggen: tidspunkt/status, ticker, marked, sektor, pris, antall, verdi, P/L, signal og forklaring.")
             st.dataframe(
                 pd.DataFrame(paper_position_display_rows(portfolio, latest_prices, total_value=total_value, rules=rules)),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
     else:
@@ -8064,14 +8104,14 @@ def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, sta
 
     if flags:
         with st.expander(f"Varsler og kontrollpunkter ({len(flags)})", expanded=False):
-            st.dataframe(pd.DataFrame(flags), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(flags), width="stretch", hide_index=True)
     else:
         st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
 
     with st.expander("AI-forslag fra paper-testen", expanded=False):
         for point in _paper_control_learning_points_v1863af(rows, stats, flags):
             st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
-        if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_inline_v1868", use_container_width=False):
+        if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_inline_v1868", width="content"):
             total_pnl = sum(_safe_float_v18581(r.get("pnl"), 0.0) for r in rows)
             avg_pnl_pct = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
             summary = [
@@ -8113,7 +8153,7 @@ def _render_manual_paper_nav_update_v18621(portfolio):
             )
         with c3:
             nav_date = st.date_input("Dato", value=datetime.now().date(), key="manual_paper_nav_date_v18621")
-        if st.button("Lagre manuell kurs/NAV", key="manual_paper_nav_save_v18621", use_container_width=False):
+        if st.button("Lagre manuell kurs/NAV", key="manual_paper_nav_save_v18621", width="content"):
             if float(manual_price or 0.0) <= 0:
                 st.error("Kurs/NAV må være større enn 0.")
             else:
@@ -8226,7 +8266,7 @@ def _render_paper_manual_override_control_v18674a() -> str:
         st.warning(f"{label}: {detail}")
     else:
         st.success(f"{label}: {detail}")
-    st.caption("v18.6.75: REVIEW_ONLY lagrer kandidat i review_queue. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
+    st.caption("Undersøk manuelt lagrer kandidaten i vurderingskøen. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
     return state
 
 
@@ -8410,7 +8450,7 @@ def _render_paper_review_queue_v18674c(portfolio: dict, rules: dict) -> None:
         key="paper_review_status_filter_v18674c",
     )
     visible = [item for item in queue if _paper_review_status_v18674c(item.get("status")) in set(status_filter or PAPER_REVIEW_STATUSES_V18674C)]
-    st.dataframe(pd.DataFrame(_paper_review_display_rows_v18674c(visible)), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_paper_review_display_rows_v18674c(visible)), width="stretch", hide_index=True)
 
     for item in visible[:25]:
         review_id = str(item.get("id") or "")
@@ -8427,17 +8467,17 @@ def _render_paper_review_queue_v18674c(portfolio: dict, rules: dict) -> None:
             note_val = st.text_area("Notat", value=str(item.get("note") or ""), key=note_key, height=74)
             b1, b2, b3, b4 = st.columns(4)
             with b1:
-                if st.button("💾 Lagre notat", key=f"paper_review_save_note_v18674c_{review_id}", use_container_width=True):
+                if st.button("💾 Lagre notat", key=f"paper_review_save_note_v18674c_{review_id}", width="stretch"):
                     ok, msg = _paper_update_review_item_v18674c(review_id, note=note_val)
                     st.success(msg) if ok else st.error(msg)
                     st.rerun()
             with b2:
-                if st.button("✅ Godkjenn", key=f"paper_review_approve_v18674c_{review_id}", use_container_width=True, disabled=(status == "KJØPT")):
+                if st.button("✅ Godkjenn", key=f"paper_review_approve_v18674c_{review_id}", width="stretch", disabled=(status == "KJØPT")):
                     ok, msg = _paper_update_review_item_v18674c(review_id, status="GODKJENT", note=note_val)
                     st.success(msg) if ok else st.error(msg)
                     st.rerun()
             with b3:
-                if st.button("🟢 Kjøp manuelt", key=f"paper_review_buy_v18674c_{review_id}", use_container_width=True, disabled=(status == "KJØPT")):
+                if st.button("🟢 Kjøp manuelt", key=f"paper_review_buy_v18674c_{review_id}", width="stretch", disabled=(status == "KJØPT")):
                     asset_type = str(item.get("asset_type") or "Aksje")
                     price = float(item.get("price") or 0.0)
                     amount = float(item.get("amount") or 0.0)
@@ -8453,7 +8493,7 @@ def _render_paper_review_queue_v18674c(portfolio: dict, rules: dict) -> None:
                     else:
                         st.error(msg)
             with b4:
-                if st.button("⛔ Avvis", key=f"paper_review_reject_v18674c_{review_id}", use_container_width=True, disabled=(status == "KJØPT")):
+                if st.button("⛔ Avvis", key=f"paper_review_reject_v18674c_{review_id}", width="stretch", disabled=(status == "KJØPT")):
                     ok, msg = _paper_update_review_item_v18674c(review_id, status="AVVIST", note=note_val)
                     st.warning(msg) if ok else st.error(msg)
                     st.rerun()
@@ -8568,7 +8608,7 @@ def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, 
             )
         st.markdown("<div class='paper-rule-mini'>" + "".join(html_rows) + "</div>", unsafe_allow_html=True)
         with st.expander("Detaljtabell", expanded=False):
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 
@@ -8728,17 +8768,17 @@ def render_strategy_backtest(tickers, label):
         if not bench.empty:
             fig.add_trace(go.Scatter(x=bench["date"], y=bench["benchmark_value"], name="Benchmark", mode="lines"))
         fig.update_layout(title="Strategi vs benchmark", template="plotly_dark", height=430)
-        render_interactive_chart(fig, use_container_width=True, key=f"backtest_main_{label}")
+        render_interactive_chart(fig, width="stretch", key=f"backtest_main_{label}")
         render_graph_explanation("backtest")
 
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=strategy["date"], y=strategy["drawdown"], fill="tozeroy", name="Drawdown"))
         fig_dd.update_layout(title="Drawdown", template="plotly_dark", height=300)
-        render_interactive_chart(fig_dd, use_container_width=True, key=f"backtest_drawdown_{label}")
+        render_interactive_chart(fig_dd, width="stretch", key=f"backtest_drawdown_{label}")
         render_graph_explanation("drawdown")
 
         st.markdown("#### Valgte aksjer per måned")
-        st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], use_container_width=True)
+        st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], width="stretch")
 
 # --- Stabil sidebar v18.6.41 ---
 # Sidebar er flyttet ut av app.py for å unngå at flere CSS-/HTML-lag kjemper mot hverandre.
@@ -8770,7 +8810,14 @@ def _mobile_nav_href_v18646(nav: str) -> str:
 
 
 def _ui_state_path_v18658() -> Path:
-    return Path("data/ui_state_v18658.json")
+    """User-scoped runtime navigation state; never a shared Git-tracked file."""
+    try:
+        from storage_architecture import runtime_data_path
+        user = st.session_state.get("auth_user") or {}
+        username = re.sub(r"[^A-Za-z0-9._-]+", "_", str(user.get("username") or "anonymous")).strip("._") or "anonymous"
+        return runtime_data_path("ui_state", f"{username}.json")
+    except Exception:
+        return Path(".app_runtime/data/ui_state/anonymous.json")
 
 
 def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", tab: str = "", subtab: str = "") -> None:
@@ -9140,7 +9187,7 @@ def render_daily_attention_dashboard_v19022() -> None:
     for item in items:
         icon, status_text = severity_meta.get(str(item.get("severity")), ("⚪", "Status"))
         rows.append({"Status": f"{icon} {status_text}", "Oppgave": item.get("title"), "Detalj": item.get("detail")})
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     a1, a2, a3, a4, a5 = st.columns(5)
     actions = [
@@ -9152,7 +9199,7 @@ def render_daily_attention_dashboard_v19022() -> None:
     ]
     for column, label, nav, key in actions:
         with column:
-            if st.button(label, key=key, use_container_width=True):
+            if st.button(label, key=key, width="stretch"):
                 _apply_nav_target_v18658(nav)
                 st.rerun()
 
@@ -9487,7 +9534,7 @@ st.markdown(
     <div class='v18532-header-status v18647-top-status'>
         <div class='v18532-status-row'>
             <span class='mini-status-chip {_top_auto_color}'>🔵 Auto Trading: <b>{_top_auto_state}</b></span>
-            <span class='mini-status-chip {_top_paper_color}'>🟢 Paper Trading: <b>{_top_paper_label}</b></span>
+            <span class='mini-status-chip {_top_paper_color}'>🧪 Paper Trading: <b>{_top_paper_label}</b></span>
             <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
             <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
         </div>
@@ -10487,7 +10534,7 @@ def render_paper_portfolio_control_center_v1863af():
     st.caption("Bruker Paper Trading-porteføljen som trygg testarena for overvåking, kontroll og AI-forslag. Ingen ekte ordre sendes.")
 
     portfolio = load_portfolio() or {}
-    if st.button("Oppdater paper-kurser", key="paper_control_refresh_prices_v1863af", type="primary", use_container_width=False):
+    if st.button("Oppdater paper-kurser", key="paper_control_refresh_prices_v1863af", type="primary", width="content"):
         portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=True)
         st.session_state["paper_control_refresh_status_v1863af"] = {
             "time": refreshed_at,
@@ -10543,13 +10590,13 @@ def render_paper_portfolio_control_center_v1863af():
                 "Vekt %": round(weight, 1),
                 "Forslag": action,
             })
-        st.dataframe(pd.DataFrame(control_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(control_rows), width="stretch", hide_index=True)
     else:
         st.info("Ingen åpne paper-posisjoner ennå.")
 
     if flags:
         st.markdown("#### Varsler og kontrollpunkter")
-        st.dataframe(pd.DataFrame(flags), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(flags), width="stretch", hide_index=True)
     else:
         st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
 
@@ -10557,7 +10604,7 @@ def render_paper_portfolio_control_center_v1863af():
     for point in _paper_control_learning_points_v1863af(rows, stats, flags):
         st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
 
-    if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_v1863af", use_container_width=False):
+    if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_v1863af", width="content"):
         summary = [
             "Paper-portefølje kontroll",
             f"Total verdi: {total_value:,.0f} kr",
@@ -10770,16 +10817,16 @@ def render_currency_alerts_control_center_v1863af():
 
     action_left, action_mid = st.columns(2)
     with action_left:
-        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t", use_container_width=True)
+        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t", width="stretch")
     with action_mid:
-        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v1864t", use_container_width=True)
+        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v1864t", width="stretch")
     action_test, action_diag = st.columns(2)
     with action_test:
         pushover_test_now = st.button(
             "Send Pushover-test",
             key="currency_alert_pushover_test_now_v1864u",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
-            use_container_width=True,
+            width="stretch",
         )
     with action_diag:
         currency_trigger_test_now = st.button(
@@ -10787,7 +10834,7 @@ def render_currency_alerts_control_center_v1863af():
             key="currency_alert_full_chain_test_v18678a",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
             help="Tester kursinnhenting, trigger, varselmotor og Pushover i samme kjede.",
-            use_container_width=True,
+            width="stretch",
         )
 
     if fetch_now:
@@ -10923,14 +10970,14 @@ def render_currency_alerts_control_center_v1863af():
                 "Feil": runtime_value.get("last_error") or "",
             })
         if runtime_rows:
-            st.dataframe(runtime_rows, use_container_width=True, hide_index=True)
+            st.dataframe(runtime_rows, width="stretch", hide_index=True)
         else:
             st.info("Ingen bakgrunnskontroll er registrert ennå. Kjør kontroll eller vent på neste worker-kjøring.")
 
         with st.expander("Valutavarsel-logg", expanded=False):
             event_rows = get_currency_alert_events(limit=80)
             if event_rows:
-                st.dataframe(event_rows, use_container_width=True, hide_index=True)
+                st.dataframe(event_rows, width="stretch", hide_index=True)
             else:
                 st.caption("Ingen diagnostikkhendelser er registrert.")
             st.caption(
@@ -11253,9 +11300,9 @@ def render_auto_test_lab_control_center_v18536():
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
-        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", use_container_width=True, disabled=not bool(preview_tickers), on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
+        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", width="stretch", disabled=not bool(preview_tickers), on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
     with stop_col:
-        if st.button("Stopp Stopp/avbryt", key="auto_lab_stop_v18537", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
+        if st.button("Stopp Stopp/avbryt", key="auto_lab_stop_v18537", width="stretch", help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
             st.session_state["auto_lab_stop_requested_v18537"] = True
             st.warning("Stopp er bedt om. Pågående kjøring stopper ved neste trygge kontrollpunkt.")
 
@@ -11840,7 +11887,7 @@ def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
 def render_fund_etf_control_center_v18538():
     """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
     st.subheader("Fond Fond / ETF-analyse")
-    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. v18.5.46 skiller rente-/kredittfond fra vanlige aksjefond.")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. Rente- og kredittfond vurderes separat fra vanlige aksjefond.")
 
     from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options
     col_src, col_market, col_a, col_b, col_c, col_d = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
@@ -11911,9 +11958,9 @@ def render_fund_etf_control_center_v18538():
 
     run_col, stop_col = st.columns([2.2, 1.0])
     with run_col:
-        run_clicked = st.button("Fond Kjør Fond / ETF-analyse", key="fund_lab_run_v18538", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører Fond / ETF", "detail": "Tester fond mot kostnad, risiko og benchmark"})
+        run_clicked = st.button("Fond Kjør Fond / ETF-analyse", key="fund_lab_run_v18538", type="primary", width="stretch", on_click=set_global_busy, kwargs={"label": "Kjører Fond / ETF", "detail": "Tester fond mot kostnad, risiko og benchmark"})
     with stop_col:
-        if st.button("Stopp Stopp/avbryt", key="fund_lab_stop_v18538", use_container_width=True):
+        if st.button("Stopp Stopp/avbryt", key="fund_lab_stop_v18538", width="stretch"):
             st.session_state["fund_lab_stop_requested_v18538"] = True
             st.warning("Stopp er bedt om. Kjøringen stopper ved neste trygge kontrollpunkt.")
 
@@ -12169,12 +12216,12 @@ def render_auto_test_lab_fund_mode_v18543():
             "Fond Kjør Auto Test Lab – Fondmodus",
             key="auto_lab_fund_run_v18543",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             on_click=set_global_busy,
             kwargs={"label": "Kjører Auto Test Lab Fondmodus", "detail": "Tester fond/ETF mot kostnad, benchmark og beslutningskvalitet"},
         )
     with stop_col:
-        if st.button("Stopp Stopp/avbryt", key="auto_lab_fund_stop_v18543", use_container_width=True, help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
+        if st.button("Stopp Stopp/avbryt", key="auto_lab_fund_stop_v18543", width="stretch", help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
             st.session_state["auto_lab_fund_stop_requested_v18543"] = True
             st.warning("Stopp er bedt om. Fondmodus stopper ved neste trygge kontrollpunkt.")
 
@@ -12461,7 +12508,7 @@ def _render_portfolio_health_rows_v18544(result):
     rows = list(res.get("holdings") or [])[:14]
     if rows:
         st.markdown("<div class='ptw-control-panel-title'>Posisjoner</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(_portfolio_position_table_rows_v1864h(rows)), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_portfolio_position_table_rows_v1864h(rows)), width="stretch", hide_index=True)
 
     for title, key, icon in [
         ("Styrker", "strengths", "+"),
@@ -12612,7 +12659,7 @@ def render_mixed_portfolio_control_center_v18544():
     else:
         st.markdown("<div class='v18-dark-row'>Ingen posisjoner funnet. Bruk manuell input eller kjør Auto Test Lab / Fondanalyse først.</div>", unsafe_allow_html=True)
 
-    if st.button("📊 Kjør porteføljeanalyse", key="mixed_portfolio_run_v18544", type="primary", use_container_width=True, on_click=set_global_busy, kwargs={"label": "Kjører porteføljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
+    if st.button("📊 Kjør porteføljeanalyse", key="mixed_portfolio_run_v18544", type="primary", width="stretch", on_click=set_global_busy, kwargs={"label": "Kjører porteføljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
         status_box = st.empty()
         progress = st.progress(0, text="Starter porteføljeanalyse")
         steps = ["Samler beholdninger", "Normaliserer vekter", "Måler grunnmur/satellitt", "Sjekker overlapp", "Lager forbedringsforslag"]
@@ -12925,7 +12972,7 @@ def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
     st.markdown("#### Kilder og import")
     st.caption("Importer og kontroller kildene AI Kandidattest kan bruke. Dette er eneste synlige importsted for disse kildene.")
     source_rows = _data_foundation_source_rows_v1863by()
-    st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
 
     st.info(
         "Finansavisen, Oljefond/NBIM og Folketrygdfondet behandles som datakilder. "
@@ -13001,9 +13048,9 @@ def _render_data_foundation_package_v1863bz(package: dict, package_title: str) -
         status = str(row.get("Status") or "")
         if area:
             summary_rows.append({"Felt": area, "Verdi": f"{status} - {detail}".strip(" -")})
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
     if source_rows:
-        st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
     candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
     if candidates:
         st.dataframe(
@@ -13017,7 +13064,7 @@ def _render_data_foundation_package_v1863bz(package: dict, package_title: str) -
                 }
                 for row in candidates
             ]),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -13042,9 +13089,9 @@ def _render_pipeline_package_v1863bz(stage_id: str, package: dict, package_title
             }
             for row in candidates[:30]
         ]
-        st.dataframe(display_rows, use_container_width=True, hide_index=True)
+        st.dataframe(display_rows, width="stretch", hide_index=True)
     else:
-        st.dataframe(pd.DataFrame(_pipeline_package_summary_rows_v1863bz(package, stage_id)), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_pipeline_package_summary_rows_v1863bz(package, stage_id)), width="stretch", hide_index=True)
 
 
 def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = True) -> None:
@@ -13091,7 +13138,7 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
     c_prev, c_status, c_next = st.columns([0.70, 1.05, 1.15])
     with c_prev:
         if prev_stage:
-            if st.button(f"Forrige: {prev_label}", key=f"analysis_pipeline_prev_{stage_id}_v1863bz", use_container_width=True):
+            if st.button(f"Forrige: {prev_label}", key=f"analysis_pipeline_prev_{stage_id}_v1863bz", width="stretch"):
                 _pipeline_open_stage_v1863bw(prev_stage)
         else:
             st.markdown("<div class='v18-dark-row'>Forste steg</div>", unsafe_allow_html=True)
@@ -13111,22 +13158,22 @@ def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = Tr
         if next_label:
             if stage_id == "data_foundation":
                 label = f"Godkjenn dataunderlag og åpne Test {info.get('next_test_number')}"
-                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True):
+                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", width="stretch"):
                     _pipeline_send_and_open_next_v1863bw(stage_id)
             elif output_count > 0:
                 noun = "portefoljeanalyserte kandidater" if stage_id == "portfolio_analysis" else "kandidater"
                 label = f"Send {output_count} {noun} til Test {info.get('next_test_number')} og åpne {next_label}"
-                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", use_container_width=True):
+                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", width="stretch"):
                     _pipeline_send_and_open_next_v1863bw(stage_id)
             elif true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
                 label = f"Send rå input ({true_input_count}) til Test {info.get('next_test_number')} og åpne {next_label}"
-                if st.button(label, key=f"analysis_pipeline_next_raw_{stage_id}_v1864h", use_container_width=True, type="primary"):
+                if st.button(label, key=f"analysis_pipeline_next_raw_{stage_id}_v1864h", width="stretch", type="primary"):
                     _pipeline_send_raw_input_and_open_next_v1864h(stage_id)
             else:
                 st.button(
                     f"Ingen input/output å sende til Test {info.get('next_test_number')}",
                     key=f"analysis_pipeline_next_disabled_{stage_id}_v1864h",
-                    use_container_width=True,
+                    width="stretch",
                     disabled=True,
                 )
         else:
@@ -16552,7 +16599,7 @@ def _render_ai_candidate_technical_chart_v1864u(ticker: str) -> None:
         yaxis_title="",
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
     if "Volume" in hist:
         volume = hist["Volume"].dropna()
         if not volume.empty:
@@ -16572,7 +16619,7 @@ def _render_ai_candidate_technical_chart_v1864u(ticker: str) -> None:
                 yaxis_title="",
                 showlegend=False,
             )
-            st.plotly_chart(vfig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+            st.plotly_chart(vfig, width="stretch", config={"displayModeBar": False, "responsive": True})
 
 
 def _render_ai_candidate_climate_banner_v1866(result: dict | None) -> None:
@@ -16615,7 +16662,7 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
     display_df = pd.DataFrame(display_rows)
     edited = st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         key="ai_candidate_selection_editor_v1864m",
         disabled=[col for col in display_df.columns if col != "Velg"],
@@ -16646,7 +16693,7 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
     if detail_rows:
         with st.expander("Detaljrapport", expanded=bool(selected) or detail_choice != "Velg ticker"):
             details = _ai_candidate_detail_rows_v1864t(detail_rows, result or {})
-            st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(details), width="stretch", hide_index=True)
             if detail_choice != "Velg ticker":
                 st.markdown("##### Teknisk kurve")
                 _render_ai_candidate_technical_chart_v1864u(detail_choice)
@@ -16720,7 +16767,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 
     source_status = _ai_candidate_source_status_v1864l(evaluation_config)
     with st.expander("Datakildestatus / ferskhet", expanded=False):
-        st.dataframe(pd.DataFrame(source_status), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(source_status), width="stretch", hide_index=True)
 
     with st.expander("Hvordan evalueringen skjer", expanded=False):
         horizon = evaluation_config.get("horizon") or "1-6 mnd"
@@ -16744,7 +16791,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         )
         st.dataframe(
             pd.DataFrame([{"Parameter": key, "Verdi": value} for key, value in evaluation_config.items()]),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -16840,11 +16887,11 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
         d1, d2, d3 = st.columns(3)
         with d1:
-            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv", width="stretch")
         with d2:
-            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html", width="stretch")
         with d3:
-            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", width="stretch")
     else:
         st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
 
@@ -16968,7 +17015,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
             if feature_rows:
                 st.markdown("**Feature-status**")
                 try:
-                    st.dataframe(feature_rows, use_container_width=True, hide_index=True)
+                    st.dataframe(feature_rows, width="stretch", hide_index=True)
                 except Exception:
                     st.write(feature_rows)
 
@@ -16979,7 +17026,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
                 st.markdown("**Protected zones**")
                 st.caption("Kritiske områder som skal patches minimalt, slik at stabile funksjoner ikke forsvinner ved nye GO-runder.")
                 try:
-                    st.dataframe(protected_rows, use_container_width=True, hide_index=True)
+                    st.dataframe(protected_rows, width="stretch", hide_index=True)
                 except Exception:
                     st.write(protected_rows)
 
@@ -16987,7 +17034,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
             if changelog_rows:
                 st.markdown("**Hva er nytt / build-historikk**")
                 try:
-                    st.dataframe(changelog_rows, use_container_width=True, hide_index=True)
+                    st.dataframe(changelog_rows, width="stretch", hide_index=True)
                 except Exception:
                     st.write(changelog_rows)
 
@@ -16995,7 +17042,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
             _tokens = ui_consistency_tokens()
             st.caption("Batch G: standardiserte UI-tokens, datakvalitet og tydeligere blokk-/varslingsforklaringer uten å endre analysemotorene.")
             try:
-                st.dataframe([_tokens], use_container_width=True, hide_index=True)
+                st.dataframe([_tokens], width="stretch", hide_index=True)
             except Exception:
                 st.write(_tokens)
             _sample_trust = normalize_data_trust({"data_quality": "CACHED", "confidence": 75, "missing_fields": []})
@@ -17005,7 +17052,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
             recent = read_recent_audit_events(limit=8)
             if recent:
                 try:
-                    st.dataframe(recent, use_container_width=True, hide_index=True)
+                    st.dataframe(recent, width="stretch", hide_index=True)
                 except Exception:
                     st.write(recent)
             else:
@@ -18562,7 +18609,7 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
 
     scan_market = st.radio("Velg marked for Top Picks", market_scope_options(include_aggregate=True), horizontal=True)
 
-    _market_labels_v1863j = {market: ("Alle markeder" if market == "Alle" else market) for market in market_scope_options(include_aggregate=True)}
+    _market_labels_v1863j = {market: ("Alle kjernemarkeder" if market == "Alle" else market) for market in market_scope_options(include_aggregate=True)}
     source_tickers = resolve_universe_tickers([scan_market], max_count=int(max_count or 30))
 
     def _latest_market_rows_v1863j(market_name):
@@ -18577,7 +18624,7 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
 
     def _top_picks_from_cached_markets_v1863j(market_name):
         if market_name == "Alle":
-            markets = [m for m in market_scope_options(include_aggregate=False)]
+            markets = expand_market_scope("Alle")
         elif market_name == "Norden":
             markets = ["Norge", "Sverige", "Finland", "Danmark"]
         else:
@@ -18648,7 +18695,13 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
         if buy_now_picks:
             _saved_candidates = save_latest_buy_now_candidates(buy_now_picks, scan_market)
             st.info(f"Disse er kandidater med grønt teknisk signal akkurat nå. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjøp skjer via Cron, eller knappen 'Kjør auto-kjøp nå'.")
-            if st.button(f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})", key=f"paper_buy_all_{scan_market}"):
+            _market_bulk_gate_v19143 = paper_trading_decision()
+            if st.button(
+                f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})",
+                key=f"paper_buy_all_{scan_market}",
+                disabled=not _market_bulk_gate_v19143.allowed,
+                help=_market_bulk_gate_v19143.reason if not _market_bulk_gate_v19143.allowed else None,
+            ):
                 _messages = []
                 for _item in buy_now_picks:
                     _ticker = _item.get("ticker")

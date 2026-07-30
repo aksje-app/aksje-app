@@ -199,11 +199,16 @@ def _notify(title: str, message: str, payload: Mapping[str, Any]) -> None:
     rows.insert(0, {"timestamp": _now(), "kind": "LEARNING", "title": title, "message": message, "payload": dict(payload), "delivery": "LOCAL_QUEUE"})
     _write(NOTIFICATIONS_PATH, rows[:1000])
     try:
-        from notification_service import send_pushover_notification
-        send_pushover_notification(title, message)
-        rows[0]["delivery"] = "PUSHOVER_ATTEMPTED"; _write(NOTIFICATIONS_PATH, rows[:1000])
-    except Exception:
-        pass
+        from notifier import normalize_notification_result, send_pushover_alert
+        ok, detail = normalize_notification_result(send_pushover_alert(message, title=title))
+        rows[0]["delivery"] = "PUSHOVER_SENT" if ok else "PUSHOVER_FAILED"
+        if detail:
+            rows[0]["error"] = str(detail)[:500]
+        _write(NOTIFICATIONS_PATH, rows[:1000])
+    except Exception as exc:
+        rows[0]["delivery"] = "PUSHOVER_FAILED"
+        rows[0]["error"] = str(exc)[:500]
+        _write(NOTIFICATIONS_PATH, rows[:1000])
 
 
 def ensure_champion_version() -> dict[str, Any]:
@@ -688,7 +693,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
             for col,(key,label) in zip(cols,keys): values[key] = int(col.number_input(label, 1, 1000, int(state[key]), 1, key=f"cpl_{key}_v18689b"))
 
         es1, es2 = st.columns(2)
-        if es1.button("🛑 Aktiver nødstopp nå", use_container_width=True, key=_k("cpl_emergency_on_v18689b")):
+        if es1.button("🛑 Aktiver nødstopp nå", width="stretch", key=_k("cpl_emergency_on_v18689b")):
             state["emergency_stop"] = True
             state["enabled"] = False
             save_state(state)
@@ -700,13 +705,13 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
             _audit("AUTONOMY_EMERGENCY_STOP_ACTIVATED", {"source": "UI"})
             _notify("Autonomi: NØDSTOPP", "Automatisk læring og den teoretiske porteføljen er pauset.", {"source": "UI"})
             st.error("Nødstopp er aktivert."); st.rerun()
-        if es2.button("Opphev nødstopp", use_container_width=True, key=_k("cpl_emergency_off_v18689b")):
+        if es2.button("Opphev nødstopp", width="stretch", key=_k("cpl_emergency_off_v18689b")):
             state["emergency_stop"] = False
             save_state(state)
             _audit("AUTONOMY_EMERGENCY_STOP_RELEASED", {"source": "UI"})
             st.success("Nødstopp er opphevet. Porteføljen må aktiveres separat."); st.rerun()
 
-        if st.button("Lagre Autonomy Settings", type="primary", use_container_width=True, key=_k("cpl_save_settings_v18689b")):
+        if st.button("Lagre Autonomy Settings", type="primary", width="stretch", key=_k("cpl_save_settings_v18689b")):
             state.update({
                 "enabled": enabled, "mode": selected_mode, "emergency_stop": emergency,
                 "allow_hypothesis_creation": allow_h, "allow_auto_challenger": allow_c,
@@ -734,22 +739,22 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                 enriched.setdefault("approval_source", "LEARNING")
                 render_approval_card(enriched, key_prefix="learning_portfolio", compact=False)
         if approvals:
-            st.dataframe(pd.DataFrame(approvals), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(approvals), width="stretch", hide_index=True)
 
     with overview_tab:
         x,y,z = st.columns(3)
-        if x.button("Evaluer nå", type="primary", use_container_width=True, key=_k("cpl_eval_v18689b")):
+        if x.button("Evaluer nå", type="primary", width="stretch", key=_k("cpl_eval_v18689b")):
             result = evaluate_learning(); st.success(f"Evaluert {result['closed_trades']} lukkede handler. {len(result['actions'])} handlinger."); st.rerun()
-        if y.button("Generer hypoteser", use_container_width=True, key=_k("cpl_hyp_v18689b")):
+        if y.button("Generer hypoteser", width="stretch", key=_k("cpl_hyp_v18689b")):
             created = generate_hypotheses(); st.success(f"{len(created)} nye hypoteser opprettet."); st.rerun()
-        if z.button("Rollback til Champion", use_container_width=True, key=_k("cpl_rb_v18689b")):
+        if z.button("Rollback til Champion", width="stretch", key=_k("cpl_rb_v18689b")):
             try: rollback(); st.success("Rollback utført."); st.rerun()
             except ValueError as exc: st.warning(str(exc))
         hypotheses = _read(HYPOTHESES_PATH, []); experiments = _read(EXPERIMENTS_PATH, []); versions = _read(VERSIONS_PATH, [])
         t1,t2,t3,t4 = st.tabs(["Hypoteser", "Eksperimenter", "Parameterhistorikk", "AI-sjef rapporter"])
         with t1:
             if hypotheses:
-                st.dataframe(pd.DataFrame(hypotheses), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(hypotheses), width="stretch", hide_index=True)
                 choices = {f"{h['hypothesis_id']} · {h['parameter']} {h['before']} → {h['after']} ({h['status']})": h for h in hypotheses if h.get("status") in {"NEW","TESTING"}}
                 if choices:
                     label = st.selectbox("Velg hypotese", list(choices), key=_k("cpl_select_h_v18689b")); h = choices[label]
@@ -760,10 +765,10 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                         apply_trial(h["hypothesis_id"]); st.success("Midlertidig parameterendring aktivert og varslet."); st.rerun()
             else: st.info("Ingen hypoteser ennå. Modulen venter på nok lukkede handler eller manuell evaluering.")
         with t2:
-            if experiments: st.dataframe(pd.DataFrame(experiments), use_container_width=True, hide_index=True)
+            if experiments: st.dataframe(pd.DataFrame(experiments), width="stretch", hide_index=True)
             else: st.caption("Ingen eksperimenter.")
         with t3:
-            if versions: st.dataframe(pd.DataFrame(versions), use_container_width=True, hide_index=True)
+            if versions: st.dataframe(pd.DataFrame(versions), width="stretch", hide_index=True)
             else: st.caption("Champion opprettes ved første evaluering.")
             if st.button("Send aktiv prøveversjon til godkjenning", key=_k("cpl_promote_v18689b")):
                 try:
@@ -775,16 +780,16 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         with t4:
             reports = _read(REPORTS_PATH, [])
             r1, r2 = st.columns(2)
-            if r1.button("Generer rapport nå", use_container_width=True, key=_k("cpl_report_now_v18689b")):
+            if r1.button("Generer rapport nå", width="stretch", key=_k("cpl_report_now_v18689b")):
                 generate_management_report(force=True); st.success("Læringsrapport opprettet og varslet."); st.rerun()
-            if r2.button("Kjør full automatisk evaluering nå", use_container_width=True, key=_k("cpl_auto_now_v18689b")):
+            if r2.button("Kjør full automatisk evaluering nå", width="stretch", key=_k("cpl_auto_now_v18689b")):
                 run_automatic_learning_if_due(trigger="MANUAL_FORCE", force=True); st.success("Automatisk evalueringsløp fullført."); st.rerun()
             if reports:
                 latest = reports[0]
                 st.markdown(f"**Siste rapport:** {latest.get('created_at','–')} · {latest.get('mode','–')}")
                 for observation in latest.get("observations", []): st.write(f"- {observation}")
                 st.json(latest, expanded=False)
-                st.dataframe(pd.DataFrame(reports[:100]), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(reports[:100]), width="stretch", hide_index=True)
                 st.download_button("Last ned rapporthistorikk JSON", json.dumps(reports, ensure_ascii=False, indent=2), "autonomous_management_reports.json", "application/json", key=_k("cpl_reports_json_v18689b"))
             else:
                 st.info("Ingen AI-sjef-rapporter ennå.")

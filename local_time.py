@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -65,8 +66,8 @@ def browser_timezone(streamlit_module: object) -> str:
 def install_browser_timezone_bootstrap() -> None:
     """Capture Intl timezone once without coupling scheduler execution to a browser."""
     try:
-        import streamlit.components.v1 as components
-        components.html("""
+        import streamlit as st
+        html = """
         <script>
         (() => {
           try {
@@ -79,6 +80,7 @@ def install_browser_timezone_bootstrap() -> None:
           } catch (_) {}
         })();
         </script>
-        """, height=0, width=0)
+        """
+        st.iframe("data:text/html;charset=utf-8," + quote(html), height=1, width=1, scrolling=False)
     except Exception:
         pass

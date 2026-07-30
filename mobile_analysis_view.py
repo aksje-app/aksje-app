@@ -1379,7 +1379,7 @@ def render_overview_panel_v4(ticker, price, currency, confidence, decision, item
 
     q1, q2 = st.columns(2)
     with q1:
-        if st.button(f'🟢 Hurtig paper-kjøp {ticker}', key=f'quick_buy_{key_prefix}_{ticker}', use_container_width=True):
+        if st.button(f'🟢 Hurtig paper-kjøp {ticker}', key=f'quick_buy_{key_prefix}_{ticker}', width="stretch"):
             ok, msg = paper_buy(ticker, current_price, confidence, 'Mobil oversikt hurtigkjøp')
             if ok:
                 st.success(msg)
@@ -1388,7 +1388,7 @@ def render_overview_panel_v4(ticker, price, currency, confidence, decision, item
                 st.warning(msg)
     with q2:
         sell_disabled = not position
-        if st.button(f'🔴 Hurtig paper-selg {ticker}', key=f'quick_sell_{key_prefix}_{ticker}', use_container_width=True, disabled=sell_disabled):
+        if st.button(f'🔴 Hurtig paper-selg {ticker}', key=f'quick_sell_{key_prefix}_{ticker}', width="stretch", disabled=sell_disabled):
             ok, msg = paper_sell(ticker, current_price, 'Mobil oversikt hurtigsalg')
             if ok:
                 st.success(msg)
@@ -1459,7 +1459,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
         quick_values = [0.10, 0.25, 0.50, 1.00]
         for pct, col in zip(quick_values, quick_cols):
             with col:
-                if st.button(f'{int(pct*100)}%', key=f'quickpct_buy_{pct}_{_panel_key}', use_container_width=True):
+                if st.button(f'{int(pct*100)}%', key=f'quickpct_buy_{pct}_{_panel_key}', width="stretch"):
                     st.session_state[buy_amount_key] = float(round(default_cash * pct, 2)) if default_cash else st.session_state.get(buy_amount_key, 1000.0)
                     st.rerun()
     elif mode == 'Selg antall':
@@ -1467,14 +1467,14 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
         quick_values = [0.25, 0.50, 0.75, 1.00]
         for pct, col in zip(quick_values, quick_cols):
             with col:
-                if st.button(f'{int(pct*100)}%', key=f'quickpct_sell_{pct}_{_panel_key}', use_container_width=True, disabled=max_sell <= 0):
+                if st.button(f'{int(pct*100)}%', key=f'quickpct_sell_{pct}_{_panel_key}', width="stretch", disabled=max_sell <= 0):
                     st.session_state[qty_key] = float(round(max_sell * pct, 4))
                     st.rerun()
     else:
         qty_values = [1, 5, 10, 25]
         for val, col in zip(qty_values, quick_cols):
             with col:
-                if st.button(f'{val}', key=f'quickqty_{val}_{_panel_key}', use_container_width=True):
+                if st.button(f'{val}', key=f'quickqty_{val}_{_panel_key}', width="stretch"):
                     st.session_state[qty_key] = float(val)
                     st.rerun()
 
@@ -1539,7 +1539,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
     b1, b2 = st.columns(2)
     with b1:
         buy_disabled = mode == 'Selg antall' or order_price <= 0 or amount <= 0
-        if st.button(f'🟢 Paper-kjøp {ticker}', key=f'buy_v4_{_panel_key}', use_container_width=True, disabled=buy_disabled):
+        if st.button(f'🟢 Paper-kjøp {ticker}', key=f'buy_v4_{_panel_key}', width="stretch", disabled=buy_disabled):
             ok, msg = paper_buy(ticker, order_price, confidence, 'Mobil ordrepanel v4')
             if ok:
                 st.success(msg)
@@ -1548,7 +1548,7 @@ def render_trading_panel_v3(ticker, price, currency, confidence, decision, item,
                 st.warning(msg)
     with b2:
         sell_disabled = not position or qty <= 0 or order_price <= 0
-        if st.button(f'🔴 Paper-selg {ticker}', key=f'sell_v4_{_panel_key}', use_container_width=True, disabled=sell_disabled):
+        if st.button(f'🔴 Paper-selg {ticker}', key=f'sell_v4_{_panel_key}', width="stretch", disabled=sell_disabled):
             ok, msg = paper_sell(ticker, order_price, 'Mobil ordrepanel v4')
             if ok:
                 st.success(msg)
@@ -1583,7 +1583,7 @@ def render_trades_panel_v3(ticker):
         _compact_stats([('Kjøp', buy_count), ('Salg', sell_count), ('Omsatt', f"{total_amount:,.0f}".replace(",", " "))], columns=3)
 
     df = pd.DataFrame(rows[-12:][::-1])
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
     st.caption("Viser de 12 siste handlene for valgt aksje.")
 
 
@@ -2112,7 +2112,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
         )
     with top_cols[5]:
         st.markdown("<div style='height:1.15rem'></div>", unsafe_allow_html=True)
-        apply_chart_settings = st.button("Oppdater", key=f"apply_chart_toolbar_{label}_{ticker}_v18669", use_container_width=True)
+        apply_chart_settings = st.button("Oppdater", key=f"apply_chart_toolbar_{label}_{ticker}_v18669", width="stretch")
 
     auto_update = st.checkbox(
         "Auto",
@@ -2212,7 +2212,7 @@ def render_mobile_analysis_view(item, ticker, label, decision=None, technical_co
 
         st.plotly_chart(
             fig,
-            use_container_width=True,
+            width="stretch",
             config=CHART_CONFIG,
             key=_chart_key,
         )

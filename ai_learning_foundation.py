@@ -211,11 +211,11 @@ def render_learning_foundation_tab() -> None:
     tabs = st.tabs(["Oversikt", "Signal Scorecard", "Kombinasjoner", "Exit Analytics", "Sektorer", "Confidence", "Replay", "AI Insights", "Eksport"])
     with tabs[0]:
         rows = report["trade_outcomes"]
-        st.dataframe(pd.DataFrame(rows) if pd is not None else rows, use_container_width=True, hide_index=True) if rows else st.info("Ingen avsluttede handler tilgjengelig ennå.")
+        st.dataframe(pd.DataFrame(rows) if pd is not None else rows, width="stretch", hide_index=True) if rows else st.info("Ingen avsluttede handler tilgjengelig ennå.")
     for tab, key in zip(tabs[1:6], ["signal_scorecard", "combination_analysis", "exit_analytics", "sector_analysis", "confidence_calibration"]):
         with tab:
             rows = report[key]
-            st.dataframe(pd.DataFrame(rows) if pd is not None else rows, use_container_width=True, hide_index=True) if rows else st.info("Ikke nok data for denne analysen ennå.")
+            st.dataframe(pd.DataFrame(rows) if pd is not None else rows, width="stretch", hide_index=True) if rows else st.info("Ikke nok data for denne analysen ennå.")
     with tabs[6]:
         queue = report["trade_outcomes"]
         if not queue:

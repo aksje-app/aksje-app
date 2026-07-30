@@ -1460,7 +1460,7 @@ def _render_storage_services_status() -> None:
     st.caption(f"Backend: {backend} · Persistent: {'ja' if persistent else 'nei/fallback'}")
     rows = compact_storage_status_rows()
     if rows:
-        st.dataframe(rows, use_container_width=True, hide_index=True, height=min(420, 42 + len(rows) * 34))
+        st.dataframe(rows, width="stretch", hide_index=True, height=min(420, 42 + len(rows) * 34))
     try:
         render_service_workspace()
     except Exception as exc:
@@ -1681,7 +1681,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
         mode_cols = st.columns(len(mode_options))
         for idx, mode in enumerate(mode_options):
             with mode_cols[idx]:
-                if st.button(mode, key=f"ai_cc_mode_v1863ag_{idx}", type="primary" if mode == current_mode else "secondary", use_container_width=True):
+                if st.button(mode, key=f"ai_cc_mode_v1863ag_{idx}", type="primary" if mode == current_mode else "secondary", width="stretch"):
                     st.session_state["ai_control_center_work_mode_v1863ag"] = mode
                     st.session_state["ai_control_center_group_v1863m"] = mode_map[mode]
                     st.session_state["ai_control_center_menu_open_v1863ag"] = True
@@ -1694,7 +1694,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             active = group_name == active_group
             prefix = "🔴" if active else "🔵"
             with group_cols[idx]:
-                if st.button(f"{prefix} {group_name} · {len(labels)}", key=f"ai_cc_group_v1863ag_{idx}", type="primary" if active else "secondary", use_container_width=True):
+                if st.button(f"{prefix} {group_name} · {len(labels)}", key=f"ai_cc_group_v1863ag_{idx}", type="primary" if active else "secondary", width="stretch"):
                     st.session_state["ai_control_center_group_v1863m"] = group_name
                     st.session_state["ai_control_center_menu_open_v1863ag"] = True
                     st.rerun()
@@ -1710,7 +1710,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             fav_cols = st.columns(min(len(favorites), 5))
             for idx, label in enumerate(favorites[:5]):
                 with fav_cols[idx]:
-                    if st.button(label, key=f"ai_cc_fav_v1863ag_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                    if st.button(label, key=f"ai_cc_fav_v1863ag_{idx}", type="primary" if label == active_label else "secondary", width="stretch"):
                         st.session_state["ai_control_center_active_panel_v1863m"] = label
                         st.session_state["ai_control_center_active_real_panel_v18598"] = label
                         st.session_state["ai_control_center_menu_open_v1863ag"] = False
@@ -1726,7 +1726,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             recent_cols = st.columns(min(len(recent), 4))
             for idx, label in enumerate(recent[:4]):
                 with recent_cols[idx]:
-                    if st.button(label, key=f"ai_cc_recent_v1863ag_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                    if st.button(label, key=f"ai_cc_recent_v1863ag_{idx}", type="primary" if label == active_label else "secondary", width="stretch"):
                         st.session_state["ai_control_center_active_panel_v1863m"] = label
                         st.session_state["ai_control_center_active_real_panel_v18598"] = label
                         st.session_state["ai_control_center_menu_open_v1863ag"] = False
@@ -1755,7 +1755,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                 cols = st.columns(len(row))
                 for idx, label in enumerate(row):
                     with cols[idx]:
-                        if st.button(label, key=f"ai_cc_panel_v1863ag_{start}_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                        if st.button(label, key=f"ai_cc_panel_v1863ag_{start}_{idx}", type="primary" if label == active_label else "secondary", width="stretch"):
                             st.session_state["ai_control_center_active_panel_v1863m"] = label
                             st.session_state["ai_control_center_active_real_panel_v18598"] = label
                             st.session_state["ai_control_center_menu_open_v1863ag"] = False
@@ -1768,7 +1768,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                             st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
         elif not menu_open:
-            if st.button("Åpne undermeny", key="ai_cc_open_submenu_v1863ag", use_container_width=True):
+            if st.button("Åpne undermeny", key="ai_cc_open_submenu_v1863ag", width="stretch"):
                 st.session_state["ai_control_center_menu_open_v1863ag"] = True
                 st.rerun()
 
@@ -1892,7 +1892,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
         )
 
         st.markdown("<div class='ptw-control-home-button'>", unsafe_allow_html=True)
-        if st.button("Til hovedvalg / vis alle bokser", key="ai_cc_home_v1863ah", use_container_width=True):
+        if st.button("Til hovedvalg / vis alle bokser", key="ai_cc_home_v1863ah", width="stretch"):
             st.session_state["ai_control_center_show_home_v1863ah"] = True
             st.session_state["ai_control_center_submenu_open_v1863ah"] = True
             st.rerun()
@@ -1912,7 +1912,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
             mode_cols = st.columns(len(mode_options))
             for idx, mode in enumerate(mode_options):
                 with mode_cols[idx]:
-                    if st.button(mode, key=f"ai_cc_mode_v1863ah_{idx}", type="primary" if mode == current_mode else "secondary", use_container_width=True):
+                    if st.button(mode, key=f"ai_cc_mode_v1863ah_{idx}", type="primary" if mode == current_mode else "secondary", width="stretch"):
                         st.session_state["ai_control_center_work_mode_v1863ah"] = mode
                         st.session_state["ai_control_center_group_v1863ah"] = mode_map[mode]
                         st.session_state["ai_control_center_submenu_open_v1863ah"] = True
@@ -1925,7 +1925,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
                 labels = [label for label in group_map.get(group_name, []) if label in panel_map]
                 is_active = group_name == active_group
                 with group_cols[idx]:
-                    if st.button(f"{'ROD' if is_active else 'BLA'} {group_name} - {len(labels)}", key=f"ai_cc_group_v1863ah_{idx}", type="primary" if is_active else "secondary", use_container_width=True):
+                    if st.button(f"{'ROD' if is_active else 'BLA'} {group_name} - {len(labels)}", key=f"ai_cc_group_v1863ah_{idx}", type="primary" if is_active else "secondary", width="stretch"):
                         st.session_state["ai_control_center_group_v1863ah"] = group_name
                         st.session_state["ai_control_center_show_home_v1863ah"] = True
                         st.session_state["ai_control_center_submenu_open_v1863ah"] = True
@@ -1942,7 +1942,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
                 fav_cols = st.columns(min(len(favorites), 5))
                 for idx, label in enumerate(favorites[:5]):
                     with fav_cols[idx]:
-                        if st.button(label, key=f"ai_cc_fav_v1863ah_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                        if st.button(label, key=f"ai_cc_fav_v1863ah_{idx}", type="primary" if label == active_label else "secondary", width="stretch"):
                             st.session_state["ai_control_center_active_panel_v1863ah"] = label
                             st.session_state["ai_control_center_show_home_v1863ah"] = False
                             st.session_state["ai_control_center_submenu_open_v1863ah"] = False
@@ -1956,7 +1956,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
                 recent_cols = st.columns(min(len(recent), 4))
                 for idx, label in enumerate(recent[:4]):
                     with recent_cols[idx]:
-                        if st.button(label, key=f"ai_cc_recent_v1863ah_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                        if st.button(label, key=f"ai_cc_recent_v1863ah_{idx}", type="primary" if label == active_label else "secondary", width="stretch"):
                             st.session_state["ai_control_center_active_panel_v1863ah"] = label
                             st.session_state["ai_control_center_show_home_v1863ah"] = False
                             st.session_state["ai_control_center_submenu_open_v1863ah"] = False
@@ -1977,7 +1977,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
                     cols = st.columns(len(row))
                     for idx, label in enumerate(row):
                         with cols[idx]:
-                            if st.button(label, key=f"ai_cc_panel_v1863ah_{start}_{idx}", type="primary" if label == active_label else "secondary", use_container_width=True):
+                            if st.button(label, key=f"ai_cc_panel_v1863ah_{start}_{idx}", type="primary" if label == active_label else "secondary", width="stretch"):
                                 st.session_state["ai_control_center_active_panel_v1863ah"] = label
                                 st.session_state["ai_control_center_show_home_v1863ah"] = False
                                 st.session_state["ai_control_center_submenu_open_v1863ah"] = False
@@ -2094,7 +2094,7 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
 
         if active_label:
             st.markdown("<div class='ptw-control-home-button'>", unsafe_allow_html=True)
-            if st.button("Til hovedvalg", key="ai_cc_home_v1863ai", use_container_width=True):
+            if st.button("Til hovedvalg", key="ai_cc_home_v1863ai", width="stretch"):
                 st.session_state["ai_control_center_active_panel_v1863ai"] = ""
                 st.session_state["ai_control_center_group_v1863ai"] = ""
                 st.rerun()
@@ -2107,7 +2107,7 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
             is_active = group_name == active_group
             label_text = f"{group_name} ({len(labels)})"
             with group_cols[idx]:
-                if st.button(label_text, key=f"ai_cc_group_v1863ai_{idx}", type="primary" if is_active else "secondary", use_container_width=True):
+                if st.button(label_text, key=f"ai_cc_group_v1863ai_{idx}", type="primary" if is_active else "secondary", width="stretch"):
                     st.session_state["ai_control_center_group_v1863ai"] = group_name
                     st.session_state["ai_control_center_active_panel_v1863ai"] = ""
                     st.rerun()
@@ -2123,7 +2123,7 @@ def _render_ai_control_center_v1863ai(extra_panels: Optional[Sequence[Tuple[str,
                 cols = st.columns(len(row))
                 for idx, label in enumerate(row):
                     with cols[idx]:
-                        if st.button(label, key=f"ai_cc_panel_v1863ai_{start}_{idx}", use_container_width=True):
+                        if st.button(label, key=f"ai_cc_panel_v1863ai_{start}_{idx}", width="stretch"):
                             st.session_state["ai_control_center_active_panel_v1863ai"] = label
                             st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
@@ -2248,7 +2248,7 @@ def _render_pipeline_quick_start_v1863bx(panel_map: dict, group_map: dict) -> No
             button_label = f"✓ {button_label}"
         col = shortcut_cols[(idx - 1) % len(shortcut_cols)]
         with col:
-            if st.button(button_label, key=f"analysis_pipeline_shortcut_{stage_id}_v1863bz", use_container_width=True, type="primary" if active_stage == stage_id else "secondary"):
+            if st.button(button_label, key=f"analysis_pipeline_shortcut_{stage_id}_v1863bz", width="stretch", type="primary" if active_stage == stage_id else "secondary"):
                 st.session_state["analysis_pipeline_pending_nav_v1863bw"] = {
                     "stage_id": stage_id,
                     "group": info.get("group") or "Marked og signaler",
@@ -2504,12 +2504,22 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             unsafe_allow_html=True,
         )
 
+        group_radio_kwargs = {
+            "horizontal": True,
+            "key": group_radio_key,
+        }
+        # v19.16.0: A widget key that already exists in Session State must not
+        # also receive an explicit default/index. This removes Streamlit's
+        # duplicate-value warning while preserving deep-link restoration.
+        if group_radio_key not in st.session_state:
+            group_radio_kwargs["index"] = (
+                group_options.index(current_group_option)
+                if current_group_option in group_options else None
+            )
         selected_group_option = st.radio(
             "Velg hovedområde",
             group_options,
-            index=group_options.index(current_group_option) if current_group_option in group_options else None,
-            horizontal=True,
-            key=group_radio_key,
+            **group_radio_kwargs,
         )
         selected_group = group_by_option.get(selected_group_option or "", "")
         if selected_group != current_group:

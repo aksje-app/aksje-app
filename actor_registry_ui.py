@@ -274,10 +274,10 @@ def render_actor_registry_panel() -> None:
 
     c_add, c_reload = st.columns([1, 1])
     with c_add:
-        if st.button("Legg til aktør", key="actor_registry_add_v1863bj", use_container_width=True):
+        if st.button("Legg til aktør", key="actor_registry_add_v1863bj", width="stretch"):
             st.session_state[NEW_ACTOR_OPEN_KEY] = True
     with c_reload:
-        if st.button("Last inn lagret register på nytt", key="actor_registry_reload_v1863bj", use_container_width=True):
+        if st.button("Last inn lagret register på nytt", key="actor_registry_reload_v1863bj", width="stretch"):
             st.session_state[EDITOR_ROWS_KEY] = _with_row_ids(load_actor_registry())
             st.rerun()
 
@@ -288,12 +288,12 @@ def render_actor_registry_panel() -> None:
             duplicates = _find_similar(rows, f"{new_row.get('name')} {new_row.get('aliases')}")
             if duplicates:
                 st.warning("Mulige duplikater finnes allerede:")
-                st.dataframe([{key: row.get(key) for key in ("name", "aliases", "market", "actor_roles", "match_score")} for row in duplicates], use_container_width=True, hide_index=True)
+                st.dataframe([{key: row.get(key) for key in ("name", "aliases", "market", "actor_roles", "match_score")} for row in duplicates], width="stretch", hide_index=True)
             s1, s2 = st.columns([1, 1])
             with s1:
-                create_new = st.form_submit_button("Opprett aktør", use_container_width=True)
+                create_new = st.form_submit_button("Opprett aktør", width="stretch")
             with s2:
-                cancel_new = st.form_submit_button("Avbryt", use_container_width=True)
+                cancel_new = st.form_submit_button("Avbryt", width="stretch")
         if create_new:
             if not (new_row.get("name") or new_row.get("aliases")):
                 st.warning("Navn eller alias må fylles ut.")
@@ -321,7 +321,7 @@ def render_actor_registry_panel() -> None:
     st.dataframe(
         visible,
         key="actor_registry_table_v1863bj",
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_order=["active", "name", "aliases", "market", "actor_roles", "strength", "trust_level", "relevant_tickers", "hit_count", "last_seen", "hit_tickers", "notes", "links"],
         column_config={
@@ -354,14 +354,14 @@ def render_actor_registry_panel() -> None:
             similar = _find_similar(rows, f"{updated.get('name')} {updated.get('aliases')}", selected_id)
             if similar:
                 st.warning("Mulige duplikater/lignende aktører finnes allerede:")
-                st.dataframe([{key: row.get(key) for key in ("name", "aliases", "market", "actor_roles", "match_score")} for row in similar], use_container_width=True, hide_index=True)
-            save_selected = st.form_submit_button("Lagre valgt aktør", use_container_width=True)
+                st.dataframe([{key: row.get(key) for key in ("name", "aliases", "market", "actor_roles", "match_score")} for row in similar], width="stretch", hide_index=True)
+            save_selected = st.form_submit_button("Lagre valgt aktør", width="stretch")
         if save_selected:
             st.session_state[EDITOR_ROWS_KEY] = _replace_row(rows, selected_id, updated)
             st.rerun()
 
         delete_labels = st.multiselect("Velg aktører for sletting", labels, key="actor_registry_delete_choices_v1863bj")
-        if st.button("Slett valgte", key="actor_registry_delete_selected_v1863bj", use_container_width=True):
+        if st.button("Slett valgte", key="actor_registry_delete_selected_v1863bj", width="stretch"):
             delete_ids = {label.split("|")[-1].strip() for label in delete_labels}
             if delete_ids:
                 st.session_state[EDITOR_ROWS_KEY] = [row for row in rows if str(row.get("_row_id")) not in delete_ids]
@@ -372,7 +372,7 @@ def render_actor_registry_panel() -> None:
     clean_rows = _clean_for_save(rows)
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        if st.button("Lagre aktørregister", key="actor_registry_save_v1863bj", type="primary", use_container_width=True):
+        if st.button("Lagre aktørregister", key="actor_registry_save_v1863bj", type="primary", width="stretch"):
             for warning in _validate_rows(clean_rows):
                 st.warning(warning)
             saved = save_actor_registry(clean_rows)
@@ -390,7 +390,7 @@ def render_actor_registry_panel() -> None:
             data=actor_registry_to_json(clean_rows),
             file_name="aktorregister.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
         )
     with c3:
         st.download_button(
@@ -398,7 +398,7 @@ def render_actor_registry_panel() -> None:
             data=actor_registry_to_csv(clean_rows),
             file_name="aktorregister.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
     with st.expander("Test aktør mot tekst", expanded=False):
@@ -412,13 +412,13 @@ def render_actor_registry_panel() -> None:
         if test_text.strip():
             matches = match_actor_text(test_text, market=test_market, ticker=test_ticker, rows=clean_rows)
             if matches:
-                st.dataframe(matches, use_container_width=True, hide_index=True)
+                st.dataframe(matches, width="stretch", hide_index=True)
             else:
                 st.info("Ingen aktiv aktør/alias matchet teksten.")
 
     with st.expander("Trefflogg per aktør", expanded=False):
         st.caption("Hentes bare når du trykker knappen, slik at menyvalg ikke blir tunge.")
-        if st.button("Oppdater trefflogg", key="actor_registry_refresh_hits_v1863bj", use_container_width=True):
+        if st.button("Oppdater trefflogg", key="actor_registry_refresh_hits_v1863bj", width="stretch"):
             st.session_state[HIT_STATS_KEY] = actor_hit_stats(clean_rows)
             st.rerun()
         stats = st.session_state.get(HIT_STATS_KEY) if isinstance(st.session_state.get(HIT_STATS_KEY), Mapping) else {}
@@ -436,14 +436,14 @@ def render_actor_registry_panel() -> None:
                     "Markeder": hit.get("markets", ""),
                     "Kilder": hit.get("sources", ""),
                 })
-            st.dataframe(hit_rows, use_container_width=True, hide_index=True)
+            st.dataframe(hit_rows, width="stretch", hide_index=True)
         else:
             st.info("Trykk Oppdater trefflogg for å hente lokale treff.")
 
     with st.expander("Unmatched Workbench", expanded=False):
         st.caption("Bruk denne når radar/kilder viser navn som ikke matcher registeret. En linje blir en inaktiv ny aktør du kan redigere og aktivere.")
         pasted = st.text_area("Navn fra uavklarte funn", key="actor_registry_unmatched_paste_v1863bj", height=100)
-        if st.button("Lag inaktive aktørrader fra tekst", key="actor_registry_unmatched_create_v1863bj", use_container_width=True):
+        if st.button("Lag inaktive aktørrader fra tekst", key="actor_registry_unmatched_create_v1863bj", width="stretch"):
             additions = []
             for line in pasted.splitlines():
                 name = line.strip(" -;\t")

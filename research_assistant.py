@@ -346,7 +346,7 @@ def render_research_assistant() -> None:
     c1, c2, c3 = st.columns([1.2, 0.8, 0.8])
     ticker = c1.text_input("Ticker", value=st.session_state.get("research_ticker_v18684", "NVO"), key="research_ticker_v18684").strip().upper()
     force = c2.checkbox("Oppdater kilder", value=False, key="research_force_v18684")
-    run = c3.button("Kjør research", type="primary", use_container_width=True, key="research_run_v18684")
+    run = c3.button("Kjør research", type="primary", width="stretch", key="research_run_v18684")
 
     report = st.session_state.get("research_report_v18684")
     if run:
@@ -378,7 +378,7 @@ def render_research_assistant() -> None:
         st.json({k: profile.get(k) for k in ("sector", "industry", "country", "exchange", "currency", "employees", "website")})
     with tabs[1]:
         rows = [{"Nøkkeltall": k, "Verdi": v} for k, v in metrics.items()]
-        st.dataframe(pd.DataFrame(rows) if pd is not None else rows, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows) if pd is not None else rows, width="stretch", hide_index=True)
         ins = report.get("insights") or {}
         col1, col2, col3 = st.columns(3)
         col1.markdown("**Positive drivere**\n\n" + "\n".join(f"- {x}" for x in ins.get("positive_drivers", [])))
@@ -387,7 +387,7 @@ def render_research_assistant() -> None:
     with tabs[2]:
         items = (report.get("news") or {}).get("items") or []
         if items:
-            st.dataframe(pd.DataFrame(items) if pd is not None else items, use_container_width=True, hide_index=True,
+            st.dataframe(pd.DataFrame(items) if pd is not None else items, width="stretch", hide_index=True,
                          column_config={"url": st.column_config.LinkColumn("Kilde")})
         else:
             st.warning("Ingen nyheter tilgjengelig fra konfigurert leverandør.")
@@ -410,6 +410,6 @@ def render_research_assistant() -> None:
         for section in ("profile", "fundamentals", "news", "competitors"):
             source = (report.get(section) or {}).get("source") or {}
             source_rows.append({"Del": section, **source, "cache_hit": (report.get(section) or {}).get("cache_hit", False)})
-        st.dataframe(pd.DataFrame(source_rows) if pd is not None else source_rows, use_container_width=True, hide_index=True,
+        st.dataframe(pd.DataFrame(source_rows) if pd is not None else source_rows, width="stretch", hide_index=True,
                      column_config={"url": st.column_config.LinkColumn("Original")})
         st.warning(report.get("disclaimer"))

@@ -48,7 +48,8 @@ STATUS_LABELS: dict[str, str] = {
     "STALE": "Utdatert",
     "NOT_SEARCHED": "Ikke søkt",
     "CHECKED_NO_EVENTS": "Kontrollert – ingen hendelser",
-    "VERIFIED_FACTS_FOUND": "Verifiserte fakta funnet",
+    "VERIFIED_FACTS_FOUND": "Primærverifiserte fakta funnet",
+    "SECONDARY_FACTS_FOUND": "Sekundære strukturerte fakta – primærkilde ikke verifisert",
     "VERIFIED_FACTS_NONE": "Kontrollert – ingen faktafunn",
     "PARTIAL_SOURCE_FAILURE": "Delvis kildefeil",
     "RATE_LIMITED": "Midlertidig begrenset",
@@ -300,7 +301,7 @@ def decision_color(value: Any) -> str:
     raw = _key(value)
     if raw in {"BUY", "STRONG_BUY", "KJØPSKANDIDAT", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID"}:
         return "#D9FBE5"  # green tint
-    if raw in {"REVIEW", "MANUAL_REVIEW", "UNDERSØK_MANUELT", "OVERVÅKES_AUTOMATISK", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
+    if raw in {"REVIEW", "MANUAL_REVIEW", "UNDERSØK_MANUELT", "OVERVÅKES_AUTOMATISK", "PENDING", "PENDING_APPROVAL", "PARTIAL", "SECONDARY_FACTS_FOUND", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
         return "#FFF5CC"  # yellow tint
     if raw in {"SKIP", "AUTOMATISK_AVVIST", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
         return "#FFE1E1"  # red tint
@@ -311,7 +312,7 @@ def decision_text_color(value: Any) -> str:
     raw = _key(value)
     if raw in {"BUY", "STRONG_BUY", "KJØPSKANDIDAT", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID"}:
         return "#166534"
-    if raw in {"REVIEW", "MANUAL_REVIEW", "UNDERSØK_MANUELT", "OVERVÅKES_AUTOMATISK", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
+    if raw in {"REVIEW", "MANUAL_REVIEW", "UNDERSØK_MANUELT", "OVERVÅKES_AUTOMATISK", "PENDING", "PENDING_APPROVAL", "PARTIAL", "SECONDARY_FACTS_FOUND", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE"}:
         return "#92400E"
     if raw in {"SKIP", "AUTOMATISK_AVVIST", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
         return "#991B1B"
@@ -347,7 +348,7 @@ def status_dot(value: Any) -> str:
     raw = _key(value)
     if raw in {"BUY", "STRONG_BUY", "APPROVED", "PASS", "OK", "VERIFIED", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VALID", "SENT", "SUCCESS"}:
         return "●"
-    if raw in {"REVIEW", "MANUAL_REVIEW", "PENDING", "PENDING_APPROVAL", "PARTIAL", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE", "WARNING", "NOT_SEARCHED"}:
+    if raw in {"REVIEW", "MANUAL_REVIEW", "PENDING", "PENDING_APPROVAL", "PARTIAL", "SECONDARY_FACTS_FOUND", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "STALE", "WARNING", "NOT_SEARCHED"}:
         return "●"
     if raw in {"SKIP", "AUTOMATISK_AVVIST", "SELL", "AVOID", "ERROR", "FAILED", "FAIL", "SOURCE_ERROR", "INVALID", "MISSING"}:
         return "●"

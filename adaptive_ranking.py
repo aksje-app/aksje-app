@@ -301,7 +301,7 @@ def render_adaptive_ranking(base_weights: Mapping[str, float], snapshots: Sequen
     c2.metric("Modus", meta.get("mode", "STANDARD"))
     c3.metric("Datagrunnlag", meta.get("observations", 0))
 
-    if st.button("Analyser historikk og lag forslag", key="adaptive_build_v1874", use_container_width=True):
+    if st.button("Analyser historikk og lag forslag", key="adaptive_build_v1874", width="stretch"):
         result = build_proposal(snapshots, base_weights)
         if result.get("created"):
             st.success("Nytt modellforslag er opprettet. Ingen vekter er endret.")
@@ -310,7 +310,7 @@ def render_adaptive_ranking(base_weights: Mapping[str, float], snapshots: Sequen
             st.warning(f"For lite historikk: {result['observations']}/{result['required_observations']} observasjoner og {result['history_days']}/{result['required_history_days']} dager.")
 
     active_rows = [{"Signal": k, "Vekt %": round(v * 100, 2)} for k, v in summary["weights"].items()]
-    st.dataframe(pd.DataFrame(active_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(active_rows), width="stretch", hide_index=True)
 
     proposals = summary["proposals"]
     if not proposals:
@@ -327,14 +327,14 @@ def render_adaptive_ranking(base_weights: Mapping[str, float], snapshots: Sequen
             for key, old in proposal.get("base_weights", {}).items():
                 new = proposal.get("proposed_weights", {}).get(key, old)
                 comparison.append({"Signal": key, "Standard %": round(old*100,2), "Forslag %": round(new*100,2), "Endring pp": round((new-old)*100,2)})
-            st.dataframe(pd.DataFrame(comparison), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(comparison), width="stretch", hide_index=True)
             if proposal.get("status") in {"PENDING", "TEST"}:
                 x, y, z = st.columns(3)
-                if x.button("✅ Godta", key=f"approve_{proposal['proposal_id']}", use_container_width=True):
+                if x.button("✅ Godta", key=f"approve_{proposal['proposal_id']}", width="stretch"):
                     set_proposal_status(proposal["proposal_id"], "APPROVED"); st.rerun()
-                if y.button("📊 Test først", key=f"test_{proposal['proposal_id']}", use_container_width=True):
+                if y.button("📊 Test først", key=f"test_{proposal['proposal_id']}", width="stretch"):
                     set_proposal_status(proposal["proposal_id"], "TEST"); st.rerun()
-                if z.button("❌ Avvis", key=f"reject_{proposal['proposal_id']}", use_container_width=True):
+                if z.button("❌ Avvis", key=f"reject_{proposal['proposal_id']}", width="stretch"):
                     set_proposal_status(proposal["proposal_id"], "REJECTED"); st.rerun()
-    if meta.get("active") and st.button("↩️ Rull tilbake aktiv modell", key="adaptive_rollback_v1874", use_container_width=True):
+    if meta.get("active") and st.button("↩️ Rull tilbake aktiv modell", key="adaptive_rollback_v1874", width="stretch"):
         rollback_active_model(); st.success("Aktiv modell er rullet tilbake."); st.rerun()

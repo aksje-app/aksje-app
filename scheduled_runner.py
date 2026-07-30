@@ -12,6 +12,7 @@ from typing import Any
 
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
+from runtime_dependencies import assert_runtime_dependencies
 
 STATE_KEY = "scheduler/unattended_state.json"
 STATE_PATH = runtime_data_path("scheduler", "unattended_state.json")
@@ -63,6 +64,15 @@ def run_once() -> dict[str, Any]:
         "last_failure_fingerprint": previous.get("last_failure_fingerprint", ""),
     }
     _save(state)
+
+    try:
+        state["runtime_dependencies"] = assert_runtime_dependencies()
+    except Exception as exc:
+        state["state"] = "FAILED"
+        state["error"] = str(exc)[:1000]
+        state["completed_at"] = _now()
+        _notify_failure_once(state, state["error"])
+        return _save(state)
 
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.

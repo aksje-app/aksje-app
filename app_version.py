@@ -3,21 +3,21 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.14.1"
-APP_VERSION_NAME = "Decision Gate & Runtime Consistency Release"
+APP_VERSION = "v19.16.0"
+APP_VERSION_NAME = "Full systemstabilisering"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.14.0"
+PREVIOUS_APP_VERSION = "v19.14.6"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
-REPORT_SCHEMA_VERSION = "1.4"
-DATABASE_SCHEMA_VERSION = "2.0"
-RANKING_MODEL_VERSION = "v19.14.1"
-AUTONOMY_POLICY_VERSION = "v19.14.1"
-SOURCE_CLASSIFIER_VERSION = "v19.0.19"
+REPORT_SCHEMA_VERSION = "1.6"
+DATABASE_SCHEMA_VERSION = "2.1"
+RANKING_MODEL_VERSION = "v19.16.0"
+AUTONOMY_POLICY_VERSION = "v19.16.0"
+SOURCE_CLASSIFIER_VERSION = "v19.16.0"
 OPERATIONS_TELEMETRY_VERSION = "v19.1.0"
-STORAGE_REPOSITORY_VERSION = "v19.2.0"
+STORAGE_REPOSITORY_VERSION = "v19.2.1"
 DECISION_INTELLIGENCE_VERSION = "v19.3.0"
 CONTROLLED_LEARNING_POLICY_VERSION = "v19.3.0"
 STRATEGY_REGISTRY_VERSION = "1.0"
@@ -143,6 +143,12 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.16.0: Full systemstabilisering: stabil markedsprofil som gjør Kjernemarkeder til Norge, Sverige og USA i jobb, oppdrag, kjøring og rapport; én eksplisitt konfidenskontrakt; korrekt evidensdekning; streng selskapsrelevans for nyheter; primær-/sekundærproveniens for insiderfakta; kanonisk porteføljebegrunnelse; og semantisk rapportintegritet som blokkerer motstridende JSON/PDF-grunnlag.",
+    "v19.14.6: PDF-avhengighet og ren oppstart: pypdf er eksplisitt og versjonslåst runtime-avhengighet; web- og scheduler-start kontrollerer PDF-leseren før arbeid aksepteres; Render-bygget kjører avhengighetssmoke etter installasjon; ny test bygger og leser en PDF semantisk, og releasevalideringen kontrollerer at kravfilen alene deklarerer pypdf.",
+    "v19.14.5: REPORT og lokal lagring: trading_rules respekterer STORAGE_MODE og forsøker aldri PostgreSQL i lokal modus eller uten DATABASE_URL; REPORT utfører eksplisitt skrivekontroll av runtime-, run- og summary-mapper før PDF-bygging; alle rapportfeil logges med full traceback, kjørings-ID, rapportbane og varig diagnosefil; Autonomi-panelet viser konkrete tekniske feildetaljer; ugyldig Streamlit useStarlette-konfigurasjon er fjernet.",
+    "v19.14.4: Driftgjenoppretting: separat og varig autentiseringslager, miljøavgrenset Husk meg-cookie, automatisk innlogging etter første admin, sesjonsinvalidering ved passordendring, fail-closed vern mot flyktige Render-brukere, brukeravgrenset navigasjon og fragmentlås som hindrer Autonomi-status i å overta aktiv meny, samt synlig beredskap for normal rapportdrift og kontrollert Paper Buy-test.",
+    "v19.14.3: Stabil innlogging, navigasjon og rapportintegritet: én innlogging med robust Husk meg-bootstrap, navigasjonslås mot Autonomi-polling, kanonisk kandidatutfall i JSON/PDF/UI, full rangering, sann porteføljebegrunnelse, registrerte autonome beslutninger og integritetskontroll som stopper kryss-seksjonsavvik.",
+    "v19.14.2: Sikker drift og sann status: én fail-closed Paper Trading-hovedbryter i ordrelaget og lagringslaget, samme sannhet i brukergrensesnittet, testmiljøsperrer for database, scheduler, bakgrunn og varsling, synlig gren/commit, trygg Streamlit-konfigurasjon, importkontroll ved ren oppstart og fjerning av remember-token fra delbar URL.",
     "v19.14.1: Decision Gate & Runtime Consistency Release: hard kjøpssperre i ordrelaget, atomisk avstemming av teoretiske handler, sperre mot kjøp og salg av samme ticker i samme kjøring, synkroniserte delversjoner, kjernemarkeder som eksplisitt standard i Enkel-modus, synlig konfigurasjon før start, direkte offisielle nordiske insiderkilder, full norsk rapporttekst, entydige terskler og streng PDF/JSON-handelsintegritet.",
     "v19.14.0: Autonomous Decision Reduction Release: Alle betyr nå kjernemarkedene Norge, Sverige og USA, mens Utvidet Norden, Brasil og full seksmarkeds-skanning er egne valg. Analyseflyten bruker rask skanning, utvidet analyse og dyp evidenskontroll med totalbudsjett på tvers av markeder. Autonomi avslutter kandidater som kjøpskandidat, overvåkes automatisk, automatisk avvist eller undersøk manuelt, begrenser manuelt arbeid til normalt 0-2 konkrete oppgaver, forklarer hva som mangler, hva programmet forsøkte, hvorfor det stoppet, anbefalt kilde og beslutningseffekt, og gjeninnfører prioritert vurderingsrekkefølge 1-3 uten medaljer eller kjøpsanbefalingspreg.",
     "v19.13.2: Report Semantics and Mobile Return Release: skiller evidens- og dataklare kandidater fra endelig kjøpsklare kandidater, fjerner medaljer fra ikke-godkjente kortlister, rydder feil/advarsler og unike hoppede kandidater, markerer foreløpige modellforslag, skiller læringskjøp fra produksjonskjøp, forbedrer norsk språk og tallformat, reduserer nestede råkopier, og gjør PDF-nedlasting mobilvennlig uten at appfanen erstattes.",

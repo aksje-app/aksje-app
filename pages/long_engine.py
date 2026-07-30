@@ -51,7 +51,7 @@ def render_long_engine_control_center_v18653(_legacy_context):
             st.caption(f"Aktiv standard: 🟢 ≥ {green_t}% · 🟡 {yellow_t}-{green_t-1}% · 🔴 < {yellow_t}%")
 
     if market != "USA":
-        st.info("v18.6.53 støtter USA først. Norge/Sverige legges inn etter at Alpha er verifisert.")
+        st.info("Long Engine støtter foreløpig USA. Norge og Sverige aktiveres først etter separat verifikasjon.")
         return
 
     try:
@@ -70,7 +70,7 @@ def render_long_engine_control_center_v18653(_legacy_context):
         "Kjør Long Engine Alpha",
         key="long_engine_run_alpha_v18653",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=not bool(universe),
     )
 
@@ -197,7 +197,7 @@ def render_long_engine_control_center_v18653(_legacy_context):
 
     st.markdown(f"#### Top Long USA Alpha – beslutningstabell ({_long_engine_active_horizon_v18662()})")
     try:
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, width="stretch", hide_index=True)
     except Exception:
         st.write(_long_engine_display_rows_v18653(filtered_rows, overlap_tickers=overlap_tickers))
 
@@ -216,13 +216,13 @@ def render_long_engine_control_center_v18653(_legacy_context):
     basename = f"long_engine_usa_alpha_{datetime.now().strftime('%Y%m%d_%H%M')}"
     e1, e2, e3, e4 = st.columns(4)
     with e1:
-        st.download_button("CSV", data=_long_engine_csv_v18654(filtered_rows), file_name=f"{basename}.csv", mime="text/csv", use_container_width=True)
+        st.download_button("CSV", data=_long_engine_csv_v18654(filtered_rows), file_name=f"{basename}.csv", mime="text/csv", width="stretch")
     with e2:
-        st.download_button("Excel", data=_long_engine_excel_v18654(filtered_rows), file_name=f"{basename}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.download_button("Excel", data=_long_engine_excel_v18654(filtered_rows), file_name=f"{basename}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
     with e3:
-        st.download_button("Print/PDF HTML", data=_long_engine_html_report_v18654(filtered_rows, overlap), file_name=f"{basename}_rapport.html", mime="text/html", use_container_width=True)
+        st.download_button("Print/PDF HTML", data=_long_engine_html_report_v18654(filtered_rows, overlap), file_name=f"{basename}_rapport.html", mime="text/html", width="stretch")
     with e4:
-        st.download_button("JSON", data=json.dumps({"rows": filtered_rows, "overlap": overlap}, indent=2, ensure_ascii=False), file_name=f"{basename}.json", mime="application/json", use_container_width=True)
+        st.download_button("JSON", data=json.dumps({"rows": filtered_rows, "overlap": overlap}, indent=2, ensure_ascii=False), file_name=f"{basename}.json", mime="application/json", width="stretch")
 
     with st.expander("Tekniske detaljer / datakobling", expanded=False):
         st.caption("Kun for kontroll og feilsøking. Skjules i normal bruk.")

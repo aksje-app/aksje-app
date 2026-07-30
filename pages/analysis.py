@@ -60,7 +60,7 @@ def render_analysis(_legacy_context, results, label):
         st.info(f"Ingen lagret dynamisk rangering for {source_choice}. Bygg listen nå, eller skriv én ticker manuelt.")
         build_cols = st.columns([1, 2])
         with build_cols[0]:
-            if st.button(f"🔄 Oppdater {source_choice}-liste nå", key=f"build_interactive_source_{label}_{source_choice}_v1410", use_container_width=True):
+            if st.button(f"🔄 Oppdater {source_choice}-liste nå", key=f"build_interactive_source_{label}_{source_choice}_v1410", width="stretch"):
                 with st.spinner(f"Bygger dynamisk {source_choice}-liste..."):
                     source_results = _build_interactive_source_ranking_now(source_choice)
                 options, option_labels = _build_options(source_results)
@@ -102,7 +102,7 @@ def render_analysis(_legacy_context, results, label):
             key=manual_key,
             help="Manuell ticker overstyrer valgt kilde. For flere tickere bruker du Strategi-test.",
         )
-        if st.button("Tøm manuell ticker", key=f"manual_ticker_clear_btn_{label}_v1410", use_container_width=True):
+        if st.button("Tøm manuell ticker", key=f"manual_ticker_clear_btn_{label}_v1410", width="stretch"):
             st.session_state[manual_key] = ""
             st.rerun()
         st.caption("Eksempel: EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE eller PETR4.SA")
@@ -368,7 +368,7 @@ def render_analysis(_legacy_context, results, label):
         )
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
-    render_interactive_chart(fig_ta, use_container_width=True, key=f"ta_chart_{label}_{selected}_{chart_readability_mode_v18667}")
+    render_interactive_chart(fig_ta, width="stretch", key=f"ta_chart_{label}_{selected}_{chart_readability_mode_v18667}")
     if chart_readability_mode_v18667 in ("Teknisk", "Avansert"):
         render_graph_explanation("ta")
 
@@ -491,7 +491,7 @@ def render_analysis(_legacy_context, results, label):
             borderwidth=1,
         ),
     )
-    render_interactive_chart(fig_macd, use_container_width=True, key=f"macd_chart_{label}_{selected}_{chart_readability_mode_v18667}")
+    render_interactive_chart(fig_macd, width="stretch", key=f"macd_chart_{label}_{selected}_{chart_readability_mode_v18667}")
 
     if chart_readability_mode_v18667 == "Avansert":
         render_macd_explanation()
@@ -509,7 +509,7 @@ def render_analysis(_legacy_context, results, label):
         plot_bgcolor="#0b111c",
         yaxis=dict(range=[0, 100]),
     )
-    render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), use_container_width=True, key=f"rsi_chart_{label}_{selected}_{chart_readability_mode_v18667}")
+    render_interactive_chart(add_rsi_level_labels(fig_rsi, rsi), width="stretch", key=f"rsi_chart_{label}_{selected}_{chart_readability_mode_v18667}")
     if chart_readability_mode_v18667 == "Avansert":
         render_graph_explanation("rsi")
 

@@ -444,32 +444,32 @@ def render_portfolio_optimizer() -> None:
         tabs = st.tabs(["Eksponering", "Korrelasjon", "Risiko og grenser", "Rebalansering", "Scenario", "Explain Portfolio", "Position Sizing"])
         with tabs[0]:
             display = [{"Ticker": r["ticker"], "Sektor": r["sector"], "Verdi": round(r["value"], 2), "Vekt %": round(r["weight_pct"], 2), "Valuta": r["currency"]} for r in report.get("positions", [])]
-            st.dataframe(pd.DataFrame(display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(display), width="stretch", hide_index=True)
             sector_df = pd.DataFrame(display).groupby("Sektor", as_index=False)["Vekt %"].sum().sort_values("Vekt %", ascending=False)
             st.bar_chart(sector_df.set_index("Sektor"))
         with tabs[1]:
             corr = report.get("correlation")
             if corr:
                 corr_df = pd.DataFrame(corr)
-                st.dataframe(corr_df.style.background_gradient(cmap="RdYlGn_r", vmin=-1, vmax=1).format("{:.2f}"), use_container_width=True)
+                st.dataframe(corr_df.style.background_gradient(cmap="RdYlGn_r", vmin=-1, vmax=1).format("{:.2f}"), width="stretch")
             else:
                 st.info("Ikke nok felles historikk til korrelasjonsmatrise.")
         with tabs[2]:
             violations = report.get("violations") or []
             if violations:
                 st.error(f"{len(violations)} regelbrudd eller risikoadvarsler funnet.")
-                st.dataframe(pd.DataFrame(violations), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(violations), width="stretch", hide_index=True)
             else:
                 st.success("Ingen definerte grenser er brutt.")
         with tabs[3]:
             proposals = report.get("rebalance") or []
             st.caption("Kun forslag. Ingen kjøp eller salg blir utført.")
             if proposals:
-                st.dataframe(pd.DataFrame(proposals), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(proposals), width="stretch", hide_index=True)
             else:
                 st.success("Ingen vesentlige rebalanseringsforslag med dagens grenser.")
         with tabs[4]:
-            st.dataframe(pd.DataFrame(report.get("scenarios") or []), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(report.get("scenarios") or []), width="stretch", hide_index=True)
         with tabs[5]:
             for text in report.get("explanation") or []:
                 st.write("•", text)

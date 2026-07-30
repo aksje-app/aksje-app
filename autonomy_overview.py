@@ -116,6 +116,8 @@ def collect_autonomy_overview() -> dict[str, Any]:
     params = load_parameters()
     positions = list((portfolio.get("positions") or {}).values())
     decisions = _rows("autonomous_portfolio/decisions.json", DECISIONS_PATH)
+    if not decisions:
+        decisions = [dict(row) for row in latest_run.get("autonomous_decisions") or [] if isinstance(row, Mapping)]
     notifications = _rows("autonomous_portfolio/notifications.json", NOTIFICATIONS_PATH)
     performance = read_json("autonomous_portfolio/performance.json", PERFORMANCE_PATH, {})
     performance = dict(performance) if isinstance(performance, Mapping) else {}
@@ -233,9 +235,9 @@ def _render_autonomy_status_box(snapshot: Mapping[str, Any]) -> None:
             h4.metric("Avvik", "Ja" if handoff.get("handoff_mismatch") else "Nei")
         st.caption("Ekte handel er fortsatt deaktivert. Ordinære porteføljekjøp og læringsposisjoner føres i separate porteføljer og separate resultatregnskap.")
         nav_left, nav_right = st.columns(2)
-        if nav_left.button("📈 Åpne autonom portefølje", use_container_width=True, key="overview_open_autonomous_portfolio_v19018b"):
+        if nav_left.button("📈 Åpne autonom portefølje", width="stretch", key="overview_open_autonomous_portfolio_v19018b"):
             _goto("Autonom portefølje")
-        if nav_right.button("🧪 Vis læringsportefølje", use_container_width=True, key="overview_open_learning_portfolio_v19018b"):
+        if nav_right.button("🧪 Vis læringsportefølje", width="stretch", key="overview_open_learning_portfolio_v19018b"):
             _goto("Læringsportefølje")
 
 def _safe_public_report_url(value: Any) -> str:
@@ -454,7 +456,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             else:
                 st.error("Full Autonomy Execution er ufullstendig: " + ", ".join(full_execution.get("failed_stages") or []))
             with st.expander("Vis alle 13 Autonomi-trinn", expanded=False):
-                st.dataframe(pd.DataFrame([{ "#": x.get("number"), "Trinn": x.get("label"), "Status": x.get("status") } for x in full_execution.get("stages") or []]), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame([{ "#": x.get("number"), "Trinn": x.get("label"), "Status": x.get("status") } for x in full_execution.get("stages") or []]), width="stretch", hide_index=True)
             if full_execution.get("self_contained"):
                 st.markdown("##### Ferdig rapport")
                 current_entry = next(
@@ -496,7 +498,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     "Handling": row.get("portfolio_action") or "Ikke vurdert",
                     "Datagyldighet": (row.get("data_contract") or {}).get("validity", "UKJENT"),
                 } for row in candidates]
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
             else:
                 st.info("Ingen kandidater er lagret ennå.")
         with st.container(border=True):
@@ -520,7 +522,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     "Score": row.get("score") or row.get("investment_score"),
                     "Årsak": row.get("reason"),
                 } for row in decisions]
-                st.dataframe(pd.DataFrame(decision_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(decision_rows), width="stretch", hide_index=True)
             else:
                 st.info("Ingen autonome beslutninger er registrert.")
         with st.container(border=True):
@@ -552,7 +554,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     "Ticker": row.get("ticker"), "Score / terskel": f"{row.get('score')} / {row.get('production_threshold')}",
                     "Datakvalitet": row.get("data_quality"), "Risiko": row.get("risk"),
                     "Portefølje": row.get("portfolio_action"), "Avslagsgrunn": "; ".join(row.get("reasons") or []),
-                } for row in near]), use_container_width=True, hide_index=True)
+                } for row in near]), width="stretch", hide_index=True)
             shadow = list(funnel.get("shadow_thresholds") or [])
             if shadow:
                 st.markdown("##### Shadow Mode – kjøpsterskel")
@@ -561,7 +563,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     "Score bestått": row.get("score_qualified_count"), "Alle porter bestått": row.get("eligible_count"),
                     "Kandidater": ", ".join(row.get("eligible_tickers") or []) or "Ingen",
                     "Produksjon endret": "NEI",
-                } for row in shadow]), use_container_width=True, hide_index=True)
+                } for row in shadow]), width="stretch", hide_index=True)
             st.info("Challenger-tersklene er kun diagnostikk. Produksjonsterskelen endres ikke uten eksplisitt godkjenning.")
 
     ops1, ops2, ops3 = st.columns(3)
@@ -592,7 +594,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 inject_approval_mobile_css()
                 for item in pending[:5]:
                     render_approval_card(item, key_prefix="overview", compact=True)
-                if st.button("Åpne Læringsportefølje", key="autonomy_overview_approvals_v1913", use_container_width=True):
+                if st.button("Åpne Læringsportefølje", key="autonomy_overview_approvals_v1913", width="stretch"):
                     _goto("Læringsportefølje")
             else:
                 st.success("Ingen ventende godkjenninger.")
@@ -619,7 +621,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 st.info("Ingen rapport er lagret.")
 
     c1, c2 = st.columns(2)
-    if c1.button("Åpne Orchestrator og tidsplan", use_container_width=True, key="autonomy_overview_orchestrator_v1883"):
+    if c1.button("Åpne Orchestrator og tidsplan", width="stretch", key="autonomy_overview_orchestrator_v1883"):
         _goto("Orchestrator og tidsplan")
-    if c2.button("↻ Oppdater oversikten", use_container_width=True, key="autonomy_overview_refresh_v1883"):
+    if c2.button("↻ Oppdater oversikten", width="stretch", key="autonomy_overview_refresh_v1883"):
         st.rerun()

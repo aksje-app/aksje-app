@@ -114,10 +114,10 @@ def test_decision_report_is_read_only_for_ranking_and_trading_fields():
     before = deepcopy(run["candidates"])
     document = ensure_report_document(run)
     assert run["candidates"] == before
-    assert APP_VERSION == "v19.14.1"
-    assert REPORT_SCHEMA_VERSION == "1.4"
-    assert document["schema_version"] == "1.4"
-    assert run["decision_report"]["schema_version"] == "1.3"
+    assert APP_VERSION == "v19.16.0"
+    assert REPORT_SCHEMA_VERSION == "1.6"
+    assert document["schema_version"] == "1.6"
+    assert run["decision_report"]["schema_version"] == "1.4"
 
 
 def test_every_timed_report_has_distinct_focus_and_matching_mission():

@@ -66,7 +66,7 @@ def render_macro_rates_breadth_panel() -> None:
             oil = st.text_input("Olje proxy", value="USO", key="macro_oil_v1844")
             vix = st.text_input("VIX", value="^VIX", key="macro_vix_v1844")
 
-        run = st.button("Oppdater makro/rente/breadth", key="macro_run_v1844", use_container_width=True)
+        run = st.button("Oppdater makro/rente/breadth", key="macro_run_v1844", width="stretch")
         if not run:
             existing = st.session_state.get("macro_rates_breadth_result_v1844")
             if existing:

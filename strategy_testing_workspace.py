@@ -194,14 +194,14 @@ def _render_basic_strategy_result(result: Mapping[str, Any]) -> bool:
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=equity["date"], y=equity["value"], mode="lines", name="Strategi/equity"))
             fig.update_layout(title=f"{ticker} strategi/equity", height=330, margin=dict(l=10, r=10, t=45, b=10))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         except Exception:
-            st.dataframe(equity.tail(60), use_container_width=True)
+            st.dataframe(equity.tail(60), width="stretch")
 
     opt = result.get("optimization")
     if opt is not None and hasattr(opt, "empty") and not opt.empty:
         st.markdown("#### Strategi-optimalisering")
-        st.dataframe(opt, use_container_width=True, hide_index=True)
+        st.dataframe(opt, width="stretch", hide_index=True)
     elif result.get("optimization_error"):
         st.caption(f"Optimalisering ikke tilgjengelig: {result.get('optimization_error')}")
     return True
@@ -346,7 +346,7 @@ def _render_basic_strategy_test(ticker: str) -> bool:
         run = st.button(
             "Kjør enkel strategi-test",
             key="tl_strategy_run_v18515",
-            use_container_width=True,
+            width="stretch",
             on_click=set_global_busy,
             kwargs={"label": "Kjører strategi-test", "detail": "Forbereder kursdata", "step": 1, "total": 4},
         )
@@ -391,7 +391,7 @@ def _render_score_explanation(ticker: str) -> bool:
     st.markdown("#### Score-forklaring")
     rows = _score_rows_for_ticker(ticker)
     if rows:
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
         return True
     st.info("Ingen lagret scoreforklaring funnet for valgt ticker ennå. Kjør Smart AI-utvalg eller analyse først.")
     return False
@@ -408,7 +408,7 @@ def _render_learning_history_summary() -> bool:
     c4.metric("Snittfeil", f"{g.get('avg_abs_error_pct', 0)}%")
     if stats.get("horizons"):
         rows = [{"Horisont": k, **v} for k, v in stats.get("horizons", {}).items()]
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
     return True
 
 
@@ -463,4 +463,4 @@ def render_strategy_testing_workspace(ticker: str = "") -> None:
         {"Område": "Backtest-læring", "Status": "✅ Aktiv"},
         {"Område": "Trefferate og learning history", "Status": "✅ Aktiv"},
     ]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)

@@ -191,14 +191,14 @@ def render_market_intelligence_center() -> None:
         st.markdown("### 🏆 Sterkeste prognoser")
         strong = _top_rows(filtered_summaries, reverse=True, limit=8)
         if strong:
-            st.dataframe(strong, use_container_width=True, hide_index=True)
+            st.dataframe(strong, width="stretch", hide_index=True)
         else:
             st.info("Ingen lagrede prognoser ennå. Kjør prognosemodulen først.")
 
         st.markdown("### ⚠️ Svakeste / mest risikable prognoser")
         weak = _top_rows(filtered_summaries, reverse=False, limit=8)
         if weak:
-            st.dataframe(weak, use_container_width=True, hide_index=True)
+            st.dataframe(weak, width="stretch", hide_index=True)
         else:
             st.caption("Ingen risikotabell tilgjengelig ennå.")
 
@@ -219,7 +219,7 @@ def render_market_intelligence_center() -> None:
                     "Kategori": alert.get("category", ""),
                     "Melding": alert.get("message", ""),
                 })
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.success("Ingen aktive varsler.")
 
@@ -236,7 +236,7 @@ def render_market_intelligence_center() -> None:
         }
         for key, active in source_status.items():
             source_rows.append({"Kilde": labels.get(key, key), "Status": "Aktiv" if active else "Ikke funnet"})
-        st.dataframe(source_rows, use_container_width=True, hide_index=True)
+        st.dataframe(source_rows, width="stretch", hide_index=True)
 
         st.markdown("### 🧠 Lærende confidence")
         g = learning.get("global", {})

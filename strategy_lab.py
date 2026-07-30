@@ -349,7 +349,7 @@ def render_strategy_lab() -> None:
             start_value = st.number_input("Startkapital", min_value=1000.0, value=100000.0, step=10000.0, key="strategy_lab_capital_v18680")
         names = [str(s.get("name")) for s in strategies]
         selected_names = st.multiselect("Strategier", names, default=names[: min(5, len(names))], key="strategy_lab_selected_v18680")
-        if st.button("Kjør Strategy Lab", type="primary", use_container_width=True, key="strategy_lab_run_v18680"):
+        if st.button("Kjør Strategy Lab", type="primary", width="stretch", key="strategy_lab_run_v18680"):
             try:
                 import yfinance as yf  # type: ignore
                 with st.spinner(f"Henter {ticker} og kjører {len(selected_names)} strategier …"):
@@ -371,17 +371,17 @@ def render_strategy_lab() -> None:
                     "Sharpe": r.get("sharpe"), "Sortino": r.get("sortino"), "Expectancy %": r.get("expectancy_pct"), "Handler": int(r.get("trades", 0)),
                 })
             df_display = pd.DataFrame(display) if pd is not None else display
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
+            st.dataframe(df_display, width="stretch", hide_index=True)
             if pd is not None:
                 chart = pd.DataFrame({r.get("Strategi"): r.get("_result", {}).get("equity", pd.DataFrame()).set_index("date")["value"] for r in rows if r.get("_result", {}).get("equity") is not None})
                 if not chart.empty:
-                    st.line_chart(chart, use_container_width=True)
+                    st.line_chart(chart, width="stretch")
                 st.download_button("Last ned sammenligning CSV", data=pd.DataFrame(display).to_csv(index=False).encode("utf-8-sig"), file_name=f"strategy_lab_{ticker}.csv", mime="text/csv")
         else:
             st.info("Velg strategier og kjør testen. Samme datasett brukes for alle strategiene.")
 
     with tab_library:
-        st.dataframe(pd.DataFrame([{ "ID": s.get("strategy_id"), "Navn": s.get("name"), "Beskrivelse": s.get("description"), "Aktiv": s.get("enabled", True), "Entry": json.dumps(s.get("entry") or {}, ensure_ascii=False), "Exit": json.dumps(s.get("exit") or {}, ensure_ascii=False)} for s in strategies]) if pd is not None else strategies, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([{ "ID": s.get("strategy_id"), "Navn": s.get("name"), "Beskrivelse": s.get("description"), "Aktiv": s.get("enabled", True), "Entry": json.dumps(s.get("entry") or {}, ensure_ascii=False), "Exit": json.dumps(s.get("exit") or {}, ensure_ascii=False)} for s in strategies]) if pd is not None else strategies, width="stretch", hide_index=True)
         with st.expander("Opprett eller oppdater strategi", expanded=False):
             c1, c2 = st.columns(2)
             with c1:
@@ -423,7 +423,7 @@ def render_strategy_lab() -> None:
             result = (row or {}).get("_result") or {}
             trades = result.get("trades") or []
             if trades:
-                st.dataframe(pd.DataFrame(trades) if pd is not None else trades, use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(trades) if pd is not None else trades, width="stretch", hide_index=True)
             else:
                 st.info("Ingen avsluttede handler i valgt periode.")
             st.json({"strategy_id": result.get("strategy_id"), "metrics": result.get("metrics")})

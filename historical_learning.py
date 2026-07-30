@@ -251,7 +251,7 @@ def render_accuracy_analytics() -> None:
     import streamlit as st
     st.markdown("### 🎯 Accuracy Analytics")
     st.caption("Historiske resultater er beskrivende statistikk. De endrer ikke modellvekter automatisk.")
-    if st.button("Oppdater modne målepunkter", key="hl_refresh_v1873", use_container_width=True):
+    if st.button("Oppdater modne målepunkter", key="hl_refresh_v1873", width="stretch"):
         with st.spinner("Henter historiske sluttkurser …"):
             result = update_due_evaluations(yfinance_price_loader)
         st.success(f"Oppdatert {result['updated']} målepunkter. Feil: {result['errors']}.")
@@ -261,14 +261,14 @@ def render_accuracy_analytics() -> None:
     c.metric("Beste utvikling", "-" if data["best_return"] is None else f"{data['best_return']:+.2f}%")
     d.metric("Svakeste utvikling", "-" if data["worst_return"] is None else f"{data['worst_return']:+.2f}%")
     horizon_rows = [{"Måleperiode": f"{h} handelsdager", "Antall": v["count"], "Treffprosent": v["hit_rate"], "Gjennomsnitt %": v["average_return"], "Median %": v["median_return"]} for h,v in data["horizons"].items()]
-    st.dataframe(pd.DataFrame(horizon_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(horizon_rows), width="stretch", hide_index=True)
     st.markdown("#### Signalanalyse")
     labels = {"insider_score":"Insider", "news_score":"Nyheter", "technical_score":"Teknisk", "fundamental_score":"Fundamental"}
     signal_rows = [{"Signal": labels.get(x["signal"],x["signal"]), "Observasjoner ≥70": x["high_count"], "Gj.snitt høy score %": x["high_average"], "Baseline %": x["baseline_average"], "Meravkastning %": round(x["high_average"]-x["baseline_average"],3)} for x in data["signals"]]
-    st.dataframe(pd.DataFrame(signal_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(signal_rows), width="stretch", hide_index=True)
     if data["markets"]:
         st.markdown("#### Resultat per marked")
-        st.dataframe(pd.DataFrame(data["markets"]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(data["markets"]), width="stretch", hide_index=True)
     st.divider()
     try:
         from adaptive_ranking import render_adaptive_ranking

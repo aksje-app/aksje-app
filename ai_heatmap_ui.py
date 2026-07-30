@@ -76,7 +76,7 @@ def _render_matrix_heatmap(rows: List[Dict[str, Any]]) -> None:
             xaxis_title="Horisont",
             yaxis_title="Ticker",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     except Exception:
         # Fallback table
         table = []
@@ -87,7 +87,7 @@ def _render_matrix_heatmap(rows: List[Dict[str, Any]]) -> None:
                 "Strength": r.get("strength"),
                 "Risk": r.get("risk_label"),
             })
-        st.dataframe(table, use_container_width=True, hide_index=True)
+        st.dataframe(table, width="stretch", hide_index=True)
 
 
 def _render_sector_treemap(rows: List[Dict[str, Any]]) -> None:
@@ -128,9 +128,9 @@ def _render_sector_treemap(rows: List[Dict[str, Any]]) -> None:
             hoverinfo="text",
         ))
         fig.update_layout(height=430, margin=dict(l=10, r=10, t=30, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     except Exception:
-        st.dataframe(sectors, use_container_width=True, hide_index=True)
+        st.dataframe(sectors, width="stretch", hide_index=True)
 
 def render_ai_heatmaps() -> None:
     """Render heatmap/risk visualization."""
@@ -237,7 +237,7 @@ def render_ai_heatmaps() -> None:
                 "Risiko": row.get("risk"),
                 "Varselvekt": row.get("alert_weight", 0),
             })
-        st.dataframe(table_rows, use_container_width=True, hide_index=True)
+        st.dataframe(table_rows, width="stretch", hide_index=True)
 
         st.markdown("### Hvordan tolke fargene")
         st.markdown(

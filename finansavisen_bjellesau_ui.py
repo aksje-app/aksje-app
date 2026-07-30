@@ -125,7 +125,7 @@ def _render_report_method(summary: Mapping[str, Any], visible_rows: Sequence[Map
     }
     data = view_map.get(report_choice) or []
     if data:
-        st.dataframe(data, use_container_width=True, hide_index=True)
+        st.dataframe(data, width="stretch", hide_index=True)
     else:
         st.info("Ingen rader i denne rapportvisningen.")
 
@@ -146,7 +146,7 @@ def _render_report_method(summary: Mapping[str, Any], visible_rows: Sequence[Map
         rows = details.get(title) or []
         st.markdown(f"**{title}**")
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.info("Ingen rader.")
 
@@ -176,7 +176,7 @@ def _render_view(rows: Sequence[Mapping[str, Any]]) -> None:
     )
     data = views.get(view_name) or []
     if data:
-        st.dataframe(data, use_container_width=True, hide_index=True)
+        st.dataframe(data, width="stretch", hide_index=True)
     else:
         st.info("Ingen rader i denne visningen.")
 
@@ -267,7 +267,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             "Importer valgte filer",
             key="finansavisen_bjellesau_import_button_v1863bk",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not bool(uploads),
         )
     st.caption("Aktørregister synkes ved import når avhukingen er på. Lagret import synkes ikke med en egen ekstra knapp.")
@@ -390,7 +390,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             data=finansavisen_transactions_to_csv(visible_rows),
             file_name="finansavisen-bjellesauer-transaksjoner.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
     with c_exp2:
         st.download_button(
@@ -398,7 +398,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             data=finansavisen_transactions_to_json(visible_rows),
             file_name="finansavisen-bjellesauer-transaksjoner.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
         )
     with c_exp3:
         st.download_button(
@@ -406,7 +406,7 @@ def render_finansavisen_bjellesau_panel() -> None:
             data=build_finansavisen_report_html(visible_rows),
             file_name="finansavisen-bjellesauer-rapport.html",
             mime="text/html",
-            use_container_width=True,
+            width="stretch",
         )
     with c_exp4:
         st.download_button(
@@ -414,14 +414,14 @@ def render_finansavisen_bjellesau_panel() -> None:
             data=build_finansavisen_report_pdf(visible_rows),
             file_name="finansavisen-bjellesauer-rapport.pdf",
             mime="application/pdf",
-            use_container_width=True,
+            width="stretch",
         )
     c_selected, c_all, c_decision, c_clear = st.columns([1.2, 1.2, 1.35, 1.1])
     with c_selected:
         if st.button(
             "Send valgte tickere til AI Kandidattest",
             key="finansavisen_bjellesau_send_selected_test2_v1864i",
-            use_container_width=True,
+            width="stretch",
             type="primary",
             disabled=not bool(selected_dataunderlag_tickers),
         ):
@@ -435,7 +435,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         if st.button(
             "Send hele kildegrunnlaget til AI Kandidattest",
             key="finansavisen_bjellesau_send_all_test2_v1864i",
-            use_container_width=True,
+            width="stretch",
             type="primary",
             disabled=not bool(dataunderlag_options),
         ):
@@ -449,7 +449,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         if st.button(
             "Send til Beslutningsgrunnlag",
             key="finansavisen_bjellesau_send_decision_v1864i",
-            use_container_width=True,
+            width="stretch",
             disabled=not selected_decision_tickers,
         ):
             decision_rows = decision_rows_from_finansavisen(visible_rows, selected_decision_tickers, limit=len(selected_decision_tickers))
@@ -461,7 +461,7 @@ def render_finansavisen_bjellesau_panel() -> None:
         if st.button(
             "Tom Finansavisen-data",
             key="finansavisen_bjellesau_clear_v1863bk",
-            use_container_width=True,
+            width="stretch",
             disabled=not confirm_clear,
         ):
             save_finansavisen_transactions([])

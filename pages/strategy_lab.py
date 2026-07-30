@@ -85,7 +85,7 @@ def render_strategy_lab(app_context: Any) -> None:
             "Produksjon endret": "Nei",
             "Oppdatert": row.get("updated_at"),
         } for row in experiments]
-        st.dataframe(pd.DataFrame(display), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(display), width="stretch", hide_index=True)
 
         labels = {f"{row.get('name')} | {row.get('status')} | {row.get('experiment_id')}": row for row in experiments}
         selected_label = st.selectbox("Velg eksperiment", list(labels), key="strategy_lab_selected_v19100")
@@ -114,7 +114,7 @@ def render_strategy_lab(app_context: Any) -> None:
             st.markdown("#### Strategisammenligning")
             metrics = list(latest_run.get("metrics") or [])
             if metrics:
-                st.dataframe(pd.DataFrame(metrics), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(metrics), width="stretch", hide_index=True)
 
             diagnostics = dict(latest_run.get("quality_diagnostics") or {})
             if diagnostics:
@@ -127,20 +127,20 @@ def render_strategy_lab(app_context: Any) -> None:
                 component_rows = list(diagnostics.get("components") or [])
                 if component_rows:
                     st.caption("MANGLER DATA og UGYLDIG DATA er separate fra UNDER TERSKEL. Manglende data regnes ikke som svak verdi.")
-                    st.dataframe(pd.DataFrame(component_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(component_rows), width="stretch", hide_index=True)
                 blocker_rows = list(diagnostics.get("blocker_counts") or [])
                 combo_rows = list(diagnostics.get("blocker_combinations") or [])
                 b1, b2 = st.columns(2)
                 with b1:
                     st.markdown("**Blokkårsaker**")
                     if blocker_rows:
-                        st.dataframe(pd.DataFrame(blocker_rows), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(blocker_rows), width="stretch", hide_index=True)
                     else:
                         st.info("Ingen terskelblokkeringer i denne kjøringen.")
                 with b2:
                     st.markdown("**Samtidige blokkårsaker**")
                     if combo_rows:
-                        st.dataframe(pd.DataFrame(combo_rows), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(combo_rows), width="stretch", hide_index=True)
                     else:
                         st.info("Ingen kombinerte blokkeringer.")
 
@@ -166,7 +166,7 @@ def render_strategy_lab(app_context: Any) -> None:
             if attribution:
                 st.markdown("#### Resultatattribusjon")
                 flat = [{k: v for k, v in row.items() if k not in {"blocker_outcomes", "component_attribution"}} for row in attribution]
-                st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(flat), width="stretch", hide_index=True)
                 if not any(bool(row.get("attribution_reliable")) for row in attribution):
                     st.warning("Resultatattribusjonen har foreløpig færre enn 20 observerte utfall per sammenligning. Den er informativ, men ikke sterk nok for promotering.")
                 for row in attribution:
@@ -176,10 +176,10 @@ def render_strategy_lab(app_context: Any) -> None:
                         component_attribution = list(row.get("component_attribution") or [])
                         if blocker_outcomes:
                             st.markdown("**Utfall for filtrerte kjøp per blokkårsak**")
-                            st.dataframe(pd.DataFrame(blocker_outcomes), use_container_width=True, hide_index=True)
+                            st.dataframe(pd.DataFrame(blocker_outcomes), width="stretch", hide_index=True)
                         if component_attribution:
                             st.markdown("**Gjennomsnittlig scorebidrag per komponent**")
-                            st.dataframe(pd.DataFrame(component_attribution), use_container_width=True, hide_index=True)
+                            st.dataframe(pd.DataFrame(component_attribution), width="stretch", hide_index=True)
                         if not blocker_outcomes and not component_attribution:
                             st.info("Ingen attribusjonsdetaljer tilgjengelig ennå.")
 
@@ -211,7 +211,7 @@ def render_strategy_lab(app_context: Any) -> None:
 
     if approvals:
         st.markdown("#### Godkjennings- og rollbackhistorikk")
-        st.dataframe(pd.DataFrame(approvals), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(approvals), width="stretch", hide_index=True)
         active = [row for row in approvals if str(row.get("status") or "").startswith("APPROVED")]
         if active:
             labels = {f"{row.get('approval_id')} | {row.get('experiment_id')}": row for row in active}
@@ -268,7 +268,7 @@ def render_strategy_lab(app_context: Any) -> None:
 
     st.markdown("#### Promoterings- og rollbackhistorikk")
     if promotions:
-        st.dataframe(pd.DataFrame(promotions), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(promotions), width="stretch", hide_index=True)
         active_promotions = [row for row in promotions if str(row.get("status") or "") == "ACTIVE"]
         if active_promotions:
             promotion_labels = {f"{row.get('target_version_id')} | {row.get('promotion_id')}": row for row in active_promotions}
