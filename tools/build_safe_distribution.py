@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build clean, validated v19.14.5 release archives."""
+"""Build clean, validated v19.14.6 release archives."""
 from __future__ import annotations
 
 import argparse
@@ -25,15 +25,16 @@ from tools.validate_distribution import (  # noqa: E402
     validate_path,
 )
 
-VERSION = "v19.14.5"
-VERSION_FILE = "19_14_5"
-SOURCE_BASE_COMMIT = "v19.14.4-test-candidate"
+VERSION = "v19.14.6"
+VERSION_FILE = "19_14_6"
+SOURCE_BASE_COMMIT = "v19.14.5-test-candidate"
 
 UPDATE_FILES = {
-    "RELEASE_NOTES_v19.14.5.md", "ACCEPTANCE_v19.14.5.md", "DEPLOY_v19.14.5.md",
+    "runtime_dependencies.py", "tools/check_runtime_dependencies.py", "tests/test_v19146_pdf_dependency_hotfix.py", "requirements.txt", "render.yaml", "app.py", "scheduled_runner.py",
+    "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
     "trading_settings.py", "market_intelligence.py", "manual_job_background.py", "autonomous_orchestrator_ui.py",
     "tests/test_v19145_report_local_storage.py",
-    "RELEASE_NOTES_v19.14.5.md", "ACCEPTANCE_v19.14.5.md", "DEPLOY_v19.14.5.md",
+    "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
     "tests/test_v19143_login_navigation_report_integrity.py",
     "tests/test_v19144_drift_recovery.py", "auth_persistence.py", "drift_recovery.py", "user_store.py", "navigation_state.py",
     "autonomous_orchestrator_ui.py", "ui_sidebar_stable.py", "pages/paper_trading.py", "pages/ranking.py",
@@ -266,7 +267,7 @@ def build(source: Path, output: Path) -> list[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.5-distribusjonspakker.")
+    parser = argparse.ArgumentParser(description="Bygg trygge v19.14.6-distribusjonspakker.")
     parser.add_argument("--source", default=str(PROJECT_ROOT))
     parser.add_argument("--output", default=str(PROJECT_ROOT / "dist"))
     args = parser.parse_args()

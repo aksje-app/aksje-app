@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.14.5"
+EXPECTED_VERSION = "v19.14.6"
 
 FORBIDDEN_ROOT_DIRS = {
     ".git",
@@ -92,7 +92,8 @@ TEXT_SUFFIXES = {
 
 PROFILE_REQUIRED_FILES = {
     "full": {
-        "RELEASE_NOTES_v19.14.5.md", "ACCEPTANCE_v19.14.5.md", "DEPLOY_v19.14.5.md",
+        "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
+        "runtime_dependencies.py", "tools/check_runtime_dependencies.py", "tests/test_v19146_pdf_dependency_hotfix.py",
         "app.py", "app_version.py", "requirements.txt", ".env.example",
         "auth.py", "auth_persistence.py", "user_store.py", "navigation_state.py", "drift_recovery.py",
         "services/storage_service.py", "services/persistence_service.py",
@@ -131,7 +132,8 @@ PROFILE_REQUIRED_FILES = {
         "tools/validate_distribution.py", "tools/prepare_safe_upgrade.py", "DISTRIBUTION_MANIFEST.json",
     },
     "update": {
-        "RELEASE_NOTES_v19.14.5.md", "ACCEPTANCE_v19.14.5.md", "DEPLOY_v19.14.5.md",
+        "RELEASE_NOTES_v19.14.6.md", "ACCEPTANCE_v19.14.6.md", "DEPLOY_v19.14.6.md",
+        "runtime_dependencies.py", "tools/check_runtime_dependencies.py", "tests/test_v19146_pdf_dependency_hotfix.py",
         "app.py", "app_version.py", "autonomy_overview.py", "controlled_parameter_learning.py",
         "auth.py", "auth_persistence.py", "user_store.py", "navigation_state.py", "drift_recovery.py", "tests/test_v19144_drift_recovery.py",
         "daily_user_experience.py", "decision_intelligence.py", "decision_report.py",
@@ -278,6 +280,7 @@ def validate_entries(entries: Iterable[FileEntry], profile: str = "full") -> dic
     issues: list[ValidationIssue] = []
     names: set[str] = set()
     total_size = 0
+    text_by_name: dict[str, str] = {}
 
     for entry in entries:
         name = _normalise_name(entry.name)
@@ -307,18 +310,29 @@ def validate_entries(entries: Iterable[FileEntry], profile: str = "full") -> dic
             issues.append(ValidationIssue("PYTHON_CACHE", name, "Python-cache skal ikke distribueres."))
 
         issues.extend(_scan_secret_content(name, entry.content))
+        if entry.content is not None:
+            try:
+                text_by_name[name] = entry.content.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
 
     required = PROFILE_REQUIRED_FILES.get(profile, set())
     for required_name in sorted(required - names):
         issues.append(ValidationIssue("MISSING_REQUIRED_FILE", required_name, f"Påkrevd fil mangler for profil '{profile}'."))
 
-    version_text = ""
-    for entry in entries if isinstance(entries, list) else []:
-        if _normalise_name(entry.name) == "app_version.py" and entry.content:
-            version_text = entry.content.decode("utf-8", errors="ignore")
-            break
+    version_text = text_by_name.get("app_version.py", "")
     if profile in {"full", "update"} and version_text and f'APP_VERSION = "{EXPECTED_VERSION}"' not in version_text:
         issues.append(ValidationIssue("VERSION_MISMATCH", "app_version.py", f"Forventet {EXPECTED_VERSION}."))
+
+    if profile in {"full", "update"}:
+        requirements_text = text_by_name.get("requirements.txt", "")
+        requirement_lines = {line.strip() for line in requirements_text.splitlines() if line.strip() and not line.lstrip().startswith("#")}
+        if "pypdf==5.9.0" not in requirement_lines:
+            issues.append(ValidationIssue(
+                "MISSING_PDF_DEPENDENCY",
+                "requirements.txt",
+                "pypdf==5.9.0 må være eksplisitt deklarert for semantisk PDF/JSON-integritet.",
+            ))
 
     unique = {(issue.code, issue.path, issue.message): issue for issue in issues}
     ordered = sorted(unique.values(), key=lambda item: (item.code, item.path))
