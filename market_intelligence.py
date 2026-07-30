@@ -2210,7 +2210,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     quick_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
                                      ("FONTNAME", (4,0), (4,-1), "Helvetica-Bold")]))
-    report_state_raw = "OVERVÅKES_AUTOMATISK" if (report_status.get("state") == "PROVISIONAL" or is_draft_report) else "PASS"
+    report_state_raw = "DRAFT" if is_draft_report else ("PROVISIONAL" if report_status.get("state") == "PROVISIONAL" else "PASS")
     quality_state_raw = "PASS" if technical_report_ok else "ERROR"
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
     notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
@@ -2220,7 +2220,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     source_raw = "PASS" if source_total and source_valid >= source_total else ("ERROR" if source_total and source_valid == 0 else "REVIEW")
     notification_text = _notification_status_explanation(notification)
     status_stripe = Table([[
-        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>{_status_label(report_state_raw)}</b><br/>{'Utkast – ikke endelig' if is_draft_report else ('Foreløpig rapport – automatisk revalidering' if report_status.get('state') == 'PROVISIONAL' else 'Endelig rapport')}", styles["Small"]),
+        Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>Rapportstatus</b><br/>{'Utkast – ikke endelig' if is_draft_report else ('Foreløpig rapport – automatisk revalidering' if report_status.get('state') == 'PROVISIONAL' else 'Endelig rapport')}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>Teknisk rapportkontroll</b><br/>{technical_report_label}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kilde-/evidenskontroll</b><br/>{source_valid}/{source_total} kandidater evidensklare" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover</b><br/>{escape(_loc(notification_text))}", styles["Small"]),
@@ -2258,8 +2258,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         critique.append("Én eller flere kandidater har en konkret manuell undersøkelsesoppgave")
     if int((run.get("data_quality") or {}).get("errors") or 0):
         critique.append("Datainnhentingen inneholdt tekniske feil")
+    if source_total and source_valid < source_total:
+        critique.append(f"Kildegrunnlaget er bare samlet godkjent for {source_valid} av {source_total} kandidater")
+    if int((run.get("quality_metrics") or {}).get("candidate_evidence_coverage_average") or 0) < 70:
+        critique.append("Gjennomsnittlig evidensdekning er lav og begrenser beslutningsstyrken")
     if not critique:
-        critique.append("Ingen kritiske svakheter er registrert, men analysen er fortsatt beslutningsstøtte og ikke en garanti")
+        critique.append("Ingen kritiske tekniske avvik er registrert; investeringsrisiko og modellusikkerhet består")
     story += [KeepTogether([
         Paragraph("Metode og ansvarsfraskrivelse / rapportens egenkritikk", styles["Subsection"]),
         Paragraph(

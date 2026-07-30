@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, Mapping, MutableMapping, Sequence
+from urllib.parse import urlparse
 
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION, get_version_contract
 
@@ -313,6 +314,13 @@ def _synchronise_candidate_confidence(candidate: MutableMapping[str, Any]) -> di
         profile.get("evidence_adjusted_model_confidence"), candidate.get("confidence_score")
     )
     candidate["decision_confidence"] = _float(profile.get("decision_confidence"))
+    evidence_coverage = max(0.0, min(100.0, _float(profile.get("evidence_coverage"), 0.0)))
+    documentation_coverage = max(0.0, min(100.0, _float(profile.get("documentation_coverage", profile.get("data_coverage")), 0.0)))
+    # Documentation cannot be more complete than the verified evidence behind it.
+    # This prevents NOT_SEARCHED source areas from being displayed as 100% documented.
+    profile["documentation_coverage"] = min(documentation_coverage, evidence_coverage)
+    profile["data_coverage"] = profile["documentation_coverage"]
+    profile["documentation_coverage_label"] = "Verifisert kilde- og analysedokumentasjon"
     candidate["confidence_profile"] = profile
     candidate["confidence_semantics"] = {
         "confidence_score": "LEGACY_EVIDENCE_ADJUSTED_MODEL_CONFIDENCE",
@@ -472,6 +480,90 @@ def _synchronise_decision_funnel(
             "eligible_tickers": eligible,
         })
     return result
+
+
+def _valid_web_url(value: Any) -> bool:
+    text = str(value or "").strip()
+    try:
+        parsed = urlparse(text)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _sync_reference_tree(value: Any, by_ticker: Mapping[str, Mapping[str, Any]]) -> Any:
+    """Synchronise known candidate references without retaining stale decisions."""
+    if isinstance(value, Mapping):
+        source = dict(value)
+        row = {key: _sync_reference_tree(item, by_ticker) for key, item in source.items()}
+        ticker = str(source.get("ticker") or "").upper()
+        canonical = by_ticker.get(ticker)
+        if canonical:
+            for field in (
+                "status", "portfolio_action", "autonomy_outcome_code", "autonomy_outcome_label",
+                "autonomy_outcome_reason", "automatic_next_action", "manual_review_required",
+                "manual_tasks", "manual_task_summary", "decision_confidence", "confidence_profile",
+                "evidence_gate_status", "evidence_valid_for_decision", "valid_for_decision",
+                "final_decision_ready", "decision_readiness", "portfolio_decision",
+            ):
+                if field in canonical:
+                    row[field] = deepcopy(canonical.get(field))
+            decision = canonical.get("portfolio_decision") if isinstance(canonical.get("portfolio_decision"), Mapping) else {}
+            if decision:
+                row["portfolio_reason"] = str(decision.get("reason") or "")
+                if "reason" in source:
+                    row["reason"] = str(decision.get("reason") or source.get("reason") or "")
+        return row
+    if isinstance(value, list):
+        return [_sync_reference_tree(item, by_ticker) for item in value]
+    return deepcopy(value)
+
+
+def _synchronise_derived_views(result: MutableMapping[str, Any], candidates: Sequence[Mapping[str, Any]]) -> None:
+    """Rebuild every active candidate/portfolio view from canonical candidates."""
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in candidates if isinstance(row, Mapping)}
+    action_counts = {
+        action: sum(1 for row in candidates if str(row.get("portfolio_action") or "").upper() == action)
+        for action in ("BUY", "HOLD", "SELL", "SKIP", "REVIEW")
+    }
+
+    proposal = _mapping(result.get("portfolio_proposal"))
+    if proposal:
+        proposal["actions"] = action_counts
+        buy_tickers = {ticker for ticker, row in by_ticker.items() if str(row.get("portfolio_action") or "").upper() == "BUY"}
+        proposal["allocations"] = [
+            _sync_reference_tree(row, by_ticker) for row in _rows(proposal.get("allocations"))
+            if str(row.get("ticker") or "").upper() in buy_tickers
+        ]
+        proposal["positions"] = [
+            _sync_reference_tree(row, by_ticker) for row in _rows(proposal.get("positions"))
+            if str(row.get("ticker") or "").upper() in buy_tickers
+        ]
+        if not buy_tickers:
+            proposal["invested_pct"] = 0.0
+            proposal["cash_pct"] = 100.0
+            proposal["status"] = "INGEN_KJØPSGODKJENTE_KANDIDATER"
+        result["portfolio_proposal"] = proposal
+
+    for key in ("changes", "ranking_explanation"):
+        if key in result:
+            result[key] = _sync_reference_tree(result.get(key), by_ticker)
+    if isinstance(result.get("market_runs"), list):
+        result["market_runs"] = _sync_reference_tree(result.get("market_runs"), by_ticker)
+
+
+def _iter_candidate_references(value: Any):
+    if isinstance(value, Mapping):
+        if value.get("ticker") and any(key in value for key in ("portfolio_action", "autonomy_outcome_code")):
+            yield value
+        for key, item in value.items():
+            if key in {"raw", "raw_history", "previous_analysis_snapshot", "source_payload", "discovery_data"}:
+                continue
+            yield from _iter_candidate_references(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_candidate_references(item)
+
 
 def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     """Return a deep-copied report view with explicit semantic precedence."""
@@ -781,6 +873,19 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         decision["action"] = str(candidate.get("portfolio_action") or decision.get("action") or "SKIP")
         canonical_portfolio_rows.append(decision)
     if portfolio_decisions:
+        if not canonical_portfolio_rows:
+            canonical_portfolio_rows = [{
+                "ticker": str(candidate.get("ticker") or ""),
+                "action": str(candidate.get("portfolio_action") or "SKIP"),
+                "reason": (
+                    "Porteføljen er ikke aktiv; ingen handel kan gjennomføres."
+                    if not portfolio_active else str(candidate.get("autonomy_outcome_reason") or "Kandidaten er ikke kjøpsgodkjent.")
+                ),
+                "blockers": [
+                    "Porteføljen er ikke aktiv; ingen handel kan gjennomføres."
+                    if not portfolio_active else str(candidate.get("autonomy_outcome_reason") or "Kandidaten er ikke kjøpsgodkjent.")
+                ],
+            } for candidate in canonical_candidates]
         portfolio_decisions["decisions"] = canonical_portfolio_rows
         portfolio_decisions["actions"] = {
             action: sum(1 for row in canonical_portfolio_rows if str(row.get("action") or "").upper() == action)
@@ -796,6 +901,14 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
             raw = candidate.get("raw") if isinstance(candidate.get("raw"), MutableMapping) else None
             if isinstance(raw, MutableMapping):
                 raw["portfolio_decision"] = deepcopy(decision)
+
+    _synchronise_derived_views(result, canonical_candidates)
+    # Ranking explanation is regenerated after evidence filtering and all final outcomes.
+    try:
+        from market_intelligence import build_ranking_explanation
+        result["ranking_explanation"] = build_ranking_explanation(result)
+    except Exception:
+        result["ranking_explanation"] = _sync_reference_tree(result.get("ranking_explanation") or {}, by_ticker)
 
     result["autonomous_decisions"] = _canonical_decisions(canonical_candidates, result.get("created_at"))
     result["autonomous_decision_summary"] = {
@@ -1096,6 +1209,46 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         errors.append("JSON-rapportens skjemaversjon samsvarer ikke med gjeldende rapportgenerator")
     if str(run.get("version") or run.get("app_version") or "") != APP_VERSION:
         errors.append("Rapportens toppnivåversjon samsvarer ikke med versjonskontrakten")
+
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in candidates if isinstance(row, Mapping)}
+    expected_actions = {
+        action: sum(1 for row in candidates if str(row.get("portfolio_action") or "").upper() == action)
+        for action in ("BUY", "HOLD", "SELL", "SKIP", "REVIEW")
+    }
+    for container_key in ("portfolio_decisions", "portfolio_proposal"):
+        container = run.get(container_key) if isinstance(run.get(container_key), Mapping) else {}
+        actions = container.get("actions") if isinstance(container.get("actions"), Mapping) else {}
+        if actions and any(int(actions.get(action) or 0) != count for action, count in expected_actions.items()):
+            errors.append(f"{container_key}.actions motsier den kanoniske kandidatlisten")
+
+    for container_key in ("market_runs", "changes", "ranking_explanation"):
+        for ref in _iter_candidate_references(run.get(container_key)):
+            ticker = str(ref.get("ticker") or "").upper()
+            canonical = by_ticker.get(ticker)
+            if not canonical:
+                continue
+            for field in ("status", "portfolio_action", "autonomy_outcome_code"):
+                if ref.get(field) is not None and canonical.get(field) is not None and str(ref.get(field)) != str(canonical.get(field)):
+                    errors.append(f"{ticker}: {container_key} bruker foreldet {field}")
+                    break
+
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        ticker = str(candidate.get("ticker") or "").upper()
+        profile = candidate.get("confidence_profile") if isinstance(candidate.get("confidence_profile"), Mapping) else {}
+        if _float(profile.get("documentation_coverage"), 0.0) > _float(profile.get("evidence_coverage"), 0.0) + 0.01:
+            errors.append(f"{ticker}: dokumentasjonsdekning overstiger verifisert evidensdekning")
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
+        for event in news.get("events") or []:
+            if not isinstance(event, Mapping):
+                continue
+            source_url = event.get("original_url") or event.get("source_url") or event.get("url") or event.get("link")
+            explicit_source_field = any(key in event for key in ("original_url", "source_url", "url", "link"))
+            if event.get("company_relevant") is True and explicit_source_field and not _valid_web_url(source_url):
+                errors.append(f"{ticker}: verifisert nyhet mangler gyldig http/https-kilde")
+                break
 
     quality_metrics = run.get("quality_metrics") if isinstance(run.get("quality_metrics"), Mapping) else {}
     for key in ("overall_report_quality", "data_coverage", "candidate_evidence_coverage_average"):
