@@ -37,6 +37,15 @@ def pushover_enabled():
     return bool(allowed)
 
 
+def normalize_notification_result(response):
+    """Return one canonical ``(ok, detail)`` pair for legacy/new notifier shapes."""
+    if isinstance(response, tuple):
+        ok = bool(response[0]) if response else False
+        detail = response[1] if len(response) > 1 else ""
+        return ok, str(detail or "")
+    return bool(response), ""
+
+
 def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None):
     allowed, safety_reason = notifications_allowed()
     if not allowed:

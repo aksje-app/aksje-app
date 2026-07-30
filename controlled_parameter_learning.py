@@ -199,11 +199,16 @@ def _notify(title: str, message: str, payload: Mapping[str, Any]) -> None:
     rows.insert(0, {"timestamp": _now(), "kind": "LEARNING", "title": title, "message": message, "payload": dict(payload), "delivery": "LOCAL_QUEUE"})
     _write(NOTIFICATIONS_PATH, rows[:1000])
     try:
-        from notification_service import send_pushover_notification
-        send_pushover_notification(title, message)
-        rows[0]["delivery"] = "PUSHOVER_ATTEMPTED"; _write(NOTIFICATIONS_PATH, rows[:1000])
-    except Exception:
-        pass
+        from notifier import normalize_notification_result, send_pushover_alert
+        ok, detail = normalize_notification_result(send_pushover_alert(message, title=title))
+        rows[0]["delivery"] = "PUSHOVER_SENT" if ok else "PUSHOVER_FAILED"
+        if detail:
+            rows[0]["error"] = str(detail)[:500]
+        _write(NOTIFICATIONS_PATH, rows[:1000])
+    except Exception as exc:
+        rows[0]["delivery"] = "PUSHOVER_FAILED"
+        rows[0]["error"] = str(exc)[:500]
+        _write(NOTIFICATIONS_PATH, rows[:1000])
 
 
 def ensure_champion_version() -> dict[str, Any]:

@@ -9,14 +9,15 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-import json, math, time, threading
+import hashlib, json, math, time, threading
 
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 from international_insider_sources import discover_with_newsapi, source_for_market
 from official_insider_sources import fetch_official_insider_sources
+from app_version import APP_VERSION
 
-VERSION = "v18.7.12"
+VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
 MAX_WORKERS = 4
@@ -134,16 +135,36 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
             weighted_buy += weighted; total_buy += value; buyers.add(insider)
         else:
             weighted_sell += weighted; total_sell += value; sellers.add(insider)
+        source_type = str(_pick(row, "source_type", "source type") or "SECONDARY_STRUCTURED").upper()
+        source_url = str(_pick(row, "source url", "source_url", "url") or "")
+        document_id = str(_pick(row, "document id", "document_id", "accession") or "")
+        form_type = str(_pick(row, "form type", "form_type", "form") or "")
+        verification = str(_pick(row, "verification") or (
+            "PRIMARY_DOCUMENT" if source_type == "OFFICIAL_PRIMARY" else "STRUCTURED_PROVIDER"
+        ))
+        primary_source_verified = bool(
+            source_type == "OFFICIAL_PRIMARY"
+            and source_url
+            and (document_id or form_type or str(_pick(row, "direct_primary_source_checked") or "").casefold() in {"1", "true", "yes"})
+        )
+        provenance_quality = "PRIMARY_DOCUMENT" if primary_source_verified else "SECONDARY_STRUCTURED"
+        fact_seed = "|".join((ticker, insider, dt.date().isoformat() if dt else "", kind, str(shares), str(value), source_url, document_id))
         evidence.append({
+            "fact_id": "INSIDER-" + hashlib.sha1(fact_seed.encode("utf-8")).hexdigest()[:12].upper(),
             "date": dt.date().isoformat() if dt else "Ukjent", "type": kind,
             "insider": insider, "role": role or "Ukjent rolle", "shares": round(shares, 2),
             "price": round(abs(_f(_pick(row, "price", "transaction price"), 0.0)), 4),
             "value": round(value, 2), "age_days": age,
             "currency": str(_pick(row, "currency") or ""),
-            "source": str(_pick(row, "source") or "Offentlig innsiderrapportering"),
-            "source_url": str(_pick(row, "source url", "source_url", "url") or ""),
-            "document_id": str(_pick(row, "document id", "document_id", "accession") or ""),
-            "verification": str(_pick(row, "verification") or "STRUCTURED_PROVIDER"),
+            "source": str(_pick(row, "source") or ("Offisiell primærkilde" if primary_source_verified else "Strukturert dataleverandør")),
+            "source_type": source_type,
+            "source_url": source_url,
+            "document_id": document_id,
+            "form_type": form_type,
+            "verification": verification,
+            "primary_source_verified": primary_source_verified,
+            "provenance_quality": provenance_quality,
+            "provenance_complete": bool(primary_source_verified),
             "published_at": str(_pick(row, "published at", "published_at", "filing date") or ""),
             "retrieved_at": str(_pick(row, "retrieved at", "retrieved_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
         })
@@ -166,6 +187,12 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
         "unique_buyers": len(buyers), "unique_sellers": len(sellers),
         "buy_value": round(total_buy, 2), "sell_value": round(total_sell, 2),
         "net_value": round(total_buy - total_sell, 2), "evidence": evidence[:10],
+        "primary_verified_fact_count": sum(row.get("primary_source_verified") is True for row in evidence),
+        "secondary_fact_count": sum(row.get("primary_source_verified") is not True for row in evidence),
+        "provenance_status": (
+            "PRIMARY_VERIFIED" if any(row.get("primary_source_verified") is True for row in evidence)
+            else "SECONDARY_ONLY"
+        ),
         "reason": (
             f"{len(buyers)} kjøper(e), {len(sellers)} selger(e) siste {lookback_days} dager; "
             f"nettoverdi {round(total_buy - total_sell, 2)}."
@@ -276,6 +303,10 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             except Exception as exc:
                 provider_error = str(exc)
         provider_rows = _records(value)
+        for provider_row in provider_rows:
+            provider_row.setdefault("source", "yfinance / public filings")
+            provider_row.setdefault("source_type", "SECONDARY_STRUCTURED")
+            provider_row.setdefault("verification", "STRUCTURED_PROVIDER")
     except Exception as exc:
         provider_error = str(exc)
     search_log.append({
@@ -403,7 +434,16 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             })
     result["search_log"] = search_log
     result["sources_checked"] = sum(1 for row in search_log if row.get("attempted"))
-    result["verified_fact_count"] = len(result.get("evidence") or [])
+    result["verified_fact_count"] = sum(
+        row.get("primary_source_verified") is True for row in (result.get("evidence") or []) if isinstance(row, Mapping)
+    )
+    result["structured_fact_count"] = len(result.get("evidence") or [])
+    result["secondary_fact_count"] = sum(
+        row.get("primary_source_verified") is not True for row in (result.get("evidence") or []) if isinstance(row, Mapping)
+    )
+    from evidence_contract import canonical_status, source_budget
+    result["canonical_evidence_status"] = canonical_status(result, result.get("evidence") or [])
+    result["source_budget"] = source_budget(result)
     _store_cached_result(ticker, result)
     return result
 
@@ -417,7 +457,7 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
         insider = fetch_insider_intelligence(
             str(clean.get("ticker") or ""), force_refresh=force_refresh,
             market=str(clean.get("market") or ""),
-            company=str(clean.get("name") or clean.get("longName") or clean.get("shortName") or ""),
+            company=str(clean.get("longName") or clean.get("shortName") or clean.get("name") or ""),
         )
         clean["insider_intelligence"] = insider
         clean["insider_score"] = insider.get("score", 50.0)

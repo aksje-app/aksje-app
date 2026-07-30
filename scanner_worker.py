@@ -71,7 +71,7 @@ SCANNER_MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
 SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
 
 
-from notifier import send_pushover_alert  # v18.6.3 centralized notifier
+from notifier import normalize_notification_result, send_pushover_alert  # canonical notifier
 
 
 def _take(fn, n):
@@ -266,10 +266,10 @@ def maybe_send_trade_alert(result, msg):
         print(f"🔕 {ticker}: trade-varsel blokkert ({reason})")
         return False
 
-    sent = send_pushover_alert(
+    sent, _detail = normalize_notification_result(send_pushover_alert(
         f"🧪 {msg}\nPris: {result['price']:.2f}\nConfidence: {result['confidence']}%",
         title="Auto Paper Trading",
-    )
+    ))
 
     if sent:
         record_alert(

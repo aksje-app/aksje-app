@@ -20,8 +20,12 @@ services:
         value: "true"
       - key: AUTH_SESSION_RECHECK_SECONDS
         value: "60"
+      - key: STORAGE_MODE
+        value: "auto"
+      - key: ALLOW_LOCAL_STORAGE_FALLBACK
+        value: "false"
       - key: RUNTIME_BACKGROUND_ENABLED
-        value: "true"
+        value: "false"
       - key: REPORT_SCHEDULER_ENABLED
         value: "false"
       - key: DATABASE_URL
@@ -51,7 +55,7 @@ services:
       - key: REPORT_SCHEDULER_POLL_SECONDS
         value: "60"
       - key: PAPER_TRADING_ENABLED
-        value: "true"
+        value: "false"
       - key: SCANNER_MAX_TICKERS
         value: "30"
       - key: SCAN_SLEEP_SECONDS
@@ -76,6 +80,10 @@ services:
         value: "true"
       - key: AUTH_SESSION_RECHECK_SECONDS
         value: "60"
+      - key: STORAGE_MODE
+        value: "auto"
+      - key: ALLOW_LOCAL_STORAGE_FALLBACK
+        value: "false"
       - key: RUNTIME_BACKGROUND_ENABLED
         value: "false"
       - key: REPORT_SCHEDULER_ENABLED
@@ -105,7 +113,7 @@ services:
       - key: REPORT_PUBLIC_BASE_URL
         sync: false
       - key: PAPER_TRADING_ENABLED
-        value: "true"
+        value: "false"
       - key: SCANNER_MAX_TICKERS
         value: "30"
       - key: SCAN_SLEEP_SECONDS

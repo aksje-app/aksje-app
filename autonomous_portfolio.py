@@ -703,11 +703,15 @@ def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any
             "triggered_by": str(payload.get("triggered_by") or "AUTONOMY"), "status": "PENDING", "delivery": "LOCAL_QUEUE"}
     rows.insert(0, item); _write(NOTIFICATIONS_PATH, rows[:1000])
     try:
-        from notification_service import send_pushover_notification
-        item["attempted_at"] = _now(); ok = send_pushover_notification(title, message)
-        item["status"] = "SENT" if ok is not False else "FAILED"; item["delivery"] = "PUSHOVER_SENT" if ok is not False else "PUSHOVER_FAILED"
-        if ok is not False: item["sent_at"] = _now()
-        else: item["error"] = "Pushover-sender returnerte False"
+        from notifier import normalize_notification_result, send_pushover_alert
+        item["attempted_at"] = _now()
+        ok, detail = normalize_notification_result(send_pushover_alert(message, title=title))
+        item["status"] = "SENT" if ok else "FAILED"
+        item["delivery"] = "PUSHOVER_SENT" if ok else "PUSHOVER_FAILED"
+        if ok:
+            item["sent_at"] = _now()
+        else:
+            item["error"] = str(detail or "Pushover-sender returnerte False")[:500]
     except Exception as exc:
         item["attempted_at"] = _now(); item["status"] = "FAILED"; item["delivery"] = "PUSHOVER_FAILED"; item["error"] = str(exc)[:500]
     _write(NOTIFICATIONS_PATH, rows[:1000])

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 VERIFIED_FACTS_FOUND = "VERIFIED_FACTS_FOUND"
+SECONDARY_FACTS_FOUND = "SECONDARY_FACTS_FOUND"
 CHECKED_NO_EVENTS = "CHECKED_NO_EVENTS"
 PARTIAL_SOURCE_FAILURE = "PARTIAL_SOURCE_FAILURE"
 NOT_CONFIGURED = "NOT_CONFIGURED"
@@ -14,7 +15,7 @@ NOT_SEARCHED = "NOT_SEARCHED"
 STALE = "STALE"
 
 FAILURE_STATES = {
-    PARTIAL_SOURCE_FAILURE, NOT_CONFIGURED, RATE_LIMITED,
+    SECONDARY_FACTS_FOUND, PARTIAL_SOURCE_FAILURE, NOT_CONFIGURED, RATE_LIMITED,
     DAILY_QUOTA_EXCEEDED, SOURCE_ERROR, NOT_SEARCHED, STALE,
 }
 
@@ -23,6 +24,23 @@ def canonical_status(payload: Mapping[str, Any], facts: Sequence[Mapping[str, An
     logs = [row for row in payload.get("search_log") or [] if isinstance(row, Mapping)]
     statuses = {str(row.get("status") or "").upper() for row in logs}
     if facts:
+        explicit_provenance = [
+            row.get("primary_source_verified")
+            for row in facts if isinstance(row, Mapping) and "primary_source_verified" in row
+        ]
+        if explicit_provenance:
+            return VERIFIED_FACTS_FOUND if any(value is True for value in explicit_provenance) else SECONDARY_FACTS_FOUND
+        secondary_markers = {"STRUCTURED_PROVIDER", "SECONDARY_STRUCTURED", "SECONDARY_PROVIDER", "AGGREGATOR"}
+        source_markers = {
+            str(row.get("source_type") or row.get("source") or "").upper()
+            for row in facts if isinstance(row, Mapping)
+        }
+        verification_markers = {
+            str(row.get("verification") or "").upper()
+            for row in facts if isinstance(row, Mapping)
+        }
+        if source_markers & secondary_markers or verification_markers & secondary_markers:
+            return SECONDARY_FACTS_FOUND
         return VERIFIED_FACTS_FOUND
     if "RATE_LIMITED" in statuses:
         return RATE_LIMITED

@@ -1,4 +1,4 @@
-"""Scheduled Market Intelligence & PDF Reports v19.14.6.
+"""Scheduled Market Intelligence & PDF Reports v19.15.0.
 
 Job profiles combine multiple markets, schedules, pipeline modules and notification
 rules. Jobs can run manually, when the Streamlit app is active, or from cron via
@@ -25,7 +25,8 @@ from typing import Any, Mapping, Sequence, Callable
 from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, infer_market_from_ticker, normalize_candidate_identity, run_pipeline
 from market_universe import (
     BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
-    FULL_MARKET_SCOPE_LABEL, expand_market_scope,
+    FULL_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, expand_market_scope,
+    infer_market_profile, market_profile_contract, profile_market_selections,
 )
 from storage_architecture import runtime_data_path, runtime_log_path
 from persistent_config_store import read_persistent_json, write_persistent_json
@@ -459,13 +460,14 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
 
 def job_fingerprint(job: "JobProfile") -> str:
     markets = normalize_markets(job.markets)
-    return f"{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}|{job.investment_mission_id}|{job.configuration_version}"
+    return f"{job.market_profile}|{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}|{job.investment_mission_id}|{job.configuration_version}"
 
 
 @dataclass
 class JobProfile:
     name: str
     markets: list[str] = field(default_factory=lambda: ["Alle kjernemarkeder"])
+    market_profile: str = MARKET_PROFILE_CORE
     schedules: list[str] = field(default_factory=lambda: ["08:30", "22:30"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     modules: list[str] = field(default_factory=lambda: list(MODULE_OPTIONS))
@@ -509,7 +511,11 @@ class JobProfile:
         if "News & Sentiment Intelligence" not in modules:
             modules.append("News & Sentiment Intelligence")
         data["modules"] = modules
-        data["markets"] = canonical_market_profile_selections(data.get("markets"))
+        profile_id = infer_market_profile(
+            data.get("markets"), name=data.get("name"), explicit_profile=data.get("market_profile"),
+        )
+        data["market_profile"] = profile_id
+        data["markets"] = profile_market_selections(profile_id, data.get("markets"))
         data["timezone_name"] = valid_timezone(data.get("timezone_name"))
         return cls(**data)
 
@@ -1565,7 +1571,7 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         "AVAILABLE": 0.0, "CHECKED_NO_EVENTS": 3.0, "MISSING": 8.0,
         "DISCOVERY_ONLY": 7.0, "STALE": 8.0, "NOT_CONFIGURED": 10.0,
         "UNAVAILABLE": 10.0, "ERROR": 12.0, "NOT_SEARCHED": 15.0,
-        "VERIFIED_FACTS_FOUND": 0.0, "PARTIAL_SOURCE_FAILURE": 8.0,
+        "VERIFIED_FACTS_FOUND": 0.0, "SECONDARY_FACTS_FOUND": 9.0, "PARTIAL_SOURCE_FAILURE": 8.0,
         "RATE_LIMITED": 10.0, "DAILY_QUOTA_EXCEEDED": 10.0, "SOURCE_ERROR": 12.0,
     }
     summary = {
@@ -1592,7 +1598,7 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
                 penalty = 6.0
             total_penalty += penalty
             if status in {"STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED",
-                          "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
+                          "DISCOVERY_ONLY", "SECONDARY_FACTS_FOUND", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
                           "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR"}:
                 critical_failures += 1
             conflicts = evidence_conflicts(evidence_rows)
@@ -1601,13 +1607,14 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
                 "source": payload.get("official_source") or payload.get("source") or "Ikke oppgitt",
                 "fetched_at": payload.get("fetched_at"),
                 "reason": payload.get("reason") or payload.get("summary") or "",
-                "verified_facts": len(evidence_rows),
+                "verified_facts": int(payload.get("verified_fact_count") or (len(evidence_rows) if label == "news" else 0)),
+                "structured_facts": len(evidence_rows),
                 "sources_attempted": sum(1 for row in search_log if row.get("attempted")),
                 "search_log": search_log,
                 "source_budget": source_budget(payload),
                 "conflicts": conflicts,
             }
-            summary["verified_facts"] += len(list(evidence_rows or []))
+            summary["verified_facts"] += int(records[label]["verified_facts"])
             summary["sources_attempted"] += records[label]["sources_attempted"]
             summary["statuses"][status] = int(summary["statuses"].get(status, 0)) + 1
         before = float(candidate.get("confidence_score") or 0)
@@ -1616,7 +1623,7 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         cap = 100.0
         if news_status != "VERIFIED_FACTS_FOUND" and insider_status in {
             "STALE", "NOT_CONFIGURED", "UNAVAILABLE", "ERROR", "NOT_SEARCHED",
-            "DISCOVERY_ONLY", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
+            "DISCOVERY_ONLY", "SECONDARY_FACTS_FOUND", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
             "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR",
         }:
             cap = 60.0
@@ -2596,6 +2603,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         coverage_labels = {
             "AVAILABLE": "Data funnet", "MISSING": "Kontrollert – ingen hendelser funnet",
             "CHECKED_NO_EVENTS": "Kontrollert – ingen hendelser funnet",
+            "SECONDARY_FACTS_FOUND": "Sekundære fakta – primærkilde ikke verifisert",
             "DISCOVERY_ONLY": "Kilder funnet – ikke strukturert/verifisert",
             "NOT_CONFIGURED": "Kilde ikke tilgjengelig", "UNAVAILABLE": "Kilde ikke tilgjengelig",
             "ERROR": "Kildefeil", "NOT_SEARCHED": "Ikke søkt", "STALE": "Foreldede data",
@@ -2652,7 +2660,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
             story += [Paragraph("Beslutningsstempel", styles["Section"]), readiness_table]
-            confidence = round(float(candidate.get("confidence_score") or candidate.get("confidence") or 0), 1)
+            profile = candidate.get("confidence_profile") if isinstance(candidate.get("confidence_profile"), Mapping) else {}
+            confidence = round(float(candidate.get("decision_confidence") or profile.get("decision_confidence") or 0), 1)
             next_event = raw.get("next_event") or raw.get("next_expected_event") or raw.get("earnings_date") or "Ingen bekreftet kommende hendelse i datasettet"
             change_conditions = []
             if float(candidate.get("investment_score") or 0) < 78:
@@ -2856,11 +2865,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 Paragraph(f"<b>Positive drivere:</b> {escape(_loc(positives))}", styles["Small"]),
                 Paragraph(f"<b>Risikofaktorer og manglende data:</b> {escape(_loc(risks))}; {escape(_loc(evidence['cautions']))}", styles["Small"]),
             ]
-        data = [["#", "Ticker", "Marked", "Score", "Konf.", "Scoretrend", "Risiko (0-100)", "Status"]]
+        data = [["#", "Ticker", "Marked", "Score", "Besl.konf.", "Scoretrend", "Risiko (0-100)", "Status"]]
         for r in candidates:
             data.append([
                 r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")),
-                _fmt(r.get("confidence_score")), _p(r.get("score_trend") or r.get("trend") or "NY"),
+                _fmt(r.get("decision_confidence") or _mapping(r.get("confidence_profile")).get("decision_confidence")), _p(r.get("score_trend") or r.get("trend") or "NY"),
                 format_risk(r.get("risk_score")), _p(r.get("autonomy_outcome_label") or _loc(r.get("status", ""))),
             ])
         table = Table(data, repeatRows=1, colWidths=[7*mm, 18*mm, 18*mm, 14*mm, 14*mm, 20*mm, 24*mm, 53*mm])
@@ -2899,7 +2908,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         action = str(p.get("autonomy_outcome_code") or p.get("portfolio_action") or "REVIEW").upper()
         proposal = [
             Paragraph(f"{escape(str(p.get('ticker') or '-'))} – foreløpig modellkandidat (ikke handelsforslag)", styles["Section"]),
-            Paragraph(f"<b>Status:</b> {escape(str(p.get('autonomy_outcome_label') or _loc(str(p.get('status') or '-'))))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Konfidens:</b> {escape(str(_fmt(p.get('confidence_score', 0))))} / 100 &nbsp; | &nbsp; <b>Scoretrend:</b> {escape(str(p.get('score_trend') or p.get('trend', 'NY')))}", styles["BodyCompact"]),
+            Paragraph(f"<b>Status:</b> {escape(str(p.get('autonomy_outcome_label') or _loc(str(p.get('status') or '-'))))} &nbsp; | &nbsp; <b>Investeringsscore:</b> {escape(str(_fmt(p.get('investment_score'))))} / 100 &nbsp; | &nbsp; <b>Beslutningskonfidens:</b> {escape(str(_fmt(p.get('decision_confidence') or _mapping(p.get('confidence_profile')).get('decision_confidence'))))} / 100 &nbsp; | &nbsp; <b>Scoretrend:</b> {escape(str(p.get('score_trend') or p.get('trend', 'NY')))}", styles["BodyCompact"]),
             score_table,
             Paragraph(f"<b>Innsider:</b> {escape(_loc(str(raw.get('insider_signal', 'INGEN DATA'))))} · score {escape(str(_fmt(raw.get('insider_score', 50))))} / 100 · nettoverdi {escape(format_whole_currency(insider.get('net_value', 0), market_currency(p.get('market'), p.get('ticker'), insider.get('currency'))))}", styles["Small"]),
             Paragraph(f"<b>Nyheter:</b> {escape(_loc(str(raw.get('news_sentiment', 'INGEN DATA'))))} · score {escape(str(_fmt(raw.get('news_score', 50))))} / 100 · {escape(_loc(str(news.get('summary') or 'Ingen oppsummering.')))}", styles["Small"]),
@@ -3235,6 +3244,13 @@ def _run_job_impl(
     if trigger != "SCHEDULED":
         scheduled_for = None
     job, handoff = _effective_execution_job(job, trigger)
+    profile = market_profile_contract(job.market_profile, job.markets, name=job.name)
+    job = replace(
+        job,
+        market_profile=str(profile["profile_id"]),
+        markets=list(profile["selections"]),
+    )
+    resolved_markets = list(profile["expanded_markets"])
     # Portfolio demand is an input to the mission, never an afterthought.
     from autonomi_core.portfolio_decisions import read_portfolio_needs
     portfolio_need_preflight = read_portfolio_needs()
@@ -3248,7 +3264,7 @@ def _run_job_impl(
         policy = _load_mission_policy()
         generated = create_investment_mission(
             search_for=str(legacy_mission.get("goal") or job.name or "Beste relevante kandidater"),
-            markets=normalize_markets(job.markets), sectors=list(legacy_mission.get("sectors") or []),
+            markets=resolved_markets, sectors=list(legacy_mission.get("sectors") or []),
             strategy="Kvalitet til rimelig pris", horizon=str(legacy_mission.get("horizon") or "3–12 måneder"),
             risk=str(legacy_mission.get("risk") or "Balansert"),
             risk_ceiling=float(legacy_mission.get("risk_ceiling", 65.0)),
@@ -3257,6 +3273,14 @@ def _run_job_impl(
         )
         investment_mission = generated.to_dict()
         job = replace(job, investment_mission_id=generated.mission_id, configuration_version=generated.configuration_version)
+    if investment_mission:
+        investment_mission = dict(investment_mission)
+        mission_markets = normalize_markets(investment_mission.get("markets") or [])
+        if mission_markets != resolved_markets:
+            investment_mission["source_markets_before_profile_reconciliation"] = mission_markets
+            investment_mission["markets"] = list(resolved_markets)
+            investment_mission["market_profile_reconciled"] = True
+        investment_mission["market_profile"] = dict(profile)
     if investment_mission and str(investment_mission.get("configuration_version") or "") != str(job.configuration_version or ""):
         raise ValueError("Oppdragets konfigurasjonsversjon samsvarer ikke med jobbens konfigurasjonsversjon")
     from autonomi_core.configuration.registry import status as _central_configuration_status
@@ -3296,7 +3320,7 @@ def _run_job_impl(
     totals = {"scanned": 0, "deep_analyzed": 0, "proposals": 0, "recommended": 0, "rejected": 0}
     errors = []
     warnings = []
-    markets = normalize_markets(job.markets)
+    markets = list(resolved_markets)
     for market_index, market in enumerate(markets, start=1):
         market_deep_budget = _allocated_market_budget(job.deep_count, market_index, len(markets), minimum=1)
         market_evidence_budget = min(
@@ -3534,7 +3558,7 @@ def _run_job_impl(
            "trigger": trigger, "scheduled_for": scheduled_for or "",
            "test_run": "TEST" in str(trigger or "").upper(),
            "suppress_notifications": should_suppress_notifications(trigger, send_notifications),
-           "markets": markets, "modules": job.modules, "summary": totals, "candidates": all_candidates,
+           "markets": markets, "market_profile": dict(profile), "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
@@ -4216,8 +4240,10 @@ def render_market_intelligence() -> None:
         run_auto = o1.checkbox("Kjør teoretisk portefølje", value=current.run_autonomous_portfolio if current else True, key="mi_auto_port_v18690")
         run_learning = o2.checkbox("Kjør kontrollert læring", value=current.run_controlled_learning if current else True, key="mi_auto_learning_v18690")
         require_active = o3.checkbox("Krev aktiv portefølje", value=current.require_active_portfolio if current else True, key="mi_require_active_v18690", help="Når valgt hoppes simulerte handler over dersom porteføljen er pauset.")
+        selected_profile = infer_market_profile(markets or ["Norge"], name=name.strip() or "Uten navn")
         draft_job = JobProfile(
-            name=name.strip() or "Uten navn", markets=markets or ["Norge"], schedules=schedules or [],
+            name=name.strip() or "Uten navn", markets=profile_market_selections(selected_profile, markets or ["Norge"]),
+            market_profile=selected_profile, schedules=schedules or [],
             weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
             scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
             notify_pushover=notify, notify_only_changes=(notification_mode == "CHANGES_ONLY"), notification_mode=notification_mode, include_report_link=include_report_link,
@@ -4413,7 +4439,7 @@ def render_market_intelligence() -> None:
                         st.markdown(f"**{labels[idx]}**")
                         st.markdown(f"### {display_name}")
                         st.caption(f"{candidate.get('ticker','-')} · {candidate.get('market','-')}")
-                        st.metric("Score", f"{float(candidate.get('investment_score',0)):.2f}", f"Konf. {float(candidate.get('confidence_score',0)):.1f}%")
+                        st.metric("Score", f"{float(candidate.get('investment_score',0)):.2f}", f"Besl.konf. {float(candidate.get('decision_confidence') or _mapping(candidate.get('confidence_profile')).get('decision_confidence') or 0):.1f}%")
                         st.caption(f"Risiko {float(candidate.get('risk_score',0)):.1f} · Vekt {float(candidate.get('proposed_position_pct',0)):.2f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
                         st.caption(f"Autonomiutfall: {candidate.get('autonomy_outcome_label') or decision_label(candidate.get('autonomy_outcome_code') or candidate.get('portfolio_action'))}")
                         if candidate.get("automatic_next_action"):
@@ -4436,7 +4462,7 @@ def render_market_intelligence() -> None:
                     "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
                     "Sektor": sector_label(x.get("sector")), "Score": x.get("investment_score"),
                     "Porteføljebeslutning": decision_label(action),
-                    "Konfidens": x.get("confidence_score"), "Trend": x.get("trend"),
+                    "Beslutningskonfidens": x.get("decision_confidence") or _mapping(x.get("confidence_profile")).get("decision_confidence"), "Trend": x.get("trend"),
                     "Datagyldighet": (x.get("data_contract") or {}).get("validity", "UKJENT"),
                     "Datakilde": (x.get("data_contract") or {}).get("source", "UKJENT"),
                     "Endring": x.get("score_delta"), "Risiko": x.get("risk_score"),
