@@ -7,7 +7,6 @@ local JSON file remains a backwards-compatible diagnostic mirror.
 """
 from __future__ import annotations
 
-import logging
 import threading
 import traceback
 import uuid
@@ -28,31 +27,6 @@ _LOCK = threading.Lock()
 _THREADS: dict[str, threading.Thread] = {}
 _TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 _STAGE_ORDER = ["MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
-
-
-class _ManualWorkerContextFilter(logging.Filter):
-    """Suppress only Streamlit's harmless ScriptRunContext warning for our worker.
-
-    The manual-chain worker intentionally runs outside Streamlit's script
-    context. Repeated warnings can flood Render logs, but they are not worker
-    failures. All other warnings and errors remain visible.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
-        return not (
-            threading.current_thread().name.startswith("manual-chain-")
-            and "missing ScriptRunContext" in message
-        )
-
-
-def _install_manual_worker_log_filter() -> None:
-    logger = logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context")
-    if not any(isinstance(item, _ManualWorkerContextFilter) for item in logger.filters):
-        logger.addFilter(_ManualWorkerContextFilter())
-
-
-_install_manual_worker_log_filter()
 
 
 def _now() -> str:

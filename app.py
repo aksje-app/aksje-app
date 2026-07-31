@@ -173,11 +173,14 @@ _runtime_safety_v19142 = runtime_safety_snapshot()
 if _runtime_safety_v19142.get("blocking_violations"):
     st.error("Sikker oppstart blokkert: " + " ".join(_runtime_safety_v19142["blocking_violations"]))
     st.stop()
-try:
-    from runtime_background import ensure_runtime_background_services
-    ensure_runtime_background_services()
-except Exception as _runtime_background_exc:
-    logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
+# v19.16.6: The Streamlit web process must remain responsive. Unattended
+# scheduling belongs to Render Cron. In-process workers are opt-in only.
+if str(os.getenv("ENABLE_WEB_BACKGROUND_SERVICES", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        from runtime_background import ensure_runtime_background_services
+        ensure_runtime_background_services()
+    except Exception as _runtime_background_exc:
+        logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
 
 # v19.5.0: Global style layers live outside the application shell.
 inject_foundation_styles_v1950()
@@ -18467,14 +18470,17 @@ if not st.session_state.get("ai_control_center_landed_default_v1864l"):
 # v19.4.0: non-blocking scheduler safety net while the web process is awake.
 # Render Cron remains the primary unattended runner, but the web process now
 # performs a guarded due-job check at most once every five minutes per session.
-try:
-    _scheduler_kick_last_v1940 = float(st.session_state.get("scheduler_kick_last_v1940", 0) or 0)
-    if time.time() - _scheduler_kick_last_v1940 >= 300:
-        from scheduler_background import kick_scheduler_background
-        st.session_state["scheduler_kick_last_v1940"] = time.time()
-        st.session_state["scheduler_kick_status_v1940"] = kick_scheduler_background()
-except Exception as _scheduler_kick_exc_v1940:
-    st.session_state["scheduler_kick_status_v1940"] = {"state": "ERROR", "error": str(_scheduler_kick_exc_v1940)[:500]}
+if str(os.getenv("ENABLE_WEB_SCHEDULER_KICK", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        _scheduler_kick_last_v1940 = float(st.session_state.get("scheduler_kick_last_v1940", 0) or 0)
+        if time.time() - _scheduler_kick_last_v1940 >= 300:
+            from scheduler_background import kick_scheduler_background
+            st.session_state["scheduler_kick_last_v1940"] = time.time()
+            st.session_state["scheduler_kick_status_v1940"] = kick_scheduler_background()
+    except Exception as _scheduler_kick_exc_v1940:
+        st.session_state["scheduler_kick_status_v1940"] = {"state": "ERROR", "error": str(_scheduler_kick_exc_v1940)[:500]}
+else:
+    st.session_state.setdefault("scheduler_kick_status_v1940", {"state": "DISABLED_IN_WEB", "reason": "Render Cron er autoritativ"})
 
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None

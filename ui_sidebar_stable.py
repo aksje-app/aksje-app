@@ -620,6 +620,19 @@ html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-lab
   white-space: nowrap !important;
   overflow: visible !important;
 }
+/* v19.16.6: Keep the simple-mode More control readable at narrow desktop widths. */
+html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+  min-width: 184px !important;
+  width: 100% !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  opacity: 1 !important;
+}
 
 </style>
 """
