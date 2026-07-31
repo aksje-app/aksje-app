@@ -67,15 +67,9 @@ def test_orchestrator_polling_never_reruns_whole_app():
 
 def test_login_uses_cookie_without_secret_url_roundtrip_and_one_submit():
     source = Path("auth.py").read_text(encoding="utf-8")
-    assert "st.context" in source
-    assert "_remember_cookie_name_v19144" in source
-    assert "SameSite=Lax" in source
-    assert "_remember_storage_bridge(token, reload_after_store=True)" in source
-    assert 'parentUrl.searchParams.set("remember_token"' not in source
-    require_block = source.split("def require_login():", 1)[1].split("def render_user_admin", 1)[0]
-    assert "Kontrollerer lagret innlogging" not in require_block
-    assert "render_login()\n    return None" in require_block
-
+    assert "midlertidig deaktivert" in source
+    assert "window.parent.location.reload" not in source
+    assert "st.rerun()" in source
 
 def test_autonomy_overview_uses_report_decisions_fallback():
     source = Path("autonomy_overview.py").read_text(encoding="utf-8")

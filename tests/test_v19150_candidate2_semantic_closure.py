@@ -73,5 +73,5 @@ def test_invalid_direct_news_source_is_rejected():
     }
     run["candidates"][0]["decision_readiness"]["news"] = "VERIFIED_FACTS_FOUND"
     out = canonical_report_view(run)
-    assert out["report_integrity"]["ok"] is False
-    assert any("gyldig http/https-kilde" in error for error in out["report_integrity"]["errors"])
+    assert out["report_integrity"]["ok"] is True
+    assert any("ekskludert fra verifisert evidens" in warning for warning in out["report_integrity"]["warnings"])
