@@ -1687,7 +1687,7 @@ def combined_quality_summary(candidates: Sequence[Mapping[str, Any]],
     elif overall_valid == total:
         status = "FULLT BESLUTNINGSGRUNNLAG"
     elif overall_valid > 0:
-        status = "DELVIS – MANUELL VURDERING"
+        status = "DELVIS – AUTOMATISK REVALIDERING PÅKREVD"
     else:
         status = "UTILSTREKKELIG FOR AUTONOM BESLUTNING"
     return {
@@ -1805,6 +1805,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     def _loc(value: Any) -> str:
         return translate_report_text(value)
 
+    def _clean_sentence(value: Any) -> str:
+        text = " ".join(str(value or "").split())
+        while ".." in text:
+            text = text.replace("..", ".")
+        text = text.replace(".;", ";").replace(";.", ";")
+        text = text.replace(" .", ".").replace(" ;", ";")
+        return text.strip(" ;")
+
     def _decision_label(value: Any) -> str:
         return decision_label(value)
 
@@ -1853,7 +1861,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         reasons.extend(str(row.get("title") or "") for row in tasks if row.get("title"))
         if candidate.get("automatic_next_action"):
             reasons.append(str(candidate.get("automatic_next_action")))
-        return reasons[:4] or ["Ingen manuell handling nødvendig; programmet følger kandidaten automatisk."]
+        cleaned = [_clean_sentence(reason) for reason in reasons if _clean_sentence(reason)]
+        return cleaned[:4] or ["Ingen manuell handling nødvendig; programmet følger kandidaten automatisk."]
 
     def _quality_score() -> int:
         quality = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
@@ -1972,6 +1981,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
 
     markets_text = ", ".join(run.get("markets") or run.get("market_expansion") or [])
     report_status = run.get("report_status") if isinstance(run.get("report_status"), Mapping) else {}
+    critical_gap_rows = [row for row in (report_status.get("critical_gaps") or []) if isinstance(row, Mapping)]
+    critical_gaps_by_ticker: dict[str, list[Mapping[str, Any]]] = {}
+    for gap_row in critical_gap_rows:
+        critical_gaps_by_ticker.setdefault(str(gap_row.get("ticker") or "").upper(), []).append(gap_row)
     report_revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     meta = Table([
         [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(run.get("job_name", "-"), "Small")],
@@ -2265,6 +2278,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
               Paragraph(escape(learning_text), styles["Small"])]
     if threshold_explanation:
         story += [Paragraph(escape(threshold_explanation), styles["Small"])]
+    candidate_minutes = int(report_status.get("candidate_validity_minutes") or 60)
+    report_hours = int(report_status.get("revalidation_after_hours") or 6)
+    story += [Paragraph(
+        escape(f"Gyldighetsregler: Kandidatbeslutningen utløper etter {candidate_minutes} minutter. Hele rapporten revalideres senest etter {report_hours} timer. Dette er to separate kontrollgrenser."),
+        styles["Small"],
+    )]
     critique: list[str] = []
     if report_status.get("state") == "PROVISIONAL":
         critique.append("Kildekontrollen er ikke fullført")
@@ -2378,7 +2397,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         quality_table = Table([["Markedsdata", f"{quality.get('score', 0)} %", "Vurdering", _loc(quality.get("label", "-")), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
         quality_table.setStyle(_table_style(6.8, header=False, padding=2))
         quality_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold"), ("FONTNAME", (8,0), (8,0), "Helvetica-Bold")]))
-        story += [Paragraph("Overordnet rapportkvalitet", styles["Subsection"]), quality_table,
+        story += [Paragraph("Teknisk fullstendighet og markedsdatadekning", styles["Subsection"]), quality_table,
                   Paragraph("Poengsummen over gjelder kurs- og markedsdata. Innsider-, nyhets-, analyse- og historisk test-dekning vurderes separat og kan redusere beslutningskonfidensen.", styles["Small"])]
         if quality.get("failed_markets"):
             story += [Paragraph("Datakvaliteten er redusert fordi valgte markeder feilet eller ga null kandidater: " +
@@ -2648,12 +2667,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 ("TOPPADDING", (0,0), (-1,-1), 3), ("BOTTOMPADDING", (0,0), (-1,-1), 3),
             ]))
             review_reasons = _candidate_review_reasons(candidate)
+            ranking_sentence = _clean_sentence(
+                f"Kandidaten er prioritet {idx + 1} fordi {_loc(evidence['drivers'])}. "
+                + (f"{_loc(evidence['gap'])}. " if str(evidence.get('gap') or '').strip() else "")
+            )
             story += [decision_badge, Paragraph(
-                f"<b>AI-konklusjon:</b> Kandidaten er prioritet {idx + 1} fordi {escape(_loc(evidence['drivers']))}. "
-                f"{escape(_loc(evidence['gap']))}. <b>Autonomiutfall:</b> {escape(decision_label_text)}. "
-                f"<b>Forbehold:</b> {escape(_loc(evidence['cautions']))}.",
+                f"<b>AI-konklusjon:</b> {escape(ranking_sentence)} <b>Autonomiutfall:</b> {escape(decision_label_text)}. "
+                f"<b>Forbehold:</b> {escape(_clean_sentence(_loc(evidence['cautions'])))}.",
                 styles["BodyCompact"],
-            ), Paragraph("<b>Hvorfor dette utfallet:</b> " + escape(_loc("; ".join(review_reasons))), styles["BodyCompact"])]
+            ), Paragraph("<b>Hvorfor dette utfallet:</b> " + escape(_clean_sentence(_loc("; ".join(review_reasons)))), styles["BodyCompact"])]
             manual_tasks = [row for row in candidate.get("manual_tasks") or [] if isinstance(row, Mapping)]
             if manual_tasks:
                 task_rows = [["Hva bør undersøkes", "Hvorfor", "Programmet forsøkte", "Hvorfor det stoppet", "Foreslått kilde", "Beslutningseffekt"]]
@@ -2691,7 +2713,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 confidence_factors.append("nyhetskontroll ikke endelig")
             if str(readiness.get("insider") or "").upper() not in {"VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS"}:
                 confidence_factors.append("insiderkontroll ikke endelig")
-            confidence_reason = "; ".join(confidence_factors) or "verifisert datagrunnlag uten registrerte kritiske evidenshull"
+            ticker_gaps = critical_gaps_by_ticker.get(str(candidate.get("ticker") or "").upper(), [])
+            for gap_row in ticker_gaps:
+                area = str(gap_row.get("area") or "dokumentasjon")
+                status = _status_label(gap_row.get("status") or "UAVKLART").lower()
+                confidence_factors.append(f"kritisk evidensgap i {area}: {status}")
+            confidence_reason = "; ".join(dict.fromkeys(confidence_factors)) or "verifisert datagrunnlag uten registrerte kritiske evidenshull"
             next_event = raw.get("next_event") or raw.get("next_expected_event") or raw.get("earnings_date") or "Ingen bekreftet kommende hendelse i datasettet"
             change_conditions = []
             if float(candidate.get("investment_score") or 0) < 78:
@@ -2894,7 +2921,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                     styles["Small"],
                 ),
                 Paragraph(f"<b>Positive drivere:</b> {escape(_loc(positives))}", styles["Small"]),
-                Paragraph(f"<b>Risikofaktorer og manglende data:</b> {escape(_loc(risks))}; {escape(_loc(evidence['cautions']))}", styles["Small"]),
+                Paragraph(f"<b>Risikofaktorer og manglende data:</b> {escape(_loc(risks))}; {escape(_clean_sentence(_loc(evidence['cautions'])))}", styles["Small"]),
             ]
         data = [["#", "Ticker", "Marked", "Score", "Besl.konf.", "Scoretrend", "Risiko (0-100)", "Status"]]
         for r in candidates:

@@ -96,9 +96,10 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
                 "checked_at": item.get("checked_at") or item.get("retrieved_at") or "",
                 "url": item.get("url") or "",
                 "error": str(item.get("error") or item.get("reason") or "")[:240],
-                "direct_primary": str(item.get("source_type") or "").upper() in {
+                "direct_primary": bool(item.get("direct_primary") or item.get("direct_primary_source_checked")) or str(item.get("source_type") or "").upper() in {
                     "PRIMARY_STRUCTURED", "PRIMARY_REGULATORY",
                     "PRIMARY_OR_DIRECT_RSS", "OFFICIAL_PRIMARY",
+                    "OFFICIAL_EXCHANGE_FEED",
                 },
             })
         contribution = contributions.get(area)
@@ -390,7 +391,15 @@ def finalize_run_integrity(run: dict[str, Any], previous: Mapping[str, Any] | No
         "critical_gaps": critical,
         "revalidation_required": provisional,
         "revalidation_after_hours": max(1, int(os.getenv("REPORT_REVALIDATION_HOURS", "6") or 6)),
+        "candidate_validity_minutes": max(1, int(os.getenv("CANDIDATE_VALIDITY_MINUTES", "60") or 60)),
     }
+    # Critical evidence gaps are business-quality warnings, not technical errors.
+    warnings = [str(x) for x in (run.get("warnings") or []) if str(x).strip()]
+    for gap in critical:
+        text = f"{gap.get('ticker')}/{gap.get('area')}: {gap.get('status')}"
+        if text not in warnings:
+            warnings.append(text)
+    run["warnings"] = warnings
     run["report_revision"] = _revision(run, previous)
     run["change_since_previous"] = _change_summary(run, previous)
     fingerprint_payload = {

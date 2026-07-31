@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.16.6"
-APP_VERSION_NAME = "Kontrollert driftsstabilisering"
+APP_VERSION = "v19.17.0-rc1"
+APP_VERSION_NAME = "Rapportferdigstilling – Release Candidate 1"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.14.6"
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.17.0-rc1: Kontrollert rapportferdigstilling med harmonisert evidensstatus, maskinlesbare gap, automatisk revalideringsspråk, forklarte gyldighetsgrenser og språkvask.",
     "v19.16.0: Full systemstabilisering: stabil markedsprofil som gjør Kjernemarkeder til Norge, Sverige og USA i jobb, oppdrag, kjøring og rapport; én eksplisitt konfidenskontrakt; korrekt evidensdekning; streng selskapsrelevans for nyheter; primær-/sekundærproveniens for insiderfakta; kanonisk porteføljebegrunnelse; og semantisk rapportintegritet som blokkerer motstridende JSON/PDF-grunnlag.",
     "v19.14.6: PDF-avhengighet og ren oppstart: pypdf er eksplisitt og versjonslåst runtime-avhengighet; web- og scheduler-start kontrollerer PDF-leseren før arbeid aksepteres; Render-bygget kjører avhengighetssmoke etter installasjon; ny test bygger og leser en PDF semantisk, og releasevalideringen kontrollerer at kravfilen alene deklarerer pypdf.",
     "v19.14.5: REPORT og lokal lagring: trading_rules respekterer STORAGE_MODE og forsøker aldri PostgreSQL i lokal modus eller uten DATABASE_URL; REPORT utfører eksplisitt skrivekontroll av runtime-, run- og summary-mapper før PDF-bygging; alle rapportfeil logges med full traceback, kjørings-ID, rapportbane og varig diagnosefil; Autonomi-panelet viser konkrete tekniske feildetaljer; ugyldig Streamlit useStarlette-konfigurasjon er fjernet.",
