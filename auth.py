@@ -59,99 +59,15 @@ def _remember_token_hash_v19144(token: str) -> str:
 
 
 def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload_after_store=False):
-    """Persist the opaque remember token in browser localStorage.
+    """Safe v19.16.5 fallback.
 
-    Browser storage is scoped to this application; legacy cookies used
-    ``SameSite=Lax`` and are still accepted by the server-side reader.
-
-    ``st.iframe`` cannot reliably access the parent page because its data-URI
-    document has a separate origin.  A tiny Streamlit HTML component gets a
-    stable component origin, stores the token locally and redirects the parent
-    once so the server can restore the session.  The token is removed from the
-    visible URL immediately after successful restoration.
+    The previous browser-storage bridge could reload the parent Streamlit page
+    during authentication and trigger redirect/reconnect loops.  Keep this
+    function as a compatibility no-op so older call sites remain harmless.
+    Existing remember tokens supplied by cookie/query parameter can still be
+    restored server-side, but new browser persistence is temporarily disabled.
     """
-    try:
-        safe_token = json.dumps(str(token or ""))
-        safe_storage_key = json.dumps(_remember_cookie_name_v19144() + "_storage")
-        clear_flag = "true" if clear else "false"
-        bootstrap_flag = "true" if bootstrap else "false"
-        reload_flag = "true" if reload_after_store else "false"
-        try:
-            context_url = str(st.context.url or "")
-        except Exception:
-            context_url = ""
-        safe_context_url = json.dumps(context_url)
-        bridge_html = f"""
-            <script>
-            (function() {{
-              try {{
-                var storageKey = {safe_storage_key};
-                var clear = {clear_flag};
-                var bootstrap = {bootstrap_flag};
-                var reloadAfterStore = {reload_flag};
-                var token = {safe_token};
-                var fallbackUrl = {safe_context_url};
-                var parentUrlText = document.referrer || fallbackUrl || "";
-
-                function readStored() {{
-                  try {{ return window.localStorage.getItem(storageKey) || ""; }} catch (err) {{ return ""; }}
-                }}
-                function writeStored(value) {{
-                  try {{ window.localStorage.setItem(storageKey, value); return true; }} catch (err) {{ return false; }}
-                }}
-                function clearStored() {{
-                  try {{ window.localStorage.removeItem(storageKey); }} catch (err) {{}}
-                  try {{ window.sessionStorage.removeItem(storageKey + "_boot"); }} catch (err) {{}}
-                }}
-                function redirectParent(value) {{
-                  if (!parentUrlText) return false;
-                  try {{
-                    var target = new URL(parentUrlText);
-                    target.searchParams.set("remember_token", value);
-                    target.searchParams.set("remember_bootstrap", "1");
-                    window.parent.location.replace(target.toString());
-                    return true;
-                  }} catch (err) {{ return false; }}
-                }}
-                function cleanedParentUrl() {{
-                  if (!parentUrlText) return "";
-                  try {{
-                    var target = new URL(parentUrlText);
-                    target.searchParams.delete("remember_token");
-                    target.searchParams.delete("remember_bootstrap");
-                    try {{ window.parent.history.replaceState(null, "", target.toString()); }} catch (err) {{}}
-                    return target.toString();
-                  }} catch (err) {{ return ""; }}
-                }}
-
-                if (clear) {{
-                  clearStored();
-                  return;
-                }}
-                if (token) {{
-                  writeStored(token);
-                  if (reloadAfterStore) {{
-                    window.setTimeout(function() {{ redirectParent(token); }}, 120);
-                  }}
-                  return;
-                }}
-                if (bootstrap) {{
-                  var stored = readStored();
-                  var bootKey = storageKey + "_boot";
-                  var attempted = "";
-                  try {{ attempted = window.sessionStorage.getItem(bootKey) || ""; }} catch (err) {{}}
-                  if (stored && !attempted) {{
-                    try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
-                    window.setTimeout(function() {{ redirectParent(stored); }}, 120);
-                  }}
-                }}
-              }} catch (err) {{}}
-            }})();
-            </script>
-            """
-        render_html_component(bridge_html, height=0, width=0, scrolling=False)
-    except Exception as e:
-        logging.warning("Remember storage bridge failed: %s", e)
+    return False
 
 def _remember_cookie_token_v19143():
     try:
@@ -604,23 +520,21 @@ def render_login():
     with st.form("login_form"):
         username = st.text_input("Brukernavn")
         password = st.text_input("Passord", type="password")
-        remember_me = st.checkbox("Husk meg på denne enheten", value=True)
+        remember_me = st.checkbox(
+            "Husk meg på denne enheten (midlertidig deaktivert)",
+            value=False,
+            disabled=True,
+            help="Deaktivert i v19.16.5 for å hindre 502- og innloggingssløyfer.",
+        )
         submitted = st.form_submit_button("Logg inn")
 
     if submitted:
         ok, user, msg = authenticate(username, password)
         if ok:
             _set_logged_in(user, remember=bool(remember_me))
-            if remember_me:
-                try:
-                    token = _create_remember_token(user)
-                    st.session_state["remember_token"] = token
-                    st.session_state["auth_restore_attempted_v18621"] = True
-                    _remember_storage_bridge(token, reload_after_store=True)
-                    st.success("Innlogget. Husk meg lagres på denne enheten …")
-                    st.stop()
-                except Exception as e:
-                    logging.warning("Kunne ikke lagre Husk meg: %s", e)
+            # v19.16.5: Never stop or redirect the parent page during login.
+            # A successful login must always complete with a normal Streamlit rerun.
+            st.session_state.pop("remember_token", None)
             st.success("Innlogget")
             st.rerun()
         else:
@@ -679,13 +593,6 @@ def require_login():
         render_first_admin_setup()
 
     if _session_is_valid():
-        # Oppbevar remember-token lokalt, men fjern det fra delbar URL.
-        try:
-            tok = st.session_state.get("remember_token")
-            if tok:
-                _remember_storage_bridge(tok)
-        except Exception as e:
-            logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return st.session_state.get("auth_user")
 
     user = _restore_from_remember_token()
