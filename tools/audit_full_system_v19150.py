@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static release audit for v19.16.0.
+"""Static release audit for v19.16.4.
 
 This audit is intentionally independent of live APIs. It checks the release
 contract that previously drifted between GitHub, Render and generated reports.
@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "v19.16.0"
+EXPECTED_VERSION = "v19.16.4"
 MUTABLE_ROOTS = ("data", "cache", "logs", "runtime", "storage")
 REQUIRED_REQUIREMENTS = {
     "streamlit==1.57.0",
@@ -34,7 +34,7 @@ def audit(root: Path = ROOT) -> dict:
     warnings: list[dict] = []
 
     version_source = (root / "app_version.py").read_text(encoding="utf-8")
-    _check(f'APP_VERSION = "{EXPECTED_VERSION}"' in version_source, "VERSION", "APP_VERSION er ikke v19.16.0", errors)
+    _check(f'APP_VERSION = "{EXPECTED_VERSION}"' in version_source, "VERSION", "APP_VERSION er ikke v19.16.4", errors)
     _check('REPORT_SCHEMA_VERSION = "1.6"' in version_source, "REPORT_SCHEMA", "Rapportskjema er ikke 1.6", errors)
 
     requirements = {
@@ -80,7 +80,7 @@ def audit(root: Path = ROOT) -> dict:
                 mutable_files.append(path.relative_to(root).as_posix())
     _check(not mutable_files, "MUTABLE_RUNTIME", f"Mutable runtimefiler i kildekoden: {mutable_files[:20]}", errors)
 
-    for name in ("RELEASE_NOTES_v19.16.0.md", "ACCEPTANCE_v19.16.0.md", "DEPLOY_v19.16.0.md"):
+    for name in ("RELEASE_NOTES_v19.16.4.md", "ACCEPTANCE_v19.16.4.md", "DEPLOY_v19.16.4.md"):
         _check((root / name).is_file(), "DOCUMENTATION", f"Mangler {name}", errors)
 
     try:
