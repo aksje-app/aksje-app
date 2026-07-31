@@ -39,10 +39,10 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_version_contract_is_v19143() -> None:
-    assert app_version.APP_VERSION == "v19.16.0"
-    assert app_version.APP_VERSION_NAME == "Full systemstabilisering"
-    assert app_version.RANKING_MODEL_VERSION == app_version.APP_VERSION
-    assert app_version.AUTONOMY_POLICY_VERSION == app_version.APP_VERSION
+    assert app_version.APP_VERSION == "v19.17.0-rc1"
+    assert app_version.APP_VERSION_NAME == "Rapportferdigstilling – Release Candidate 1"
+    assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
+    assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"
 
 
 def test_paper_gate_is_fail_closed_for_missing_invalid_and_false(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,11 +184,9 @@ def test_remember_token_is_removed_from_shareable_url_and_banner_links() -> None
     auth_source = (ROOT / "auth.py").read_text(encoding="utf-8")
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
     banner_source = (ROOT / "ui" / "live_market_banner.py").read_text(encoding="utf-8")
-    assert 'searchParams.delete("remember_token")' in auth_source
-    assert "history.replaceState" in auth_source
-    assert "st.context" in auth_source
-    assert "SameSite=Lax" in auth_source
-    assert "clearLegacyQuery();" in auth_source
+    assert 'for query_key in ("remember_token", "remember_bootstrap")' in auth_source
+    assert "st.query_params" in auth_source
+    assert "Husk meg på denne enheten (midlertidig deaktivert)" in auth_source
     assert 'searchParams.set("remember_token"' not in auth_source
     assert 'remember_token=' not in app_source
     assert 'remember_token=' not in banner_source

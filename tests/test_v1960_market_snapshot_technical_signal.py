@@ -21,7 +21,7 @@ def _service(tmp_path) -> MarketSnapshotService:
 
 
 def test_version_contract_exposes_snapshot_and_technical_service():
-    assert APP_VERSION == "v19.16.0"
+    assert APP_VERSION == "v19.17.0-rc1"
     contract = get_version_contract()
     assert contract["market_snapshot_version"] == "1.1"
     assert contract["technical_signal_service_version"] == "1.1"

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_version_contract_is_v19146():
-    assert app_version.APP_VERSION == "v19.16.0"
+    assert app_version.APP_VERSION == "v19.17.0-rc1"
     assert app_version.PREVIOUS_APP_VERSION == "v19.14.6"
     assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
     assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"
