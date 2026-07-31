@@ -1,6 +1,7 @@
 import logging
 
 import streamlit as st
+from streamlit.components.v1 import html as render_html_component
 import pandas as pd
 import hmac
 import hashlib
@@ -58,105 +59,99 @@ def _remember_token_hash_v19144(token: str) -> str:
 
 
 def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload_after_store=False):
-    """Persist the remember token in a secure same-site browser cookie.
+    """Persist the opaque remember token in browser localStorage.
 
-    Streamlit 1.57 exposes request cookies through ``st.context.cookies``. The
-    small browser bridge sets/clears the cookie and migrates any legacy
-    localStorage token without ever placing the token in the visible URL.
+    Browser storage is scoped to this application; legacy cookies used
+    ``SameSite=Lax`` and are still accepted by the server-side reader.
+
+    ``st.iframe`` cannot reliably access the parent page because its data-URI
+    document has a separate origin.  A tiny Streamlit HTML component gets a
+    stable component origin, stores the token locally and redirects the parent
+    once so the server can restore the session.  The token is removed from the
+    visible URL immediately after successful restoration.
     """
     try:
         safe_token = json.dumps(str(token or ""))
-        safe_cookie_name = json.dumps(_remember_cookie_name_v19144())
+        safe_storage_key = json.dumps(_remember_cookie_name_v19144() + "_storage")
         clear_flag = "true" if clear else "false"
         bootstrap_flag = "true" if bootstrap else "false"
         reload_flag = "true" if reload_after_store else "false"
+        try:
+            context_url = str(st.context.url or "")
+        except Exception:
+            context_url = ""
+        safe_context_url = json.dumps(context_url)
         bridge_html = f"""
             <script>
             (function() {{
               try {{
-                var cookieName = {safe_cookie_name};
-                var storageKey = cookieName + "_storage";
-                var migrationKey = cookieName + "_migration_v19144";
+                var storageKey = {safe_storage_key};
                 var clear = {clear_flag};
                 var bootstrap = {bootstrap_flag};
                 var reloadAfterStore = {reload_flag};
                 var token = {safe_token};
-                var parentUrl = new URL(window.parent.location.href);
-                var parentStorage = null;
-                try {{ parentStorage = window.parent.localStorage; }} catch (err) {{ parentStorage = null; }}
-                function cookieSuffix(maxAge) {{
-                  var secure = parentUrl.protocol === "https:" ? "; Secure" : "";
-                  return "; Path=/; Max-Age=" + maxAge + "; SameSite=Lax" + secure;
+                var fallbackUrl = {safe_context_url};
+                var parentUrlText = document.referrer || fallbackUrl || "";
+
+                function readStored() {{
+                  try {{ return window.localStorage.getItem(storageKey) || ""; }} catch (err) {{ return ""; }}
                 }}
-                function setCookie(value) {{
-                  window.parent.document.cookie = cookieName + "=" + encodeURIComponent(value) + cookieSuffix(2592000);
-                }}
-                function clearCookie() {{
-                  window.parent.document.cookie = cookieName + "=; Path=/; Max-Age=0; SameSite=Lax" + (parentUrl.protocol === "https:" ? "; Secure" : "");
-                }}
-                function setStored(value) {{
-                  try {{ window.localStorage.setItem(storageKey, value); }} catch (err) {{}}
-                  try {{ if (parentStorage) parentStorage.setItem(storageKey, value); }} catch (err) {{}}
-                }}
-                function getStored() {{
-                  try {{ if (parentStorage) {{
-                    var parentValue = parentStorage.getItem(storageKey);
-                    if (parentValue) return parentValue;
-                  }} }} catch (err) {{}}
-                  try {{ return window.localStorage.getItem(storageKey) || ""; }} catch (err) {{}}
-                  return "";
+                function writeStored(value) {{
+                  try {{ window.localStorage.setItem(storageKey, value); return true; }} catch (err) {{ return false; }}
                 }}
                 function clearStored() {{
                   try {{ window.localStorage.removeItem(storageKey); }} catch (err) {{}}
-                  try {{ if (parentStorage) parentStorage.removeItem(storageKey); }} catch (err) {{}}
-                  try {{ window.sessionStorage.removeItem(migrationKey); }} catch (err) {{}}
+                  try {{ window.sessionStorage.removeItem(storageKey + "_boot"); }} catch (err) {{}}
                 }}
-                function clearLegacyQuery() {{
-                  var changed = parentUrl.searchParams.has("remember_token") || parentUrl.searchParams.has("remember_bootstrap");
-                  parentUrl.searchParams.delete("remember_token");
-                  parentUrl.searchParams.delete("remember_bootstrap");
-                  if (changed) window.parent.history.replaceState(null, "", parentUrl.toString());
+                function redirectParent(value) {{
+                  if (!parentUrlText) return false;
+                  try {{
+                    var target = new URL(parentUrlText);
+                    target.searchParams.set("remember_token", value);
+                    target.searchParams.set("remember_bootstrap", "1");
+                    window.parent.location.replace(target.toString());
+                    return true;
+                  }} catch (err) {{ return false; }}
                 }}
+                function cleanedParentUrl() {{
+                  if (!parentUrlText) return "";
+                  try {{
+                    var target = new URL(parentUrlText);
+                    target.searchParams.delete("remember_token");
+                    target.searchParams.delete("remember_bootstrap");
+                    try {{ window.parent.history.replaceState(null, "", target.toString()); }} catch (err) {{}}
+                    return target.toString();
+                  }} catch (err) {{ return ""; }}
+                }}
+
                 if (clear) {{
                   clearStored();
-                  clearCookie();
-                  clearLegacyQuery();
                   return;
                 }}
                 if (token) {{
-                  setStored(token);
-                  setCookie(token);
-                  clearLegacyQuery();
+                  writeStored(token);
                   if (reloadAfterStore) {{
-                    window.setTimeout(function() {{ window.parent.location.reload(); }}, 80);
+                    window.setTimeout(function() {{ redirectParent(token); }}, 120);
                   }}
                   return;
                 }}
-                clearLegacyQuery();
                 if (bootstrap) {{
-                  var migrated = "";
-                  try {{ migrated = window.sessionStorage.getItem(migrationKey) || ""; }} catch (err) {{}}
-                  if (!migrated) {{
-                    var stored = getStored();
-                    try {{ window.sessionStorage.setItem(migrationKey, "1"); }} catch (err) {{}}
-                    if (stored) {{
-                      setCookie(stored);
-                      window.setTimeout(function() {{ window.parent.location.reload(); }}, 80);
-                    }}
+                  var stored = readStored();
+                  var bootKey = storageKey + "_boot";
+                  var attempted = "";
+                  try {{ attempted = window.sessionStorage.getItem(bootKey) || ""; }} catch (err) {{}}
+                  if (stored && !attempted) {{
+                    try {{ window.sessionStorage.setItem(bootKey, "1"); }} catch (err) {{}}
+                    window.setTimeout(function() {{ redirectParent(stored); }}, 120);
                   }}
                 }}
               }} catch (err) {{}}
             }})();
             </script>
             """
-        st.iframe(
-            "data:text/html;charset=utf-8," + quote(bridge_html),
-            height=1,
-            width=1,
-        )
+        render_html_component(bridge_html, height=0, width=0, scrolling=False)
     except Exception as e:
-        logging.warning("Remember cookie bridge failed: %s", e)
-
+        logging.warning("Remember storage bridge failed: %s", e)
 
 def _remember_cookie_token_v19143():
     try:

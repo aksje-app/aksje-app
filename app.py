@@ -60,7 +60,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import html
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
 from app_core.context import build_renderer_context
@@ -1599,7 +1599,7 @@ def _dashboard2026_write_kpi_cache_v18644(snapshot: dict) -> None:
         if not isinstance(snapshot, dict) or int(snapshot.get("rows") or 0) <= 0:
             return
         payload = dict(snapshot)
-        payload["saved_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        payload["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         with open(_dashboard2026_kpi_cache_path_v18644(), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception as e:

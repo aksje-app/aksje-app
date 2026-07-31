@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.16.0"
+APP_VERSION = "v19.16.4"
 APP_VERSION_NAME = "Full systemstabilisering"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
@@ -13,9 +13,9 @@ PREVIOUS_APP_VERSION = "v19.14.6"
 # serialised or behavioural contract changes, not for every app release.
 REPORT_SCHEMA_VERSION = "1.6"
 DATABASE_SCHEMA_VERSION = "2.1"
-RANKING_MODEL_VERSION = "v19.16.0"
-AUTONOMY_POLICY_VERSION = "v19.16.0"
-SOURCE_CLASSIFIER_VERSION = "v19.16.0"
+RANKING_MODEL_VERSION = "v19.16.4"
+AUTONOMY_POLICY_VERSION = "v19.16.4"
+SOURCE_CLASSIFIER_VERSION = "v19.16.4"
 OPERATIONS_TELEMETRY_VERSION = "v19.1.0"
 STORAGE_REPOSITORY_VERSION = "v19.2.1"
 DECISION_INTELLIGENCE_VERSION = "v19.3.0"
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.16.4: Samlet stabilitetshotfix: varig Husk meg-innlogging via nettleserlagring og kontrollert bootstrap, korrekt synlig versjon, foreldede manuelle jobber ryddes, ugyldige nyhets-URL-er nedgraderes uten å stoppe rapporten, og UTC-tidsstempling er timezone-aware.",
     "v19.16.0: Full systemstabilisering: stabil markedsprofil som gjør Kjernemarkeder til Norge, Sverige og USA i jobb, oppdrag, kjøring og rapport; én eksplisitt konfidenskontrakt; korrekt evidensdekning; streng selskapsrelevans for nyheter; primær-/sekundærproveniens for insiderfakta; kanonisk porteføljebegrunnelse; og semantisk rapportintegritet som blokkerer motstridende JSON/PDF-grunnlag.",
     "v19.14.6: PDF-avhengighet og ren oppstart: pypdf er eksplisitt og versjonslåst runtime-avhengighet; web- og scheduler-start kontrollerer PDF-leseren før arbeid aksepteres; Render-bygget kjører avhengighetssmoke etter installasjon; ny test bygger og leser en PDF semantisk, og releasevalideringen kontrollerer at kravfilen alene deklarerer pypdf.",
     "v19.14.5: REPORT og lokal lagring: trading_rules respekterer STORAGE_MODE og forsøker aldri PostgreSQL i lokal modus eller uten DATABASE_URL; REPORT utfører eksplisitt skrivekontroll av runtime-, run- og summary-mapper før PDF-bygging; alle rapportfeil logges med full traceback, kjørings-ID, rapportbane og varig diagnosefil; Autonomi-panelet viser konkrete tekniske feildetaljer; ugyldig Streamlit useStarlette-konfigurasjon er fjernet.",
