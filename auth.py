@@ -343,70 +343,30 @@ def _session_is_valid():
     return True
 
 
-def _restore_from_remember_token():
-    try:
-        token = _remember_cookie_token_v19143()
-        if not token:
-            token = st.query_params.get("remember_token", None)
-            if isinstance(token, list):
-                token = token[0] if token else None
-        if not token:
-            return None
-        item = _db_get_remember_item(str(token))
-        tokens = None
-        if not item:
-            tokens = _load_remember_tokens()
-            item = tokens.get(_remember_token_hash_v19144(str(token))) or tokens.get(str(token))
-        if not item:
-            return None
-        expires = datetime.fromisoformat(str(item.get("expires")))
-        if expires < datetime.now():
-            _db_delete_remember_item(str(token))
-            if tokens is None:
-                tokens = _load_remember_tokens()
-            tokens.pop(_remember_token_hash_v19144(str(token)), None)
-            tokens.pop(str(token), None)
-            _save_remember_tokens(tokens)
-            return None
-        username = str(item.get("username") or "").strip().lower()
-        user = get_user(username)
-        token_version = int(item.get("session_version", 1) or 1)
-        current_version = int((user or {}).get("session_version", 1) or 1)
-        if user and user.get("active", True) and token_version == current_version:
-                # Forny tokenet ved bruk, slik at Husk meg faktisk holder lenge på PC og mobil.
-                new_expires = (datetime.now() + timedelta(days=REMEMBER_DAYS)).isoformat(timespec="seconds")
-                if not _db_upsert_remember_item(str(token), username, new_expires, current_version):
-                    if tokens is None:
-                        tokens = _load_remember_tokens()
-                    tokens[_remember_token_hash_v19144(str(token))] = {
-                        "username": username, "session_version": current_version, "expires": new_expires
-                    }
-                    _save_remember_tokens(tokens)
-                safe_user = {
-                    "username": user.get("username"), "role": user.get("role", "user"),
-                    "active": bool(user.get("active", True)), "session_version": current_version,
-                }
-                st.session_state["remember_token"] = str(token)
-                _set_logged_in(safe_user, remember=True)
-                for query_key in ("remember_token", "remember_bootstrap"):
-                    try:
-                        if query_key in st.query_params:
-                            del st.query_params[query_key]
-                    except Exception:
-                        pass
-                _remember_storage_bridge(str(token))
-                return safe_user
-        # Tokenet peker til en deaktivert bruker eller en gammel passordversjon.
-        _db_delete_remember_item(str(token))
-        if tokens is None:
-            tokens = _load_remember_tokens()
-        tokens.pop(_remember_token_hash_v19144(str(token)), None)
-        tokens.pop(str(token), None)
-        _save_remember_tokens(tokens)
-    except Exception:
-        return None
-    return None
+def _drop_legacy_remember_query_v19167() -> None:
+    """Remove legacy remember parameters without redirects or parent-page JS.
 
+    v19.16.7 deliberately disables persistent browser login while the web
+    service is stabilised. Query cleanup is best-effort and never reruns.
+    """
+    for query_key in ("remember_token", "remember_bootstrap"):
+        try:
+            if query_key in st.query_params:
+                del st.query_params[query_key]
+        except Exception:
+            pass
+
+
+def _restore_from_remember_token():
+    """Persistent browser login is disabled in the stability release.
+
+    Old URLs may still contain a token. It is removed from the browser URL,
+    but it is never read, refreshed, stored or used to authenticate.
+    """
+    _drop_legacy_remember_query_v19167()
+    st.session_state.pop("remember_token", None)
+    st.session_state["auth_remember_me"] = False
+    return None
 
 def _clear_remember_token():
     try:
@@ -460,13 +420,12 @@ def render_first_admin_setup():
         if ok:
             authenticated, user, _ = authenticate(username, password)
             if authenticated and user:
-                _set_logged_in(user, remember=True)
-                token = _create_remember_token(user)
-                st.session_state["remember_token"] = token
+                _set_logged_in(user, remember=False)
+                st.session_state.pop("remember_token", None)
                 st.session_state["auth_restore_attempted_v18621"] = True
-                _remember_storage_bridge(token, reload_after_store=True)
-                st.success("Admin opprettet og innlogget. Innloggingen lagres på denne enheten …")
-                st.stop()
+                _drop_legacy_remember_query_v19167()
+                st.success("Admin opprettet og innlogget")
+                st.rerun()
             st.success("Admin opprettet. Logg inn.")
             st.rerun()
         else:
@@ -476,8 +435,8 @@ def render_first_admin_setup():
 
 
 def render_login():
-    # Bootstrap is completed by require_login before the form is shown.
-    _remember_storage_bridge(bootstrap=True)
+    # v19.16.7: no browser bridge, redirect or persistent-token bootstrap.
+    _drop_legacy_remember_query_v19167()
     # V13 / Oppgave 33: hele login-formen skal være kort og sentrert, ikke bare headeren.
     st.markdown(
         """
@@ -595,13 +554,9 @@ def require_login():
     if _session_is_valid():
         return st.session_state.get("auth_user")
 
-    user = _restore_from_remember_token()
-    if user:
-        return user
-
-    # The login renderer migrates any legacy localStorage token directly into a
-    # cookie. It does not stop the first render, so users never need to submit
-    # credentials twice when no remembered session exists.
+    # v19.16.7 stability contract: login is session-only. Legacy remember
+    # parameters are discarded without redirects, JavaScript or extra reruns.
+    _restore_from_remember_token()
     st.session_state["auth_restore_attempted_v18621"] = True
     render_login()
     return None

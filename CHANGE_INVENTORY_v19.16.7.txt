@@ -1,0 +1,6 @@
+.python-version
+auth.py
+app_version.py
+RELEASE_NOTES_v19.16.7.md
+DEPLOY_v19.16.7.md
+tests/test_v19167_stability_only.py
