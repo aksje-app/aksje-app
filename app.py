@@ -4443,6 +4443,16 @@ def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
     )
 
 
+_LIVE_BANNER_PROVIDER_ALIASES_V19170RC5 = {
+    # Display symbols used by the application -> Yahoo Finance provider symbols.
+    "XAUUSD": "GC=F",      # Gold futures, used only as market-data fallback.
+    "UKOILUSD": "BZ=F",   # Brent futures, used only as market-data fallback.
+}
+
+def _live_banner_provider_ticker_v19170rc5(ticker: str) -> str:
+    ticker = str(ticker or "").strip().upper()
+    return _LIVE_BANNER_PROVIDER_ALIASES_V19170RC5.get(ticker, ticker)
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _download_live_banner_history(tickers):
     tickers = tuple(str(t or "").strip().upper() for t in (tickers or []) if str(t or "").strip())
@@ -4514,14 +4524,15 @@ def fetch_live_banner_snapshot(banner_items):
         return []
 
     banner_items = tuple(banner_items or ())
-    history = _download_live_banner_history(tuple(ticker for _, ticker, _ in banner_items))
+    history = _download_live_banner_history(tuple(_live_banner_provider_ticker_v19170rc5(ticker) for _, ticker, _ in banner_items))
     cards = []
     for market, ticker, label in banner_items:
         try:
-            close = _close_from_banner_history(history, ticker)
-            volume = _series_from_banner_history_v18610(history, ticker, "Volume")
+            provider_ticker = _live_banner_provider_ticker_v19170rc5(ticker)
+            close = _close_from_banner_history(history, provider_ticker)
+            volume = _series_from_banner_history_v18610(history, provider_ticker, "Volume")
             if close is None or close.empty:
-                hist = yf.Ticker(ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
+                hist = yf.Ticker(provider_ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
                 if hist is None or hist.empty or "Close" not in hist:
                     continue
                 close = hist["Close"].dropna()
@@ -4541,6 +4552,7 @@ def fetch_live_banner_snapshot(banner_items):
             cards.append({
                 "market": market,
                 "ticker": ticker,
+                "provider_ticker": provider_ticker,
                 "label": display_label,
                 "price": current,
                 "delta": delta,
@@ -4715,7 +4727,7 @@ def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
     history = None
     if yf is not None and banner_items:
         try:
-            history = _download_live_banner_history(tuple(ticker for _, ticker, _ in banner_items))
+            history = _download_live_banner_history(tuple(_live_banner_provider_ticker_v19170rc5(ticker) for _, ticker, _ in banner_items))
         except Exception as exc:
             logging.warning("Banner fallback close lookup failed: %s", exc)
     cards = []

@@ -23,6 +23,27 @@ STEPS = (
     (8, "Produksjonshandel", "auto_trading_enabled", "auto_trading_enabled", "Eksplisitt produksjonsgodkjenning"),
 )
 
+
+_STEP_HELP = {
+    1: ("Henter og oppdaterer markedskandidater.", "Ingen ekstra Render-innstilling."),
+    2: ("Kjører planlagte rapporter uten at en bruker er innlogget.", "Planlagt rapportkjøring må være tillatt i Render."),
+    3: ("Sender rapport- og driftsvarsler til Pushover.", "Pushover-nøkler må være konfigurert i Render."),
+    4: ("Tillater kun simulert handel. Ingen ekte ordre sendes.", "Paper Trading må være tillatt i Render."),
+    5: ("Lagrer simulert portefølje og historikk varig.", "Krever PostgreSQL eller en varig Render-disk."),
+    6: ("Kjører kontrollerte bakgrunnsoppgaver uten å blokkere webappen.", "Bakgrunnstjenester må være tillatt i Render."),
+    7: ("Aktiverer den autonome analyse- og beslutningskjeden.", "Ingen ekstra Render-innstilling."),
+    8: ("Tillater produksjonshandel etter full test og eksplisitt godkjenning.", "Krever eksplisitt produksjonsgodkjenning."),
+}
+
+_TECHNICAL_REQUIREMENTS = {
+    2: "REPORT_SCHEDULER_ENABLED=true (og ALLOW_SCHEDULER_IN_TEST=true i testmiljø)",
+    3: "PUSHOVER_APP_TOKEN + PUSHOVER_USER_KEY (og ALLOW_NOTIFICATIONS_IN_TEST=true i testmiljø)",
+    4: "PAPER_TRADING_ENABLED=true (og ALLOW_PAPER_TRADING_IN_TEST=true i testmiljø)",
+    5: "DATABASE_URL eller varig Render Disk",
+    6: "RUNTIME_BACKGROUND_ENABLED=true + ENABLE_WEB_BACKGROUND_SERVICES=true (og ALLOW_BACKGROUND_IN_TEST=true i testmiljø)",
+    8: "Eksplisitt produksjonsgodkjenning",
+}
+
 _STATUS_META = {
     "PÅ": ("🟢", "Aktiv"),
     "AV": ("🔴", "Av"),
@@ -162,11 +183,22 @@ def render_drift_center(st, *, current_user: dict[str, Any] | None = None) -> No
             "Effektiv status": effective,
             "Status": _status_label(effective),
             "Detalj": detail,
-            "Eksternt krav": requirement or "Ingen",
+            "Eksternt krav": _STEP_HELP[number][1],
         })
 
     active_count = sum(1 for status in effective_by_step.values() if status == "PÅ")
     st.progress(active_count / len(STEPS), text=f"Fremdrift: {active_count} av {len(STEPS)} trinn er effektivt aktive")
+    next_recommended = next((row for row in rows[:7] if row["Effektiv status"] != "PÅ"), None)
+    if next_recommended:
+        step_no = int(next_recommended["Steg"])
+        st.info(
+            f"Neste anbefalte steg: {step_no}. {next_recommended['Funksjon']} — "
+            f"{_STEP_HELP[step_no][0]} Nåværende status: {_status_label(next_recommended['Effektiv status'])}."
+        )
+    elif effective_by_step.get(8) != "PÅ":
+        st.warning("Steg 1–7 er aktive. Neste mulige steg er produksjonshandel, men bare etter fullført live-test og eksplisitt godkjenning.")
+    else:
+        st.success("Alle åtte trinn er effektivt aktive.")
     _render_status_cards(st, rows)
 
     with st.expander("Detaljert status og eksterne krav", expanded=False):
@@ -178,9 +210,9 @@ def render_drift_center(st, *, current_user: dict[str, Any] | None = None) -> No
         values: dict[str, bool] = {}
         for number, label, key, _, requirement in STEPS[:7]:
             effective = effective_by_step[number]
-            help_text = f"Steg {number}. Effektiv status: {_status_label(effective)}."
+            help_text = f"Steg {number}. {_STEP_HELP[number][0]} Effektiv status: {_status_label(effective)}."
             if requirement:
-                help_text += f" Krever også: {requirement}."
+                help_text += f" {_STEP_HELP[number][1]}"
             values[key] = st.checkbox(
                 f"{number}. {label} · {_status_label(effective)}",
                 value=requested[key],
@@ -283,14 +315,14 @@ def render_drift_center(st, *, current_user: dict[str, Any] | None = None) -> No
         missing = [str(step) for step in range(1, 8) if effective_by_step.get(step) != "PÅ"]
         st.info("Produksjonsaktivering er låst. Følgende trinn er ikke effektivt aktive: " + ", ".join(missing))
 
-    with st.expander("Render-krav og aktiveringshjelp", expanded=False):
-        st.markdown(
-            "- Scheduler: `REPORT_SCHEDULER_ENABLED=true` og i testmiljø `ALLOW_SCHEDULER_IN_TEST=true`.\n"
-            "- Pushover: `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` og i testmiljø `ALLOW_NOTIFICATIONS_IN_TEST=true`.\n"
-            "- Paper Trading: `PAPER_TRADING_ENABLED=true` og i testmiljø `ALLOW_PAPER_TRADING_IN_TEST=true`.\n"
-            "- Bakgrunn: `RUNTIME_BACKGROUND_ENABLED=true`, `ENABLE_WEB_BACKGROUND_SERVICES=true` og i testmiljø `ALLOW_BACKGROUND_IN_TEST=true`.\n"
-            "- Produksjonshandel skal ikke aktiveres før steg 1–7 er testet uten 502 eller instansrestart."
-        )
+    with st.expander("Tekniske Render-krav", expanded=False):
+        st.caption("Denne delen er for administrator. Vanlige brukere trenger ikke forholde seg til variabelnavnene.")
+        technical_rows = [
+            {"Steg": step, "Funksjon": STEPS[step - 1][1], "Teknisk krav": requirement}
+            for step, requirement in _TECHNICAL_REQUIREMENTS.items()
+        ]
+        st.dataframe(technical_rows, width="stretch", hide_index=True)
+        st.warning("Produksjonshandel skal ikke aktiveres før steg 1–7 er testet uten 502-feil eller instansrestart.")
 
     with st.expander("Endringslogg", expanded=False):
         log_rows = list(settings.get("drift_activation_log") or [])
