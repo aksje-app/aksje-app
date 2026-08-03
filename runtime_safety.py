@@ -70,28 +70,64 @@ class PaperTradingDecision:
     reason: str
     environment: str
     configured_value: str
+    source: str = "environment"
+    requested: bool = False
+
+
+def _paper_runtime_request() -> tuple[bool, str]:
+    """Read the persistent admin request without importing Streamlit.
+
+    The setting is the runtime control used by Driftssenter. Environment values
+    remain visible and an invalid environment value still fails closed.
+    """
+    try:
+        from settings_store import load_settings
+        settings = load_settings()
+    except Exception:
+        return False, "unavailable"
+    requested = bool(
+        settings.get("drift_paper_trading_enabled", False)
+        or settings.get("paper_trading_runtime_enabled", False)
+    )
+    return requested, "runtime" if requested else "settings"
 
 
 def paper_trading_decision() -> PaperTradingDecision:
     enabled, valid, raw = parse_env_bool("PAPER_TRADING_ENABLED", default=False)
     environment = deployment_environment()
+    runtime_requested, runtime_source = _paper_runtime_request()
     if not valid:
         return PaperTradingDecision(
             False, "INVALID_CONFIGURATION", "AV", "red",
             "PAPER_TRADING_ENABLED har ugyldig verdi og behandles som AV.", environment, raw,
+            source="environment", requested=runtime_requested,
         )
-    if not enabled:
+
+    # In production, Driftssenter is an explicit authenticated runtime control.
+    # This permits activation without a Render restart while retaining a
+    # fail-closed default. Test environments still require their explicit gate.
+    effective_enabled = bool(enabled or runtime_requested)
+    source = "environment" if enabled else (runtime_source if runtime_requested else "default")
+    if not effective_enabled:
         return PaperTradingDecision(
             False, "DISABLED", "AV", "red",
-            "Paper Trading er deaktivert av PAPER_TRADING_ENABLED.", environment, raw or "ikke satt",
+            "Paper Trading er ikke aktivert i Driftssenter eller Render.", environment, raw or "ikke satt",
+            source=source, requested=runtime_requested,
         )
     if is_test_environment() and not _allow_in_test("ALLOW_PAPER_TRADING_IN_TEST"):
         return PaperTradingDecision(
             False, "TEST_ENVIRONMENT_BLOCK", "AV", "red",
             "Paper Trading er blokkert i testmiljø uten ALLOW_PAPER_TRADING_IN_TEST=true.", environment, raw,
+            source=source, requested=runtime_requested,
         )
+    reason = (
+        "Paper Trading er aktivert av Render-miljøet."
+        if enabled
+        else "Paper Trading er aktivert i Driftssenter og gjelder umiddelbart."
+    )
     return PaperTradingDecision(
-        True, "ENABLED", "AKTIV", "green", "Paper Trading er eksplisitt aktivert.", environment, raw,
+        True, "ENABLED", "AKTIV", "green", reason, environment, raw or "ikke satt",
+        source=source, requested=runtime_requested,
     )
 
 

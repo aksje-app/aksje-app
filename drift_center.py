@@ -16,7 +16,7 @@ STEPS = (
     (1, "Markedsskanning", "market_scanning_enabled", "background_scanning_enabled", None),
     (2, "Scheduler", "drift_scheduler_enabled", "drift_scheduler_enabled", "REPORT_SCHEDULER_ENABLED=true"),
     (3, "Pushover", "pushover_enabled", "pushover_enabled", "PUSHOVER_APP_TOKEN + PUSHOVER_USER_KEY"),
-    (4, "Paper Trading", "drift_paper_trading_enabled", "drift_paper_trading_enabled", "PAPER_TRADING_ENABLED=true"),
+    (4, "Paper Trading", "drift_paper_trading_enabled", "drift_paper_trading_enabled", "Runtime via Driftssenter; Render-miljø er alternativ kilde"),
     (5, "Papirlager", "paper_storage_enabled", "paper_storage_enabled", "Varig DATABASE_URL eller Render Disk"),
     (6, "Bakgrunnsprosesser", "drift_background_enabled", "drift_background_enabled", "RUNTIME_BACKGROUND_ENABLED=true"),
     (7, "Autonomi", "autonomy_enabled", "autonomy_enabled", None),
@@ -28,7 +28,7 @@ _STEP_HELP = {
     1: ("Henter og oppdaterer markedskandidater.", "Ingen ekstra Render-innstilling."),
     2: ("Kjører planlagte rapporter uten at en bruker er innlogget.", "Planlagt rapportkjøring må være tillatt i Render."),
     3: ("Sender rapport- og driftsvarsler til Pushover.", "Pushover-nøkler må være konfigurert i Render."),
-    4: ("Tillater kun simulert handel. Ingen ekte ordre sendes.", "Paper Trading må være tillatt i Render."),
+    4: ("Tillater kun simulert handel. Ingen ekte ordre sendes.", "Aktiveres direkte i Driftssenter; testmiljø krever egen sikkerhetstillatelse."),
     5: ("Lagrer simulert portefølje og historikk varig.", "Krever PostgreSQL eller en varig Render-disk."),
     6: ("Kjører kontrollerte bakgrunnsoppgaver uten å blokkere webappen.", "Bakgrunnstjenester må være tillatt i Render."),
     7: ("Aktiverer den autonome analyse- og beslutningskjeden.", "Ingen ekstra Render-innstilling."),
@@ -38,7 +38,7 @@ _STEP_HELP = {
 _TECHNICAL_REQUIREMENTS = {
     2: "REPORT_SCHEDULER_ENABLED=true (og ALLOW_SCHEDULER_IN_TEST=true i testmiljø)",
     3: "PUSHOVER_APP_TOKEN + PUSHOVER_USER_KEY (og ALLOW_NOTIFICATIONS_IN_TEST=true i testmiljø)",
-    4: "PAPER_TRADING_ENABLED=true (og ALLOW_PAPER_TRADING_IN_TEST=true i testmiljø)",
+    4: "Driftssenter runtime eller PAPER_TRADING_ENABLED=true; ALLOW_PAPER_TRADING_IN_TEST=true kreves i testmiljø",
     5: "DATABASE_URL eller varig Render Disk",
     6: "RUNTIME_BACKGROUND_ENABLED=true + ENABLE_WEB_BACKGROUND_SERVICES=true (og ALLOW_BACKGROUND_IN_TEST=true i testmiljø)",
     8: "Eksplisitt produksjonsgodkjenning",
@@ -73,6 +73,8 @@ def _apply_requested_states(requested: dict[str, bool], *, actor: str = "admin")
         value = bool(requested.get(key, False))
         settings[key] = value
         settings[mirror_key] = value
+        if key == "drift_paper_trading_enabled":
+            settings["paper_trading_runtime_enabled"] = value
     if not settings.get("auto_trading_enabled"):
         settings["auto_trading_paused"] = False
     changed = [label for _, label, key, _, _ in STEPS if before.get(key) != bool(settings.get(key))]
@@ -110,10 +112,11 @@ def _effective_status(step: int, settings: dict[str, Any], safety: dict[str, Any
     if step == 3:
         return ("PÅ", safety.get("notification_reason") or "Pushover aktiv") if safety.get("notifications_allowed") else ("VENTER", safety.get("notification_reason") or "Pushover-nøkler mangler")
     if step == 4:
-        if not bool(settings.get("paper_storage_enabled", False)):
-            return "VENTER", "Papirlager steg 5 må aktiveres før Paper Trading kan brukes"
         paper = safety.get("paper_trading") or {}
-        return ("PÅ", paper.get("reason") or "Paper Trading aktiv") if paper.get("allowed") else ("VENTER", paper.get("reason") or "Sikkerhetsport blokkerer")
+        source = str(paper.get("source") or "ukjent")
+        detail = paper.get("reason") or "Sikkerhetsport blokkerer"
+        detail = f"{detail} Kilde: {source}."
+        return ("PÅ", detail) if paper.get("allowed") else ("VENTER", detail)
     if step == 5:
         persistent = bool(recovery.get("paper_storage_persistent"))
         return ("PÅ", "Papirlager er varig") if persistent else ("VENTER", "Varig papirlager er ikke tilgjengelig")
@@ -203,6 +206,21 @@ def render_drift_center(st, *, current_user: dict[str, Any] | None = None) -> No
 
     with st.expander("Detaljert status og eksterne krav", expanded=False):
         st.dataframe(rows, width="stretch", hide_index=True)
+
+    paper_diag = safety.get("paper_trading") or {}
+    with st.expander("Paper Trading – aktiveringsdiagnostikk", expanded=False):
+        st.dataframe([
+            {
+                "Funksjon": "Paper Trading",
+                "Ønsket status": "PÅ" if requested.get("drift_paper_trading_enabled") else "AV",
+                "Effektiv status": "PÅ" if paper_diag.get("allowed") else "AV",
+                "Kilde": paper_diag.get("source") or "ukjent",
+                "Render-verdi": paper_diag.get("configured_value") or "ikke satt",
+                "Miljø": paper_diag.get("environment") or "ukjent",
+                "Detalj": paper_diag.get("reason") or "",
+            }
+        ], width="stretch", hide_index=True)
+        st.caption("Kilde 'runtime' betyr at Driftssenter har aktivert funksjonen varig uten omstart. Render-miljøet vises separat.")
 
     st.markdown("### Kontrollert aktivering · steg 1–7")
     st.caption("Velg ønsket status. Senere trinn kan ikke lagres som aktive dersom et tidligere trinn er av.")

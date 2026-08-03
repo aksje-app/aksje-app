@@ -46,6 +46,7 @@ DEFAULT_SETTINGS = {
     "market_scanning_enabled": False,
     "drift_scheduler_enabled": False,
     "drift_paper_trading_enabled": False,
+    "paper_trading_runtime_enabled": False,
     "paper_storage_enabled": False,
     "drift_background_enabled": False,
     "autonomy_enabled": False,
