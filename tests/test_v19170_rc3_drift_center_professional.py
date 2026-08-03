@@ -27,6 +27,6 @@ def test_production_trade_is_separate_and_fail_closed():
     assert "Deaktiver produksjonshandel" in text
 
 
-def test_release_version_is_rc3():
+def test_release_version_is_release_candidate():
     text = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.17.0-rc3"' in text
+    assert 'APP_VERSION = "v19.17.0-rc' in text

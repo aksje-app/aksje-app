@@ -233,7 +233,7 @@ class EvidenceIntegrityTests(unittest.TestCase):
         version = Path("app_version.py").read_text(encoding="utf-8")
         notes = Path("RELEASE_NOTES_v19.17.0_RC1.md").read_text(encoding="utf-8")
         self.assertIn('v19.0.11:', version)
-        self.assertIn('APP_VERSION = "v19.17.0-rc1"', version)
+        self.assertIn('APP_VERSION = "v19.17.0-rc5"', version)
         self.assertIn("v19.17.0", notes)
         self.assertIn("rapportintegritet", notes.lower())
 
