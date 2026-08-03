@@ -54,7 +54,10 @@ def render_live_market_banner(_legacy_context):
         price_txt = "Data mangler" if price_missing else _banner_price_text_v18623(raw_price)
         delta_txt = "" if price_missing else f"{delta:+.2f}"
         pct_txt = "" if price_missing else f"{pct:+.2f}%"
-        marker_html = _banner_marker_html_v18610(item.get("alert_marker"))
+        marker_value = item.get("alert_marker")
+        if not marker_value:
+            marker_value = "neutral" if price_missing else ("green" if pct > 0 else ("red" if pct < 0 else "yellow"))
+        marker_html = _banner_marker_html_v18610(marker_value)
         marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
         href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
 
