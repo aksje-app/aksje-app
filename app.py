@@ -3940,7 +3940,7 @@ st.markdown(
         display: block !important;
     }
     @media (max-width: 900px) {
-        [data-testid="stMetric"] { min-height: 46px !important; padding: 6px 8px !important; }
+        [data-testid="stMetric"] { min-height: 54px !important; padding: 6px 8px !important; }
         [data-testid="stMetricValue"] { font-size: 0.95rem !important; }
         .v153-control-note { min-width: 0 !important; width: 100% !important; }
     }
@@ -3995,6 +3995,8 @@ LIVE_BANNER_LABELS = {
     "VALE3.SA": "Vale",
     "ITUB4.SA": "Itau Unibanco PN",
     "BBDC4.SA": "Banco Bradesco PN",
+    "XAUUSD": "Gull",
+    "UKOILUSD": "Brent Spot",
 }
 
 LIVE_BANNER_MARKETS = ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
@@ -4357,12 +4359,22 @@ def resolve_live_banner_label(ticker, fallback_label=None):
 
 def parse_banner_tickers(settings=None):
     """
-    Leser tickere fra settings.
-    Brukeren kan legge til/fjerne ved å redigere tekstfeltene i sidepanelet.
-    V9: banneret kan filtreres til valgte markeder.
+    Leser tickere fra settings, normaliserer historiske symbolvarianter og
+    fjerner duplikater etter kanonisering. Første forekomst beholdes.
     """
     settings = settings or load_settings()
-    return parse_banner_settings(settings, LIVE_BANNER_MARKETS, LIVE_BANNER_DEFAULT_TICKERS, LIVE_BANNER_LABELS)
+    raw_items = parse_banner_settings(settings, LIVE_BANNER_MARKETS, LIVE_BANNER_DEFAULT_TICKERS, LIVE_BANNER_LABELS)
+    items = []
+    seen = set()
+    for market, ticker, label in raw_items:
+        canonical = _live_banner_canonical_ticker_v19170rc6(ticker)
+        key = canonical.upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        resolved_label = LIVE_BANNER_LABELS.get(canonical) or label or canonical
+        items.append((market, canonical, resolved_label))
+    return items
 
 
 def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
@@ -4443,25 +4455,27 @@ def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
     )
 
 
-_LIVE_BANNER_PROVIDER_ALIASES_V19170RC6 = {
+_LIVE_BANNER_PROVIDER_ALIASES_V19170RC7 = {
     # Canonical display symbols -> Yahoo Finance provider symbols.
     "XAUUSD": "GC=F",       # Gold futures proxy for spot gold.
     "UKOILUSD": "BZ=F",    # Brent futures proxy for UK oil.
 }
 
-_LIVE_BANNER_CANONICAL_TICKERS_V19170RC6 = {
+_LIVE_BANNER_CANONICAL_TICKERS_V19170RC7 = {
     # Historical/mistyped display symbols are normalised before lookup and display.
     "XAUUSD=F": "XAUUSD",
+    "XAU/USD": "XAUUSD",
     "UKOILUSD=F": "UKOILUSD",
+    "UKOIL/USD": "UKOILUSD",
 }
 
 def _live_banner_canonical_ticker_v19170rc6(ticker: str) -> str:
     value = str(ticker or "").strip().upper()
-    return _LIVE_BANNER_CANONICAL_TICKERS_V19170RC6.get(value, value)
+    return _LIVE_BANNER_CANONICAL_TICKERS_V19170RC7.get(value, value)
 
 def _live_banner_provider_ticker_v19170rc5(ticker: str) -> str:
     canonical = _live_banner_canonical_ticker_v19170rc6(ticker)
-    return _LIVE_BANNER_PROVIDER_ALIASES_V19170RC6.get(canonical, canonical)
+    return _LIVE_BANNER_PROVIDER_ALIASES_V19170RC7.get(canonical, canonical)
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _download_live_banner_history(tickers):
@@ -4581,7 +4595,7 @@ def fetch_live_banner_snapshot(banner_items):
 def _download_banner_detail_history_v18610(ticker: str, period_label: str):
     if yf is None:
         return None, "yfinance er ikke tilgjengelig"
-    ticker = str(ticker or "").strip().upper()
+    ticker = _live_banner_provider_ticker_v19170rc5(str(ticker or "").strip().upper())
     period_label = str(period_label or "1 mnd")
     if not ticker:
         return None, "Ticker mangler"
@@ -4769,9 +4783,9 @@ def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
             "price_source": price_source,
             "delta": delta,
             "pct": pct,
-            "sparkline": _sparkline_svg(spark_values, positive=pct >= 0, reference=(spark_values[-2] if len(spark_values) >= 2 else None)),
-            "alert_marker": _banner_marker_from_status_v18610("normal"),
-            "alert_explanation": "Åpne tickerdetalj" if price is not None else "Kursdata mangler",
+            "sparkline": (_sparkline_svg(spark_values, positive=pct >= 0, reference=(spark_values[-2] if len(spark_values) >= 2 else None)) if price is not None else ""),
+            "alert_marker": (_banner_marker_from_status_v18610("normal") if price is not None else {"css": "yellow", "symbol": "", "label": "Data mangler", "status": "missing"}),
+            "alert_explanation": "Åpne tickerdetalj" if price is not None else "Ingen gyldig kurs fra valgt datakilde",
         })
     return cards
 
@@ -18270,7 +18284,7 @@ st.markdown("""
     list-style: none !important;
     cursor: pointer !important;
     min-width: 94px !important;
-    min-height: 46px !important;
+    min-height: 54px !important;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -18878,7 +18892,7 @@ html body .stApp .paper-trade-box-v18615 {
 
 /* v18.6.38: KPI, sidebar, banner og kontrollsenter phase 4 */
 html body .stApp .dash2026-kpi-card {
-  min-height: 70px !important;
+  min-height: 80px !important;
   padding: .62rem .78rem !important;
   border-radius: 18px !important;
 }
@@ -18890,13 +18904,13 @@ html body .stApp .dash2026-kpi-sub {
   white-space: normal !important;
   line-height: 1.18 !important;
 }
-/* v19.17.0 RC6: banner cards must have room for market, name, price and intraday change. */
+/* v19.17.0 RC7: banner cards, missing-data state and macro symbol mapping. */
 html body .stApp .ticker-card,
 html body .stApp .live-banner-card,
 html body .stApp .special-watch-card,
 html body .stApp .ticker-tape-item {
-  height: 58px !important;
-  min-height: 58px !important;
+  height: 66px !important;
+  min-height: 66px !important;
   max-height: none !important;
   padding-top: 6px !important;
   padding-bottom: 6px !important;
@@ -18906,12 +18920,12 @@ html body .stApp .ticker-tape,
 html body .stApp .ticker-tape-track,
 html body .stApp .live-banner-strip,
 html body .stApp .special-watch-strip {
-  min-height: 70px !important;
+  min-height: 80px !important;
   max-height: none !important;
   overflow: visible !important;
 }
 html body .stApp .ticker-info {
-  min-height: 46px !important;
+  min-height: 54px !important;
   overflow: visible !important;
 }
 html body .stApp .ticker-change {
@@ -18967,7 +18981,7 @@ html body .stApp .ptw-control-mini-title {
   margin-bottom: .30rem !important;
 }
 html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
-  min-height: 46px !important;
+  min-height: 54px !important;
   font-size: .80rem !important;
 }
 @media (max-width: 760px) {

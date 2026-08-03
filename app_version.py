@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.17.0-rc6"
+APP_VERSION = "v19.17.0-rc7"
 APP_VERSION_NAME = "Release Candidate 6 – bannerdata og synlig intradagendring"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
