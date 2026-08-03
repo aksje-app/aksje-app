@@ -45,6 +45,9 @@ def _append_log(settings: dict[str, Any], message: str) -> None:
 def _apply_requested_states(requested: dict[str, bool], *, actor: str = "admin") -> dict[str, Any]:
     settings = load_settings()
     before = {key: bool(settings.get(key, False)) for _, _, key, _, _ in STEPS}
+    prior_requested_ready = all(bool(requested.get(STEPS[i][2], False)) for i in range(7))
+    if not prior_requested_ready:
+        requested["auto_trading_enabled"] = False
     for _, _, key, mirror_key, _ in STEPS:
         value = bool(requested.get(key, False))
         settings[key] = value
@@ -98,6 +101,12 @@ def _effective_status(step: int, settings: dict[str, Any], safety: dict[str, Any
     if step == 7:
         return "PÅ", "Autonomi er tilgjengelig"
     if step == 8:
+        # RC4 fail-closed rule: production can never be effective while any
+        # prerequisite step 1-7 is not effectively active.
+        for prior_step in range(1, 8):
+            prior_status, _ = _effective_status(prior_step, settings, safety, recovery)
+            if prior_status != "PÅ":
+                return "BLOKKERT", f"Steg {prior_step} må være effektivt aktivt først"
         if settings.get("auto_trading_emergency_stop"):
             return "BLOKKERT", "Nødstopp er aktiv"
         return "PÅ", "Produksjonshandel er aktivert"

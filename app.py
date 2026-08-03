@@ -9136,8 +9136,9 @@ show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, ren
 
 # v19.17.0 RC2: Driftssenter is a dedicated page, independent from AI Kontrollsenter.
 _active_nav_v19170rc2 = str(
-    st.session_state.get("active_nav_target_v18674c")
-    or st.session_state.get("ai_control_center_force_nav_v18663")
+    # RC4: a fresh user/menu target must win over the previously active page.
+    st.session_state.get("ai_control_center_force_nav_v18663")
+    or st.session_state.get("active_nav_target_v18674c")
     or ""
 ).strip().lower()
 if _active_nav_v19170rc2 in {"drift", "driftssenter", "drift_center"}:

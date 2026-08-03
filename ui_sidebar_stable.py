@@ -169,6 +169,9 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
     nav = str(nav or "").strip().lower()
     _clear_control_center_nav_state_v18663(st)
     st.session_state["ai_control_center_force_nav_v18663"] = nav
+    # RC4: every explicit sidebar click becomes the canonical active page.
+    # This prevents Driftssenter's previous active target from winning after a menu click.
+    st.session_state["active_nav_target_v18674c"] = nav
     st.session_state["navigation_user_revision_v19143"] = int(st.session_state.get("navigation_user_revision_v19143", 0) or 0) + 1
     st.session_state["navigation_last_source_v19143"] = "USER"
     if nav == "dashboard":
