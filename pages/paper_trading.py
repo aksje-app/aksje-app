@@ -19,7 +19,13 @@ def render_paper_trading_dashboard(_legacy_context):
     _paper_rules = load_rules()
     paper_gate_v19143 = paper_trading_decision()
     if not paper_gate_v19143.allowed:
-        st.error(f"Paper Trading er AV: {paper_gate_v19143.reason}")
+        st.warning("Paper Trading er slått av i Driftssenter (steg 4). Simulert portefølje beholdes, men nye kjøp og salg er deaktivert.")
+        if st.button("🧭 Åpne Driftssenter", key="paper_open_drift_center_v19170rc5", type="primary"):
+            st.session_state["active_nav_target_v18674c"] = "drift_center"
+            st.session_state["ai_control_center_force_nav_v18663"] = "drift_center"
+            st.rerun()
+        st.caption("Detaljert blokkdiagnostikk skjules mens hovedfunksjonen er av. Den vises automatisk igjen når Paper Trading aktiveres.")
+        return
 
     status_cols = st.columns([1.0, 1.3, 1.7])
     with status_cols[0]:
