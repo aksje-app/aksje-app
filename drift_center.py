@@ -23,6 +23,14 @@ STEPS = (
     (8, "Produksjonshandel", "auto_trading_enabled", "auto_trading_enabled", "Eksplisitt produksjonsgodkjenning"),
 )
 
+_STATUS_META = {
+    "PÅ": ("🟢", "Aktiv"),
+    "AV": ("🔴", "Av"),
+    "VENTER": ("🟡", "Venter"),
+    "BLOKKERT": ("🟠", "Blokkert"),
+    "UKJENT": ("⚪", "Ukjent"),
+}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -41,7 +49,6 @@ def _apply_requested_states(requested: dict[str, bool], *, actor: str = "admin")
         value = bool(requested.get(key, False))
         settings[key] = value
         settings[mirror_key] = value
-    # Existing safety semantics remain authoritative.
     if not settings.get("auto_trading_enabled"):
         settings["auto_trading_paused"] = False
     changed = [label for _, label, key, _, _ in STEPS if before.get(key) != bool(settings.get(key))]
@@ -97,6 +104,30 @@ def _effective_status(step: int, settings: dict[str, Any], safety: dict[str, Any
     return "UKJENT", ""
 
 
+def _status_label(status: str) -> str:
+    icon, text = _STATUS_META.get(status, _STATUS_META["UKJENT"])
+    return f"{icon} {text}"
+
+
+def _render_status_cards(st, rows: list[dict[str, Any]]) -> None:
+    st.markdown("### Status trinn 1–8")
+    for start in range(0, len(rows), 4):
+        cols = st.columns(4)
+        for col, row in zip(cols, rows[start:start + 4]):
+            with col:
+                status = str(row["Effektiv status"])
+                st.markdown(f"**Steg {row['Steg']} · {row['Funksjon']}**")
+                st.markdown(f"### {_status_label(status)}")
+                st.caption(str(row["Detalj"]))
+
+
+def _first_unavailable_prior(effective_by_step: dict[int, str], target_step: int) -> int | None:
+    for step in range(1, target_step):
+        if effective_by_step.get(step) != "PÅ":
+            return step
+    return None
+
+
 def render_drift_center(st, *, current_user: dict[str, Any] | None = None) -> None:
     settings = load_settings()
     safety = runtime_safety_snapshot()
@@ -107,84 +138,141 @@ def render_drift_center(st, *, current_user: dict[str, Any] | None = None) -> No
         recovery = {"paper_storage_persistent": False, "blockers": [str(exc)]}
 
     st.markdown("## 🧭 Driftssenter")
-    st.caption("Alle aktiveringstrinn 1–8 er samlet her. Status lagres varig. Render-miljøvariabler kan ikke endres fra appen og vises derfor som egne krav.")
+    st.caption("Kontrollert aktivering av trinn 1–8. Status lagres varig, mens Render-miljøkrav vises separat.")
 
     requested = {key: bool(settings.get(key, False)) for _, _, key, _, _ in STEPS}
-    rows = []
+    rows: list[dict[str, Any]] = []
+    effective_by_step: dict[int, str] = {}
     for number, label, key, _, requirement in STEPS:
         effective, detail = _effective_status(number, settings, safety, recovery)
+        effective_by_step[number] = effective
         rows.append({
             "Steg": number,
             "Funksjon": label,
             "Ønsket": "PÅ" if requested[key] else "AV",
             "Effektiv status": effective,
+            "Status": _status_label(effective),
             "Detalj": detail,
             "Eksternt krav": requirement or "Ingen",
         })
-    st.dataframe(rows, width="stretch", hide_index=True)
 
-    with st.form("drift_center_activation_form_v19168", clear_on_submit=False):
-        st.markdown("### Aktivering 1–8")
+    active_count = sum(1 for status in effective_by_step.values() if status == "PÅ")
+    st.progress(active_count / len(STEPS), text=f"Fremdrift: {active_count} av {len(STEPS)} trinn er effektivt aktive")
+    _render_status_cards(st, rows)
+
+    with st.expander("Detaljert status og eksterne krav", expanded=False):
+        st.dataframe(rows, width="stretch", hide_index=True)
+
+    st.markdown("### Kontrollert aktivering · steg 1–7")
+    st.caption("Velg ønsket status. Senere trinn kan ikke lagres som aktive dersom et tidligere trinn er av.")
+    with st.form("drift_center_activation_form_v19170rc3", clear_on_submit=False):
         values: dict[str, bool] = {}
-        for number, label, key, _, requirement in STEPS:
-            help_text = f"Steg {number}."
+        for number, label, key, _, requirement in STEPS[:7]:
+            effective = effective_by_step[number]
+            help_text = f"Steg {number}. Effektiv status: {_status_label(effective)}."
             if requirement:
                 help_text += f" Krever også: {requirement}."
-            if number == 8:
-                help_text += " Aktiveres alltid sist."
             values[key] = st.checkbox(
-                f"{number}. {label}",
+                f"{number}. {label} · {_status_label(effective)}",
                 value=requested[key],
-                key=f"drift_center_toggle_{key}_v19168",
+                key=f"drift_center_toggle_{key}_v19170rc3",
                 help=help_text,
             )
-        production_confirm = st.checkbox(
-            "Jeg bekrefter at steg 8 bare skal brukes etter fullført test av steg 1–7",
-            value=False,
-            key="drift_center_production_confirm_v19168",
-        )
-        save = st.form_submit_button("Lagre valgte statuser", type="primary", width="stretch")
+        save = st.form_submit_button("Lagre trinn 1–7", type="primary", width="stretch")
 
     if save:
-        if values.get("auto_trading_enabled") and not production_confirm:
-            st.error("Steg 8 ble ikke lagret: produksjonsbekreftelsen mangler.")
-            values["auto_trading_enabled"] = False
-        # Fail closed: a later step cannot be active while an earlier step is off.
+        values["auto_trading_enabled"] = requested.get("auto_trading_enabled", False)
         first_off = None
-        for number, _, key, _, _ in STEPS:
+        for number, _, key, _, _ in STEPS[:7]:
             if not values.get(key):
                 first_off = number
                 break
         if first_off is not None:
-            for number, _, key, _, _ in STEPS:
+            for number, _, key, _, _ in STEPS[:7]:
                 if number > first_off:
                     values[key] = False
         actor = str((current_user or {}).get("username") or "admin")
-        _apply_requested_states(values, actor=actor)
-        st.success("Driftsstatus lagret. Effektiv status avhenger fortsatt av sikkerhetsporter og Render-konfigurasjon.")
+        with st.status("Lagrer og kontrollerer driftsstatus …", expanded=True) as status_box:
+            st.write("Kontrollerer rekkefølge og sikkerhetsporter …")
+            _apply_requested_states(values, actor=actor)
+            st.write("Lagrer varig konfigurasjon …")
+            st.write("Oppdaterer effektiv status …")
+            status_box.update(label="Driftsstatus er lagret", state="complete", expanded=True)
         st.rerun()
 
-    a, b = st.columns(2)
-    with a:
-        if st.button("▶️ Aktiver neste steg", key="drift_center_next_v19168", type="primary", width="stretch"):
-            next_step = next((item for item in STEPS if not requested[item[2]]), None)
+    left, right = st.columns(2)
+    with left:
+        if st.button("▶️ Aktiver neste steg", key="drift_center_next_v19170rc3", type="primary", width="stretch"):
+            next_step = next((item for item in STEPS[:7] if not requested[item[2]]), None)
             if next_step is None:
-                st.info("Alle steg er allerede forespurt aktivert.")
-            elif next_step[0] == 8:
-                st.warning("Steg 8 må aktiveres manuelt med produksjonsbekreftelse.")
+                st.info("Steg 1–7 er allerede forespurt aktivert. Produksjonshandel håndteres separat nederst.")
             else:
-                requested[next_step[2]] = True
-                actor = str((current_user or {}).get("username") or "admin")
-                _apply_requested_states(requested, actor=f"{actor} aktiverte steg {next_step[0]}")
-                st.success(f"Steg {next_step[0]} – {next_step[1]} er forespurt aktivert.")
-                st.rerun()
-    with b:
-        confirm_safe = st.checkbox("Bekreft sikker modus", key="drift_center_safe_confirm_v19168")
-        if st.button("🛑 Tilbake til sikker modus", key="drift_center_safe_v19168", disabled=not confirm_safe, width="stretch"):
+                blocker = _first_unavailable_prior(effective_by_step, next_step[0])
+                if blocker is not None:
+                    st.error(f"Steg {next_step[0]} kan ikke aktiveres ennå. Steg {blocker} må først ha effektiv status Aktiv.")
+                else:
+                    actor = str((current_user or {}).get("username") or "admin")
+                    with st.status(f"Aktiverer steg {next_step[0]} – {next_step[1]} …", expanded=True) as status_box:
+                        st.write("Kontrollerer tidligere trinn … OK")
+                        requested[next_step[2]] = True
+                        _apply_requested_states(requested, actor=f"{actor} aktiverte steg {next_step[0]}")
+                        st.write("Lagrer ønsket status … OK")
+                        st.write("Kontrollerer eksterne krav …")
+                        status_box.update(label=f"Steg {next_step[0]} er forespurt aktivert", state="complete", expanded=True)
+                    st.rerun()
+    with right:
+        confirm_safe = st.checkbox("Bekreft sikker modus", key="drift_center_safe_confirm_v19170rc3")
+        if st.button("🛑 Tilbake til sikker modus", key="drift_center_safe_v19170rc3", disabled=not confirm_safe, width="stretch"):
             actor = str((current_user or {}).get("username") or "admin")
-            _safe_mode(actor=actor)
-            st.success("Sikker modus er aktivert. Alle steg er AV og nødstopp/full stopp er satt.")
+            with st.status("Aktiverer sikker modus …", expanded=True) as status_box:
+                st.write("Slår av trinn 1–8 …")
+                _safe_mode(actor=actor)
+                st.write("Aktiverer nødstopp og full stopp …")
+                status_box.update(label="Sikker modus er aktivert", state="complete", expanded=True)
             st.rerun()
+
+    st.divider()
+    st.markdown("## ⚠️ Produksjonshandel · steg 8")
+    st.warning("Produksjonshandel er siste trinn og skal bare aktiveres etter at steg 1–7 er testet uten 502-feil, instansrestart eller uavklarte sikkerhetsporter.")
+    production_effective = effective_by_step[8]
+    st.markdown(f"**Nåværende status:** {_status_label(production_effective)} — {rows[7]['Detalj']}")
+
+    prior_ready = all(effective_by_step.get(step) == "PÅ" for step in range(1, 8))
+    production_confirm = st.checkbox(
+        "Jeg bekrefter at steg 1–7 er ferdig testet og at produksjonshandel kan aktiveres",
+        key="drift_center_production_confirm_v19170rc3",
+        disabled=not prior_ready,
+    )
+    prod_a, prod_b = st.columns(2)
+    with prod_a:
+        if st.button(
+            "⚠️ Aktiver produksjonshandel",
+            key="drift_center_enable_production_v19170rc3",
+            type="primary",
+            disabled=not (prior_ready and production_confirm) or requested.get("auto_trading_enabled", False),
+            width="stretch",
+        ):
+            requested["auto_trading_enabled"] = True
+            actor = str((current_user or {}).get("username") or "admin")
+            _apply_requested_states(requested, actor=f"{actor} aktiverte produksjonshandel")
+            st.success("Produksjonshandel er forespurt aktivert. Sikkerhetsporter og nødstopp er fortsatt autoritative.")
+            st.rerun()
+    with prod_b:
+        if st.button(
+            "Deaktiver produksjonshandel",
+            key="drift_center_disable_production_v19170rc3",
+            disabled=not requested.get("auto_trading_enabled", False),
+            width="stretch",
+        ):
+            requested["auto_trading_enabled"] = False
+            actor = str((current_user or {}).get("username") or "admin")
+            _apply_requested_states(requested, actor=f"{actor} deaktiverte produksjonshandel")
+            st.success("Produksjonshandel er deaktivert.")
+            st.rerun()
+
+    if not prior_ready:
+        missing = [str(step) for step in range(1, 8) if effective_by_step.get(step) != "PÅ"]
+        st.info("Produksjonsaktivering er låst. Følgende trinn er ikke effektivt aktive: " + ", ".join(missing))
 
     with st.expander("Render-krav og aktiveringshjelp", expanded=False):
         st.markdown(
