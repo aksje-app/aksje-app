@@ -62,7 +62,11 @@ def render_live_market_banner(_legacy_context):
         href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
 
         direction = "▲" if pct > 0 else ("▼" if pct < 0 else "•")
-        change_html = "" if price_missing else f"<div class='ticker-change {pct_class}'>{direction} {pct_txt}</div>"
+        change_html = (
+            "<div class='ticker-change missing'>Ingen markedsdata</div>"
+            if price_missing
+            else f"<div class='ticker-change {pct_class}'>{direction} {pct_txt}</div>"
+        )
         spark_html = "" if price_missing else str(item.get("sparkline") or "")
         cards.append(
             f"<a class='ticker-tape-item' target='_self' href='{href}' title='{marker_title}'>"
@@ -97,7 +101,7 @@ def render_live_market_banner(_legacy_context):
         border-bottom: 1px solid rgba(15,23,42,0.14);
         background: #f8fafc;
         border-radius: 12px;
-        min-height: 70px;
+        min-height: 80px;
         box-shadow: inset 0 0 0 1px rgba(15,23,42,0.03);
     }
     .ticker-tape-track {
@@ -118,7 +122,7 @@ def render_live_market_banner(_legacy_context):
         align-items: center;
         gap: 8px;
         min-width: 236px;
-        height: 58px;
+        height: 66px;
         padding: 6px 9px;
         border-radius: 0;
         background: #ffffff;
@@ -161,8 +165,22 @@ def render_live_market_banner(_legacy_context):
         display: flex;
         flex-direction: column;
         justify-content: center;
+        min-height: 54px;
         line-height: 1.12;
+        overflow: visible;
     }
+    .ticker-change {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: 950;
+        line-height: 1.2;
+        margin-top: 2px;
+        min-height: 15px;
+        overflow: visible;
+    }
+    .ticker-change.pos { color: #16a34a; }
+    .ticker-change.neg { color: #dc2626; }
+    .ticker-change.missing { color: #b45309; font-size: 0.66rem; }
     .ticker-market {
         font-size: 0.56rem;
         font-weight: 800;
@@ -241,7 +259,7 @@ def render_live_market_banner(_legacy_context):
         to { transform: translateX(-50%); }
     }
     @media (max-width: 1100px) {
-        .ticker-tape-wrap { min-height: 58px; }
+        .ticker-tape-wrap { min-height: 66px; }
         .ticker-tape-item {
             grid-template-columns: 22px 134px 102px;
             min-width: 276px;
