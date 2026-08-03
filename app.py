@@ -4443,15 +4443,25 @@ def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
     )
 
 
-_LIVE_BANNER_PROVIDER_ALIASES_V19170RC5 = {
-    # Display symbols used by the application -> Yahoo Finance provider symbols.
-    "XAUUSD": "GC=F",      # Gold futures, used only as market-data fallback.
-    "UKOILUSD": "BZ=F",   # Brent futures, used only as market-data fallback.
+_LIVE_BANNER_PROVIDER_ALIASES_V19170RC6 = {
+    # Canonical display symbols -> Yahoo Finance provider symbols.
+    "XAUUSD": "GC=F",       # Gold futures proxy for spot gold.
+    "UKOILUSD": "BZ=F",    # Brent futures proxy for UK oil.
 }
 
+_LIVE_BANNER_CANONICAL_TICKERS_V19170RC6 = {
+    # Historical/mistyped display symbols are normalised before lookup and display.
+    "XAUUSD=F": "XAUUSD",
+    "UKOILUSD=F": "UKOILUSD",
+}
+
+def _live_banner_canonical_ticker_v19170rc6(ticker: str) -> str:
+    value = str(ticker or "").strip().upper()
+    return _LIVE_BANNER_CANONICAL_TICKERS_V19170RC6.get(value, value)
+
 def _live_banner_provider_ticker_v19170rc5(ticker: str) -> str:
-    ticker = str(ticker or "").strip().upper()
-    return _LIVE_BANNER_PROVIDER_ALIASES_V19170RC5.get(ticker, ticker)
+    canonical = _live_banner_canonical_ticker_v19170rc6(ticker)
+    return _LIVE_BANNER_PROVIDER_ALIASES_V19170RC6.get(canonical, canonical)
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _download_live_banner_history(tickers):
@@ -4547,11 +4557,12 @@ def fetch_live_banner_snapshot(banner_items):
             pct = ((current / prev) - 1.0) * 100 if prev else 0.0
             volume_stats = _banner_volume_stats_v18610(volume)
 
-            display_label = resolve_live_banner_label(ticker, label)
+            canonical_ticker = _live_banner_canonical_ticker_v19170rc6(ticker)
+            display_label = resolve_live_banner_label(canonical_ticker, label)
 
             cards.append({
                 "market": market,
-                "ticker": ticker,
+                "ticker": canonical_ticker,
                 "provider_ticker": provider_ticker,
                 "label": display_label,
                 "price": current,
@@ -4732,7 +4743,9 @@ def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
             logging.warning("Banner fallback close lookup failed: %s", exc)
     cards = []
     for market, ticker, label in banner_items:
-        close = _close_from_banner_history(history, ticker)
+        canonical_ticker = _live_banner_canonical_ticker_v19170rc6(ticker)
+        provider_ticker = _live_banner_provider_ticker_v19170rc5(canonical_ticker)
+        close = _close_from_banner_history(history, provider_ticker)
         price = None
         delta = 0.0
         pct = 0.0
@@ -4748,8 +4761,9 @@ def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
             price_source = "Sluttkurs"
         cards.append({
             "market": market,
-            "ticker": str(ticker or "").upper(),
-            "label": label or ticker,
+            "ticker": canonical_ticker,
+            "provider_ticker": provider_ticker,
+            "label": label or canonical_ticker,
             "price": price,
             "price_missing": price is None,
             "price_source": price_source,
@@ -5196,7 +5210,7 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
             f"<div class='ticker-market'>{market}</div>"
             f"<div class='ticker-title'>{label}</div>"
             f"<div class='ticker-price'>{html.escape(price_txt)}</div>"
-            f"<div class='ticker-change {pct_class}'>{delta:+.2f} {pct:+.2f}%</div>"
+            f"<div class='ticker-change {pct_class}'>{'▲' if pct > 0 else ('▼' if pct < 0 else '•')} {pct:+.2f}%</div>"
             "</div>"
             f"<div class='ticker-spark'>{card.get('sparkline', '')}</div>"
             "</a>"
@@ -18876,30 +18890,40 @@ html body .stApp .dash2026-kpi-sub {
   white-space: normal !important;
   line-height: 1.18 !important;
 }
+/* v19.17.0 RC6: banner cards must have room for market, name, price and intraday change. */
 html body .stApp .ticker-card,
 html body .stApp .live-banner-card,
 html body .stApp .special-watch-card,
 html body .stApp .ticker-tape-item {
-  height: 28px !important;
-  min-height: 28px !important;
-  max-height: 28px !important;
-  padding-top: 2px !important;
-  padding-bottom: 2px !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  max-height: none !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  overflow: visible !important;
 }
 html body .stApp .ticker-tape,
 html body .stApp .ticker-tape-track,
 html body .stApp .live-banner-strip,
 html body .stApp .special-watch-strip {
-  min-height: 31px !important;
-  max-height: 34px !important;
+  min-height: 70px !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
-html body .stApp .ticker-card * {
-  font-size: .64rem !important;
-  line-height: 1.02 !important;
+html body .stApp .ticker-info {
+  min-height: 46px !important;
+  overflow: visible !important;
+}
+html body .stApp .ticker-change {
+  display: block !important;
+  min-height: 14px !important;
+  line-height: 1.15 !important;
+  margin-top: 2px !important;
+  overflow: visible !important;
 }
 html body .stApp .ticker-spark svg,
 html body .stApp .sparkline svg {
-  max-height: 24px !important;
+  max-height: 28px !important;
 }
 html body section[data-testid="stSidebar"] .auth-sidebar-card {
   padding: .60rem .50rem !important;
@@ -18952,9 +18976,9 @@ html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
   html body .stApp .live-banner-card,
   html body .stApp .special-watch-card,
   html body .stApp .ticker-tape-item {
-    height: 36px !important;
-    min-height: 36px !important;
-    max-height: 36px !important;
+    height: 62px !important;
+    min-height: 62px !important;
+    max-height: none !important;
   }
   html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
     min-height: 54px !important;
