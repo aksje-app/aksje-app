@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static release audit for v19.17.0-rc5.
+"""Static release audit for v19.17.0-rc6.
 
 This audit is intentionally independent of live APIs. It checks the release
 contract that previously drifted between GitHub, Render and generated reports.
@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "v19.17.0-rc5"
+EXPECTED_VERSION = "v19.17.0-rc6"
 MUTABLE_ROOTS = ("data", "cache", "logs", "runtime", "storage")
 REQUIRED_REQUIREMENTS = {
     "streamlit==1.57.0",
@@ -34,7 +34,7 @@ def audit(root: Path = ROOT) -> dict:
     warnings: list[dict] = []
 
     version_source = (root / "app_version.py").read_text(encoding="utf-8")
-    _check(f'APP_VERSION = "{EXPECTED_VERSION}"' in version_source, "VERSION", "APP_VERSION er ikke v19.17.0-rc5", errors)
+    _check(f'APP_VERSION = "{EXPECTED_VERSION}"' in version_source, "VERSION", "APP_VERSION er ikke v19.17.0-rc6", errors)
     _check('REPORT_SCHEMA_VERSION = "1.6"' in version_source, "REPORT_SCHEMA", "Rapportskjema er ikke 1.6", errors)
 
     requirements = {
