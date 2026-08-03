@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.16.7"
-APP_VERSION_NAME = "Stabil innlogging og fast Python-runtime"
+APP_VERSION = "v19.16.8"
+APP_VERSION_NAME = "Driftssenter med kontrollert aktivering 1-8"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.14.6"

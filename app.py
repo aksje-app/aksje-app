@@ -160,6 +160,7 @@ from global_busy import mark_choice_update, set_global_busy, update_global_busy,
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, normalize_navigation_values
 from runtime_safety import paper_trading_decision, runtime_safety_snapshot
+from drift_center import render_drift_center
 from runtime_dependencies import check_runtime_dependencies
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
@@ -173,7 +174,7 @@ _runtime_safety_v19142 = runtime_safety_snapshot()
 if _runtime_safety_v19142.get("blocking_violations"):
     st.error("Sikker oppstart blokkert: " + " ".join(_runtime_safety_v19142["blocking_violations"]))
     st.stop()
-# v19.17.0-rc1: The Streamlit web process must remain responsive. Unattended
+# v19.16.6: The Streamlit web process must remain responsive. Unattended
 # scheduling belongs to Render Cron. In-process workers are opt-in only.
 if str(os.getenv("ENABLE_WEB_BACKGROUND_SERVICES", "false")).strip().lower() in {"1", "true", "yes", "on"}:
     try:
@@ -189,21 +190,27 @@ inject_foundation_styles_v1950()
 # v18.6.65: Global Compact UI. Reduserer overbrede input-/parameterbokser globalt.
 
 
+
 # v18.6.67: Information Density Refactor + Chart Readability CSS.
+
 
 
 # v18.6.70: Interaktiv Analyse Layout Rebuild CSS. Ekte layoutkonsolidering for analyse/toppstripe/grafkontroller.
 
 
+
 # v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
+
 
 
 # v18.5.90: UI Path & Legacy Cleanup hard override.
 
 
+
 # v18.5.91: GO I Visual Truth Fix.
 # Hard rule: old global-update visual paths must never be visible. One plain, full-width
 # Streamlit primary button is the only active control.
+
 
 
 # v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
@@ -213,6 +220,10 @@ try:
     render_sticky_topbar()
 except Exception as _workspace_error:
     st.caption(f"Professional Trading Workspace kunne ikke vises: {_workspace_error}")
+
+
+
+
 
 
 st.markdown("""
@@ -253,6 +264,8 @@ button[kind="primary"] p {
 }
 </style>
 """, unsafe_allow_html=True)
+
+
 
 
 st.markdown("""
@@ -326,6 +339,8 @@ details > summary {
 }
 </style>
 """, unsafe_allow_html=True)
+
+
 
 
 # v18.5.81: complete clean stability pass: fixed global update button, no floating busy overlay, no dimming.
@@ -1061,6 +1076,7 @@ def _last_update_label():
     return f"{reason} · {at}"
 
 
+
 def _apply_global_update_v18548() -> None:
     """Apply pending UI choices without spinner/dimming overlay."""
     try:
@@ -1076,6 +1092,8 @@ def _apply_global_update_v18548() -> None:
     _set_update_reason("Global oppdatering / Oppdater hele appen")
     finish_global_busy("Klar", "Global oppdatering er aktivert. Valgene er lagret.")
     add_audit_event("global_update", {"reason": "Oppdater hele appen"})
+
+
 
 
 # v18.5.84: Batch B UX/stability hard overrides.
@@ -1524,6 +1542,8 @@ def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
     return out
 
 
+
+
 def _dashboard2026_scan_session_candidates_v18632(limit: int = 250) -> list[dict]:
     """Fallback for Dashboard 2026 KPI boxes when latest_rankings_v148 is empty.
 
@@ -1719,6 +1739,7 @@ def _dashboard2026_kpi_snapshot() -> dict:
         st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(disk_cached)
         return disk_cached
     return snap
+
 
 
 def _dashboard2026_debug_candidate_rows_v18645(limit: int = 30) -> tuple[list[dict], list[dict], dict]:
@@ -2168,6 +2189,7 @@ def render_market_category_selector():
         st.sidebar.caption("Europe Markets bruker foreløpig samlet aksjeunivers/fallback. Norge og Sverige kan velges separat.")
 
     return selected_category, mode
+
 
 
 CHART_CONFIG = {
@@ -2664,6 +2686,8 @@ div[data-testid="stAlert"] {
 .info-positive { color: #86efac !important; }
 .info-warning { color: #fde68a !important; }
 .info-negative { color: #fecaca !important; }
+
+
 
 
 /* --- MACD INFO BOX V1 --- */
@@ -3180,6 +3204,7 @@ div[role="tooltip"] *,
 }
 
 
+
 /* --- V14.6 tasks 51-54: faktisk visningsmodus, mobil-komprimering og kontrollsenter --- */
 :root {
     --compact-card-pad: 8px 10px;
@@ -3376,6 +3401,7 @@ div[role="tooltip"] *,
 }
 
 
+
 /* --- V14.12: mobil/drawer cleanup, kontrollrad, bruker/børsstatus --- */
 .control-center-wide {
     display:grid;
@@ -3465,6 +3491,7 @@ section[data-testid="stSidebar"] .stButton > button {
     .mini-status-chip { font-size:0.68rem; padding:3px 6px; }
     .top-app-status { gap:5px; }
 }
+
 
 
 /* --- V15: kontrollert layout/state cleanup --- */
@@ -3859,6 +3886,7 @@ elif APP_VIEW_MODE == "Full":
         """,
         unsafe_allow_html=True,
     )
+
 
 
 # V15.7 / Oppgave 112: KPI-kort harmoniseres med resten av UI-et, også i Full-visning.
@@ -5512,6 +5540,8 @@ def render_live_market_banner():
     return _implementation(get_page_context_v1950(_implementation))
 
 
+
+
 def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v157"):
     """V15.8.1: robust banner settings form used only below the ticker banner.
 
@@ -5847,6 +5877,7 @@ def render_decision_explanation(decision):
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
 
+
 def render_rsi_box(rsi_value):
     """v18.6.67: Kompakt RSI-badge i stedet for stor fullbredde RSI-boks."""
     try:
@@ -5875,6 +5906,7 @@ def render_rsi_box(rsi_value):
     )
 
 
+
 def render_signal_badge(signal):
     s = str(signal or "").upper()
     if "BUY" in s:
@@ -5882,6 +5914,7 @@ def render_signal_badge(signal):
     if "SELL" in s or "AVOID" in s:
         return "<span class='status-danger'>🔴 SELL / AVOID</span>"
     return "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.5);color:#fde68a;font-weight:900;'>🟡 HOLD</span>"
+
 
 
 PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
@@ -5944,6 +5977,7 @@ def maybe_send_signal_alert(ticker, decision):
     Dette hindrer mobil-spam ved vanlig signalendring/refresh.
     """
     return None
+
 
 
 def get_dynamic_watchlist(mode, max_count, tickers_us=None, tickers_no=None, tickers_se=None, tickers_all=None):
@@ -6227,6 +6261,7 @@ def add_pattern_markers(fig, pattern, name):
         ))
 
     return fig
+
 
 
 def _safe_html_value(value):
@@ -6518,8 +6553,10 @@ def _dedupe_text_list(values):
     return out
 
 
+
 def safe_widget_key(text):
     return re.sub(r"[^A-Za-z0-9_]+", "_", str(text))[:120]
+
 
 
 def save_latest_buy_now_candidates(candidates, market_label=""):
@@ -6554,6 +6591,7 @@ def save_latest_buy_now_candidates(candidates, market_label=""):
         return []
 
 
+
 def _display_pe_v1863ad(item):
     """Return a compact P/E label from the shared score_stock fields."""
     try:
@@ -6577,6 +6615,7 @@ def _ranking_display_limit_choice_v1864(title: str, total: int) -> tuple[str, in
     if choice == "Alle":
         return choice, int(total or 0)
     return choice, int(choice.replace("Topp ", ""))
+
 
 
 def _add_candidate_to_watchlist_v19022(ticker: str) -> tuple[bool, str]:
@@ -6717,6 +6756,8 @@ def render_ranking(results, title):
     return _implementation(get_page_context_v1950(_implementation), results, title)
 
 
+
+
 def pct_distance(current, level):
     try:
         current = float(current)
@@ -6828,6 +6869,7 @@ def insider_signal_label(score):
     return "Blandet", "info-warning"
 
 
+
 def render_latest_insider_transactions(insider):
     txs = insider.get("latest_transactions", []) if insider else []
     if not txs:
@@ -6902,6 +6944,9 @@ def render_intelligence_cards(insider, analyst, earnings):
             Dato: <b>{_safe_html_value(earnings_date)}</b><br>
             Dager igjen: {_safe_html_value(days_until)}</div>
             """, unsafe_allow_html=True)
+
+
+
 
 
 def render_macd_explanation():
@@ -6995,6 +7040,8 @@ def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> st
 def render_analysis(results, label):
     from pages.analysis import render_analysis as _implementation
     return _implementation(get_page_context_v1950(_implementation), results, label)
+
+
 
 
 # V15.9 / Oppgave 121: trading-regel-presets må oppdatere både lagrede regler og synlige widget-verdier.
@@ -7396,6 +7443,7 @@ def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtim
     return _implementation(get_page_context_v1950(_implementation), dynamic_watchlist, pushover_enabled_runtime)
 
 
+
 def render_paper_alert_control_workspace_v18611(pushover_enabled_runtime=False):
     """Pushover and paper alert controls live with Paper Trading, not Watchlist."""
     _settings = load_settings()
@@ -7583,6 +7631,8 @@ def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = Fals
     if fetch_live and latest_prices:
         save_portfolio(normalized)
     return normalized, latest_prices, errors, updated_at
+
+
 
 
 def _paper_trailing_stop_alert_rows_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None, position_rows: list[dict] | None = None, rules: dict | None = None) -> list[dict]:
@@ -8123,6 +8173,8 @@ def _render_manual_paper_nav_update_v18621(portfolio):
                 st.rerun()
 
 
+
+
 def _render_paper_block_reason_v1871(message: str, portfolio: dict, rules: dict, ticker: str = "", confidence: int = 0, amount: float = 0.0, manual_override: str = "") -> None:
     """Show concrete validation context for blocked manual paper trades without changing engine rules."""
     try:
@@ -8232,6 +8284,8 @@ def _render_paper_manual_override_readonly_v18674a() -> str:
         unsafe_allow_html=True,
     )
     return state
+
+
 
 
 PAPER_REVIEW_STATUSES_V18674C = ["ÅPEN", "GODKJENT", "AVVIST", "KJØPT"]
@@ -8561,6 +8615,7 @@ def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, 
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
+
 PAPER_TRADING_TAB_OPTIONS_V18674C = {
     "📈 Handel": "handel",
     "📊 Portefølje": "portefolje",
@@ -8834,6 +8889,7 @@ def _set_query_panel_v18658(nav: str) -> None:
             del st.query_params["panel"]
     except Exception:
         pass
+
 
 
 def _clear_control_center_nav_state_v18663() -> None:
@@ -9496,6 +9552,7 @@ _top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", Fals
 _block_reason = _auto_block_reason(_top_settings)
 
 if bool(globals().get("show_drift_controls_v1863cc", False)):
+    render_drift_center(st, current_user=current_user)
     render_global_update_action_panel_v1863g()
     try:
         from operations_ui import render_operations_trace_panel
@@ -9510,6 +9567,7 @@ if st.session_state.get("auto_control_notice_v153"):
     _prefix = "✅" if _level == "success" else ("!" if _level == "warning" else "Info")
     if _notice:
         st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
+
 
 
 # v18.5.35: ekstra lazy-paneler i AI Kontrollsenter.
@@ -9815,6 +9873,9 @@ def render_top_picks_control_center_v1863s():
     return _implementation(get_page_context_v1950(_implementation))
 
 
+
+
+
 def _long_engine_load_cached_rows_v18653(path: str = "data/long_engine/top_long_usa_alpha.json") -> list[dict]:
     """Load latest Long Engine Alpha cache without triggering API calls."""
     try:
@@ -9856,6 +9917,8 @@ def _long_engine_latest_top_picks_rows_v18653(limit: int = 50) -> list[dict]:
         if len(out) >= int(limit or 50):
             break
     return out
+
+
 
 
 def _long_engine_country_from_ticker_v18656(ticker: str) -> tuple[str, str, str]:
@@ -10305,6 +10368,8 @@ def render_long_engine_control_center_v18653():
     return _implementation(get_page_context_v1950(_implementation))
 
 
+
+
 def render_alpha_radar_control_center_v1863ap():
     """Explicit-run Alpha Radar panel for unusual opportunity hypotheses."""
     radar_engine = str(st.session_state.get("alpha_radar_engine_v1863au") or "Alpha Radar")
@@ -10367,6 +10432,7 @@ def render_watchlist_signals_control_center_v18535():
     else:
         st.caption("Ingen dynamiske kandidater i cache ennå. Kjør rangering eller Smart AI først.")
     render_watchlist_alerts_workspace(dynamic, pushover_enabled_runtime=pushover_enabled)
+
 
 
 def _send_pushover_safe_v1863af(message: str, title: str):
@@ -10613,6 +10679,10 @@ def _save_currency_alerts_v1863af(alerts):
     save_settings(settings)
 
 
+
+
+
+
 FX_CHECK_INTERVAL_OPTIONS_V1864S = {
     "5 min": 5,
     "10 min": 10,
@@ -10682,6 +10752,8 @@ def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_minutes:
         return datetime.now() - last >= timedelta(minutes=max(1, int(cooldown_minutes or 720)))
     except Exception:
         return True
+
+
 
 
 def render_currency_alerts_control_center_v1863af():
@@ -11586,6 +11658,8 @@ def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"
         )
 
 
+
+
 def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunnscore"):
     """Render hardened Fund Decision Quality without dataframes/white boxes."""
     import html as _html
@@ -11741,6 +11815,7 @@ def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-fo
                 st.caption(f"{row.get('symbol')}: Krever mer bevis · {row.get('reason')}")
             for row in avoid[:8]:
                 st.caption(f"{row.get('symbol')}: Unngå · {row.get('reason')}")
+
 
 
 def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
@@ -12047,6 +12122,7 @@ def render_fund_etf_control_center_v18538():
         st.info("Ingen Fond / ETF-resultat ennå. Legg inn fond/ETF-er og trykk Kjør.")
 
 
+
 # v18.5.43: Auto Test Lab Fund Mode.
 def render_auto_test_lab_fund_mode_v18543():
     """Run the fund/ETF engine from Auto Test Lab, with progress and safe controls."""
@@ -12303,6 +12379,7 @@ def render_auto_test_lab_fund_mode_v18543():
                     st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
     else:
         st.info("Ingen Auto Test Lab-resultat i fondmodus ennå. Velg fondunivers og trykk Kjør.")
+
 
 
 # v18.5.44: Portfolio Analyzer - Stocks + Funds -----------------------------
@@ -14684,6 +14761,10 @@ def _ai_candidate_adjusted_score_v1864q(base_score: float, evidence: list[str], 
     return round(max(0.0, min(10.0, score)), 2)
 
 
+
+
+
+
 def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
     saved_config = _ai_candidate_load_evaluation_config_v1864q()
     key_prefix = "ai_candidate_eval_v1864q"
@@ -15112,6 +15193,8 @@ def _ai_candidate_overlay_maps_v1864l() -> dict:
     except Exception:
         pass
     return maps
+
+
 
 
 def _ai_candidate_source_status_v1864l(config: dict | None = None) -> list[dict]:
@@ -16645,6 +16728,8 @@ def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None 
     return selected
 
 
+
+
 def render_ai_candidate_test_control_center_v1864l() -> None:
     st.subheader("AI Kandidattest")
     st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
@@ -16816,7 +16901,11 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
 
 
+
 def render_autonomy_core_control_center_v1880() -> None:
+    if not bool(load_settings().get("autonomy_enabled", False)):
+        st.warning("Autonomi er AV. Aktiver steg 7 i Driftssenter før kontrollsenteret kan brukes.")
+        return None
     from pages.autonomy import render_autonomy_core_control_center_v1880 as _implementation
     return _implementation(get_page_context_v1950(_implementation))
     # Compatibility anchors retained for static route-integrity audits:
@@ -16839,6 +16928,7 @@ def render_autonomy_core_control_center_v1880() -> None:
     # "autonomous_portfolio": "Autonom portefølje"
     # "operations": "Varsler og drift"
     # "engine_details": "Motorresultater"
+
 
 
 def control_center_extra_panels_v18535():
@@ -16936,6 +17026,7 @@ def render_safe_infrastructure_panel_v18587() -> None:
                     st.dataframe(feature_rows, width="stretch", hide_index=True)
                 except Exception:
                     st.write(feature_rows)
+
 
 
             protected_rows = get_protected_zones()
@@ -17557,6 +17648,7 @@ html body .stApp div[data-testid="stHorizontalBlock"] {
 """, unsafe_allow_html=True)
 
 
+
 st.markdown("""
 <style>
 /* v18.6.34 Dashboard 2026 Phase 3: compact rail, clean topbar, tile-like control center */
@@ -17857,6 +17949,7 @@ html body .stApp .ptw-global-busy-fixed {
     font-size:.76rem !important;
   }
 }
+
 
 
 /* v18.6.38: Sidebar Guard - menyen skal aldri kunne forsvinne eller bli mikroskopisk */
@@ -18843,6 +18936,7 @@ html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
 """, unsafe_allow_html=True)
 
 
+
 # v18.6.67: Professional UI Refactor – final global density pass.
 
 
@@ -18958,6 +19052,8 @@ def add_rsi_current_box(fig, rsi):
 # legacy test marker: main_auto_send_test_pushover_v18590
 
 # legacy test marker: top_apply_all_changes_v18590
+
+
 
 
 # v18.6.41: Sidebar CSS/rendering moved to ui_sidebar_stable.py.
