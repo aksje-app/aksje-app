@@ -58,7 +58,8 @@ def render_live_market_banner(_legacy_context):
         marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
         href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
 
-        change_html = "" if price_missing else f"<div class='ticker-change {pct_class}'>{delta_txt} {pct_txt}</div>"
+        direction = "▲" if pct > 0 else ("▼" if pct < 0 else "•")
+        change_html = "" if price_missing else f"<div class='ticker-change {pct_class}'>{direction} {pct_txt}</div>"
         spark_html = "" if price_missing else str(item.get("sparkline") or "")
         cards.append(
             f"<a class='ticker-tape-item' target='_self' href='{href}' title='{marker_title}'>"
@@ -93,7 +94,7 @@ def render_live_market_banner(_legacy_context):
         border-bottom: 1px solid rgba(15,23,42,0.14);
         background: #f8fafc;
         border-radius: 12px;
-        min-height: 54px;
+        min-height: 70px;
         box-shadow: inset 0 0 0 1px rgba(15,23,42,0.03);
     }
     .ticker-tape-track {
@@ -114,8 +115,8 @@ def render_live_market_banner(_legacy_context):
         align-items: center;
         gap: 8px;
         min-width: 236px;
-        height: 42px;
-        padding: 5px 9px;
+        height: 58px;
+        padding: 6px 9px;
         border-radius: 0;
         background: #ffffff;
         border-right: 1px solid rgba(15,23,42,0.10);
@@ -190,6 +191,7 @@ def render_live_market_banner(_legacy_context):
     .ticker-price.missing { color:#b45309; font-size:.74rem; }
     .ticker-change.pos { color: #059669; }
     .ticker-change.neg { color: #dc2626; }
+    .ticker-change { white-space: nowrap; }
     .ticker-spark {
         display: flex;
         align-items: center;
