@@ -50,6 +50,12 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "drift_center":
+        # Dedicated operations surface. Keep AI Kontrollsenter state intact;
+        # app.py renders Driftssenter as an independent page.
+        st.session_state["active_nav_target_v18674c"] = "drift_center"
+        st.session_state["ai_control_center_force_nav_v18663"] = "drift_center"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
@@ -81,6 +87,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     _sidebar_nav_button_v18650(st, "🚀 Long Engine", "long_engine", "sidebar_nav_long_engine_v18653")
     _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18650")
     _sidebar_nav_button_v18650(st, "🧾 Paper Trading", "paper_trading", "sidebar_nav_paper_v1906")
+    _sidebar_nav_button_v18650(st, "🧭 Driftssenter", "drift_center", "sidebar_nav_drift_center_v19170rc2")
     _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18650")
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
