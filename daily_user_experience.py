@@ -47,7 +47,8 @@ ADVANCED_NAVIGATION = (
     ("📈", "Analyse", "analysis"),
     ("🚀", "Long Engine", "long_engine"),
     ("🤖", "AI-verktøy", "ai"),
-    ("🔔", "Varsler / Drift", "operations"),
+    ("🔔", "Varsler", "operations"),
+    ("🧭", "Driftssenter", "drift_center"),
     ("💱", "Valuta", "fx_alerts"),
     ("⚙️", "System", "system"),
 )

@@ -187,6 +187,11 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"drift", "driftssenter", "drift_center"}:
+        nav = "drift_center"
+        st.session_state["active_nav_target_v18674c"] = "drift_center"
+        st.session_state["ai_control_center_force_nav_v18663"] = "drift_center"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"portfolio", "reports", "jobs", "approvals", "operations"}:
         nav = nav
         if nav in {"portfolio", "approvals"}:
@@ -262,6 +267,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "jobs": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "approvals": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "operations": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "drift_center": ("", ""),
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
@@ -620,7 +626,7 @@ html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-lab
   white-space: nowrap !important;
   overflow: visible !important;
 }
-/* v19.17.0-rc1: Keep the simple-mode More control readable at narrow desktop widths. */
+/* v19.16.6: Keep the simple-mode More control readable at narrow desktop widths. */
 html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
   min-width: 184px !important;
   width: 100% !important;

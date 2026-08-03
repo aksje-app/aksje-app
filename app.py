@@ -8923,8 +8923,10 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         nav = "jobs"
     if nav in {"approvals", "approval", "godkjenninger", "ventende_godkjenninger", "ventende-godkjenninger"}:
         nav = "approvals"
-    if nav in {"alerts", "varsler", "varsel", "operations", "drift"}:
+    if nav in {"alerts", "varsler", "varsel", "operations"}:
         nav = "operations"
+    if nav in {"drift", "driftssenter", "drift_center"}:
+        nav = "drift_center"
     if nav in {"settings", "innstillinger", "admin", "systemstatus"}:
         nav = "system"
     if not nav:
@@ -8939,7 +8941,9 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     _clear_control_center_nav_state_v18663()
     st.session_state["ai_control_center_force_nav_v18663"] = nav
     st.session_state["ai_control_center_last_applied_nav_v19016"] = nav
-    if nav == "dashboard":
+    if nav == "drift_center":
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
         st.session_state["ai_control_center_active_panel_v1863m"] = ""
         st.session_state["ai_control_center_active_real_panel_v18598"] = ""
@@ -9066,7 +9070,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "driftssenter", "drift_center", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -9130,6 +9134,18 @@ def _apply_mobile_nav_query_v18646() -> None:
 _apply_mobile_nav_query_v18646()
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 
+# v19.17.0 RC2: Driftssenter is a dedicated page, independent from AI Kontrollsenter.
+_active_nav_v19170rc2 = str(
+    st.session_state.get("active_nav_target_v18674c")
+    or st.session_state.get("ai_control_center_force_nav_v18663")
+    or ""
+).strip().lower()
+if _active_nav_v19170rc2 in {"drift", "driftssenter", "drift_center"}:
+    st.markdown("# 🧭 Driftssenter")
+    st.caption("Samlet kontrollflate for kontrollert aktivering av trinn 1–8. AI Kontrollsenter og rapportmotor er uendret.")
+    render_drift_center(st, current_user=current_user)
+    st.stop()
+
 
 # v18.6.47: mobilnavigasjon er ekte lenker som setter mobile_nav og utløser rerun.
 _mobile_nav_links_v18646 = {
@@ -9146,6 +9162,7 @@ _mobile_nav_links_v18646 = {
     "jobs": _mobile_nav_href_v18646("jobs"),
     "approvals": _mobile_nav_href_v18646("approvals"),
     "alerts": _mobile_nav_href_v18646("alerts"),
+    "drift_center": _mobile_nav_href_v18646("drift_center"),
     "system": _mobile_nav_href_v18646("system"),
 }
 _ui_mode_v19022 = str(st.session_state.get("ui_experience_mode_v19022") or UX_SIMPLE_MODE_V19022)
@@ -9199,7 +9216,7 @@ def render_daily_attention_dashboard_v19022() -> None:
         (a2, "📚 Siste rapport", "reports", "attention_open_report_v19022"),
         (a3, "Δ Se endringer", "reports", "attention_changes_v19022"),
         (a4, "✅ Godkjenninger", "approvals", "attention_approvals_v19022"),
-        (a5, "🛠 Drift", "operations", "attention_operations_v19022"),
+        (a5, "🧭 Driftssenter", "drift_center", "attention_drift_center_v19170rc2"),
     ]
     for column, label, nav, key in actions:
         with column:
@@ -9523,14 +9540,13 @@ with _col_admin_v18647:
         except Exception:
             pass
 with _col_drift_v18647:
-    _drift_now_v18647 = bool(st.session_state.get("show_drift_controls_v18647", False))
-    if st.button("Drift" if not _drift_now_v18647 else "Skjul", key="top_drift_menu_v18647", help="Vis/skjul avanserte driftkontroller"):
-        st.session_state["show_drift_controls_v18647"] = not _drift_now_v18647
+    if st.button("Driftssenter", key="top_drift_menu_v19170rc2", help="Åpne eget Driftssenter med steg 1–8"):
+        _apply_nav_target_v18658("drift_center")
         try:
             st.rerun()
         except Exception:
             pass
-show_drift_controls_v1863cc = bool(st.session_state.get("show_drift_controls_v18647", False))
+show_drift_controls_v1863cc = False
 
 # v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
 st.markdown(
