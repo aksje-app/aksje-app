@@ -195,7 +195,7 @@ def test_export_contains_technical_contribution_csv_and_policy(tmp_path):
         parameters = json.loads(archive.read("parameter_snapshot.json"))
         assert parameters["autonomy_technical_contribution_policy"]["scope"] == "ENTRY_ONLY"
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["app_version"] == "v19.17.0-rc5"
+        assert manifest["app_version"] == "v19.17.0-rc6"
         assert len(manifest["files"]) == 20  # manifest itself is added after checksums; ZIP has 21 files
 
 

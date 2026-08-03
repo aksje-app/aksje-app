@@ -182,7 +182,7 @@ def test_export_zip_contains_requested_safe_files_and_redacts_secrets(tmp_path):
         assert "db-credential-placeholder" not in all_text
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["contains_secrets"] is False
-        assert manifest["app_version"] == "v19.17.0-rc5"
+        assert manifest["app_version"] == "v19.17.0-rc6"
 
 
 def test_source_integration_and_ui_contracts():

@@ -22,8 +22,8 @@ def _candidate(ticker="AAA.OL", action="SKIP", code="AUTOMATISK_AVVIST"):
 def _run():
     c = _candidate()
     return {
-        "version": "v19.17.0-rc5", "app_version": "v19.17.0-rc5", "report_schema_version": "1.6",
-        "version_contract": {"app_version": "v19.17.0-rc5", "report_schema_version": "1.6"},
+        "version": "v19.17.0-rc6", "app_version": "v19.17.0-rc6", "report_schema_version": "1.6",
+        "version_contract": {"app_version": "v19.17.0-rc6", "report_schema_version": "1.6"},
         "report_identity": {"type": "UTKAST", "label": "Utkast"},
         "report_status": {"state": "DRAFT", "label": "UTKAST – IKKE ENDELIG"},
         "candidates": [c], "markets": ["Norge", "Sverige", "USA"],
