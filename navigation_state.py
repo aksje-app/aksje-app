@@ -24,6 +24,115 @@ AUTONOMY_PANEL_ALIASES = {
 }
 
 
+# v19.22.0 RC7: one canonical URL route per visible control-center panel.
+# The previous outer renderer wrote ``control_center`` while inner workspaces
+# wrote routes such as ``autonomy``. That route ping-pong could trigger extra
+# Streamlit reruns, preserve stale DOM during refresh and restore the wrong page.
+CANONICAL_NAV_BY_PANEL_V19220_RC7 = {
+    AUTONOMY_PANEL: AUTONOMY_NAV,
+    "💱 Valutavarsler": "fx_alerts",
+    "Top Picks": "top_picks",
+    "⭐ Analyse – Top Picks": "top_picks",
+    "Long Engine": "long_engine",
+    "📈 Analyse – Long Engine": "long_engine",
+    "AI Kandidattest": "analysis",
+    "🤖 AI – Kandidattest": "analysis",
+    "Paper Trading og kontroll": "paper_trading",
+    "System/admin": "system",
+    "⚙️ Innstillinger – System/admin": "system",
+}
+
+AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7 = {
+    "overview": "Oversikt",
+    "reports": "Rapporter",
+    "orchestrator": "Orkestrering og tidsplan",
+    "autonomous_portfolio": "Autonom portefølje",
+    "learning_portfolio": "Læringsportefølje",
+    "architecture": "Ekspertkontroll",
+    "operations": "Varsler og drift",
+    "strategy_versions": "Strategiversjoner",
+    "strategy_lab": "Strategy Lab",
+    "engine_details": "Motorresultater",
+}
+AUTONOMY_WORKSPACE_SLUG_BY_LABEL_V19220_RC7 = {
+    label: slug for slug, label in AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7.items()
+}
+
+
+def canonical_nav_for_panel_v19220_rc7(group: Any = "", panel: Any = "", fallback: Any = "control_center") -> str:
+    """Return the single canonical route for a visible control-center panel."""
+    group_s = str(group or "").strip()
+    panel_s = str(panel or "").strip()
+    mapped = CANONICAL_NAV_BY_PANEL_V19220_RC7.get(panel_s)
+    if mapped:
+        return mapped
+    if group_s == AUTONOMY_GROUP and panel_s == AUTONOMY_PANEL:
+        return AUTONOMY_NAV
+    return str(fallback or "control_center").strip().lower() or "control_center"
+
+
+def apply_route_tab_to_session_state_v19220_rc7(
+    session_state,
+    *,
+    nav: Any = "",
+    panel: Any = "",
+    tab: Any = "",
+    subtab: Any = "",
+) -> bool:
+    """Restore a URL/file tab only into the workspace that owns that route.
+
+    Older bootstrap code copied every ``aa_tab`` into Autonomi, Paper Trading
+    and AI Discovery simultaneously. A refresh could therefore contaminate
+    unrelated workspaces. RC7 keeps tab state route-scoped.
+    """
+    nav_s = str(nav or "").strip().lower()
+    panel_s = str(panel or "").strip()
+    tab_s = str(tab or "").strip()
+    subtab_s = str(subtab or "").strip()
+    if not tab_s and not subtab_s:
+        return False
+
+    changed = False
+    if panel_s == AUTONOMY_PANEL or nav_s in AUTONOMY_NAV_ALIASES | {"reports", "jobs", "portfolio", "approvals", "operations"}:
+        if tab_s:
+            session_state["autonomy_core_workspace_slug_v1882"] = tab_s
+            changed = True
+    elif panel_s == "Paper Trading og kontroll" or nav_s in {"paper", "paper_trading", "papertrading"}:
+        if tab_s:
+            session_state["paper_trading_active_tab_slug_v18674c"] = tab_s
+            changed = True
+        if subtab_s:
+            session_state["paper_trading_active_subtab_slug_v18674c"] = subtab_s
+            changed = True
+    elif "AI Discovery" in panel_s:
+        if tab_s:
+            session_state["ai_discovery_active_tab_slug_v18674c"] = tab_s
+            changed = True
+    return changed
+
+
+def current_route_tab_from_session_v19220_rc7(session_state, *, nav: Any = "", panel: Any = "") -> tuple[str, str]:
+    """Read only the tab state owned by the currently visible route."""
+    nav_s = str(nav or "").strip().lower()
+    panel_s = str(panel or "").strip()
+    if panel_s == AUTONOMY_PANEL or nav_s in AUTONOMY_NAV_ALIASES | {"reports", "jobs", "portfolio", "approvals", "operations"}:
+        slug = str(session_state.get("autonomy_core_workspace_active_slug_v19220_rc7") or "").strip()
+        if not slug:
+            label = str(session_state.get("autonomy_core_workspace_v1880") or "").strip()
+            slug = AUTONOMY_WORKSPACE_SLUG_BY_LABEL_V19220_RC7.get(label, "")
+        if not slug:
+            slug = str(session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
+        return slug, ""
+    if panel_s == "Paper Trading og kontroll" or nav_s in {"paper", "paper_trading", "papertrading"}:
+        return (
+            str(session_state.get("paper_trading_active_tab_slug_v18674c") or "").strip(),
+            str(session_state.get("paper_trading_active_subtab_slug_v18674c") or "").strip(),
+        )
+    if "AI Discovery" in panel_s:
+        return str(session_state.get("ai_discovery_active_tab_slug_v18674c") or "").strip(), ""
+    return "", ""
+
+
 def _plain_query_params(st) -> dict[str, str]:
     try:
         raw = dict(st.query_params)

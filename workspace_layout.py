@@ -26,7 +26,7 @@ from forecast_ui import render_forecast_section
 from analysis_universe_ai import render_ai_analysis_universe_workspace
 from persistent_storage_status import compact_storage_status_rows, storage_status_snapshot
 from app_version import get_app_build_label
-from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state
+from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, canonical_nav_for_panel_v19220_rc7
 from control_center_route_state import consume_control_center_route_lock_v19220_rc6
 
 
@@ -2541,11 +2541,14 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 st.session_state["ai_control_center_active_panel_v1863aj"] = direct_panels[0]
             elif selected_group == ai_candidate_group_name and ai_candidate_primary_label in direct_panels:
                 st.session_state["ai_control_center_active_panel_v1863aj"] = ai_candidate_primary_label
+            route_panel_v19220_rc7 = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
+            route_nav_v19220_rc7 = canonical_nav_for_panel_v19220_rc7(selected_group, route_panel_v19220_rc7)
+            st.session_state["active_nav_target_v18674c"] = route_nav_v19220_rc7
             set_global_navigation_state(
                 st,
-                nav="control_center",
+                nav=route_nav_v19220_rc7,
                 group=selected_group,
-                panel=st.session_state.get("ai_control_center_active_panel_v1863aj") or "",
+                panel=route_panel_v19220_rc7,
             )
 
         active_label = st.session_state.get("ai_control_center_active_panel_v1863aj") or ""
@@ -2583,7 +2586,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 if selected_panel:
                     st.session_state["ai_control_center_active_panel_v1863aj"] = selected_panel
                     active_label = st.session_state["ai_control_center_active_panel_v1863aj"]
-                    set_global_navigation_state(st, nav="control_center", group=selected_group, panel=selected_panel)
+                    route_nav_v19220_rc7 = canonical_nav_for_panel_v19220_rc7(selected_group, selected_panel)
+                    st.session_state["active_nav_target_v18674c"] = route_nav_v19220_rc7
+                    set_global_navigation_state(st, nav=route_nav_v19220_rc7, group=selected_group, panel=selected_panel)
                     if selected_panel != current_panel_option:
                         st.session_state["ai_control_center_active_real_panel_v18598"] = selected_panel
 
@@ -2624,7 +2629,9 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
                 _close_control_center_panel_v18611()
                 st.rerun()
         active_group_label = st.session_state.get("ai_control_center_group_v1863aj") or next((g for g, labels in group_map.items() if active_label in labels), "")
-        set_global_navigation_state(st, nav="control_center", group=active_group_label, panel=active_label)
+        route_nav_v19220_rc7 = canonical_nav_for_panel_v19220_rc7(active_group_label, active_label)
+        st.session_state["active_nav_target_v18674c"] = route_nav_v19220_rc7
+        set_global_navigation_state(st, nav=route_nav_v19220_rc7, group=active_group_label, panel=active_label)
         st.markdown(
             f"<div class='ptw-control-note-strong'>Du jobber nå i: <b>{html.escape(str(active_group_label or '-'))}</b> → <b>{html.escape(str(active_label))}</b>.</div>",
             unsafe_allow_html=True,

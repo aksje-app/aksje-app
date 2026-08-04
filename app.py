@@ -158,7 +158,11 @@ from paper_trading_valuation import (
 from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
 from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
 from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
-from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, normalize_navigation_values
+from navigation_state import (
+    get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state,
+    normalize_navigation_values, canonical_nav_for_panel_v19220_rc7,
+    apply_route_tab_to_session_state_v19220_rc7, current_route_tab_from_session_v19220_rc7,
+)
 from runtime_safety import paper_trading_decision, runtime_safety_snapshot
 from drift_center import render_drift_center
 from runtime_dependencies import check_runtime_dependencies
@@ -8681,9 +8685,9 @@ def _paper_trading_active_tab_v18674c() -> str:
     )
     slug = PAPER_TRADING_TAB_OPTIONS_V18674C.get(selected_label, "handel")
     st.session_state["paper_trading_active_tab_slug_v18674c"] = slug
-    set_global_navigation_state(st, nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
+    set_global_navigation_state(st, nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
     try:
-        _persist_ui_state_v18658(nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
+        _persist_ui_state_v18658(nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
     except Exception:
         pass
     return slug
@@ -8871,14 +8875,20 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", ta
     strongest source on a browser refresh, but this file remains a safe fallback.
     """
     try:
+        active_nav_v19220_rc7 = str(nav or st.session_state.get("active_nav_target_v18674c") or "")
+        active_panel_v19220_rc7 = str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
+        active_group_v19220_rc7 = str(group or st.session_state.get("ai_control_center_group_v1863aj") or "")
+        route_tab_v19220_rc7, route_subtab_v19220_rc7 = current_route_tab_from_session_v19220_rc7(
+            st.session_state, nav=active_nav_v19220_rc7, panel=active_panel_v19220_rc7,
+        )
         payload = {
-            "nav": str(nav or st.session_state.get("active_nav_target_v18674c") or ""),
-            "panel": str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
-            "group": str(group or st.session_state.get("ai_control_center_group_v1863aj") or ""),
-            "tab": str(tab or st.session_state.get("paper_trading_active_tab_slug_v18674c") or st.session_state.get("ai_discovery_active_tab_slug_v18674c") or ""),
-            "subtab": str(subtab or st.session_state.get("paper_trading_active_subtab_slug_v18674c") or ""),
+            "nav": active_nav_v19220_rc7,
+            "panel": active_panel_v19220_rc7,
+            "group": active_group_v19220_rc7,
+            "tab": str(tab or route_tab_v19220_rc7),
+            "subtab": str(subtab or route_subtab_v19220_rc7),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v18.6.74e",
+            "version": "v19.22.0-rc7",
         }
         signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         if st.session_state.get("ui_state_last_signature_v19016") == signature:
@@ -9061,6 +9071,10 @@ def _apply_nav_target_v18658(nav: str) -> bool:
             "nav": "fx_alerts", "group": "Marked og signaler", "panel": "💱 Valutavarsler"
         }
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "control_center":
+        # Generic control-center deep link. URL group/panel are applied by the
+        # bootstrap immediately after this canonical top-level target.
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
@@ -9113,7 +9127,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "driftssenter", "drift_center", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system"}:
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "driftssenter", "drift_center", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system", "control_center"}:
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
@@ -9127,12 +9141,13 @@ def _apply_mobile_nav_query_v18646() -> None:
             st.session_state["ai_control_center_active_panel_v1863m"] = panel_from_url
             st.session_state["ai_control_center_active_real_panel_v18598"] = panel_from_url
             st.session_state["ai_control_center_menu_open_v1863ag"] = False
-        if tab_from_url:
-            st.session_state["paper_trading_active_tab_slug_v18674c"] = tab_from_url
-            st.session_state["ai_discovery_active_tab_slug_v18674c"] = tab_from_url
-            st.session_state["autonomy_core_workspace_slug_v1882"] = tab_from_url
-        if subtab_from_url:
-            st.session_state["paper_trading_active_subtab_slug_v18674c"] = subtab_from_url
+        apply_route_tab_to_session_state_v19220_rc7(
+            st.session_state,
+            nav=nav_from_url,
+            panel=panel_from_url,
+            tab=tab_from_url,
+            subtab=subtab_from_url,
+        )
         return
 
     if st.session_state.get("persistent_nav_bootstrap_done_v18661"):
@@ -9158,12 +9173,13 @@ def _apply_mobile_nav_query_v18646() -> None:
                 st.session_state["ai_control_center_menu_open_v1863ag"] = False
                 saved_tab = str(saved.get("tab") or "").strip()
                 saved_subtab = str(saved.get("subtab") or "").strip()
-                if saved_tab:
-                    st.session_state["paper_trading_active_tab_slug_v18674c"] = saved_tab
-                    st.session_state["ai_discovery_active_tab_slug_v18674c"] = saved_tab
-                    st.session_state["autonomy_core_workspace_slug_v1882"] = saved_tab
-                if saved_subtab:
-                    st.session_state["paper_trading_active_subtab_slug_v18674c"] = saved_subtab
+                apply_route_tab_to_session_state_v19220_rc7(
+                    st.session_state,
+                    nav=nav,
+                    panel=saved_panel,
+                    tab=saved_tab,
+                    subtab=saved_subtab,
+                )
                 set_global_navigation_state(st, nav=nav, group=saved_group, panel=saved_panel, tab=saved_tab, subtab=saved_subtab)
             except Exception:
                 pass
@@ -18661,21 +18677,21 @@ try:
     render_banner_main_controls()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
     try:
-        _panel_to_nav_v18658 = {
-            "Long Engine": "long_engine",
-            "📈 Analyse – Long Engine": "long_engine",
-            "Top Picks": "top_picks",
-            "⭐ Analyse – Top Picks": "top_picks",
-            "AI Kandidattest": "analysis",
-            "🤖 AI – Kandidattest": "analysis",
-            "System/admin": "system",
-            "⚙️ Innstillinger – System/admin": "system",
-            "🧠 Autonomi – Kontrollsenter": "autonomy",
-        }
-        _nav_to_store_v18658 = _panel_to_nav_v18658.get(str(_active_control_center_panel_v18598 or ""))
-        if _nav_to_store_v18658:
+        _active_panel_for_route_v19220_rc7 = str(_active_control_center_panel_v18598 or "")
+        _active_group_for_route_v19220_rc7 = str(st.session_state.get("ai_control_center_group_v1863aj") or "")
+        _nav_to_store_v18658 = canonical_nav_for_panel_v19220_rc7(
+            _active_group_for_route_v19220_rc7,
+            _active_panel_for_route_v19220_rc7,
+            fallback=st.session_state.get("active_nav_target_v18674c") or "control_center",
+        )
+        if _active_panel_for_route_v19220_rc7:
+            st.session_state["active_nav_target_v18674c"] = _nav_to_store_v18658
             _set_query_panel_v18658(_nav_to_store_v18658)
-            _persist_ui_state_v18658(nav=_nav_to_store_v18658, panel=str(_active_control_center_panel_v18598 or ""))
+            _persist_ui_state_v18658(
+                nav=_nav_to_store_v18658,
+                group=_active_group_for_route_v19220_rc7,
+                panel=_active_panel_for_route_v19220_rc7,
+            )
     except Exception:
         pass
     # Oppdater KPI-raden etter panelrendering, slik at data som Top Picks akkurat har
