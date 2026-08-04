@@ -2496,6 +2496,32 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             unsafe_allow_html=True,
         )
 
+        # v19.21.0 RC1: permanent, real buttons for switching main AI workspaces.
+        # They remain available while a panel is open and do not depend on the
+        # startup radio state. This is presentation/navigation only.
+        st.caption("Bytt arbeidsområde direkte – valgene er tilgjengelige også når et panel allerede er åpent.")
+        quick_groups = list(group_map.keys())
+        for row_start in range(0, len(quick_groups), 4):
+            cols = st.columns(min(4, len(quick_groups) - row_start))
+            for col, quick_group in zip(cols, quick_groups[row_start:row_start + 4]):
+                direct = [label for label in group_map.get(quick_group, []) if label in panel_map]
+                default_panel = (ai_candidate_primary_label if quick_group == ai_candidate_group_name and ai_candidate_primary_label in direct
+                                 else (direct[0] if direct else ""))
+                label = ("● " if quick_group == current_group else "○ ") + quick_group
+                if col.button(label, key=f"ai_cc_quick_group_v19210_{quick_group}", width="stretch"):
+                    st.session_state["ai_control_center_group_v1863aj"] = quick_group
+                    st.session_state["ai_control_center_group_v1863m"] = quick_group
+                    st.session_state["ai_control_center_active_panel_v1863aj"] = default_panel
+                    st.session_state["ai_control_center_active_panel_v1863m"] = default_panel
+                    st.session_state["ai_control_center_active_real_panel_v18598"] = default_panel
+                    option = next((opt for opt, name in group_by_option.items() if name == quick_group), "")
+                    if option:
+                        st.session_state["ai_control_center_group_radio_v1863aj"] = option
+                    if default_panel:
+                        st.session_state[f"ai_control_center_panel_radio_v1863aj_{quick_group}"] = default_panel
+                    set_global_navigation_state(st, nav="control_center", group=quick_group, panel=default_panel)
+                    st.rerun()
+
         st.markdown(
             """
             <div class="ptw-control-selector-shell">

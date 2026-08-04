@@ -3040,6 +3040,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                     Paragraph("Evidensmatrise – status per analyseområde", styles["Subsection"]),
                     matrix_table,
                 ]
+                explainability = transparency.get("explainability") if isinstance(transparency.get("explainability"), Mapping) else {}
+                if explainability:
+                    positives = " • ".join(str(x) for x in explainability.get("positive_drivers") or []) or "Ingen dominerende positiv driver registrert."
+                    negatives = " • ".join(str(x) for x in explainability.get("negative_drivers") or []) or "Ingen dominerende negativ driver registrert."
+                    gaps = " • ".join(str(x) for x in explainability.get("documentation_gaps") or []) or "Ingen kritiske dokumentasjonsgap registrert."
+                    improve = " • ".join(str(x) for x in explainability.get("what_can_improve_recommendation") or [])
+                    weaken = " • ".join(str(x) for x in explainability.get("what_can_weaken_recommendation") or [])
+                    story += [
+                        Paragraph("AI-forklaring – hvorfor kandidaten er rangert her", styles["Subsection"]),
+                        Paragraph(escape(_loc(str(explainability.get("summary") or ""))), styles["Small"]),
+                        Paragraph(f"<b>Positive drivere:</b> {escape(_loc(positives))}", styles["Small"]),
+                        Paragraph(f"<b>Begrensninger og risiko:</b> {escape(_loc(negatives))}", styles["Small"]),
+                        Paragraph(f"<b>Dokumentasjonsgap:</b> {escape(_loc(gaps))}", styles["Small"]),
+                        Paragraph(f"<b>Kan styrke anbefalingen:</b> {escape(_loc(improve))}", styles["Small"]),
+                        Paragraph(f"<b>Kan svekke anbefalingen:</b> {escape(_loc(weaken))}", styles["Small"]),
+                    ]
 
             discovery_detail = raw.get("discovery_evidence") or raw.get("ai_discovery") or candidate.get("discovery_reason") or "Ingen separat Discovery-dokumentasjon registrert."
             backtest_detail = raw.get("backtest") or raw.get("validation") or candidate.get("validation_reason") or "Ingen detaljert backtest registrert."

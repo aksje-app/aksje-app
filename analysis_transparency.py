@@ -1,4 +1,4 @@
-"""Transparent evidence and analysis contracts for v19.19.0.
+"""Transparent evidence and analysis contracts for v19.21.0.
 
 Report-only and audit-only logic. It must not alter ranking, trading thresholds,
 portfolio rules, scheduler behaviour or execution decisions.
@@ -239,8 +239,9 @@ def build_candidate_transparency(candidate: Mapping[str, Any]) -> dict[str, Any]
         if row["status_class"] in {"FAILED", "DEGRADED", "NOT_SEARCHED", "UNKNOWN"}:
             critical_gaps.append({"area": row["area"], "status": row["status"], "status_class": row["status_class"],
                                   "reason": "Området er ikke fullt dokumentert"})
-    return {
-        "schema_version": "19.19.0-rc1", "ticker": str(candidate.get("ticker") or ""), "generated_at": _now_iso(),
+    from analysis_explainability import build_candidate_explainability
+    result = {
+        "schema_version": "19.21.0-rc1", "ticker": str(candidate.get("ticker") or ""), "generated_at": _now_iso(),
         "claim_ledger": ledger, "evidence_matrix": evidence_matrix, "conflict_register": conflict_register,
         "confidence_breakdown": confidence,
         "ranking_explanation": {"total_score": round(_f(candidate.get("investment_score")), 2), "components": components,
@@ -254,6 +255,8 @@ def build_candidate_transparency(candidate: Mapping[str, Any]) -> dict[str, Any]
                            "evidence_ready": bool(candidate.get("evidence_data_ready") or candidate.get("evidence_valid_for_decision")),
                            "final_decision_ready": bool(candidate.get("final_decision_ready"))},
     }
+    result["explainability"] = build_candidate_explainability(candidate, result)
+    return result
 
 
 def attach_analysis_transparency(run: dict[str, Any]) -> dict[str, Any]:
@@ -266,13 +269,13 @@ def attach_analysis_transparency(run: dict[str, Any]) -> dict[str, Any]:
             run[key] = [by_ticker.get(str(row.get("ticker") or ""), dict(row)) for row in run.get(key) or [] if isinstance(row, Mapping)]
     top = list(run.get("raw_top3") or candidates[:3])
     run["analysis_transparency"] = {
-        "schema_version": "19.19.0-rc1", "generated_at": _now_iso(),
+        "schema_version": "19.21.0-rc1", "generated_at": _now_iso(),
         "top3": [row.get("analysis_transparency") or build_candidate_transparency(row) for row in top],
         "candidate_count": len(candidates), "transparent_candidate_count": sum(1 for row in candidates if row.get("analysis_transparency")),
         "principles": ["Score, evidens og konfidens vises separat", "Kildeuavhengighet beregnes fra opprinnelig utgiver",
                        "Ikke søkt, ingen funn, kildefeil og foreldet data er separate statuser",
                        "Forkastede og motstridende påstander er sporbare", "Konfidens er ikke sannsynlighet for gevinst",
-                       "Ingen produksjons- eller handelsregel endres"],
+                       "Forklaringer endrer ikke rangering eller beslutning", "Ingen produksjons- eller handelsregel endres"],
     }
     return run
 
