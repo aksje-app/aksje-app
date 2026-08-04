@@ -190,7 +190,7 @@ def render_paper_trading_dashboard(_legacy_context):
                                     st.warning(msg)
                                     st.session_state["paper_trading_active_tab_slug_v18674c"] = "hypoteser"
                                     st.session_state["paper_trading_active_tab_label_v18674c"] = "🧪 Hypoteser/Test"
-                                    set_global_navigation_state(st, nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="hypoteser")
+                                    set_global_navigation_state(st, nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="hypoteser")
                                     st.rerun()
                                 else:
                                     st.error(msg)
@@ -303,7 +303,7 @@ def render_paper_trading_dashboard(_legacy_context):
                             st.warning(msg)
                             st.session_state["paper_trading_active_tab_slug_v18674c"] = "hypoteser"
                             st.session_state["paper_trading_active_tab_label_v18674c"] = "🧪 Hypoteser/Test"
-                            set_global_navigation_state(st, nav="control_center", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="hypoteser")
+                            set_global_navigation_state(st, nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="hypoteser")
                             st.rerun()
                         else:
                             st.error(msg)

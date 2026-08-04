@@ -27,48 +27,23 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     a3.metric("Kjøremodus", "Kun teoretisk")
     a4.metric("Domener", len(manifest.get("domains") or []))
 
-    requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
-    if requested_workspace == "autonomous_portfolio":
-        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
-        render_autonomous_portfolio(view="autonomous"); return
-    if requested_workspace == "learning_portfolio":
-        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
-        render_autonomous_portfolio(view="learning"); return
-    if requested_workspace == "reports":
-        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
-        from market_intelligence import render_market_intelligence
-        render_market_intelligence(); return
-    if requested_workspace == "operations":
-        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
-        render_alerts_watchlist_control_center_v1869()
-        st.divider(); render_performance_dashboard(); return
+    # RC7: never render a requested workspace through a separate early-return
+    # path. The old path rendered the requested page once without establishing
+    # the radio state; the next rerun then defaulted to Oversikt. All requests
+    # now flow through one selector and one renderer below.
     from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode
     interface_mode = render_mode_selector()
     if interface_mode != EXPERT:
         render_simple_mode()
         return
 
-    workspace_labels = {
-        "overview": "Oversikt",
-        "reports": "Rapporter",
-        "orchestrator": "Orkestrering og tidsplan",
-        "autonomous_portfolio": "Autonom portefølje",
-        "learning_portfolio": "Læringsportefølje",
-        "architecture": "Ekspertkontroll",
-        "operations": "Varsler og drift",
-        "strategy_versions": "Strategiversjoner",
-        "strategy_lab": "Strategy Lab",
-        "engine_details": "Motorresultater",
-    }
+    from navigation_state import AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7
+    workspace_labels = dict(AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7)
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
     if requested_workspace in workspace_labels:
-        # Set the radio default before widget creation; never mutate its key afterwards.
-        desired = workspace_labels[requested_workspace]
-        current = st.session_state.get("autonomy_core_workspace_v1880")
-        if current not in workspace_labels.values():
-            st.session_state["autonomy_core_workspace_v1880"] = desired
-        elif current != desired:
-            st.session_state["autonomy_core_workspace_v1880"] = desired
+        # Set the widget key before creation and keep it as the durable active
+        # workspace. Clearing only the one-shot request must not clear selection.
+        st.session_state["autonomy_core_workspace_v1880"] = workspace_labels[requested_workspace]
         st.session_state["autonomy_core_workspace_slug_v1882"] = ""
     workspace = st.radio(
         "Velg arbeidsflate",
@@ -76,6 +51,7 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
         horizontal=True, key="autonomy_core_workspace_v1880",
     )
     workspace_slug = next(slug for slug, label in workspace_labels.items() if label == workspace)
+    st.session_state["autonomy_core_workspace_active_slug_v19220_rc7"] = workspace_slug
     set_global_navigation_state(
         st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab=workspace_slug,
     )
