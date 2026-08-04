@@ -10,6 +10,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from app_version import APP_VERSION
 from durable_runtime import append_event, read_events
 
 ROOT = Path(__file__).resolve().parent
@@ -96,7 +98,7 @@ def run_static_regression_checks(root: Optional[Path] = None) -> Dict[str, Any]:
         "Sporbar drift",
     ]
     missing = [anchor for anchor in required_app_anchors if anchor not in app]
-    version_ok = 'APP_VERSION = "v19.16.8"' in version
+    version_ok = f'APP_VERSION = "{APP_VERSION}"' in version
     return {
         "ok": not missing and version_ok,
         "version_ok": version_ok,

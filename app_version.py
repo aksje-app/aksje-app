@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc1"
-APP_VERSION_NAME = "Investor Edition Release Candidate 1"
+APP_VERSION = "v19.22.0-rc2"
+APP_VERSION_NAME = "Investor Edition Release Candidate 2"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.21.0-rc1"
+PREVIOUS_APP_VERSION = "v19.22.0-rc1"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc2: Valideringsstabilisering av Investor Edition. Foreldede versjonsforventninger og testfixturer er oppdatert, releaseaudit og distribusjonsverktøy er gjort versjonsbevisste, og DELTA-slettelisten er sikret mot runtime-data, cache og lokale hemmeligheter. Ingen endring i final_score, kandidatvalg, scheduler, innlogging, Paper Trading eller produksjonshandelsregler.",
     "v19.20.0-rc1: Felles varselterskel for alle nye manuelle og planlagte kjøringer, terskelsnapshot ved jobbstart, og faste rapporttidspunkter flyttet fra 08:30/22:30 til 08:00/22:00 med automatisk migrering av lagrede jobber.",
     "v19.16.0: Full systemstabilisering: stabil markedsprofil som gjør Kjernemarkeder til Norge, Sverige og USA i jobb, oppdrag, kjøring og rapport; én eksplisitt konfidenskontrakt; korrekt evidensdekning; streng selskapsrelevans for nyheter; primær-/sekundærproveniens for insiderfakta; kanonisk porteføljebegrunnelse; og semantisk rapportintegritet som blokkerer motstridende JSON/PDF-grunnlag.",
     "v19.14.6: PDF-avhengighet og ren oppstart: pypdf er eksplisitt og versjonslåst runtime-avhengighet; web- og scheduler-start kontrollerer PDF-leseren før arbeid aksepteres; Render-bygget kjører avhengighetssmoke etter installasjon; ny test bygger og leser en PDF semantisk, og releasevalideringen kontrollerer at kravfilen alene deklarerer pypdf.",
