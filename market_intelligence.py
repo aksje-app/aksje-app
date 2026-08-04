@@ -186,7 +186,47 @@ MODULE_LABELS_NO = {
     "Insider Intelligence": "Innsideranalyse",
     "News & Sentiment Intelligence": "Nyhets- og sentimentanalyse",
 }
-SCHEDULE_OPTIONS = ["Ved appstart", "08:30", "12:00", "15:00", "16:30", "22:30"]
+SCHEDULE_OPTIONS = ["Ved appstart", "08:00", "12:00", "15:00", "16:30", "22:00"]
+GLOBAL_ALERT_SCORE_KEY = "market_intelligence/global_alert_score.json"
+DEFAULT_GLOBAL_ALERT_SCORE = 80.0
+LEGACY_SCHEDULE_MIGRATION = {"08:30": "08:00", "22:30": "22:00"}
+
+
+def normalize_schedule_value(value: Any) -> str:
+    raw = str(value or "").strip()
+    return LEGACY_SCHEDULE_MIGRATION.get(raw, raw)
+
+
+def load_global_alert_score() -> float:
+    raw = read_persistent_json(GLOBAL_ALERT_SCORE_KEY, default=DEFAULT_GLOBAL_ALERT_SCORE)
+    try:
+        return max(0.0, min(100.0, float(raw)))
+    except (TypeError, ValueError):
+        return DEFAULT_GLOBAL_ALERT_SCORE
+
+
+def save_global_alert_score(value: float) -> float:
+    score = max(0.0, min(100.0, float(value)))
+    previous = load_global_alert_score()
+    if score != previous:
+        write_persistent_json(GLOBAL_ALERT_SCORE_KEY, score)
+        _audit("GLOBAL_ALERT_SCORE_CHANGED", {"before": previous, "after": score})
+    return score
+
+
+def apply_execution_settings(job: "JobProfile") -> tuple["JobProfile", dict[str, Any]]:
+    """Snapshot central settings once when a job starts.
+
+    Manual and scheduled runs use the same current threshold. A running job
+    keeps its snapshot even if an administrator changes the setting later.
+    """
+    score = load_global_alert_score()
+    effective = replace(job, min_alert_score=score)
+    return effective, {
+        "global_alert_score": score,
+        "applies_to": "MANUAL_AND_SCHEDULED_NEW_RUNS",
+        "snapshot_at_start": True,
+    }
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 
@@ -468,7 +508,7 @@ class JobProfile:
     name: str
     markets: list[str] = field(default_factory=lambda: ["Alle kjernemarkeder"])
     market_profile: str = MARKET_PROFILE_CORE
-    schedules: list[str] = field(default_factory=lambda: ["08:30", "22:30"])
+    schedules: list[str] = field(default_factory=lambda: ["08:00", "22:00"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     modules: list[str] = field(default_factory=lambda: list(MODULE_OPTIONS))
     scan_limit: int = 25
@@ -516,6 +556,7 @@ class JobProfile:
         )
         data["market_profile"] = profile_id
         data["markets"] = profile_market_selections(profile_id, data.get("markets"))
+        data["schedules"] = [normalize_schedule_value(x) for x in list(data.get("schedules") or [])]
         data["timezone_name"] = valid_timezone(data.get("timezone_name"))
         return cls(**data)
 
@@ -537,9 +578,16 @@ def load_jobs() -> list[JobProfile]:
         if (job.enabled, str(job.last_run_at or "")) > (current.enabled, str(current.last_run_at or "")):
             deduped[key] = job
     cleaned = [deduped[key] for key in order]
-    if len(cleaned) != len(jobs):
+    source_payload = [dict(x) for x in data if isinstance(x, Mapping)]
+    schedules_migrated = any(
+        any(str(value or "") in LEGACY_SCHEDULE_MIGRATION for value in list(item.get("schedules") or []))
+        for item in source_payload
+    )
+    if len(cleaned) != len(jobs) or schedules_migrated:
         save_jobs(cleaned)
-        _audit("DUPLICATE_JOB_PROFILES_REPAIRED", {"before": len(jobs), "after": len(cleaned)})
+        _audit("JOB_PROFILES_REPAIRED", {
+            "before": len(jobs), "after": len(cleaned), "schedules_migrated": schedules_migrated,
+        })
     return cleaned
 
 
@@ -3386,6 +3434,7 @@ def _run_job_impl(
     full_run_started = time_module.perf_counter()
     requested_job = job
     trigger = str(trigger or "MANUAL").upper()
+    job, execution_settings = apply_execution_settings(job)
     # A manual/test run must never inherit an old planned slot. This was the
     # root cause of manually started drafts looking like delayed scheduled
     # reports in Pushover.
@@ -3704,6 +3753,7 @@ def _run_job_impl(
            "created_at_local": local_display(run_created_at, job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
            "trigger": trigger, "scheduled_for": scheduled_for or "",
+           "execution_settings": execution_settings,
            "test_run": "TEST" in str(trigger or "").upper(),
            "suppress_notifications": should_suppress_notifications(trigger, send_notifications),
            "markets": markets, "market_profile": dict(profile), "modules": job.modules, "summary": totals, "candidates": all_candidates,
@@ -4306,7 +4356,7 @@ def render_market_intelligence() -> None:
             market_choices = ["Alle kjernemarkeder", "Utvidet Norden", "Brasil", "Alle markeder - full skanning"] + [x for x in BASE_MARKET_SCOPES if x not in {"Brasil"}]
             market_defaults = canonical_market_profile_selections(current.markets if current else None)
             markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=market_defaults, key="mi_markets_v18687", help="Alle kjernemarkeder = Norge, Sverige og USA. Danmark/Finland og Brasil kjøres separat ved behov. Full skanning er et avansert valg.")
-            schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:30", "22:30"], key="mi_schedules_v18690")
+            schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:00", "22:00"], key="mi_schedules_v18690")
             st.caption("Skanningsvinduer kjører gjentatte ganger innenfor valgte tidsrom.")
             windows = current.scan_windows if current and current.scan_windows else DEFAULT_SCAN_WINDOWS
             window_count = st.number_input("Antall skanningsvinduer", 0, 4, len(windows), 1, key="mi_window_count_v18690")
@@ -4369,16 +4419,24 @@ def render_market_intelligence() -> None:
         include_report_link = p1.checkbox("Direkte lenke til PDF", value=current.include_report_link if current else True, key="mi_report_link_v1870", help="På Render brukes tjenestens offentlige adresse automatisk. REPORT_PUBLIC_BASE_URL kan overstyre adressen.")
         include_top3 = p2.checkbox("Top 3 i varsel", value=current.include_top3_in_notification if current else True, key="mi_top3_push_v1870")
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        min_score = st.number_input("Minste score for varsel", 0, 100, int(current.min_alert_score if current else 80), 1, key="mi_min_score_v1870", help="Tallfelt brukes på mobil for å unngå utilsiktet endring av slider.")
+        global_alert_score = load_global_alert_score()
+        min_score = st.number_input(
+            "Minste score for varsel", 0, 100, int(global_alert_score), 1,
+            key="mi_min_score_v2000",
+            help="Gjelder alle nye manuelle og planlagte kjøringer. Pågående kjøringer beholder terskelen de startet med.",
+        )
+        min_score = save_global_alert_score(float(min_score))
+        st.caption("Felles terskel: gjelder neste manuelle kjøring og alle faste jobber. Pågående kjøringer påvirkes ikke.")
         r1, r2 = st.columns(2)
         reset_alerts = r1.button("↺ Tilbakestill varselstandard", key="mi_reset_alerts_v1870", width="stretch")
         reset_all = r2.button("↺ Tilbakestill hele jobbprofilen", key="mi_reset_all_v1870", width="stretch")
         if reset_alerts:
-            for key, value in {"mi_push_v18687": True, "mi_notification_mode_v18715": mode_labels["ALWAYS"], "mi_pdf_v18687": True, "mi_min_score_v1870": 80, "mi_report_link_v1870": True, "mi_top3_push_v1870": True}.items(): st.session_state[key] = value
+            for key, value in {"mi_push_v18687": True, "mi_notification_mode_v18715": mode_labels["ALWAYS"], "mi_pdf_v18687": True, "mi_min_score_v2000": 80, "mi_report_link_v1870": True, "mi_top3_push_v1870": True}.items(): st.session_state[key] = value
+            save_global_alert_score(DEFAULT_GLOBAL_ALERT_SCORE)
             st.rerun()
         if reset_all:
             defaults = load_draft_job()
-            defaults.name = "Morgenanalyse"; defaults.markets=["Alle kjernemarkeder"]; defaults.schedules=["08:30"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
+            defaults.name = "Morgenanalyse"; defaults.markets=["Alle kjernemarkeder"]; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]
