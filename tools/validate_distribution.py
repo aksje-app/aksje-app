@@ -12,7 +12,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator
 
-EXPECTED_VERSION = "v19.16.0"
+from app_version import APP_VERSION
+
+EXPECTED_VERSION = APP_VERSION
+DOC_TAG = APP_VERSION.replace("-rc", "_RC")
 
 FORBIDDEN_ROOT_DIRS = {
     ".git", ".app_runtime", ".pytest_cache", ".render", "build", "cache",
@@ -54,19 +57,19 @@ PROFILE_REQUIRED_FILES = {
         "render.yaml", ".env.example", "market_intelligence.py", "market_universe.py",
         "report_integrity.py", "decision_report.py", "evidence_contract.py",
         "news_intelligence.py", "insider_intelligence.py", "notifier.py",
-        "RELEASE_NOTES_v19.16.0.md", "ACCEPTANCE_v19.16.0.md", "DEPLOY_v19.16.0.md",
+        f"RELEASE_NOTES_{DOC_TAG}.md", f"ACCEPTANCE_{DOC_TAG}.md", f"DEPLOY_{DOC_TAG}.md",
         "tests/test_v19150_full_system_stabilization.py",
         "tools/audit_full_system_v19150.py", "tools/validate_distribution.py",
         "tools/build_safe_distribution.py", "DISTRIBUTION_MANIFEST.json",
         "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
     },
     "update": {
-        "README_APPLY_DELTA.md", "CHANGE_INVENTORY_v19.16.0.json", "DELETE_FILES.txt",
+        "README_APPLY_DELTA.md", f"CHANGE_INVENTORY_{DOC_TAG}.json", "DELETE_FILES.txt",
         "COPY_TO_REPOSITORY/app_version.py",
-        "COPY_TO_REPOSITORY/RELEASE_NOTES_v19.16.0.md",
+        f"COPY_TO_REPOSITORY/RELEASE_NOTES_{DOC_TAG}.md",
         "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py",
     },
-    "migration": {"app_version.py", "DEPLOY_v19.16.0.md"},
+    "migration": {"app_version.py", f"DEPLOY_{DOC_TAG}.md"},
 }
 
 

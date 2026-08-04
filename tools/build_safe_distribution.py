@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build deterministic full and delta archives for v19.16.0."""
+"""Build deterministic full and delta archives for the canonical current release."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,12 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "v19.16.0"
+from app_version import APP_VERSION
+
+VERSION = APP_VERSION
+DOC_TAG = APP_VERSION.replace("-rc", "_RC")
+ARCHIVE_BASE = APP_VERSION.split("-rc", 1)[0].replace(".", "_")
+RC_LABEL = "RC" + APP_VERSION.rsplit("-rc", 1)[1] if "-rc" in APP_VERSION else "RELEASE"
 MUTABLE_PARTS = {
     ".git", ".app_runtime", ".pytest_cache", ".render", "__pycache__", "build",
     "cache", "data", "dist", "htmlcov", "logs", "local_runtime", "runtime",
@@ -47,17 +52,6 @@ def safe_files(root: Path) -> dict[str, Path]:
     }
 
 
-def mutable_cleanup_files(root: Path) -> list[str]:
-    rows = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        if (rel.parts and rel.parts[0] in MUTABLE_PARTS) or "__pycache__" in rel.parts or rel.name in FORBIDDEN_NAMES:
-            rows.append(rel.as_posix())
-    return rows
-
-
 def make_manifest(files: dict[str, Path], *, package: str) -> dict:
     return {
         "version": VERSION,
@@ -75,7 +69,7 @@ def write_deterministic_zip(source_dir: Path, destination: Path) -> None:
             if not path.is_file():
                 continue
             rel = path.relative_to(source_dir).as_posix()
-            info = zipfile.ZipInfo(rel, date_time=(2026, 7, 30, 0, 0, 0))
+            info = zipfile.ZipInfo(rel, date_time=(2026, 8, 4, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
             archive.writestr(info, path.read_bytes())
@@ -104,9 +98,10 @@ def build(source: Path, baseline: Path, output: Path) -> dict:
             new.append(rel)
         elif sha256(path) != sha256(old):
             changed.append(rel)
-    deleted = sorted(set(baseline_files) - set(source_files))
-    cleanup = mutable_cleanup_files(baseline)
-    delete_files = sorted(set(deleted + cleanup))
+    # DELETE_FILES may only contain paths that belong to the safe, distributable
+    # source set. Mutable runtime data, caches and local secrets are deliberately
+    # excluded from both snapshots and must never be deleted by an upgrade package.
+    delete_files = sorted(set(baseline_files) - set(source_files))
 
     full_stage = stage / "full"
     full_stage.mkdir()
@@ -123,26 +118,26 @@ def build(source: Path, baseline: Path, output: Path) -> dict:
         "new": sorted(new), "changed": sorted(changed), "deleted": delete_files,
         "copy_file_count": len(new) + len(changed), "delete_file_count": len(delete_files),
     }
-    (delta_stage / "CHANGE_INVENTORY_v19.16.0.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (delta_stage / f"CHANGE_INVENTORY_{DOC_TAG}.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (delta_stage / "DELETE_FILES.txt").write_text("\n".join(delete_files) + ("\n" if delete_files else ""), encoding="utf-8")
     (delta_stage / "README_APPLY_DELTA.md").write_text(
-        "# Bruk av v19.16.0-delta\n\n"
-        "1. Bruk den eksisterende stabiliseringsgrenen basert på den opplastede v19.14.6-kilden.\n"
+        f"# Bruk av {VERSION}-delta\n\n"
+        f"1. Bruk repositorygrenen som er basert på {source.name} sin autoritative forgjenger.\n"
         "2. Kopier alt under `COPY_TO_REPOSITORY` til repositoryroten og erstatt eksisterende filer.\n"
         "3. Slett hver bane i `DELETE_FILES.txt`. Baner under `.app_runtime` er mutable testdata og skal fjernes fra GitHub, ikke fra Render-disken.\n"
-        "4. Kontroller endringene, commit og push. Ikke merge til `main` før Render-akseptansen er bestått.\n",
+        "4. Kontroller endringene, commit og push. Ikke marker produksjonsklar før Render-akseptansen er bestått.\n",
         encoding="utf-8",
     )
 
-    full_zip = output / "AI_Aksje_Analyzer_v19_15_0_FULL_SYSTEM_STABILIZATION_FULL.zip"
-    delta_zip = output / "AI_Aksje_Analyzer_v19_15_0_GITHUB_DELTA_FROM_DEPLOYED_V19_14_6.zip"
+    full_zip = output / f"AI_Aksje_Analyzer_{ARCHIVE_BASE}_INVESTOR_EDITION_{RC_LABEL}_FULL.zip"
+    delta_zip = output / f"AI_Aksje_Analyzer_{ARCHIVE_BASE}_INVESTOR_EDITION_{RC_LABEL}_DELTA.zip"
     write_deterministic_zip(full_stage, full_zip)
     write_deterministic_zip(delta_stage, delta_zip)
     result = {
         "version": VERSION, "full_zip": str(full_zip), "delta_zip": str(delta_zip),
         "full_sha256": sha256(full_zip), "delta_sha256": sha256(delta_zip), **inventory,
     }
-    (output / "BUILD_RESULT_v19_15_0.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output / f"BUILD_RESULT_{DOC_TAG}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return result
 
 
