@@ -234,7 +234,7 @@ def test_text_report_uses_same_decision_sections():
     section_payload(document, "report_reliability", {})
     assert "BESLUTNINGSSTATUS" in text
     assert "Rapportpålitelighet:" not in text
-    for label in ("Markedsdatakvalitet", "Dokumentasjonsgrad", "Kildedekning", "Beslutningsstyrke"):
+    for label in ("Markedsdatakvalitet", "Rapportens tekniske dokumentasjonsgrad", "Kandidatenes evidensdekning", "Uavhengig kildedekning", "Beslutningsstyrke på rapportnivå"):
         assert label in text
     assert "OPPGAVER TIL NESTE KJØRING" in text
     assert "Kan endres når" in text
@@ -245,13 +245,13 @@ def test_archive_contains_decision_fields_and_ui_has_all_filters():
     run = _run()
     entry = mi._archive_entry(run)
     assert set(entry) >= {
-        "report_reliability", "decision_ready_count", "top3_changed", "next_task_count",
+        "report_reliability", "report_decision_strength", "candidate_evidence_coverage", "decision_ready_count", "top3_changed", "next_task_count",
         "upcoming_event_count", "has_errors", "reserve_feed_used", "low_reliability",
     }
     source = Path(mi.__file__).read_text(encoding="utf-8")
     for report_type in ("MORGENRAPPORT", "DAGSRAPPORT", "KVELDSRAPPORT", "NATTRAPPORT"):
         assert report_type in source
-    for label in ("Datoperiode", "Marked", "Rapportstatus", "Endret Top 3", "Lav pålitelighet", "Reserve-feed"):
+    for label in ("Datoperiode", "Marked", "Rapportstatus", "Endret Top 3", "Lav beslutningsstyrke", "Reserve-feed"):
         assert label in source
 
 def test_previous_comparison_survives_later_renderer_refresh_without_previous_argument():

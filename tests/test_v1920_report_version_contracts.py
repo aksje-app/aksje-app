@@ -140,6 +140,7 @@ def test_document_has_required_renderer_independent_sections():
         "historical_evaluations",
         "events",
         "confidence_profile",
+        "quality_dimensions",
         "report_reliability",
         "source_consensus",
         "controlled_learning_guard",

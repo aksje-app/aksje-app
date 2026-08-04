@@ -111,8 +111,8 @@ def _run() -> dict:
 
 
 def test_rc4_version_identity_is_current() -> None:
-    assert APP_VERSION == "v19.22.0-rc7"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc6"
+    assert APP_VERSION == "v19.22.0-rc8"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc7"
 
 
 def test_rc4_pdf_page_one_contains_decision_information_and_top3() -> None:
@@ -129,9 +129,10 @@ def test_rc4_pdf_page_one_contains_decision_information_and_top3() -> None:
     for label in (
         "Hovedkonklusjon",
         "Markedsdatakvalitet",
-        "Dokumentasjonsgrad",
-        "Kildedekning",
-        "Beslutningsstyrke",
+        "Teknisk dokumentasjon",
+        "Kandidatenes evidens",
+        "Uavhengige kilder",
+        "Beslutningsstyrke rapport",
         "Top 1-3 - investeringsrangering",
         "Rapport-ID",
         "Analyse-ID",

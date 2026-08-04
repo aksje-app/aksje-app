@@ -40,7 +40,7 @@ def test_report_2_0_front_page_and_traceability():
     assert before == after
     for needle in (
         'Hovedkonklusjon', 'Top 1-3 - investeringsrangering',
-        'Markedsdatakvalitet', 'Dokumentasjonsgrad', 'Kildedekning',
+        'Markedsdatakvalitet', 'Teknisk dokumentasjon', 'Kandidatenes evidens', 'Uavhengige kilder',
         'Beslutningsstyrke', 'Analyse-ID', 'Sporbarhet: program',
     ):
         assert needle in text

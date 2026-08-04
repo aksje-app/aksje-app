@@ -142,8 +142,10 @@ def test_render_cron_and_ui_use_one_currency_chain():
     assert "get_currency_alert_health(max_age_minutes=20)" in app
     assert "runtime_background_status()" not in app[app.index("def render_currency_alerts_control_center_v1863af"):app.index("# v18.5.37")]
     assert "_fetch_fx_rate_v1863af(symbol_value)" not in app[app.index("def render_currency_alerts_control_center_v1863af"):app.index("# v18.5.37")]
-    assert "fx-status-grid" in app
-    assert "repeat(2,minmax(0,1fr))" in app
+    layout = (ROOT / "ui_layout_contracts.py").read_text(encoding="utf-8")
+    assert "fx-status-grid" in layout
+    assert "repeat(auto-fit,minmax(180px,1fr))" in layout
+    assert "grid-template-columns:1fr" in layout
     assert "Teknisk valutastatus og logg" in app
     assert "Send Pushover-test med fersk kurs" in app
 
@@ -151,5 +153,5 @@ def test_render_cron_and_ui_use_one_currency_chain():
 def test_version_identity_advances_to_rc6():
     from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 
-    assert APP_VERSION == "v19.22.0-rc7"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc6"
+    assert APP_VERSION == "v19.22.0-rc8"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc7"
