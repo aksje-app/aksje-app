@@ -398,7 +398,8 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
         _section("historical_evaluations", "Historisk evaluering", list(decision_report.get("historical_evaluations") or []), 37),
         _section("events", "Kritiske hendelser", list(decision_report.get("events") or []), 40),
         _section("confidence_profile", "Datadekning, kildesikkerhet og beslutningssikkerhet", dict(decision_report.get("confidence") or {}), 45),
-        _section("report_reliability", "Rapportpålitelighet", dict(decision_report.get("reliability") or {}), 50),
+        _section("quality_dimensions", "Separate kvalitetsmål", dict(decision_report.get("quality_dimensions") or {}), 47),
+        _section("report_reliability", "Utfaset samlet rapportscore - kompatibilitet", dict(decision_report.get("reliability") or {}), 50),
         _section("source_consensus", "Kildekonsensus", dict(decision_report.get("source_consensus") or {}), 55),
         _section("controlled_learning_guard", "Kontrollert læringsvern", dict(decision_report.get("controlled_learning_guard") or {}), 58),
         _section("technical_status", "Teknisk status", {
@@ -450,7 +451,7 @@ def validate_report_document(document: Mapping[str, Any], *, raise_on_error: boo
     keys = [str(row.get("key") or "") for row in sections if isinstance(row, Mapping)]
     for required in (
         "executive_summary", "decision_overview", "candidate_decisions", "changes",
-        "next_run_tasks", "events", "confidence_profile", "report_reliability",
+        "next_run_tasks", "events", "confidence_profile", "quality_dimensions", "report_reliability",
         "source_consensus", "decision_diffs", "counter_hypotheses",
         "historical_evaluations", "controlled_learning_guard", "technical_status",
     ):

@@ -250,7 +250,31 @@ def candidate_source_consensus(candidate: Mapping[str, Any]) -> dict[str, Any]:
             "attempted": sum(1 for row in search_log if row.get("attempted")),
         }
 
-    independent = len(all_sources)
+    # RC8: the claim ledger is the canonical source-count contract.  It counts
+    # original publishers behind verified claims, not distribution domains or
+    # merely attempted search endpoints.  Prefer it whenever available so the
+    # overview and detailed transparency table cannot disagree.
+    transparency = _mapping(candidate.get("analysis_transparency"))
+    claim_ledger = _mapping(transparency.get("claim_ledger"))
+    ledger_independent_count: int | None = None
+    if claim_ledger:
+        ledger_sources = {
+            str(value).strip()
+            for value in (claim_ledger.get("independent_sources") or [])
+            if str(value).strip()
+        }
+        ledger_independent_count = _safe_int(
+            claim_ledger.get("independent_source_count"),
+            len(ledger_sources),
+        )
+        all_sources = ledger_sources
+        verified_facts = _safe_int(
+            claim_ledger.get("claim_count", claim_ledger.get("verified_claim_count")),
+            verified_facts,
+        )
+        primary = bool(claim_ledger.get("primary_source_fact_areas"))
+
+    independent = ledger_independent_count if ledger_independent_count is not None else len(all_sources)
     if conflicts > 0:
         level = "MOTSTRIDENDE"
     elif independent >= 3 and (primary or verified_facts >= 3):
@@ -281,6 +305,8 @@ def candidate_source_consensus(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "sources_attempted": attempted,
         "successful_source_attempts": successful,
         "areas": areas,
+        "source_count_basis": "original_publisher_verified_claims" if claim_ledger else "available_source_names",
+        "source_count_consistent": True,
         "explanation": "; ".join(explanation_parts),
     }
 
@@ -691,10 +717,20 @@ def build_report_reliability(run: Mapping[str, Any], candidate_contracts: Sequen
     score = max(0, min(100, score))
     label = "HØY" if score >= 85 else "MIDDELS" if score >= 65 else "LAV"
     return {
+        # Compatibility only.  New UI/PDF must use the separate quality
+        # dimensions below and must not present this as one reliability score.
         "score": score,
+        "legacy_score": score,
         "label": label,
+        "deprecated": True,
+        "display": False,
+        "replacement_fields": [
+            "market_data_quality", "technical_documentation_coverage",
+            "candidate_evidence_coverage", "independent_source_coverage",
+            "report_decision_strength",
+        ],
         "deductions": sorted(deductions, key=lambda row: row["points"], reverse=True),
-        "basis": "Forklarbar rapportpålitelighet basert på data, kilder, feil og fullføringsstatus.",
+        "basis": "Utfaset kompatibilitetsberegning. Vis separate kvalitetsmål i stedet.",
         "not_investment_probability": True,
     }
 
@@ -863,6 +899,27 @@ def build_decision_report(
     events = build_event_calendar(run)
     confidence = build_report_confidence(run, candidate_contracts)
     reliability = build_report_reliability(run, candidate_contracts)
+    combined_quality = _mapping(run.get("combined_data_quality") or run.get("combined_quality"))
+    evaluated_count = _safe_int(combined_quality.get("evaluated"), len(candidate_contracts))
+    evidence_ready_count = _safe_int(combined_quality.get("overall_valid"), sum(
+        1 for row in candidate_contracts if _mapping(row.get("confidence")).get("evidence_data_ready")
+    ))
+    quality_dimensions = {
+        "market_data_quality": _safe_int(confidence.get("market_data_coverage"), 0),
+        "technical_documentation_coverage": _safe_int(confidence.get("documentation_coverage") or confidence.get("data_coverage"), 0),
+        "candidate_evidence_coverage": round((100.0 * evidence_ready_count / evaluated_count), 1) if evaluated_count else 0.0,
+        "candidate_evidence_ready_count": evidence_ready_count,
+        "candidate_count": evaluated_count,
+        "independent_source_coverage": _safe_int(confidence.get("source_confidence"), 0),
+        "report_decision_strength": _safe_int(confidence.get("decision_confidence"), 0),
+        "labels": {
+            "market_data_quality": "Markedsdatakvalitet",
+            "technical_documentation_coverage": "Rapportens tekniske dokumentasjonsgrad",
+            "candidate_evidence_coverage": "Kandidatenes evidensdekning",
+            "independent_source_coverage": "Uavhengig kildedekning",
+            "report_decision_strength": "Beslutningsstyrke på rapportnivå",
+        },
+    }
     tasks = build_next_run_tasks(run, candidate_contracts, events)
     overview = build_decision_overview(run, identity, candidate_contracts, changes, tasks, events, confidence, reliability)
     overview["decision_diff_count"] = int(decision_diffs.get("changed_count") or 0)
@@ -882,6 +939,7 @@ def build_decision_report(
         "events": events,
         "next_run_tasks": tasks,
         "confidence": confidence,
+        "quality_dimensions": quality_dimensions,
         "reliability": reliability,
         "source_consensus": source_consensus,
         "decision_diffs": decision_diffs,
@@ -914,6 +972,7 @@ def enrich_decision_report(
         run["critical_events"] = deepcopy(payload["events"])
         run["next_run_tasks"] = deepcopy(payload["next_run_tasks"])
         run["report_confidence"] = deepcopy(payload["confidence"])
+        run["report_quality_dimensions"] = deepcopy(payload["quality_dimensions"])
         run["report_reliability"] = deepcopy(payload["reliability"])
         run["source_consensus"] = deepcopy(payload["source_consensus"])
         run["decision_diffs"] = deepcopy(payload["decision_diffs"])

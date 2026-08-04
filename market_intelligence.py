@@ -761,6 +761,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     overview = section_payload(document, "decision_overview", {}) or {}
     confidence = section_payload(document, "confidence_profile", {}) or {}
     reliability = section_payload(document, "report_reliability", {}) or {}
+    quality_dimensions = section_payload(document, "quality_dimensions", {}) or {}
     changes = section_payload(document, "changes", {}) or {}
     decision_diffs = section_payload(document, "decision_diffs", {}) or {}
     counter_hypotheses = section_payload(document, "counter_hypotheses", {}) or {}
@@ -790,10 +791,11 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         f"Rapportskjema: {metadata.get('report_schema_version') or REPORT_SCHEMA_VERSION}",
         "",
         "BESLUTNINGSSTATUS",
-        f"- Markedsdatakvalitet: {confidence.get('market_data_coverage', 0)}/100",
-        f"- Dokumentasjonsgrad: {confidence.get('documentation_coverage', confidence.get('data_coverage', 0))}/100",
-        f"- Kildedekning: {confidence.get('source_confidence', 0)}/100",
-        f"- Beslutningsstyrke: {confidence.get('decision_confidence', 0)}/100",
+        f"- Markedsdatakvalitet: {quality_dimensions.get('market_data_quality', confidence.get('market_data_coverage', 0))}/100",
+        f"- Rapportens tekniske dokumentasjonsgrad: {quality_dimensions.get('technical_documentation_coverage', confidence.get('documentation_coverage', confidence.get('data_coverage', 0)))}/100",
+        f"- Kandidatenes evidensdekning: {quality_dimensions.get('candidate_evidence_ready_count', 0)} av {quality_dimensions.get('candidate_count', overview.get('candidate_count', len(candidates)))} ({quality_dimensions.get('candidate_evidence_coverage', 0)} %)",
+        f"- Uavhengig kildedekning: {quality_dimensions.get('independent_source_coverage', confidence.get('source_confidence', 0))}/100",
+        f"- Beslutningsstyrke på rapportnivå: {quality_dimensions.get('report_decision_strength', confidence.get('decision_confidence', 0))}/100",
         f"- Evidens- og dataklare kandidater: {overview.get('evidence_data_ready_count', 0)} av {overview.get('candidate_count', len(candidates))}",
         f"- Kjøpsgodkjente kandidater: {overview.get('decision_ready_count', 0)} av {overview.get('candidate_count', len(candidates))}",
         f"- Konklusjon: {overview.get('conclusion') or '-'}",
@@ -1187,6 +1189,7 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     decision_overview = section_payload(document, "decision_overview", {}) or {}
     report_reliability = section_payload(document, "report_reliability", {}) or {}
+    quality_dimensions = section_payload(document, "quality_dimensions", {}) or {}
     report_changes = section_payload(document, "changes", {}) or {}
     next_tasks = section_payload(document, "next_run_tasks", []) or []
     report_events = section_payload(document, "events", []) or []
@@ -1221,8 +1224,12 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "report_revision_label": revision.get("revision_label") or "R1",
         "supersedes_run_id": revision.get("supersedes_run_id") or "",
         "content_sha256": revision.get("content_sha256") or "",
+        # Legacy compatibility values are retained in the archive payload but
+        # not used as a user-facing single quality indicator in RC8.
         "report_reliability": int(report_reliability.get("score") or 0),
         "report_reliability_label": report_reliability.get("label") or "",
+        "report_decision_strength": int(quality_dimensions.get("report_decision_strength") or 0),
+        "candidate_evidence_coverage": float(quality_dimensions.get("candidate_evidence_coverage") or 0),
         "decision_ready_count": int(decision_overview.get("decision_ready_count") or 0),
         "candidate_count": int(decision_overview.get("candidate_count") or len(candidates)),
         "top3_changed": bool(report_changes.get("top3_changed")),
@@ -1232,7 +1239,7 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "has_errors": bool(run.get("errors") or source_error_count),
         "error_count": len(run.get("errors") or []) + source_error_count,
         "reserve_feed_used": reserve_feed_used,
-        "low_reliability": int(report_reliability.get("score") or 0) < 65,
+        "low_reliability": int(quality_dimensions.get("report_decision_strength") or 0) < 65,
     }
 
 
@@ -2066,6 +2073,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     decision_tasks = section_payload(report_document, "next_run_tasks", []) or []
     decision_events = section_payload(report_document, "events", []) or []
     decision_confidence = section_payload(report_document, "confidence_profile", {}) or {}
+    decision_quality = section_payload(report_document, "quality_dimensions", {}) or {}
     decision_reliability = section_payload(report_document, "report_reliability", {}) or {}
 
     full_checksum = str(report_metadata.get("content_sha256") or report_revision.get("content_sha256") or "-")
@@ -2092,24 +2100,29 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     ]))
 
     decision_state = "PASS" if int(decision_overview.get("decision_ready_count") or 0) else "REVIEW"
-    documentation_score = int(decision_confidence.get("documentation_coverage") or decision_confidence.get("data_coverage") or 0)
-    source_score = int(decision_confidence.get("source_confidence") or 0)
-    decision_strength = int(decision_confidence.get("decision_confidence") or 0)
-    market_quality = int(decision_confidence.get("market_data_coverage") or 0)
+    documentation_score = int(decision_quality.get("technical_documentation_coverage") or decision_confidence.get("documentation_coverage") or decision_confidence.get("data_coverage") or 0)
+    source_score = int(decision_quality.get("independent_source_coverage") or decision_confidence.get("source_confidence") or 0)
+    decision_strength = int(decision_quality.get("report_decision_strength") or decision_confidence.get("decision_confidence") or 0)
+    market_quality = int(decision_quality.get("market_data_quality") or decision_confidence.get("market_data_coverage") or 0)
+    evidence_coverage = float(decision_quality.get("candidate_evidence_coverage") or 0)
+    evidence_ready = int(decision_quality.get("candidate_evidence_ready_count") or 0)
+    evidence_total = int(decision_quality.get("candidate_count") or decision_overview.get("candidate_count") or len(decision_candidates))
     decision_status = Table([[
-        Paragraph(f"<b>Markedsdatakvalitet</b><br/><font size='11'>{market_quality}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Dokumentasjonsgrad</b><br/><font size='11'>{documentation_score}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Kildedekning</b><br/><font size='11'>{source_score}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Beslutningsstyrke</b><br/><font size='11'>{decision_strength}/100</font>", styles["MetricCard"]),
-    ]], colWidths=[46*mm]*4)
+        Paragraph(f"<b>Markedsdatakvalitet</b><br/><font size='10'>{market_quality}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Teknisk dokumentasjon</b><br/><font size='10'>{documentation_score}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Kandidatenes evidens</b><br/><font size='10'>{evidence_ready}/{evidence_total} · {evidence_coverage:.0f}%</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Uavhengige kilder</b><br/><font size='10'>{source_score}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Beslutningsstyrke rapport</b><br/><font size='10'>{decision_strength}/100</font>", styles["MetricCard"]),
+    ]], colWidths=[36.8*mm]*5)
     decision_status.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), .35, grid),
         ("BACKGROUND", (0,0), (0,0), colors.HexColor(decision_color(quality_status(market_quality)))),
         ("BACKGROUND", (1,0), (1,0), colors.HexColor(decision_color(quality_status(documentation_score)))),
-        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(quality_status(source_score)))),
-        ("BACKGROUND", (3,0), (3,0), colors.HexColor(decision_color(decision_state))),
+        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(quality_status(evidence_coverage)))),
+        ("BACKGROUND", (3,0), (3,0), colors.HexColor(decision_color(quality_status(source_score)))),
+        ("BACKGROUND", (4,0), (4,0), colors.HexColor(decision_color(decision_state))),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING", (0,0), (-1,-1), 3), ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 2), ("RIGHTPADDING", (0,0), (-1,-1), 2),
         ("TOPPADDING", (0,0), (-1,-1), 3), ("BOTTOMPADDING", (0,0), (-1,-1), 3),
     ]))
 
@@ -2148,7 +2161,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         Paragraph("Hovedkonklusjon", styles["Subsection"]),
         Paragraph(escape(str(decision_overview.get("conclusion") or "Ingen konklusjon registrert.")), styles["BodyCompact"]),
         executive_table,
-        Paragraph("Rapportgrunnlag - fire separate mål", styles["Subsection"]),
+        Paragraph("Rapportgrunnlag - separate mål", styles["Subsection"]),
         decision_status,
         Paragraph(
             "Målene beskriver ulike deler av beslutningsgrunnlaget og er ikke sannsynlighet for gevinst. "
@@ -2214,7 +2227,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             movement.append(f"{best.get('ticker')} {float(best.get('delta') or 0):+.2f}")
         if weak.get("ticker"):
             movement.append(f"{weak.get('ticker')} {float(weak.get('delta') or 0):+.2f}")
-        change_rows.append(["Største scoreendringer", _p(" / ".join(movement) or "Ingen", "Tiny")])
+        material_movement = []
+        for value in (best, weak):
+            if value.get("ticker") and abs(float(value.get("delta") or 0)) >= 1.0:
+                material_movement.append(f"{value.get('ticker')} {float(value.get('delta') or 0):+.2f}")
+        change_rows.append([
+            "Vesentlige scoreendringer (>= 1,00)",
+            _p(" / ".join(material_movement) or "Ingen vesentlige scoreendringer", "Tiny"),
+        ])
         action_rows = list(decision_changes.get("action_changes") or [])[:2]
         if action_rows:
             change_rows.append(["Endret handling", _p("; ".join(f"{row.get('ticker')}: {_decision_label(row.get('from'))} -> {_decision_label(row.get('to'))}" for row in action_rows), "Tiny")])
@@ -2257,11 +2277,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         f" Viser {len(task_lines)} av {len(decision_tasks)} oppgaver."
         if len(decision_tasks) > len(task_lines) else ""
     )
+    task_rows = [["Prioritet / kandidat", "Automatisk oppfølging"]]
+    if task_lines:
+        for task in list(decision_tasks)[:3]:
+            task_rows.append([
+                _p(f"{task.get('priority') or 'NORMAL'} · {task.get('subject') or '-'}", "Tiny"),
+                _p(_short(task.get('action') or '-', 130), "Tiny"),
+            ])
+    else:
+        task_rows.append([_p("-", "Tiny"), _p("Ingen automatiske oppfølgingsoppgaver registrert.", "Tiny")])
+    task_table_decision = Table(task_rows, repeatRows=1, colWidths=[48*mm, 136*mm])
+    task_table_decision.setStyle(_table_style(5.8, padding=1.4))
     decision_story += [
         Paragraph("Kritiske hendelser", styles["Subsection"]),
         Paragraph(escape(" | ".join(event_lines) or "Ingen kandidatrelaterte hendelser registrert."), styles["Small"]),
-        Paragraph("Oppgaver til neste kjøring", styles["Subsection"]),
-        Paragraph(escape((" | ".join(task_lines) or "Ingen automatiske oppfølgingsoppgaver registrert.") + task_count_note), styles["Small"]),
+        Paragraph("Oppgaver til neste kjøring" + escape(task_count_note), styles["Subsection"]),
+        task_table_decision,
     ]
 
     if decision_historical:
@@ -2767,7 +2798,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
             news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
             evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
-            story += [CondPageBreak(120*mm), Paragraph(
+            story += [CondPageBreak(84*mm), Paragraph(
                 f"KANDIDAT {idx + 1}: {candidate_ticker} - detaljert investeringsanalyse",
                 styles["ReportTitle"],
             )]
@@ -4910,7 +4941,7 @@ def render_market_intelligence() -> None:
         state_filter = f1.selectbox("Rapportstatus", ["Alle", "FINAL", "PROVISIONAL", "LEGACY"], key="mi_archive_state_v1921")
         flag_filter = f2.multiselect(
             "Vis bare rapporter med",
-            ["Favoritt", "Feil", "Endret Top 3", "Kjøpsgodkjente kandidater", "Lav pålitelighet", "Reserve-feed"],
+            ["Favoritt", "Feil", "Endret Top 3", "Kjøpsgodkjente kandidater", "Lav beslutningsstyrke", "Reserve-feed"],
             key="mi_archive_flags_v1921",
         )
 
@@ -4956,7 +4987,7 @@ def render_market_intelligence() -> None:
                 continue
             if "Kjøpsgodkjente kandidater" in flag_filter and int(row.get("decision_ready_count") or 0) <= 0:
                 continue
-            if "Lav pålitelighet" in flag_filter and not row.get("low_reliability"):
+            if "Lav beslutningsstyrke" in flag_filter and not row.get("low_reliability"):
                 continue
             if "Reserve-feed" in flag_filter and not row.get("reserve_feed_used"):
                 continue
@@ -4977,13 +5008,13 @@ def render_market_intelligence() -> None:
                 m2.metric("Topp", row.get("top_ticker") or "-")
                 m3.metric("Score", row.get("top_score") or 0)
                 m4.metric("Kjøpsgodkjente", row.get("decision_ready_count", 0))
-                m5.metric("Pålitelighet", f"{row.get('report_reliability', 0)}/100")
+                m5.metric("Beslutningsstyrke", f"{row.get('report_decision_strength', 0)}/100")
                 m6.metric("Oppgaver", row.get("next_task_count", 0))
                 flags = []
                 if row.get("top3_changed"): flags.append("Endret Top 3")
                 if row.get("has_errors"): flags.append(f"Feil {row.get('error_count', 0)}")
                 if row.get("reserve_feed_used"): flags.append("Reserve-feed")
-                if row.get("low_reliability"): flags.append("Lav pålitelighet")
+                if row.get("low_reliability"): flags.append("Lav beslutningsstyrke")
                 if flags:
                     st.caption(" · ".join(flags))
                 saved_run = load_archived_run(row)

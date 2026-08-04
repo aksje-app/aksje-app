@@ -41,6 +41,14 @@ try:
 except ModuleNotFoundError:
     from tools.ui_sidebar_stable import render_stable_sidebar_v18641
 from settings_store import load_settings, save_settings, reset_settings
+from local_time import (
+    AUTO_TIMEZONE, DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, TIMEZONE_LABELS,
+    display_time, display_timezone_name, install_browser_timezone_bootstrap,
+)
+from ui_layout_contracts import (
+    currency_runtime_summary_html, currency_status_html, data_freshness_label,
+    format_decimal, special_banner_enabled,
+)
 from daily_user_experience import (
     ADVANCED_MODE as UX_ADVANCED_MODE_V19022,
     SIMPLE_MODE as UX_SIMPLE_MODE_V19022,
@@ -476,6 +484,12 @@ html body div[data-testid="stAppViewContainer"]::after {
 
 
 current_user = require_login()
+
+# RC8: capture the browser timezone once.  It only affects presentation; report
+# schedules remain bound to each job's explicit timezone (normally Europe/Oslo).
+if not st.session_state.get("browser_timezone_bootstrap_v19220_rc8"):
+    install_browser_timezone_bootstrap()
+    st.session_state["browser_timezone_bootstrap_v19220_rc8"] = True
 
 
 def _render_runtime_safety_banner_v19142() -> None:
@@ -1010,17 +1024,30 @@ def _render_paper_trading_control_toolbar_v1864p() -> None:
             st.caption("Nødstopp av")
 
 
+def _display_timezone_v19220_rc8(settings=None) -> str:
+    return display_timezone_name(settings or load_settings(), streamlit_module=st)
+
+
+def _display_time_v19220_rc8(value, *, include_seconds=True, include_timezone=True, settings=None) -> str:
+    return display_time(
+        value,
+        _display_timezone_v19220_rc8(settings),
+        include_seconds=include_seconds,
+        include_timezone=include_timezone,
+    )
+
+
 def _fmt_dt_short(value):
     if not value:
         return "ikke kjørt"
     try:
-        return str(value).replace("T", " ")[:16]
+        return _display_time_v19220_rc8(value, include_seconds=False, include_timezone=False)
     except Exception:
-        return str(value)
+        return str(value).replace("T", " ")[:16]
 
 
 def _now_short():
-    return datetime.now().strftime("%Y-%m-%d %H:%M")
+    return _display_time_v19220_rc8(datetime.now(timezone.utc), include_seconds=False, include_timezone=False)
 
 
 def _set_update_reason(reason: str):
@@ -5154,7 +5181,7 @@ def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) 
     from urllib.parse import quote
 
     settings = load_settings() or {}
-    if not bool(settings.get("special_watch_banner_enabled_v18615", True)):
+    if not special_banner_enabled(settings, st.session_state):
         return
     individual = dict((config or {}).get("individual") or {})
     watched = []
@@ -5287,6 +5314,13 @@ def _special_watch_cache_due_v18623(minutes: int) -> bool:
 
 def render_special_watch_banner_surface_v18620() -> None:
     settings = load_settings() or {}
+    # RC8: widget state is authoritative during the rerun that toggles the
+    # extra banner.  Return before cache/data work so disabling the banner
+    # cannot leave a white shell, old sparklines or unnecessary network work.
+    if not special_banner_enabled(settings, st.session_state):
+        st.session_state.pop("special_watch_cache_v18623", None)
+        st.session_state.pop("special_watch_cache_at_v18623", None)
+        return
     config = _load_banner_alert_config_v18610(settings)
     special_interval = int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0)
     banner_cards = []
@@ -5821,11 +5855,117 @@ def render_banner_main_controls():
         with special_tab:
             render_special_watch_menu_v18619(embedded=True)
 
+_TRANSIENT_UI_EXACT_KEYS_V19220_RC8 = {
+    "ai_control_center_group_v1863m", "ai_control_center_group_v1863aj",
+    "ai_control_center_active_panel_v1863m", "ai_control_center_active_panel_v1863aj",
+    "ai_control_center_active_real_panel_v18598", "ai_control_center_menu_open_v1863ag",
+    "ai_control_center_route_lock_v19220_rc6", "active_nav_target_v18674c",
+    "aa_tab", "autonomy_workspace_slug_v19220_rc7",
+    "live_banner_selected_ticker_v18610", "live_banner_selected_market_v18610",
+    "live_banner_selected_label_v18610", "live_banner_open_picker_v18610",
+    "analysis_pipeline_active_stage_v1863bz",
+}
+_TRANSIENT_UI_PREFIXES_V19220_RC8 = (
+    "nav_restore_", "route_restore_", "panel_restore_", "currency_alert_flash_",
+    "manual_job_poll_", "report_progress_ui_", "banner_detail_",
+)
+
+
+def _reset_transient_ui_state_v19220_rc8() -> int:
+    """Clear only transient route/render state; never auth or persisted settings."""
+    removed = 0
+    for key in list(st.session_state.keys()):
+        if key in _TRANSIENT_UI_EXACT_KEYS_V19220_RC8 or any(str(key).startswith(prefix) for prefix in _TRANSIENT_UI_PREFIXES_V19220_RC8):
+            st.session_state.pop(key, None)
+            removed += 1
+    try:
+        for key in ("panel", "group", "aa_tab", "banner_ticker", "banner_market"):
+            if key in st.query_params:
+                del st.query_params[key]
+    except Exception:
+        pass
+    return removed
+
+
+def _render_display_time_settings_v19220_rc8() -> None:
+    settings = load_settings() or {}
+    saved = str(settings.get("display_timezone") or AUTO_TIMEZONE)
+    options = list(SUPPORTED_TIMEZONES)
+    if saved not in options:
+        options.append(saved)
+    label_by_value = {value: TIMEZONE_LABELS.get(value, value) for value in options}
+    with st.expander("Visning og tid", expanded=False):
+        st.caption(
+            "Styrer bare klokkeslett som vises i programmet. Morgen- og kveldsrapportene "
+            "forblir 08:00 og 22:00 Europe/Oslo til en separat schedulerinnstilling endres."
+        )
+        selected_label = st.selectbox(
+            "Visningstidssone",
+            [label_by_value[value] for value in options],
+            index=options.index(saved),
+            key="display_timezone_select_v19220_rc8",
+        )
+        selected = next(value for value in options if label_by_value[value] == selected_label)
+        resolved = display_timezone_name(
+            {**settings, "display_timezone": selected},
+            streamlit_module=st,
+        )
+        st.info(
+            "Forhåndsvisning: "
+            + display_time(datetime.now(timezone.utc), resolved, include_seconds=True, include_timezone=True)
+        )
+        browser_tz = str(st.query_params.get("client_tz") or "") if hasattr(st, "query_params") else ""
+        if selected == AUTO_TIMEZONE:
+            st.caption(f"Nettleserens registrerte tidssone: {browser_tz or 'ikke registrert ennå'}. Aktiv visning: {resolved}.")
+        if st.button("Lagre visningstidssone", key="save_display_timezone_v19220_rc8", width="content"):
+            settings["display_timezone"] = selected
+            save_settings(settings)
+            st.success(f"Visningstidssone lagret: {label_by_value[selected]}. Scheduler er ikke endret.")
+            st.rerun()
+
+
+def _render_runtime_diagnostics_v19220_rc8() -> None:
+    settings = load_settings() or {}
+    with st.expander("Driftsdiagnose og visning", expanded=False):
+        route = str(st.session_state.get("active_nav_target_v18674c") or "control_center")
+        group = str(st.session_state.get("ai_control_center_group_v1863aj") or st.session_state.get("ai_control_center_group_v1863m") or "-")
+        panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or st.session_state.get("ai_control_center_active_panel_v1863m") or "-")
+        timezone_name = _display_timezone_v19220_rc8(settings)
+        try:
+            from currency_alert_service import get_currency_alert_health
+            fx_health = get_currency_alert_health(max_age_minutes=20)
+            fx_state = str(fx_health.get("state") or "-")
+        except Exception as exc:
+            fx_state = f"FEIL: {str(exc)[:80]}"
+        try:
+            scheduler = cron_status_text()
+            scheduler_state = "AKTIV" if scheduler.get("allowed") else str(scheduler.get("reason") or "PAUSET")
+        except Exception as exc:
+            scheduler_state = f"FEIL: {str(exc)[:80]}"
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Program", get_app_build_label())
+        d2.metric("Aktiv rute", route)
+        d3.metric("Scheduler", scheduler_state)
+        d4.metric("Valutakontroll", fx_state)
+        st.caption(f"Gruppe: {group} · Panel: {panel} · Visningstidssone: {timezone_name}")
+        st.caption(
+            "Diagnosen er lesende. Den starter ikke analyser, scheduler, valutakontroll eller handel."
+        )
+        if st.button("Tilbakestill visning", key="reset_transient_ui_v19220_rc8", width="content"):
+            removed = _reset_transient_ui_state_v19220_rc8()
+            st.session_state["ui_reset_notice_v19220_rc8"] = f"Midlertidig visningstilstand ble ryddet ({removed} felt). Ingen innstillinger eller rapporter ble slettet."
+            st.rerun()
+
+
 def render_system_admin_workspace(expanded=False):
     """Fase 3: Cron/bakgrunnssøk og systemdrift samlet i Kontrollsenter."""
     with st.expander("System System / admin · Bakgrunnssøk / Cron", expanded=bool(expanded)):
 
         st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjøp. Start auto opphever ikke sikkerhetslåser.")
+        if st.session_state.pop("ui_reset_notice_v19220_rc8", None):
+            st.success("Midlertidig visningstilstand er ryddet. Ingen innstillinger, rapporter eller innlogging ble slettet.")
+        _render_display_time_settings_v19220_rc8()
+        _render_runtime_diagnostics_v19220_rc8()
         _cron_settings = load_settings()
         _cron_status = cron_status_text()
         _is_full_stop = bool(_cron_status.get("vacation_mode"))
@@ -8888,7 +9028,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", ta
             "tab": str(tab or route_tab_v19220_rc7),
             "subtab": str(subtab or route_subtab_v19220_rc7),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v19.22.0-rc7",
+            "version": "v19.22.0-rc8",
         }
         signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         if st.session_state.get("ui_state_last_signature_v19016") == signature:
@@ -10862,18 +11002,14 @@ def _rerun_currency_alerts_v19220_rc6() -> None:
 
 
 def render_currency_alerts_control_center_v1863af():
+    display_settings = load_settings() or {}
+    display_tz = display_timezone_name(display_settings, streamlit_module=st)
+
     def _fx_local_time(value):
-        if not value:
-            return "-"
         try:
-            from datetime import datetime, timezone
-            from zoneinfo import ZoneInfo
-            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(ZoneInfo("Europe/Oslo")).strftime("%Y-%m-%d %H:%M:%S")
+            return display_time(value, display_tz, include_seconds=True, include_timezone=True)
         except Exception:
-            return str(value)
+            return str(value or "-")
 
     def _status_label(value):
         return {
@@ -10943,41 +11079,18 @@ def render_currency_alerts_control_center_v1863af():
     checked_time = runtime_state.get("last_checked_at") or authoritative.get("updated_at")
 
     st.markdown("#### Status nå")
-    st.markdown(
-        """
-        <style>
-        .fx-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:.65rem;margin:.25rem 0 .7rem 0}
-        .fx-status-card{min-width:0;border:1px solid rgba(145,166,200,.38);border-radius:14px;padding:.72rem .8rem;background:rgba(11,24,44,.45)}
-        .fx-status-label{font-size:.76rem;color:#aebbd0;margin-bottom:.28rem;white-space:normal}
-        .fx-status-value{font-size:1.02rem;font-weight:700;color:#f4f7fb;overflow-wrap:anywhere;line-height:1.18}
-        .fx-status-sub{font-size:.72rem;color:#8fa0b8;margin-top:.28rem;overflow-wrap:anywhere;line-height:1.25}
-        @media(max-width:640px){
-          .fx-status-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}
-          .fx-status-card{padding:.62rem .68rem;border-radius:12px}
-          .fx-status-value{font-size:.92rem}
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    freshness_text, freshness_state = data_freshness_label(quote_time, fresh_minutes=max(20, check_minutes * 2), stale_minutes=max(120, check_minutes * 4))
     cards = [
-        ("Aktivt varsel", pair_label, f"{lower_v:.4f} - {upper_v:.4f}"),
-        ("Kurs", f"{rate_number:.4f}" if rate_number is not None else "-", f"Kurssitat: {_fx_local_time(quote_time)}"),
+        ("Aktivt varsel", pair_label, f"{format_decimal(lower_v)} - {format_decimal(upper_v)}"),
+        ("Kurs", format_decimal(rate_number) if rate_number is not None else "-", f"Kurssitat: {_fx_local_time(quote_time)}"),
         ("Status", _status_label(status_code), f"Sist kontrollert: {_fx_local_time(checked_time)}"),
+        ("Dataalder", freshness_text, "Ferskhet beregnes fra faktisk kurssitat"),
         ("Sjekkintervall", f"{check_minutes} min", "Automatisk via Render Cron"),
         ("Varselpause", f"{cooldown_minutes} min", "Gjelder gjentatte grensebrudd"),
         ("Datakilde", symbol_value or "-", "Yahoo Finance via yfinance"),
         ("Pushover", pushover_status.get("label") or "-", "Varsling ved bekreftet grensebrudd"),
     ]
-    card_html = "".join(
-        '<div class="fx-status-card">'
-        f'<div class="fx-status-label">{html.escape(str(label))}</div>'
-        f'<div class="fx-status-value">{html.escape(str(value))}</div>'
-        f'<div class="fx-status-sub">{html.escape(str(sub))}</div>'
-        '</div>'
-        for label, value, sub in cards
-    )
-    st.markdown(f'<div class="fx-status-grid">{card_html}</div>', unsafe_allow_html=True)
+    st.markdown(currency_status_html(cards), unsafe_allow_html=True)
 
     action_left, action_mid = st.columns(2)
     with action_left:
@@ -11013,7 +11126,7 @@ def render_currency_alerts_control_center_v1863af():
             else:
                 _flash(
                     "success",
-                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.4f} · "
+                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.2f} · "
                     f"{_status_label(selected.get('status'))} · kurssitat {_fx_local_time(selected.get('quote_time'))}.",
                 )
         except Exception as exc:
@@ -11035,18 +11148,18 @@ def render_currency_alerts_control_center_v1863af():
                 elif selected.get("sent"):
                     _flash(
                         "success",
-                        f"Kurs {float(selected.get('rate')):.4f} ble kontrollert og Pushover-varsel ble sendt.",
+                        f"Kurs {float(selected.get('rate')):.2f} ble kontrollert og Pushover-varsel ble sendt.",
                     )
                 elif selected.get("send_error"):
                     _flash("warning", f"Kursen ble kontrollert, men Pushover feilet: {selected.get('send_error')}")
                 elif selected.get("status") in {"breach_lower", "breach_upper"}:
                     _flash(
                         "warning",
-                        f"Kurs {float(selected.get('rate')):.4f}: {_status_label(selected.get('status'))}. "
+                        f"Kurs {float(selected.get('rate')):.2f}: {_status_label(selected.get('status'))}. "
                         "Nytt varsel er ikke sendt fordi varselpause eller varslingsinnstilling gjelder.",
                     )
                 else:
-                    _flash("success", f"Kurs {float(selected.get('rate')):.4f} er innenfor grensene.")
+                    _flash("success", f"Kurs {float(selected.get('rate')):.2f} er innenfor grensene.")
             except Exception as exc:
                 _flash("error", f"Valutakontrollen feilet: {exc}")
             _rerun_currency_alerts_v19220_rc6()
@@ -11068,14 +11181,14 @@ def render_currency_alerts_control_center_v1863af():
                 rate = float(selected.get("rate"))
                 message = (
                     f"Test fra Valutavarsler: {pair_label} ({symbol_value})\n"
-                    f"Kurs: {rate:.4f}\n"
+                    f"Kurs: {rate:.2f}\n"
                     f"Status: {_status_label(selected.get('status'))}\n"
-                    f"Grenser: {lower_v:.4f} - {upper_v:.4f}\n"
-                    f"Kurssitat: {_fx_local_time(selected.get('quote_time'))} (norsk tid)"
+                    f"Grenser: {lower_v:.2f} - {upper_v:.2f}\n"
+                    f"Kurssitat: {_fx_local_time(selected.get('quote_time'))}"
                 )
                 ok, send_err = _send_pushover_safe_v1863af(message, "Pushover-test Valutavarsler")
                 if ok:
-                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.4f} og samme status som i appen.")
+                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.2f} og samme status som i appen.")
                 else:
                     _flash("warning", f"Pushover-test feilet: {send_err or 'ukjent feil'}")
         except Exception as exc:
@@ -11108,7 +11221,7 @@ def render_currency_alerts_control_center_v1863af():
         if health.get("healthy"):
             st.success(
                 "Automatisk valutakontroll er frisk · siste Render Cron-syklus "
-                f"{_fx_local_time(health.get('last_automatic_at'))} (norsk tid)."
+                f"{_fx_local_time(health.get('last_automatic_at'))}."
             )
         elif health.get("state") == "NOT_STARTED":
             st.warning(
@@ -11129,7 +11242,7 @@ def render_currency_alerts_control_center_v1863af():
             runtime_rows.append({
                 "Valuta": runtime_value.get("pair") or runtime_key,
                 "Symbol": runtime_value.get("symbol") or "-",
-                "Kurs": runtime_value.get("rate"),
+                "Kurs": format_decimal(runtime_value.get("rate")) if runtime_value.get("rate") is not None else "-",
                 "Status": _status_label(runtime_value.get("status")),
                 "Kurssitat": _fx_local_time(runtime_value.get("quote_time")),
                 "Sist sjekket": _fx_local_time(runtime_value.get("last_checked_at")),
@@ -11141,13 +11254,17 @@ def render_currency_alerts_control_center_v1863af():
         if runtime_rows:
             latest_row = runtime_rows[0]
             with st.container(border=True):
-                st.markdown(f"**{latest_row['Valuta']} · {latest_row['Kurs'] if latest_row['Kurs'] is not None else '-'} · {latest_row['Status']}**")
-                st.caption(
-                    f"Kurssitat: {latest_row['Kurssitat']} · sist sjekket: {latest_row['Sist sjekket']} · "
-                    f"neste sjekk: {latest_row['Neste sjekk']}"
+                runtime_rate = str(latest_row["Kurs"] if latest_row["Kurs"] is not None else "-")
+                st.markdown(
+                    currency_runtime_summary_html(
+                        title=f"{latest_row['Valuta']} - {runtime_rate} - {latest_row['Status']}",
+                        quote_time=latest_row["Kurssitat"],
+                        checked_time=latest_row["Sist sjekket"],
+                        next_time=latest_row["Neste sjekk"],
+                        error=latest_row.get("Feil") or "",
+                    ),
+                    unsafe_allow_html=True,
                 )
-                if latest_row.get("Feil"):
-                    st.error(latest_row["Feil"])
         else:
             st.info("Ingen valutakontroll er registrert ennå.")
 
@@ -11179,9 +11296,9 @@ def render_currency_alerts_control_center_v1863af():
             symbol = st.text_input("Yahoo-symbol", value=str(default_symbol or "BRLNOK=X"))
         c3, c4 = st.columns(2)
         with c3:
-            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.4f")
+            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.2f")
         with c4:
-            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.4f")
+            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.2f")
         i1, i2 = st.columns(2)
         with i1:
             check_label = st.radio(

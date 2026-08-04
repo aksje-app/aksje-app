@@ -55,6 +55,8 @@ DEFAULT_SETTINGS = {
     "vacation_mode_enabled": False,
     "latest_buy_now_candidates": [],
     "live_banner_enabled": True,
+    "display_timezone": "AUTO",
+    "number_format_decimals": 2,
     "ui_refresh_minutes": 5,
     "ui_auto_refresh_enabled": False,
     "chart_auto_update_enabled": False,
