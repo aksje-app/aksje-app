@@ -367,6 +367,14 @@ def finalize_run_integrity(run: dict[str, Any], previous: Mapping[str, Any] | No
                 for row in run.get(key) or [] if isinstance(row, Mapping)
             ]
     run["source_health"] = build_source_health(candidates)
+    # v19.18.0: attach report-only traceability after passports/confidence exist.
+    try:
+        from analysis_transparency import attach_analysis_transparency
+        attach_analysis_transparency(run)
+    except Exception as exc:
+        warnings = [str(x) for x in (run.get("warnings") or []) if str(x).strip()]
+        warnings.append(f"Analysis transparency unavailable: {str(exc)[:180]}")
+        run["warnings"] = warnings
     critical = []
     top = list(run.get("raw_top3") or candidates[:3])
     for candidate in top:

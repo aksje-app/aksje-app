@@ -464,6 +464,7 @@ def build_candidate_decision_contract(candidate: Mapping[str, Any], run: Mapping
         "manual_review_required": bool(candidate.get("manual_review_required")),
         "manual_tasks": deepcopy(list(candidate.get("manual_tasks") or [])),
         "automatic_next_action": str(candidate.get("automatic_next_action") or ""),
+        "analysis_transparency": deepcopy(_mapping(candidate.get("analysis_transparency"))),
     }
 
 
@@ -889,6 +890,7 @@ def build_decision_report(
             str(row.get("ticker") or ""): deepcopy(row.get("counter_hypothesis") or {})
             for row in candidate_contracts[:3]
         },
+        "analysis_transparency": deepcopy(_mapping(run.get("analysis_transparency"))),
         "controlled_learning_guard": {
             "production_rules_auto_change_allowed": False,
             "protected_rules": [
