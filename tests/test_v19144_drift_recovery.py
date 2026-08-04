@@ -57,7 +57,7 @@ def test_local_persistent_user_survives_reload_and_password_invalidates_sessions
 def test_first_admin_is_logged_in_immediately_and_cookie_is_environment_scoped():
     source = Path("auth.py").read_text(encoding="utf-8")
     assert "Admin opprettet og innlogget" in source
-    assert "_set_logged_in(user, remember=True)" in source
+    assert "_set_logged_in(user, remember=False)" in source
     assert "_remember_cookie_name_v19144" in source
     assert "auth_environment_id" in source
     assert "app_auth_sessions" in source

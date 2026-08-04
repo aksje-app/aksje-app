@@ -11,8 +11,8 @@ from tools.validate_distribution import FileEntry, validate_entries, validate_pa
 
 
 def test_release_identity_is_safe_distribution_patch():
-    assert APP_VERSION.startswith("v19.17.0-rc")
-    assert PREVIOUS_APP_VERSION == "v19.14.6"
+    assert APP_VERSION.startswith("v19.22.0-rc")
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc1"
 
 
 def test_validator_rejects_runtime_secret_and_generated_report():
@@ -95,3 +95,31 @@ def test_mutable_test_runtime_is_excluded_from_distribution():
     for path in report_dir.glob("*") if report_dir.exists() else []:
         if path.name != ".gitkeep":
             assert excluded(path.relative_to(root)) is True
+
+
+def test_delta_never_requests_deletion_of_mutable_runtime(tmp_path: Path):
+    from tools.build_safe_distribution import build
+
+    baseline = tmp_path / "baseline"
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    baseline.mkdir()
+    source.mkdir()
+    (baseline / "app.py").write_text("old\n", encoding="utf-8")
+    (source / "app.py").write_text("new\n", encoding="utf-8")
+    runtime_file = baseline / ".app_runtime" / "data" / "portfolio.json"
+    runtime_file.parent.mkdir(parents=True)
+    runtime_file.write_text('{"cash": 100000}', encoding="utf-8")
+    cache_file = baseline / "__pycache__" / "app.cpython-313.pyc"
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_bytes(b"compiled")
+
+    result = build(source, baseline, output)
+    with zipfile.ZipFile(result["delta_zip"], "r") as archive:
+        delete_text = archive.read("DELETE_FILES.txt").decode("utf-8")
+        inventory = json.loads(archive.read(f"CHANGE_INVENTORY_{APP_VERSION.replace('-rc', '_RC')}.json"))
+
+    assert ".app_runtime" not in delete_text
+    assert "__pycache__" not in delete_text
+    assert inventory["delete_file_count"] == 0
+    assert inventory["deleted"] == []

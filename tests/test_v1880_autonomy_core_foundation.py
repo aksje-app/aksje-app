@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from app_version import APP_VERSION
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +38,7 @@ def test_core_gateway_preserves_legacy_execution(monkeypatch):
         run_autonomous=True, run_learning=False, require_active_portfolio=True,
     )
     assert result["status"] == "OK"
-    assert result["autonomy_core"]["version"] == "v19.17.0-rc6"
+    assert result["autonomy_core"]["version"] == APP_VERSION
     assert result["autonomy_core"]["theoretical_only"] is True
     assert captured["run_learning"] is False
 

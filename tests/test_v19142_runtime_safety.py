@@ -39,7 +39,7 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_version_contract_is_v19143() -> None:
-    assert app_version.APP_VERSION.startswith("v19.17.0-rc")
+    assert app_version.APP_VERSION.startswith("v19.22.0-rc")
     assert "Release Candidate" in app_version.APP_VERSION_NAME
     assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
     assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"

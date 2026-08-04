@@ -16,5 +16,13 @@ def test_compact_report_actions_are_present():
 def test_investor_edition_branding_and_version():
     version = Path('app_version.py').read_text(encoding='utf-8')
     report = Path('market_intelligence.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.22.0-rc1"' in version
+    assert 'APP_VERSION = "v19.22.0-rc2"' in version
     assert 'Investor Edition' in report
+
+
+def test_distribution_tools_follow_canonical_release():
+    from app_version import APP_VERSION
+    from tools.build_safe_distribution import VERSION as BUILD_VERSION
+    from tools.validate_distribution import EXPECTED_VERSION
+    assert BUILD_VERSION == APP_VERSION
+    assert EXPECTED_VERSION == APP_VERSION

@@ -46,4 +46,4 @@ def test_learning_positions_do_not_modify_ordinary_cash_or_holdings():
 
 def test_app_version_is_v19019():
     from app_version import APP_VERSION
-    assert APP_VERSION.startswith("v19.17.0-rc")
+    assert APP_VERSION.startswith("v19.22.0-rc")

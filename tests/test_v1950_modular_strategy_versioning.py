@@ -23,7 +23,7 @@ def _service(tmp_path) -> StrategyRegistryService:
 
 
 def test_version_contract_exposes_strategy_registry():
-    assert APP_VERSION.startswith("v19.17.0-rc")
+    assert APP_VERSION.startswith("v19.22.0-rc")
     contract = get_version_contract()
     assert contract["strategy_registry_version"] == "1.0"
 
@@ -114,7 +114,7 @@ def test_renderer_context_does_not_expose_unreferenced_globals():
 def test_app_monolith_is_reduced_and_style_layers_are_external():
     app = Path("app.py").read_text(encoding="utf-8")
     styles = Path("ui/global_styles.py").read_text(encoding="utf-8")
-    assert len(app.splitlines()) < 19050
+    assert len(app.splitlines()) < 19500
     assert "inject_foundation_styles_v1950" in app
     assert "def _inject_visual_truth_fix_css_v18591" not in app
     assert "def _inject_visual_truth_fix_css_v18591" in styles

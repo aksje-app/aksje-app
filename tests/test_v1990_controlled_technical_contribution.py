@@ -51,7 +51,7 @@ def technical_decision(ticker: str, *, score: float, confidence: float = 80, act
 
 def test_version_contract_v1990():
     contract = get_version_contract()
-    assert APP_VERSION.startswith("v19.17.0-rc")
+    assert APP_VERSION.startswith("v19.22.0-rc")
     assert contract["autonomy_technical_contribution_service_version"] == "1.0"
     assert contract["evaluation_export_service_version"] == "1.5"
 
@@ -195,7 +195,7 @@ def test_export_contains_technical_contribution_csv_and_policy(tmp_path):
         parameters = json.loads(archive.read("parameter_snapshot.json"))
         assert parameters["autonomy_technical_contribution_policy"]["scope"] == "ENTRY_ONLY"
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["app_version"] == "v19.17.0-rc6"
+        assert manifest["app_version"] == APP_VERSION
         assert len(manifest["files"]) == 20  # manifest itself is added after checksums; ZIP has 21 files
 
 

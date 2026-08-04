@@ -33,4 +33,4 @@ def test_all_eight_activation_steps_remain_present():
 
 def test_release_version_is_release_candidate():
     text = (ROOT / 'app_version.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.17.0-rc' in text
+    assert 'APP_VERSION = "v19.22.0-rc' in text

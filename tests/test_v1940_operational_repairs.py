@@ -99,7 +99,8 @@ def test_operations_panel_exposes_unattended_runner_and_notification_times():
 
 def test_missing_price_ticker_card_is_rendered_not_dropped():
     source = Path("ui/live_market_banner.py").read_text(encoding="utf-8")
-    assert 'change_html = "" if price_missing' in source
+    assert "change_html = (" in source
+    assert "Ingen markedsdata" in source
     assert 'spark_html = "" if price_missing' in source
     assert 'price_txt = "Data mangler" if price_missing' in source
     assert 'if not price_missing else ""\n            "</div>"' not in source

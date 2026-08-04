@@ -29,4 +29,4 @@ def test_production_trade_is_separate_and_fail_closed():
 
 def test_release_version_is_release_candidate():
     text = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.17.0-rc' in text
+    assert 'APP_VERSION = "v19.22.0-rc' in text
