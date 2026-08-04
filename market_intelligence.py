@@ -1784,7 +1784,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     report_document = ensure_report_document(run)
     report_metadata = report_document.get("metadata") if isinstance(report_document.get("metadata"), Mapping) else {}
     identity = resolve_report_identity(run)
-    report_type = report_type or f"{report_metadata.get('report_label') or identity.get('label', 'Rapport')} – Markedsanalyse"
+    report_type = report_type or f"Investor Edition · {report_metadata.get('report_label') or identity.get('label', 'Rapport')} – Markedsanalyse"
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
                             title=report_type, author="AI Aksje Analyzer Pro")
@@ -2017,7 +2017,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         canvas.setFont("Helvetica", 6.5)
         canvas.setFillColor(colors.HexColor("#627D98"))
         canvas.drawString(13*mm, height-8*mm, f"AI Aksje Analyzer Pro · {APP_VERSION}")
-        canvas.drawRightString(width-13*mm, height-8*mm, str(identity.get("label") or "Rapport"))
+        canvas.drawRightString(width-13*mm, height-8*mm, "Investor Edition · " + str(identity.get("label") or "Rapport"))
         canvas.line(13*mm, 9*mm, width-13*mm, 9*mm)
         revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
         canvas.drawString(
@@ -3040,22 +3040,6 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                     Paragraph("Evidensmatrise – status per analyseområde", styles["Subsection"]),
                     matrix_table,
                 ]
-                explainability = transparency.get("explainability") if isinstance(transparency.get("explainability"), Mapping) else {}
-                if explainability:
-                    positives = " • ".join(str(x) for x in explainability.get("positive_drivers") or []) or "Ingen dominerende positiv driver registrert."
-                    negatives = " • ".join(str(x) for x in explainability.get("negative_drivers") or []) or "Ingen dominerende negativ driver registrert."
-                    gaps = " • ".join(str(x) for x in explainability.get("documentation_gaps") or []) or "Ingen kritiske dokumentasjonsgap registrert."
-                    improve = " • ".join(str(x) for x in explainability.get("what_can_improve_recommendation") or [])
-                    weaken = " • ".join(str(x) for x in explainability.get("what_can_weaken_recommendation") or [])
-                    story += [
-                        Paragraph("AI-forklaring – hvorfor kandidaten er rangert her", styles["Subsection"]),
-                        Paragraph(escape(_loc(str(explainability.get("summary") or ""))), styles["Small"]),
-                        Paragraph(f"<b>Positive drivere:</b> {escape(_loc(positives))}", styles["Small"]),
-                        Paragraph(f"<b>Begrensninger og risiko:</b> {escape(_loc(negatives))}", styles["Small"]),
-                        Paragraph(f"<b>Dokumentasjonsgap:</b> {escape(_loc(gaps))}", styles["Small"]),
-                        Paragraph(f"<b>Kan styrke anbefalingen:</b> {escape(_loc(improve))}", styles["Small"]),
-                        Paragraph(f"<b>Kan svekke anbefalingen:</b> {escape(_loc(weaken))}", styles["Small"]),
-                    ]
 
             discovery_detail = raw.get("discovery_evidence") or raw.get("ai_discovery") or candidate.get("discovery_reason") or "Ingen separat Discovery-dokumentasjon registrert."
             backtest_detail = raw.get("backtest") or raw.get("validation") or candidate.get("validation_reason") or "Ingen detaljert backtest registrert."
@@ -4334,9 +4318,10 @@ def render_market_intelligence() -> None:
       .mi-mobile-card {overflow-wrap:anywhere; word-break:normal;}
     }
     .mi-chip {display:inline-block; padding:.15rem .45rem; border:1px solid rgba(148,163,184,.45); border-radius:999px; margin:.1rem .15rem .1rem 0; overflow-wrap:anywhere;}
+    div[data-testid="stHorizontalBlock"] .stButton > button {min-height:30px !important; height:auto !important; padding:.25rem .65rem !important;}
     </style>""", unsafe_allow_html=True)
-    st.markdown("#### ⏰ Planlagte markedsrapporter og PDF")
-    st.caption("Lag flere jobbprofiler med valgfri kombinasjon av markeder, tidspunkter, analysemoduler og varsler. Jobbene kan kjøre analyse, teoretiske porteføljebeslutninger og kontrollert læring. Ingen ekte handler utføres.")
+    st.markdown("#### 📊 Rapportsenter · Investor Edition")
+    st.caption("Kjør utkast og manglende faste rapporter fra ett kompakt handlingsområde. Planlegging, historikk og avanserte valg ligger lenger ned.")
     try:
         from scheduler_background import kick_scheduler_background, scheduler_status
         kick_scheduler_background()
@@ -4346,6 +4331,29 @@ def render_market_intelligence() -> None:
         elif int(background.get("runs", 0)) > 0: st.success(f"{background.get('runs')} planlagt(e) jobb(er) ble kjørt i bakgrunnen.")
     except Exception as exc:
         st.warning(f"Bakgrunnsscheduler kunne ikke startes: {exc}")
+
+    st.markdown("##### Hurtighandlinger")
+    quick_jobs = load_jobs()
+    q1, q2, q3, q4 = st.columns([1,1,1,1])
+    if q1.button("📄 Kjør nytt utkast", key="mi_quick_draft_v1922", type="primary", width="stretch"):
+        draft = load_draft_job()
+        with st.spinner("Kjører utkast..."):
+            st.session_state["mi_latest_v18687"] = run_job(draft, trigger="MANUAL_DRAFT_TEST", send_notifications=False)
+        st.success("Utkastet er ferdig.")
+        st.rerun()
+    morning_job = next((j for j in quick_jobs if "morgen" in str(j.name).casefold()), None)
+    evening_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["kveld", "evening"])), None)
+    if q2.button("🌅 Kjør morgenrapport", key="mi_quick_morning_v1922", width="stretch", disabled=morning_job is None):
+        with st.spinner("Kjører morgenrapport..."):
+            st.session_state["mi_latest_v18687"] = run_job(morning_job, trigger="MANUAL_REPORT_CENTER")
+        st.rerun()
+    if q3.button("🌇 Kjør kveldsrapport", key="mi_quick_evening_v1922", width="stretch", disabled=evening_job is None):
+        with st.spinner("Kjører kveldsrapport..."):
+            st.session_state["mi_latest_v18687"] = run_job(evening_job, trigger="MANUAL_REPORT_CENTER")
+        st.rerun()
+    if q4.button("📂 Åpne siste rapport", key="mi_quick_latest_v1922", width="stretch"):
+        st.session_state["autonomy_core_workspace_v1880"] = "Siste rapport" if False else st.session_state.get("autonomy_core_workspace_v1880", "Rapporter")
+        st.info("Siste rapport ligger i fanen «Siste rapport» rett under hurtighandlingene.")
 
     tab_jobs, tab_latest, tab_reports, tab_accuracy, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter", "Accuracy Analytics", "Historikk", "Drift"])
     with tab_jobs:
@@ -4555,7 +4563,7 @@ def render_market_intelligence() -> None:
                     continue
                 with st.container():
                     st.warning(f"{job.name}: planlagt kjøring {local_display(missed.get('previous_planned_utc'), job.timezone_name)} ble ikke registrert som startet/fullført.")
-                    if st.button(f"Kjør manglende rapport nå – {job.name}", key=f"mi_catchup_{job.job_id}", width="stretch"):
+                    if st.button(f"Kjør manglende rapport nå – {job.name}", key=f"mi_catchup_{job.job_id}"):
                         with st.spinner("Kjører forsinket automatisk rapport..."):
                             st.session_state["mi_latest_v18687"] = run_job(job, trigger="MISSED_SCHEDULE_CATCHUP", scheduled_for=str(missed.get("previous_planned_utc") or ""))
                         st.success("Forsinket rapport er kjørt og merket med opprinnelig planlagt tidspunkt.")
