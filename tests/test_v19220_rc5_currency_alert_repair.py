@@ -148,8 +148,8 @@ def test_render_cron_and_ui_use_one_currency_chain():
     assert "Send Pushover-test med fersk kurs" in app
 
 
-def test_version_identity_is_rc5():
+def test_version_identity_advances_to_rc6():
     from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 
-    assert APP_VERSION == "v19.22.0-rc5"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc4"
+    assert APP_VERSION == "v19.22.0-rc6"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc5"
