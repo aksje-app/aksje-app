@@ -4332,30 +4332,88 @@ def render_market_intelligence() -> None:
     except Exception as exc:
         st.warning(f"Bakgrunnsscheduler kunne ikke startes: {exc}")
 
-    st.markdown("##### Hurtighandlinger")
+    # The report center follows the operator workflow deliberately:
+    # status -> actions -> latest reports -> history -> advanced planning.
     quick_jobs = load_jobs()
-    q1, q2, q3, q4 = st.columns([1,1,1,1])
-    if q1.button("📄 Kjør nytt utkast", key="mi_quick_draft_v1922", type="primary", width="stretch"):
-        draft = load_draft_job()
-        with st.spinner("Kjører utkast..."):
-            st.session_state["mi_latest_v18687"] = run_job(draft, trigger="MANUAL_DRAFT_TEST", send_notifications=False)
-        st.success("Utkastet er ferdig.")
-        st.rerun()
-    morning_job = next((j for j in quick_jobs if "morgen" in str(j.name).casefold()), None)
-    evening_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["kveld", "evening"])), None)
-    if q2.button("🌅 Kjør morgenrapport", key="mi_quick_morning_v1922", width="stretch", disabled=morning_job is None):
-        with st.spinner("Kjører morgenrapport..."):
-            st.session_state["mi_latest_v18687"] = run_job(morning_job, trigger="MANUAL_REPORT_CENTER")
-        st.rerun()
-    if q3.button("🌇 Kjør kveldsrapport", key="mi_quick_evening_v1922", width="stretch", disabled=evening_job is None):
-        with st.spinner("Kjører kveldsrapport..."):
-            st.session_state["mi_latest_v18687"] = run_job(evening_job, trigger="MANUAL_REPORT_CENTER")
-        st.rerun()
-    if q4.button("📂 Åpne siste rapport", key="mi_quick_latest_v1922", width="stretch"):
-        st.session_state["autonomy_core_workspace_v1880"] = "Siste rapport" if False else st.session_state.get("autonomy_core_workspace_v1880", "Rapporter")
-        st.info("Siste rapport ligger i fanen «Siste rapport» rett under hurtighandlingene.")
+    health = scheduler_health_snapshot()
 
-    tab_jobs, tab_latest, tab_reports, tab_accuracy, tab_history, tab_ops = st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter", "Accuracy Analytics", "Historikk", "Drift"])
+    with st.container(border=True):
+        st.markdown("##### 1. Status for planlagte rapporter")
+        next_job = health.get("next") or {}
+        status_next, status_active, status_missed = st.columns([2, 1, 1])
+        status_next.metric(
+            "Neste planlagte kjøring",
+            local_display(next_job.get("next_planned_utc"), str(next_job.get("timezone_name") or DEFAULT_TIMEZONE)) if next_job else "-",
+        )
+        status_active.metric("Aktive jobber", health.get("active_jobs", 0))
+        status_missed.metric("Mistet", len(health.get("missed") or []))
+        missed_jobs = health.get("missed") or []
+        if not missed_jobs:
+            st.caption("Ingen manglende planlagte rapporter er registrert.")
+        for missed in missed_jobs:
+            job = next((item for item in quick_jobs if item.job_id == missed.get("job_id")), None)
+            if not job:
+                continue
+            missed_text, missed_action = st.columns([5, 1])
+            missed_text.warning(
+                f"{job.name}: planlagt kjøring {local_display(missed.get('previous_planned_utc'), job.timezone_name)} "
+                "ble ikke registrert som startet/fullført."
+            )
+            if missed_action.button("Kjør manglende rapport nå", key=f"mi_catchup_{job.job_id}", width="content"):
+                with st.spinner("Kjører forsinket automatisk rapport..."):
+                    st.session_state["mi_latest_v18687"] = run_job(
+                        job,
+                        trigger="MISSED_SCHEDULE_CATCHUP",
+                        scheduled_for=str(missed.get("previous_planned_utc") or ""),
+                    )
+                st.success("Forsinket rapport er kjørt og merket med opprinnelig planlagt tidspunkt.")
+                st.rerun()
+
+    with st.container(border=True):
+        st.markdown("##### 2. Handlinger")
+        morning_job = next((j for j in quick_jobs if "morgen" in str(j.name).casefold()), None)
+        evening_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["kveld", "evening"])), None)
+        night_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["natt", "night"])), None)
+        q1, q2, q3, q4 = st.columns(4)
+        if q1.button("📄 Nytt utkast", key="mi_quick_draft_v1923", type="primary", width="content"):
+            draft = load_draft_job()
+            with st.spinner("Kjører utkast..."):
+                st.session_state["mi_latest_v18687"] = run_job(draft, trigger="MANUAL_DRAFT_TEST", send_notifications=False)
+            st.success("Utkastet er ferdig.")
+            st.rerun()
+        if q2.button("🌅 Kjør morgenanalyse", key="mi_quick_morning_v1923", width="content", disabled=morning_job is None):
+            with st.spinner("Kjører morgenanalyse..."):
+                st.session_state["mi_latest_v18687"] = run_job(morning_job, trigger="MANUAL_REPORT_CENTER")
+            st.rerun()
+        if q3.button("🌇 Kjør kveldsanalyse", key="mi_quick_evening_v1923", width="content", disabled=evening_job is None):
+            with st.spinner("Kjører kveldsanalyse..."):
+                st.session_state["mi_latest_v18687"] = run_job(evening_job, trigger="MANUAL_REPORT_CENTER")
+            st.rerun()
+        if q4.button("🌙 Kjør nattanalyse", key="mi_quick_night_v1923", width="content", disabled=night_job is None):
+            with st.spinner("Kjører nattanalyse..."):
+                st.session_state["mi_latest_v18687"] = run_job(night_job, trigger="MANUAL_REPORT_CENTER")
+            st.rerun()
+        unavailable = []
+        if morning_job is None:
+            unavailable.append("morgenanalyse")
+        if evening_job is None:
+            unavailable.append("kveldsanalyse")
+        if night_job is None:
+            unavailable.append("nattanalyse")
+        if unavailable:
+            st.caption("Ikke konfigurert som aktiv jobbprofil: " + ", ".join(unavailable) + ". Opprett eller aktiver profilen under avanserte innstillinger.")
+
+    with st.container(border=True):
+        st.markdown("##### 3. Siste rapporter")
+        tab_latest = st.container()
+        tab_reports = st.expander("Rapportarkiv og nedlastinger", expanded=False)
+
+    with st.container(border=True):
+        st.markdown("##### 4. Historikk")
+        tab_history = st.container()
+
+    with st.expander("5. Planlegging og avanserte innstillinger", expanded=False):
+        tab_jobs, tab_accuracy, tab_ops = st.tabs(["Jobbprofiler", "Accuracy Analytics", "Drift"])
     with tab_jobs:
         jobs = load_jobs()
         labels = ["Ny jobb"] + [f"{x.name} ({x.job_id})" for x in jobs]
@@ -4424,24 +4482,38 @@ def render_market_intelligence() -> None:
                 st.warning(f"Maksprofil: opptil {250 * len(normalize_markets(markets or ['Norge']))} aksjer. Dette kan gi lang kjøretid og høy API-bruk.")
             deep = st.number_input("Utvidet analyse - totalt antall kandidater", 3, 100, current.deep_count if current else 15, 1, key="mi_deep_v18687")
             proposals = st.number_input("Grundig evidenskontroll - totalt antall", 1, 15, min(current.proposal_count, current.deep_count) if current else 5, 1, key="mi_prop_v18687")
-        n1, n2, n3 = st.columns(3)
-        notify = n1.checkbox("Pushover", value=current.notify_pushover if current else True, key="mi_push_v18687")
-        save_pdf = n2.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
-        enabled = n3.checkbox("Aktiv jobb", value=editing_job.enabled if editing_job else True, key="mi_enabled_v18687")
-        mode_labels = {
-            "ALWAYS": "Send alltid når rapporten er ferdig",
-            "CHANGES_ONLY": "Bare ved kvalifiserende endringer",
-            "ERRORS_ONLY": "Bare ved feil",
-        }
-        current_mode = _notification_mode(current) if current else "ALWAYS"
-        notification_label = st.selectbox(
-            "Når skal Pushover sendes?", list(mode_labels.values()),
-            index=list(mode_labels).index(current_mode), key="mi_notification_mode_v18715",
-        )
-        notification_mode = next(key for key, label in mode_labels.items() if label == notification_label)
-        p1, p2 = st.columns(2)
-        include_report_link = p1.checkbox("Direkte lenke til PDF", value=current.include_report_link if current else True, key="mi_report_link_v1870", help="På Render brukes tjenestens offentlige adresse automatisk. REPORT_PUBLIC_BASE_URL kan overstyre adressen.")
-        include_top3 = p2.checkbox("Top 3 i varsel", value=current.include_top3_in_notification if current else True, key="mi_top3_push_v1870")
+        st.markdown("##### Varsling, lagring og aktivering")
+        with st.container(border=True):
+            delivery_settings, notification_settings = st.columns(2)
+            with delivery_settings:
+                st.markdown("**Levering og jobbstatus**")
+                notify = st.checkbox("Send med Pushover", value=current.notify_pushover if current else True, key="mi_push_v18687")
+                save_pdf = st.checkbox("Lagre PDF", value=current.save_pdf if current else True, key="mi_pdf_v18687")
+                enabled = st.checkbox("Aktiv jobb", value=editing_job.enabled if editing_job else True, key="mi_enabled_v18687")
+            with notification_settings:
+                st.markdown("**Innhold i varslingen**")
+                include_report_link = st.checkbox(
+                    "Direkte lenke til PDF",
+                    value=current.include_report_link if current else True,
+                    key="mi_report_link_v1870",
+                    help="På Render brukes tjenestens offentlige adresse automatisk. REPORT_PUBLIC_BASE_URL kan overstyre adressen.",
+                )
+                include_top3 = st.checkbox(
+                    "Top 3 i varsel",
+                    value=current.include_top3_in_notification if current else True,
+                    key="mi_top3_push_v1870",
+                )
+            mode_labels = {
+                "ALWAYS": "Send alltid når rapporten er ferdig",
+                "CHANGES_ONLY": "Bare ved kvalifiserende endringer",
+                "ERRORS_ONLY": "Bare ved feil",
+            }
+            current_mode = _notification_mode(current) if current else "ALWAYS"
+            notification_label = st.selectbox(
+                "Når skal Pushover sendes?", list(mode_labels.values()),
+                index=list(mode_labels).index(current_mode), key="mi_notification_mode_v18715",
+            )
+            notification_mode = next(key for key, label in mode_labels.items() if label == notification_label)
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         global_alert_score = load_global_alert_score()
         min_score = st.number_input(
@@ -4534,50 +4606,23 @@ def render_market_intelligence() -> None:
         if current and b4.button("Slett lagret jobb", width="stretch", key="mi_delete_v18692a"):
             delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); st.rerun()
         if jobs:
-            health = scheduler_health_snapshot()
-            st.markdown("##### Planleggerstatus")
-            if health.get("missed"):
-                st.error("En eller flere planlagte kjøringer ser ikke ut til å ha startet.")
-            next_job = health.get("next") or {}
-            c_next, c_active, c_missed = st.columns(3)
-            c_next.metric("Neste planlagte kjøring", local_display(next_job.get("next_planned_utc"), str(next_job.get("timezone_name") or DEFAULT_TIMEZONE)) if next_job else "-")
-            c_active.metric("Aktive jobber", health.get("active_jobs", 0))
-            c_missed.metric("Mistet", len(health.get("missed") or []))
+            st.markdown("##### Lagrede jobbprofiler")
             rows = []
             for job in jobs:
-                tl = next((item for item in health.get("jobs", []) if item.get("job_id") == job.job_id), schedule_timeline(job))
+                timeline = schedule_timeline(job)
                 rows.append({
-                    "Jobb": job.name, "Markeder": ", ".join(job.markets), "Tid": ", ".join(job.schedules),
+                    "Jobb": job.name,
+                    "Markeder": ", ".join(job.markets),
+                    "Tid": ", ".join(job.schedules),
                     "Aktiv": job.enabled,
-                    "Neste planlagt": local_display(tl.get("next_planned_utc"), str(tl.get("timezone_name") or DEFAULT_TIMEZONE)) if tl.get("next_planned_utc") else "-",
-                    "Siste planlagt": local_display(tl.get("previous_planned_utc"), str(tl.get("timezone_name") or DEFAULT_TIMEZONE)) if tl.get("previous_planned_utc") else "-",
+                    "Neste planlagt": local_display(
+                        timeline.get("next_planned_utc"),
+                        str(timeline.get("timezone_name") or DEFAULT_TIMEZONE),
+                    ) if timeline.get("next_planned_utc") else "-",
                     "Siste faktisk": local_display(job.last_run_at, job.timezone_name) if job.last_run_at else "-",
-                    "Siste planlagte status": tl.get("last_planned_status"),
-                    "Varsel": job.last_notification_status or "-",
                     "Status": job.last_status,
                 })
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-            for missed in health.get("missed") or []:
-                job = next((x for x in jobs if x.job_id == missed.get("job_id")), None)
-                if not job:
-                    continue
-                with st.container():
-                    st.warning(f"{job.name}: planlagt kjøring {local_display(missed.get('previous_planned_utc'), job.timezone_name)} ble ikke registrert som startet/fullført.")
-                    if st.button(f"Kjør manglende rapport nå – {job.name}", key=f"mi_catchup_{job.job_id}"):
-                        with st.spinner("Kjører forsinket automatisk rapport..."):
-                            st.session_state["mi_latest_v18687"] = run_job(job, trigger="MISSED_SCHEDULE_CATCHUP", scheduled_for=str(missed.get("previous_planned_utc") or ""))
-                        st.success("Forsinket rapport er kjørt og merket med opprinnelig planlagt tidspunkt.")
-                        st.rerun()
-            hist = load_job_history(limit=20)
-            if hist:
-                st.markdown("##### Jobbhistorikk")
-                st.dataframe(pd.DataFrame([{
-                    "Tidspunkt": local_display(x.get("started_at") or x.get("recorded_at"), DEFAULT_TIMEZONE),
-                    "Type": x.get("type"), "Jobb": x.get("job_name"), "Status": x.get("status"),
-                    "PDF": "Ja" if x.get("pdf") else "Nei",
-                    "Pushover": "Sendt" if x.get("pushover_sent") else ("Forsøkt" if x.get("pushover_attempted") else "Ikke forsøkt"),
-                    "Varighet": x.get("duration_seconds", "-"),
-                } for x in hist]), width="stretch", hide_index=True)
 
     latest = st.session_state.get("mi_latest_v18687") or _read(LATEST_PATH, {})
     with tab_latest:
@@ -4887,11 +4932,40 @@ def render_market_intelligence() -> None:
         render_accuracy_analytics()
 
     with tab_history:
+        job_history = load_job_history(limit=20)
+        if job_history:
+            st.markdown("**Siste jobbkjøringer**")
+            st.dataframe(pd.DataFrame([{
+                "Tidspunkt": local_display(item.get("started_at") or item.get("recorded_at"), DEFAULT_TIMEZONE),
+                "Type": item.get("type"),
+                "Jobb": item.get("job_name"),
+                "Status": item.get("status"),
+                "PDF": "Ja" if item.get("pdf") else "Nei",
+                "Pushover": "Sendt" if item.get("pushover_sent") else ("Forsøkt" if item.get("pushover_attempted") else "Ikke forsøkt"),
+                "Varighet": item.get("duration_seconds", "-"),
+            } for item in job_history]), width="stretch", hide_index=True)
+        else:
+            st.caption("Ingen jobbkjøringer er registrert.")
+
+        st.markdown("**Rapporthistorikk**")
         rows = []
         for archived in _load_report_archive()[:100]:
-            r = load_run(str(archived.get("run_id") or "")) or archived; identity = resolve_report_identity(r); rows.append({"Type": identity.get("label"), "Kjøring": r.get("run_id"), "Tid": local_display(r.get("created_at"), str(r.get("timezone_name") or DEFAULT_TIMEZONE)), "Jobb": r.get("job_name"), "Markeder": ", ".join(r.get("markets",[])), "Skannet": (r.get("summary") or {}).get("scanned",0), "Foreløpige modellkandidater": (r.get("summary") or {}).get("proposals",0), "Feil": len(r.get("errors") or [])})
-        if rows: st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        else: st.caption("Ingen historiske kjøringer.")
+            r = load_run(str(archived.get("run_id") or "")) or archived
+            identity = resolve_report_identity(r)
+            rows.append({
+                "Type": identity.get("label"),
+                "Kjøring": r.get("run_id"),
+                "Tid": local_display(r.get("created_at"), str(r.get("timezone_name") or DEFAULT_TIMEZONE)),
+                "Jobb": r.get("job_name"),
+                "Markeder": ", ".join(r.get("markets", [])),
+                "Skannet": (r.get("summary") or {}).get("scanned", 0),
+                "Foreløpige modellkandidater": (r.get("summary") or {}).get("proposals", 0),
+                "Feil": len(r.get("errors") or []),
+            })
+        if rows:
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        else:
+            st.caption("Ingen historiske rapporter.")
     with tab_ops:
         jobs = load_jobs(); active = [x for x in jobs if x.enabled]
         archive_count = len(_load_report_archive()); o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", archive_count); o4.metric("Regenererbare PDF-er", archive_count)
