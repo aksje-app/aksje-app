@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc4"
-APP_VERSION_NAME = "Investor Edition Release Candidate 4"
+APP_VERSION = "v19.22.0-rc5"
+APP_VERSION_NAME = "Investor Edition Release Candidate 5"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc3"
+PREVIOUS_APP_VERSION = "v19.22.0-rc4"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc5: Valutavarsler er samlet i én autoritativ kjede for manuell hent, grensekontroll, Pushover-test og varig Render Cron. Fersk kurs, status, kurstid og varsel bruker samme resultat; kunstige diagnosetester gjenoppretter ordinær runtime; mobilstatusen brytes responsivt; og automatisk helse leses fra varig cron-hjerterytme i stedet for en deaktivert webtråd. Ingen endring i final_score, kandidatvalg, rapporttidspunkter eller handelsregler.",
     "v19.22.0-rc4: Samlet stabilisering av Rapportsenter og Investor Edition: bakgrunnskjøring med synlig fremdrift, ryddige avanserte innstillinger, entydig navigasjon, redusert unødvendig lagringsarbeid, trygg miljøavgrenset Husk meg-token, Top 1-3 på beslutningsside 1, separate kvalitetsmål uten samlet pålitelighetstall, null straff for kontrollert fravær av hendelser, tydelig læringssimulering, full kontrollsum og særskilt analyse-ID. Ingen endring i final_score, kandidatvalg, scheduler-tider eller produksjonshandelsregler.",
     "v19.22.0-rc3: Rapportsenteret er bygget om til avtalt arbeidsflyt: kompakt planleggerstatus, innholdstilpassede handlinger for utkast/morgen/kveld/natt, siste rapporter, historikk og en lukket seksjon for planlegging og avanserte innstillinger. Løse avkrysningsbokser er gruppert. Ingen endring i final_score, kandidatvalg, schedulerlogikk, innlogging, Paper Trading eller produksjonshandelsregler.",
     "v19.22.0-rc2: Valideringsstabilisering av Investor Edition. Foreldede versjonsforventninger og testfixturer er oppdatert, releaseaudit og distribusjonsverktøy er gjort versjonsbevisste, og DELTA-slettelisten er sikret mot runtime-data, cache og lokale hemmeligheter. Ingen endring i final_score, kandidatvalg, scheduler, innlogging, Paper Trading eller produksjonshandelsregler.",

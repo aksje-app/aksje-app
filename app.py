@@ -10693,21 +10693,11 @@ FX_ALERT_PAIRS_V1863AF = {
 
 
 def _fetch_fx_rate_v1863af(symbol: str):
-    if yf is None:
-        return None, "yfinance er ikke tilgjengelig"
-    candidate = str(symbol or "").strip().upper()
-    if not candidate:
-        return None, "mangler valutasymbol"
-    try:
-        hist = yf.Ticker(candidate).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
-        if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
-            return None, "fant ingen Close-data"
-        close = hist["Close"].dropna()
-        if close.empty:
-            return None, "Close-data er tom"
-        return float(close.iloc[-1]), ""
-    except Exception as exc:
-        return None, str(exc)[:180]
+    """Compatibility wrapper around the canonical FX provider chain."""
+    from currency_alert_service import _fetch
+
+    rate, error, _quote_time = _fetch(str(symbol or "").strip().upper())
+    return rate, error
 
 
 def _currency_alert_defaults_v1863af():
@@ -10827,11 +10817,37 @@ def render_currency_alerts_control_center_v1863af():
         except Exception:
             return str(value)
 
+    def _status_label(value):
+        return {
+            "normal": "Innenfor grensene",
+            "breach_lower": "Under nedre grense",
+            "breach_upper": "Over øvre grense",
+            "error": "Kursfeil",
+            "disabled": "Deaktivert",
+        }.get(str(value or "").lower(), "Ikke kontrollert")
+
+    def _selected_result(rows, symbol):
+        rows = list(rows or [])
+        return next(
+            (row for row in rows if str(row.get("symbol") or "").upper() == str(symbol or "").upper()),
+            rows[0] if rows else {},
+        )
+
+    def _flash(level, message):
+        st.session_state["currency_alert_flash_v19220_rc5"] = {
+            "level": str(level or "info"), "message": str(message or "")
+        }
+
     st.subheader("Valutavarsler")
     st.caption(
-        "Overvåker valutapar med faste øvre/nedre grenser. Sjekk hvert lagres som planlagt intervall; "
-        "knappene henter og kontrollerer kurs manuelt nå."
+        "Overvåker valutapar med faste øvre/nedre grenser. Automatisk kontroll kjøres av Render Cron "
+        "uavhengig av innlogging og børsenes åpningstider."
     )
+
+    flash = st.session_state.pop("currency_alert_flash_v19220_rc5", None)
+    if isinstance(flash, dict) and flash.get("message"):
+        renderer = getattr(st, flash.get("level", "info"), st.info)
+        renderer(flash["message"])
 
     alerts = _load_currency_alerts_v1863af()
     current = dict(alerts[0] if alerts else _currency_alert_defaults_v1863af())
@@ -10842,209 +10858,252 @@ def render_currency_alerts_control_center_v1863af():
     upper_v = float(current.get("upper") or 0)
     check_minutes = int(current.get("check_interval_minutes", 60) or 60)
     cooldown_minutes = _currency_alert_cooldown_minutes_v1864s(current)
+
+    from currency_alert_service import (
+        get_currency_alert_events,
+        get_currency_alert_health,
+        get_currency_alert_runtime,
+        run_currency_alert_checks,
+    )
+
+    runtime = get_currency_alert_runtime() or {}
+    current_key = f"{pair_label}:{symbol_value}"
+    runtime_state = dict(runtime.get(current_key) or {})
     cache = _currency_alert_latest_rate_v1864s(symbol_value)
-
-    def _rate_status(rate_number):
-        if rate_number is None:
-            return "Ikke hentet"
-        if lower_v and rate_number <= lower_v:
-            return "Under nedre grense"
-        if upper_v and rate_number >= upper_v:
-            return "Over øvre grense"
-        return "Innenfor grensene"
-
-    rate_value = cache.get("rate")
+    authoritative = runtime_state if runtime_state.get("rate") is not None else cache
     try:
-        rate_number = float(rate_value)
+        rate_number = float(authoritative.get("rate"))
     except Exception:
         rate_number = None
-
-    pushover_status = _pushover_runtime_status_v1864u()
-    st.markdown("#### Status nå")
-    top1, top2, top3, top4, top5, top6, top7 = st.columns([1.15, 0.85, 1.0, 1.0, 1.0, 0.85, 0.95])
-    top1.metric("Aktivt varsel", f"{pair_label}", f"{lower_v:.4f} - {upper_v:.4f}")
-    top2.metric("Kurs", f"{rate_number:.4f}" if rate_number is not None else "-")
-    top3.metric("Status", _rate_status(rate_number))
-    top4.metric("Sjekk hvert", f"{check_minutes} min")
-    top5.metric("Varselpause", f"{cooldown_minutes} min")
-    top6.metric("Kilde", symbol_value or "-")
-    top7.metric("Pushover", pushover_status.get("label") or "-")
-    current_alert_key = f"{pair_label}:{symbol_value}"
-    lifecycle_state = ((load_settings() or {}).get(ALERT_LIFECYCLE_STATE_KEY_V18610, {}) or {}).get("currency", {}).get(current_alert_key, {})
-    if lifecycle_state:
-        st.caption(
-            f"Varselstatus: {lifecycle_state.get('status', 'normal')} · "
-            f"sist oppdatert {lifecycle_state.get('updated_at', '-')}. Nytt Pushover-varsel sendes først etter normalisering."
+    status_code = str(runtime_state.get("status") or "")
+    if rate_number is not None and status_code not in {"normal", "breach_lower", "breach_upper"}:
+        status_code = "breach_lower" if lower_v and rate_number <= lower_v else (
+            "breach_upper" if upper_v and rate_number >= upper_v else "normal"
         )
+    pushover_status = _pushover_runtime_status_v1864u()
+    quote_time = authoritative.get("quote_time") or authoritative.get("updated_at")
+    checked_time = runtime_state.get("last_checked_at") or authoritative.get("updated_at")
+
+    st.markdown("#### Status nå")
+    st.markdown(
+        """
+        <style>
+        .fx-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:.65rem;margin:.25rem 0 .7rem 0}
+        .fx-status-card{min-width:0;border:1px solid rgba(145,166,200,.38);border-radius:14px;padding:.72rem .8rem;background:rgba(11,24,44,.45)}
+        .fx-status-label{font-size:.76rem;color:#aebbd0;margin-bottom:.28rem;white-space:normal}
+        .fx-status-value{font-size:1.02rem;font-weight:700;color:#f4f7fb;overflow-wrap:anywhere;line-height:1.18}
+        .fx-status-sub{font-size:.72rem;color:#8fa0b8;margin-top:.28rem;overflow-wrap:anywhere;line-height:1.25}
+        @media(max-width:640px){
+          .fx-status-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}
+          .fx-status-card{padding:.62rem .68rem;border-radius:12px}
+          .fx-status-value{font-size:.92rem}
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    cards = [
+        ("Aktivt varsel", pair_label, f"{lower_v:.4f} - {upper_v:.4f}"),
+        ("Kurs", f"{rate_number:.4f}" if rate_number is not None else "-", f"Kurssitat: {_fx_local_time(quote_time)}"),
+        ("Status", _status_label(status_code), f"Sist kontrollert: {_fx_local_time(checked_time)}"),
+        ("Sjekkintervall", f"{check_minutes} min", "Automatisk via Render Cron"),
+        ("Varselpause", f"{cooldown_minutes} min", "Gjelder gjentatte grensebrudd"),
+        ("Datakilde", symbol_value or "-", "Yahoo Finance via yfinance"),
+        ("Pushover", pushover_status.get("label") or "-", "Varsling ved bekreftet grensebrudd"),
+    ]
+    card_html = "".join(
+        '<div class="fx-status-card">'
+        f'<div class="fx-status-label">{html.escape(str(label))}</div>'
+        f'<div class="fx-status-value">{html.escape(str(value))}</div>'
+        f'<div class="fx-status-sub">{html.escape(str(sub))}</div>'
+        '</div>'
+        for label, value, sub in cards
+    )
+    st.markdown(f'<div class="fx-status-grid">{card_html}</div>', unsafe_allow_html=True)
 
     action_left, action_mid = st.columns(2)
     with action_left:
-        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v1864t", width="stretch")
+        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v19220", width="stretch")
     with action_mid:
-        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v1864t", width="stretch")
+        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v19220", width="stretch")
     action_test, action_diag = st.columns(2)
     with action_test:
         pushover_test_now = st.button(
-            "Send Pushover-test",
-            key="currency_alert_pushover_test_now_v1864u",
+            "Send Pushover-test med fersk kurs",
+            key="currency_alert_pushover_test_now_v19220",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
             width="stretch",
         )
     with action_diag:
         currency_trigger_test_now = st.button(
             "Test hele varselkjeden",
-            key="currency_alert_full_chain_test_v18678a",
+            key="currency_alert_full_chain_test_v19220",
             disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
-            help="Tester kursinnhenting, trigger, varselmotor og Pushover i samme kjede.",
+            help="Tester innhenting, kunstig trigger og Pushover uten å etterlate falsk kurs eller grensestatus.",
             width="stretch",
         )
 
     if fetch_now:
-        rate, err = _fetch_fx_rate_v1863af(symbol_value)
-        if rate is None:
-            st.warning(f"Kunne ikke hente valutakurs: {err}")
-        else:
-            _currency_alert_store_latest_rate_v1864s(symbol_value, pair_label, rate)
-            st.success(f"Hentet {pair_label}: {rate:.4f}")
-            st.rerun()
+        try:
+            selected = _selected_result(
+                run_currency_alert_checks(force=True, notify=False, source="manual_fetch"), symbol_value
+            )
+            if not selected:
+                _flash("warning", "En annen valutakontroll kjører allerede. Prøv igjen om noen sekunder.")
+            elif selected.get("status") == "error":
+                _flash("error", f"Kunne ikke hente valutakurs: {selected.get('error') or 'ukjent feil'}")
+            else:
+                _flash(
+                    "success",
+                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.4f} · "
+                    f"{_status_label(selected.get('status'))} · kurssitat {_fx_local_time(selected.get('quote_time'))}.",
+                )
+        except Exception as exc:
+            _flash("error", f"Kurshentingen feilet: {exc}")
+        st.rerun()
 
     if check_now:
         if not current.get("active", True):
             st.info("Valutavarselet er deaktivert.")
         else:
             try:
-                from currency_alert_service import run_currency_alert_checks
-                service_results = run_currency_alert_checks(force=True)
-                selected_result = next((r for r in service_results if str(r.get("symbol") or "").upper() == symbol_value), service_results[0] if service_results else {})
-                if selected_result.get("sent"):
-                    st.success("Pushover-varsel sendt.")
-                elif selected_result.get("send_error"):
-                    st.warning(f"Pushover ble ikke sendt: {selected_result.get('send_error')}")
-                elif selected_result.get("status") in {"breach_lower", "breach_upper"}:
-                    st.info("Grensen er brutt, men varselpause/cooldown er aktiv.")
-            except Exception as service_exc:
-                st.warning(f"Bakgrunnstjenesten feilet: {service_exc}")
-            rate, err = _fetch_fx_rate_v1863af(symbol_value)
-            if rate is None:
-                st.warning(f"Kunne ikke hente valutakurs: {err}")
-            else:
-                _currency_alert_store_latest_rate_v1864s(symbol_value, pair_label, rate)
-                breach = None
-                breach_status = "normal"
-                if lower_v and rate <= lower_v:
-                    breach_status = "breach_lower"
-                    breach = f"{pair_label} er under nedre grense: {rate:.4f} <= {lower_v:.4f}"
-                elif upper_v and rate >= upper_v:
-                    breach_status = "breach_upper"
-                    breach = f"{pair_label} er over øvre grense: {rate:.4f} >= {upper_v:.4f}"
-                settings = load_settings() or {}
-                alert_key = f"{pair_label}:{symbol_value}"
-                transition = _alert_lifecycle_update_v18610(
-                    settings,
-                    "currency",
-                    alert_key,
-                    breach_status,
-                    {
-                        "pair": pair_label,
-                        "symbol": symbol_value,
-                        "rate": float(rate),
-                        "lower": lower_v,
-                        "upper": upper_v,
-                    },
+                selected = _selected_result(
+                    run_currency_alert_checks(force=True, notify=True, source="manual_check"), symbol_value
                 )
-                save_settings(settings)
-                if breach:
-                    st.error(breach)
-                    if current.get("pushover", True):
-                        settings = load_settings() or {}
-                        alert_key = f"{pair_label}:{symbol_value}"
-                        if transition.get("send") and not locals().get("service_results"):
-                            ok, send_err = _send_pushover_safe_v1863af(breach, f"Valutavarsel {pair_label}")
-                            settings.setdefault("currency_alert_last_sent_v1863af", {})[alert_key] = datetime.now().isoformat(timespec="seconds")
-                            save_settings(settings)
-                            if ok:
-                                st.success("Pushover-varsel sendt.")
-                            else:
-                                st.warning(f"Pushover ble ikke sendt: {send_err or 'ukjent feil'}")
-                        else:
-                            st.info("Grensen er fortsatt brutt. Nytt Pushover-varsel sendes først etter at kursen har vært innenfor grensen igjen.")
+                if not selected:
+                    _flash("warning", "En annen valutakontroll kjører allerede. Prøv igjen om noen sekunder.")
+                elif selected.get("status") == "error":
+                    _flash("error", f"Valutakontrollen feilet: {selected.get('error') or 'ukjent feil'}")
+                elif selected.get("sent"):
+                    _flash(
+                        "success",
+                        f"Kurs {float(selected.get('rate')):.4f} ble kontrollert og Pushover-varsel ble sendt.",
+                    )
+                elif selected.get("send_error"):
+                    _flash("warning", f"Kursen ble kontrollert, men Pushover feilet: {selected.get('send_error')}")
+                elif selected.get("status") in {"breach_lower", "breach_upper"}:
+                    _flash(
+                        "warning",
+                        f"Kurs {float(selected.get('rate')):.4f}: {_status_label(selected.get('status'))}. "
+                        "Nytt varsel er ikke sendt fordi varselpause eller varslingsinnstilling gjelder.",
+                    )
                 else:
-                    if transition.get("previous_status", "normal") != "normal":
-                        st.success(f"{pair_label} er innenfor grensene igjen. Varselstatus er nullstilt.")
-                    else:
-                        st.success(f"{pair_label} er innenfor grensene.")
+                    _flash("success", f"Kurs {float(selected.get('rate')):.4f} er innenfor grensene.")
+            except Exception as exc:
+                _flash("error", f"Valutakontrollen feilet: {exc}")
+            st.rerun()
 
     if pushover_test_now:
-        ok, send_err = _send_pushover_safe_v1863af(
-            f"Test fra Valutavarsler: {pair_label} ({symbol_value}), status {_rate_status(rate_number)}.",
-            "Pushover-test Valutavarsler",
-        )
-        if ok:
-            st.success("Pushover-test sendt.")
-        else:
-            st.warning(f"Pushover-test feilet: {send_err or 'ukjent feil'}")
+        try:
+            selected = _selected_result(
+                run_currency_alert_checks(force=True, notify=False, source="pushover_test_quote"), symbol_value
+            )
+            if not selected:
+                _flash("warning", "En annen valutakontroll kjører allerede. Pushover-testen ble ikke sendt.")
+            elif selected.get("status") == "error":
+                _flash(
+                    "error",
+                    "Pushover-testen ble ikke sendt fordi fersk kurs ikke kunne hentes: "
+                    f"{selected.get('error') or 'ukjent feil'}",
+                )
+            else:
+                rate = float(selected.get("rate"))
+                message = (
+                    f"Test fra Valutavarsler: {pair_label} ({symbol_value})\n"
+                    f"Kurs: {rate:.4f}\n"
+                    f"Status: {_status_label(selected.get('status'))}\n"
+                    f"Grenser: {lower_v:.4f} - {upper_v:.4f}\n"
+                    f"Kurssitat: {_fx_local_time(selected.get('quote_time'))} (norsk tid)"
+                )
+                ok, send_err = _send_pushover_safe_v1863af(message, "Pushover-test Valutavarsler")
+                if ok:
+                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.4f} og samme status som i appen.")
+                else:
+                    _flash("warning", f"Pushover-test feilet: {send_err or 'ukjent feil'}")
+        except Exception as exc:
+            _flash("error", f"Pushover-testen feilet: {exc}")
+        st.rerun()
 
     if currency_trigger_test_now:
         try:
             from currency_alert_service import run_currency_alert_diagnostic_test
-            diagnostic_rows = run_currency_alert_diagnostic_test(symbol_value)
-            selected = diagnostic_rows[0] if diagnostic_rows else {}
+            selected = _selected_result(run_currency_alert_diagnostic_test(symbol_value), symbol_value)
             if selected.get("sent"):
-                st.success("Hele varselkjeden fungerte: kurs -> trigger -> varselmotor -> Pushover.")
+                _flash(
+                    "success",
+                    "Hele varselkjeden fungerte. Den kunstige testkursen ble fjernet igjen; ordinær kurs og status er uendret.",
+                )
             else:
-                st.error(
+                _flash(
+                    "error",
                     "Varselkjeden stoppet før Pushover. "
                     f"Status: {selected.get('status', '-')}; årsak: {selected.get('reason', '-')}; "
-                    f"feil: {selected.get('send_error') or selected.get('error') or '-'}"
+                    f"feil: {selected.get('send_error') or selected.get('error') or '-'}",
                 )
-        except Exception as diagnostic_exc:
-            st.error(f"Diagnosetesten feilet: {diagnostic_exc}")
+        except Exception as exc:
+            _flash("error", f"Diagnosetesten feilet: {exc}")
+        st.rerun()
 
     st.markdown("#### Bakgrunnsstatus og diagnose")
     try:
-        from currency_alert_service import get_currency_alert_runtime, get_currency_alert_events
-        from runtime_background import runtime_background_status
-        worker_status = runtime_background_status()
-        worker_state = str(worker_status.get("state") or "UKJENT")
-        if worker_state == "RUNNING":
-            st.success(f"Automatisk valutakontroll kjører · siste arbeidssyklus {_fx_local_time(worker_status.get('last_cycle_at'))} (norsk tid)")
-        else:
-            st.error(
-                f"Automatisk valutakontroll er ikke frisk: {worker_state}. "
-                f"{worker_status.get('last_error') or 'Ingen arbeidssyklus registrert.'}"
+        health = get_currency_alert_health(max_age_minutes=20)
+        if health.get("healthy"):
+            st.success(
+                "Automatisk valutakontroll er frisk · siste Render Cron-syklus "
+                f"{_fx_local_time(health.get('last_automatic_at'))} (norsk tid)."
             )
+        elif health.get("state") == "NOT_STARTED":
+            st.warning(
+                "Automatisk valutakontroll er ikke registrert ennå. Etter deploy skal Render Cron kjøre innen fem minutter."
+            )
+        else:
+            age_text = "ukjent" if health.get("age_seconds") is None else f"{int(health.get('age_seconds')) // 60} min"
+            st.error(
+                f"Automatisk valutakontroll er ikke frisk: {health.get('state')}. "
+                f"Siste automatiske syklus: {_fx_local_time(health.get('last_automatic_at'))} ({age_text} siden). "
+                f"{health.get('last_error') or ''}"
+            )
+
         runtime_rows = []
-        for runtime_key, runtime_value in (get_currency_alert_runtime() or {}).items():
+        for runtime_key, runtime_value in runtime.items():
             if not isinstance(runtime_value, dict):
                 continue
             runtime_rows.append({
                 "Valuta": runtime_value.get("pair") or runtime_key,
                 "Symbol": runtime_value.get("symbol") or "-",
                 "Kurs": runtime_value.get("rate"),
-                "Status": runtime_value.get("status") or "-",
+                "Status": _status_label(runtime_value.get("status")),
                 "Kurssitat": _fx_local_time(runtime_value.get("quote_time")),
                 "Sist sjekket": _fx_local_time(runtime_value.get("last_checked_at")),
                 "Neste sjekk": _fx_local_time(runtime_value.get("next_check_at")),
                 "Sist sendt": _fx_local_time(runtime_value.get("last_sent_at")),
-                "Neste varsel tillatt": _fx_local_time(runtime_value.get("next_alert_allowed_at")),
-                "Forrige kurs": runtime_value.get("previous_rate"),
                 "Årsak": runtime_value.get("last_reason") or "-",
                 "Feil": runtime_value.get("last_error") or "",
             })
         if runtime_rows:
-            st.dataframe(runtime_rows, width="stretch", hide_index=True)
+            latest_row = runtime_rows[0]
+            with st.container(border=True):
+                st.markdown(f"**{latest_row['Valuta']} · {latest_row['Kurs'] if latest_row['Kurs'] is not None else '-'} · {latest_row['Status']}**")
+                st.caption(
+                    f"Kurssitat: {latest_row['Kurssitat']} · sist sjekket: {latest_row['Sist sjekket']} · "
+                    f"neste sjekk: {latest_row['Neste sjekk']}"
+                )
+                if latest_row.get("Feil"):
+                    st.error(latest_row["Feil"])
         else:
-            st.info("Ingen bakgrunnskontroll er registrert ennå. Kjør kontroll eller vent på neste worker-kjøring.")
+            st.info("Ingen valutakontroll er registrert ennå.")
 
-        with st.expander("Valutavarsel-logg", expanded=False):
+        with st.expander("Teknisk valutastatus og logg", expanded=False):
+            if runtime_rows:
+                st.dataframe(runtime_rows, width="stretch", hide_index=True)
             event_rows = get_currency_alert_events(limit=80)
             if event_rows:
                 st.dataframe(event_rows, width="stretch", hide_index=True)
             else:
                 st.caption("Ingen diagnostikkhendelser er registrert.")
             st.caption(
-                "Valutakontrollen kjøres nå før aksjescannerens markedstids- og cooldown-sperrer. "
-                "Dermed kontrolleres valuta også når børsene er stengt eller aksjescanneren er pauset."
+                "Automatisk valutakontroll kjøres av samme varige Render Cron som planlagte rapporter, "
+                "men er uavhengig av rapporttidspunkter og markedstider."
             )
     except Exception as runtime_exc:
         st.warning(f"Kunne ikke lese valutadiagnostikk: {runtime_exc}")
@@ -11053,7 +11112,7 @@ def render_currency_alerts_control_center_v1863af():
     current_pair = current.get("pair", "BRL/NOK")
     current_check_minutes = int(current.get("check_interval_minutes", 60) or 60)
     current_cooldown_minutes = _currency_alert_cooldown_minutes_v1864s(current)
-    with st.form("currency_alert_form_v1864t"):
+    with st.form("currency_alert_form_v19220"):
         c1, c2 = st.columns([1, 1])
         with c1:
             pair = st.selectbox("Valutapar", pair_options, index=pair_options.index(current_pair) if current_pair in pair_options else 0)
@@ -11102,7 +11161,7 @@ def render_currency_alerts_control_center_v1863af():
             "cooldown_minutes": cooldown_minutes,
             "cooldown_hours": max(1, int(round(cooldown_minutes / 60))),
         }])
-        st.success("Valutavarsel lagret.")
+        _flash("success", "Valutavarselet er lagret. Ny konfigurasjon vurderes ved neste manuelle eller automatiske kontroll.")
         st.rerun()
 
 

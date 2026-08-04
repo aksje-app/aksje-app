@@ -57,6 +57,7 @@ def run_once() -> dict[str, Any]:
         "started_at": started,
         "completed_at": None,
         "scheduler": {},
+        "currency_alerts": {},
         "report_repair": {},
         "report_revalidation": {},
         "error": "",
@@ -73,6 +74,23 @@ def run_once() -> dict[str, Any]:
         state["completed_at"] = _now()
         _notify_failure_once(state, state["error"])
         return _save(state)
+
+    # Currency alerts share the durable five-minute Render cron. They run
+    # independently of report due-times, market hours and user login.
+    try:
+        from currency_alert_service import run_currency_alert_checks
+
+        fx_rows = list(run_currency_alert_checks(force=False, source="scheduled_cron") or [])
+        fx_errors = [row for row in fx_rows if row.get("status") == "error"]
+        state["currency_alerts"] = {
+            "state": "DEGRADED" if fx_errors else "COMPLETED",
+            "checked": len(fx_rows),
+            "sent": sum(1 for row in fx_rows if row.get("sent")),
+            "errors": [str(row.get("error") or "")[:240] for row in fx_errors],
+        }
+    except Exception as exc:
+        # A provider failure must be visible, but must not suppress scheduled reports.
+        state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.

@@ -31,7 +31,7 @@ def _worker() -> None:
     while not _STOP.is_set():
         try:
             from currency_alert_service import run_currency_alert_checks
-            run_currency_alert_checks(force=False)
+            run_currency_alert_checks(force=False, source="web_background")
             _STATUS.update({
                 "state": "RUNNING", "last_cycle_at": _now(), "last_error": "",
                 "cycles": int(_STATUS.get("cycles", 0)) + 1,

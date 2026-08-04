@@ -26,6 +26,7 @@ DEFAULT_ALERT = {
 }
 STATE_KEY = "currency_alert_runtime_v18678a"
 LEGACY_STATE_KEY = "currency_alert_runtime_v18675"
+HEARTBEAT_KEY = "currency_alert_worker_v19220_rc5"
 EVENT_LOG_KEY = "alerts/currency_alert_events_v18678a.jsonl"
 MAX_EVENT_ROWS = 250
 _PROCESS_LOCK = threading.Lock()
@@ -119,6 +120,67 @@ def get_currency_alert_runtime() -> dict:
     return dict(root or {})
 
 
+def _save_heartbeat(state: str, *, source: str, checked: int = 0, sent: int = 0, error: str = "") -> dict:
+    now = _now().isoformat()
+    state_name = str(state or "UNKNOWN").upper()
+    source_name = str(source or "unknown")
+    automatic_source = source_name in {"scheduled_cron", "web_background", "scanner_worker"}
+    settings = load_settings() or {}
+    previous = settings.get(HEARTBEAT_KEY) if isinstance(settings.get(HEARTBEAT_KEY), dict) else {}
+    heartbeat = {
+        **previous,
+        "state": state_name,
+        "source": source_name,
+        "last_cycle_at": now,
+        "last_success_at": now if state_name == "COMPLETED" else previous.get("last_success_at"),
+        "checked": int(checked or 0),
+        "sent": int(sent or 0),
+        "last_error": str(error or "")[:500],
+        "cycles": int(previous.get("cycles") or 0) + (1 if state_name in {"COMPLETED", "DEGRADED", "FAILED"} else 0),
+    }
+    if state_name == "RUNNING":
+        heartbeat["started_at"] = now
+        heartbeat["last_success_at"] = previous.get("last_success_at")
+        heartbeat["cycles"] = int(previous.get("cycles") or 0)
+    else:
+        heartbeat["started_at"] = previous.get("started_at")
+    if automatic_source and state_name != "RUNNING":
+        heartbeat["last_automatic_at"] = now
+        heartbeat["last_automatic_state"] = state_name
+        heartbeat["last_automatic_error"] = str(error or "")[:500]
+        if state_name == "COMPLETED":
+            heartbeat["last_automatic_success_at"] = now
+    settings[HEARTBEAT_KEY] = heartbeat
+    save_settings(settings)
+    return dict(heartbeat)
+
+
+def get_currency_alert_health(max_age_minutes: int = 20) -> dict:
+    """Return cross-process health from the durable cron/manual heartbeat.
+
+    The Streamlit web process intentionally does not run an in-process FX
+    thread on Render. Health must therefore come from persisted cron cycles,
+    not process-local thread state.
+    """
+    settings = load_settings() or {}
+    heartbeat = dict(settings.get(HEARTBEAT_KEY) or {})
+    last_automatic = _parse(heartbeat.get("last_automatic_at"))
+    age_seconds = None
+    if last_automatic is not None:
+        age_seconds = max(0, int((_now() - last_automatic).total_seconds()))
+    state = str(heartbeat.get("last_automatic_state") or "NOT_STARTED").upper()
+    healthy = bool(state == "COMPLETED" and age_seconds is not None and age_seconds <= max(1, int(max_age_minutes)) * 60)
+    return {
+        **heartbeat,
+        "state": state,
+        "healthy": healthy,
+        "age_seconds": age_seconds,
+        "max_age_minutes": max(1, int(max_age_minutes)),
+        "mode": "durable_cron",
+        "last_error": heartbeat.get("last_automatic_error") or "",
+    }
+
+
 def _fetch(symbol: str) -> tuple[float | None, str, str | None]:
     """Fetch the freshest available FX quote.
 
@@ -152,6 +214,41 @@ def _fetch(symbol: str) -> tuple[float | None, str, str | None]:
             return float(close.iloc[-1]), "", quote_time
         except Exception as exc:
             errors.append(f"{interval}: {str(exc)[:160]}")
+
+    # yfinance history can fail transiently even when fast_info/download works.
+    try:
+        fast_info = getattr(ticker, "fast_info", None)
+        last_price = None
+        if fast_info is not None:
+            try:
+                last_price = fast_info.get("last_price") if hasattr(fast_info, "get") else fast_info["last_price"]
+            except Exception:
+                last_price = getattr(fast_info, "last_price", None)
+        if last_price is not None and float(last_price) > 0:
+            return float(last_price), "", _now().isoformat()
+    except Exception as exc:
+        errors.append(f"fast_info: {str(exc)[:160]}")
+
+    try:
+        downloaded = yf.download(
+            str(symbol).upper(), period="5d", interval="1d", auto_adjust=False,
+            progress=False, threads=False,
+        )
+        if downloaded is not None and not getattr(downloaded, "empty", True) and "Close" in downloaded:
+            close = downloaded["Close"].dropna()
+            if not close.empty:
+                value = close.iloc[-1]
+                if hasattr(value, "iloc"):
+                    value = value.iloc[-1]
+                quote_time = None
+                try:
+                    idx = close.index[-1]
+                    quote_time = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+                except Exception:
+                    quote_time = None
+                return float(value), "", quote_time
+    except Exception as exc:
+        errors.append(f"download: {str(exc)[:160]}")
     return None, "; ".join(errors)[:500] or "fant ingen valutadata", None
 
 
@@ -184,6 +281,8 @@ def run_currency_alert_checks(
     fetcher: Callable[[str], tuple[float | None, str]] | None = None,
     sender: Callable[..., Any] | None = None,
     diagnostic_test: bool = False,
+    notify: bool = True,
+    source: str = "runtime",
 ) -> list[dict]:
     """Evaluate all saved FX alerts and persist a complete diagnostic trail.
 
@@ -193,11 +292,27 @@ def run_currency_alert_checks(
     """
     with _global_check_lock() as acquired:
         if not acquired:
-            _event("scanner_skipped", reason="another_worker_holds_lock")
+            _event("scanner_skipped", reason="another_worker_holds_lock", source=source)
             return []
-        return _run_currency_alert_checks_locked(
-            force=force, fetcher=fetcher, sender=sender, diagnostic_test=diagnostic_test
+        _save_heartbeat("RUNNING", source=source)
+        try:
+            rows = _run_currency_alert_checks_locked(
+                force=force, fetcher=fetcher, sender=sender, diagnostic_test=diagnostic_test,
+                notify=notify, source=source,
+            )
+        except Exception as exc:
+            _save_heartbeat("FAILED", source=source, error=str(exc))
+            raise
+        heartbeat_state = "DEGRADED" if any(row.get("status") == "error" for row in rows) else "COMPLETED"
+        heartbeat_error = "; ".join(
+            str(row.get("error") or row.get("send_error") or "")
+            for row in rows if row.get("status") == "error" or row.get("send_error")
+        )[:500]
+        _save_heartbeat(
+            heartbeat_state, source=source, checked=len(rows),
+            sent=sum(1 for row in rows if row.get("sent")), error=heartbeat_error,
         )
+        return rows
 
 
 def _run_currency_alert_checks_locked(
@@ -206,6 +321,8 @@ def _run_currency_alert_checks_locked(
     fetcher: Callable[[str], tuple[float | None, str]] | None = None,
     sender: Callable[..., Any] | None = None,
     diagnostic_test: bool = False,
+    notify: bool = True,
+    source: str = "runtime",
 ) -> list[dict]:
     fetcher = fetcher or _fetch
     sender = sender or send_pushover_alert
@@ -220,7 +337,7 @@ def _run_currency_alert_checks_locked(
 
     now = _now()
     run_id = now.strftime("%Y%m%dT%H%M%SZ")
-    _event("scanner_started", run_id=run_id, force=bool(force), alerts=len(alerts), diagnostic_test=bool(diagnostic_test))
+    _event("scanner_started", run_id=run_id, force=bool(force), alerts=len(alerts), diagnostic_test=bool(diagnostic_test), notify=bool(notify), source=source)
     results: list[dict] = []
 
     for raw in alerts:
@@ -308,7 +425,7 @@ def _run_currency_alert_checks_locked(
         last_sent = _parse(state.get("last_sent_at"))
         repeat_due = bool(last_sent is None or now - last_sent >= timedelta(minutes=cooldown))
         new_breach = status.startswith("breach") and (previous != status or crossed_threshold)
-        should_send = status.startswith("breach") and (new_breach or repeat_due or diagnostic_test)
+        should_send = bool(notify) and status.startswith("breach") and (new_breach or repeat_due or diagnostic_test)
         pushover_requested = bool(alert.get("pushover", True))
         sent = False
         send_error = ""
@@ -326,6 +443,8 @@ def _run_currency_alert_checks_locked(
             repeat_due=repeat_due,
             should_send=should_send,
             pushover_requested=pushover_requested,
+            notify=bool(notify),
+            source=source,
         )
 
         if should_send and pushover_requested:
@@ -352,8 +471,11 @@ def _run_currency_alert_checks_locked(
             reason = "pushover_disabled_for_alert"
             _event("pushover_skipped", **base, rate=rate, status=status, reason=reason)
         elif status.startswith("breach"):
-            reason = "cooldown_active" if last_sent is not None else "already_in_breach"
-            _event("pushover_skipped", **base, rate=rate, status=status, reason=reason)
+            if not notify:
+                reason = "notification_suppressed"
+            else:
+                reason = "cooldown_active" if last_sent is not None else "already_in_breach"
+            _event("pushover_skipped", **base, rate=rate, status=status, reason=reason, source=source)
 
         if status == "normal" and previous != "normal":
             state["last_normal_at"] = now.isoformat()
@@ -408,7 +530,7 @@ def _run_currency_alert_checks_locked(
 
     settings[STATE_KEY] = root
     save_settings(settings)
-    _event("scanner_completed", run_id=run_id, checked=len(results), sent=sum(1 for r in results if r.get("sent")))
+    _event("scanner_completed", run_id=run_id, checked=len(results), sent=sum(1 for r in results if r.get("sent")), source=source)
     return results
 
 
@@ -437,14 +559,26 @@ def run_currency_alert_diagnostic_test(symbol: str | None = None) -> list[dict]:
         return min(float(real_rate), lower - max(abs(lower) * 0.001, 0.0001)), "", _now().isoformat()
 
     original = settings.get("currency_alerts_v1863af")
+    original_runtime = settings.get(STATE_KEY)
+    original_latest = settings.get("currency_alert_latest_rates_v1864s")
+    original_heartbeat = settings.get(HEARTBEAT_KEY)
     try:
         settings["currency_alerts_v1863af"] = [selected]
         save_settings(settings)
-        return run_currency_alert_checks(force=True, fetcher=forced_breach_fetcher, diagnostic_test=True)
+        return run_currency_alert_checks(
+            force=True, fetcher=forced_breach_fetcher, diagnostic_test=True,
+            notify=True, source="diagnostic_test",
+        )
     finally:
         restored = load_settings() or {}
-        if original is None:
-            restored.pop("currency_alerts_v1863af", None)
-        else:
-            restored["currency_alerts_v1863af"] = original
+        for key, original_value in (
+            ("currency_alerts_v1863af", original),
+            (STATE_KEY, original_runtime),
+            ("currency_alert_latest_rates_v1864s", original_latest),
+            (HEARTBEAT_KEY, original_heartbeat),
+        ):
+            if original_value is None:
+                restored.pop(key, None)
+            else:
+                restored[key] = original_value
         save_settings(restored)

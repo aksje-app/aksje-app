@@ -286,7 +286,7 @@ def run_once(force=False):
     # This must run before should_run_background_scan(), otherwise closed markets,
     # pause windows or scanner cooldowns silently suppress every FX alert.
     try:
-        fx_results = run_currency_alert_checks(force=force)
+        fx_results = run_currency_alert_checks(force=force, source="scanner_worker")
         for fx in fx_results:
             print(
                 f"FX {fx.get('pair')}: {fx.get('status')} "
