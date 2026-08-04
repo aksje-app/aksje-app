@@ -50,11 +50,11 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
 
     workspace_labels = {
         "overview": "Oversikt",
+        "reports": "Rapporter",
         "orchestrator": "Orkestrering og tidsplan",
         "autonomous_portfolio": "Autonom portefølje",
         "learning_portfolio": "Læringsportefølje",
         "architecture": "Ekspertkontroll",
-        "reports": "Rapporter",
         "operations": "Varsler og drift",
         "strategy_versions": "Strategiversjoner",
         "strategy_lab": "Strategy Lab",
