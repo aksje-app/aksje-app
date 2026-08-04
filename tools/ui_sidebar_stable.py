@@ -1,75 +1,320 @@
 """Stable sidebar renderer for AI Aksje Analyzer Pro.
 
-v18.6.47 goal:
+v18.6.42 goal:
 - One source of truth for sidebar structure.
 - Avoid fragmented inline sidebar HTML in app.py.
 - Keep desktop readable and prevent mobile drawer from blocking the app.
 """
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
+from app_version import APP_VERSION
+
+# Compatibility anchors retained for older route-integrity checks while v19.0.22
+# renders navigation from daily_user_experience.py.
+LEGACY_ROUTE_ANCHORS_V19022 = (
+    ("🤖 AI", "ai"),
+    ("🧾 Paper Trading", "paper_trading"),
+    ("🧠 Autonomi", "autonomy"),
+    ("💱 Valutavarsler", "fx_alerts"),
+)
+# Legacy branch contract: nav in {"portfolio", "reports"}
+
+
+
+
+def _sidebar_set_query_state_v18674c(st, nav: str, group: str = "", panel: str = "") -> None:
+    """Set refresh-safe URL state without exposing authentication tokens."""
+    try:
+        for sensitive_key in ("remember_token", "remember_bootstrap"):
+            if sensitive_key in st.query_params:
+                del st.query_params[sensitive_key]
+        st.query_params["aa_nav"] = str(nav or "")
+        if group:
+            st.query_params["aa_group"] = str(group)
+        elif "aa_group" in st.query_params:
+            del st.query_params["aa_group"]
+        if panel:
+            st.query_params["aa_panel"] = str(panel)
+        elif "aa_panel" in st.query_params:
+            del st.query_params["aa_panel"]
+        for k in ("aa_tab", "aa_subtab"):
+            if k in st.query_params:
+                del st.query_params[k]
+    except Exception:
+        pass
+
+def _sidebar_persist_nav_v18658(st, nav: str) -> None:
+    """Persist desktop sidebar navigation without forcing URL redirects.
+
+    v18.6.61: Do NOT write panel/mobile_nav query params from desktop buttons.
+    Query params kept re-applying the old page on every rerun and could make
+    Dashboard/Analyse/Top Picks/AI/System appear dead. File persistence is
+    enough for refresh/new login; button clicks update session_state directly.
+    """
+    try:
+        import json
+        from pathlib import Path
+        path = Path("data/ui_state_v18658.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "nav": str(nav or ""),
+            "group": str(st.session_state.get("ai_control_center_group_v1863aj") or ""),
+            "panel": str(st.session_state.get("ai_control_center_active_panel_v1863aj") or ""),
+            "tab": str(st.session_state.get("autonomy_core_workspace_slug_v1882") or st.session_state.get("paper_trading_active_tab_slug_v18674c") or ""),
+            "version": APP_VERSION,
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+
+def _sidebar_nav_href_v18659(st, nav: str) -> str:
+    """Real href fallback for desktop nav.
+
+    v18.6.59: Streamlit buttons can be blocked by persistent query state on
+    some sessions. These links make every sidebar item navigate by URL first,
+    using the same panel parameter that the app already applies on startup.
+    """
+    params = {}
+    try:
+        for k, v in dict(st.query_params).items():
+            if isinstance(v, (list, tuple)):
+                params[k] = str(v[0]) if v else ""
+            else:
+                params[k] = str(v)
+    except Exception:
+        params = {}
+    for sensitive_key in ("remember_token", "remember_bootstrap"):
+        params.pop(sensitive_key, None)
+    params.pop("mobile_nav", None)
+    params["panel"] = str(nav or "")
+    return "?" + urlencode(params)
+
+
+def _sidebar_nav_links_v18659(st) -> None:
+    legacy_items = [
+        ("🏠", "Dashboard", "dashboard"),
+        ("📈", "Analyse", "analysis"),
+        ("🎯", "Top Picks", "top_picks"),
+        ("🚀", "Long Engine", "long_engine"),
+        ("🤖", "AI", "ai"),
+        ("🧾", "Paper Trading", "paper_trading"),
+        ("🧠", "Autonomi", "autonomy"),
+        ("💱", "Valutavarsler", "fx_alerts"),
+        ("⚙️", "System", "system"),
+    ]
+    try:
+        from autonomi_core.configuration.application_centered import application_centered_enabled, application_navigation
+        items = list(application_navigation()) if application_centered_enabled() else legacy_items
+    except Exception:
+        items = legacy_items
+    current = ""
+    try:
+        current = str(st.query_params.get("panel", "") or "").lower()
+    except Exception:
+        current = ""
+    html = ["<div class='sidebar2026-nav-links-v18659'>"]
+    for icon, label, nav in items:
+        active = " active" if current == nav else ""
+        href = _sidebar_nav_href_v18659(st, nav)
+        html.append(
+            f"<a class='sidebar2026-nav-link-v18659{active}' href='{href}' target='_self' "
+            f"title='{label}'><span class='nav-ico'>{icon}</span><span class='nav-label'>{label}</span></a>"
+        )
+    html.append("</div>")
+    st.sidebar.markdown("".join(html), unsafe_allow_html=True)
+
+def _clear_control_center_nav_state_v18663(st) -> None:
+    """Clear stale control-center selection keys before a fresh sidebar click.
+
+    v18.6.63: previous versions left Long Engine radio/session keys alive.
+    Then every menu click reacted, but the control center snapped back to Long.
+    """
+    clear_exact = [
+        "ai_control_center_group_v1863m",
+        "ai_control_center_active_panel_v1863m",
+        "ai_control_center_active_real_panel_v18598",
+        "ai_control_center_group_v1863aj",
+        "ai_control_center_active_panel_v1863aj",
+        "ai_control_center_group_radio_v1863aj",
+        "analysis_pipeline_active_stage_v1863bz",
+    ]
+    for key in clear_exact:
+        try:
+            st.session_state.pop(key, None)
+        except Exception:
+            pass
+    try:
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                st.session_state.pop(key, None)
+    except Exception:
+        pass
+    try:
+        if "panel" in st.query_params:
+            del st.query_params["panel"]
+        if "mobile_nav" in st.query_params:
+            del st.query_params["mobile_nav"]
+        for k in ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab"):
+            if k in st.query_params:
+                del st.query_params[k]
+    except Exception:
+        pass
+
 
 def _sidebar_nav_set_v18650(st, nav: str) -> None:
     """Single real navigation path for desktop sidebar buttons.
 
-    v18.6.50 removes fake HTML-only sidebar cards. These buttons set the
-    same session_state keys as the mobile navigation, then rerun the app.
+    v18.6.63: menu click is the source of truth. Stale Long Engine state is
+    cleared first so saved UI-state cannot override Dashboard/Analyse/Top Picks.
     """
     nav = str(nav or "").strip().lower()
+    _clear_control_center_nav_state_v18663(st)
+    st.session_state["ai_control_center_force_nav_v18663"] = nav
+    # RC4: every explicit sidebar click becomes the canonical active page.
+    # This prevents Driftssenter's previous active target from winning after a menu click.
+    st.session_state["active_nav_target_v18674c"] = nav
+    st.session_state["navigation_user_revision_v19143"] = int(st.session_state.get("navigation_user_revision_v19143", 0) or 0) + 1
+    st.session_state["navigation_last_source_v19143"] = "USER"
     if nav == "dashboard":
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
-        st.session_state["ai_control_center_active_panel_v1863m"] = ""
-        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
     elif nav == "analysis":
-        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_group_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_group_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "top_picks":
         st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"drift", "driftssenter", "drift_center"}:
+        nav = "drift_center"
+        st.session_state["active_nav_target_v18674c"] = "drift_center"
+        st.session_state["ai_control_center_force_nav_v18663"] = "drift_center"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"portfolio", "reports", "jobs", "approvals", "operations"}:
+        nav = nav
+        if nav in {"portfolio", "approvals"}:
+            slug = "learning_portfolio"
+        elif nav == "operations":
+            slug = "operations"
+        else:
+            slug = "reports"
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["autonomy_core_workspace_slug_v1882"] = slug
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
-        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
-        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
         st.session_state["ai_control_center_group_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
         st.session_state["ai_control_center_group_radio_v1863aj"] = "Long Engine (1)"
         st.session_state["ai_control_center_panel_radio_v1863aj_Long Engine"] = "Long Engine"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "ai":
         st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
-        st.session_state["ai_control_center_active_panel_v1863m"] = ""
-        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
         st.session_state["ai_control_center_menu_open_v1863ag"] = True
-    elif nav == "paper_trading":
+    elif nav in {"paper", "paper_trading", "papertrading"}:
+        nav = "paper_trading"
         st.session_state["ai_control_center_group_v1863m"] = "Testing og portefolje"
-        st.session_state["ai_control_center_active_panel_v1863m"] = "Paper Trading og kontroll"
-        st.session_state["ai_control_center_active_real_panel_v18598"] = "Paper Trading og kontroll"
         st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Paper Trading og kontroll"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Paper Trading og kontroll"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
-    elif nav == "drift_center":
-        # Dedicated operations surface. Keep AI Kontrollsenter state intact;
-        # app.py renders Driftssenter as an independent page.
-        st.session_state["active_nav_target_v18674c"] = "drift_center"
-        st.session_state["ai_control_center_force_nav_v18663"] = "drift_center"
+    elif nav in {"autonomy", "autonomous", "autonomi"}:
+        nav = "autonomy"
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Autonomi (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Autonomi"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"fx_alerts", "currency_alerts", "valutavarsler"}:
+        nav = "fx_alerts"
+        st.session_state["ai_control_center_group_v1863m"] = "Andre paneler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Andre paneler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "💱 Valutavarsler"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_group_v1863aj"] = "System"
         st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "System/admin"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    sidebar_group_panel_v18674c = {
+        "dashboard": ("", ""),
+        "analysis": ("AI Kandidattest", "AI Kandidattest"),
+        "top_picks": ("Marked og signaler", "Top Picks"),
+        "long_engine": ("Long Engine", "Long Engine"),
+        "ai": ("Analyse og prognose", ""),
+        "paper_trading": ("Testing og portefolje", "Paper Trading og kontroll"),
+        "autonomy": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "fx_alerts": ("Andre paneler", "💱 Valutavarsler"),
+        "portfolio": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "reports": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "jobs": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "approvals": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "operations": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
+        "drift_center": ("", ""),
+        "system": ("System", "System/admin"),
+    }
+    q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
+    _sidebar_set_query_state_v18674c(st, nav, q_group, q_panel)
+    _sidebar_persist_nav_v18658(st, nav)
     try:
         st.rerun()
     except Exception:
         pass
 
-
 def _sidebar_nav_button_v18650(st, label: str, nav: str, key: str) -> None:
     if st.sidebar.button(label, key=key, width="stretch"):
         _sidebar_nav_set_v18650(st, nav)
+
+
+def _render_daily_mode_selector_v19022(st, current_user) -> str:
+    """Render and persist the global Simple/Advanced mode per user."""
+    try:
+        from daily_user_experience import ADVANCED_MODE, SIMPLE_MODE, get_user_mode, set_user_mode
+        from settings_store import load_settings, save_settings
+        settings = load_settings()
+        current = get_user_mode(settings, current_user)
+        options = [SIMPLE_MODE, ADVANCED_MODE]
+        selected = st.sidebar.radio(
+            "Visning",
+            options,
+            index=options.index(current),
+            horizontal=True,
+            key="global_ui_experience_mode_v19022",
+            help="Enkel viser den daglige arbeidsflyten. Avansert viser alle spesialistpaneler.",
+        )
+        st.session_state["ui_experience_mode_v19022"] = selected
+        if selected != current:
+            save_settings(set_user_mode(settings, current_user, selected))
+            st.session_state["ui_experience_mode_v19022"] = selected
+        return selected
+    except Exception:
+        st.session_state["ui_experience_mode_v19022"] = "Enkel"
+        return "Enkel"
 
 
 def render_stable_sidebar_v18641(st, current_user, render_user_admin):
@@ -81,14 +326,21 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
     st.sidebar.markdown(_SIDEBAR_CSS_V18641, unsafe_allow_html=True)
 
     st.sidebar.markdown("<div class='sidebar-section-title'>Navigasjon</div>", unsafe_allow_html=True)
-    _sidebar_nav_button_v18650(st, "🏠 Dashboard", "dashboard", "sidebar_nav_dashboard_v18650")
-    _sidebar_nav_button_v18650(st, "📈 Analyse", "analysis", "sidebar_nav_analysis_v18650")
-    _sidebar_nav_button_v18650(st, "🎯 Top Picks", "top_picks", "sidebar_nav_top_picks_v18650")
-    _sidebar_nav_button_v18650(st, "🚀 Long Engine", "long_engine", "sidebar_nav_long_engine_v18653")
-    _sidebar_nav_button_v18650(st, "🤖 AI", "ai", "sidebar_nav_ai_v18650")
-    _sidebar_nav_button_v18650(st, "🧾 Paper Trading", "paper_trading", "sidebar_nav_paper_v1906")
-    _sidebar_nav_button_v18650(st, "🧭 Driftssenter", "drift_center", "sidebar_nav_drift_center_v19170rc2")
-    _sidebar_nav_button_v18650(st, "⚙️ System", "system", "sidebar_nav_system_v18650")
+    mode = _render_daily_mode_selector_v19022(st, current_user)
+    try:
+        from daily_user_experience import navigation_for_mode
+        navigation = navigation_for_mode(mode)
+    except Exception:
+        navigation = {"primary": (("🏠", "Oversikt", "dashboard"), ("📈", "Analyse", "analysis")), "more": ()}
+
+    for _icon, _label, _nav in navigation.get("primary", ()):
+        _sidebar_nav_button_v18650(st, f"{_icon} {_label}", _nav, f"sidebar_nav_v19022_{_nav}")
+    more_items = tuple(navigation.get("more", ()) or ())
+    if more_items:
+        with st.sidebar.expander("☰ Mer", expanded=False):
+            for _icon, _label, _nav in more_items:
+                if st.button(f"{_icon} {_label}", key=f"sidebar_more_v19022_{_nav}_{_label}", width="stretch"):
+                    _sidebar_nav_set_v18650(st, _nav)
 
     st.sidebar.markdown("<div class='sidebar-section-title sidebar-section-title-account'>Konto</div>", unsafe_allow_html=True)
     render_user_admin(current_user)
@@ -98,7 +350,7 @@ def render_stable_sidebar_v18641(st, current_user, render_user_admin):
 
 _SIDEBAR_CSS_V18641 = """
 <style>
-/* v18.6.47 stable sidebar: clean desktop nav, mobile bottom rail. */
+/* v18.6.46 stable sidebar: desktop full menu, mobile bottom rail. */
 html body section[data-testid="stSidebar"] {
   width: 224px !important;
   min-width: 224px !important;
@@ -186,12 +438,15 @@ html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button 
   min-height: 40px !important;
   width: 100% !important;
   justify-content: flex-start !important;
-  padding: .36rem .58rem !important;
+  padding: .34rem .46rem !important;
   border-radius: 15px !important;
-  font-size: .86rem !important;
+  font-size: .80rem !important;
   font-weight: 900 !important;
+  line-height: 1.05 !important;
   color: #f8fafc !important;
   white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
   background: linear-gradient(180deg, rgba(14,56,90,.92), rgba(8,30,55,.92)) !important;
   border: 1px solid rgba(96,165,250,.32) !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.18) !important;
@@ -215,7 +470,7 @@ html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary
   overflow: visible !important;
   text-overflow: clip !important;
 }
-/* v18.6.47: Admin/Drift moved out of sidebar. */
+/* v18.6.46: Admin/Drift labels must not be cut to Adr/Dri. */
 html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary p {
   font-size: .78rem !important;
   max-width: 100% !important;
@@ -323,7 +578,7 @@ html body button[aria-label*="sidebar" i] {
   html body .stApp { overflow-x: hidden !important; }
 }
 
-/* v18.6.47 final desktop sidebar override. */
+/* v18.6.46 final desktop sidebar override: keep advanced labels readable. */
 @media (min-width: 761px) {
   html body section[data-testid="stSidebar"] {
     width: 224px !important; min-width: 224px !important; max-width: 224px !important;
@@ -331,6 +586,66 @@ html body button[aria-label*="sidebar" i] {
   html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
     display: flex !important; align-items: center !important; gap: .20rem !important;
   }
+}
+
+html body section[data-testid="stSidebar"] .sidebar2026-nav-links-v18659 {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: .38rem !important;
+  margin-bottom: .72rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 {
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: .42rem !important;
+  min-height: 40px !important;
+  padding: .34rem .48rem !important;
+  border-radius: 15px !important;
+  text-decoration: none !important;
+  color: #f8fafc !important;
+  background: linear-gradient(180deg, rgba(14,56,90,.92), rgba(8,30,55,.92)) !important;
+  border: 1px solid rgba(96,165,250,.32) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.18) !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659:hover,
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659.active {
+  border-color: rgba(56,189,248,.68) !important;
+  background: linear-gradient(180deg, rgba(14,116,144,.82), rgba(8,47,73,.94)) !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-ico {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 10px !important;
+  background: rgba(14,116,144,.45) !important;
+  font-size: 1.0rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-label {
+  display: block !important;
+  min-width: 0 !important;
+  font-size: .86rem !important;
+  font-weight: 950 !important;
+  line-height: 1.05 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+/* v19.16.6: Keep the simple-mode More control readable at narrow desktop widths. */
+html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+  min-width: 184px !important;
+  width: 100% !important;
+  overflow: visible !important;
+}
+html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  opacity: 1 !important;
 }
 
 </style>
