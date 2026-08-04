@@ -72,9 +72,11 @@ def test_desktop_and_app_targets_use_same_route():
 
 def test_refresh_restores_autonomy_workspace_slug():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert 'st.session_state["autonomy_core_workspace_slug_v1882"] = tab_from_url' in source
+    autonomy = (ROOT / "pages" / "autonomy.py").read_text(encoding="utf-8")
+    assert 'apply_route_tab_to_session_state_v19220_rc7(' in source
     assert 'saved = normalize_navigation_values(' in source
-    assert 'tab=workspace_slug' in source
+    assert 'st.session_state["autonomy_core_workspace_v1880"] = workspace_labels[requested_workspace]' in autonomy
+    assert 'tab=workspace_slug' in autonomy
 
 
 def test_learning_and_orchestrator_are_lazy_in_one_panel():

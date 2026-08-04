@@ -215,9 +215,11 @@ def test_evaluation_zip_contains_strategy_lab_and_quality_results(tmp_path):
 
 def test_strategy_lab_workspace_is_visible_and_production_engine_is_unchanged():
     autonomy_page = Path("pages/autonomy.py").read_text(encoding="utf-8")
+    navigation = Path("navigation_state.py").read_text(encoding="utf-8")
     lab_page = Path("pages/strategy_lab.py").read_text(encoding="utf-8")
     parallel = Path("services/parallel_strategy_service.py").read_text(encoding="utf-8")
-    assert '"strategy_lab": "Strategy Lab"' in autonomy_page
+    assert '"strategy_lab": "Strategy Lab"' in navigation
+    assert 'AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7' in autonomy_page
     assert "render_strategy_lab" in autonomy_page
     assert "Automatisk promotering" in lab_page
     assert "version_ids" in parallel

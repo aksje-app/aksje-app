@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_reports_follows_overview_in_workspace_menu():
-    source = (ROOT / 'pages/autonomy.py').read_text(encoding='utf-8')
+    source = (ROOT / 'navigation_state.py').read_text(encoding='utf-8')
     assert source.index('"overview": "Oversikt"') < source.index('"reports": "Rapporter"') < source.index('"orchestrator": "Orkestrering og tidsplan"')
 
 
@@ -57,7 +57,7 @@ def test_advanced_job_settings_are_collapsed_and_checkbox_groups_are_framed():
 def test_investor_edition_branding_and_version():
     version = (ROOT / 'app_version.py').read_text(encoding='utf-8')
     report = (ROOT / 'market_intelligence.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.22.0-rc6"' in version
+    assert 'APP_VERSION = "v19.22.0-rc7"' in version
     assert 'Investor Edition' in report
 
 

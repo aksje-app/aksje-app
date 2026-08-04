@@ -151,5 +151,5 @@ def test_render_cron_and_ui_use_one_currency_chain():
 def test_version_identity_advances_to_rc6():
     from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 
-    assert APP_VERSION == "v19.22.0-rc6"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc5"
+    assert APP_VERSION == "v19.22.0-rc7"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc6"

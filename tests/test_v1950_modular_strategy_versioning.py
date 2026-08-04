@@ -124,8 +124,10 @@ def test_app_monolith_is_reduced_and_style_layers_are_external():
 
 def test_autonomy_exposes_strategy_version_workspace():
     source = Path("pages/autonomy.py").read_text(encoding="utf-8")
+    navigation = Path("navigation_state.py").read_text(encoding="utf-8")
     page = Path("pages/strategy_versions.py").read_text(encoding="utf-8")
-    assert '"strategy_versions": "Strategiversjoner"' in source
+    assert '"strategy_versions": "Strategiversjoner"' in navigation
+    assert "AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7" in source
     assert "render_strategy_versions(app_context)" in source
     assert "Automatisk promotering er av" in page
 
