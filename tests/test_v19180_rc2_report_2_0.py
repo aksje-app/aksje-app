@@ -39,10 +39,10 @@ def test_report_2_0_front_page_and_traceability():
     assert APP_VERSION.startswith("v19.22.0-rc")
     assert before == after
     for needle in (
-        'Executive Summary', 'Prioritert vurderingsrekkefølge 1–3',
+        'Hovedkonklusjon', 'Top 1-3 - investeringsrangering',
         'Markedsdatakvalitet', 'Dokumentasjonsgrad', 'Kildedekning',
         'Beslutningsstyrke', 'Analyse-ID', 'Sporbarhet: program',
     ):
         assert needle in text
-    assert text.index('Prioritert vurderingsrekkefølge 1–3') < text.index('Endringer siden forrige rapport')
+    assert text.index('Top 1-3 - investeringsrangering') < text.index('Endringer siden forrige rapport')
     assert 'Pålitelighet\n49/100' not in text

@@ -186,7 +186,9 @@ def test_remember_token_is_removed_from_shareable_url_and_banner_links() -> None
     banner_source = (ROOT / "ui" / "live_market_banner.py").read_text(encoding="utf-8")
     assert 'for query_key in ("remember_token", "remember_bootstrap")' in auth_source
     assert "st.query_params" in auth_source
-    assert "Husk meg på denne enheten (midlertidig deaktivert)" in auth_source
+    assert "Husk meg på denne enheten" in auth_source
+    assert "SameSite=Strict" in auth_source
+    assert "_remember_token_hash_v19144" in auth_source
     assert 'searchParams.set("remember_token"' not in auth_source
     assert 'remember_token=' not in app_source
     assert 'remember_token=' not in banner_source

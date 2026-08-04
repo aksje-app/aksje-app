@@ -24,7 +24,8 @@ def test_control_center_radio_does_not_mix_state_and_default():
 def test_pdf_has_explicit_draft_banner_and_confidence_explanation():
     text = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
     assert "UTKAST – AVVENTER ENDELIG VALIDERING" in text
-    assert "confidence_bar" in text
+    assert "confidence_bar" not in text
+    assert "Beslutningsstyrke:" in text
     assert "Konfidensforklaring" in text
     assert "Ikke søkt" in text
     assert "Kildefeil" in text

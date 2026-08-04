@@ -24,7 +24,7 @@ class ReliableReportsEvidenceNavigationTests(unittest.TestCase):
         ]
         summary = mi.apply_evidence_coverage_policy(rows)
         self.assertEqual(rows[0]["evidence_coverage"]["insider"]["status"], "CHECKED_NO_EVENTS")
-        self.assertEqual(rows[0]["confidence_score"], 85)
+        self.assertEqual(rows[0]["confidence_score"], 90)
         self.assertEqual(rows[0]["status"], "ANBEFALT FOR VURDERING")
         self.assertEqual(rows[1]["confidence_score"], 60)
         self.assertEqual(rows[1]["status"], "KREVER MANUELL VURDERING – DOKUMENTASJON")

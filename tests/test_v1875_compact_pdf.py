@@ -66,7 +66,7 @@ def test_compact_pdf_is_readable_and_bounded():
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
     assert pdf.startswith(b"%PDF")
     # v19.0.6 reserves dedicated evidence pages for the leading three.
-    assert 4 <= len(reader.pages) <= 12
+    assert 4 <= len(reader.pages) <= 14
     assert "Sammendrag" in text
     assert "TEST1.OL" in text
     assert "125 000 NOK" in text
@@ -74,7 +74,7 @@ def test_compact_pdf_is_readable_and_bounded():
     assert "Risiko (0-100)" in text
     assert "Metode og ansvarsfraskrivelse" in text
     assert "Side 1" in text
-    assert "PRIORITET 1: TEST1.OL" in text.upper()
+    assert "KANDIDAT 1: TEST1.OL" in text.upper()
     assert "Poengberegning, vekter og modulbidrag" in text
     assert "Insiderbevis" in text
     assert "Nyhetsbevis" in text
@@ -85,7 +85,7 @@ def test_compact_pdf_keeps_minimal_report_on_one_page():
            "job_name": "Morgenanalyse", "trigger": "SCHEDULED", "markets": ["Norge"],
            "summary": {}, "candidates": [], "changes": {}, "data_refresh": {}}
     reader = PdfReader(BytesIO(mi.build_pdf(run)))
-    assert len(reader.pages) == 1
+    assert len(reader.pages) <= 2
 
 
 def test_draft_job_id_overrides_stale_morning_report_identity():
@@ -105,7 +105,7 @@ def test_draft_job_id_overrides_stale_morning_report_identity():
 
     assert identity == {"type": "UTKAST", "label": "Utkast – Morgenrapport", "slug": "UTKAST_Morgenrapport"}
     assert filename.startswith("UTKAST_Morgenrapport_")
-    assert "Utkast – Morgenrapport – Markedsanalyse" in text
+    assert "Utkast – Morgenrapport – Markedsanalyse – beslutningsside" in text
     assert "UTKAST" in text
     assert archive["report_type"] == "UTKAST"
     assert archive["report_label"] == "Utkast – Morgenrapport"

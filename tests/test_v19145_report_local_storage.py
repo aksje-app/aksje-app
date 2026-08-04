@@ -15,7 +15,7 @@ import trading_settings
 
 def test_version_contract_is_v19145():
     assert app_version.APP_VERSION.startswith("v19.22.0-rc")
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc2"
+    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc3"
     assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
     assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"
 

@@ -130,7 +130,7 @@ def test_learning_activity_is_separate_and_zero_production_is_not_replaced_by_to
     assert summary["production_buys"] == 0
     assert summary["learning_buys"] == 3
     text = pdf_text(result)
-    assert "0 produksjonskjøp / 3 læringskjøp" in text
+    assert "0 produksjonskjøp / 3 simulerte læringsposisjoner" in text
 
 
 def test_proposals_are_explicitly_preliminary_not_trade_proposals():

@@ -217,11 +217,12 @@ def test_pdf_has_one_page_decision_section_before_full_technical_appendix():
     pdf = mi.build_pdf(run)
     reader = PdfReader(BytesIO(pdf))
     pages = [page.extract_text() or "" for page in reader.pages]
-    assert "beslutningsrapport" in pages[0]
-    assert "Rapportpålitelighet" in pages[0]
-    assert "Oppgaver til neste kjøring" in pages[0]
+    assert "Markedsanalyse – beslutningsside" in pages[0]
+    assert "Rapportpålitelighet" not in pages[0]
+    assert "Top 1-3 - investeringsrangering" in pages[0]
+    assert "Oppgaver til neste kjøring" in "\n".join(pages[:2])
     technical_page = next(i for i, text in enumerate(pages) if "Teknisk vedlegg" in text)
-    assert technical_page <= 1  # decision section is one or two pages
+    assert technical_page <= 2  # side 1 er beslutningsside, side 2 oppfølging
     assert technical_page > 0
     assert "Full rangering" in pages[technical_page]
 
@@ -230,9 +231,11 @@ def test_text_report_uses_same_decision_sections():
     run = _run()
     document = ensure_report_document(run)
     text = mi.build_text_report(run)
-    reliability = section_payload(document, "report_reliability", {})
+    section_payload(document, "report_reliability", {})
     assert "BESLUTNINGSSTATUS" in text
-    assert f"Rapportpålitelighet: {reliability['score']}/100" in text
+    assert "Rapportpålitelighet:" not in text
+    for label in ("Markedsdatakvalitet", "Dokumentasjonsgrad", "Kildedekning", "Beslutningsstyrke"):
+        assert label in text
     assert "OPPGAVER TIL NESTE KJØRING" in text
     assert "Kan endres når" in text
     assert "TEKNISK VEDLEGG" in text

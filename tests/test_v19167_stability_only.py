@@ -14,8 +14,9 @@ def test_remember_bridge_is_not_invoked_by_login_paths() -> None:
     auth = (ROOT / 'auth.py').read_text(encoding='utf-8')
     assert '_remember_storage_bridge(bootstrap=True)' not in auth
     assert '_remember_storage_bridge(token, reload_after_store=True)' not in auth
-    assert 'Persistent browser login is disabled in the stability release' in auth
-    assert '_set_logged_in(user, remember=False)' in auth
+    assert 'SameSite=Strict' in auth
+    assert '_remember_token_hash_v19144' in auth
+    assert '_set_logged_in(user, remember=bool(remember_me))' in auth
 
 
 def test_release_has_no_report_or_ui_source_changes_against_manifest() -> None:

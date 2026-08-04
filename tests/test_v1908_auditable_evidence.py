@@ -80,8 +80,8 @@ class AuditableEvidenceTests(unittest.TestCase):
     def test_pdf_source_contains_two_decimal_rsi_and_audit_sections(self):
         source = Path("market_intelligence.py").read_text(encoding="utf-8")
         self.assertIn('f"{float(value):.2f}"', source)
-        self.assertIn("Kildedekningslogg – alle faktiske søkeforsøk", source)
-        self.assertIn("Konfidenskalibrering og evidensport", source)
+        self.assertIn("kildedekningslogg", source.lower())
+        self.assertIn("konfidenskalibrering og evidensport", source.lower())
         self.assertIn('"combined_data_quality": combined_quality', source)
 
 

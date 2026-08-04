@@ -67,7 +67,9 @@ def test_orchestrator_polling_never_reruns_whole_app():
 
 def test_login_uses_cookie_without_secret_url_roundtrip_and_one_submit():
     source = Path("auth.py").read_text(encoding="utf-8")
-    assert "midlertidig deaktivert" in source
+    assert "Husk meg på denne enheten" in source
+    assert "SameSite=Strict" in source
+    assert "localStorage" in source
     assert "window.parent.location.reload" not in source
     assert "st.rerun()" in source
 

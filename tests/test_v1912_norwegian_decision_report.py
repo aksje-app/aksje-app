@@ -24,7 +24,7 @@ def test_evening_report_uses_evening_mission_and_norwegian_actions():
     assert "Kveldsanalyse" in text
     assert "Kandidater til neste handelsdag" in text
     assert "REVIEW" not in text
-    assert "Executive Summary" in text
+    assert "Hovedkonklusjon" in text
 
 
 def test_source_log_uses_short_date_and_localized_status():
