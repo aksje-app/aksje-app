@@ -248,11 +248,14 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"fx_alerts", "currency_alerts", "valutavarsler"}:
         nav = "fx_alerts"
-        st.session_state["ai_control_center_group_v1863m"] = "Andre paneler"
-        st.session_state["ai_control_center_group_v1863aj"] = "Andre paneler"
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863m"] = "💱 Valutavarsler"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "💱 Valutavarsler"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_route_lock_v19220_rc6"] = {
+            "nav": "fx_alerts", "group": "Marked og signaler", "panel": "💱 Valutavarsler"
+        }
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
@@ -269,7 +272,7 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "ai": ("Analyse og prognose", ""),
         "paper_trading": ("Testing og portefolje", "Paper Trading og kontroll"),
         "autonomy": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
-        "fx_alerts": ("Andre paneler", "💱 Valutavarsler"),
+        "fx_alerts": ("Marked og signaler", "💱 Valutavarsler"),
         "portfolio": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "reports": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
         "jobs": ("Autonomi", "🧠 Autonomi – Kontrollsenter"),
