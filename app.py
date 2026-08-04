@@ -9052,11 +9052,14 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav in {"fx_alerts", "currency_alerts", "valutavarsler"}:
         nav = "fx_alerts"
-        st.session_state["ai_control_center_group_v1863m"] = "Andre paneler"
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863m"] = "💱 Valutavarsler"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "💱 Valutavarsler"
-        st.session_state["ai_control_center_group_v1863aj"] = "Andre paneler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_route_lock_v19220_rc6"] = {
+            "nav": "fx_alerts", "group": "Marked og signaler", "panel": "💱 Valutavarsler"
+        }
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "system":
         st.session_state["ai_control_center_group_v1863m"] = "System"
@@ -10801,6 +10804,45 @@ def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_minutes:
         return True
 
 
+CURRENCY_ALERT_NAV_V19220_RC6 = "fx_alerts"
+CURRENCY_ALERT_GROUP_V19220_RC6 = "Marked og signaler"
+CURRENCY_ALERT_PANEL_V19220_RC6 = "💱 Valutavarsler"
+
+
+def _preserve_currency_alert_navigation_v19220_rc6() -> None:
+    """Keep Valutavarsler authoritative across action-triggered Streamlit reruns.
+
+    The action buttons run inside a lazily rendered control-center panel. A
+    normal ``st.rerun()`` must not allow a stale group radio or the previous
+    Autonomi route to become authoritative. The generic route lock is consumed
+    by ``workspace_layout`` before its radio widgets are synchronized.
+    """
+    st.session_state["active_nav_target_v18674c"] = CURRENCY_ALERT_NAV_V19220_RC6
+    st.session_state["ai_control_center_group_v1863m"] = CURRENCY_ALERT_GROUP_V19220_RC6
+    st.session_state["ai_control_center_group_v1863aj"] = CURRENCY_ALERT_GROUP_V19220_RC6
+    st.session_state["ai_control_center_active_panel_v1863m"] = CURRENCY_ALERT_PANEL_V19220_RC6
+    st.session_state["ai_control_center_active_panel_v1863aj"] = CURRENCY_ALERT_PANEL_V19220_RC6
+    st.session_state["ai_control_center_active_real_panel_v18598"] = CURRENCY_ALERT_PANEL_V19220_RC6
+    st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    st.session_state["ai_control_center_route_lock_v19220_rc6"] = {
+        "nav": CURRENCY_ALERT_NAV_V19220_RC6,
+        "group": CURRENCY_ALERT_GROUP_V19220_RC6,
+        "panel": CURRENCY_ALERT_PANEL_V19220_RC6,
+    }
+    st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
+    set_global_navigation_state(
+        st,
+        nav=CURRENCY_ALERT_NAV_V19220_RC6,
+        group=CURRENCY_ALERT_GROUP_V19220_RC6,
+        panel=CURRENCY_ALERT_PANEL_V19220_RC6,
+        tab="",
+        subtab="",
+    )
+
+
+def _rerun_currency_alerts_v19220_rc6() -> None:
+    _preserve_currency_alert_navigation_v19220_rc6()
+    st.rerun()
 
 
 def render_currency_alerts_control_center_v1863af():
@@ -10960,7 +11002,7 @@ def render_currency_alerts_control_center_v1863af():
                 )
         except Exception as exc:
             _flash("error", f"Kurshentingen feilet: {exc}")
-        st.rerun()
+        _rerun_currency_alerts_v19220_rc6()
 
     if check_now:
         if not current.get("active", True):
@@ -10991,7 +11033,7 @@ def render_currency_alerts_control_center_v1863af():
                     _flash("success", f"Kurs {float(selected.get('rate')):.4f} er innenfor grensene.")
             except Exception as exc:
                 _flash("error", f"Valutakontrollen feilet: {exc}")
-            st.rerun()
+            _rerun_currency_alerts_v19220_rc6()
 
     if pushover_test_now:
         try:
@@ -11022,7 +11064,7 @@ def render_currency_alerts_control_center_v1863af():
                     _flash("warning", f"Pushover-test feilet: {send_err or 'ukjent feil'}")
         except Exception as exc:
             _flash("error", f"Pushover-testen feilet: {exc}")
-        st.rerun()
+        _rerun_currency_alerts_v19220_rc6()
 
     if currency_trigger_test_now:
         try:
@@ -11042,7 +11084,7 @@ def render_currency_alerts_control_center_v1863af():
                 )
         except Exception as exc:
             _flash("error", f"Diagnosetesten feilet: {exc}")
-        st.rerun()
+        _rerun_currency_alerts_v19220_rc6()
 
     st.markdown("#### Bakgrunnsstatus og diagnose")
     try:
@@ -11162,7 +11204,7 @@ def render_currency_alerts_control_center_v1863af():
             "cooldown_hours": max(1, int(round(cooldown_minutes / 60))),
         }])
         _flash("success", "Valutavarselet er lagret. Ny konfigurasjon vurderes ved neste manuelle eller automatiske kontroll.")
-        st.rerun()
+        _rerun_currency_alerts_v19220_rc6()
 
 
 # v18.5.37: Auto Test Lab Progress + Safe Run Controls.
