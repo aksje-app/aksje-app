@@ -1968,7 +1968,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         canvas.line(13*mm, height-10*mm, width-13*mm, height-10*mm)
         canvas.setFont("Helvetica", 6.5)
         canvas.setFillColor(colors.HexColor("#627D98"))
-        canvas.drawString(13*mm, height-8*mm, "AI Aksje Analyzer Pro")
+        canvas.drawString(13*mm, height-8*mm, f"AI Aksje Analyzer Pro · {APP_VERSION}")
         canvas.drawRightString(width-13*mm, height-8*mm, str(identity.get("label") or "Rapport"))
         canvas.line(13*mm, 9*mm, width-13*mm, 9*mm)
         revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
@@ -2025,6 +2025,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
          _p("Generert", "Small"), _p(report_metadata.get("created_at_local") or local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)), "Small")],
         [_p("Markeder", "Small"), _p(markets_text or "-", "Small"),
          _p("Status", "Small"), _p((report_status.get("label") or report_status.get("state") or "Eldre rapportformat") + " · " + (report_revision.get("revision_label") or "R1") + (f" · erstatter {report_revision.get('supersedes_run_id')}" if report_revision.get("supersedes_run_id") else ""), "Small")],
+        [_p("Programversjon", "Small"), _p(report_metadata.get("app_version") or APP_VERSION, "Small"),
+         _p("Analyse-ID", "Small"), _p(report_metadata.get("analysis_id") or run.get("analysis_id") or run.get("run_id") or "-", "Small")],
     ], colWidths=[18*mm, 69*mm, 18*mm, 79*mm])
     decision_meta.setStyle(_table_style(6.4, header=False, padding=1.7))
     decision_meta.setStyle(TableStyle([
@@ -2036,17 +2038,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     reliability_score = int(decision_reliability.get("score") or 0)
     reliability_state = "PASS" if reliability_score >= 85 else "REVIEW" if reliability_score >= 65 else "ERROR"
     decision_state = "PASS" if int(decision_overview.get("decision_ready_count") or 0) else "REVIEW"
+    documentation_score = int(decision_confidence.get("documentation_coverage") or decision_confidence.get("data_coverage") or 0)
+    source_score = int(decision_confidence.get("source_confidence") or 0)
+    decision_strength = int(decision_confidence.get("decision_confidence") or 0)
+    market_quality = int(decision_confidence.get("market_data_coverage") or 0)
     decision_status = Table([[
-        Paragraph(f"<b>Pålitelighet</b><br/><font size='11'>{reliability_score}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Markedsdatakvalitet</b><br/><font size='11'>{int(decision_confidence.get('market_data_coverage') or 0)}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Kildesikkerhet</b><br/><font size='11'>{int(decision_confidence.get('source_confidence') or 0)}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Beslutning</b><br/><font size='11'>{int(decision_confidence.get('decision_confidence') or 0)}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Markedsdatakvalitet</b><br/><font size='11'>{market_quality}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Dokumentasjonsgrad</b><br/><font size='11'>{documentation_score}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Kildedekning</b><br/><font size='11'>{source_score}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Beslutningsstyrke</b><br/><font size='11'>{decision_strength}/100</font>", styles["MetricCard"]),
     ]], colWidths=[46*mm]*4)
     decision_status.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), .35, grid),
-        ("BACKGROUND", (0,0), (0,0), colors.HexColor(decision_color(reliability_state))),
-        ("BACKGROUND", (1,0), (1,0), colors.HexColor(decision_color(quality_status(decision_confidence.get('market_data_coverage', 0))))),
-        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(quality_status(decision_confidence.get('source_confidence', 0))))),
+        ("BACKGROUND", (0,0), (0,0), colors.HexColor(decision_color(quality_status(market_quality)))),
+        ("BACKGROUND", (1,0), (1,0), colors.HexColor(decision_color(quality_status(documentation_score)))),
+        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(quality_status(source_score)))),
         ("BACKGROUND", (3,0), (3,0), colors.HexColor(decision_color(decision_state))),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ("LEFTPADDING", (0,0), (-1,-1), 3), ("RIGHTPADDING", (0,0), (-1,-1), 3),
@@ -2054,16 +2060,75 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     ]))
 
     focus_text = " | ".join(str(item) for item in (decision_overview.get("focus") or []))
-    decision_story = [
+    report_summary_early = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    executive_rows = [["Analysert", "Kjøpsgodkjent", "Overvåk", "Manuell vurdering", "Høyeste score"]]
+    executive_rows.append([
+        report_summary_early.get("deep_analyzed", len(run.get("candidates") or [])),
+        report_summary_early.get("decision_ready", decision_overview.get("decision_ready_count", 0)),
+        report_summary_early.get("automatic_watch", 0),
+        report_summary_early.get("manual_review", 0),
+        _fmt((run.get("executive_intelligence") or {}).get("highest_score", 0)),
+    ])
+    executive_table = Table(executive_rows, repeatRows=1, colWidths=[36.8*mm]*5)
+    executive_table.setStyle(_table_style(6.2, padding=2))
+    title_table = Table([[
         Paragraph("AI Aksje Analyzer Pro", styles["ReportTitle"]),
+        Paragraph(f"<b>{escape(str(report_metadata.get('app_version') or APP_VERSION))}</b>", styles["Small"]),
+    ]], colWidths=[145*mm, 39*mm])
+    title_table.setStyle(TableStyle([
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("ALIGN", (1,0), (1,0), "RIGHT"),
+        ("BACKGROUND", (1,0), (1,0), colors.HexColor("#EAF2F8")),
+        ("BOX", (1,0), (1,0), .4, grid),
+        ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        ("TOPPADDING", (0,0), (-1,-1), 1), ("BOTTOMPADDING", (0,0), (-1,-1), 1),
+    ]))
+    decision_story = [
+        title_table,
         Paragraph(f"{escape(str(report_metadata.get('report_label') or identity.get('label') or 'Rapport'))} – Markedsanalyse", styles["Section"]),
         Paragraph(f"beslutningsrapport · Type: {escape(str(report_metadata.get('report_type') or identity.get('type') or '-'))} · Jobb: {escape(str(run.get('job_name') or '-'))}", styles["Small"]),
-        decision_meta, Spacer(1, 1*mm), decision_status,
+        decision_meta, Spacer(1, 1*mm),
+        Paragraph("Executive Summary", styles["Subsection"]), executive_table,
         Paragraph("Beslutningskonklusjon", styles["Subsection"]),
         Paragraph(escape(str(decision_overview.get("conclusion") or "Ingen konklusjon registrert.")), styles["BodyCompact"]),
         Paragraph("Fokus: " + escape(focus_text or str(report_metadata.get("mission_objective") or "-")), styles["Small"]),
-        Paragraph("Målene beskriver datagrunnlag og beslutningsklarhet - ikke sannsynlighet for gevinst.", styles["Small"]),
+        Paragraph("Rapportkvalitet", styles["Subsection"]), decision_status,
+        Paragraph(
+            escape(
+                f"Markedsdataene vurderes separat fra dokumentasjon og kilder. "
+                f"Samlet rapportgrunnlag er {reliability_score}/100, men dette er ikke sannsynlighet for gevinst. "
+                f"Lavere verdi skyldes normalt begrenset dokumentasjon, kildegap eller manglende beslutningsklarhet."
+            ),
+            styles["Small"],
+        ),
     ]
+
+    candidate_rows = [["#", "Ticker", "Handling / score", "Sikkerhet M/D/K/B", "Kilder", "Gyldig", "Hindring / endringsvilkår"]]
+    for candidate in list(decision_candidates)[:3]:
+        profile = candidate.get("confidence") if isinstance(candidate.get("confidence"), Mapping) else {}
+        consensus = candidate.get("source_consensus") if isinstance(candidate.get("source_consensus"), Mapping) else {}
+        validity = candidate.get("validity") if isinstance(candidate.get("validity"), Mapping) else {}
+        blockers = list(candidate.get("blockers") or [])
+        conditions = list(candidate.get("change_conditions") or [])
+        explanation = (blockers[0] if blockers else "Ingen eksplisitt hindring")
+        if conditions:
+            explanation += " / " + conditions[0]
+        candidate_rows.append([
+            candidate.get("rank") or "-", _p(candidate.get("ticker") or "-", "Tiny"),
+            _p(f"{_decision_label(candidate.get('action'))} · {candidate.get('score', '-')}", "Tiny"),
+            _p(f"{profile.get('market_data_coverage', 0)}/{profile.get('documentation_coverage', profile.get('data_coverage', 0))}/{profile.get('source_confidence', 0)}/{profile.get('decision_confidence', 0)}", "Tiny"),
+            _p(f"{consensus.get('level', '-')} · {consensus.get('independent_sources', 0)}", "Tiny"),
+            _p(_short_datetime(validity.get("valid_until") or "-"), "Tiny"),
+            _p(_short(explanation, 175), "Tiny"),
+        ])
+    if len(candidate_rows) == 1:
+        candidate_rows.append(["-", "Ingen", "-", "-", "-", "-", "Ingen kandidatdata"])
+    candidate_table_decision = Table(candidate_rows, repeatRows=1, colWidths=[7*mm, 18*mm, 25*mm, 25*mm, 23*mm, 25*mm, 61*mm])
+    candidate_table_decision.setStyle(_table_style(5.4, padding=1.2))
+    decision_story += [Paragraph("Prioritert vurderingsrekkefølge 1–3", styles["Section"]),
+                       Paragraph("Dette er oppfølgingsprioritet. Høyeste investeringsscore kan ligge på en annen kandidat.", styles["Small"]),
+                       candidate_table_decision]
+
 
     change_rows = [["Endring", "Resultat"]]
     if decision_changes.get("has_previous"):
@@ -2110,30 +2175,6 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     diff_table.setStyle(_table_style(5.5, padding=1.3))
     decision_story += [Paragraph("Data-, modell- og beslutningsdiff / motargument", styles["Section"]), diff_table]
 
-    candidate_rows = [["#", "Ticker", "Handling / score", "Sikkerhet M/D/K/B", "Kilder", "Gyldig", "Hindring / endringsvilkår"]]
-    for candidate in list(decision_candidates)[:3]:
-        profile = candidate.get("confidence") if isinstance(candidate.get("confidence"), Mapping) else {}
-        consensus = candidate.get("source_consensus") if isinstance(candidate.get("source_consensus"), Mapping) else {}
-        validity = candidate.get("validity") if isinstance(candidate.get("validity"), Mapping) else {}
-        blockers = list(candidate.get("blockers") or [])
-        conditions = list(candidate.get("change_conditions") or [])
-        explanation = (blockers[0] if blockers else "Ingen eksplisitt hindring")
-        if conditions:
-            explanation += " / " + conditions[0]
-        candidate_rows.append([
-            candidate.get("rank") or "-", _p(candidate.get("ticker") or "-", "Tiny"),
-            _p(f"{_decision_label(candidate.get('action'))} · {candidate.get('score', '-')}", "Tiny"),
-            _p(f"{profile.get('market_data_coverage', 0)}/{profile.get('documentation_coverage', profile.get('data_coverage', 0))}/{profile.get('source_confidence', 0)}/{profile.get('decision_confidence', 0)}", "Tiny"),
-            _p(f"{consensus.get('level', '-')} · {consensus.get('independent_sources', 0)}", "Tiny"),
-            _p(_short_datetime(validity.get("valid_until") or "-"), "Tiny"),
-            _p(_short(explanation, 175), "Tiny"),
-        ])
-    if len(candidate_rows) == 1:
-        candidate_rows.append(["-", "Ingen", "-", "-", "-", "-", "Ingen kandidatdata"])
-    candidate_table_decision = Table(candidate_rows, repeatRows=1, colWidths=[7*mm, 18*mm, 25*mm, 25*mm, 23*mm, 25*mm, 61*mm])
-    candidate_table_decision.setStyle(_table_style(5.4, padding=1.2))
-    decision_story += [Paragraph("Kandidatbeslutninger", styles["Section"]), candidate_table_decision]
-
     event_lines = []
     for event in list(decision_events)[:2]:
         event_lines.append(f"{_short_datetime(event.get('event_at_local') or event.get('event_at') or '-')}: {event.get('ticker') or 'Marked'} - {_short(event.get('title') or '-', 70)}")
@@ -2169,6 +2210,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         Paragraph(escape(historical_text + " | " + guard_text), styles["Small"]),
         Paragraph("Rapportpålitelighet - forklarte trekk", styles["Subsection"]),
         Paragraph(escape(deduction_text), styles["Small"]),
+        Paragraph(f"Sporbarhet: program {APP_VERSION} · rapportskjema {REPORT_SCHEMA_VERSION} · rapport-ID {report_metadata.get('report_id') or run.get('run_id') or '-'} · generert {report_metadata.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}.", styles["Footer"]),
         Paragraph("Vurderinger utløper ved oppgitt tidspunkt eller tidligere ved vesentlig kurs-, kilde-, data- eller hendelsesendring.", styles["Footer"]),
     ]
 
