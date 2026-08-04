@@ -23,6 +23,11 @@ MUTABLE_PARTS = {
 }
 FORBIDDEN_NAMES = {".env", "secrets.toml", "paper_portfolio.json", "app_users.json", "remember_tokens.json"}
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz"}
+DELTA_SUPPORT_FILES = {
+    "tools/audit_full_system_v19150.py",
+    "tools/validate_distribution.py",
+    "tools/build_safe_distribution.py",
+}
 
 
 def sha256(path: Path) -> str:
@@ -111,12 +116,14 @@ def build(source: Path, baseline: Path, output: Path) -> dict:
     delta_stage = stage / "delta"
     copy_root = delta_stage / "COPY_TO_REPOSITORY"
     copy_root.mkdir(parents=True)
-    for rel in sorted(new + changed):
+    support_files = sorted(rel for rel in DELTA_SUPPORT_FILES if rel in source_files)
+    delta_copy_files = sorted(set(new + changed + support_files))
+    for rel in delta_copy_files:
         path = source_files[rel]; dest = copy_root / rel; dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(path, dest)
     inventory = {
         "version": VERSION, "baseline": baseline.name,
-        "new": sorted(new), "changed": sorted(changed), "deleted": delete_files,
-        "copy_file_count": len(new) + len(changed), "delete_file_count": len(delete_files),
+        "new": sorted(new), "changed": sorted(changed), "support_files": support_files, "deleted": delete_files,
+        "copy_file_count": len(delta_copy_files), "delete_file_count": len(delete_files),
     }
     (delta_stage / f"CHANGE_INVENTORY_{DOC_TAG}.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (delta_stage / "DELETE_FILES.txt").write_text("\n".join(delete_files) + ("\n" if delete_files else ""), encoding="utf-8")
