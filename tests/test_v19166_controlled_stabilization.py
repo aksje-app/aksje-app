@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_version_and_safe_login():
     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
     auth = (ROOT / "auth.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.22.0-rc2"' in version
+    assert 'APP_VERSION = "v19.22.0-rc3"' in version
     assert "midlertidig deaktivert" in auth
     assert "window.parent.location.reload" not in auth
 

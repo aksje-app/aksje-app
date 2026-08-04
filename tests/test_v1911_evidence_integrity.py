@@ -233,7 +233,7 @@ class EvidenceIntegrityTests(unittest.TestCase):
 
     def test_version_and_current_release_notes_are_available_in_source_repository(self):
         version = Path("app_version.py").read_text(encoding="utf-8")
-        notes = Path("RELEASE_NOTES_v19.22.0_RC2.md").read_text(encoding="utf-8")
+        notes = Path("RELEASE_NOTES_v19.22.0_RC3.md").read_text(encoding="utf-8")
         self.assertIn('v19.0.11:', version)
         self.assertIn(f'APP_VERSION = "{APP_VERSION}"', version)
         self.assertIn("v19.22.0", notes)

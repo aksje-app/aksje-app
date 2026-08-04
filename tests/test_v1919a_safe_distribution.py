@@ -12,7 +12,7 @@ from tools.validate_distribution import FileEntry, validate_entries, validate_pa
 
 def test_release_identity_is_safe_distribution_patch():
     assert APP_VERSION.startswith("v19.22.0-rc")
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc1"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc2"
 
 
 def test_validator_rejects_runtime_secret_and_generated_report():
@@ -107,6 +107,9 @@ def test_delta_never_requests_deletion_of_mutable_runtime(tmp_path: Path):
     source.mkdir()
     (baseline / "app.py").write_text("old\n", encoding="utf-8")
     (source / "app.py").write_text("new\n", encoding="utf-8")
+    audit_file = source / "tools" / "audit_full_system_v19150.py"
+    audit_file.parent.mkdir(parents=True)
+    audit_file.write_text("def audit(): return {'ok': True}\n", encoding="utf-8")
     runtime_file = baseline / ".app_runtime" / "data" / "portfolio.json"
     runtime_file.parent.mkdir(parents=True)
     runtime_file.write_text('{"cash": 100000}', encoding="utf-8")
@@ -118,8 +121,11 @@ def test_delta_never_requests_deletion_of_mutable_runtime(tmp_path: Path):
     with zipfile.ZipFile(result["delta_zip"], "r") as archive:
         delete_text = archive.read("DELETE_FILES.txt").decode("utf-8")
         inventory = json.loads(archive.read(f"CHANGE_INVENTORY_{APP_VERSION.replace('-rc', '_RC')}.json"))
+        delta_names = set(archive.namelist())
 
     assert ".app_runtime" not in delete_text
     assert "__pycache__" not in delete_text
     assert inventory["delete_file_count"] == 0
     assert inventory["deleted"] == []
+    assert "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py" in delta_names
+    assert "tools/audit_full_system_v19150.py" in inventory["support_files"]
