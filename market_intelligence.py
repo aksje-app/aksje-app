@@ -2945,6 +2945,54 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 passport_table,
             ]
 
+            transparency = candidate.get("analysis_transparency") if isinstance(candidate.get("analysis_transparency"), Mapping) else {}
+            if not transparency:
+                try:
+                    from analysis_transparency import build_candidate_transparency
+                    transparency = build_candidate_transparency(candidate)
+                except Exception:
+                    transparency = {}
+            if transparency:
+                ledger = transparency.get("claim_ledger") if isinstance(transparency.get("claim_ledger"), Mapping) else {}
+                conflict_register = transparency.get("conflict_register") if isinstance(transparency.get("conflict_register"), Mapping) else {}
+                confidence_detail = transparency.get("confidence_breakdown") if isinstance(transparency.get("confidence_breakdown"), Mapping) else {}
+                evidence_matrix = list(transparency.get("evidence_matrix") or [])
+                transparency_rows = [["Dokumenterte fakta", "Forkastet", "Uavhengige utgivere", "Primærkilde forsøkt", "Ingen funn", "Kildefeil"]]
+                transparency_rows.append([
+                    ledger.get("claim_count", 0), ledger.get("rejected_claim_count", 0),
+                    ledger.get("independent_source_count", 0),
+                    len(ledger.get("primary_source_attempted_areas") or []),
+                    ledger.get("checked_no_findings", 0), ledger.get("failed_attempts", 0),
+                ])
+                transparency_table = Table(transparency_rows, colWidths=[28*mm, 23*mm, 33*mm, 31*mm, 24*mm, 25*mm])
+                transparency_table.setStyle(_table_style(6.0, padding=1.8))
+                matrix_rows = [["Område", "Statusklasse", "Fakta", "Kilder", "Primær forsøkt", "Primærfakta", "Rangeringsbidrag"]]
+                for item in evidence_matrix:
+                    matrix_rows.append([
+                        _p(_loc(str(item.get("area") or "-").title())), _p(str(item.get("status_class") or "-")),
+                        item.get("fact_count", 0), item.get("source_count", 0),
+                        "Ja" if item.get("primary_attempted") else "Nei",
+                        "Ja" if item.get("primary_fact_present") else "Nei",
+                        _fmt(item.get("ranking_contribution")),
+                    ])
+                matrix_table = Table(matrix_rows, repeatRows=1, colWidths=[25*mm, 34*mm, 16*mm, 16*mm, 25*mm, 24*mm, 28*mm])
+                matrix_table.setStyle(_table_style(5.8, padding=1.5))
+                deductions = list(confidence_detail.get("deductions") or [])
+                deduction_text = " • ".join(str(item.get("reason") or "") for item in deductions if isinstance(item, Mapping)) or "Ingen særskilte evidenstrekk."
+                story += [
+                    Paragraph("Transparens og evidens – etterprøvbar oppsummering", styles["Section"]),
+                    transparency_table,
+                    Paragraph(
+                        f"<b>Beslutningsstyrke:</b> {_fmt(confidence_detail.get('transparent_decision_confidence'))}/100. "
+                        f"<b>Konflikter:</b> {int(conflict_register.get('count') or 0)}. "
+                        "Scoren er ikke sannsynlighet for kursgevinst.",
+                        styles["Small"],
+                    ),
+                    Paragraph(f"<b>Trekk og begrensninger:</b> {escape(_loc(deduction_text))}", styles["Small"]),
+                    Paragraph("Evidensmatrise – status per analyseområde", styles["Subsection"]),
+                    matrix_table,
+                ]
+
             discovery_detail = raw.get("discovery_evidence") or raw.get("ai_discovery") or candidate.get("discovery_reason") or "Ingen separat Discovery-dokumentasjon registrert."
             backtest_detail = raw.get("backtest") or raw.get("validation") or candidate.get("validation_reason") or "Ingen detaljert backtest registrert."
             positives = " • ".join(str(x) for x in (candidate.get("positives") or [])) or "Ingen særskilte positive drivere registrert."
