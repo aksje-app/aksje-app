@@ -25,8 +25,11 @@ LEGACY_ROUTE_ANCHORS_V19022 = (
 
 
 def _sidebar_set_query_state_v18674c(st, nav: str, group: str = "", panel: str = "") -> None:
-    """Set refresh-safe URL state while preserving remember_token."""
+    """Set refresh-safe URL state without exposing authentication tokens."""
     try:
+        for sensitive_key in ("remember_token", "remember_bootstrap"):
+            if sensitive_key in st.query_params:
+                del st.query_params[sensitive_key]
         st.query_params["aa_nav"] = str(nav or "")
         if group:
             st.query_params["aa_group"] = str(group)
@@ -84,6 +87,8 @@ def _sidebar_nav_href_v18659(st, nav: str) -> str:
                 params[k] = str(v)
     except Exception:
         params = {}
+    for sensitive_key in ("remember_token", "remember_bootstrap"):
+        params.pop(sensitive_key, None)
     params.pop("mobile_nav", None)
     params["panel"] = str(nav or "")
     return "?" + urlencode(params)

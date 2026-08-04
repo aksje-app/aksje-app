@@ -7,6 +7,8 @@ runs are upgraded in memory, while explicit type/mission conflicts fail closed.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, MutableMapping, Sequence
@@ -313,6 +315,31 @@ def _section(key: str, title: str, payload: Any, order: int, technical: bool = F
     return ReportSection(key=key, title=title, payload=deepcopy(payload), order=order, technical=technical)
 
 
+
+
+
+def _content_sha256(run: Mapping[str, Any]) -> str:
+    revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
+    existing = str(revision.get("content_sha256") or "").strip().lower()
+    if len(existing) == 64 and all(ch in "0123456789abcdef" for ch in existing):
+        return existing
+    payload = deepcopy(dict(run))
+    for key in ("report_document", "report_contract_validation", "decision_report"):
+        payload.pop(key, None)
+    payload_revision = payload.get("report_revision")
+    if isinstance(payload_revision, MutableMapping):
+        payload_revision.pop("content_sha256", None)
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+def _analysis_id(run: Mapping[str, Any]) -> str:
+    existing = str(run.get("analysis_id") or "").strip()
+    if existing:
+        return existing
+    basis = "|".join(str(run.get(key) or "") for key in ("run_id", "job_id", "created_at"))
+    digest = hashlib.sha256(basis.encode("utf-8", errors="ignore")).hexdigest()[:16].upper()
+    return f"AN-{digest}"
+
 def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Build the canonical renderer-independent report document."""
     identity = resolve_report_identity(run)
@@ -397,6 +424,8 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
         versions=versions,
         sections=sections,
     ).to_dict()
+    document["metadata"]["analysis_id"] = _analysis_id(run)
+    document["metadata"]["content_sha256"] = _content_sha256(run)
     validate_report_document(document, raise_on_error=True)
     return document
 
@@ -459,6 +488,10 @@ def ensure_report_document(
             "report_schema_version": REPORT_SCHEMA_VERSION,
             "contract_version": REPORT_CONTRACT_VERSION,
         }
+        run["analysis_id"] = str(document["metadata"].get("analysis_id") or _analysis_id(run))
+        revision_payload = run.get("report_revision") if isinstance(run.get("report_revision"), MutableMapping) else None
+        if revision_payload is not None and not revision_payload.get("content_sha256"):
+            revision_payload["content_sha256"] = str(document["metadata"].get("content_sha256") or "")
         run["version_contract"] = dict(document["versions"])
         run["report_document"] = document
         run["report_contract_validation"] = validate_report_document(document)

@@ -183,7 +183,13 @@ def request_cancel(execution_id: str, requested_by: str = "UI") -> dict[str, Any
         return written
 
 
-def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, force_refresh: bool) -> None:
+def _worker(
+    execution_id: str,
+    job_payload: Mapping[str, Any],
+    trigger: str,
+    force_refresh: bool,
+    scheduled_for: str = "",
+) -> None:
     from market_intelligence import JobProfile, run_job, verify_report_persistence
 
     cancelled_before_start = False
@@ -229,8 +235,14 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
             _write_progress_status(current)
 
     try:
-        result = run_job(JobProfile.from_dict(job_payload), trigger=trigger,
-                         progress_callback=progress, force_refresh=force_refresh)
+        run_kwargs = {
+            "trigger": trigger,
+            "progress_callback": progress,
+            "force_refresh": force_refresh,
+        }
+        if str(scheduled_for or "").strip():
+            run_kwargs["scheduled_for"] = str(scheduled_for)
+        result = run_job(JobProfile.from_dict(job_payload), **run_kwargs)
         # run_job performs the authoritative read-after-write check.  Keep
         # compatibility with injected/legacy runners that predate this field.
         persistence = result.get("persistence")
@@ -294,7 +306,13 @@ def _worker(execution_id: str, job_payload: Mapping[str, Any], trigger: str, for
             _THREADS.pop(execution_id, None)
 
 
-def start_manual_job(job: Any, *, trigger: str, force_refresh: bool = False) -> dict[str, Any]:
+def start_manual_job(
+    job: Any,
+    *,
+    trigger: str,
+    force_refresh: bool = False,
+    scheduled_for: str = "",
+) -> dict[str, Any]:
     """Accept one manual job and return immediately with its durable status."""
     with _LOCK:
         active = get_active_status()
@@ -316,14 +334,14 @@ def start_manual_job(job: Any, *, trigger: str, force_refresh: bool = False) -> 
                 "planned_maximum": per_market * market_count,
                 "markets": selected_markets,
             },
-            "force_refresh": bool(force_refresh), "accepted_at": _now(),
+            "force_refresh": bool(force_refresh), "scheduled_for": str(scheduled_for or ""), "accepted_at": _now(),
             "timezone_name": timezone_name,
             "started_at": None, "completed_at": None, "updated_at": _now(), "error": "",
             "cancel_requested": False, "completed_steps": [], "active_stage": "PREFLIGHT",
         })
         thread = threading.Thread(
             target=_worker,
-            args=(execution_id, asdict(job), trigger, bool(force_refresh)),
+            args=(execution_id, asdict(job), trigger, bool(force_refresh), str(scheduled_for or "")),
             name=f"manual-chain-{execution_id}", daemon=True,
         )
         _THREADS[execution_id] = thread

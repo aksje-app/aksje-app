@@ -59,15 +59,45 @@ def _remember_token_hash_v19144(token: str) -> str:
 
 
 def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload_after_store=False):
-    """Safe v19.16.5 fallback.
+    """Write or clear the environment-scoped remember cookie without redirects.
 
-    The previous browser-storage bridge could reload the parent Streamlit page
-    during authentication and trigger redirect/reconnect loops.  Keep this
-    function as a compatibility no-op so older call sites remain harmless.
-    Existing remember tokens supplied by cookie/query parameter can still be
-    restored server-side, but new browser persistence is temporarily disabled.
+    The browser receives only a random bearer token. The server stores a SHA-256
+    hash, validates user/session version and can revoke the token. No password or
+    token is placed in the URL or localStorage. The cookie is SameSite=Strict and
+    Secure on Render/HTTPS deployments. Streamlit components cannot create an
+    HttpOnly cookie, so server-side hashing, revocation and expiry remain mandatory.
     """
-    return False
+    del bootstrap, reload_after_store  # compatibility-only arguments; never reload the parent page
+    cookie_name = _remember_cookie_name_v19144()
+    secure = bool(os.getenv("RENDER")) or str(os.getenv("AUTH_COOKIE_SECURE", "")).strip().lower() in {"1", "true", "yes", "on"}
+    max_age = 0 if clear else REMEMBER_DAYS * 24 * 60 * 60
+    cookie_value = "" if clear else str(token or "")
+    if not clear and not cookie_value:
+        return False
+    cookie_parts = [
+        f"{cookie_name}={cookie_value}",
+        "Path=/",
+        f"Max-Age={max_age}",
+        "SameSite=Strict",
+    ]
+    if secure:
+        cookie_parts.append("Secure")
+    cookie_text = "; ".join(cookie_parts)
+    script = f"""
+    <script>
+    (() => {{
+      const cookie = {json.dumps(cookie_text)};
+      try {{ window.parent.document.cookie = cookie; }}
+      catch (error) {{ try {{ document.cookie = cookie; }} catch (ignored) {{}} }}
+    }})();
+    </script>
+    """
+    try:
+        render_html_component(script, height=0, width=0)
+        return True
+    except Exception as exc:
+        logging.warning("Kunne ikke oppdatere Husk meg-cookie: %s", exc)
+        return False
 
 def _remember_cookie_token_v19143():
     try:
@@ -274,6 +304,7 @@ def _clear_auth_session_v19144():
         "auth_user", "auth_expires_at", "auth_logged_in_at",
         "auth_last_activity_at", "auth_remember_me", "remember_token",
         "auth_user_version_checked_at_v19144", "auth_backend_warning_v19144",
+        "auth_cookie_written_for_token_v1924",
     ):
         st.session_state.pop(key, None)
 
@@ -346,8 +377,9 @@ def _session_is_valid():
 def _drop_legacy_remember_query_v19167() -> None:
     """Remove legacy remember parameters without redirects or parent-page JS.
 
-    v19.16.7 deliberately disables persistent browser login while the web
-    service is stabilised. Query cleanup is best-effort and never reruns.
+    RC4 removes the legacy URL-token transport before any navigation state is
+    processed. Cookie-based persistent login is validated server-side and this
+    cleanup is best-effort without forcing an extra rerun.
     """
     for query_key in ("remember_token", "remember_bootstrap"):
         try:
@@ -358,46 +390,73 @@ def _drop_legacy_remember_query_v19167() -> None:
 
 
 def _restore_from_remember_token():
-    """Persistent browser login is disabled in the stability release.
-
-    Old URLs may still contain a token. It is removed from the browser URL,
-    but it is never read, refreshed, stored or used to authenticate.
-    """
+    """Restore a session from the server-validated, environment-scoped cookie."""
     _drop_legacy_remember_query_v19167()
-    st.session_state.pop("remember_token", None)
-    st.session_state["auth_remember_me"] = False
-    return None
+    token = _remember_cookie_token_v19143()
+    if not token:
+        return None
+
+    item = _db_get_remember_item(token)
+    if not item:
+        tokens = _load_remember_tokens()
+        item = tokens.get(_remember_token_hash_v19144(token)) or tokens.get(token)
+    if not isinstance(item, dict):
+        st.session_state["auth_cookie_clear_pending_v1924"] = True
+        return None
+
+    try:
+        expires = datetime.fromisoformat(str(item.get("expires") or ""))
+    except Exception:
+        expires = datetime.min
+    if expires < datetime.now():
+        _db_delete_remember_item(token)
+        tokens = _load_remember_tokens()
+        tokens.pop(_remember_token_hash_v19144(token), None)
+        tokens.pop(token, None)
+        _save_remember_tokens(tokens)
+        st.session_state["auth_cookie_clear_pending_v1924"] = True
+        return None
+
+    try:
+        user = get_user(str(item.get("username") or ""))
+    except Exception as exc:
+        logging.warning("Husk meg kunne ikke valideres mot brukerlageret: %s", exc)
+        return None
+    if (
+        not user
+        or not user.get("active", True)
+        or int(user.get("session_version", 1) or 1) != int(item.get("session_version", 1) or 1)
+    ):
+        _db_delete_remember_item(token)
+        tokens = _load_remember_tokens()
+        tokens.pop(_remember_token_hash_v19144(token), None)
+        tokens.pop(token, None)
+        _save_remember_tokens(tokens)
+        st.session_state["auth_cookie_clear_pending_v1924"] = True
+        return None
+
+    _set_logged_in(user, remember=True)
+    st.session_state["remember_token"] = token
+    st.session_state["auth_restore_attempted_v18621"] = True
+    return user
 
 def _clear_remember_token():
+    token = st.session_state.get("remember_token") or _remember_cookie_token_v19143()
     try:
-        token = st.session_state.get("remember_token") or _remember_cookie_token_v19143() or st.query_params.get("remember_token", None)
-        if isinstance(token, list):
-            token = token[0] if token else None
         if token:
             _db_delete_remember_item(str(token))
             tokens = _load_remember_tokens()
             tokens.pop(_remember_token_hash_v19144(str(token)), None)
             tokens.pop(str(token), None)
             _save_remember_tokens(tokens)
-            for query_key in ("remember_token", "remember_bootstrap"):
-                try:
-                    if query_key in st.query_params:
-                        del st.query_params[query_key]
-                except Exception as e:
-                    logging.warning("Kunne ikke rydde sensitiv query-parameter: %s", e)
-        _remember_storage_bridge(clear=True)
-    except Exception as e:
-        logging.warning("Silenced exception restored in v18.6.3: %s", e)
-
+    except Exception as exc:
+        logging.warning("Kunne ikke tilbakekalle Husk meg-token: %s", exc)
+    st.session_state["auth_cookie_clear_pending_v1924"] = True
+    st.session_state.pop("auth_cookie_written_for_token_v1924", None)
 
 def _logout():
     _clear_remember_token()
-    st.session_state.pop("auth_user", None)
-    st.session_state.pop("auth_expires_at", None)
-    st.session_state.pop("auth_logged_in_at", None)
-    st.session_state.pop("auth_last_activity_at", None)
-    st.session_state.pop("auth_remember_me", None)
-    st.session_state.pop("remember_token", None)
+    _clear_auth_session_v19144()
     st.rerun()
 
 
@@ -435,7 +494,7 @@ def render_first_admin_setup():
 
 
 def render_login():
-    # v19.16.7: no browser bridge, redirect or persistent-token bootstrap.
+    # RC4: remove legacy URL tokens; persistent login uses only an environment-scoped cookie.
     _drop_legacy_remember_query_v19167()
     # V13 / Oppgave 33: hele login-formen skal være kort og sentrert, ikke bare headeren.
     st.markdown(
@@ -480,10 +539,9 @@ def render_login():
         username = st.text_input("Brukernavn")
         password = st.text_input("Passord", type="password")
         remember_me = st.checkbox(
-            "Husk meg på denne enheten (midlertidig deaktivert)",
+            "Husk meg på denne enheten",
             value=False,
-            disabled=True,
-            help="Deaktivert i v19.16.5 for å hindre 502- og innloggingssløyfer.",
+            help="Lagrer et tilfeldig, tilbakekallbart innloggingstoken i 30 dager. Passordet lagres aldri.",
         )
         submitted = st.form_submit_button("Logg inn")
 
@@ -491,9 +549,14 @@ def render_login():
         ok, user, msg = authenticate(username, password)
         if ok:
             _set_logged_in(user, remember=bool(remember_me))
-            # v19.16.5: Never stop or redirect the parent page during login.
-            # A successful login must always complete with a normal Streamlit rerun.
-            st.session_state.pop("remember_token", None)
+            if remember_me:
+                token = _create_remember_token(user)
+                st.session_state["remember_token"] = token
+                st.session_state.pop("auth_cookie_written_for_token_v1924", None)
+                st.session_state.pop("auth_cookie_clear_pending_v1924", None)
+            else:
+                _clear_remember_token()
+                st.session_state.pop("remember_token", None)
             st.success("Innlogget")
             st.rerun()
         else:
@@ -551,12 +614,24 @@ def require_login():
     if user_count() == 0:
         render_first_admin_setup()
 
+    if st.session_state.get("auth_cookie_clear_pending_v1924"):
+        if _remember_storage_bridge(clear=True):
+            st.session_state.pop("auth_cookie_clear_pending_v1924", None)
+
     if _session_is_valid():
+        token = st.session_state.get("remember_token")
+        if bool(st.session_state.get("auth_remember_me")) and token:
+            if st.session_state.get("auth_cookie_written_for_token_v1924") != token:
+                if _remember_storage_bridge(token=token):
+                    st.session_state["auth_cookie_written_for_token_v1924"] = token
         return st.session_state.get("auth_user")
 
-    # v19.16.7 stability contract: login is session-only. Legacy remember
-    # parameters are discarded without redirects, JavaScript or extra reruns.
-    _restore_from_remember_token()
+    restored = _restore_from_remember_token()
+    if restored:
+        token = st.session_state.get("remember_token")
+        if token and _remember_storage_bridge(token=token):
+            st.session_state["auth_cookie_written_for_token_v1924"] = token
+        return restored
     st.session_state["auth_restore_attempted_v18621"] = True
     render_login()
     return None

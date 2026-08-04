@@ -2,7 +2,7 @@
 
 v18.6.74e goal:
 - Browser refresh/F5 should restore current main area, panel and inner tab across all main panels.
-- Existing remember_token and other query parameters must be preserved.
+- Authentication tokens must never be preserved in navigation URLs.
 - Query parameters are additive: aa_nav, aa_group, aa_panel, aa_tab, aa_subtab.
 """
 from __future__ import annotations
@@ -75,7 +75,7 @@ def set_global_navigation_state(
     tab: Any | None = None,
     subtab: Any | None = None,
 ) -> None:
-    """Set only our navigation query keys and preserve remember_token/other keys.
+    """Set only navigation query keys and remove legacy authentication tokens.
 
     v18.6.74e: Do not write query params when they already have the same
     values. Streamlit reruns on query-param writes, so repeated no-op writes can
@@ -90,7 +90,16 @@ def set_global_navigation_state(
     }
     try:
         current = _plain_query_params(st)
-        changed = False
+        sensitive_removed = False
+        for sensitive_key in ("remember_token", "remember_bootstrap"):
+            if sensitive_key in current:
+                try:
+                    del st.query_params[sensitive_key]
+                    sensitive_removed = True
+                except Exception:
+                    pass
+                current.pop(sensitive_key, None)
+        changed = sensitive_removed
         for key, value in updates.items():
             if value is None:
                 continue
