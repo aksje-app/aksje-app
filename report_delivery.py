@@ -17,9 +17,12 @@ def ensure_public_pdf_name(run: MutableMapping[str, Any]) -> str:
         return current
     identity = run.get("report_identity") if isinstance(run.get("report_identity"), Mapping) else {}
     label = str(identity.get("label") or run.get("report_type") or "rapport")
+    report_id = str(identity.get("report_id") or run.get("report_id") or run.get("run_id") or "ukjent")
     job = str(run.get("job_name") or "analyse")
     date = str(run.get("created_at_local") or run.get("created_at") or "")[:10]
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{label}_{job}_{date}").strip("_")[:72] or "rapport"
+    # RC16: every new public PDF name carries the immutable report identity.
+    # The random suffix prevents collisions; an existing stored name is never rewritten.
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{label}_{job}_{report_id}_{date}").strip("_")[:112] or "rapport"
     name = f"{stem}_{secrets.token_urlsafe(12)}.pdf"
     run["public_pdf_name"] = name
     return name

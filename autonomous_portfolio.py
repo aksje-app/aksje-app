@@ -192,7 +192,7 @@ class AutonomousParameters:
     enable_learning_probe_buys: bool = True
     learning_probe_minimum_score: float = 70.0
     learning_probe_max_buys: int = 3
-    learning_probe_notional_value: float = 2500.0
+    learning_probe_notional_value: float = 15000.0
     learning_probe_horizon_days: int = 30
     notify_trades: bool = True
     notify_risk_events: bool = True
@@ -217,7 +217,7 @@ class AutonomousParameters:
             enable_learning_probe_buys=bool(self.enable_learning_probe_buys),
             learning_probe_minimum_score=max(0.0, min(100.0, _f(self.learning_probe_minimum_score, 70.0))),
             learning_probe_max_buys=max(0, min(10, int(self.learning_probe_max_buys))),
-            learning_probe_notional_value=max(100.0, min(100000.0, _f(self.learning_probe_notional_value, 2500.0))),
+            learning_probe_notional_value=max(100.0, min(100000.0, _f(self.learning_probe_notional_value, 15000.0))),
             learning_probe_horizon_days=max(1, min(365, int(self.learning_probe_horizon_days))),
             notify_trades=bool(self.notify_trades),
             notify_risk_events=bool(self.notify_risk_events),
@@ -240,6 +240,29 @@ def save_parameters(params: AutonomousParameters) -> AutonomousParameters:
         _append_audit("PARAMETERS_CHANGED_BY_USER", {"before": previous, "after": asdict(params)})
     return params
 
+
+
+RC16_RECOMMENDED_LEARNING_NOTIONAL = 15000.0
+RC16_RECOMMENDED_LEARNING_MAX_BUYS = 3
+RC16_RECOMMENDED_LEARNING_HORIZON_DAYS = 30
+
+
+def recommended_learning_profile(params: AutonomousParameters | None = None) -> AutonomousParameters:
+    """Return the explicit RC16 learning-only profile without persisting it.
+
+    Existing installations keep their stored values until the operator presses
+    the dedicated confirmation button in the UI.  The profile never changes
+    ordinary Autonomy position limits or production-trading authorization.
+    """
+    current = (params or load_parameters()).normalized()
+    values = asdict(current)
+    values.update({
+        "enable_learning_probe_buys": True,
+        "learning_probe_notional_value": RC16_RECOMMENDED_LEARNING_NOTIONAL,
+        "learning_probe_max_buys": RC16_RECOMMENDED_LEARNING_MAX_BUYS,
+        "learning_probe_horizon_days": RC16_RECOMMENDED_LEARNING_HORIZON_DAYS,
+    })
+    return AutonomousParameters(**values).normalized()
 
 def default_portfolio(params: AutonomousParameters | None = None) -> dict[str, Any]:
     p = (params or load_parameters()).normalized()
@@ -1368,6 +1391,21 @@ def render_learning_portfolio() -> None:
     c4.metric("Samlet P/L", f"{perf['total_pnl']:+,.0f}")
     c5.metric("Læringsavkastning", f"{perf['return_pct']:+.2f}%")
     st.info(f"Fast notional per ny læringsposisjon: {params.learning_probe_notional_value:,.0f}. Normal observasjonshorisont: {params.learning_probe_horizon_days} dager.")
+    if abs(float(params.learning_probe_notional_value) - RC16_RECOMMENDED_LEARNING_NOTIONAL) > 0.01:
+        st.caption("RC16 anbefaler 15 000 i rent teoretisk notional per læringsposisjon for mer realistiske kostnads-, valuta- og porteføljeobservasjoner. Eksisterende verdi endres ikke automatisk.")
+        confirm_profile = st.checkbox(
+            "Bekreft anbefalt RC16-læringsprofil (kun LEARNING_ONLY)",
+            key="learning_confirm_rc16_profile_v19220",
+        )
+        if st.button(
+            "Bruk anbefalt RC16-læringsprofil",
+            key="learning_apply_rc16_profile_v19220",
+            disabled=not confirm_profile,
+            width="content",
+        ):
+            save_parameters(recommended_learning_profile(params))
+            st.success("Læringsprofilen er lagret: 15 000 per skyggeposisjon, maks 3 nye per syklus og 30 dagers normalhorisont. Ordinær Autonomi og ekte handel er uendret.")
+            st.rerun()
 
     history = load_learning_equity_history(200)
     st.markdown("##### Utvikling i læringsporteføljen")
@@ -1839,7 +1877,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         learning_horizon = u2.number_input("Læringshorisont (dager)", 1, 365, int(params.learning_probe_horizon_days), 1, key="alp_learning_horizon_v19018b")
         notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
         if st.button("Lagre parametere", key="alp_save_params_v18688"):
-            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
+            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
             st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
 
     with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):

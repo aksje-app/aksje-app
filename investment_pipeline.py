@@ -284,6 +284,7 @@ class PipelineConfig:
     scan_limit: int = 25
     deep_analysis_count: int = 20
     proposal_count: int = 5
+    evidence_analysis_count: int = 10
     min_data_quality: float = 45.0
     min_liquidity_score: float = 35.0
     max_risk_score: float = 75.0
@@ -312,6 +313,7 @@ class PipelineConfig:
         deep = max(1, min(int(self.deep_analysis_count), 100))
         scan = max(deep, min(int(self.scan_limit), 500))
         proposals = max(0, min(int(self.proposal_count), deep))
+        evidence_count = max(proposals, min(max(1, int(self.evidence_analysis_count)), deep))
         weights = {k: max(0.0, _f(v)) for k, v in self.weights.items()}
         total = sum(weights.values()) or 1.0
         weights = {k: v / total for k, v in weights.items()}
@@ -320,6 +322,7 @@ class PipelineConfig:
             scan_limit=scan,
             deep_analysis_count=deep,
             proposal_count=proposals,
+            evidence_analysis_count=evidence_count,
             min_data_quality=_clamp(self.min_data_quality),
             min_liquidity_score=_clamp(self.min_liquidity_score),
             max_risk_score=_clamp(self.max_risk_score),
@@ -652,8 +655,8 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     """Run a staged scan: broad market data, extended analysis, then deep evidence.
 
     ``scan_limit`` controls stage 1, ``deep_analysis_count`` controls stage 2,
-    and ``proposal_count`` is the maximum number receiving expensive insider
-    and news evidence collection in stage 3.
+    ``evidence_analysis_count`` controls the bounded evidence review in stage 3,
+    and ``proposal_count`` controls how many final proposals are presented.
     """
     cfg = (config or PipelineConfig()).normalized()
     strict_source_refresh = os.getenv("STRICT_INTELLIGENCE_SOURCE_REFRESH", "0").strip().lower() in {"1", "true", "yes", "on"}
@@ -723,7 +726,11 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             progress_callback({"phase": "EXTENDED_ANALYSIS", "completed": idx, "total": max(1, len(extended_source_rows)), "ticker": ticker, "message": f"Trinn 2/3: beregner utvidet score {idx}/{len(extended_source_rows)}"})
 
     preliminary.sort(key=lambda item: (item.investment_score, item.scanner_score), reverse=True)
-    evidence_order = [item.ticker.upper() for item in preliminary[: cfg.proposal_count]]
+    # RC16: evidence collection follows the deep-analysis set (bounded by the
+    # explicit evidence limit), not only the smaller presentation count.  This
+    # prevents high-scoring candidates from being rejected merely because no
+    # evidence search was started for their rank.
+    evidence_order = [item.ticker.upper() for item in preliminary[: cfg.evidence_analysis_count]]
     evidence_tickers = set(evidence_order)
     evidence_rows = [
         source_by_ticker[ticker]
@@ -732,7 +739,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     ]
     for row in evidence_rows:
         row["analysis_stage"] = "EVIDENCE_CONTROLLED"
-        row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.proposal_count, "strict_refresh": intelligence_force_refresh}
+        row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.evidence_analysis_count, "strict_refresh": intelligence_force_refresh}
         if not cfg.use_insider_intelligence:
             _mark_intelligence_not_searched(
                 row, "insider",

@@ -950,6 +950,9 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     summary = summary if isinstance(summary, Mapping) else {}
     quality = summary_payload.get("data_quality") if isinstance(summary_payload, Mapping) else {}
     quality = quality if isinstance(quality, Mapping) else {}
+    decision_funnel = run.get("decision_funnel") if isinstance(run.get("decision_funnel"), Mapping) else {}
+    analytical_buy_count = int(decision_funnel.get("analytical_buy_recommendations") or 0)
+    executable_buy_count = int(decision_funnel.get("trade_executable") or decision_funnel.get("eligible") or 0)
 
     action_labels = {
         "BUY": "Kjøp", "HOLD": "Behold", "SELL": "Selg",
@@ -966,13 +969,15 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         f"Rapportskjema: {metadata.get('report_schema_version') or REPORT_SCHEMA_VERSION}",
         "",
         "BESLUTNINGSSTATUS",
-        f"- Markedsdatakvalitet: {quality_dimensions.get('market_data_quality', confidence.get('market_data_coverage', 0))}/100",
+        f"- Beslutningsjustert markedsdatakvalitet: {quality_dimensions.get('market_data_quality', confidence.get('market_data_coverage', 0))}/100",
         f"- Rapportens tekniske dokumentasjonsgrad: {quality_dimensions.get('technical_documentation_coverage', confidence.get('documentation_coverage', confidence.get('data_coverage', 0)))}/100",
         f"- Kandidatenes evidensdekning: {quality_dimensions.get('candidate_evidence_ready_count', 0)} av {quality_dimensions.get('candidate_count', overview.get('candidate_count', len(candidates)))} ({quality_dimensions.get('candidate_evidence_coverage', 0)} %)",
         f"- Uavhengig kildedekning: {quality_dimensions.get('independent_source_coverage', confidence.get('source_confidence', 0))}/100",
         f"- Beslutningsstyrke på rapportnivå: {quality_dimensions.get('report_decision_strength', confidence.get('decision_confidence', 0))}/100",
         f"- Evidens- og dataklare kandidater: {overview.get('evidence_data_ready_count', 0)} av {overview.get('candidate_count', len(candidates))}",
-        f"- Kjøpsgodkjente kandidater: {overview.get('decision_ready_count', 0)} av {overview.get('candidate_count', len(candidates))}",
+        f"- Analytiske kjøpsanbefalinger: {analytical_buy_count}",
+        f"- Gjennomførbare kjøp nå: {executable_buy_count}",
+        f"- Produksjonsgodkjente kjøp: {overview.get('decision_ready_count', 0)} av {overview.get('candidate_count', len(candidates))}",
         f"- Konklusjon: {overview.get('conclusion') or '-'}",
         "",
         "RAPPORTENS FOKUS",
@@ -1069,7 +1074,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         f"- Skannet: {summary.get('scanned', 0)}",
         f"- Grundig analysert: {summary.get('deep_analyzed', 0)}",
         f"- Foreløpige modellkandidater: {summary.get('proposals', 0)}",
-        f"- Markedsdatakvalitet: {quality.get('score', '-')} {quality.get('label', '')}".strip(),
+        f"- Teknisk markedsdatadekning: {quality.get('score', '-')} {quality.get('label', '')}".strip(),
         f"- Pushover: {notification.get('status_label') or notification.get('detail') or 'Ikke registrert'}",
     ])
     for error in technical.get("errors") or []:
@@ -2303,7 +2308,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     evidence_ready = int(decision_quality.get("candidate_evidence_ready_count") or 0)
     evidence_total = int(decision_quality.get("candidate_count") or decision_overview.get("candidate_count") or len(decision_candidates))
     decision_status = Table([[
-        Paragraph(f"<b>Markedsdatakvalitet</b><br/><font size='10'>{market_quality}/100</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Beslutningsjustert markedsdata</b><br/><font size='10'>{market_quality}/100</font>", styles["MetricCard"]),
         Paragraph(f"<b>Teknisk dokumentasjon</b><br/><font size='10'>{documentation_score}/100</font>", styles["MetricCard"]),
         Paragraph(f"<b>Kandidatenes evidens</b><br/><font size='10'>{evidence_ready}/{evidence_total} · {evidence_coverage:.0f}%</font>", styles["MetricCard"]),
         Paragraph(f"<b>Uavhengige kilder</b><br/><font size='10'>{source_score}/100</font>", styles["MetricCard"]),
@@ -3012,7 +3017,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             insider = raw.get("insider_intelligence") if isinstance(raw.get("insider_intelligence"), Mapping) else {}
             news = raw.get("news_intelligence") if isinstance(raw.get("news_intelligence"), Mapping) else {}
             evidence = _candidate_evidence(candidate, medal_candidates[idx + 1] if idx + 1 < len(medal_candidates) else None)
-            story += [CondPageBreak(84*mm), Paragraph(
+            story += [PageBreak(), Paragraph(
                 f"KANDIDAT {idx + 1}: {candidate_ticker} - detaljert investeringsanalyse",
                 styles["ReportTitle"],
             )]
@@ -4769,6 +4774,72 @@ def _render_manual_report_progress_v1924() -> None:
     if state in {"COMPLETED", "FAILED", "CANCELLED"}:
         st.caption("Rapportarkivet oppdateres ved neste vanlige sideoppdatering. Ingen automatisk helsidererender kjøres.")
 
+
+def _live_report_progress_body_v19220_rc16() -> None:
+    """Module-level fragment body; never recreated during a normal app rerun."""
+    _render_manual_report_progress_v1924()
+
+
+try:
+    import streamlit as _st_fragment_rc16
+    _live_report_progress_fragment_v19220_rc16 = _st_fragment_rc16.fragment(run_every="3s")(
+        _live_report_progress_body_v19220_rc16
+    )
+except Exception:
+    _live_report_progress_fragment_v19220_rc16 = _live_report_progress_body_v19220_rc16
+
+
+def _render_replay_export_status_v19220_rc16() -> None:
+    import streamlit as st
+    from replay_export_background import get_status, is_running, read_export_bytes
+
+    status = get_status()
+    if not status:
+        st.caption("Ingen komplett replay-eksport er startet ennå.")
+        return
+    state = str(status.get("state") or "").upper()
+    percent = max(0, min(100, int(status.get("percent") or 0)))
+    with st.container(border=True):
+        e1, e2, e3 = st.columns([1, 1, 1.5])
+        e1.metric("Eksportstatus", {"QUEUED": "Venter", "RUNNING": "Kjører", "COMPLETED": "Fullført", "FAILED": "Feilet"}.get(state, state or "-"))
+        e2.metric("Fremdrift", f"{percent} %")
+        e3.metric("Eksport-ID", status.get("execution_id") or "-")
+        st.progress(percent, text=str(status.get("message") or "Bygger replay-arkiv"))
+        if status.get("worker_heartbeat_at"):
+            st.caption("Worker-heartbeat: " + local_display(status.get("worker_heartbeat_at"), DEFAULT_TIMEZONE))
+        if state == "FAILED":
+            st.error(str(status.get("error") or "Replay-eksporten feilet uten registrert detalj."))
+        elif state == "COMPLETED":
+            summary = status.get("summary") if isinstance(status.get("summary"), Mapping) else {}
+            a, b, c, d = st.columns(4)
+            a.metric("Rapporter", summary.get("unique_reports_exported", 0))
+            b.metric("Full replay", (summary.get("replay_levels") or {}).get("FULL_REPLAY", 0))
+            c.metric("Delvis replay", (summary.get("replay_levels") or {}).get("DECISION_REPLAY", 0))
+            d.metric("Kun rapport", (summary.get("replay_levels") or {}).get("REPORT_ONLY", 0))
+            payload = read_export_bytes(status)
+            if payload:
+                st.download_button(
+                    "Last ned komplett rapport- og læringsarkiv",
+                    data=payload,
+                    file_name=str(status.get("filename") or "AI_Aksje_Analyzer_Replay_Export.zip"),
+                    mime="application/zip",
+                    key="mi_download_complete_replay_export_v19220_rc16",
+                    width="stretch",
+                )
+            else:
+                st.warning("Eksporten er registrert som fullført, men ZIP-filen finnes ikke lenger på denne instansen.")
+        elif is_running(status):
+            st.caption("Eksporten kjører i en separat worker. Rapportvisningen kan brukes mens arkivet bygges.")
+
+
+try:
+    _replay_export_status_fragment_v19220_rc16 = _st_fragment_rc16.fragment(run_every="3s")(
+        _render_replay_export_status_v19220_rc16
+    )
+except Exception:
+    _replay_export_status_fragment_v19220_rc16 = _render_replay_export_status_v19220_rc16
+
+
 def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
@@ -4904,10 +4975,7 @@ def render_market_intelligence() -> None:
         if unavailable:
             st.caption("Ikke konfigurert som aktiv jobbprofil: " + ", ".join(unavailable) + ". Opprett eller aktiver profilen under avanserte innstillinger.")
         try:
-            @st.fragment(run_every="3s")
-            def _live_report_progress_v1924() -> None:
-                _render_manual_report_progress_v1924()
-            _live_report_progress_v1924()
+            _live_report_progress_fragment_v19220_rc16()
         except Exception:
             _render_manual_report_progress_v1924()
 
@@ -5302,6 +5370,27 @@ def render_market_intelligence() -> None:
                 e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
             e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", width="stretch", key="mi_download_json_v19132")
             st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
+            latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"
+            latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
+            if st.button("Bygg komplett rapportpakke (ZIP)", key="mi_build_latest_package_v19220_rc16", width="stretch"):
+                try:
+                    from report_replay_export import build_single_report_package, single_report_package_filename
+                    package_bytes, _package_manifest = build_single_report_package(
+                        latest, pdf_bytes=delivery.get("data") if delivery.get("ok") else None,
+                    )
+                    st.session_state[latest_package_key] = package_bytes
+                    st.session_state[latest_package_name_key] = single_report_package_filename(latest)
+                except Exception as exc:
+                    st.error(f"Rapportpakken kunne ikke bygges: {exc}")
+            if st.session_state.get(latest_package_key):
+                st.download_button(
+                    "Last ned komplett ZIP: PDF, TXT, JSON, snapshots, manifest og SHA-256",
+                    data=st.session_state[latest_package_key],
+                    file_name=st.session_state.get(latest_package_name_key) or "REPORT_PACKAGE.zip",
+                    mime="application/zip",
+                    key="mi_download_latest_package_v19220_rc16",
+                    width="stretch",
+                )
     with tab_reports:
         st.markdown("### 📚 Rapportarkiv")
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
@@ -5443,6 +5532,30 @@ def render_market_intelligence() -> None:
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
                 if d.button(fav_label, key=f"mi_fav_{row.get('run_id')}", width="stretch"):
                     set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); _rerun_reports_v19220_rc11(st)
+                archive_run_id = str(row.get("run_id") or "unknown")
+                package_state_key = f"mi_archive_package_bytes_{archive_run_id}_v19220_rc16"
+                package_name_key = f"mi_archive_package_name_{archive_run_id}_v19220_rc16"
+                p1, p2 = st.columns(2)
+                if p1.button("Bygg komplett rapportpakke", key=f"mi_build_package_{archive_run_id}_v19220_rc16", width="stretch", disabled=not bool(saved_run)):
+                    try:
+                        from report_replay_export import build_single_report_package, single_report_package_filename
+                        package_bytes, _manifest = build_single_report_package(
+                            saved_run, archive_entry=row,
+                            pdf_bytes=delivery.get("data") if delivery.get("ok") else None,
+                        )
+                        st.session_state[package_state_key] = package_bytes
+                        st.session_state[package_name_key] = single_report_package_filename(saved_run)
+                    except Exception as exc:
+                        st.error(f"Rapportpakken kunne ikke bygges: {exc}")
+                if st.session_state.get(package_state_key):
+                    p2.download_button(
+                        "Last ned komplett ZIP",
+                        data=st.session_state[package_state_key],
+                        file_name=st.session_state.get(package_name_key) or f"REPORT_PACKAGE_{archive_run_id}.zip",
+                        mime="application/zip",
+                        key=f"mi_download_package_{archive_run_id}_v19220_rc16",
+                        width="stretch",
+                    )
                 confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
                 if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, width="stretch"):
                     delete_archived_report(str(row.get("run_id"))); _rerun_reports_v19220_rc11(st)
@@ -5488,7 +5601,45 @@ def render_market_intelligence() -> None:
             st.caption("Ingen historiske rapporter.")
     with tab_ops:
         jobs = load_jobs(); active = [x for x in jobs if x.enabled]
-        archive_count = len(_load_report_archive()); o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", archive_count); o4.metric("Regenererbare PDF-er", archive_count)
+        archive_rows_rc16 = _load_report_archive()
+        archive_count = len(archive_rows_rc16); o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", archive_count); o4.metric("Regenererbare PDF-er", archive_count)
+
+        st.markdown("#### Komplett rapport- og læringsarkiv")
+        st.caption("Bygger en skrivebeskyttet replay-ZIP av alle fortsatt tilgjengelige rapporter, kandidatsnapshots, jobbdata og Autonomi-/læringsporteføljer. Ingen API-kall, Pushover eller handler utføres.")
+        export_period = st.selectbox(
+            "Eksportperiode", ["Alle tilgjengelige", "Siste 30 dager", "Siste 90 dager", "Egendefinert"],
+            key="mi_replay_export_period_v19220_rc16",
+        )
+        export_start = export_end = ""
+        if export_period == "Egendefinert":
+            ex1, ex2 = st.columns(2)
+            export_start = str(ex1.date_input("Fra dato", key="mi_replay_export_start_v19220_rc16"))
+            export_end = str(ex2.date_input("Til dato", key="mi_replay_export_end_v19220_rc16"))
+        elif export_period in {"Siste 30 dager", "Siste 90 dager"}:
+            days = 30 if export_period == "Siste 30 dager" else 90
+            export_start = str((_now().astimezone(ZoneInfo(DEFAULT_TIMEZONE)) - timedelta(days=days)).date())
+            export_end = str(_now().astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date())
+        version_options = sorted({str(row.get("app_version") or row.get("version") or "") for row in archive_rows_rc16 if str(row.get("app_version") or row.get("version") or "")})
+        export_versions = st.multiselect(
+            "Versjoner (tomt betyr alle)", version_options,
+            key="mi_replay_export_versions_v19220_rc16",
+        )
+        try:
+            from replay_export_background import get_status as get_replay_export_status, is_running as replay_export_running, start_export as start_replay_export
+            replay_status = get_replay_export_status()
+            if st.button(
+                "Eksporter komplett rapport- og læringsarkiv",
+                key="mi_start_complete_replay_export_v19220_rc16",
+                type="primary",
+                width="stretch",
+                disabled=replay_export_running(replay_status),
+            ):
+                start_replay_export(date_from=export_start, date_to=export_end, versions=export_versions)
+                st.success("Replay-eksporten er startet i en separat worker.")
+            _replay_export_status_fragment_v19220_rc16()
+        except Exception as exc:
+            st.error(f"Replay-eksportfunksjonen kunne ikke lastes: {exc}")
+
         try:
             from scheduled_runner import load_unattended_state
             unattended = load_unattended_state()
