@@ -26,6 +26,7 @@ FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".db", ".sqlite", ".sqlite
 DELTA_SUPPORT_FILES = {
     "tools/audit_full_system_v19150.py",
     "tools/audit_evidence_search_v19220_rc10.py",
+    "tools/audit_navigation_rerun_v19220_rc14.py",
     "tools/validate_distribution.py",
     "tools/build_safe_distribution.py",
 }

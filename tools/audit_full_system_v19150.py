@@ -18,6 +18,7 @@ EXPECTED_DOC_TAG = APP_VERSION.replace("-rc", "_RC")
 MUTABLE_ROOTS = ("data", "cache", "logs", "runtime", "storage")
 REQUIRED_REQUIREMENTS = {
     "streamlit==1.57.0",
+    "starlette==1.3.1",
     "pandas",
     "yfinance",
     "requests",
