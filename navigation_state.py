@@ -326,8 +326,11 @@ def pin_autonomy_workspace_route_v19220_rc12(
         "ai_control_center_active_real_panel_v18598": AUTONOMY_PANEL,
         "ai_control_center_group_v1863aj": AUTONOMY_GROUP,
         "ai_control_center_active_panel_v1863aj": AUTONOMY_PANEL,
+        # RC13: this helper runs from buttons inside an already rendered
+        # Autonomi workspace. Never mutate the Streamlit radio widget key here.
+        # The application-owned slug and route lease are consumed before the
+        # radio is created on the following rerun.
         "autonomy_core_workspace_slug_v1882": slug,
-        "autonomy_core_workspace_v1880": label,
         "autonomy_core_workspace_active_slug_v19220_rc7": slug,
         "mobile_nav_last_choice_v19015": nav,
         "ai_control_center_menu_open_v1863ag": False,
@@ -349,6 +352,20 @@ def pin_autonomy_workspace_route_v19220_rc12(
     set_global_navigation_state(
         st, nav=AUTONOMY_NAV, group=AUTONOMY_GROUP, panel=AUTONOMY_PANEL,
         tab=slug, subtab="",
+    )
+
+
+def pin_autonomy_workspace_route_v19220_rc13(
+    st,
+    *,
+    workspace_slug: str = "reports",
+    public_nav: str = "reports",
+    execution_id: str = "",
+) -> None:
+    """RC13 route helper: queue state only; widget keys change before render."""
+    pin_autonomy_workspace_route_v19220_rc12(
+        st, workspace_slug=workspace_slug, public_nav=public_nav,
+        execution_id=execution_id,
     )
 
 

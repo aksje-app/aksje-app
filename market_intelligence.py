@@ -58,7 +58,7 @@ VERSION = APP_VERSION
 
 
 def _rerun_reports_v19220_rc11(st, *, execution_id: str = "") -> None:
-    """Keep Rapporter active through the accepted job's full rerun lifecycle."""
+    """Keep Rapporter active without mutating an instantiated workspace widget."""
     bound_execution_id = str(
         execution_id or st.session_state.get("mi_active_execution_v1924") or ""
     )
@@ -69,13 +69,18 @@ def _rerun_reports_v19220_rc11(st, *, execution_id: str = "") -> None:
     st.rerun()
 
 
+def _rerun_reports_v19220_rc13(st, *, execution_id: str = "") -> None:
+    """RC13 alias retaining the established safe pending-route contract."""
+    _rerun_reports_v19220_rc11(st, execution_id=execution_id)
+
+
 def _rerun_reports_v19220_rc12(st, *, execution_id: str = "") -> None:
-    """RC12 alias retaining the established report rerun contract."""
+    """Backward-compatible alias for the RC13 report rerun contract."""
     _rerun_reports_v19220_rc11(st, execution_id=execution_id)
 
 
 def _rerun_reports_v19220_rc9(st, *, execution_id: str = "") -> None:
-    """Backward-compatible alias for the RC12 report rerun helper."""
+    """Backward-compatible alias for the RC13 report rerun contract."""
     _rerun_reports_v19220_rc11(st, execution_id=execution_id)
 
 
@@ -393,6 +398,13 @@ def _now() -> datetime:
 
 def _now_iso() -> str:
     return _now().isoformat(timespec="seconds")
+
+
+# RC13: scheduler health must not call a slot "missed" when this web process
+# started after the slot and no durable execution history exists. The slot was
+# not observable by this process. Future slots and slots observed by a running
+# process retain the existing missed-run detection.
+SCHEDULER_OBSERVATION_STARTED_AT_UTC_V19220_RC13 = _now().astimezone(timezone.utc)
 
 
 def _read(path: Path, default: Any) -> Any:
@@ -786,8 +798,30 @@ def _localized_slot(job: JobProfile, local_date: Any) -> list[datetime]:
     return sorted(set(slots))
 
 
+def _scheduled_history_for_slot_v19220_rc13(job: JobProfile, planned_utc: datetime | None) -> dict[str, Any]:
+    """Return the latest durable history row for one exact planned slot."""
+    if planned_utc is None:
+        return {}
+    target = planned_utc.astimezone(timezone.utc)
+    matches: list[dict[str, Any]] = []
+    for row in load_job_history(limit=1000):
+        if str(row.get("job_id") or "") != str(job.job_id or ""):
+            continue
+        raw = str(row.get("planned_at") or "").strip()
+        if not raw:
+            continue
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            value = value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+        except Exception:
+            continue
+        if abs((value - target).total_seconds()) <= 1:
+            matches.append(dict(row))
+    return matches[0] if matches else {}
+
+
 def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str, Any]:
-    """Return next/previous planned slot and whether the last slot was missed."""
+    """Return next/previous slot with restart-aware, durable run classification."""
     now_utc = (now or _now()).astimezone(timezone.utc)
     local_now = as_local(now_utc, job.timezone_name)
     past: list[datetime] = []
@@ -805,13 +839,45 @@ def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str,
                 future.append(slot)
     previous_slot = max(past) if past else None
     next_slot = min(future) if future else None
+    previous_utc = previous_slot.astimezone(timezone.utc) if previous_slot else None
     try:
         last_run = as_local(job.last_run_at, job.timezone_name) if job.last_run_at else None
     except Exception:
         last_run = None
+
+    history = _scheduled_history_for_slot_v19220_rc13(job, previous_utc)
+    history_status = str(history.get("status") or "").strip().casefold()
+    history_completed = history_status.startswith("fullført")
+    history_failed = history_status == "feil"
+    completed = bool(
+        previous_slot and (history_completed or (last_run and last_run >= previous_slot))
+    )
+    process_started_utc = SCHEDULER_OBSERVATION_STARTED_AT_UTC_V19220_RC13
+    unobserved_after_restart = bool(
+        job.enabled and previous_utc and not history and not completed
+        and process_started_utc <= now_utc and previous_utc < process_started_utc
+    )
     grace_minutes = 5
-    missed = bool(job.enabled and previous_slot and local_now >= previous_slot + timedelta(minutes=grace_minutes) and (not last_run or last_run < previous_slot))
-    status = "Ikke startet" if missed else ("Fullført" if previous_slot and last_run and last_run >= previous_slot else "Venter")
+    missed = bool(
+        job.enabled and previous_slot and not completed and not history_failed
+        and not unobserved_after_restart
+        and local_now >= previous_slot + timedelta(minutes=grace_minutes)
+    )
+    if completed:
+        status = "Fullført"
+        reason_code = "DURABLE_HISTORY_OR_LAST_RUN"
+    elif history_failed:
+        status = "Feil"
+        reason_code = "DURABLE_HISTORY_FAILED"
+    elif unobserved_after_restart:
+        status = "Ikke vurdert etter omstart"
+        reason_code = "SCHEDULER_PROCESS_STARTED_AFTER_SLOT"
+    elif missed:
+        status = "Ikke startet"
+        reason_code = "OBSERVED_SLOT_WITHOUT_RUN"
+    else:
+        status = "Venter"
+        reason_code = "WITHIN_GRACE_OR_NO_PREVIOUS_SLOT"
     return {
         "job_id": job.job_id,
         "job_name": job.name,
@@ -819,7 +885,7 @@ def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str,
         "timezone_name": valid_timezone(job.timezone_name),
         "local_now": local_now.isoformat(timespec="seconds"),
         "previous_planned_local": previous_slot.isoformat(timespec="seconds") if previous_slot else "",
-        "previous_planned_utc": previous_slot.astimezone(timezone.utc).isoformat(timespec="seconds") if previous_slot else "",
+        "previous_planned_utc": previous_utc.isoformat(timespec="seconds") if previous_utc else "",
         "next_planned_local": next_slot.isoformat(timespec="seconds") if next_slot else "",
         "next_planned_utc": next_slot.astimezone(timezone.utc).isoformat(timespec="seconds") if next_slot else "",
         "last_actual_local": last_run.isoformat(timespec="seconds") if last_run else "",
@@ -827,6 +893,10 @@ def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str,
         "last_planned_status": status,
         "missed": missed,
         "missed_grace_minutes": grace_minutes,
+        "unobserved_after_restart": unobserved_after_restart,
+        "scheduler_status_reason_code": reason_code,
+        "durable_history_status": str(history.get("status") or ""),
+        "scheduler_observation_started_at_utc": process_started_utc.isoformat(timespec="seconds"),
     }
 
 
@@ -840,15 +910,17 @@ def scheduler_health_snapshot(now: datetime | None = None, *, persist: bool = Tr
     jobs = list(jobs) if jobs is not None else load_jobs()
     timelines = [schedule_timeline(job, now) for job in jobs]
     missed = [row for row in timelines if row.get("missed")]
+    unobserved = [row for row in timelines if row.get("unobserved_after_restart")]
     next_rows = [row for row in timelines if row.get("next_planned_utc")]
     next_row = min(next_rows, key=lambda r: str(r.get("next_planned_utc"))) if next_rows else {}
     checked = (now or _now()).astimezone(timezone.utc).isoformat(timespec="seconds")
     snapshot = {
-        "state": "MISTET_PLANLAGT_KJØRING" if missed else "OK",
+        "state": "MISTET_PLANLAGT_KJØRING" if missed else ("OPPSTART_ETTER_PLANLAGT_TID" if unobserved else "OK"),
         "checked_at": checked,
         "active_jobs": sum(1 for job in jobs if job.enabled),
         "jobs": timelines,
         "missed": missed,
+        "unobserved_after_restart": unobserved,
         "next": next_row,
         "history": load_job_history(limit=50),
     }
@@ -4463,7 +4535,8 @@ def _due_slot_info(job: JobProfile, now: datetime) -> dict[str, Any]:
     due = bool(
         job.enabled
         and timeline.get("previous_planned_utc")
-        and timeline.get("last_planned_status") != "Fullført"
+        and not timeline.get("unobserved_after_restart")
+        and timeline.get("last_planned_status") not in {"Fullført", "Feil"}
     )
     return {**timeline, "due": due}
 
@@ -4723,13 +4796,20 @@ def render_market_intelligence() -> None:
     with st.container(border=True):
         st.markdown("##### 1. Status for planlagte rapporter")
         next_job = health.get("next") or {}
-        status_next, status_active, status_missed = st.columns([2, 1, 1])
+        status_next, status_active, status_missed, status_unobserved = st.columns([2, 1, 1, 1])
         status_next.metric(
             "Neste planlagte kjøring",
             local_display(next_job.get("next_planned_utc"), str(next_job.get("timezone_name") or DEFAULT_TIMEZONE)) if next_job else "-",
         )
         status_active.metric("Aktive jobber", health.get("active_jobs", 0))
         status_missed.metric("Mistet", len(health.get("missed") or []))
+        unobserved_jobs = health.get("unobserved_after_restart") or []
+        status_unobserved.metric("Ikke vurdert", len(unobserved_jobs))
+        if unobserved_jobs:
+            st.info(
+                f"{len(unobserved_jobs)} planlagt(e) tidspunkt lå før denne serverprosessen startet. "
+                "De er ikke merket som mistet og startes ikke automatisk i ettertid."
+            )
         missed_jobs = health.get("missed") or []
         if not missed_jobs:
             st.caption("Ingen manglende planlagte rapporter er registrert.")
