@@ -76,7 +76,9 @@ def test_timezone_save_keeps_expander_open_and_verifies_persistence():
     assert "display_time_settings_expanded_v19220_rc14" in block
     assert "display_timezone_flash_v19220_rc14" in block
     assert "persisted =" in block
-    assert "st.rerun()" in block
+    save_branch = block[block.index('if st.button("Lagre visningstidssone"') :]
+    assert "st.rerun()" not in save_branch
+    assert "Scheduler og navigasjon er ikke endret" in save_branch
 
 
 def test_report_fragment_never_auto_reruns_whole_app_at_terminal_state():
