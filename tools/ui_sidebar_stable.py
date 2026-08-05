@@ -653,3 +653,97 @@ html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary sp
 
 </style>
 """
+
+
+_RC16_FINAL_SIDEBAR_LOCK_CSS = """
+<style>
+/* v19.22.0 RC16 final cascade lock. This is intentionally injected after all
+   legacy app styles so the loaded desktop menu matches the polished loading
+   state and cannot collapse into the former 94/116 px rail. */
+@media (min-width: 761px) {
+  html body .stApp section[data-testid="stSidebar"],
+  html body section[data-testid="stSidebar"] {
+    width: 224px !important;
+    min-width: 224px !important;
+    max-width: 224px !important;
+    transform: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    opacity: 1 !important;
+    filter: none !important;
+  }
+  html body section[data-testid="stSidebar"] > div:first-child,
+  html body section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    width: 224px !important;
+    min-width: 224px !important;
+    max-width: 224px !important;
+    padding: .70rem .70rem !important;
+  }
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 40px !important;
+    padding: .42rem .55rem !important;
+    justify-content: flex-start !important;
+    border-radius: 15px !important;
+    font-size: .84rem !important;
+    font-weight: 900 !important;
+    line-height: 1.12 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    background: linear-gradient(180deg, rgba(14,56,90,.96), rgba(8,30,55,.96)) !important;
+    border: 1px solid rgba(96,165,250,.38) !important;
+  }
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button p,
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button span {
+    font-size: .84rem !important;
+    line-height: 1.12 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar-section-title {
+    display: block !important;
+    font-size: .69rem !important;
+    line-height: 1.05 !important;
+    letter-spacing: .12em !important;
+    text-align: left !important;
+    margin: .62rem .18rem .38rem .18rem !important;
+    white-space: nowrap !important;
+  }
+  html body section[data-testid="stSidebar"] .auth-sidebar-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: .58rem !important;
+    margin: 0 0 .48rem 0 !important;
+    border-radius: 16px !important;
+  }
+  html body section[data-testid="stSidebar"] .auth-sidebar-user,
+  html body section[data-testid="stSidebar"] .auth-sidebar-user span,
+  html body section[data-testid="stSidebar"] .auth-remember-chip {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    text-align: left !important;
+    opacity: 1 !important;
+  }
+  html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    min-width: 0 !important;
+    width: 100% !important;
+    min-height: 40px !important;
+  }
+}
+/* Fragment reruns must not dim or disable the complete application shell. */
+html body .stApp [data-stale="true"],
+html body .stApp[data-stale="true"],
+html body [data-testid="stAppViewContainer"][data-stale="true"] {
+  opacity: 1 !important;
+  filter: none !important;
+}
+</style>
+"""
+
+
+def inject_rc16_final_sidebar_lock(st) -> None:
+    """Inject the final sidebar and fragment-stale cascade after legacy CSS."""
+    st.markdown(_RC16_FINAL_SIDEBAR_LOCK_CSS, unsafe_allow_html=True)
