@@ -4835,7 +4835,9 @@ def _render_replay_export_status_v19220_rc16() -> None:
             c.metric("Delvis replay", (summary.get("replay_levels") or {}).get("DECISION_REPLAY", 0))
             d.metric("Kun rapport", (summary.get("replay_levels") or {}).get("REPORT_ONLY", 0))
             payload = read_export_bytes(status)
-            if payload:
+            if payload and bool(status.get("zip_verified", True)):
+                if status.get("file_sha256"):
+                    st.caption(f"ZIP verifisert · SHA-256: {str(status.get('file_sha256'))[:16]}…")
                 st.download_button(
                     "Last ned komplett rapport- og læringsarkiv",
                     data=payload,
@@ -4851,7 +4853,7 @@ def _render_replay_export_status_v19220_rc16() -> None:
 
 
 try:
-    _replay_export_status_fragment_v19220_rc16 = _st_fragment_rc16.fragment(run_every="3s")(
+    _replay_export_status_fragment_v19220_rc16 = _st_fragment_rc161.fragment(run_every="3s")(
         _render_replay_export_status_v19220_rc16
     )
 except Exception:
@@ -5564,6 +5566,10 @@ def render_market_intelligence() -> None:
                             saved_run, archive_entry=row,
                             pdf_bytes=delivery.get("data") if delivery.get("ok") else None,
                         )
+                        import io as _io_rc165, zipfile as _zipfile_rc165
+                        with _zipfile_rc165.ZipFile(_io_rc165.BytesIO(package_bytes), "r") as _archive_rc165:
+                            if _archive_rc165.testzip() is not None or not _archive_rc165.namelist():
+                                raise RuntimeError("Rapportpakken feilet integritetskontrollen")
                         st.session_state[package_state_key] = package_bytes
                         st.session_state[package_name_key] = single_report_package_filename(saved_run)
                     except Exception as exc:

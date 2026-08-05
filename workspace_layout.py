@@ -26,6 +26,7 @@ from forecast_ui import render_forecast_section
 from analysis_universe_ai import render_ai_analysis_universe_workspace
 from persistent_storage_status import compact_storage_status_rows, storage_status_snapshot
 from app_version import get_app_build_label
+from local_time import browser_header_clock_document
 from navigation_state import get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state, canonical_nav_for_panel_v19220_rc7
 from control_center_route_state import consume_control_center_route_lock_v19220_rc6
 
@@ -1415,20 +1416,22 @@ def inject_workspace_css() -> None:
 
 
 def render_workspace_title() -> None:
-    """Render app title at the very top of the workspace."""
-    st.markdown(
-        f"""
-        <div class="ptw-app-title">
-          <div class="ptw-title-stack">
-            <div class="ptw-title-main">📈 AI Aksje Analyzer Pro</div>
-          </div>
-          <div class="ptw-title-actions">
-            <span class="ptw-title-chip">{html.escape(get_app_build_label())}</span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """Render app title with a passive PC clock immediately before the build label."""
+    title_col, status_col = st.columns([3.2, 2.0], vertical_alignment="center")
+    with title_col:
+        st.markdown(
+            """<div class="ptw-app-title"><div class="ptw-title-stack"><div class="ptw-title-main">📈 AI Aksje Analyzer Pro</div></div></div>""",
+            unsafe_allow_html=True,
+        )
+    with status_col:
+        try:
+            from streamlit.components.v1 import html as components_html
+            components_html(browser_header_clock_document(get_app_build_label()), height=42, scrolling=False)
+        except Exception:
+            st.markdown(
+                f"<div class='ptw-app-title' style='justify-content:flex-end'><span class='ptw-title-chip'>{html.escape(get_app_build_label())}</span></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def _render_forecast_workspace_tab() -> None:

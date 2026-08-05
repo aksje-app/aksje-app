@@ -186,6 +186,21 @@ def browser_clock_document(app_timezone_name: str = DEFAULT_TIMEZONE) -> str:
 </html>"""
 
 
+
+def browser_header_clock_document(build_label: str) -> str:
+    """Compact browser/PC clock followed by the application build label."""
+    label_json = json.dumps(str(build_label or ""))
+    return f"""<!doctype html>
+<html lang="nb"><head><meta charset="utf-8"><style>
+html,body{{margin:0;padding:0;background:transparent;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}}
+.header-clock{{height:38px;display:flex;align-items:center;justify-content:flex-end;gap:8px;white-space:nowrap;color:#f8fafc}}
+.header-clock-time,.header-version{{display:inline-flex;align-items:center;border:1px solid rgba(120,150,190,.32);background:rgba(18,31,55,.82);border-radius:999px;padding:6px 10px;font-size:12px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}}
+.header-clock-time{{border-color:rgba(56,189,248,.45);background:rgba(8,47,73,.72)}}
+</style></head><body>
+<div class="header-clock" aria-label="PC-tid og programversjon"><span id="pc-clock" class="header-clock-time">🕒 --:--:--</span><span id="app-version" class="header-version"></span></div>
+<script>(()=>{{const node=document.getElementById('pc-clock');document.getElementById('app-version').textContent={label_json};const update=()=>{{const now=new Date();try{{node.textContent='🕒 '+new Intl.DateTimeFormat('nb-NO',{{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}}).format(now)}}catch(_){{node.textContent='🕒 '+now.toLocaleTimeString('nb-NO')}}}};update();window.setInterval(update,1000)}})();</script>
+</body></html>"""
+
 def install_browser_timezone_bootstrap() -> None:
     """Capture Intl timezone once without coupling scheduler execution to a browser."""
     try:

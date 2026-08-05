@@ -5,8 +5,12 @@ read by a small UI fragment, so the page remains usable during large exports.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import tempfile
 import threading
+import zipfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +26,35 @@ EXPORT_DIR = ROOT / "files"
 _LOCK = threading.RLock()
 _WORKERS: dict[str, threading.Thread] = {}
 
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _valid_zip_bytes(data: bytes) -> bool:
+    if not data or not data.startswith(b"PK"):
+        return False
+    try:
+        import io
+        with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+            return archive.testzip() is None and bool(archive.namelist())
+    except Exception:
+        return False
+
+
+def _atomic_write_bytes(target: Path, data: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    tmp = Path(raw_tmp)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -86,10 +119,16 @@ def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
             versions=[str(item) for item in (filters.get("versions") or [])],
             progress_callback=progress,
         )
+        if not _valid_zip_bytes(archive_bytes):
+            raise RuntimeError("Replay-eksporten produserte ikke en gyldig ZIP-fil")
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
         filename = complete_export_filename()
         target = EXPORT_DIR / filename
-        target.write_bytes(archive_bytes)
+        _atomic_write_bytes(target, archive_bytes)
+        persisted = target.read_bytes()
+        if persisted != archive_bytes or not _valid_zip_bytes(persisted):
+            raise RuntimeError("Replay-ZIP kunne ikke verifiseres etter lagring")
+        archive_sha256 = _sha256(persisted)
         with _LOCK:
             current = _read_status()
             if str(current.get("execution_id") or "") == execution_id:
@@ -102,7 +141,9 @@ def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
                     "worker_heartbeat_at": _now(),
                     "file_path": str(target),
                     "filename": filename,
-                    "file_size": len(archive_bytes),
+                    "file_size": len(persisted),
+                    "file_sha256": archive_sha256,
+                    "zip_verified": True,
                     "summary": summary,
                 })
                 _write_status(current)
@@ -144,15 +185,22 @@ def start_export(*, date_from: str = "", date_to: str = "", versions: Sequence[s
             "filename": "",
             "summary": {},
         })
-        worker = threading.Thread(target=_run_export, args=(execution_id, filters), name=f"replay-export-{execution_id}", daemon=True)
+        worker = threading.Thread(target=_run_export, args=(execution_id, filters), name=f"replay-export-{execution_id}", daemon=False)
         _WORKERS[execution_id] = worker
         worker.start()
         return status
 
 
 def read_export_bytes(status: Mapping[str, Any] | None = None) -> bytes | None:
-    path = Path(str((status or get_status()).get("file_path") or ""))
+    current = dict(status or get_status())
+    path = Path(str(current.get("file_path") or ""))
     try:
-        return path.read_bytes() if path.is_file() else None
+        data = path.read_bytes() if path.is_file() else None
+        if not data or not _valid_zip_bytes(data):
+            return None
+        expected = str(current.get("file_sha256") or "")
+        if expected and _sha256(data) != expected:
+            return None
+        return data
     except Exception:
         return None
