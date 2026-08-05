@@ -39,14 +39,15 @@ from folketrygdfondet_ui import render_folketrygdfondet_panel
 from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
 from auth import require_login, render_user_admin
 try:
-    from ui_sidebar_stable import render_stable_sidebar_v18641
+    from ui_sidebar_stable import render_stable_sidebar_v18641, inject_rc16_final_sidebar_lock
 except ModuleNotFoundError:
-    from tools.ui_sidebar_stable import render_stable_sidebar_v18641
+    from tools.ui_sidebar_stable import render_stable_sidebar_v18641, inject_rc16_final_sidebar_lock
 from settings_store import load_settings, save_settings, reset_settings
 from local_time import (
     AUTO_TIMEZONE, DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, TIMEZONE_LABELS,
     display_time, display_timezone_name, install_browser_timezone_bootstrap,
 )
+from ui_clock import render_sidebar_clock_v19220_rc163
 from ui_layout_contracts import (
     currency_runtime_summary_html, currency_status_html, data_freshness_label,
     format_decimal, special_banner_enabled,
@@ -6053,19 +6054,14 @@ def _render_display_time_settings_v19220_rc8() -> None:
         if selected == AUTO_TIMEZONE:
             st.caption(f"Nettleserens registrerte tidssone: {browser_tz or 'ikke registrert ennå'}. Aktiv visning: {resolved}.")
         if st.button("Lagre visningstidssone", key="save_display_timezone_v19220_rc8", width="content"):
+            # Persist independently of route state; never force a second page rerun.
             settings["display_timezone"] = selected
             save_settings(settings)
             persisted = str((load_settings() or {}).get("display_timezone") or AUTO_TIMEZONE) == selected
             st.session_state["display_time_settings_expanded_v19220_rc14"] = True
-            st.session_state["display_timezone_flash_v19220_rc14"] = {
-                "ok": persisted,
-                "message": (
-                    f"Visningstidssone lagret varig: {label_by_value[selected]}. Scheduler er ikke endret."
-                    if persisted else
-                    "Visningstidssonen ble ikke bekreftet i varig lagring. Ingen schedulerinnstilling ble endret."
-                ),
-            }
-            st.rerun()
+            message = (f"Visningstidssone lagret varig: {label_by_value[selected]}. Scheduler og navigasjon er ikke endret." if persisted else "Visningstidssonen ble ikke bekreftet i varig lagring. Scheduler og navigasjon er ikke endret.")
+            st.session_state["display_timezone_flash_v19220_rc14"] = {"ok": persisted, "message": message}
+            (st.success if persisted else st.error)(message)
 
 
 def _render_runtime_diagnostics_v19220_rc8() -> None:
@@ -9477,6 +9473,7 @@ def _apply_mobile_nav_query_v18646() -> None:
 consume_global_navigation_route_v19220_rc14(st)
 _apply_mobile_nav_query_v18646()
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
+render_sidebar_clock_v19220_rc163(st)
 
 # v19.17.0 RC2: Driftssenter is a dedicated page, independent from AI Kontrollsenter.
 _active_nav_v19170rc2 = str(
@@ -19493,3 +19490,7 @@ def add_rsi_current_box(fig, rsi):
 # legacy test marker: main_auto_send_test_pushover_v18590
 # legacy test marker: top_apply_all_changes_v18590
 # v18.6.41: Sidebar CSS/rendering moved to ui_sidebar_stable.py.
+
+
+# v19.22.0 RC16: final CSS cascade lock after every legacy style block.
+inject_rc16_final_sidebar_lock(st)

@@ -1,6 +1,7 @@
 """Timezone helpers: UTC persistence with user-selected local presentation."""
 from __future__ import annotations
 
+import json
 import os
 from urllib.parse import quote
 from datetime import datetime, timezone
@@ -124,6 +125,65 @@ def display_time(
     time_format = "%d.%m.%Y %H:%M:%S" if include_seconds else "%d.%m.%Y %H:%M"
     result = local.strftime(time_format)
     return f"{result} ({valid_timezone(timezone_name)})" if include_timezone else result
+
+
+def browser_clock_document(app_timezone_name: str = DEFAULT_TIMEZONE) -> str:
+    """Return a self-contained live clock rendered by the user's browser.
+
+    The PC clock uses ``new Date()`` and therefore follows the operating
+    system/browser clock.  The app clock renders the same instant in the
+    persisted presentation timezone.  This is display-only and never touches
+    navigation, scheduler configuration or server-side timestamps.
+    """
+    app_timezone = valid_timezone(app_timezone_name)
+    app_timezone_json = json.dumps(app_timezone)
+    return f"""<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {{ margin:0; padding:0; background:transparent; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+  .clock-card {{
+    box-sizing:border-box; width:100%; padding:8px 10px; border:1px solid rgba(148,163,184,.28);
+    border-radius:10px; background:rgba(15,23,42,.72); color:#f8fafc;
+  }}
+  .clock-row {{ display:grid; grid-template-columns:54px 1fr; column-gap:8px; align-items:baseline; }}
+  .clock-row + .clock-row {{ margin-top:5px; }}
+  .clock-label {{ color:#94a3b8; font-size:11px; font-weight:650; letter-spacing:.02em; }}
+  .clock-time {{ font-variant-numeric:tabular-nums; font-size:13px; font-weight:700; white-space:nowrap; }}
+  .clock-zone {{ margin-top:5px; color:#94a3b8; font-size:9.5px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+</style>
+</head>
+<body>
+<div class="clock-card" aria-label="PC-klokke og apptid">
+  <div class="clock-row"><span class="clock-label">PC-tid</span><span id="pc-time" class="clock-time">--:--:--</span></div>
+  <div class="clock-row"><span class="clock-label">App-tid</span><span id="app-time" class="clock-time">--:--:--</span></div>
+  <div id="clock-zone" class="clock-zone"></div>
+</div>
+<script>
+(() => {{
+  const appTz = {app_timezone_json};
+  const pcNode = document.getElementById('pc-time');
+  const appNode = document.getElementById('app-time');
+  const zoneNode = document.getElementById('clock-zone');
+  const format = (date, timeZone) => new Intl.DateTimeFormat('nb-NO', {{
+    timeZone, day:'2-digit', month:'2-digit', year:'numeric',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  }}).format(date);
+  const update = () => {{
+    const now = new Date();
+    let pcTz = 'lokal PC-tid';
+    try {{ pcTz = Intl.DateTimeFormat().resolvedOptions().timeZone || pcTz; }} catch (_) {{}}
+    try {{ pcNode.textContent = format(now, undefined); }} catch (_) {{ pcNode.textContent = now.toLocaleString('nb-NO'); }}
+    try {{ appNode.textContent = format(now, appTz); }} catch (_) {{ appNode.textContent = pcNode.textContent; }}
+    zoneNode.textContent = `PC: ${{pcTz}} · App: ${{appTz}}`;
+  }};
+  update();
+  window.setInterval(update, 1000);
+}})();
+</script>
+</body>
+</html>"""
 
 
 def install_browser_timezone_bootstrap() -> None:
