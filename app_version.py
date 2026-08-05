@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.3"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.3 Persistent Timezone and PC Clock Hotfix"
+APP_VERSION = "v19.22.0-rc16.4"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.4 Stable Loaded Sidebar Hotfix"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.2"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.3"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.4: Høyremenyens ferdiglastede Streamlit-widgets er låst til samme visuelle kontrakt som den polerte innlastingstilstanden. Bredde, kortgeometri, spacing, typografi, bakgrunn, hover og konto-/seksjonskort forblir stabile gjennom full lasting og reruns. Navigasjonslogikk, ruter, tidssone, scheduler, rapportmotor, score, porteføljer og handel er uendret.",
     "v19.22.0-rc16.3: Visningstidssonen lagres varig i sentralt innstillingslager uten ekstra helsidererender, slik at aktiv navigasjon og panel beholdes. En passiv live-klokke viser både PC-/nettlesertid og apptid i valgt tidssone. Scheduler-tidene 08:00 og 22:00 Europe/Oslo, rapportmotor, score, porteføljer og handel er uendret.",
     "v19.22.0-rc16.2: Avgrenset live-hotfix som fjerner den separate fremdriftsmotoren i Rapporter. Rapportsenteret bruker nå nøyaktig samme dynamiske Streamlit-fragment, samme femsekunders intervall og samme autoritative jobbstatuskilde som Autonomi Oversikt. Terminalstatus utløser ikke helsidererender i Rapporter. Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel.",
     "v19.22.0-rc16.1: Avgrenset live-hotfix for automatisk rapportfremdrift. Statusfragmentet er eksplisitt og kan ikke lenger falle stille tilbake til en ikke-pollende funksjon. Hver poll leser et skrivebeskyttet prosessminne-/atomisk lokalstatussnapshot uten PostgreSQL-tilkobling, speilskriving, navigasjonsendring eller full app-rerun. UI viser pollkilde og siste lesetid. Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel.",
