@@ -18,7 +18,7 @@ VERSION = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
 
 def test_version_and_changelog():
-    assert 'APP_VERSION = "v19.22.0-rc9"' in VERSION
+    assert 'APP_VERSION = "v19.22.0-rc10"' in VERSION
     assert "Forenklet daglig brukeropplevelse" in VERSION
 
 
