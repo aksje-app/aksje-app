@@ -276,6 +276,28 @@ def _validate_identity_mission(identity: Mapping[str, Any], spec: ReportSpec) ->
         )
 
 
+
+def _is_real_buy_recommendation(row: Mapping[str, Any]) -> bool:
+    outcome = str(row.get("autonomy_outcome_code") or "").upper()
+    action = str(row.get("portfolio_action") or "").upper()
+    return bool(outcome == "KJØPSKANDIDAT" and action in {"BUY", "KJØP"}
+                and row.get("final_decision_ready") is not False)
+
+
+def _rejected_control_appendix(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rejected = []
+    for row in rows:
+        if str(row.get("autonomy_outcome_code") or "").upper() != "AUTOMATISK_AVVIST":
+            continue
+        rejected.append({
+            "ticker": str(row.get("ticker") or ""),
+            "market": str(row.get("market") or ""),
+            "score": row.get("investment_score"),
+            "status": str(row.get("autonomy_outcome_label") or "Automatisk avvist"),
+            "reason": str(row.get("autonomy_outcome_reason") or "Ikke kjøpsgodkjent"),
+        })
+    return rejected
+
 def _candidate_decisions(rows: Sequence[Mapping[str, Any]], contracts: Sequence[Mapping[str, Any]] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     contract_map = {str(row.get("ticker") or "").upper(): row for row in (contracts or []) if isinstance(row, Mapping)}
@@ -388,9 +410,12 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
             "combined_data_quality": dict(run.get("combined_data_quality") or {}),
         }, 10),
         _section("decision_overview", "Beslutningsoversikt", dict(decision_report.get("overview") or {}), 15),
-        _section("candidate_decisions", "Kandidatbeslutninger", _candidate_decisions(
-            list(run.get("candidates") or []), list(decision_report.get("candidate_contracts") or [])
+        _section("candidate_decisions", "Kjøpsanbefalinger", _candidate_decisions(
+            [row for row in list(run.get("candidates") or []) if _is_real_buy_recommendation(row)],
+            list(decision_report.get("candidate_contracts") or [])
         ), 20),
+        _section("rejected_control_appendix", "Kontrollvedlegg – avviste aksjer",
+                 _rejected_control_appendix(list(run.get("candidates") or [])), 25, technical=True),
         _section("changes", "Endringer siden forrige rapport", dict(decision_report.get("changes") or {}), 30),
         _section("decision_diffs", "Data-, modell- og beslutningsdiff", dict(decision_report.get("decision_diffs") or {}), 32),
         _section("counter_hypotheses", "Sterkeste motargumenter", dict(decision_report.get("counter_hypotheses") or {}), 33),

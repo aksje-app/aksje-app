@@ -943,6 +943,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     historical_evaluations = section_payload(document, "historical_evaluations", []) or []
     learning_guard = section_payload(document, "controlled_learning_guard", {}) or {}
     candidates = section_payload(document, "candidate_decisions", []) or []
+    rejected_control = section_payload(document, "rejected_control_appendix", []) or []
     tasks = section_payload(document, "next_run_tasks", []) or []
     events = section_payload(document, "events", []) or []
     summary_payload = section_payload(document, "executive_summary", {}) or {}
@@ -1033,6 +1034,13 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         if assumptions:
             held = sum(1 for item in assumptions if isinstance(item, Mapping) and item.get("holds"))
             lines.append(f"   Kritiske antakelser: {held}/{len(assumptions)} holder ved rapporttidspunktet")
+
+    lines.extend(["", "KONTROLLVEDLEGG – AVVISTE AKSJER"])
+    if rejected_control:
+        for row in rejected_control:
+            lines.append(f"- {row.get('ticker') or '-'} ({row.get('market') or '-'}) – {row.get('status') or 'Avvist'}: {str(row.get('reason') or '-')[:140]}")
+    else:
+        lines.append("- Ingen automatisk avviste aksjer.")
 
     lines.extend(["", "HISTORISK EVALUERING"])
     if historical_evaluations:
@@ -2265,6 +2273,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     # technical appendix, so no evidence or audit detail is removed.
     decision_overview = section_payload(report_document, "decision_overview", {}) or {}
     decision_candidates = section_payload(report_document, "candidate_decisions", []) or []
+    rejected_control = section_payload(report_document, "rejected_control_appendix", []) or []
     decision_changes = section_payload(report_document, "changes", {}) or {}
     decision_diffs = section_payload(report_document, "decision_diffs", {}) or {}
     decision_counter_hypotheses = section_payload(report_document, "counter_hypotheses", {}) or {}
@@ -2422,10 +2431,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         Paragraph("Top 1-3 - investeringsrangering", styles["Section"]),
         candidate_table_decision,
         Paragraph(
-            "Top 1-3 over er investeringsrangeringen. Oppfølgingsprioritet er en separat arbeidsrekkefølge og må ikke tolkes som ny investeringsrangering.",
+            "Listen inneholder bare reelle, endelig kjøpsgodkjente anbefalinger. Avviste aksjer rangeres ikke som kandidater.",
             styles["Small"],
         ),
     ]
+    rejected_rows = [["Ticker", "Marked", "Score", "Status / kort grunn"]]
+    for row in rejected_control:
+        rejected_rows.append([row.get("ticker") or "-", row.get("market") or "-", _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
+    if len(rejected_rows) == 1:
+        rejected_rows.append(["-", "-", "-", "Ingen automatisk avviste aksjer"] )
+    rejected_table = Table(rejected_rows, repeatRows=1, colWidths=[25*mm, 25*mm, 18*mm, 116*mm])
+    rejected_table.setStyle(_table_style(5.5, padding=1.3))
+    decision_story += [Paragraph("Kontrollvedlegg – avviste aksjer", styles["Section"]), rejected_table]
     decision_page_one_end_v1924 = len(decision_story)
     decision_story += [
         PageBreak(),
@@ -2932,8 +2949,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyCompact"])]
     elif candidates:
         final_candidates = list(run.get("final_decision_top3") or run.get("decision_ready_top3") or [])
-        raw_candidates = list(run.get("raw_top3") or select_diverse_candidates(candidates, 3))
-        priority_candidates = list(run.get("priority_top3") or (run.get("autonomous_decision_reduction") or {}).get("priority_top3") or [])
+        raw_candidates = []
+        priority_candidates = list(final_candidates)
         # Priority rows are compact in persisted JSON. Hydrate them from the one
         # canonical full candidate list for evidence pages without reintroducing
         # duplicate raw payloads in the report model.
@@ -2950,13 +2967,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             full.update(dict(priority))
             hydrated_priority.append(full)
         priority_candidates = hydrated_priority
-        shortlist_mode = "PRIORITY_REVIEW"
-        medal_candidates = priority_candidates or raw_candidates
-        shortlist_heading = f"Prioritert vurderingsrekkefølge 1-3 ({len(medal_candidates)} kandidat(er))"
+        shortlist_mode = "BUY_RECOMMENDATIONS_ONLY"
+        medal_candidates = priority_candidates
+        shortlist_heading = f"Kjøpsanbefalinger 1-3 ({len(medal_candidates)} kandidat(er))"
         shortlist_labels = [f"PRIORITET {index}" for index in range(1, len(medal_candidates) + 1)]
         shortlist_note = (
-            "Rangeringen viser hvilke kandidater som bør vurderes først og nærmere. "
-            "Den er ikke en kjøpsanbefaling. Hver kandidat viser om programmet kjøpsgodkjenner, overvåker, avviser eller anbefaler en konkret manuell undersøkelse."
+            "Rangeringen viser bare aksjer som er endelig kjøpsgodkjent av data-, evidens-, portefølje- og risikoportene. "
+            "Avviste aksjer er ikke kandidater og vises kun kort i kontrollvedlegget."
         )
 
         story += [Paragraph(shortlist_note, styles["BodyCompact"])]
@@ -2975,6 +2992,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 f"Beslutning {_fmt(profile.get('decision_confidence', r.get('confidence_score',0)))} % · Risiko {format_risk(r.get('risk_score',0))} · {weight_text}<br/>"
                 f"<b>Driver:</b> {escape(evidence['drivers'])}<br/><b>Forbehold:</b> {escape(evidence['cautions'])}<br/>"
                 f"<b>Handling:</b> {escape(evidence['action'])}", styles["Small"])])
+        if not medal_data:
+            medal_data = [[Paragraph("Ingen reelle kjøpsanbefalinger bestod alle beslutningsporter i denne kjøringen.", styles["Small"])]]
         medal_table = Table([medal_data], colWidths=[168*mm / max(1, len(medal_data))]*len(medal_data))
         medal_styles = [("BOX", (0,0), (-1,-1), .8, colors.grey), ("INNERGRID", (0,0), (-1,-1), .35, colors.lightgrey), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]
         card_color = "#EAF2F8"
