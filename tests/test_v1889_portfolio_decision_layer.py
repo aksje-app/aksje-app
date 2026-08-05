@@ -19,6 +19,7 @@ def candidate(**updates):
            "investment_score": 78, "confidence_score": 82, "risk_score": 30,
            "liquidity_score": 75, "status": "ANBEFALT FOR VURDERING",
            "strategy_matches": ["Value", "Income"], "valid_for_decision": True,
+           "evidence_valid_for_decision": True, "data_quality": 90,
            "mission_eligible": True, "proposed_position_pct": 5}
     row.update(updates); return row
 

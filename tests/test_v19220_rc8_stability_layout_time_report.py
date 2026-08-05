@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_rc8_version_and_protected_engine_versions_are_unchanged():
-    assert APP_VERSION == "v19.22.0-rc15"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc14"
+    assert APP_VERSION == "v19.22.0-rc16"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc15"
     assert RANKING_MODEL_VERSION == "v19.16.0"
     assert AUTONOMY_POLICY_VERSION == "v19.16.0"
 
@@ -92,7 +92,7 @@ def test_rc8_pdf_source_uses_clear_labels_and_material_change_threshold():
     assert "Beslutningsstyrke rapport" in source
     assert "Vesentlige scoreendringer (>= 1,00)" in source
     assert "Ingen vesentlige scoreendringer" in source
-    assert "CondPageBreak(84*mm)" in source
+    assert "story += [PageBreak(), Paragraph(" in source
 
 
 def test_runtime_reset_does_not_include_auth_or_persistent_settings():

@@ -125,7 +125,7 @@ def test_pipeline_only_calls_expensive_sources_for_stage3_budget(monkeypatch):
     monkeypatch.setattr(news_intelligence, "enrich_rows", news_enrich)
 
     cfg = ip.PipelineConfig(
-        market_scope="USA", scan_limit=8, deep_analysis_count=5, proposal_count=2,
+        market_scope="USA", scan_limit=8, deep_analysis_count=5, proposal_count=2, evidence_analysis_count=2,
         use_research=False, use_backtest=False, use_portfolio_fit=False,
         use_learning_advisor=False, use_insider_intelligence=True, use_news_intelligence=True,
     )

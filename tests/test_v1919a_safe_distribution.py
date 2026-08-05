@@ -12,7 +12,7 @@ from tools.validate_distribution import FileEntry, validate_entries, validate_pa
 
 def test_release_identity_is_safe_distribution_patch():
     assert APP_VERSION.startswith("v19.22.0-rc")
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc14"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc15"
 
 
 def test_validator_rejects_runtime_secret_and_generated_report():
